@@ -1,0 +1,471 @@
+mod agents;
+mod api;
+mod inference;
+mod models;
+mod paths;
+mod settings;
+mod sysinfo_mod;
+mod tools;
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
+use tokio::sync::mpsc;
+
+use crate::agents::AgentConfig;
+use crate::inference::{InferParams, Message, ModelManager};
+use crate::models::ModelInfo;
+use crate::settings::Settings;
+use crate::sysinfo_mod::SystemInfo;
+
+/// Per-download cancellation flag. Cloned into the spawned download task and
+/// into the AppState map so `cancel_download` can flip it from another command.
+type CancelFlag = Arc<AtomicBool>;
+
+pub struct AppState {
+    pub manager: Arc<ModelManager>,
+    pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
+}
+
+fn download_key(repo_id: &str, filename: &str) -> String {
+    format!("{}::{}", repo_id, filename)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadProgress {
+    pub repo_id: String,
+    pub filename: String,
+    pub progress: f32,
+}
+
+// ---------- Model commands ----------
+
+#[tauri::command]
+fn get_models() -> Result<Vec<ModelInfo>, String> {
+    let mut list = models::scan_models_dir().map_err(|e| e.to_string())?;
+    // No way to know "loaded" here without state; mark from singleton:
+    // (intentionally left false — UI uses get_loaded_model below)
+    let _ = &mut list;
+    Ok(list)
+}
+
+#[tauri::command]
+fn get_loaded_model(state: State<AppState>) -> Option<inference::LoadedModel> {
+    state.manager.current()
+}
+
+/// Starts a download in a detached Tokio task and returns its ID immediately.
+/// Progress streams over `feral://download-progress`.
+/// Completion: `feral://download-complete`. Failure: `feral://download-error`.
+/// Use `cancel_download(model_id)` to abort an in-flight download.
+#[tauri::command]
+async fn download_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: String,
+    filename: String,
+) -> Result<String, String> {
+    let key = download_key(&repo_id, &filename);
+
+    // Refuse concurrent download of the same file (would race on the .part path).
+    {
+        let map = state.downloads.lock();
+        if map.contains_key(&key) {
+            return Err(format!("Download already in progress: {}", key));
+        }
+    }
+
+    let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
+    state.downloads.lock().insert(key.clone(), cancel.clone());
+
+    // Progress forwarder: mpsc<f32> → Tauri events.
+    let (tx, mut rx) = mpsc::channel::<f32>(32);
+    {
+        let app = app.clone();
+        let repo = repo_id.clone();
+        let file = filename.clone();
+        tokio::spawn(async move {
+            while let Some(p) = rx.recv().await {
+                let _ = app.emit(
+                    "feral://download-progress",
+                    DownloadProgress {
+                        repo_id: repo.clone(),
+                        filename: file.clone(),
+                        progress: p,
+                    },
+                );
+            }
+        });
+    }
+
+    // Detached download task — frees the IPC reply so UI stays fluid.
+    let app_for_task = app.clone();
+    let downloads_map = state.downloads.clone();
+    let key_for_task = key.clone();
+    let repo_for_task = repo_id.clone();
+    let file_for_task = filename.clone();
+    let cancel_for_task = cancel.clone();
+    tokio::spawn(async move {
+        let result = models::download_hf_model(
+            repo_for_task.clone(),
+            file_for_task.clone(),
+            tx,
+            cancel_for_task.clone(),
+        )
+        .await;
+
+        // Always release the slot first.
+        downloads_map.lock().remove(&key_for_task);
+
+        match result {
+            Ok(path) => {
+                let _ = app_for_task.emit(
+                    "feral://download-complete",
+                    json!({
+                        "repoId": repo_for_task,
+                        "filename": file_for_task,
+                        "path": path.to_string_lossy(),
+                    }),
+                );
+            }
+            Err(e) => {
+                let cancelled = cancel_for_task.load(Ordering::Relaxed);
+                let kind = if cancelled { "cancelled" } else { "error" };
+                tracing::warn!(repo=%repo_for_task, file=%file_for_task, kind, error=%e, "download ended");
+                let _ = app_for_task.emit(
+                    "feral://download-error",
+                    json!({
+                        "repoId": repo_for_task,
+                        "filename": file_for_task,
+                        "error": e.to_string(),
+                        "cancelled": cancelled,
+                    }),
+                );
+            }
+        }
+    });
+
+    Ok(key)
+}
+
+/// Aborts an in-flight download by ID (`repo_id::filename`).
+/// The download task observes the flag on its next chunk boundary,
+/// deletes the partial `.part` file, and emits `feral://download-error`
+/// with `cancelled: true`.
+#[tauri::command]
+fn cancel_download(state: State<AppState>, model_id: String) -> Result<(), String> {
+    let map = state.downloads.lock();
+    match map.get(&model_id) {
+        Some(flag) => {
+            flag.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+        None => Err(format!("No active download: {}", model_id)),
+    }
+}
+
+#[tauri::command]
+fn load_model(
+    state: State<AppState>,
+    path: String,
+) -> Result<inference::LoadedModel, String> {
+    state.manager.load(PathBuf::from(path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn unload_model(state: State<AppState>) {
+    state.manager.unload();
+}
+
+#[tauri::command]
+fn delete_model(path: String) -> Result<(), String> {
+    models::delete_model(std::path::Path::new(&path)).map_err(|e| e.to_string())
+}
+
+// ---------- Chat ----------
+
+#[tauri::command]
+async fn chat_stream(
+    state: State<'_, AppState>,
+    messages: Vec<Message>,
+    params: InferParams,
+    on_token: Channel<String>,
+) -> Result<(), String> {
+    use futures::StreamExt;
+    let mut stream = Box::pin(state.manager.stream_chat(messages, params));
+    while let Some(tok) = stream.next().await {
+        match tok {
+            Ok(t) => { let _ = on_token.send(t); }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok(())
+}
+
+// ---------- System ----------
+
+#[tauri::command]
+fn get_system_info() -> SystemInfo {
+    sysinfo_mod::collect()
+}
+
+// ---------- Agents ----------
+
+#[tauri::command]
+fn save_agent(cfg: AgentConfig) -> Result<(), String> {
+    agents::save(&cfg).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_agents() -> Result<Vec<AgentConfig>, String> {
+    agents::list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_agent(id: String) -> Result<(), String> {
+    agents::delete(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_agent_presets() -> Vec<AgentConfig> {
+    agents::presets()
+}
+
+#[tauri::command]
+async fn run_agent(
+    state: State<'_, AppState>,
+    agent_id: String,
+    prompt: String,
+    on_event: Channel<String>,
+) -> Result<(), String> {
+    let list = agents::list().map_err(|e| e.to_string())?;
+    let cfg = list.into_iter().find(|a| a.id == agent_id)
+        .ok_or_else(|| format!("agent {} not found", agent_id))?;
+    let mut rx = agents::run(cfg, prompt, state.manager.clone());
+    while let Some(ev) = rx.recv().await {
+        let _ = on_event.send(ev);
+    }
+    Ok(())
+}
+
+// ---------- HuggingFace browser ----------
+
+/// Handles both missing fields AND explicit JSON nulls, falling back to Default.
+/// `#[serde(default)]` alone only handles missing fields; `null` would still error
+/// on non-Option primitives like u64/u32/String.
+fn deser_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + serde::Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HfModelSummary {
+    pub id: String,
+    pub author: String,
+    pub downloads: u64,
+    pub likes: u32,
+    pub last_modified: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HfFile {
+    pub rfilename: String,
+    pub size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HfModelDetail {
+    pub id: String,
+    pub author: String,
+    pub downloads: u64,
+    pub likes: u32,
+    pub last_modified: String,
+    pub tags: Vec<String>,
+    pub gguf_files: Vec<HfFile>,
+    pub readme: Option<String>,
+}
+
+#[tauri::command]
+async fn search_hf_models(query: String) -> Result<Vec<HfModelSummary>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    #[derive(Deserialize)]
+    struct RawModel {
+        id: String,
+        #[serde(default)]
+        author: Option<String>,
+        #[serde(default, deserialize_with = "deser_default")]
+        downloads: u64,
+        #[serde(default, deserialize_with = "deser_default")]
+        likes: u32,
+        #[serde(rename = "lastModified", default, deserialize_with = "deser_default")]
+        last_modified: String,
+        #[serde(default)]
+        tags: Vec<String>,
+    }
+
+    let url = format!(
+        "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=24&full=false",
+        urlencoding::encode(&query)
+    );
+    let resp: Vec<RawModel> = client.get(&url).send().await
+        .map_err(|e| e.to_string())?
+        .json().await
+        .map_err(|e| e.to_string())?;
+
+    Ok(resp.into_iter().map(|m| HfModelSummary {
+        author: m.author.unwrap_or_else(|| {
+            m.id.split('/').next().unwrap_or("").to_string()
+        }),
+        id: m.id,
+        downloads: m.downloads,
+        likes: m.likes,
+        last_modified: m.last_modified,
+        tags: m.tags,
+    }).collect())
+}
+
+#[tauri::command]
+async fn get_hf_model_detail(repo_id: String) -> Result<HfModelDetail, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    #[derive(Deserialize)]
+    struct RawModel {
+        id: String,
+        #[serde(default)]
+        author: Option<String>,
+        #[serde(default, deserialize_with = "deser_default")]
+        downloads: u64,
+        #[serde(default, deserialize_with = "deser_default")]
+        likes: u32,
+        #[serde(rename = "lastModified", default, deserialize_with = "deser_default")]
+        last_modified: String,
+        #[serde(default)]
+        tags: Vec<String>,
+        #[serde(default)]
+        siblings: Vec<RawSibling>,
+    }
+    #[derive(Deserialize)]
+    struct RawSibling {
+        rfilename: String,
+        #[serde(default)]
+        size: Option<u64>,
+    }
+
+    let url = format!("https://huggingface.co/api/models/{}", repo_id);
+    let raw: RawModel = client.get(&url).send().await
+        .map_err(|e| e.to_string())?
+        .json().await
+        .map_err(|e| e.to_string())?;
+
+    let gguf_files = raw.siblings.into_iter()
+        .filter(|s| s.rfilename.ends_with(".gguf"))
+        .map(|s| HfFile { rfilename: s.rfilename, size: s.size })
+        .collect();
+
+    // Fetch README
+    let readme_url = format!("https://huggingface.co/{}/raw/main/README.md", repo_id);
+    let readme = client.get(&readme_url).send().await.ok()
+        .and_then(|r| if r.status().is_success() { Some(r) } else { None });
+    let readme_text = if let Some(r) = readme {
+        r.text().await.ok().map(|t| t.chars().take(2000).collect())
+    } else {
+        None
+    };
+
+    Ok(HfModelDetail {
+        author: raw.author.unwrap_or_else(|| {
+            raw.id.split('/').next().unwrap_or("").to_string()
+        }),
+        id: raw.id,
+        downloads: raw.downloads,
+        likes: raw.likes,
+        last_modified: raw.last_modified,
+        tags: raw.tags,
+        gguf_files,
+        readme: readme_text,
+    })
+}
+
+// ---------- Settings ----------
+
+#[tauri::command]
+fn get_settings() -> Settings { settings::load() }
+
+#[tauri::command]
+fn save_settings(settings: Settings) -> Result<(), String> {
+    settings::save(&settings).map_err(|e| e.to_string())
+}
+
+// ---------- Entry ----------
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
+        .init();
+
+    let _ = paths::ensure_dirs();
+
+    let manager = Arc::new(ModelManager::new());
+    let state = AppState {
+        manager: manager.clone(),
+        downloads: Arc::new(Mutex::new(HashMap::new())),
+    };
+
+    tauri::Builder::default()
+        .manage(state)
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            // Start API server in background if enabled.
+            let cfg = settings::load();
+            if cfg.api_server_enabled {
+                let api_state = api::ApiState { manager: manager.clone() };
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = api::serve(api_state, cfg.api_port).await {
+                        tracing::error!(?e, "api server stopped");
+                    }
+                });
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_models,
+            get_loaded_model,
+            download_model,
+            cancel_download,
+            load_model,
+            unload_model,
+            delete_model,
+            chat_stream,
+            get_system_info,
+            save_agent,
+            get_agents,
+            delete_agent,
+            get_agent_presets,
+            run_agent,
+            get_settings,
+            save_settings,
+            search_hf_models,
+            get_hf_model_detail,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

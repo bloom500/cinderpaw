@@ -1,0 +1,187 @@
+{
+  "D:\\FeralLocalAI\\frontend\\src\\lib.rs": {
+    "mtime": 1779639715.8429482,
+    "ast_hash": "0109bdf305626877a26fd3caa74e48eb",
+    "semantic_hash": "0109bdf305626877a26fd3caa74e48eb"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\main.rs": {
+    "mtime": 1779639533.0575004,
+    "ast_hash": "a30a17899d6d70fc6208a8287446c0cb",
+    "semantic_hash": "a30a17899d6d70fc6208a8287446c0cb"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\tauri_bridge.rs": {
+    "mtime": 1779639552.126754,
+    "ast_hash": "d1db4e78efc6fcc6a182d7108f5ee58f",
+    "semantic_hash": "d1db4e78efc6fcc6a182d7108f5ee58f"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\agents.rs": {
+    "mtime": 1779640502.166762,
+    "ast_hash": "adac5d2ded2ce1676496f4488f1c5547",
+    "semantic_hash": "adac5d2ded2ce1676496f4488f1c5547"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\chat.rs": {
+    "mtime": 1779640459.543263,
+    "ast_hash": "d1aff3f88174bc5d9b3670e37ff38311",
+    "semantic_hash": "d1aff3f88174bc5d9b3670e37ff38311"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\mod.rs": {
+    "mtime": 1779639557.1620371,
+    "ast_hash": "fb7314ac0415c9c4865e9d7566bfef29",
+    "semantic_hash": "fb7314ac0415c9c4865e9d7566bfef29"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\models.rs": {
+    "mtime": 1779640564.2024233,
+    "ast_hash": "007a99a8b22e7645abcf5a4cc2a13978",
+    "semantic_hash": "007a99a8b22e7645abcf5a4cc2a13978"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\settings.rs": {
+    "mtime": 1779640589.312705,
+    "ast_hash": "e7dbc84f9f7a684d4fc2ec68f822fd0a",
+    "semantic_hash": "e7dbc84f9f7a684d4fc2ec68f822fd0a"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\types.rs": {
+    "mtime": 1779639573.900587,
+    "ast_hash": "1b4090f78d7b484afefde0a727b33c97",
+    "semantic_hash": "1b4090f78d7b484afefde0a727b33c97"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\build.rs": {
+    "mtime": 1779638688.6318672,
+    "ast_hash": "9e949d967099bcc42cfa6f8765a6c938",
+    "semantic_hash": "9e949d967099bcc42cfa6f8765a6c938"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\tauri.conf.json": {
+    "mtime": 1779640037.1476333,
+    "ast_hash": "253235faceae45bf022d775f847cc989",
+    "semantic_hash": "253235faceae45bf022d775f847cc989"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\capabilities\\default.json": {
+    "mtime": 1779639460.148188,
+    "ast_hash": "3994cfbced4d645f26e1f23f02ca5c1f",
+    "semantic_hash": "3994cfbced4d645f26e1f23f02ca5c1f"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\agents.rs": {
+    "mtime": 1779639367.6574707,
+    "ast_hash": "935f28827b0add856f34c03c24ebf239",
+    "semantic_hash": "935f28827b0add856f34c03c24ebf239"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\api.rs": {
+    "mtime": 1779639401.8702028,
+    "ast_hash": "97c5d0668046445f46c06cffec3012cf",
+    "semantic_hash": "97c5d0668046445f46c06cffec3012cf"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\inference.rs": {
+    "mtime": 1779639304.8287785,
+    "ast_hash": "b26b3f12507659f8117fc57c809216bb",
+    "semantic_hash": "b26b3f12507659f8117fc57c809216bb"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\lib.rs": {
+    "mtime": 1779639449.6445074,
+    "ast_hash": "74bb90cf33f107ad1cd01bb4722a4320",
+    "semantic_hash": "74bb90cf33f107ad1cd01bb4722a4320"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\main.rs": {
+    "mtime": 1779638688.6576595,
+    "ast_hash": "744d17489cc4e580f67879b318b79029",
+    "semantic_hash": "744d17489cc4e580f67879b318b79029"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\models.rs": {
+    "mtime": 1779639269.236867,
+    "ast_hash": "56efcdfea936ac07739d5cbfe0aa5191",
+    "semantic_hash": "56efcdfea936ac07739d5cbfe0aa5191"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\paths.rs": {
+    "mtime": 1779639225.907627,
+    "ast_hash": "87d526c4bbeb9f66fce48fd767bb926c",
+    "semantic_hash": "87d526c4bbeb9f66fce48fd767bb926c"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\settings.rs": {
+    "mtime": 1779639248.6573696,
+    "ast_hash": "51868e3127aa05630886311aff6a52b6",
+    "semantic_hash": "51868e3127aa05630886311aff6a52b6"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs": {
+    "mtime": 1779639412.1626153,
+    "ast_hash": "939da4d40b023d06b577dfe960a44f3f",
+    "semantic_hash": "939da4d40b023d06b577dfe960a44f3f"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\src\\tools.rs": {
+    "mtime": 1779639333.7161195,
+    "ast_hash": "9b0faa0d1eeb37337b2d0ace016f1a97",
+    "semantic_hash": "9b0faa0d1eeb37337b2d0ace016f1a97"
+  },
+  "D:\\FeralLocalAI\\frontend\\index.html": {
+    "mtime": 1779639494.5096543,
+    "ast_hash": "57f4cb24eb8d7923a8e6c1c5dab5afb3",
+    "semantic_hash": "57f4cb24eb8d7923a8e6c1c5dab5afb3"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\128x128.png": {
+    "mtime": 1779638688.6348689,
+    "ast_hash": "3a0071e4ad670fad0329d3a5e83d0bf9",
+    "semantic_hash": "3a0071e4ad670fad0329d3a5e83d0bf9"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\128x128@2x.png": {
+    "mtime": 1779638688.643265,
+    "ast_hash": "eab2be12c5f8aeaf104a4695dd9171df",
+    "semantic_hash": "eab2be12c5f8aeaf104a4695dd9171df"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\32x32.png": {
+    "mtime": 1779638688.6442647,
+    "ast_hash": "faf8ee6541b945b98db35239b8a75715",
+    "semantic_hash": "faf8ee6541b945b98db35239b8a75715"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\icon.png": {
+    "mtime": 1779638688.6544433,
+    "ast_hash": "9fdc4367276aafdd2c05ac214e9553c7",
+    "semantic_hash": "9fdc4367276aafdd2c05ac214e9553c7"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square107x107Logo.png": {
+    "mtime": 1779638688.6455235,
+    "ast_hash": "d4bc38359e2c01daa08354c55fa4df7c",
+    "semantic_hash": "d4bc38359e2c01daa08354c55fa4df7c"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square142x142Logo.png": {
+    "mtime": 1779638688.6465306,
+    "ast_hash": "1e9c0358705085439e5c989fcbd6e988",
+    "semantic_hash": "1e9c0358705085439e5c989fcbd6e988"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square150x150Logo.png": {
+    "mtime": 1779638688.6465306,
+    "ast_hash": "084d20bce8096367fc694dfdf72c8ac5",
+    "semantic_hash": "084d20bce8096367fc694dfdf72c8ac5"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square284x284Logo.png": {
+    "mtime": 1779638688.6479943,
+    "ast_hash": "6a936fe84398f24b7a63a36bddfd58d7",
+    "semantic_hash": "6a936fe84398f24b7a63a36bddfd58d7"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square30x30Logo.png": {
+    "mtime": 1779638688.6479943,
+    "ast_hash": "011e9cb456309157a9fc78c978248e00",
+    "semantic_hash": "011e9cb456309157a9fc78c978248e00"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square310x310Logo.png": {
+    "mtime": 1779638688.6494386,
+    "ast_hash": "832231852e8e683e6aa2b690d194bdd2",
+    "semantic_hash": "832231852e8e683e6aa2b690d194bdd2"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square44x44Logo.png": {
+    "mtime": 1779638688.6494386,
+    "ast_hash": "a06297a35014e770cc33756fafa3b3a8",
+    "semantic_hash": "a06297a35014e770cc33756fafa3b3a8"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square71x71Logo.png": {
+    "mtime": 1779638688.6504416,
+    "ast_hash": "a3c80a0af688359094aa685881570eed",
+    "semantic_hash": "a3c80a0af688359094aa685881570eed"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\Square89x89Logo.png": {
+    "mtime": 1779638688.6514425,
+    "ast_hash": "9f91ee8e1c1232ebde61c64d7923038f",
+    "semantic_hash": "9f91ee8e1c1232ebde61c64d7923038f"
+  },
+  "D:\\FeralLocalAI\\src-tauri\\icons\\StoreLogo.png": {
+    "mtime": 1779638688.6514425,
+    "ast_hash": "387b412d411bbd532dd3302d3948bf0e",
+    "semantic_hash": "387b412d411bbd532dd3302d3948bf0e"
+  }
+}

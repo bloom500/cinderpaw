@@ -1,0 +1,28 @@
+# Rust / Cargo
+target/
+
+# Tauri
+src-tauri/target/
+src-tauri/WixTools/
+
+# Frontend build
+frontend/dist/
+frontend/target/
+
+# Graphify cache / output
+graphify-out/cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env / secrets
+.env
+.env.local
