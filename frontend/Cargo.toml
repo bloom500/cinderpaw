@@ -24,6 +24,7 @@ pulldown-cmark = { version = "0.12", default-features = false, features = ["html
 gloo-net = { version = "0.6", features = ["http"] }
 gloo-timers = { version = "0.3", features = ["futures"] }
 futures = "0.3"
+uuid = { version = "1", features = ["v4", "js"] }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -41,4 +42,5 @@ features = [
   "MessageEvent",
   "Clipboard",
   "Navigator",
+  "KeyboardEvent",
 ]

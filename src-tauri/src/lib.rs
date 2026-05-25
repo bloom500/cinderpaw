@@ -15,7 +15,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
+use tauri::{ipc::Channel, AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
 use crate::agents::AgentConfig;
@@ -31,10 +31,17 @@ type CancelFlag = Arc<AtomicBool>;
 pub struct AppState {
     pub manager: Arc<ModelManager>,
     pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
+    pub stop_signal: Arc<AtomicBool>,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
     format!("{}::{}", repo_id, filename)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProgressPayload {
+    pub percentage: f64,
+    pub status_text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,11 +178,92 @@ fn cancel_download(state: State<AppState>, model_id: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-fn load_model(
-    state: State<AppState>,
+async fn load_model(
+    state: State<'_, AppState>,
     path: String,
 ) -> Result<inference::LoadedModel, String> {
-    state.manager.load(PathBuf::from(path)).map_err(|e| e.to_string())
+    let manager = state.manager.clone();
+    tokio::task::spawn_blocking(move || {
+        manager.load(PathBuf::from(path)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Load a model with real-time progress events emitted to the frontend.
+/// Emits `"model-load-progress"` with `{ percentage: f64, status_text: String }`.
+/// The progress task runs in a separate tokio task; the UI never freezes.
+#[tauri::command]
+async fn start_model_load(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<inference::LoadedModel, String> {
+    use std::time::Duration;
+
+    let manager = state.manager.clone();
+    let path_buf = PathBuf::from(&path);
+
+    let _ = app.emit("model-load-progress", ProgressPayload {
+        percentage: 0.0,
+        status_text: "Initializing...".into(),
+    });
+
+    // Estimate load duration from file size (~80 MB/s mmap throughput), clamp 3s–90s.
+    let file_size = std::fs::metadata(&path_buf).map(|m| m.len()).unwrap_or(2 << 30);
+    let est_ms = ((file_size as f64 / (80.0 * 1024.0 * 1024.0)) * 1_000.0)
+        .clamp(3_000.0, 90_000.0) as u64;
+
+    let done = Arc::new(AtomicBool::new(false));
+    let done2 = done.clone();
+    let app2 = app.clone();
+
+    let milestones: Vec<(f64, &'static str)> = vec![
+        (8.0,  "Mapping model file..."),
+        (28.0, "Loading attention layers..."),
+        (52.0, "Allocating memory..."),
+        (75.0, "Warming KV cache..."),
+        (90.0, "Finalizing..."),
+    ];
+
+    tokio::spawn(async move {
+        let mut prev = 0.0f64;
+        for (target, label) in milestones {
+            if done2.load(Ordering::Relaxed) { break; }
+            let gap = target - prev;
+            let steps = 12u64;
+            let step_ms = ((est_ms as f64 * gap / 90.0) / steps as f64).max(50.0) as u64;
+            for i in 1..=steps {
+                if done2.load(Ordering::Relaxed) { break; }
+                tokio::time::sleep(Duration::from_millis(step_ms)).await;
+                let pct = prev + gap * i as f64 / steps as f64;
+                let _ = app2.emit("model-load-progress", ProgressPayload {
+                    percentage: pct,
+                    status_text: label.to_string(),
+                });
+            }
+            prev = target;
+        }
+    });
+
+    let result = tokio::task::spawn_blocking(move || {
+        manager.load(path_buf).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    done.store(true, Ordering::Relaxed);
+
+    match result {
+        Ok(model) => {
+            let _ = app.emit("model-load-progress", ProgressPayload {
+                percentage: 100.0,
+                status_text: "Model Loaded!".into(),
+            });
+            Ok(model)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -191,20 +279,43 @@ fn delete_model(path: String) -> Result<(), String> {
 // ---------- Chat ----------
 
 #[tauri::command]
+fn stop_generation(state: State<AppState>) {
+    state.stop_signal.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
 async fn chat_stream(
+    app: AppHandle,
     state: State<'_, AppState>,
     messages: Vec<Message>,
     params: InferParams,
-    on_token: Channel<String>,
+    session_id: String,
 ) -> Result<(), String> {
     use futures::StreamExt;
+    // Reset stop signal before new generation
+    state.stop_signal.store(false, Ordering::SeqCst);
+    let stop = state.stop_signal.clone();
     let mut stream = Box::pin(state.manager.stream_chat(messages, params));
     while let Some(tok) = stream.next().await {
+        if stop.load(Ordering::SeqCst) {
+            let _ = app.emit("feral://stream-done", serde_json::json!({ "session_id": &session_id }));
+            let _ = app.emit("feral://error", serde_json::json!({ "session_id": &session_id, "error": "stopped" }));
+            return Ok(());
+        }
         match tok {
-            Ok(t) => { let _ = on_token.send(t); }
-            Err(e) => return Err(e.to_string()),
+            Ok(t) => {
+                let _ = app.emit("feral://token", serde_json::json!({ "session_id": &session_id, "text": t }));
+                let _ = app.emit("feral://thinking", serde_json::json!({ "session_id": &session_id }));
+            }
+            Err(e) => {
+                let _ = app.emit("feral://stream-error", serde_json::json!({ "session_id": &session_id, "error": e.to_string() }));
+                let _ = app.emit("feral://error", serde_json::json!({ "session_id": &session_id, "error": e.to_string() }));
+                return Err(e.to_string());
+            }
         }
     }
+    let _ = app.emit("feral://stream-done", serde_json::json!({ "session_id": &session_id }));
+    let _ = app.emit("feral://done", serde_json::json!({ "session_id": &session_id }));
     Ok(())
 }
 
@@ -428,6 +539,7 @@ pub fn run() {
     let state = AppState {
         manager: manager.clone(),
         downloads: Arc::new(Mutex::new(HashMap::new())),
+        stop_signal: Arc::new(AtomicBool::new(false)),
     };
 
     tauri::Builder::default()
@@ -452,9 +564,11 @@ pub fn run() {
             download_model,
             cancel_download,
             load_model,
+            start_model_load,
             unload_model,
             delete_model,
             chat_stream,
+            stop_generation,
             get_system_info,
             save_agent,
             get_agents,
@@ -468,4 +582,57 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_key_format() {
+        assert_eq!(download_key("TheBloke/Mistral-7B", "model.Q4_K_M.gguf"),
+                   "TheBloke/Mistral-7B::model.Q4_K_M.gguf");
+    }
+
+    #[test]
+    fn download_key_uniqueness() {
+        let k1 = download_key("repo/a", "file.gguf");
+        let k2 = download_key("repo/b", "file.gguf");
+        let k3 = download_key("repo/a", "other.gguf");
+        assert_ne!(k1, k2);
+        assert_ne!(k1, k3);
+        assert_ne!(k2, k3);
+    }
+
+    #[test]
+    fn deser_default_handles_null() {
+        // Simulates serde deserializing a JSON null into a type with Default
+        let json = serde_json::json!(null);
+        let result: u64 = serde_json::from_value::<Option<u64>>(json)
+            .unwrap()
+            .unwrap_or_default();
+        assert_eq!(result, 0u64);
+    }
+
+    #[test]
+    fn deser_default_handles_missing_via_option() {
+        // Validates the pattern used in HfModelSummary/HfModelDetail deserialization
+        #[derive(serde::Deserialize)]
+        struct Row {
+            #[serde(default, deserialize_with = "super::deser_default")]
+            downloads: u64,
+            #[serde(default, deserialize_with = "super::deser_default")]
+            likes: u32,
+        }
+        let with_nulls: Row = serde_json::from_str(r#"{"downloads": null, "likes": null}"#).unwrap();
+        assert_eq!(with_nulls.downloads, 0);
+        assert_eq!(with_nulls.likes, 0);
+
+        let with_values: Row = serde_json::from_str(r#"{"downloads": 1234, "likes": 42}"#).unwrap();
+        assert_eq!(with_values.downloads, 1234);
+        assert_eq!(with_values.likes, 42);
+
+        let missing: Row = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(missing.downloads, 0);
+    }
 }

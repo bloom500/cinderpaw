@@ -67,7 +67,7 @@ pub fn scan_models_dir() -> Result<Vec<ModelInfo>> {
     Ok(out)
 }
 
-fn parse_quant(name: &str) -> Option<String> {
+pub(crate) fn parse_quant(name: &str) -> Option<String> {
     let upper = name.to_uppercase();
     for q in ["Q2_K", "Q3_K", "Q4_0", "Q4_K_M", "Q4_K_S", "Q5_0", "Q5_K_M", "Q6_K", "Q8_0", "F16", "F32"] {
         if upper.contains(q) {
@@ -136,7 +136,7 @@ pub async fn download_hf_model(
 
     let total = resp.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
-    let mut last_pct: i32 = -1;
+    let mut last_emitted_percent: u64 = 0;
 
     let mut file = tokio::fs::File::create(&tmp)
         .await
@@ -168,10 +168,10 @@ pub async fn download_hf_model(
         downloaded += chunk.len() as u64;
 
         if total > 0 {
-            let pct = ((downloaded * 100) / total) as i32;
-            if pct != last_pct {
-                last_pct = pct;
-                let _ = progress.send(downloaded as f32 / total as f32).await;
+            let pct = (downloaded * 100) / total;
+            if pct > last_emitted_percent {
+                last_emitted_percent = pct;
+                let _ = progress.send(pct as f32 / 100.0).await;
             }
         }
     }
@@ -188,4 +188,43 @@ pub async fn download_hf_model(
     }
     let _ = progress.send(1.0).await;
     Ok(dest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_quant_detects_known_quants() {
+        let cases = vec![
+            ("model.Q4_K_M.gguf", "Q4_K_M"),
+            ("model.Q6_K.gguf", "Q6_K"),
+            ("model.Q8_0.gguf", "Q8_0"),
+            ("model.Q2_K.gguf", "Q2_K"),
+            ("model.F16.gguf", "F16"),
+            ("model.q4_k_m.gguf", "Q4_K_M"), // lowercase input
+        ];
+        for (name, expected) in cases {
+            assert_eq!(parse_quant(name).as_deref(), Some(expected), "failed for: {}", name);
+        }
+    }
+
+    #[test]
+    fn parse_quant_ministral_real_filename() {
+        let result = parse_quant("Ministral-3-3B-Reasoning-2512.Q6_K.gguf");
+        assert_eq!(result.as_deref(), Some("Q6_K"));
+    }
+
+    #[test]
+    fn parse_quant_returns_none_for_unknown() {
+        assert!(parse_quant("some-model-no-quant.gguf").is_none());
+        assert!(parse_quant("model.gguf").is_none());
+    }
+
+    #[test]
+    fn parse_quant_prefers_first_match() {
+        // Q4_K_M should be found before Q4_K_S in the list
+        let result = parse_quant("model.Q4_K_M.gguf");
+        assert_eq!(result.as_deref(), Some("Q4_K_M"));
+    }
 }

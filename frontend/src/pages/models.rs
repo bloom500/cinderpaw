@@ -1,10 +1,12 @@
 use leptos::*;
+use leptos_router::use_navigate;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use wasm_bindgen::JsValue;
 
 use crate::pages::types::{human_bytes, LoadedModel, ModelInfo, SystemInfo};
 use crate::tauri_bridge;
+use crate::context::DownloadContext;
 
 fn md_to_html(md: &str) -> String {
     use pulldown_cmark::{html, Options, Parser};
@@ -96,8 +98,14 @@ fn HfDetailPanel(
     downloading: ReadSignal<bool>,
     dl_progress: ReadSignal<f32>,
     dl_error: ReadSignal<Option<String>>,
+    dl_done: ReadSignal<bool>,
+    local_models: ReadSignal<Vec<ModelInfo>>,
     do_download: Callback<()>,
     do_cancel: Callback<()>,
+    loading_path: ReadSignal<Option<String>>,
+    load_progress: ReadSignal<f64>,
+    load_status: ReadSignal<String>,
+    do_load_hf: Callback<String>,
 ) -> impl IntoView {
     let tags: Vec<String> = detail.tags.iter().take(6).cloned().collect();
     let files = detail.gguf_files.clone();
@@ -149,38 +157,87 @@ fn HfDetailPanel(
                 </div>
             })}
 
-            {move || if downloading.get() {
-                view! {
-                    <div class="dl-active">
-                        <div class="dl-active-row">
-                            <div class="dl-active-info">
-                                <span class="dl-active-label">"Downloading"</span>
-                                <span class="dl-active-pct">{move || format!("{:.0}%", dl_progress.get() * 100.0)}</span>
+            {move || {
+                if dl_done.get() {
+                    view! {
+                        <div class="dl-success">
+                            <svg class="dl-check-svg" viewBox="0 0 52 52">
+                                <circle class="dl-check-circle" cx="26" cy="26" r="23" fill="none"/>
+                                <polyline class="dl-check-mark" points="14,26 22,34 38,18" fill="none"/>
+                            </svg>
+                            <span class="dl-success-label">"Model installed successfully"</span>
+                        </div>
+                    }.into_view()
+                } else if downloading.get() {
+                    view! {
+                        <div class="dl-active">
+                            <div class="dl-active-row">
+                                <div class="dl-active-info">
+                                    <span class="dl-active-label">"Downloading"</span>
+                                    <span class="dl-active-pct">{move || format!("{:.0}%", dl_progress.get() * 100.0)}</span>
+                                </div>
+                                <button
+                                    class="dl-cancel-btn"
+                                    on:click=move |_| do_cancel.call(())
+                                    title="Cancel download"
+                                >
+                                    <span class="dl-cancel-x">"\u{00D7}"</span>
+                                    <span>"Cancel"</span>
+                                </button>
                             </div>
+                            <div class="progress">
+                                <div style=move || format!("width:{}%", (dl_progress.get() * 100.0) as u32)></div>
+                            </div>
+                        </div>
+                    }.into_view()
+                } else {
+                    let sel = selected_file.get();
+                    let installed_path: Option<String> = sel.as_ref().and_then(|sf| {
+                        local_models.get().into_iter()
+                            .find(|m| m.name == sf.rfilename)
+                            .map(|m| m.path.clone())
+                    });
+                    if let Some(path) = installed_path {
+                        let is_loading = loading_path.get().as_deref() == Some(&path);
+                        if is_loading {
+                            view! {
+                                <div class="model-load-bar-wrap">
+                                    <div class="model-load-bar-header">
+                                        <span class="model-load-bar-status">{move || load_status.get()}</span>
+                                        <span class="model-load-bar-pct">{move || format!("{:.0}%", load_progress.get())}</span>
+                                    </div>
+                                    <div class="model-load-bar-track">
+                                        <div class="model-load-bar-fill"
+                                            style=move || format!("width:{}%", load_progress.get())>
+                                            <div class="model-load-bar-shimmer"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }.into_view()
+                        } else {
+                            let p = path.clone();
+                            view! {
+                                <button
+                                    class="btn load-btn"
+                                    on:click=move |_| do_load_hf.call(p.clone())
+                                >
+                                    "Load model"
+                                </button>
+                            }.into_view()
+                        }
+                    } else {
+                        let no_sel = sel.is_none();
+                        view! {
                             <button
-                                class="dl-cancel-btn"
-                                on:click=move |_| do_cancel.call(())
-                                title="Cancel download"
+                                class="btn download-btn"
+                                disabled=no_sel
+                                on:click=move |_| do_download.call(())
                             >
-                                <span class="dl-cancel-x">"\u{00D7}"</span>
-                                <span>"Cancel"</span>
+                                "Install Model Locally"
                             </button>
-                        </div>
-                        <div class="progress">
-                            <div style=move || format!("width:{}%", (dl_progress.get() * 100.0) as u32)></div>
-                        </div>
-                    </div>
-                }.into_view()
-            } else {
-                view! {
-                    <button
-                        class="btn download-btn"
-                        disabled=move || selected_file.get().is_none()
-                        on:click=move |_| do_download.call(())
-                    >
-                        "Install Model Locally"
-                    </button>
-                }.into_view()
+                        }.into_view()
+                    }
+                }
             }}
 
             {readme.map(|r| {
@@ -204,6 +261,8 @@ pub fn ModelsPage() -> impl IntoView {
     let (loaded, set_loaded) = create_signal::<Option<LoadedModel>>(None);
     let (sysinfo, set_sysinfo) = create_signal::<Option<SystemInfo>>(None);
 
+    let dl = use_context::<DownloadContext>().expect("DownloadContext not provided");
+
     let (hf_query, set_hf_query) = create_signal(String::new());
     let (hf_results, set_hf_results) = create_signal::<Vec<HfModelSummary>>(vec![]);
     let (hf_selected, set_hf_selected) = create_signal::<Option<HfModelDetail>>(None);
@@ -211,11 +270,40 @@ pub fn ModelsPage() -> impl IntoView {
     let (hf_detail_loading, set_hf_detail_loading) = create_signal(false);
     let (hf_error, set_hf_error) = create_signal::<Option<String>>(None);
     let (selected_file, set_selected_file) = create_signal::<Option<HfFile>>(None);
-    let (downloading, set_downloading) = create_signal(false);
-    let (dl_progress, set_dl_progress) = create_signal::<f32>(0.0);
-    let (dl_id, set_dl_id) = create_signal::<Option<String>>(None);
-    let (dl_error, set_dl_error) = create_signal::<Option<String>>(None);
+    let (_is_first_model, _set_is_first_model) = create_signal(false);
     let (tab, set_tab) = create_signal("local");
+    let (loading_path, set_loading_path) = create_signal::<Option<String>>(None);
+    let (load_error, set_load_error) = create_signal::<Option<String>>(None);
+    let (load_progress, set_load_progress) = create_signal(0.0f64);
+    let (load_status, set_load_status) = create_signal(String::new());
+    let (popular_loaded, set_popular_loaded) = create_signal(false);
+    let navigate = use_navigate();
+
+    // Load popular GGUF models on mount so Browse tab isn't empty
+    let load_popular = move || {
+        if popular_loaded.get() { return; }
+        set_hf_loading.set(true);
+        set_hf_error.set(None);
+        set_hf_results.set(vec![]);
+        set_hf_selected.set(None);
+        spawn_local(async move {
+            // Default to searching "llama" sorted by downloads — catches most popular GGUF models
+            match tauri_bridge::invoke::<Vec<HfModelSummary>>(
+                "search_hf_models", json!({ "query": "llama" })
+            ).await {
+                Ok(list) => { set_hf_results.set(list); set_popular_loaded.set(true); }
+                Err(e) => set_hf_error.set(Some(format!("Failed to load popular models: {}", e))),
+            }
+            set_hf_loading.set(false);
+        });
+    };
+
+    // Trigger popular search when Browse tab is first opened
+    create_effect(move |_| {
+        if tab.get() == "browse" && !popular_loaded.get() {
+            load_popular();
+        }
+    });
 
     let refresh_local = move || {
         spawn_local(async move {
@@ -232,43 +320,10 @@ pub fn ModelsPage() -> impl IntoView {
     };
     refresh_local();
 
-    let _dl_cb = tauri_bridge::listen("feral://download-progress", move |evt: JsValue| {
-        if let Ok(obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(evt) {
-            if let Some(p) = obj.get("payload").and_then(|p| p.get("progress")).and_then(|p| p.as_f64()) {
-                set_dl_progress.set(p as f32);
-            }
-        }
-    });
-
-    let _dl_complete_cb = tauri_bridge::listen("feral://download-complete", move |_evt: JsValue| {
-        set_downloading.set(false);
-        set_dl_progress.set(0.0);
-        set_dl_id.set(None);
-        set_dl_error.set(None);
+    // Refresh local model list when a download finishes. State updates are handled
+    // globally in App so they persist when the user navigates away.
+    tauri_bridge::listen("feral://download-complete", move |_: JsValue| {
         refresh_local();
-    });
-
-    let _dl_error_cb = tauri_bridge::listen("feral://download-error", move |evt: JsValue| {
-        set_downloading.set(false);
-        set_dl_progress.set(0.0);
-        set_dl_id.set(None);
-        if let Ok(obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(evt) {
-            let payload = obj.get("payload");
-            let cancelled = payload
-                .and_then(|p| p.get("cancelled"))
-                .and_then(|c| c.as_bool())
-                .unwrap_or(false);
-            if cancelled {
-                // User-initiated; no banner needed.
-                set_dl_error.set(None);
-            } else {
-                let err = payload
-                    .and_then(|p| p.get("error"))
-                    .and_then(|e| e.as_str())
-                    .unwrap_or("Download failed");
-                set_dl_error.set(Some(err.to_string()));
-            }
-        }
     });
 
     let do_search = move || {
@@ -290,6 +345,7 @@ pub fn ModelsPage() -> impl IntoView {
     };
 
     let select_model = move |repo_id: String| {
+        dl.dl_done.set(false);
         set_hf_detail_loading.set(true);
         set_hf_selected.set(None);
         set_selected_file.set(None);
@@ -309,32 +365,30 @@ pub fn ModelsPage() -> impl IntoView {
         let detail = match hf_selected.get() { Some(d) => d, None => return };
         let file = match selected_file.get() { Some(f) => f, None => return };
         let key = format!("{}::{}", detail.id, file.rfilename);
-        set_downloading.set(true);
-        set_dl_progress.set(0.0);
-        set_dl_error.set(None);
-        set_dl_id.set(Some(key));
+        dl.model_name.set(file.rfilename.clone());
+        dl.downloading.set(true);
+        dl.progress.set(0.0);
+        dl.dl_done.set(false);
+        dl.dl_error.set(None);
+        dl.dl_id.set(Some(key));
         spawn_local(async move {
-            // Backend now returns immediately with the download id; failures
-            // surface via the `feral://download-error` event listener above.
             if let Err(e) = tauri_bridge::invoke::<String>(
                 "download_model",
                 json!({ "repoId": detail.id, "filename": file.rfilename })
             ).await {
-                set_dl_error.set(Some(format!("Could not start download: {}", e)));
-                set_downloading.set(false);
-                set_dl_id.set(None);
+                dl.dl_error.set(Some(format!("Could not start download: {}", e)));
+                dl.downloading.set(false);
+                dl.dl_id.set(None);
             }
         });
     });
 
     let do_cancel = Callback::new(move |_: ()| {
-        let Some(id) = dl_id.get() else { return };
-        // Optimistically clear the UI; the backend will also emit a
-        // cancelled error event which clears state again (idempotent).
-        set_downloading.set(false);
-        set_dl_progress.set(0.0);
-        set_dl_id.set(None);
-        set_dl_error.set(None);
+        let Some(id) = dl.dl_id.get() else { return };
+        dl.downloading.set(false);
+        dl.progress.set(0.0);
+        dl.dl_id.set(None);
+        dl.dl_error.set(None);
         spawn_local(async move {
             let _ = tauri_bridge::invoke_unit(
                 "cancel_download",
@@ -344,12 +398,84 @@ pub fn ModelsPage() -> impl IntoView {
     });
 
     let do_load = move |path: String| {
+        set_loading_path.set(Some(path.clone()));
+        set_load_progress.set(0.0);
+        set_load_status.set("Initializing...".into());
+        set_load_error.set(None);
         spawn_local(async move {
-            let _ = tauri_bridge::invoke::<LoadedModel>("load_model", json!({ "path": path })).await;
-            if let Ok(l) = tauri_bridge::invoke::<Option<LoadedModel>>("get_loaded_model", json!({})).await {
-                set_loaded.set(l);
+            let sp = set_load_progress;
+            let ss = set_load_status;
+            // Register listener BEFORE invoking to avoid missing the first event.
+            let unlisten = tauri_bridge::listen_once_async(
+                "model-load-progress",
+                move |val: JsValue| {
+                    if let Ok(obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(val) {
+                        if let Some(p) = obj.get("payload") {
+                            if let Some(pct) = p.get("percentage").and_then(|v| v.as_f64()) {
+                                sp.set(pct);
+                            }
+                            if let Some(txt) = p.get("status_text").and_then(|v| v.as_str()) {
+                                ss.set(txt.to_string());
+                            }
+                        }
+                    }
+                },
+            ).await;
+            match tauri_bridge::invoke::<LoadedModel>(
+                "start_model_load", json!({ "path": path })
+            ).await {
+                Ok(l) => { set_loaded.set(Some(l)); set_load_error.set(None); }
+                Err(e) => { set_load_error.set(Some(e)); }
             }
+            tauri_bridge::call_unlisten(&unlisten);
+            set_loading_path.set(None);
+            set_load_progress.set(0.0);
+            set_load_status.set(String::new());
         });
+    };
+
+    let do_load_hf = {
+        let nav = navigate.clone();
+        Callback::new(move |path: String| {
+            let nav2 = nav.clone();
+            set_loading_path.set(Some(path.clone()));
+            set_load_progress.set(0.0);
+            set_load_status.set("Initializing...".into());
+            set_load_error.set(None);
+            spawn_local(async move {
+                let sp = set_load_progress;
+                let ss = set_load_status;
+                let unlisten = tauri_bridge::listen_once_async(
+                    "model-load-progress",
+                    move |val: JsValue| {
+                        if let Ok(obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(val) {
+                            if let Some(p) = obj.get("payload") {
+                                if let Some(pct) = p.get("percentage").and_then(|v| v.as_f64()) {
+                                    sp.set(pct);
+                                }
+                                if let Some(txt) = p.get("status_text").and_then(|v| v.as_str()) {
+                                    ss.set(txt.to_string());
+                                }
+                            }
+                        }
+                    },
+                ).await;
+                match tauri_bridge::invoke::<LoadedModel>(
+                    "start_model_load", json!({ "path": path })
+                ).await {
+                    Ok(l) => {
+                        set_loaded.set(Some(l));
+                        set_load_error.set(None);
+                        nav2("/chat", Default::default());
+                    }
+                    Err(e) => { set_load_error.set(Some(e)); }
+                }
+                tauri_bridge::call_unlisten(&unlisten);
+                set_loading_path.set(None);
+                set_load_progress.set(0.0);
+                set_load_status.set(String::new());
+            });
+        })
     };
 
     let do_unload = move |_| {
@@ -360,10 +486,20 @@ pub fn ModelsPage() -> impl IntoView {
     };
 
     let do_delete = move |path: String| {
+        let is_currently_loaded = loaded.get().map(|l| l.path == path).unwrap_or(false);
         spawn_local(async move {
-            let _ = tauri_bridge::invoke_unit("delete_model", json!({ "path": path })).await;
-            if let Ok(list) = tauri_bridge::invoke::<Vec<ModelInfo>>("get_models", json!({})).await {
-                set_local_models.set(list);
+            // Unload first so the file isn't locked on Windows
+            if is_currently_loaded {
+                let _ = tauri_bridge::invoke_unit("unload_model", json!({})).await;
+                set_loaded.set(None);
+            }
+            match tauri_bridge::invoke_unit("delete_model", json!({ "path": path })).await {
+                Ok(_) => {
+                    if let Ok(list) = tauri_bridge::invoke::<Vec<ModelInfo>>("get_models", json!({})).await {
+                        set_local_models.set(list);
+                    }
+                }
+                Err(e) => set_load_error.set(Some(format!("Delete failed: {}", e))),
             }
         });
     };
@@ -388,6 +524,14 @@ pub fn ModelsPage() -> impl IntoView {
         {move || (tab.get() == "local").then(|| view! {
             <div class="local-tab">
                 <h2 class="section-title">"Installed Models"</h2>
+                {move || load_error.get().map(|e| view! {
+                    <div class="dl-error-banner" style="margin-bottom:12px">
+                        <span class="dl-error-icon">"!"</span>
+                        <span>{e}</span>
+                        <button style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer"
+                            on:click=move |_| set_load_error.set(None)>"✕"</button>
+                    </div>
+                })}
                 {move || if local_models.get().is_empty() {
                     view! { <p class="dim">"No models installed. Go to Browse to download one."</p> }.into_view()
                 } else {
@@ -397,29 +541,63 @@ pub fn ModelsPage() -> impl IntoView {
                                 each=move || local_models.get()
                                 key=|m| m.path.clone()
                                 children=move |m: ModelInfo| {
-                                    let is_loaded = loaded.get().map(|l| l.path == m.path).unwrap_or(false);
-                                    let path1 = m.path.clone();
-                                    let path2 = m.path.clone();
+                                    let path = m.path.clone();
+                                    let path_dot = path.clone();
+                                    let model_name = m.name.clone();
+                                    let size_str = human_bytes(m.size_bytes);
+                                    let quant = m.quant.clone();
+                                    let ctx_len = m.ctx_len;
                                     view! {
                                         <div class="model-card">
                                             <div class="model-card-header">
-                                                <span class=move || if is_loaded { "status-dot green" } else { "status-dot" }></span>
-                                                <b class="model-name">{m.name.clone()}</b>
+                                                <span class=move || {
+                                                    if loaded.get().map(|l| l.path == path_dot).unwrap_or(false) { "status-dot green" }
+                                                    else if loading_path.get().as_deref() == Some(&path_dot) { "status-dot yellow" }
+                                                    else { "status-dot" }
+                                                }></span>
+                                                <b class="model-name">{model_name}</b>
                                             </div>
                                             <div class="model-meta">
-                                                <span>{human_bytes(m.size_bytes)}</span>
-                                                {m.quant.clone().map(|q| view! { <span class="tag">{q}</span> })}
-                                                {m.ctx_len.map(|c| view! { <span class="tag">"ctx "{c}</span> })}
+                                                <span>{size_str}</span>
+                                                {quant.map(|q| view! { <span class="tag">{q}</span> })}
+                                                {ctx_len.map(|c| view! { <span class="tag">"ctx "{c}</span> })}
                                             </div>
-                                            <div class="model-actions">
-                                                {if is_loaded {
-                                                    view! { <button class="btn ghost sm" on:click=do_unload>"Unload"</button> }.into_view()
+                                            {move || {
+                                                let p = path.clone();
+                                                if loaded.get().map(|l| l.path == p).unwrap_or(false) {
+                                                    let p_del = p.clone();
+                                                    view! {
+                                                        <div class="model-actions">
+                                                            <button class="btn ghost sm" on:click=do_unload>"Unload"</button>
+                                                            <button class="btn danger sm" on:click=move |_| do_delete(p_del.clone())>"Delete"</button>
+                                                        </div>
+                                                    }.into_view()
+                                                } else if loading_path.get().as_deref() == Some(p.as_str()) {
+                                                    view! {
+                                                        <div class="model-load-bar-wrap">
+                                                            <div class="model-load-bar-header">
+                                                                <span class="model-load-bar-status">{move || load_status.get()}</span>
+                                                                <span class="model-load-bar-pct">{move || format!("{:.0}%", load_progress.get())}</span>
+                                                            </div>
+                                                            <div class="model-load-bar-track">
+                                                                <div class="model-load-bar-fill"
+                                                                    style=move || format!("width:{}%", load_progress.get())>
+                                                                    <div class="model-load-bar-shimmer"></div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }.into_view()
                                                 } else {
-                                                    let p = path1.clone();
-                                                    view! { <button class="btn sm" on:click=move |_| do_load(p.clone())>"Load"</button> }.into_view()
-                                                }}
-                                                <button class="btn danger sm" on:click=move |_| do_delete(path2.clone())>"Delete"</button>
-                                            </div>
+                                                    let p_load = p.clone();
+                                                    let p_del = p.clone();
+                                                    view! {
+                                                        <div class="model-actions">
+                                                            <button class="btn sm" on:click=move |_| do_load(p_load.clone())>"Load"</button>
+                                                            <button class="btn danger sm" on:click=move |_| do_delete(p_del.clone())>"Delete"</button>
+                                                        </div>
+                                                    }.into_view()
+                                                }
+                                            }}
                                         </div>
                                     }
                                 }
@@ -481,23 +659,54 @@ pub fn ModelsPage() -> impl IntoView {
 
                 <div class="browser-right">
                     {move || {
-                        if hf_detail_loading.get() {
-                            return view! { <p class="dim loading">"Loading model info..."</p> }.into_view();
-                        }
-                        match hf_selected.get() {
-                            None => view! { <p class="dim">"Select a model to see details."</p> }.into_view(),
-                            Some(detail) => view! {
+                        if dl.dl_done.get() {
+                            let model_name = dl.model_name.get();
+                            view! {
+                                <div class="dl-first-celebrate">
+                                    <div class="dl-celebrate-emoji">"🎉"</div>
+                                    <h2 class="dl-celebrate-title">"Awesome! You just installed your first AI model locally."</h2>
+                                    <p class="dl-celebrate-sub">"Feral is now fully autonomous and ready to operate 100% offline."</p>
+                                    <button class="btn-cta-pulse" on:click=move |_| {
+                                        let name = model_name.clone();
+                                        spawn_local(async move {
+                                            if !name.is_empty() {
+                                                if let Ok(list) = tauri_bridge::invoke::<Vec<ModelInfo>>("get_models", json!({})).await {
+                                                    if let Some(m) = list.into_iter().find(|mm| mm.name == name) {
+                                                        let _ = tauri_bridge::invoke::<LoadedModel>(
+                                                            "load_model", json!({ "path": m.path })
+                                                        ).await;
+                                                    }
+                                                }
+                                            }
+                                            let _ = web_sys::window()
+                                                .and_then(|w| w.location().set_href("/chat").ok());
+                                        });
+                                    }>"Go to Chat & Start Creating →"</button>
+                                </div>
+                            }.into_view()
+                        } else if hf_detail_loading.get() {
+                            view! { <p class="dim loading">"Loading model info..."</p> }.into_view()
+                        } else if let Some(detail) = hf_selected.get() {
+                            view! {
                                 <HfDetailPanel
                                     detail=detail
                                     selected_file=selected_file
                                     set_selected_file=set_selected_file
-                                    downloading=downloading
-                                    dl_progress=dl_progress
-                                    dl_error=dl_error
+                                    downloading=dl.downloading.read_only()
+                                    dl_progress=dl.progress.read_only()
+                                    dl_error=dl.dl_error.read_only()
+                                    dl_done=dl.dl_done.read_only()
+                                    local_models=local_models
                                     do_download=do_download
                                     do_cancel=do_cancel
+                                    loading_path=loading_path
+                                    load_progress=load_progress
+                                    load_status=load_status
+                                    do_load_hf=do_load_hf
                                 />
-                            }.into_view(),
+                            }.into_view()
+                        } else {
+                            view! { <p class="dim">"Select a model to see details."</p> }.into_view()
                         }
                     }}
                 </div>

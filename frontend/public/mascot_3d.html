@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feral Mascot</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0f0f0f; }
+    #mascot-canvas { width: 100%; height: 100%; display: block; }
+    #mascot-fallback { display: none; width: 100%; height: 100%; object-fit: contain; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="mascot-canvas"></canvas>
+  <img id="mascot-fallback" src="/Body.png" alt="Mascot" />
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+    (function() {
+      const canvas = document.getElementById('mascot-canvas');
+      const fallback = document.getElementById('mascot-fallback');
+
+      // ── Renderer ──────────────────────────────────────────────────────────
+      let renderer;
+      try {
+        renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+      } catch (e) {
+        canvas.style.display = 'none';
+        fallback.style.display = 'block';
+        console.warn('WebGL not available, using fallback image:', e);
+        return;
+      }
+
+      // ── Scene & Camera ────────────────────────────────────────────────────
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.set(0, 0.5, 4);
+
+      // ── Lights ─────────────────────────────────────────────────────────────
+      scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
+      keyLight.position.set(3, 5, 3);
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0x8b5cf6, 1.0);
+      fillLight.position.set(-3, 2, 2);
+      scene.add(fillLight);
+
+      const rimLight = new THREE.DirectionalLight(0x4ade80, 0.6);
+      rimLight.position.set(0, -2, -3);
+      scene.add(rimLight);
+
+      // ── State Machine ─────────────────────────────────────────────────────
+      // States: idle | thinking | typing | happy
+      let currentState = 'idle';
+      let model = null;
+      let headBone = null;
+      let leftEye = null;
+      let rightEye = null;
+
+      // Tracking
+      let targetHeadY = 0;
+      let targetHeadX = 0;
+      let currentHeadY = 0;
+      let currentHeadX = 0;
+      let mouseX = 0;
+      let mouseY = 0;
+
+      // Animation timers
+      let breathePhase = 0;
+      let bouncePhase = 0;
+      let microPhase = 0;
+      let jumpPhase = 0;
+      let rotY = 0;
+
+      function setState(state) {
+        if (currentState === state) return;
+        currentState = state;
+        bouncePhase = 0;
+        microPhase = 0;
+        jumpPhase = 0;
+      }
+
+      // ── Load GLB ───────────────────────────────────────────────────────────
+      const loader = new GLTFLoader();
+
+      // Use DRACO if available (must be served with correct headers)
+      const draco = new DRACOLoader();
+      draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+      loader.setDRACOLoader(draco);
+
+      loader.load(
+        '/mascot.glb',
+        (gltf) => {
+          model = gltf.scene;
+
+          // Traverse and find head/eyes by name (adjust names to match your model)
+          model.traverse((node) => {
+            const n = node.name.toLowerCase();
+            if (!headBone && (n.includes('head') || n.includes('skull') || n.includes('face'))) {
+              if (node.isObject3D) headBone = node;
+            }
+            if (!leftEye && (n.includes('lefteye') || n.includes('eye_l') || n.includes('leye'))) {
+              if (node.isObject3D) leftEye = node;
+            }
+            if (!rightEye && (n.includes('righteye') || n.includes('eye_r') || n.includes('reye'))) {
+              if (node.isObject3D) rightEye = node;
+            }
+          });
+
+          // Fallback: try children[0] as head if nothing found
+          if (!headBone && model.children.length > 0) {
+            headBone = model.children[0];
+          }
+
+          // Center model
+          const box = new THREE.Box3().setFromObject(model);
+          const center = box.getCenter(new THREE.Vector3());
+          model.position.sub(center);
+          model.position.y -= box.getSize(new THREE.Vector3()).y * 0.1;
+
+          scene.add(model);
+        },
+        (xhr) => {
+          const pct = xhr.total > 0 ? (xhr.loaded / xhr.total * 100).toFixed(0) : 0;
+          console.log('Mascot loading:', pct + '%');
+        },
+        (err) => {
+          console.error('Mascot load error:', err);
+          canvas.style.display = 'none';
+          fallback.style.display = 'block';
+        }
+      );
+
+      // ── Tauri event listeners ──────────────────────────────────────────────
+      const tauri = window.__TAURI__?.core;
+
+      function onTyping()  { setState('typing'); }
+      function onThinking(){ setState('thinking'); }
+      function onDone()     { setState('happy'); setTimeout(() => setState('idle'), 2500); }
+      function onError()    { setState('idle'); }
+
+      if (tauri) {
+        // Tauri v2 IPC
+        const unlisten = [
+          tauri.listen('feral://typing',   onTyping),
+          tauri.listen('feral://thinking', onThinking),
+          tauri.listen('feral://done',     onDone),
+          tauri.listen('feral://error',    onError),
+        ];
+        window.addEventListener('unload', () => unlisten.forEach(u => u.then(fn => fn())));
+      } else {
+        // Dev / non-Tauri fallback
+        window.addEventListener('feral-typing',   () => setState('typing'));
+        window.addEventListener('feral-thinking', () => setState('thinking'));
+        window.addEventListener('feral-done',     () => { setState('happy'); setTimeout(() => setState('idle'), 2500); });
+        window.addEventListener('feral-error',    () => setState('idle'));
+      }
+
+      // Mouse tracking
+      window.addEventListener('mousemove', (e) => {
+        mouseX = (e.clientX / window.innerWidth  - 0.5) * 2;  // -1 to 1
+        mouseY = (e.clientY / window.innerHeight - 0.5) * 2;  // -1 to 1
+      });
+
+      // ── Resize ───────────────────────────────────────────────────────────
+      function resize() {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        if (canvas.width !== w || canvas.height !== h) {
+          renderer.setSize(w, h, false);
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        }
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      // ── Animation loop ────────────────────────────────────────────────────
+      const clock = new THREE.Clock();
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = clock.getDelta();
+        const t  = clock.getElapsedTime();
+
+        resize();
+
+        // Smooth head tracking
+        targetHeadX = mouseX * 0.7;  // ±25° mapped to ±1
+        targetHeadY = mouseY * 0.45; // ±40° mapped to ±1
+        currentHeadX += (targetHeadX - currentHeadX) * 0.08;
+        currentHeadY += (targetHeadY - currentHeadY) * 0.08;
+
+        if (!model) { renderer.render(scene, camera); return; }
+
+        switch (currentState) {
+          case 'idle': {
+            // Breathe: scale 1.0 → 1.03 (3s) + gentle Y rotation oscillation
+            breathePhase += dt;
+            const bs = 1 + 0.03 * Math.sin(breathePhase * (2 * Math.PI / 3));
+            model.scale.setScalar(bs);
+            rotY += dt * 0.3;
+            model.rotation.y = Math.sin(t * 0.2) * 0.12;
+            if (headBone) {
+              headBone.rotation.y = currentHeadX * 0.4;
+              headBone.rotation.x = -currentHeadY * 0.4;
+            }
+            break;
+          }
+          case 'thinking': {
+            // Bounce at 4Hz (250ms per cycle)
+            bouncePhase += dt;
+            const by = Math.abs(Math.sin(bouncePhase * 4 * Math.PI * 2));
+            model.position.y = by * 0.18;
+            model.scale.setScalar(1 + 0.04 * by);
+            rotY += dt * 1.2;
+            model.rotation.y = rotY;
+            if (headBone) {
+              headBone.rotation.y = currentHeadX * 0.6;
+              headBone.rotation.x = -currentHeadY * 0.6;
+            }
+            break;
+          }
+          case 'typing': {
+            // Micro-vibrate at ~30Hz, tiny amplitude
+            microPhase += dt;
+            model.position.y = Math.sin(microPhase * 30) * 0.008;
+            model.scale.setScalar(1.0);
+            if (headBone) {
+              headBone.rotation.y = currentHeadX * 0.5 + Math.sin(t * 8) * 0.05;
+              headBone.rotation.x = -currentHeadY * 0.5;
+            }
+            break;
+          }
+          case 'happy': {
+            // Jump + spin
+            jumpPhase += dt;
+            const jy = Math.abs(Math.sin(jumpPhase * 3)) * 0.5;
+            model.position.y = jy;
+            model.rotation.y += dt * 4;
+            model.scale.setScalar(1 + 0.05 * Math.sin(jumpPhase * 6));
+            if (headBone) {
+              headBone.rotation.y = currentHeadX * 0.3;
+              headBone.rotation.x = -currentHeadY * 0.3;
+            }
+            break;
+          }
+        }
+
+        // Eye tracking: offset pupils toward mouse in local space
+        const ex = currentHeadX * 0.06;
+        const ey = currentHeadY * 0.06;
+        if (leftEye)  { leftEye.position.x = -0.06 + ex; leftEye.position.y = ey; }
+        if (rightEye) { rightEye.position.x =  0.06 + ex; rightEye.position.y = ey; }
+
+        renderer.render(scene, camera);
+      }
+
+      animate();
+    })();
+  </script>
+</body>
+</html>
