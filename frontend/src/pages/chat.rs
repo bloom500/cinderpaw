@@ -3,6 +3,7 @@ use leptos_router::A;
 use pulldown_cmark::{html, Options, Parser};
 use serde_json::json;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlTextAreaElement, MouseEvent, KeyboardEvent};
 
 use crate::context::{ChatContext, ChatSessionSummary};
@@ -77,6 +78,28 @@ fn parse_think(content: &str) -> ParsedMessage {
 }
 
 
+fn format_time_now() -> String {
+    let date = js_sys::Date::new_0();
+    let mut h = date.get_hours() as u32;
+    let m = date.get_minutes() as u32;
+    let suffix = if h >= 12 { "PM" } else { "AM" };
+    h = if h == 0 { 12 } else if h > 12 { h - 12 } else { h };
+    format!("{}:{:02} {}", h, m, suffix)
+}
+
+fn format_datetime_now() -> String {
+    let date = js_sys::Date::new_0();
+    let months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    let month = months[date.get_month() as usize];
+    let day = date.get_date();
+    let year = date.get_full_year();
+    let mut h = date.get_hours() as u32;
+    let m = date.get_minutes() as u32;
+    let suffix = if h >= 12 { "PM" } else { "AM" };
+    h = if h == 0 { 12 } else if h > 12 { h - 12 } else { h };
+    format!("{} {}, {}, {}:{:02} {}", month, day, year, h, m, suffix)
+}
+
 fn session_title(msgs: &[crate::pages::types::Message]) -> String {
     msgs.iter()
         .find(|m| m.role == "user")
@@ -101,10 +124,17 @@ pub fn ChatPage() -> impl IntoView {
     let busy = chat.busy;
     let (history_open, set_history_open) = create_signal(false);
     let (controls_open, set_controls_open) = create_signal(false);
-    let (temp, set_temp) = create_signal(0.8f32);
+    let (temp, set_temp) = create_signal(0.7f32);
     let (max_tokens, set_max_tokens) = create_signal(4096u32);
     let (top_p, set_top_p) = create_signal(0.95f32);
     let (repeat, set_repeat) = create_signal(1.1f32);
+    let (gpu_layers, set_gpu_layers) = create_signal(100i32);
+
+    // Per-completed-AI-message metadata: (datetime, token_count, tokens_per_sec)
+    let (ai_meta, set_ai_meta) = create_signal::<Vec<(String, u32, f32)>>(vec![]);
+    let (stream_start_ms, set_stream_start_ms) = create_signal::<Option<f64>>(None);
+    let (live_token_count, set_live_token_count) = create_signal::<u32>(0);
+    let (ctx_open, set_ctx_open) = create_signal(false);
 
     // Load active model on mount
     spawn_local(async move {
@@ -122,6 +152,39 @@ pub fn ChatPage() -> impl IntoView {
         {
             el.set_scroll_top(el.scroll_height());
         }
+    });
+
+    // Token speed tracking: detect first token, count tokens, compute speed on finish
+    create_effect(move |prev: Option<(bool, String)>| {
+        let is_busy = busy.get();
+        let last_content = chat.messages.get()
+            .into_iter()
+            .filter(|m| m.role == "assistant")
+            .last()
+            .map(|m| m.content)
+            .unwrap_or_default();
+
+        let (prev_busy, prev_content) = prev.unwrap_or((false, String::new()));
+
+        if is_busy && prev_content.is_empty() && !last_content.is_empty() {
+            set_stream_start_ms.set(Some(js_sys::Date::now()));
+        }
+        if is_busy && !last_content.is_empty() {
+            set_live_token_count.set((last_content.chars().count() / 4).max(1) as u32);
+        }
+        if prev_busy && !is_busy && !last_content.is_empty() {
+            let tokens = live_token_count.get();
+            let speed = stream_start_ms.get()
+                .map(|start| {
+                    let elapsed = (js_sys::Date::now() - start) / 1000.0;
+                    if elapsed > 0.05 { tokens as f32 / elapsed as f32 } else { 0.0 }
+                })
+                .unwrap_or(0.0);
+            set_ai_meta.update(|v| v.push((format_datetime_now(), tokens, speed)));
+            set_stream_start_ms.set(None);
+        }
+
+        (is_busy, last_content)
     });
 
     let save_current_session = move || {
@@ -142,6 +205,7 @@ pub fn ChatPage() -> impl IntoView {
 
     let new_chat = move |_: MouseEvent| {
         save_current_session();
+        set_ai_meta.set(vec![]);
         let new_id = uuid::Uuid::new_v4().to_string();
         chat.history.update(|h| {
             h.push(ChatSessionSummary { id: new_id.clone(), title: "New Conversation".into() });
@@ -153,6 +217,7 @@ pub fn ChatPage() -> impl IntoView {
 
     let load_conv = move |id: String| {
         save_current_session();
+        set_ai_meta.set(vec![]);
         let msgs = chat.sessions.get().get(&id).cloned().unwrap_or_default();
         chat.active_session_id.set(Some(id));
         chat.messages.set(msgs);
@@ -213,13 +278,20 @@ pub fn ChatPage() -> impl IntoView {
     // Must be a memo (not inline) because > inside view! attributes is parsed as closing tag.
     let chip_mode = create_memo(move |_| input.get().len() > 1000);
 
-    // Pre-compute closures that use && (rstml parser can't handle && in attributes)
-    let tab1_cls = move || if temp.get() <= 0.45 { "ctrl-cr-tab active" } else { "ctrl-cr-tab" };
-    let tab2_cls = move || {
+    // Pre-built closures for response style pill classes (rstml can't parse > / && in attrs)
+    let style_precise_cls = move || {
         let t = temp.get();
-        if t > 0.45 && t <= 0.9 { "ctrl-cr-tab active" } else { "ctrl-cr-tab" }
+        if t <= 0.45 { "ctrl-style-pill active" } else { "ctrl-style-pill" }
     };
-    let tab3_cls = move || if temp.get() > 0.9 { "ctrl-cr-tab active" } else { "ctrl-cr-tab" };
+    let style_balanced_cls = move || {
+        let t = temp.get();
+        let in_range = t > 0.45 && t <= 0.9;
+        if in_range { "ctrl-style-pill active" } else { "ctrl-style-pill" }
+    };
+    let style_creative_cls = move || {
+        let t = temp.get();
+        if t > 0.9 { "ctrl-style-pill active" } else { "ctrl-style-pill" }
+    };
 
     // Derived: are there any visible (non-system) messages?
     let has_messages = move || chat.messages.get().iter().any(|m| m.role != "system");
@@ -246,19 +318,32 @@ pub fn ChatPage() -> impl IntoView {
             // ── HW RECOMMENDATION TOAST ───────────────────────────────────
             <HwNotification/>
 
-            // ── TOP BAR (burger + brand + controls) ──────────────────────
+            // ── TOP BAR (burger + active model + controls) ───────────────
             <div class="cx-topbar">
                 <div class="cx-topbar-side">
                     <button class="cx-icon-btn cx-burger"
                         on:click=move |_| set_history_open.update(|v| *v = !*v)
                         title="Conversations">"≡"</button>
-                    <span class="cx-brand">"Feral"</span>
+                </div>
+                <div class="cx-topbar-center">
+                    <A href="/models" class="cx-model-pill" attr:title="Switch model">
+                        <span class=move || {
+                            if loaded.get().is_some() { "cx-model-pill-dot loaded" } else { "cx-model-pill-dot" }
+                        }></span>
+                        <span class="cx-model-pill-name">
+                            {move || {
+                                match loaded.get() {
+                                    Some(l) => l.name,
+                                    None => "No model loaded".into(),
+                                }
+                            }}
+                        </span>
+                    </A>
                 </div>
                 <button class="cx-controls-pill"
                     on:click=move |_| set_controls_open.update(|v| *v = !*v)
                     title="Controls">
                     <span class="cx-gear">"⚙"</span>
-                    <span>"Controls"</span>
                 </button>
             </div>
 
@@ -266,50 +351,49 @@ pub fn ChatPage() -> impl IntoView {
             <div class=move || if history_open.get() { "cx-overlay open" } else { "cx-overlay" }
                  on:click=move |_| set_history_open.set(false)></div>
             <aside class=move || if history_open.get() { "cx-drawer cx-drawer-left open" } else { "cx-drawer cx-drawer-left" }>
-                <div class="cx-drawer-header">
-                    <span class="cx-drawer-title">"Conversations"</span>
-                    <button class="cx-icon-btn cx-drawer-close"
-                        on:click=move |_| set_history_open.set(false)>"×"</button>
-                </div>
+                <div class="cx-sidebar-brand">"feral"</div>
+                <button class="cx-new-chat-full" on:click=move |e| {
+                    new_chat(e);
+                    set_history_open.set(false);
+                }>
+                    <span>"+"</span><span>"New Chat"</span>
+                </button>
                 <div class="cx-drawer-nav">
                     <A href="/models" class="cx-nav-link">"◧ Models"</A>
-                    <A href="/agents" class="cx-nav-link">"⚙ Agents"</A>
+                    <A href="/agents" class="cx-nav-link">"⚙ Assistants"</A>
                     <A href="/settings" class="cx-nav-link">"⚒ Settings"</A>
                 </div>
                 <div class="cx-drawer-section">
-                    <div class="cx-drawer-section-header">
-                        <span class="cx-drawer-section-label">"History"</span>
-                        <button class="cx-new-btn" on:click=move |e| {
-                            new_chat(e);
-                            set_history_open.set(false);
-                        }>"+ New"</button>
-                    </div>
-                    <div class="cx-hist-list">
-                        {move || {
-                            let convs = chat.history.get();
-                            let active = chat.active_session_id.get();
-                            if convs.is_empty() {
-                                view! { <div class="cx-hist-empty">"No conversations yet"</div> }.into_view()
-                            } else {
-                                convs.into_iter().rev().map(|s| {
-                                    let is_active = active.as_ref() == Some(&s.id);
-                                    let title = s.title.clone();
-                                    let id = s.id.clone();
-                                    view! {
-                                        <div class=if is_active { "cx-hist-item active" } else { "cx-hist-item" }
-                                            on:click=move |_| {
-                                                load_conv(id.clone());
-                                                set_history_open.set(false);
-                                            }>
-                                            <span class="cx-hist-dot">"◆"</span>
-                                            <span class="cx-hist-name">{title}</span>
-                                        </div>
-                                    }.into_view()
-                                }).collect_view()
-                            }
-                        }}
+                    <div class="cx-thread-group">
+                        <div class="cx-thread-group-label">"Recent"</div>
+                        <div class="cx-hist-list">
+                            {move || {
+                                let convs = chat.history.get();
+                                let active = chat.active_session_id.get();
+                                if convs.is_empty() {
+                                    view! { <div class="cx-hist-empty">"No conversations yet"</div> }.into_view()
+                                } else {
+                                    convs.into_iter().rev().map(|s| {
+                                        let is_active = active.as_ref() == Some(&s.id);
+                                        let title = s.title.clone();
+                                        let id = s.id.clone();
+                                        view! {
+                                            <div class=if is_active { "cx-hist-item active" } else { "cx-hist-item" }
+                                                on:click=move |_| {
+                                                    load_conv(id.clone());
+                                                    set_history_open.set(false);
+                                                }>
+                                                <span class="cx-hist-dot">"◆"</span>
+                                                <span class="cx-hist-name">{title}</span>
+                                            </div>
+                                        }.into_view()
+                                    }).collect_view()
+                                }
+                            }}
+                        </div>
                     </div>
                 </div>
+                <div class="cx-sidebar-footer">"v0.1.0"</div>
             </aside>
 
             // ── CONTROLS DRAWER (right, slides in) ───────────────────────
@@ -323,13 +407,16 @@ pub fn ChatPage() -> impl IntoView {
                 </div>
 
                 <div class="cx-drawer-body">
+                    // ─ Active model card
                     <div class="ctrl-sect">
                         <div class="ctrl-model-badge">
                             <span class="ctrl-model-dot"></span>
                             <div class="ctrl-model-info">
                                 <span class="ctrl-model-tag">"Active Model"</span>
                                 <span class="ctrl-model-name">
-                                    {move || loaded.get().map(|l| l.name).unwrap_or_else(|| "None loaded".into())}
+                                    {move || loaded.get()
+                                        .map(|l| format!("{} · Loaded", l.name))
+                                        .unwrap_or_else(|| "None loaded".into())}
                                 </span>
                             </div>
                         </div>
@@ -337,71 +424,139 @@ pub fn ChatPage() -> impl IntoView {
 
                     <div class="ctrl-sep"></div>
 
+                    // ─ Response style pills
                     <div class="ctrl-sect">
                         <div class="ctrl-label">"Response Style"</div>
-                        <div class="ctrl-sub">"How the model thinks and generates"</div>
-                        <div class="ctrl-cr-tabs">
-                            <div class=tab1_cls on:click=move |_| set_temp.set(0.2)>
-                                <span class="ctrl-cr-icon">"⌗"</span><span>"Precise"</span>
-                            </div>
-                            <div class=tab2_cls on:click=move |_| set_temp.set(0.7)>
-                                <span class="ctrl-cr-icon">"◎"</span><span>"Balanced"</span>
-                            </div>
-                            <div class=tab3_cls on:click=move |_| set_temp.set(1.1)>
-                                <span class="ctrl-cr-icon">"✦"</span><span>"Creative"</span>
-                            </div>
+                        <div class="ctrl-style-pills">
+                            <button class=style_precise_cls
+                                on:click=move |_| set_temp.set(0.2)>"Precise"</button>
+                            <button class=style_balanced_cls
+                                on:click=move |_| set_temp.set(0.7)>"Balanced"</button>
+                            <button class=style_creative_cls
+                                on:click=move |_| set_temp.set(1.1)>"Creative"</button>
                         </div>
-                        <input class="ctrl-slider" type="range" min="0.1" max="1.5" step="0.05"
-                            prop:value=move || temp.get().to_string()
-                            on:input=move |e| set_temp.set(event_target_value(&e).parse().unwrap_or(0.8))/>
-                        <div class="ctrl-cr-use">
+                        <div class="ctrl-style-desc">
                             {move || match temp.get() {
-                                t if t <= 0.45 => "Best for: code, math, structured data",
-                                t if t <= 0.9  => "Best for: chat, summaries, Q&A",
-                                _              => "Best for: writing, ideas, brainstorming",
+                                t if t <= 0.45 => "Factual, deterministic",
+                                t if t <= 0.9  => "Best for chat, summaries",
+                                _              => "Imaginative, varied",
                             }}
                         </div>
                     </div>
 
                     <div class="ctrl-sep"></div>
 
+                    // ─ Response Length (steppers)
                     <div class="ctrl-sect">
-                        <div class="ctrl-label">"Response Length"</div>
-                        <div class="ctrl-slider-row">
-                            <input class="ctrl-slider" type="range" min="128" max="8192" step="128"
-                                prop:value=move || max_tokens.get().to_string()
-                                on:input=move |e| set_max_tokens.set(event_target_value(&e).parse().unwrap_or(1024))/>
-                            <span class="ctrl-val">{move || max_tokens.get().to_string()}</span>
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Response Length"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_max_tokens.update(|v| *v = (*v).saturating_sub(128).max(128))
+                                        prop:disabled=move || max_tokens.get() <= 128>"−"</button>
+                                    <span class="ctrl-num-val">{move || max_tokens.get().to_string()}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_max_tokens.update(|v| *v = (*v + 128).min(8192))
+                                        prop:disabled=move || max_tokens.get() >= 8192>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Maximum tokens in response"</div>
                         </div>
                     </div>
 
                     <div class="ctrl-sep"></div>
 
+                    // ─ Temperature
                     <div class="ctrl-sect">
-                        <div class="ctrl-label">"Advanced"</div>
-                        <div class="ctrl-adv-row">
-                            <span class="ctrl-adv-key">"Nucleus Sampling"</span>
-                            <span class="ctrl-val">{move || format!("{:.2}", top_p.get())}</span>
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Temperature"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_temp.update(|v| *v = (*v - 0.1).max(0.0))
+                                        prop:disabled=move || temp.get() <= 0.0>"−"</button>
+                                    <span class="ctrl-num-val">{move || format!("{:.1}", temp.get())}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_temp.update(|v| *v = (*v + 0.1).min(2.0))
+                                        prop:disabled=move || temp.get() >= 2.0>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Higher = more creative, lower = more precise"</div>
                         </div>
-                        <input class="ctrl-slider" type="range" min="0" max="1" step="0.01"
-                            prop:value=move || top_p.get().to_string()
-                            on:input=move |e| set_top_p.set(event_target_value(&e).parse().unwrap_or(0.95))/>
-                        <div class="ctrl-adv-row" style="margin-top:10px">
-                            <span class="ctrl-adv-key">"Repeat Penalty"</span>
-                            <span class="ctrl-val">{move || format!("{:.2}", repeat.get())}</span>
-                        </div>
-                        <input class="ctrl-slider" type="range" min="1" max="2" step="0.01"
-                            prop:value=move || repeat.get().to_string()
-                            on:input=move |e| set_repeat.set(event_target_value(&e).parse().unwrap_or(1.1))/>
                     </div>
 
                     <div class="ctrl-sep"></div>
 
+                    // ─ Nucleus Sampling
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Nucleus Sampling"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_top_p.update(|v| *v = (*v - 0.05).max(0.0))
+                                        prop:disabled=move || top_p.get() <= 0.0>"−"</button>
+                                    <span class="ctrl-num-val">{move || format!("{:.2}", top_p.get())}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_top_p.update(|v| *v = (*v + 0.05).min(1.0))
+                                        prop:disabled=move || top_p.get() >= 1.0>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Probability mass for token selection"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Repeat Penalty
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Repeat Penalty"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_repeat.update(|v| *v = (*v - 0.05).max(1.0))
+                                        prop:disabled=move || repeat.get() <= 1.0>"−"</button>
+                                    <span class="ctrl-num-val">{move || format!("{:.2}", repeat.get())}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_repeat.update(|v| *v = (*v + 0.05).min(2.0))
+                                        prop:disabled=move || repeat.get() >= 2.0>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Penalizes repeated tokens"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ GPU Layers
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"GPU Layers"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_gpu_layers.update(|v| *v = (*v - 1).max(0))
+                                        prop:disabled=move || gpu_layers.get() <= 0>"−"</button>
+                                    <span class="ctrl-num-val">{move || gpu_layers.get().to_string()}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_gpu_layers.update(|v| *v = (*v + 1).min(100))
+                                        prop:disabled=move || gpu_layers.get() >= 100>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"0 = CPU only · 100 = Maximum GPU offload"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Agent persona
                     <div class="ctrl-sect ctrl-persona-sect">
                         <div class="ctrl-label">"Agent Persona"</div>
                         <div class="ctrl-sub">"System instructions for the model"</div>
                         <textarea class="ctrl-persona-box"
-                            placeholder="You are a helpful assistant that…"
+                            placeholder="You are a helpful assistant..."
                             prop:value=move || system_prompt.get()
                             on:input=move |e| set_system_prompt.set(event_target_value(&e))></textarea>
                     </div>
@@ -427,19 +582,39 @@ pub fn ChatPage() -> impl IntoView {
                                         .filter(|m| m.role != "system")
                                         .collect();
 
-                                    let (completed, streaming_msg) =
+                                    let (completed, show_streaming) =
                                         if is_busy
                                             && visible.last().map(|m| m.role == "assistant").unwrap_or(false)
                                         {
-                                            let last = visible.last().cloned();
-                                            (&visible[..visible.len() - 1], last)
+                                            (&visible[..visible.len() - 1], true)
                                         } else {
-                                            (&visible[..], None)
+                                            (&visible[..], false)
                                         };
+
+                                    // Pre-pair messages with metadata for Jan-style footer
+                                    let meta_snap = ai_meta.get();
+                                    let mut ai_count = 0usize;
+                                    let completed_with_meta: Vec<_> = completed.iter().map(|m| {
+                                        if m.role == "assistant" {
+                                            let t = (m.content.chars().count() / 4).max(1) as u32;
+                                            let meta = meta_snap.get(ai_count).cloned()
+                                                .unwrap_or_else(|| (String::new(), t, 0.0));
+                                            ai_count += 1;
+                                            (m.clone(), Some(meta))
+                                        } else {
+                                            (m.clone(), None)
+                                        }
+                                    }).collect();
+                                    // Index of last AI message (its footer stays visible)
+                                    let last_ai_idx = completed_with_meta.iter()
+                                        .enumerate()
+                                        .filter(|(_, (m, _))| m.role == "assistant")
+                                        .last()
+                                        .map(|(i, _)| i);
 
                                     view! {
                                         // ── Completed messages
-                                        {completed.iter().map(|m| {
+                                        {completed_with_meta.into_iter().enumerate().map(|(msg_idx, (m, meta))| {
                                             if m.role == "user" {
                                                 view! {
                                                     <div class="msg-row msg-user">
@@ -449,31 +624,87 @@ pub fn ChatPage() -> impl IntoView {
                                             } else {
                                                 let parsed = parse_think(&m.content);
                                                 let partial = parsed.current_think.clone();
+                                                let answer_for_copy = parsed.answer.clone();
+                                                let (dt, toks, speed) = meta.unwrap_or_else(|| {
+                                                    let t = (m.content.chars().count() / 4).max(1) as u32;
+                                                    (format_datetime_now(), t, 0.0)
+                                                });
+                                                let has_speed = speed > 0.5;
+                                                let speed_label = format!("{:.0} tokens/sec", speed);
+                                                let tokens_label = format!("({} tokens)", toks);
+                                                let footer_cls = if last_ai_idx == Some(msg_idx) && !is_busy {
+                                                    "cx-msg-footer visible"
+                                                } else {
+                                                    "cx-msg-footer"
+                                                };
                                                 view! {
                                                     <div class="msg-row msg-ai">
-                                                        <div class="ai-avatar">"✦"</div>
                                                         <div class="bubble-ai">
-                                                            // Completed think blocks
                                                             {parsed.thinking.into_iter().filter(|t| !t.trim().is_empty()).map(|t| view! {
                                                                 <details class="thinking-container">
                                                                     <summary>
                                                                         <span class="thinking-dot"></span>
-                                                                        "Thinking Process..."
+                                                                        "▸ Thinking"
                                                                     </summary>
                                                                     <div class="thinking-content">{t}</div>
                                                                 </details>
                                                             }).collect_view()}
-                                                            // Partial think block (generation cut off inside <think>)
                                                             {(!partial.trim().is_empty()).then(|| view! {
                                                                 <details class="thinking-container">
                                                                     <summary>
                                                                         <span class="thinking-dot"></span>
-                                                                        "Thinking Process... (incomplete)"
+                                                                        "▸ Thinking (incomplete)"
                                                                     </summary>
                                                                     <div class="thinking-content">{partial}</div>
                                                                 </details>
                                                             })}
                                                             <div class="message-text" inner_html={markdown_to_html(&parsed.answer)}></div>
+                                                        </div>
+                                                        // ── Jan-style footer: time | actions | speed | tokens
+                                                        <div class={footer_cls}>
+                                                            <span class="cx-mf-time">{dt}</span>
+                                                            <div class="cx-mf-actions">
+                                                                <button class="cx-mf-btn" title="Copy"
+                                                                    on:click=move |_| {
+                                                                        if let Some(clip) = web_sys::window().map(|w| w.navigator().clipboard()) {
+                                                                            let _ = clip.write_text(&answer_for_copy);
+                                                                        }
+                                                                    }>
+                                                                    <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <path d="M9 1H3a1 1 0 00-1 1v8"/>
+                                                                        <rect x="5" y="4" width="7" height="9" rx="1"/>
+                                                                    </svg>
+                                                                </button>
+                                                                <button class="cx-mf-btn" title="Edit">
+                                                                    <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <path d="M10 2l2 2-7 7H3v-2l7-7z"/>
+                                                                    </svg>
+                                                                </button>
+                                                                <button class="cx-mf-btn" title="Delete">
+                                                                    <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <polyline points="2,4 12,4"/>
+                                                                        <path d="M5 4V2h4v2M4 4l.7 8h4.6L10 4"/>
+                                                                    </svg>
+                                                                </button>
+                                                                <button class="cx-mf-btn" title="Regenerate">
+                                                                    <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <path d="M12 7A5 5 0 102 7"/>
+                                                                        <polyline points="12,3 12,7 8,7"/>
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                            <div style="flex:1"></div>
+                                                            {has_speed.then(|| view! {
+                                                                <div class="cx-mf-speed">
+                                                                    <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+                                                                        <path d="M1.5 9.5A5.5 5.5 0 0112.5 9.5"/>
+                                                                        <line x1="7" y1="9.5" x2="10.5" y2="4.5"/>
+                                                                        <circle cx="7" cy="9.5" r="0.8" fill="currentColor" stroke="none"/>
+                                                                    </svg>
+                                                                    <span>{speed_label}</span>
+                                                                </div>
+                                                            })}
+                                                            <span class="cx-mf-tokens">{tokens_label}</span>
                                                         </div>
                                                     </div>
                                                 }.into_view()
@@ -481,49 +712,49 @@ pub fn ChatPage() -> impl IntoView {
                                         }).collect_view()}
 
                                         // ── Live streaming message
-                                        {streaming_msg.map(|_| view! {
+                                        // Reads chat.streaming_content — does NOT read chat.messages.
+                                        // Renders plain text during streaming; markdown is applied
+                                        // only when the message moves to the completed list at stream end.
+                                        {show_streaming.then(|| view! {
                                             <div class="msg-row msg-ai">
-                                                <div class="ai-avatar">"✦"</div>
                                                 <div class="bubble-ai">
                                                     {move || {
-                                                        let msgs = chat.messages.get();
-                                                        let content = msgs.iter()
-                                                            .filter(|m| m.role != "system")
-                                                            .last()
-                                                            .map(|m| m.content.clone())
-                                                            .unwrap_or_default();
+                                                        let content = chat.streaming_content.get();
+                                                        if content.is_empty() {
+                                                            return view! {
+                                                                <div class="cx-stream-dots"><span></span><span></span><span></span></div>
+                                                            }.into_view();
+                                                        }
                                                         let parsed = parse_think(&content);
                                                         let still_thinking = parsed.still_thinking;
                                                         let current = parsed.current_think.clone();
                                                         view! {
-                                                            // Completed think blocks (collapsed)
                                                             {parsed.thinking.into_iter().filter(|t| !t.trim().is_empty()).map(|t| view! {
                                                                 <details class="thinking-container">
                                                                     <summary>
                                                                         <span class="thinking-dot"></span>
-                                                                        "Thinking Process..."
+                                                                        "▸ Thinking"
                                                                     </summary>
                                                                     <div class="thinking-content">{t}</div>
                                                                 </details>
                                                             }).collect_view()}
-                                                            // Active think block — OPEN, tokens stream live inside
                                                             {still_thinking.then(|| view! {
                                                                 <details class="thinking-container thinking-live" open>
                                                                     <summary>
                                                                         <span class="thinking-dot thinking-dot--pulse"></span>
-                                                                        "Thinking..."
+                                                                        "▸ Thinking..."
                                                                         <span class="stream-cursor"></span>
                                                                     </summary>
                                                                     <div class="thinking-content">{current}</div>
                                                                 </details>
                                                             })}
-                                                            // Answer text (after </think>)
-                                                            <div class="message-text" inner_html={markdown_to_html(&parsed.answer)}></div>
-                                                            // Cursor while streaming answer
+                                                            // Plain text during streaming — no markdown_to_html() call per token.
+                                                            // Full markdown renders when stream ends and message moves to completed list.
+                                                            <div class="message-text">{parsed.answer.clone()}</div>
                                                             {(!still_thinking).then(||
                                                                 view! { <span class="stream-cursor"></span> }
                                                             )}
-                                                        }
+                                                        }.into_view()
                                                     }}
                                                 </div>
                                             </div>
@@ -533,10 +764,35 @@ pub fn ChatPage() -> impl IntoView {
                             </div>
                         }.into_view()
                     } else {
-                        // Empty state: mascot centered in the body
+                        // Empty state: mascot + headline + suggestion chips
+                        let suggestions = ["Explain something complex", "Help me write code", "Summarize a document"];
                         view! {
                             <div class="cx-empty-center">
-                                <img class="cx-above-mascot" src="/public/LOGO%20NO%20BG.png" alt="Feral" />
+                                <div class="cx-empty-mascot-wrap">
+                                    <img class="cx-empty-mascot" src="/public/LOGO%20NO%20BG.png" alt="Feral" />
+                                </div>
+                                <div class="cx-empty-prompt">"What's on your mind?"</div>
+                                <div class="cx-empty-chips">
+                                    {suggestions.iter().map(|s| {
+                                        let label: &'static str = s;
+                                        view! {
+                                            <button class="cx-empty-chip"
+                                                on:click=move |_| {
+                                                    set_input.set(label.to_string());
+                                                    if let Some(el) = web_sys::window()
+                                                        .and_then(|w| w.document())
+                                                        .and_then(|d| d.query_selector(".cx-pill-textarea").ok().flatten())
+                                                    {
+                                                        if let Ok(ta) = el.dyn_into::<HtmlTextAreaElement>() {
+                                                            let _ = ta.focus();
+                                                        }
+                                                    }
+                                                }>
+                                                {label}
+                                            </button>
+                                        }
+                                    }).collect_view()}
+                                </div>
                             </div>
                         }.into_view()
                     }}
@@ -552,7 +808,7 @@ pub fn ChatPage() -> impl IntoView {
                         <textarea
                             class="cx-pill-textarea"
                             class:cx-hidden=move || chip_mode.get()
-                            placeholder="What's on your mind?"
+                            placeholder="Ask me anything..."
                             rows="1"
                             prop:value=move || input.get()
                             on:input=move |e| {
@@ -607,6 +863,80 @@ pub fn ChatPage() -> impl IntoView {
                                 <span class="cx-pill-model-dot"></span>
                                 <span class="cx-pill-model-name">{move || pill_model_name()}</span>
                             </A>
+                            <div style="flex:1"></div>
+                            // Context window ring — full conversation token estimate + live popup
+                            {move || {
+                                let all_msgs = chat.messages.get();
+                                let prompt_toks: u32 = all_msgs.iter()
+                                    .filter(|m| m.role == "user")
+                                    .map(|m| (m.content.chars().count() / 4) as u32)
+                                    .sum();
+                                let completion_toks: u32 = all_msgs.iter()
+                                    .filter(|m| m.role == "assistant")
+                                    .map(|m| (m.content.chars().count() / 4) as u32)
+                                    .sum();
+                                let input_toks = (input.get().chars().count() / 4) as u32;
+                                let total_toks = prompt_toks + completion_toks + input_toks;
+                                let ctx_max = max_tokens.get();
+                                let remaining = ctx_max.saturating_sub(total_toks);
+                                let pct = ((total_toks as f32 / ctx_max as f32) * 100.0).min(100.0);
+                                let cls = if pct >= 95.0 { "cx-ctx crit" }
+                                          else if pct >= 80.0 { "cx-ctx warn" }
+                                          else { "cx-ctx" };
+                                let pct_label = format!("{:.1}%", pct);
+                                let ring_style = format!("--p:{:.1}", pct);
+                                let bar_pct = pct;
+                                view! {
+                                    <div class="cx-ctx-popup-wrap">
+                                        <div class=cls style="cursor:pointer"
+                                            on:click=move |_| set_ctx_open.update(|v| *v = !*v)>
+                                            <span class="cx-ctx-ring" style={ring_style}></span>
+                                            <span>{pct_label}</span>
+                                        </div>
+                                        {move || ctx_open.get().then(|| {
+                                            let model_name = loaded.get()
+                                                .map(|l| l.name)
+                                                .unwrap_or_else(|| "No model".into());
+                                            view! {
+                                                <div class="cx-ctx-popup">
+                                                    <div class="cx-ctx-popup-header">
+                                                        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                                                            <rect x="1" y="4" width="12" height="9" rx="1"/>
+                                                            <path d="M5 4V2h4v2"/>
+                                                        </svg>
+                                                        <div>
+                                                            <div class="cx-ctx-popup-title">"Context window"</div>
+                                                            <div class="cx-ctx-popup-model">{model_name}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="cx-ctx-popup-pct">{format!("{:.1}%", bar_pct)}</div>
+                                                    <div class="cx-ctx-popup-bar">
+                                                        <div class="cx-ctx-popup-bar-fill"
+                                                            style=format!("width:{:.1}%", bar_pct)></div>
+                                                    </div>
+                                                    <div class="cx-ctx-popup-row">
+                                                        <span>"↑ Prompt"</span>
+                                                        <span class="val">{prompt_toks}</span>
+                                                    </div>
+                                                    <div class="cx-ctx-popup-row">
+                                                        <span>"↓ Completion"</span>
+                                                        <span class="val">{completion_toks}</span>
+                                                    </div>
+                                                    <div class="cx-ctx-popup-divider"></div>
+                                                    <div class="cx-ctx-popup-row">
+                                                        <span>"Σ Used"</span>
+                                                        <span class="val">{total_toks}</span>
+                                                    </div>
+                                                    <div class="cx-ctx-popup-row cx-ctx-popup-remaining">
+                                                        <span>"Remaining"</span>
+                                                        <span class="val">{remaining}</span>
+                                                    </div>
+                                                </div>
+                                            }
+                                        })}
+                                    </div>
+                                }
+                            }}
                             {move || if busy.get() {
                                 view! {
                                     <button class="cx-pill-stop"
