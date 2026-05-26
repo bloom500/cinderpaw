@@ -191,27 +191,27 @@ pub fn ChatPage() -> impl IntoView {
         set_at_bottom.set(true);
     });
 
-    // Token speed tracking: detect first token, count tokens, compute speed on finish
+    // Token speed tracking: subscribes to streaming_content (not chat.messages)
+    // so it updates per-token during streaming without triggering list re-renders.
     create_effect(move |prev: Option<(bool, String)>| {
         let is_busy = busy.get();
-        let last_content = chat.messages.get()
-            .into_iter()
-            .filter(|m| m.role == "assistant")
-            .last()
-            .map(|m| m.content)
-            .unwrap_or_default();
+        let streaming = chat.streaming_content.get();
 
         let (prev_busy, prev_content) = prev.unwrap_or((false, String::new()));
 
-        if is_busy && prev_content.is_empty() && !last_content.is_empty() {
+        // Detect first token (content transitions from empty to non-empty while busy)
+        if is_busy && prev_content.is_empty() && !streaming.is_empty() {
             set_stream_start_ms.set(Some(js_sys::Date::now()));
         }
-        if is_busy && !last_content.is_empty() {
-            set_live_token_count.set((last_content.chars().count() / 4).max(1) as u32);
+        // Update live token count each token (rough estimate: 4 chars ≈ 1 token)
+        if is_busy && !streaming.is_empty() {
+            set_live_token_count.set((streaming.chars().count() / 4).max(1) as u32);
         }
-        if prev_busy && !is_busy && !last_content.is_empty() {
-            let tokens = live_token_count.get();
-            let speed = stream_start_ms.get()
+        // When busy transitions to false: streaming content has been cleared by the batch
+        // in main.rs, but live_token_count still holds the final value from the last token.
+        if prev_busy && !is_busy {
+            let tokens = live_token_count.get_untracked();
+            let speed = stream_start_ms.get_untracked()
                 .map(|start| {
                     let elapsed = (js_sys::Date::now() - start) / 1000.0;
                     if elapsed > 0.05 { tokens as f32 / elapsed as f32 } else { 0.0 }
@@ -221,7 +221,7 @@ pub fn ChatPage() -> impl IntoView {
             set_stream_start_ms.set(None);
         }
 
-        (is_busy, last_content)
+        (is_busy, streaming)
     });
 
     let save_current_session = move || {
