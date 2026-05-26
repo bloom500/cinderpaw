@@ -4,7 +4,7 @@ use pulldown_cmark::{html, Options, Parser};
 use serde_json::json;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
-use web_sys::{HtmlTextAreaElement, MouseEvent, KeyboardEvent};
+use web_sys::{HtmlElement, HtmlTextAreaElement, MouseEvent, KeyboardEvent};
 
 use crate::context::{ChatContext, ChatSessionSummary};
 use crate::pages::components::hw_notification::HwNotification;
@@ -135,6 +135,29 @@ pub fn ChatPage() -> impl IntoView {
     let (stream_start_ms, set_stream_start_ms) = create_signal::<Option<f64>>(None);
     let (live_token_count, set_live_token_count) = create_signal::<u32>(0);
     let (ctx_open, set_ctx_open) = create_signal(false);
+    let (at_bottom, set_at_bottom) = create_signal(true);
+
+    // Register scroll listener once on component mount (no signal reads inside = runs exactly once).
+    create_effect(move |_| {
+        if let Some(el) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("feral-chat-scroll"))
+            .and_then(|e| e.dyn_into::<HtmlElement>().ok())
+        {
+            let closure = Closure::<dyn FnMut()>::new(move || {
+                if let Some(e) = web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| d.get_element_by_id("feral-chat-scroll"))
+                    .and_then(|el| el.dyn_into::<HtmlElement>().ok())
+                {
+                    let is_at = e.scroll_top() + e.client_height() >= e.scroll_height() - 50;
+                    set_at_bottom.set(is_at);
+                }
+            });
+            let _ = el.add_event_listener_with_callback("scroll", closure.as_ref().unchecked_ref());
+            closure.forget();
+        }
+    });
 
     // Load active model on mount
     spawn_local(async move {
@@ -143,7 +166,20 @@ pub fn ChatPage() -> impl IntoView {
         }
     });
 
-    // Auto-scroll to bottom when messages update
+    // Scroll on new token — but only if user is already at the scroll bottom.
+    create_effect(move |_| {
+        let _ = chat.streaming_content.get();
+        if at_bottom.get_untracked() {
+            if let Some(el) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("feral-chat-scroll"))
+            {
+                el.set_scroll_top(el.scroll_height());
+            }
+        }
+    });
+
+    // Always scroll to bottom when messages change (new message sent or stream completed).
     create_effect(move |_| {
         let _ = chat.messages.get();
         if let Some(el) = web_sys::window()
@@ -152,6 +188,7 @@ pub fn ChatPage() -> impl IntoView {
         {
             el.set_scroll_top(el.scroll_height());
         }
+        set_at_bottom.set(true);
     });
 
     // Token speed tracking: detect first token, count tokens, compute speed on finish
@@ -797,6 +834,22 @@ pub fn ChatPage() -> impl IntoView {
                         }.into_view()
                     }}
                 </div>
+
+                // ↓ New content pill — shown when user scrolled up during streaming
+                {move || (busy.get() && !at_bottom.get()).then(|| view! {
+                    <button
+                        class="cx-scroll-pill"
+                        on:click=move |_| {
+                            if let Some(el) = web_sys::window()
+                                .and_then(|w| w.document())
+                                .and_then(|d| d.get_element_by_id("feral-chat-scroll"))
+                            {
+                                el.set_scroll_top(el.scroll_height());
+                                set_at_bottom.set(true);
+                            }
+                        }
+                    >"↓ New content"</button>
+                })}
 
                 // ── INPUT: fixed at bottom, in flow (not absolute) ────────
                 <div class="cx-input-bay">
