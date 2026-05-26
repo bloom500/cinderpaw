@@ -36,6 +36,10 @@ pub struct ChatContext {
     pub sessions: RwSignal<HashMap<String, Vec<Message>>>,
     /// Whether the model is currently generating (lives here so App-level listeners can write it)
     pub busy: RwSignal<bool>,
+    /// Accumulated text from the live token stream. Reset to "" on stream completion.
+    /// The streaming display component reads this directly — not chat.messages — to
+    /// avoid re-rendering the completed message list on every token.
+    pub streaming_content: RwSignal<String>,
 }
 
 impl ChatContext {
@@ -46,6 +50,7 @@ impl ChatContext {
             history: create_rw_signal(Vec::new()),
             sessions: create_rw_signal(HashMap::new()),
             busy: create_rw_signal(false),
+            streaming_content: create_rw_signal(String::new()),
         }
     }
 }
