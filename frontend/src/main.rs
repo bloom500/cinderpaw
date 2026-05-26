@@ -77,12 +77,11 @@ fn App() -> impl IntoView {
                     let tok = tok.to_string();
                     let active = chat.active_session_id.get();
                     if active.as_deref() == Some(&tok_session) {
-                        chat.messages.update(|m| {
-                            if let Some(last) = m.last_mut() {
-                                if last.role == "assistant" { last.content.push_str(&tok); }
-                            }
-                        });
+                        // Append to streaming_content only — does NOT re-render the completed list.
+                        // chat.messages is updated once at stream end with the full text.
+                        chat.streaming_content.update(|s| s.push_str(&tok));
                     } else {
+                        // Background session: accumulate directly into sessions map (no live display)
                         chat.sessions.update(|s| {
                             if let Some(msgs) = s.get_mut(&tok_session) {
                                 if let Some(last) = msgs.last_mut() {
@@ -102,7 +101,22 @@ fn App() -> impl IntoView {
             .unwrap_or_default();
 
         if chat.active_session_id.get().as_deref() == Some(&done_session) {
-            chat.busy.set(false);
+            let final_content = chat.streaming_content.get();
+
+            // Atomic batch: set final content into messages, clear streaming buffer,
+            // and mark not-busy all in one reactive flush to avoid intermediate states.
+            batch(|| {
+                chat.messages.update(|m| {
+                    if let Some(last) = m.last_mut() {
+                        if last.role == "assistant" {
+                            last.content = final_content.clone();
+                        }
+                    }
+                });
+                chat.streaming_content.set(String::new());
+                chat.busy.set(false);
+            });
+
             let msgs = chat.messages.get();
             if !msgs.is_empty() {
                 let title = session_title(&msgs);
@@ -116,6 +130,7 @@ fn App() -> impl IntoView {
                 });
             }
         } else if !done_session.is_empty() {
+            // Stream completed for a background session — update title only
             let title = chat.sessions.get()
                 .get(&done_session)
                 .map(|m| session_title(m))
