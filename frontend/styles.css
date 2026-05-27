@@ -1265,8 +1265,16 @@ details.thinking-live .thinking-content {
   background: #000;
   color: var(--fg);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   overflow: hidden;
+}
+
+.cx-right-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* ── TOP BAR ────────────────────────────────────────────────────────────── */
@@ -1310,7 +1318,14 @@ details.thinking-live .thinking-content {
   line-height: 1;
 }
 .cx-icon-btn:hover { background: rgba(255,255,255,0.06); }
-.cx-burger { font-size: 22px; }
+.cx-burger {
+  font-size: 22px;
+  transition: opacity 200ms ease-in-out;
+}
+.cx-burger-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
 .cx-controls-pill {
   display: inline-flex;
   align-items: center;
@@ -1374,6 +1389,58 @@ details.thinking-live .thinking-content {
   overflow-y: auto;
 }
 .cx-drawer-right.open { transform: translateX(0); }
+
+/* ── PERSISTENT SIDEBAR ─────────────────────────────────────── */
+.cx-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: #191919;
+  border-radius: 16px;
+  margin: 8px 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  transition: transform 200ms ease-in-out, margin-left 200ms ease-in-out;
+}
+.cx-sidebar.collapsed {
+  transform: translateX(-256px);
+  margin-left: -248px;
+}
+
+.cx-focus-mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(100% - 24px);
+  margin: 0 12px 4px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.cx-focus-mode-btn:hover {
+  background: rgba(255,255,255,0.05);
+  color: var(--fg);
+}
+.cx-focus-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.cx-focus-mode-badge {
+  font-size: 10px;
+  color: #555;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  padding: 2px 5px;
+  letter-spacing: 0.02em;
+}
 
 .cx-drawer-header {
   display: flex;
