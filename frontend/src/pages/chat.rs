@@ -100,6 +100,25 @@ fn format_datetime_now() -> String {
     format!("{} {}, {}, {}:{:02} {}", month, day, year, h, m, suffix)
 }
 
+fn read_sidebar_collapsed() -> bool {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|ls| ls.get_item("feral_sidebar_collapsed").ok().flatten())
+        .map(|v| v == "true")
+        .unwrap_or(false)
+}
+
+fn write_sidebar_collapsed(val: bool) {
+    if let Some(ls) = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+    {
+        let _ = ls.set_item(
+            "feral_sidebar_collapsed",
+            if val { "true" } else { "false" },
+        );
+    }
+}
+
 fn session_title(msgs: &[crate::pages::types::Message]) -> String {
     msgs.iter()
         .find(|m| m.role == "user")
@@ -122,7 +141,7 @@ pub fn ChatPage() -> impl IntoView {
     let (input, set_input) = create_signal(String::new());
     let (system_prompt, set_system_prompt) = create_signal(String::new());
     let busy = chat.busy;
-    let (history_open, set_history_open) = create_signal(false);
+    let (sidebar_collapsed, set_sidebar_collapsed) = create_signal(read_sidebar_collapsed());
     let (controls_open, set_controls_open) = create_signal(false);
     let (temp, set_temp) = create_signal(0.7f32);
     let (max_tokens, set_max_tokens) = create_signal(4096u32);
@@ -352,46 +371,14 @@ pub fn ChatPage() -> impl IntoView {
     view! {
         <div class="cx-root">
 
-            // ── HW RECOMMENDATION TOAST ───────────────────────────────────
+            // ── HW RECOMMENDATION TOAST ─────────────────────────────
             <HwNotification/>
 
-            // ── TOP BAR (burger + active model + controls) ───────────────
-            <div class="cx-topbar">
-                <div class="cx-topbar-side">
-                    <button class="cx-icon-btn cx-burger"
-                        on:click=move |_| set_history_open.update(|v| *v = !*v)
-                        title="Conversations">"≡"</button>
-                </div>
-                <div class="cx-topbar-center">
-                    <A href="/models" class="cx-model-pill" attr:title="Switch model">
-                        <span class=move || {
-                            if loaded.get().is_some() { "cx-model-pill-dot loaded" } else { "cx-model-pill-dot" }
-                        }></span>
-                        <span class="cx-model-pill-name">
-                            {move || {
-                                match loaded.get() {
-                                    Some(l) => l.name,
-                                    None => "No model loaded".into(),
-                                }
-                            }}
-                        </span>
-                    </A>
-                </div>
-                <button class="cx-controls-pill"
-                    on:click=move |_| set_controls_open.update(|v| *v = !*v)
-                    title="Controls">
-                    <span class="cx-gear">"⚙"</span>
-                </button>
-            </div>
-
-            // ── HISTORY DRAWER (left, slides in) ─────────────────────────
-            <div class=move || if history_open.get() { "cx-overlay open" } else { "cx-overlay" }
-                 on:click=move |_| set_history_open.set(false)></div>
-            <aside class=move || if history_open.get() { "cx-drawer cx-drawer-left open" } else { "cx-drawer cx-drawer-left" }>
+            // ── PERSISTENT SIDEBAR ───────────────────────────────────
+            <aside class=move || if sidebar_collapsed.get() { "cx-sidebar collapsed" } else { "cx-sidebar" }>
                 <div class="cx-sidebar-brand">"feral"</div>
                 <button class="cx-new-chat-full" on:click=move |e| {
                     new_chat(e);
-                    set_history_open.set(false);
                 }>
                     <span>"+"</span><span>"New Chat"</span>
                 </button>
@@ -418,7 +405,6 @@ pub fn ChatPage() -> impl IntoView {
                                             <div class=if is_active { "cx-hist-item active" } else { "cx-hist-item" }
                                                 on:click=move |_| {
                                                     load_conv(id.clone());
-                                                    set_history_open.set(false);
                                                 }>
                                                 <span class="cx-hist-dot">"◆"</span>
                                                 <span class="cx-hist-name">{title}</span>
@@ -430,175 +416,52 @@ pub fn ChatPage() -> impl IntoView {
                         </div>
                     </div>
                 </div>
+                <button class="cx-focus-mode-btn"
+                    on:click=move |_| {
+                        let new_val = !sidebar_collapsed.get_untracked();
+                        set_sidebar_collapsed.set(new_val);
+                        write_sidebar_collapsed(new_val);
+                    }
+                >
+                    <span class="cx-focus-mode-label"><span>"⊡"</span>" Focus Mode"</span>
+                    <span class="cx-focus-mode-badge">"Ctrl+B"</span>
+                </button>
                 <div class="cx-sidebar-footer">"v0.1.0"</div>
             </aside>
 
-            // ── CONTROLS DRAWER (right, slides in) ───────────────────────
-            <div class=move || if controls_open.get() { "cx-overlay open" } else { "cx-overlay" }
-                 on:click=move |_| set_controls_open.set(false)></div>
-            <aside class=move || if controls_open.get() { "cx-drawer cx-drawer-right open" } else { "cx-drawer cx-drawer-right" }>
-                <div class="cx-drawer-header">
-                    <span class="cx-drawer-title">"Controls"</span>
-                    <button class="cx-icon-btn cx-drawer-close"
-                        on:click=move |_| set_controls_open.set(false)>"×"</button>
+            // ── RIGHT COLUMN (topbar + canvas) ────────────────────────
+            <div class="cx-right-col">
+
+            // ── TOP BAR ──────────────────────────────────────────────
+            <div class="cx-topbar">
+                <div class="cx-topbar-side">
+                    <button
+                        class=move || if sidebar_collapsed.get() {
+                            "cx-icon-btn cx-burger"
+                        } else {
+                            "cx-icon-btn cx-burger cx-burger-hidden"
+                        }
+                        on:click=move |_| {
+                            set_sidebar_collapsed.set(false);
+                            write_sidebar_collapsed(false);
+                        }
+                        title="Expand sidebar"
+                    >"≡"</button>
+                    <A href="/models" class="cx-model-pill" attr:title="Switch model">
+                        <span class=move || {
+                            if loaded.get().is_some() { "cx-model-pill-dot loaded" } else { "cx-model-pill-dot" }
+                        }></span>
+                        <span class="cx-model-pill-name">
+                            {move || pill_model_name()}
+                        </span>
+                    </A>
                 </div>
-
-                <div class="cx-drawer-body">
-                    // ─ Active model card
-                    <div class="ctrl-sect">
-                        <div class="ctrl-model-badge">
-                            <span class="ctrl-model-dot"></span>
-                            <div class="ctrl-model-info">
-                                <span class="ctrl-model-tag">"Active Model"</span>
-                                <span class="ctrl-model-name">
-                                    {move || loaded.get()
-                                        .map(|l| format!("{} · Loaded", l.name))
-                                        .unwrap_or_else(|| "None loaded".into())}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="ctrl-sep"></div>
-
-                    // ─ Response style pills
-                    <div class="ctrl-sect">
-                        <div class="ctrl-label">"Response Style"</div>
-                        <div class="ctrl-style-pills">
-                            <button class=style_precise_cls
-                                on:click=move |_| set_temp.set(0.2)>"Precise"</button>
-                            <button class=style_balanced_cls
-                                on:click=move |_| set_temp.set(0.7)>"Balanced"</button>
-                            <button class=style_creative_cls
-                                on:click=move |_| set_temp.set(1.1)>"Creative"</button>
-                        </div>
-                        <div class="ctrl-style-desc">
-                            {move || match temp.get() {
-                                t if t <= 0.45 => "Factual, deterministic",
-                                t if t <= 0.9  => "Best for chat, summaries",
-                                _              => "Imaginative, varied",
-                            }}
-                        </div>
-                    </div>
-
-                    <div class="ctrl-sep"></div>
-
-                    // ─ Response Length (steppers)
-                    <div class="ctrl-sect">
-                        <div class="ctrl-num-row">
-                            <div class="ctrl-num-head">
-                                <span class="ctrl-num-name">"Response Length"</span>
-                                <div class="ctrl-num-stepper">
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_max_tokens.update(|v| *v = (*v).saturating_sub(128).max(128))
-                                        prop:disabled=move || max_tokens.get() <= 128>"−"</button>
-                                    <span class="ctrl-num-val">{move || max_tokens.get().to_string()}</span>
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_max_tokens.update(|v| *v = (*v + 128).min(8192))
-                                        prop:disabled=move || max_tokens.get() >= 8192>"+"</button>
-                                </div>
-                            </div>
-                            <div class="ctrl-num-desc">"Maximum tokens in response"</div>
-                        </div>
-                    </div>
-
-                    <div class="ctrl-sep"></div>
-
-                    // ─ Temperature
-                    <div class="ctrl-sect">
-                        <div class="ctrl-num-row">
-                            <div class="ctrl-num-head">
-                                <span class="ctrl-num-name">"Temperature"</span>
-                                <div class="ctrl-num-stepper">
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_temp.update(|v| *v = (*v - 0.1).max(0.0))
-                                        prop:disabled=move || temp.get() <= 0.0>"−"</button>
-                                    <span class="ctrl-num-val">{move || format!("{:.1}", temp.get())}</span>
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_temp.update(|v| *v = (*v + 0.1).min(2.0))
-                                        prop:disabled=move || temp.get() >= 2.0>"+"</button>
-                                </div>
-                            </div>
-                            <div class="ctrl-num-desc">"Higher = more creative, lower = more precise"</div>
-                        </div>
-                    </div>
-
-                    <div class="ctrl-sep"></div>
-
-                    // ─ Nucleus Sampling
-                    <div class="ctrl-sect">
-                        <div class="ctrl-num-row">
-                            <div class="ctrl-num-head">
-                                <span class="ctrl-num-name">"Nucleus Sampling"</span>
-                                <div class="ctrl-num-stepper">
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_top_p.update(|v| *v = (*v - 0.05).max(0.0))
-                                        prop:disabled=move || top_p.get() <= 0.0>"−"</button>
-                                    <span class="ctrl-num-val">{move || format!("{:.2}", top_p.get())}</span>
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_top_p.update(|v| *v = (*v + 0.05).min(1.0))
-                                        prop:disabled=move || top_p.get() >= 1.0>"+"</button>
-                                </div>
-                            </div>
-                            <div class="ctrl-num-desc">"Probability mass for token selection"</div>
-                        </div>
-                    </div>
-
-                    <div class="ctrl-sep"></div>
-
-                    // ─ Repeat Penalty
-                    <div class="ctrl-sect">
-                        <div class="ctrl-num-row">
-                            <div class="ctrl-num-head">
-                                <span class="ctrl-num-name">"Repeat Penalty"</span>
-                                <div class="ctrl-num-stepper">
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_repeat.update(|v| *v = (*v - 0.05).max(1.0))
-                                        prop:disabled=move || repeat.get() <= 1.0>"−"</button>
-                                    <span class="ctrl-num-val">{move || format!("{:.2}", repeat.get())}</span>
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_repeat.update(|v| *v = (*v + 0.05).min(2.0))
-                                        prop:disabled=move || repeat.get() >= 2.0>"+"</button>
-                                </div>
-                            </div>
-                            <div class="ctrl-num-desc">"Penalizes repeated tokens"</div>
-                        </div>
-                    </div>
-
-                    <div class="ctrl-sep"></div>
-
-                    // ─ GPU Layers
-                    <div class="ctrl-sect">
-                        <div class="ctrl-num-row">
-                            <div class="ctrl-num-head">
-                                <span class="ctrl-num-name">"GPU Layers"</span>
-                                <div class="ctrl-num-stepper">
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_gpu_layers.update(|v| *v = (*v - 1).max(0))
-                                        prop:disabled=move || gpu_layers.get() <= 0>"−"</button>
-                                    <span class="ctrl-num-val">{move || gpu_layers.get().to_string()}</span>
-                                    <button class="ctrl-num-btn"
-                                        on:click=move |_| set_gpu_layers.update(|v| *v = (*v + 1).min(100))
-                                        prop:disabled=move || gpu_layers.get() >= 100>"+"</button>
-                                </div>
-                            </div>
-                            <div class="ctrl-num-desc">"0 = CPU only · 100 = Maximum GPU offload"</div>
-                        </div>
-                    </div>
-
-                    <div class="ctrl-sep"></div>
-
-                    // ─ Agent persona
-                    <div class="ctrl-sect ctrl-persona-sect">
-                        <div class="ctrl-label">"Agent Persona"</div>
-                        <div class="ctrl-sub">"System instructions for the model"</div>
-                        <textarea class="ctrl-persona-box"
-                            placeholder="You are a helpful assistant..."
-                            prop:value=move || system_prompt.get()
-                            on:input=move |e| set_system_prompt.set(event_target_value(&e))></textarea>
-                    </div>
-                </div>
-            </aside>
+                <button class="cx-controls-pill"
+                    on:click=move |_| set_controls_open.update(|v| *v = !*v)
+                    title="Controls">
+                    <span class="cx-gear">"⚙"</span>
+                </button>
+            </div>
 
             // ── MAIN CANVAS ──────────────────────────────────────────────
             <main class="cx-canvas">
@@ -1014,6 +877,175 @@ pub fn ChatPage() -> impl IntoView {
                     </div>
                 </div>
             </main>
+            </div> // cx-right-col
+
+            // ── CONTROLS DRAWER (right, slides in) ───────────────────────
+            <div class=move || if controls_open.get() { "cx-overlay open" } else { "cx-overlay" }
+                 on:click=move |_| set_controls_open.set(false)></div>
+            <aside class=move || if controls_open.get() { "cx-drawer cx-drawer-right open" } else { "cx-drawer cx-drawer-right" }>
+                <div class="cx-drawer-header">
+                    <span class="cx-drawer-title">"Controls"</span>
+                    <button class="cx-icon-btn cx-drawer-close"
+                        on:click=move |_| set_controls_open.set(false)>"×"</button>
+                </div>
+
+                <div class="cx-drawer-body">
+                    // ─ Active model card
+                    <div class="ctrl-sect">
+                        <div class="ctrl-model-badge">
+                            <span class="ctrl-model-dot"></span>
+                            <div class="ctrl-model-info">
+                                <span class="ctrl-model-tag">"Active Model"</span>
+                                <span class="ctrl-model-name">
+                                    {move || loaded.get()
+                                        .map(|l| format!("{} · Loaded", l.name))
+                                        .unwrap_or_else(|| "None loaded".into())}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Response style pills
+                    <div class="ctrl-sect">
+                        <div class="ctrl-label">"Response Style"</div>
+                        <div class="ctrl-style-pills">
+                            <button class=style_precise_cls
+                                on:click=move |_| set_temp.set(0.2)>"Precise"</button>
+                            <button class=style_balanced_cls
+                                on:click=move |_| set_temp.set(0.7)>"Balanced"</button>
+                            <button class=style_creative_cls
+                                on:click=move |_| set_temp.set(1.1)>"Creative"</button>
+                        </div>
+                        <div class="ctrl-style-desc">
+                            {move || match temp.get() {
+                                t if t <= 0.45 => "Factual, deterministic",
+                                t if t <= 0.9  => "Best for chat, summaries",
+                                _              => "Imaginative, varied",
+                            }}
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Response Length (steppers)
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Response Length"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_max_tokens.update(|v| *v = (*v).saturating_sub(128).max(128))
+                                        prop:disabled=move || max_tokens.get() <= 128>"−"</button>
+                                    <span class="ctrl-num-val">{move || max_tokens.get().to_string()}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_max_tokens.update(|v| *v = (*v + 128).min(8192))
+                                        prop:disabled=move || max_tokens.get() >= 8192>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Maximum tokens in response"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Temperature
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Temperature"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_temp.update(|v| *v = (*v - 0.1).max(0.0))
+                                        prop:disabled=move || temp.get() <= 0.0>"−"</button>
+                                    <span class="ctrl-num-val">{move || format!("{:.1}", temp.get())}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_temp.update(|v| *v = (*v + 0.1).min(2.0))
+                                        prop:disabled=move || temp.get() >= 2.0>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Higher = more creative, lower = more precise"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Nucleus Sampling
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Nucleus Sampling"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_top_p.update(|v| *v = (*v - 0.05).max(0.0))
+                                        prop:disabled=move || top_p.get() <= 0.0>"−"</button>
+                                    <span class="ctrl-num-val">{move || format!("{:.2}", top_p.get())}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_top_p.update(|v| *v = (*v + 0.05).min(1.0))
+                                        prop:disabled=move || top_p.get() >= 1.0>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Probability mass for token selection"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Repeat Penalty
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"Repeat Penalty"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_repeat.update(|v| *v = (*v - 0.05).max(1.0))
+                                        prop:disabled=move || repeat.get() <= 1.0>"−"</button>
+                                    <span class="ctrl-num-val">{move || format!("{:.2}", repeat.get())}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_repeat.update(|v| *v = (*v + 0.05).min(2.0))
+                                        prop:disabled=move || repeat.get() >= 2.0>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"Penalizes repeated tokens"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ GPU Layers
+                    <div class="ctrl-sect">
+                        <div class="ctrl-num-row">
+                            <div class="ctrl-num-head">
+                                <span class="ctrl-num-name">"GPU Layers"</span>
+                                <div class="ctrl-num-stepper">
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_gpu_layers.update(|v| *v = (*v - 1).max(0))
+                                        prop:disabled=move || gpu_layers.get() <= 0>"−"</button>
+                                    <span class="ctrl-num-val">{move || gpu_layers.get().to_string()}</span>
+                                    <button class="ctrl-num-btn"
+                                        on:click=move |_| set_gpu_layers.update(|v| *v = (*v + 1).min(100))
+                                        prop:disabled=move || gpu_layers.get() >= 100>"+"</button>
+                                </div>
+                            </div>
+                            <div class="ctrl-num-desc">"0 = CPU only · 100 = Maximum GPU offload"</div>
+                        </div>
+                    </div>
+
+                    <div class="ctrl-sep"></div>
+
+                    // ─ Agent persona
+                    <div class="ctrl-sect ctrl-persona-sect">
+                        <div class="ctrl-label">"Agent Persona"</div>
+                        <div class="ctrl-sub">"System instructions for the model"</div>
+                        <textarea class="ctrl-persona-box"
+                            placeholder="You are a helpful assistant..."
+                            prop:value=move || system_prompt.get()
+                            on:input=move |e| set_system_prompt.set(event_target_value(&e))></textarea>
+                    </div>
+                </div>
+            </aside>
+
         </div>
     }
 }
