@@ -142,6 +142,24 @@ pub fn ChatPage() -> impl IntoView {
     let (system_prompt, set_system_prompt) = create_signal(String::new());
     let busy = chat.busy;
     let (sidebar_collapsed, set_sidebar_collapsed) = create_signal(read_sidebar_collapsed());
+
+    // Register Ctrl+B globally to toggle sidebar. No reactive deps → runs once on mount.
+    create_effect(move |_| {
+        let closure = Closure::<dyn FnMut(_)>::new(move |e: web_sys::KeyboardEvent| {
+            if e.ctrl_key() && e.key() == "b" {
+                e.prevent_default();
+                let new_val = !sidebar_collapsed.get_untracked();
+                set_sidebar_collapsed.set(new_val);
+                write_sidebar_collapsed(new_val);
+            }
+        });
+        web_sys::window()
+            .expect("window")
+            .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
+            .expect("keydown listener");
+        closure.forget();
+    });
+
     let (controls_open, set_controls_open) = create_signal(false);
     let (temp, set_temp) = create_signal(0.7f32);
     let (max_tokens, set_max_tokens) = create_signal(4096u32);
