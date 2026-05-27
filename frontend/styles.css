@@ -1402,7 +1402,9 @@ details.thinking-live .thinking-content {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0,0,0,0.4);
-  transition: transform 200ms ease-in-out, margin-left 200ms ease-in-out, margin-top 200ms ease-in-out, margin-bottom 200ms ease-in-out, visibility 200ms;
+  transition: transform 200ms ease-in-out, margin-left 200ms ease-in-out,
+              margin-top 200ms ease-in-out, margin-bottom 200ms ease-in-out,
+              visibility 0ms 0ms;
 }
 .cx-sidebar.collapsed {
   transform: translateX(-256px);
@@ -1410,6 +1412,12 @@ details.thinking-live .thinking-content {
   margin-top: 0;
   margin-bottom: 0;
   visibility: hidden;
+  transition: transform 200ms ease-in-out, margin-left 200ms ease-in-out,
+              margin-top 200ms ease-in-out, margin-bottom 200ms ease-in-out,
+              visibility 0ms 200ms;
+}
+.cx-sidebar.no-transition {
+  transition: none !important;
 }
 
 .cx-focus-mode-btn {

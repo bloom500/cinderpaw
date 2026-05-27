@@ -161,8 +161,21 @@ pub fn ChatPage() -> impl IntoView {
                     let _ = w.remove_event_listener_with_callback("keydown", &cb);
                 }
             });
+            closure.forget();
         }
-        closure.forget();
+    });
+
+    let (no_transition, set_no_transition) = create_signal(true);
+    create_effect(move |_| {
+        let cb = Closure::<dyn FnMut()>::new(move || {
+            set_no_transition.set(false);
+        });
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                cb.as_ref().unchecked_ref(), 0,
+            );
+        }
+        cb.forget();
     });
 
     let (controls_open, set_controls_open) = create_signal(false);
@@ -398,7 +411,12 @@ pub fn ChatPage() -> impl IntoView {
             <HwNotification/>
 
             // ── PERSISTENT SIDEBAR ───────────────────────────────────
-            <aside class=move || if sidebar_collapsed.get() { "cx-sidebar collapsed" } else { "cx-sidebar" }>
+            <aside class=move || {
+                let mut cls = String::from("cx-sidebar");
+                if sidebar_collapsed.get() { cls.push_str(" collapsed"); }
+                if no_transition.get() { cls.push_str(" no-transition"); }
+                cls
+            }>
                 <div class="cx-sidebar-brand">"feral"</div>
                 <button class="cx-new-chat-full" on:click=move |e| {
                     new_chat(e);
