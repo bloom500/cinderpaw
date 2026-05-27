@@ -70,75 +70,54 @@ html, body {
 
 #app { height: 100vh; }
 
-.layout { display: grid; grid-template-columns: 220px 1fr; height: 100vh; }
-
-.sidebar {
-  background: var(--bg-2);
-  border-right: 1px solid var(--border);
-  padding: 16px 8px;
-  display: flex; flex-direction: column; gap: 4px;
-}
-
-.sidebar-spacer { flex: 1; }
-
-.sidebar-dl {
-  margin: 0 4px 8px;
-  padding: 10px 12px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex; flex-direction: column; gap: 4px;
-}
-.sidebar-dl-name {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--fg);
-  white-space: nowrap;
+/* ─────────────────────────────────────────────────────────────────────────────
+   APP SHELL — persistent layout (sidebar + page area)
+   The shell never re-renders across navigation. Only `.app-main` swaps content.
+───────────────────────────────────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  flex-direction: row;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
-  text-overflow: ellipsis;
+  background: #000;
 }
-.sidebar-dl-label {
-  font-size: 10px;
-  color: var(--fg-dim);
-  font-weight: 500;
-}
-.sidebar-dl-track {
-  height: 3px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-top: 2px;
-}
-.sidebar-dl-fill {
+.app-main {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
   height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width 0.3s ease;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  /* Cross-fade for route swaps — animates only the page area, never the sidebar */
+  animation: app-main-fade 150ms ease-out;
+}
+@keyframes app-main-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* Each top-level page lives directly under `.app-main` and gets its own scroll. */
+.app-main > .mlib-root,
+.app-main > .ast-root,
+.app-main > .set-root,
+.app-main > .cx-root {
+  flex: 1 1 0;
+  min-height: 0;
+}
+/* Models / Agents / Settings get padding + scroll inside the shell. */
+.app-main > .mlib-root,
+.app-main > .ast-root,
+.app-main > .set-root {
+  padding: 24px 32px;
+  overflow-y: auto;
 }
 
-.sidebar .brand {
-  font-size: 18px; font-weight: bold;
-  color: var(--accent);
-  padding: 8px 12px 20px;
-  letter-spacing: 2px;
-}
-
-.nav-link {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px;
-  color: var(--fg-dim);
-  text-decoration: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.nav-link:hover { background: var(--bg-3); color: var(--fg); }
-.nav-link.active { background: var(--accent); color: white; }
-
-.nav-icon { width: 16px; text-align: center; }
-
-.main { padding: 24px 32px; overflow: auto; height: 100vh; }
+/* Legacy generic typography helpers, still used inside Models page. */
 .page-title { font-size: 22px; margin: 0 0 16px; color: var(--fg); }
 .section-title { font-size: 14px; color: var(--fg-dim); text-transform: uppercase; margin: 24px 0 8px; }
+
 
 .card {
   background: var(--bg-2);
@@ -1259,13 +1238,14 @@ details.thinking-live .thinking-content {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .cx-root {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
+  /* Inside the shell now: simple flex column that fills `.app-main`. */
+  position: relative;
+  width: 100%;
+  height: 100%;
   background: #000;
   color: var(--fg);
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -1393,7 +1373,7 @@ details.thinking-live .thinking-content {
 
 /* ── PERSISTENT SIDEBAR ─────────────────────────────────────── */
 .cx-sidebar {
-  width: 240px;
+  width: 220px;
   flex-shrink: 0;
   background: #191919;
   border-radius: 16px;
@@ -1407,8 +1387,8 @@ details.thinking-live .thinking-content {
               visibility 0ms 0ms;
 }
 .cx-sidebar.collapsed {
-  transform: translateX(-256px);
-  margin-left: -248px;
+  transform: translateX(-236px);
+  margin-left: -228px;
   margin-top: 0;
   margin-bottom: 0;
   visibility: hidden;
@@ -1418,6 +1398,44 @@ details.thinking-live .thinking-content {
 }
 .cx-sidebar.no-transition {
   transition: none !important;
+}
+
+/* Download progress card inside the persistent sidebar */
+.cx-sidebar-dl {
+  margin: 4px 12px 8px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cx-sidebar-dl-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cx-sidebar-dl-label {
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-weight: 500;
+}
+.cx-sidebar-dl-track {
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.cx-sidebar-dl-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
 }
 
 .cx-focus-mode-btn {
@@ -1499,6 +1517,10 @@ details.thinking-live .thinking-content {
   background: rgba(255,255,255,0.05);
   color: var(--fg);
   text-decoration: none;
+}
+.cx-nav-link.active {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .cx-drawer-section {
@@ -2087,7 +2109,7 @@ details.thinking-live .thinking-content {
   font-weight: 700;
   color: var(--accent);
   letter-spacing: 0.01em;
-  padding: 16px 18px 4px;
+  padding: 12px 10px 4px;
   user-select: none;
 }
 .cx-new-chat-full {
@@ -2119,10 +2141,10 @@ details.thinking-live .thinking-content {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-muted);
-  padding: 10px 16px 4px;
+  padding: 10px 10px 4px;
 }
 .cx-sidebar-footer {
-  padding: 10px 18px 14px;
+  padding: 10px 10px 10px;
   font-size: 10px;
   font-weight: 600;
   color: var(--text-hint);
@@ -2469,7 +2491,10 @@ details.thinking-live .thinking-content {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.mlib-root::-webkit-scrollbar { display: none; }
 
 .mlib-sysbar {
   display: flex;
@@ -2527,6 +2552,10 @@ details.thinking-live .thinking-content {
   display: flex;
   align-items: center;
   gap: 10px;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 .mlib-search {
   flex: 1;
@@ -2570,37 +2599,126 @@ details.thinking-live .thinking-content {
 .mlib-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 .mlib-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 18px 20px;
+  background: #121212;
+  border: 1px solid rgba(255,255,255,0.03);
+  border-radius: 8px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   transition: border-color var(--t-fast);
 }
-.mlib-card:hover { border-color: var(--border-strong); }
+.mlib-card:hover { border-color: rgba(255,255,255,0.07); }
 
 .mlib-card-head {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.mlib-card-name {
+.mlib-card-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1;
-  font-size: 15px;
+  min-width: 0;
+}
+.mlib-card-name {
+  font-size: 14px;
   font-weight: 700;
-  color: var(--text);
+  color: #eeeeee;
   letter-spacing: -0.01em;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mlib-card-size {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
 }
+
+/* Right side of card head */
+.mlib-card-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.mlib-card-right-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Compat badge (Fits / Slow / Won't fit) */
+.mlib-compat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.mlib-compat-badge.fits  { background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.28); color: #10b981; }
+.mlib-compat-badge.slow  { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.28); color: var(--amber); }
+.mlib-compat-badge.no    { background: rgba(239,68,68,0.10);  border-color: rgba(239,68,68,0.28);  color: var(--red); }
+
+/* "Download · Q4_K_M" pill shown when variants are expanded */
+.mlib-fitted-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 13px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.mlib-fitted-btn:hover:not(:disabled) {
+  background: rgba(255,170,0,0.12);
+  border-color: rgba(255,170,0,0.40);
+  color: #ffaa00;
+}
+.mlib-fitted-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+
+/* Quick fitted button (collapsed state) */
+.mlib-btn-fitted {
+  padding: 4px 11px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: var(--font);
+  border-radius: 5px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #dddddd;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+.mlib-btn-fitted:hover:not(:disabled) {
+  background: #ffaa00;
+  border-color: #ffaa00;
+  color: #000;
+}
+.mlib-btn-fitted:disabled { opacity: 0.35; cursor: not-allowed; }
 .mlib-badge {
   font-size: 11px;
   font-weight: 600;
@@ -2649,26 +2767,43 @@ details.thinking-live .thinking-content {
   line-height: 1.55;
   font-weight: 500;
 }
+.mlib-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 .mlib-card-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
   flex-wrap: wrap;
+  min-width: 0;
 }
+.mlib-meta-chip {
+  padding: 2px 7px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.mlib-meta-chip.tag-tools { color: var(--amber); }
 .mlib-card-meta .sep { color: var(--text-hint); }
 .mlib-card-meta .tag-tools {
-  padding: 2px 8px;
+  padding: 1px 7px;
   background: rgba(255,255,255,0.04);
   border-radius: var(--radius-pill);
   color: var(--text-muted);
+  font-size: 10px;
 }
 
 .mlib-variants-toggle {
-  align-self: flex-end;
-  padding: 6px 10px;
+  flex-shrink: 0;
+  padding: 4px 8px;
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -2677,44 +2812,88 @@ details.thinking-live .thinking-content {
   font-weight: 600;
   cursor: pointer;
   transition: color var(--t-fast);
+  white-space: nowrap;
 }
 .mlib-variants-toggle:hover { color: var(--accent); }
 
 .mlib-variants {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-  padding-top: 12px;
+  gap: 0;
+  margin-top: 2px;
+  padding-top: 10px;
   border-top: 1px solid var(--border);
-  animation: feral-fade-in 200ms ease;
+  animation: feral-fade-in 180ms ease;
 }
 .mlib-variant {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: rgba(255,255,255,0.02);
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
 }
-.mlib-variant-quality {
+.mlib-variant:last-child { border-bottom: none; }
+.mlib-variant-info {
   flex: 1;
-  font-size: 12px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mlib-variant-fname {
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+/* Quality badge pills (Small / Balanced / High / Full) */
+.mlib-vq-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  border: 1px solid;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.mlib-vq-badge.tiny     { color: #94a3b8; border-color: rgba(148,163,184,0.28); background: rgba(148,163,184,0.07); }
+.mlib-vq-badge.small    { color: #60a5fa; border-color: rgba(96,165,250,0.28);  background: rgba(96,165,250,0.07); }
+.mlib-vq-badge.balanced { color: #4ade80; border-color: rgba(74,222,128,0.28);  background: rgba(74,222,128,0.07); }
+.mlib-vq-badge.high     { color: #c084fc; border-color: rgba(192,132,252,0.28); background: rgba(192,132,252,0.07); }
+.mlib-vq-badge.full     { color: #f59e0b; border-color: rgba(245,158,11,0.28);  background: rgba(245,158,11,0.07); }
+/* Recommended badge */
+.mlib-variant-recommended {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  background: rgba(255,170,0,0.13);
+  border: 1px solid rgba(255,170,0,0.32);
+  color: #ffaa00;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .mlib-variant-size {
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .mlib-variant-installed {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--green);
-  padding: 3px 8px;
+  padding: 2px 7px;
   background: rgba(34,197,94,0.08);
   border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
 .mlib-btn-mini {
   padding: 5px 12px;
@@ -3799,6 +3978,7 @@ details.thinking-live .thinking-content {
   flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
   min-width: 0;
 }
