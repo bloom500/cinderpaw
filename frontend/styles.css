@@ -1320,10 +1320,11 @@ details.thinking-live .thinking-content {
 .cx-icon-btn:hover { background: rgba(255,255,255,0.06); }
 .cx-burger {
   font-size: 22px;
-  transition: opacity 200ms ease-in-out;
+  transition: opacity 200ms ease-in-out, visibility 200ms ease-in-out;
 }
 .cx-burger-hidden {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
 }
 .cx-controls-pill {
@@ -1401,11 +1402,14 @@ details.thinking-live .thinking-content {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0,0,0,0.4);
-  transition: transform 200ms ease-in-out, margin-left 200ms ease-in-out;
+  transition: transform 200ms ease-in-out, margin-left 200ms ease-in-out, margin-top 200ms ease-in-out, margin-bottom 200ms ease-in-out, visibility 200ms;
 }
 .cx-sidebar.collapsed {
   transform: translateX(-256px);
   margin-left: -248px;
+  margin-top: 0;
+  margin-bottom: 0;
+  visibility: hidden;
 }
 
 .cx-focus-mode-btn {
@@ -1427,6 +1431,13 @@ details.thinking-live .thinking-content {
 .cx-focus-mode-btn:hover {
   background: rgba(255,255,255,0.05);
   color: var(--fg);
+}
+.cx-focus-mode-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cx-focus-mode-btn:active {
+  background: rgba(255,255,255,0.08);
 }
 .cx-focus-mode-label {
   display: flex;
