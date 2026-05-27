@@ -146,17 +146,22 @@ pub fn ChatPage() -> impl IntoView {
     // Register Ctrl+B globally to toggle sidebar. No reactive deps → runs once on mount.
     create_effect(move |_| {
         let closure = Closure::<dyn FnMut(_)>::new(move |e: web_sys::KeyboardEvent| {
-            if e.ctrl_key() && e.key() == "b" {
+            if e.ctrl_key() && e.key().to_lowercase() == "b" {
                 e.prevent_default();
                 let new_val = !sidebar_collapsed.get_untracked();
                 set_sidebar_collapsed.set(new_val);
                 write_sidebar_collapsed(new_val);
             }
         });
-        web_sys::window()
-            .expect("window")
-            .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
-            .expect("keydown listener");
+        if let Some(window) = web_sys::window() {
+            let cb = closure.as_ref().unchecked_ref::<js_sys::Function>().clone();
+            let _ = window.add_event_listener_with_callback("keydown", &cb);
+            on_cleanup(move || {
+                if let Some(w) = web_sys::window() {
+                    let _ = w.remove_event_listener_with_callback("keydown", &cb);
+                }
+            });
+        }
         closure.forget();
     });
 
