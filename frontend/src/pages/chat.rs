@@ -150,6 +150,20 @@ pub fn ChatPage() -> impl IntoView {
     let (live_token_count, set_live_token_count) = create_signal::<u32>(0);
     let (ctx_open, set_ctx_open) = create_signal(false);
     let (at_bottom, set_at_bottom) = create_signal(true);
+    let stored_reasoning = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item("feral_reasoning_mode").ok().flatten())
+        .and_then(|v| v.parse::<u8>().ok())
+        .unwrap_or(0);
+    let (reasoning_mode, set_reasoning_mode) = create_signal(stored_reasoning);
+    let (skills_open, set_skills_open) = create_signal(false);
+
+    create_effect(move |_| {
+        let mode = reasoning_mode.get();
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.set_item("feral_reasoning_mode", &mode.to_string());
+        }
+    });
 
     // Model selector dropdown
     let (model_dd_open, set_model_dd_open) = create_signal(false);
@@ -264,8 +278,20 @@ pub fn ChatPage() -> impl IntoView {
 
         let mut msgs = chat.messages.get();
         let sys = system_prompt.get();
-        if !sys.is_empty() && !msgs.iter().any(|m| m.role == "system") {
-            msgs.insert(0, Message { role: "system".into(), content: sys });
+        let reasoning_prefix = match reasoning_mode.get() {
+            1 => "Think step by step before answering. Show your reasoning process.\n\n",
+            2 => "Give direct, concise answers without showing reasoning steps.\n\n",
+            _ => "",
+        };
+        let effective_sys = if reasoning_prefix.is_empty() {
+            sys.clone()
+        } else if sys.is_empty() {
+            reasoning_prefix.to_string()
+        } else {
+            format!("{}{}", reasoning_prefix, sys)
+        };
+        if !effective_sys.is_empty() && !msgs.iter().any(|m| m.role == "system") {
+            msgs.insert(0, Message { role: "system".into(), content: effective_sys });
         }
         msgs.push(Message { role: "user".into(), content: user_msg });
 
@@ -780,10 +806,60 @@ pub fn ChatPage() -> impl IntoView {
                         }}
 
                         <div class="cx-pill-meta">
-                            <A href="/models" class="cx-pill-model">
-                                <span class="cx-pill-model-dot"></span>
-                                <span class="cx-pill-model-name">{move || pill_model_name()}</span>
-                            </A>
+                            <div class="cx-pill-left-actions">
+                                // ── Reasoning toggle (brain)
+                                <button
+                                    class=move || match reasoning_mode.get() {
+                                        1 => "cx-ibar-btn cx-ibar-btn--active",
+                                        2 => "cx-ibar-btn cx-ibar-btn--off",
+                                        _ => "cx-ibar-btn",
+                                    }
+                                    title="Reasoning: cycle Auto / On / Off"
+                                    on:click=move |_| set_reasoning_mode.update(|v| *v = (*v + 1) % 3)
+                                >
+                                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+                                        stroke="currentColor" stroke-width="1.3"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M5 8.5C5 6 6.3 4 8 4s3 2 3 4.5c0 .8-.2 1.5-.5 2L10 12H6l-.5-1.5C5.2 10 5 9.3 5 8.5z"/>
+                                        <path d="M6 12v.5a2 2 0 004 0V12"/>
+                                        <line x1="8" y1="4" x2="8" y2="6.5"/>
+                                    </svg>
+                                    <span class="cx-ibar-btn-label">{move || match reasoning_mode.get() {
+                                        0 => "Auto",
+                                        1 => "On",
+                                        _ => "Off",
+                                    }}</span>
+                                </button>
+                                // ── Skills picker (wrench)
+                                <div class="cx-ibar-popup-wrap">
+                                    <button
+                                        class=move || if skills_open.get() { "cx-ibar-btn cx-ibar-btn--active" } else { "cx-ibar-btn" }
+                                        title="Skills"
+                                        on:click=move |_| set_skills_open.update(|v| *v = !*v)
+                                    >
+                                        <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+                                            stroke="currentColor" stroke-width="1.3"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M11.5 1.5a3 3 0 00-2.8 4L2 12.3l1.7 1.7 6.8-6.7a3 3 0 004.2-3.3l-2 2-1.2-1.2 2-2A3 3 0 0011.5 1.5z"/>
+                                        </svg>
+                                    </button>
+                                    {move || skills_open.get().then(|| view! {
+                                        <div class="cx-skills-popup">
+                                            <div class="cx-skills-popup-header">"Skills"</div>
+                                            <div class="cx-skills-empty">"No skills installed"</div>
+                                        </div>
+                                    })}
+                                </div>
+                                // ── Attach file (+)
+                                <button class="cx-ibar-btn" title="Attach file">
+                                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+                                        stroke="currentColor" stroke-width="1.3"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="8" y1="3" x2="8" y2="13"/>
+                                        <line x1="3" y1="8" x2="13" y2="8"/>
+                                    </svg>
+                                </button>
+                            </div>
                             <div style="flex:1"></div>
                             // Context window ring — full conversation token estimate + live popup
                             {move || {
