@@ -48,7 +48,7 @@ fn read_index(dir: &Path) -> Result<Vec<ConversationSummary>> {
 
 fn write_index(dir: &Path, summaries: &[ConversationSummary]) -> Result<()> {
     let index = ConversationIndex { conversations: summaries.to_vec() };
-    std::fs::write(index_path(dir), serde_json::to_vec_pretty(&index)?)?;
+    std::fs::write(index_path(dir), serde_json::to_vec(&index)?)?;
     Ok(())
 }
 
@@ -77,7 +77,7 @@ pub fn save_to_dir(dir: &Path, id: &str, title: &str, messages: &[PersistedMessa
         messages: messages.to_vec(),
     };
 
-    std::fs::write(&conv_path, serde_json::to_vec_pretty(&conv)?)?;
+    std::fs::write(&conv_path, serde_json::to_vec(&conv)?)?;
 
     let mut summaries = read_index(dir)?;
     let summary = ConversationSummary {

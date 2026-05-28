@@ -40,9 +40,6 @@ reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], defau
 # Inference — llama.cpp bindings (CPU by default; add feature "inference-vulkan" for GPU)
 llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
 
-# Model downloads from HuggingFace
-hf-hub = { version = "0.3", features = ["tokio"], default-features = false }
-
 # Utilities
 anyhow = "1"
 thiserror = "1"
@@ -63,3 +60,9 @@ urlencoding = "2"
 default = ["inference"]
 inference = ["dep:llama-cpp-2"]
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

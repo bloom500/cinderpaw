@@ -395,23 +395,19 @@ async fn chat_stream(
     while let Some(tok) = stream.next().await {
         if stop.load(Ordering::SeqCst) {
             let _ = app.emit("feral://stream-done", serde_json::json!({ "session_id": &session_id }));
-            let _ = app.emit("feral://error", serde_json::json!({ "session_id": &session_id, "error": "stopped" }));
             return Ok(());
         }
         match tok {
             Ok(t) => {
                 let _ = app.emit("feral://token", serde_json::json!({ "session_id": &session_id, "text": t }));
-                let _ = app.emit("feral://thinking", serde_json::json!({ "session_id": &session_id }));
             }
             Err(e) => {
                 let _ = app.emit("feral://stream-error", serde_json::json!({ "session_id": &session_id, "error": e.to_string() }));
-                let _ = app.emit("feral://error", serde_json::json!({ "session_id": &session_id, "error": e.to_string() }));
                 return Err(e.to_string());
             }
         }
     }
     let _ = app.emit("feral://stream-done", serde_json::json!({ "session_id": &session_id }));
-    let _ = app.emit("feral://done", serde_json::json!({ "session_id": &session_id }));
     Ok(())
 }
 
