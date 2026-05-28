@@ -720,11 +720,15 @@ pub fn ModelsPage() -> impl IntoView {
         });
     };
 
-    // Trigger popular search when Browse tab is first opened
-    create_effect(move |_| {
-        if tab.get() == "browse" && !popular_loaded.get() {
+    // Trigger popular search the first time the Browse tab is opened.
+    // Uses prev to detect the tab→"browse" transition, not popular_loaded,
+    // so do_search cannot re-trigger this by touching popular_loaded.
+    create_effect(move |prev: Option<bool>| {
+        let on_browse = tab.get() == "browse";
+        if on_browse && prev != Some(true) && !popular_loaded.get_untracked() {
             load_popular();
         }
+        on_browse
     });
 
     let refresh_local = move || {
@@ -761,7 +765,6 @@ pub fn ModelsPage() -> impl IntoView {
         set_hf_results.set(vec![]);
         set_hf_next_cursor.set(None);
         set_hf_selected.set(None);
-        set_popular_loaded.set(false);
         spawn_local(async move {
             match tauri_bridge::invoke::<HfSearchPage>(
                 "search_hf_models", json!({ "query": q, "cursor": null })
