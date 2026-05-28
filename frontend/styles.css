@@ -1372,18 +1372,19 @@ details.thinking-live .thinking-content {
 }
 .cx-tpill {
   display: inline-flex;
-  align-items: center;
+  flex-direction: row;
+  align-items: stretch;
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
   border-radius: 999px;
   overflow: hidden;
-  height: 30px;
 }
 .cx-pill-left {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px;
+  gap: 7px;
+  padding: 5px 10px 5px 12px;
   background: transparent;
   border: none;
   color: var(--text, var(--fg));
@@ -1391,27 +1392,27 @@ details.thinking-live .thinking-content {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  height: 100%;
   transition: background 0.15s;
   white-space: nowrap;
 }
 .cx-pill-left:hover { background: rgba(255,255,255,0.06); }
 .cx-pill-sep {
   width: 1px;
-  height: 14px;
-  background: rgba(255,255,255,0.14);
+  align-self: stretch;
+  background: rgba(255,255,255,0.12);
   flex-shrink: 0;
+  margin: 4px 0;
 }
 .cx-pill-right {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  padding: 0 9px;
+  padding: 5px 10px;
   background: transparent;
   border: none;
   color: var(--text, var(--fg));
   cursor: pointer;
-  height: 100%;
   transition: background 0.15s;
 }
 .cx-pill-right:hover { background: rgba(255,255,255,0.06); }
@@ -1434,6 +1435,11 @@ details.thinking-live .thinking-content {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.cx-pill-chevron {
+  opacity: 0.45;
+  font-size: 9px;
+  flex-shrink: 0;
 }
 .cx-gear { opacity: 0.7; font-size: 13px; }
 

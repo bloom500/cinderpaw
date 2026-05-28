@@ -374,6 +374,7 @@ pub fn ChatPage() -> impl IntoView {
                                 <span class="cx-pill-name">
                                     {move || if loading_pill.get() { "Loading\u{2026}".to_string() } else { pill_model_name() }}
                                 </span>
+                                <span class="cx-pill-chevron">"▾"</span>
                             </button>
                             <div class="cx-pill-sep"></div>
                             <button class="cx-pill-right"
