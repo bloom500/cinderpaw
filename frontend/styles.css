@@ -1598,17 +1598,34 @@ details.thinking-live .thinking-content {
 .cx-sidebar {
   width: 220px;
   flex-shrink: 0;
-  background: #191919;
-  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(18,18,20,0.55);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.10);
   border-radius: 16px;
   margin: 8px 0 8px 8px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4),
+              inset 0 1px 0 rgba(255,255,255,0.06);
+  position: relative;
   transition: transform 200ms ease-in-out, margin-left 200ms ease-in-out,
               margin-top 200ms ease-in-out, margin-bottom 200ms ease-in-out,
               visibility 0ms 0ms;
+}
+.cx-sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,0.07) 40%,
+    rgba(255,255,255,0.07) 60%,
+    transparent 100%);
+  pointer-events: none;
+  z-index: 1;
 }
 .cx-sidebar.collapsed {
   transform: translateX(-236px);
@@ -1723,35 +1740,44 @@ details.thinking-live .thinking-content {
 .cx-drawer-nav {
   display: flex;
   flex-direction: column;
-  padding: 10px 8px;
-  gap: 2px;
+  padding: 6px 8px 10px;
+  gap: 1px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255,255,255,0.04);
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 .cx-nav-link {
+  font-family: var(--font);
   font-size: 14px;
   font-weight: 500;
-  color: rgba(255,255,255,0.72);
+  color: rgba(255,255,255,0.88);
   text-decoration: none;
-  padding: 10px 16px;
-  border-radius: 8px;
-  min-height: 40px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: 10px;
-  transition: background 0.15s ease, color 0.15s ease;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: color 0.12s ease;
 }
-.cx-nav-link svg { flex-shrink: 0; opacity: 0.65; }
+.cx-nav-link svg { flex-shrink: 0; opacity: 0.6; }
 .cx-nav-link:hover {
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.92);
+  background: transparent;
+  color: rgba(255,255,255,0.95);
   text-decoration: none;
 }
-.cx-nav-link:hover svg { opacity: 0.9; }
+.cx-nav-link:hover svg { opacity: 0.85; }
+/* Active state intentionally renders identical to base — no highlight. */
 .cx-nav-link.active {
-  background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.95);
+  background: transparent;
+  color: rgba(255,255,255,0.88);
 }
-.cx-nav-link.active svg { opacity: 1; }
+.cx-nav-link.active svg { opacity: 0.6; }
 .cx-nav-label { flex: 1; }
 .cx-nav-shortcut {
   font-size: 10px;
@@ -1935,21 +1961,39 @@ details.thinking-live .thinking-content {
   pointer-events: auto;
   width: 100%;
   max-width: 720px;
-  background: rgba(20, 20, 24, 0.78);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(14,14,18,0.62);
+  border: 1px solid rgba(255,255,255,0.09);
   border-radius: 24px;
   padding: 14px 18px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  transition: border-color 0.2s ease, background 0.2s ease;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.4),
+              inset 0 1px 0 rgba(255,255,255,0.05);
+  position: relative;
+}
+.cx-pill::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 16px; right: 16px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,0.06) 40%,
+    rgba(255,255,255,0.06) 60%,
+    transparent 100%);
+  pointer-events: none;
+  border-radius: 24px 24px 0 0;
 }
 .cx-pill:focus-within {
-  border-color: rgba(139,92,246,0.35);
-  background: rgba(22, 22, 28, 0.86);
+  border-color: rgba(139,92,246,0.40);
+  background: rgba(16,14,22,0.72);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.4),
+              0 0 0 1px rgba(139,92,246,0.12),
+              inset 0 1px 0 rgba(255,255,255,0.05);
 }
 .cx-pill-textarea {
   width: 100%;

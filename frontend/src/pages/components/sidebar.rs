@@ -117,47 +117,52 @@ pub fn Sidebar() -> impl IntoView {
                 </div>
             </div>
 
-            <button class="cx-new-chat-full" on:click=new_chat>
-                <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
-                    stroke="currentColor" stroke-width="1.5"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="8" y1="3" x2="8" y2="13"/>
-                    <line x1="3" y1="8" x2="13" y2="8"/>
-                </svg>
-                <span class="cx-nav-label">"New Chat"</span>
-                <span class="cx-nav-shortcut">"Ctrl N"</span>
-            </button>
-
             <div class="cx-drawer-nav">
-                <A href="/chat" class=move || nav_cls("/chat")>
-                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                // New Chat
+                <button class="cx-nav-link" on:click=new_chat>
+                    <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
                         stroke="currentColor" stroke-width="1.5"
                         stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 3h10a1 1 0 011 1v6a1 1 0 01-1 1H9l-3 2v-2H3a1 1 0 01-1-1V4a1 1 0 011-1z"/>
                     </svg>
-                    <span class="cx-nav-label">"Chat"</span>
-                </A>
-                <A href="/models" class=move || nav_cls("/models")>
-                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                    <span class="cx-nav-label">"New Chat"</span>
+                    <span class="cx-nav-shortcut">"Ctrl N"</span>
+                </button>
+                // New Projects (placeholder)
+                <button class="cx-nav-link">
+                    <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
                         stroke="currentColor" stroke-width="1.5"
                         stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M8 2l6 3.5v5L8 14 2 10.5v-5z"/>
-                        <path d="M2 5.5l6 3.5 6-3.5"/>
-                        <line x1="8" y1="9" x2="8" y2="14"/>
+                        <path d="M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1V5z"/>
+                    </svg>
+                    <span class="cx-nav-label">"New Projects"</span>
+                    <span class="cx-nav-shortcut">"Ctrl P"</span>
+                </button>
+                // Search (placeholder)
+                <button class="cx-nav-link">
+                    <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
+                        stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="7" cy="7" r="4.5"/>
+                        <line x1="10.5" y1="10.5" x2="13.5" y2="13.5"/>
+                    </svg>
+                    <span class="cx-nav-label">"Search"</span>
+                    <span class="cx-nav-shortcut">"Ctrl K"</span>
+                </button>
+                // Models
+                <A href="/models" class=move || nav_cls("/models")>
+                    <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
+                        stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
+                        <line x1="2.5" y1="8" x2="13.5" y2="8"/>
+                        <line x1="8" y1="2.5" x2="8" y2="13.5"/>
                     </svg>
                     <span class="cx-nav-label">"Models"</span>
                 </A>
-                <A href="/agents" class=move || nav_cls("/agents")>
-                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
-                        stroke="currentColor" stroke-width="1.5"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="8" cy="5.5" r="2.5"/>
-                        <path d="M2 14c0-2.8 2.7-5 6-5s6 2.2 6 5"/>
-                    </svg>
-                    <span class="cx-nav-label">"Assistants"</span>
-                </A>
+                // Settings
                 <A href="/settings" class=move || nav_cls("/settings")>
-                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                    <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
                         stroke="currentColor" stroke-width="1.5"
                         stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="8" cy="8" r="2.5"/>
@@ -165,6 +170,15 @@ pub fn Sidebar() -> impl IntoView {
                     </svg>
                     <span class="cx-nav-label">"Settings"</span>
                 </A>
+                // Skills (placeholder)
+                <button class="cx-nav-link">
+                    <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
+                        stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 1.5l1.8 3.7 4 .6-2.9 2.8.7 4L8 10.7l-3.6 1.9.7-4L2.2 5.8l4-.6z"/>
+                    </svg>
+                    <span class="cx-nav-label">"Skills"</span>
+                </button>
             </div>
 
             <div class="cx-drawer-section">
