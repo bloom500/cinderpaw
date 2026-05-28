@@ -71,6 +71,71 @@ html, body {
 #app { height: 100vh; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   CUSTOM TITLEBAR — replaces native OS window decorations
+───────────────────────────────────────────────────────────────────────────── */
+.app-titlebar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 32px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  background: transparent;
+  -webkit-app-region: drag; /* Webkit drag region */
+}
+.app-titlebar-drag {
+  flex: 1;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+.app-titlebar-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding-right: 4px;
+  -webkit-app-region: no-drag;
+}
+.app-tb-btn {
+  width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  transition: background 0.12s, opacity 0.12s;
+}
+.app-tb-btn:hover { opacity: 1; }
+.app-tb-min:hover  { background: rgba(255,255,255,0.08); }
+.app-tb-max:hover  { background: rgba(255,255,255,0.08); }
+.app-tb-close:hover { background: rgba(196,43,43,0.75); }
+
+/* Icon shapes via pseudo-elements */
+.app-tb-min span {
+  display: block; width: 10px; height: 1px;
+  background: #fff; border-radius: 1px;
+}
+.app-tb-max span {
+  display: block; width: 10px; height: 10px;
+  border: 1.5px solid #fff; border-radius: 2px;
+}
+.app-tb-close span {
+  display: block; width: 11px; height: 11px;
+  position: relative;
+}
+.app-tb-close span::before,
+.app-tb-close span::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 0; right: 0;
+  height: 1.5px; background: #fff; border-radius: 1px;
+}
+.app-tb-close span::before { transform: translateY(-50%) rotate(45deg); }
+.app-tb-close span::after  { transform: translateY(-50%) rotate(-45deg); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
    APP SHELL — persistent layout (sidebar + page area)
    The shell never re-renders across navigation. Only `.app-main` swaps content.
 ───────────────────────────────────────────────────────────────────────────── */
@@ -87,6 +152,7 @@ html, body {
   min-width: 0;
   min-height: 0;
   height: 100%;
+  padding-top: 32px; /* space for custom titlebar — sidebar excluded */
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -512,42 +578,68 @@ a { color: var(--accent); }
 /* ── Thinking / Chain-of-Thought blocks ─────────────────────────────────── */
 details.thinking-container {
   white-space: normal;
-  background: transparent;
-  border-left: 2px solid rgba(255,255,255,0.12);
-  border-radius: 0;
-  padding: 2px 0 2px 10px;
-  margin-bottom: 8px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  padding: 0;
+  margin-bottom: 10px;
   display: block;
+  overflow: hidden;
 }
 details.thinking-container summary {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 500;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.32);
   cursor: pointer;
   user-select: none;
   outline: none;
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 5px;
-  white-space: normal;
-  padding: 3px 0;
+  gap: 6px;
+  padding: 7px 12px;
 }
 details.thinking-container summary::-webkit-details-marker { display: none; }
-details.thinking-container[open] summary {
-  margin-bottom: 6px;
-  color: rgba(255,255,255,0.45);
+
+/* Chevron — rotates on open */
+.thinking-chevron {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  opacity: 0.5;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 3.5l3 3 3-3' stroke='white' stroke-width='1.3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: contain;
 }
-details.thinking-container .thinking-content {
-  font-size: 11.5px;
-  color: rgba(255,255,255,0.3);
-  line-height: 1.55;
-  white-space: pre-wrap;
-  max-height: 280px;
-  overflow-y: auto;
+details.thinking-container[open] .thinking-chevron {
+  transform: rotate(180deg);
+}
+details.thinking-container[open] summary {
+  color: rgba(255,255,255,0.42);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
-/* Small chevron dot indicator next to summary text */
+/* Content with max-height transition for smooth open/close */
+details.thinking-container .thinking-content {
+  font-size: 11.5px;
+  font-style: italic;
+  color: #8e8e93;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  padding: 10px 14px 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  /* opening animation */
+  animation: think-expand 0.2s ease-out;
+}
+@keyframes think-expand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Pulse dot for live streaming thinking */
 .thinking-dot {
   display: inline-block;
   width: 5px;
@@ -561,21 +653,22 @@ details.thinking-container .thinking-content {
   animation: thinking-pulse 1.2s ease-in-out infinite;
 }
 @keyframes thinking-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50%       { opacity: 1;   transform: scale(1.35); }
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%       { opacity: 0.9; transform: scale(1.3); }
 }
 
 /* Live (open) thinking block — tokens stream inside during generation */
 details.thinking-live {
-  border-left-color: #ffcc44;
-  background: rgba(255, 200, 0, 0.07);
+  border-color: rgba(255,200,60,0.2);
+  background: rgba(255,200,0,0.04);
 }
 details.thinking-live summary {
-  color: #d4a84b;
+  color: rgba(210,165,70,0.8);
 }
 details.thinking-live .thinking-content {
-  max-height: none;    /* no height cap while streaming — show all tokens */
-  opacity: 0.7;
+  max-height: none;
+  opacity: 0.75;
+  color: rgba(210,165,70,0.7);
 }
 
 /* Streaming cursor blink */
@@ -1262,7 +1355,7 @@ details.thinking-live .thinking-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: 8px 16px 8px 8px;
   flex-shrink: 0;
   z-index: 2;
   gap: 12px;
@@ -1272,6 +1365,150 @@ details.thinking-live .thinking-content {
   align-items: center;
   gap: 10px;
 }
+
+/* ── COMBINED MODEL PILL ─────────────────────────────────────────────── */
+.cx-pill-wrapper {
+  position: relative;
+}
+.cx-pill {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  height: 30px;
+}
+.cx-pill-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  color: var(--text, var(--fg));
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  height: 100%;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.cx-pill-left:hover { background: rgba(255,255,255,0.06); }
+.cx-pill-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255,255,255,0.14);
+  flex-shrink: 0;
+}
+.cx-pill-right {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  background: transparent;
+  border: none;
+  color: var(--text, var(--fg));
+  cursor: pointer;
+  height: 100%;
+  transition: background 0.15s;
+}
+.cx-pill-right:hover { background: rgba(255,255,255,0.06); }
+.cx-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-hint, rgba(255,255,255,0.3));
+}
+.cx-pill-dot.loaded {
+  background: var(--green, #22c55e);
+  box-shadow: 0 0 6px rgba(34,197,94,0.55);
+}
+.cx-pill-dot.byok {
+  background: rgba(99,179,237,0.75);
+}
+.cx-pill-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cx-gear { opacity: 0.7; font-size: 13px; }
+
+/* ── MODEL DROPDOWN ──────────────────────────────────────────────────── */
+.cx-dd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+.cx-model-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  background: var(--bg-2, #181818);
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 10px;
+  padding: 6px 0;
+  z-index: 50;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  animation: cx-dd-in 0.12s ease;
+}
+@keyframes cx-dd-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cx-dd-section {
+  padding: 6px 12px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-hint, rgba(255,255,255,0.32));
+  user-select: none;
+}
+.cx-dd-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text, var(--fg));
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.cx-dd-item:hover { background: rgba(255,255,255,0.06); }
+.cx-dd-item.active .cx-dd-name { color: var(--green, #22c55e); }
+.cx-dd-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cx-dd-check {
+  color: var(--green, #22c55e);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.cx-dd-configure {
+  color: var(--text-hint, rgba(255,255,255,0.32));
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.cx-dd-sep {
+  height: 1px;
+  background: var(--border, rgba(255,255,255,0.08));
+  margin: 4px 0;
+}
+
 .cx-brand {
   font-size: 18px;
   font-weight: 700;
@@ -1307,27 +1544,6 @@ details.thinking-live .thinking-content {
   visibility: hidden;
   pointer-events: none;
 }
-.cx-controls-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: var(--fg);
-  font-family: var(--font);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 14px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-.cx-controls-pill:hover {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.18);
-}
-.cx-gear { opacity: 0.7; font-size: 13px; }
-
 /* ── DRAWERS (left = history, right = controls) ─────────────────────────── */
 .cx-overlay {
   position: fixed;
@@ -1376,6 +1592,7 @@ details.thinking-live .thinking-content {
   width: 220px;
   flex-shrink: 0;
   background: #191919;
+  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 16px;
   margin: 8px 0 8px 8px;
   display: flex;
@@ -1609,6 +1826,17 @@ details.thinking-live .thinking-content {
   position: relative;
 }
 
+/* ── CENTERING SPACERS ───────────────────────────────────────────────────── */
+/* Default: collapsed (no space). When empty: both expand equally → content centered. */
+.cx-v-spacer {
+  flex: 0 0 0px;
+  pointer-events: none;
+  transition: flex-grow 0.48s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cx-canvas--empty .cx-v-spacer {
+  flex-grow: 1;
+}
+
 /* ── BODY: the only scrollable zone ─────────────────────────────────────── */
 .cx-body {
   flex: 1;
@@ -1618,6 +1846,23 @@ details.thinking-live .thinking-content {
   display: flex;
   flex-direction: column;
   scroll-behavior: smooth;
+  transition: flex-grow 0.48s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* When empty: body has no content, collapses to zero so spacers center the inline group */
+.cx-canvas--empty .cx-body {
+  flex-grow: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Inline empty state: greeting + chips, sibling to cx-body and cx-input-bay */
+.cx-empty-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px 20px;
+  flex-shrink: 0;
 }
 
 /* Custom scrollbar — subtle, doesn't distract */
@@ -2063,54 +2308,60 @@ details.thinking-live .thinking-content {
   justify-content: center;
   min-width: 0;
 }
-.cx-model-pill {
-  display: inline-flex;
+/* Sidebar header row: brand + icon actions */
+.cx-sidebar-header {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--t-fast), border-color var(--t-fast);
-  text-decoration: none;
-  font-family: var(--font);
-  max-width: 360px;
-  overflow: hidden;
+  justify-content: space-between;
+  padding: 10px 8px 4px 12px;
+  user-select: none;
 }
-.cx-model-pill:hover {
-  background: rgba(255,255,255,0.07);
-  border-color: var(--border-strong);
-  text-decoration: none;
-}
-.cx-model-pill-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--text-hint);
-}
-.cx-model-pill-dot.loaded {
-  background: var(--green);
-  box-shadow: 0 0 6px rgba(34,197,94,0.6);
-}
-.cx-model-pill-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Sidebar brand (lowercase violet) */
 .cx-sidebar-brand {
   font-family: var(--font);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--accent);
   letter-spacing: 0.01em;
-  padding: 12px 10px 4px;
-  user-select: none;
+}
+.cx-sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Small icon button inside sidebar header */
+.cx-sb-icon-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.cx-sb-icon-btn:hover {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.7);
+}
+.cx-sb-icon-btn--active {
+  color: var(--accent);
+}
+/* Pulsing dot badge when download is active */
+.cx-sb-icon-badge {
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: badge-pulse 1.5s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.3); }
 }
 .cx-new-chat-full {
   margin: 8px 12px 4px;

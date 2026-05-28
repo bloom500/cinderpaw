@@ -1,14 +1,14 @@
 use leptos::*;
-use leptos_router::A;
+use leptos_router::{A, use_navigate};
 use pulldown_cmark::{html, Options, Parser};
 use serde_json::json;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlElement, HtmlTextAreaElement, MouseEvent, KeyboardEvent};
 
-use crate::context::{ChatContext, ChatSessionSummary};
-use crate::pages::components::hw_notification::HwNotification;
-use crate::pages::types::{InferParams, LoadedModel, Message};
+use crate::context::{ChatContext, ChatSessionSummary, LayoutContext};
+use crate::pages::types::{InferParams, LoadedModel, Message, ModelInfo};
+use crate::pages::models::ByokProviderInfo;
 use crate::tauri_bridge;
 
 struct ParsedMessage {
@@ -20,6 +20,17 @@ struct ParsedMessage {
     answer: String,
     /// True while streaming is still inside a <think> block
     still_thinking: bool,
+}
+
+/// If the markdown text has an odd number of fenced code block openers (```),
+/// append a closing fence so the parser doesn't leave an open <pre> block.
+fn close_open_code_blocks(md: &str) -> std::borrow::Cow<str> {
+    let count = md.split("```").count() - 1; // n occurrences = n+1 parts → count = n
+    if count % 2 == 1 {
+        std::borrow::Cow::Owned(format!("{}\n```", md))
+    } else {
+        std::borrow::Cow::Borrowed(md)
+    }
 }
 
 fn markdown_to_html(md: &str) -> String {
@@ -100,34 +111,14 @@ fn format_datetime_now() -> String {
     format!("{} {}, {}, {}:{:02} {}", month, day, year, h, m, suffix)
 }
 
-fn read_sidebar_collapsed() -> bool {
-    web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|ls| ls.get_item("feral_sidebar_collapsed").ok().flatten())
-        .map(|v| v == "true")
-        .unwrap_or(false)
-}
-
-fn write_sidebar_collapsed(val: bool) {
-    if let Some(ls) = web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-    {
-        let _ = ls.set_item(
-            "feral_sidebar_collapsed",
-            if val { "true" } else { "false" },
-        );
-    }
-}
-
-fn session_title(msgs: &[crate::pages::types::Message]) -> String {
-    msgs.iter()
-        .find(|m| m.role == "user")
-        .map(|m| {
-            let t = m.content.trim();
-            let end = t.char_indices().nth(38).map(|(i, _)| i).unwrap_or(t.len());
-            if t.len() > end { format!("{}…", &t[..end]) } else { t.to_string() }
-        })
-        .unwrap_or_else(|| "Conversation".into())
+fn strip_model_name(name: &str) -> String {
+    let n = name.to_lowercase();
+    let n = n.trim_end_matches(".gguf");
+    let n = if let Some(idx) = n.rfind('.') {
+        let suffix = &n[idx + 1..];
+        if suffix.starts_with('q') || suffix.starts_with('f') { &n[..idx] } else { n }
+    } else { n };
+    n.to_string()
 }
 
 #[component]
@@ -136,47 +127,13 @@ pub fn ChatPage() -> impl IntoView {
 
     // Global chat context
     let chat = use_context::<ChatContext>().expect("ChatContext not provided");
+    // Global layout context (sidebar collapse state — owned by the shell)
+    let layout = use_context::<LayoutContext>().expect("LayoutContext not provided");
 
     // Local UI state
     let (input, set_input) = create_signal(String::new());
     let (system_prompt, set_system_prompt) = create_signal(String::new());
     let busy = chat.busy;
-    let (sidebar_collapsed, set_sidebar_collapsed) = create_signal(read_sidebar_collapsed());
-
-    // Register Ctrl+B globally to toggle sidebar. No reactive deps → runs once on mount.
-    create_effect(move |_| {
-        let closure = Closure::<dyn FnMut(_)>::new(move |e: web_sys::KeyboardEvent| {
-            if e.ctrl_key() && e.key().to_lowercase() == "b" {
-                e.prevent_default();
-                let new_val = !sidebar_collapsed.get_untracked();
-                set_sidebar_collapsed.set(new_val);
-                write_sidebar_collapsed(new_val);
-            }
-        });
-        if let Some(window) = web_sys::window() {
-            let cb = closure.as_ref().unchecked_ref::<js_sys::Function>().clone();
-            let _ = window.add_event_listener_with_callback("keydown", &cb);
-            on_cleanup(move || {
-                if let Some(w) = web_sys::window() {
-                    let _ = w.remove_event_listener_with_callback("keydown", &cb);
-                }
-            });
-            closure.forget();
-        }
-    });
-
-    let (no_transition, set_no_transition) = create_signal(true);
-    create_effect(move |_| {
-        let cb = Closure::<dyn FnMut()>::new(move || {
-            set_no_transition.set(false);
-        });
-        if let Some(window) = web_sys::window() {
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                cb.as_ref().unchecked_ref(), 0,
-            );
-        }
-        cb.forget();
-    });
 
     let (controls_open, set_controls_open) = create_signal(false);
     let (temp, set_temp) = create_signal(0.7f32);
@@ -185,12 +142,21 @@ pub fn ChatPage() -> impl IntoView {
     let (repeat, set_repeat) = create_signal(1.1f32);
     let (gpu_layers, set_gpu_layers) = create_signal(100i32);
 
-    // Per-completed-AI-message metadata: (datetime, token_count, tokens_per_sec)
-    let (ai_meta, set_ai_meta) = create_signal::<Vec<(String, u32, f32)>>(vec![]);
+    // Per-completed-AI-message metadata lives in the chat context now so it survives
+    // navigation between pages without resetting.
+    let ai_meta = chat.ai_meta;
+    let set_ai_meta = chat.ai_meta;
     let (stream_start_ms, set_stream_start_ms) = create_signal::<Option<f64>>(None);
     let (live_token_count, set_live_token_count) = create_signal::<u32>(0);
     let (ctx_open, set_ctx_open) = create_signal(false);
     let (at_bottom, set_at_bottom) = create_signal(true);
+
+    // Model selector dropdown
+    let (model_dd_open, set_model_dd_open) = create_signal(false);
+    let (local_models, set_local_models) = create_signal::<Vec<ModelInfo>>(vec![]);
+    let (byok_providers, set_byok_providers) = create_signal::<Vec<ByokProviderInfo>>(vec![]);
+    let (loading_pill, set_loading_pill) = create_signal(false);
+    let navigate = use_navigate();
 
     // Register scroll listener once on component mount (no signal reads inside = runs exactly once).
     create_effect(move |_| {
@@ -279,43 +245,9 @@ pub fn ChatPage() -> impl IntoView {
         (is_busy, streaming)
     });
 
-    let save_current_session = move || {
-        let current = chat.messages.get();
-        if current.is_empty() { return; }
-        let current_id = chat.active_session_id.get()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let title = session_title(&current);
-        chat.sessions.update(|s| { s.insert(current_id.clone(), current); });
-        chat.history.update(|h| {
-            if let Some(entry) = h.iter_mut().find(|s| s.id == current_id) {
-                entry.title = title;
-            } else {
-                h.push(ChatSessionSummary { id: current_id, title });
-            }
-        });
-    };
-
-    let new_chat = move |_: MouseEvent| {
-        save_current_session();
-        set_ai_meta.set(vec![]);
-        let new_id = uuid::Uuid::new_v4().to_string();
-        chat.history.update(|h| {
-            h.push(ChatSessionSummary { id: new_id.clone(), title: "New Conversation".into() });
-        });
-        chat.active_session_id.set(Some(new_id));
-        chat.messages.set(vec![]);
-        busy.set(false);
-    };
-
-    let load_conv = move |id: String| {
-        save_current_session();
-        set_ai_meta.set(vec![]);
-        let msgs = chat.sessions.get().get(&id).cloned().unwrap_or_default();
-        chat.active_session_id.set(Some(id));
-        chat.messages.set(msgs);
-        busy.set(false);
-    };
-
+    // Conversation save / new / load are owned by ChatContext now (called from
+    // the global Sidebar). They stay reachable from here only via `chat.*` if
+    // ever needed; no local closures required.
     let send = move |_: ()| {
         let user_msg = input.get();
         if user_msg.is_empty() || busy.get() { return; }
@@ -391,121 +323,152 @@ pub fn ChatPage() -> impl IntoView {
     // Short model name for the pill badge (strips .gguf and quant suffix)
     let pill_model_name = move || {
         loaded.get()
-            .map(|l| {
-                let n = l.name.to_lowercase();
-                // strip ".gguf" then optional ".q*"/".f*" quant suffix
-                let n = n.trim_end_matches(".gguf");
-                let n = if let Some(idx) = n.rfind('.') {
-                    let suffix = &n[idx + 1..];
-                    if suffix.starts_with('q') || suffix.starts_with('f') { &n[..idx] } else { n }
-                } else { n };
-                n.to_string()
-            })
+            .map(|l| strip_model_name(&l.name))
             .unwrap_or_else(|| "no model".into())
     };
 
     view! {
         <div class="cx-root">
 
-            // ── HW RECOMMENDATION TOAST ─────────────────────────────
-            <HwNotification/>
-
-            // ── PERSISTENT SIDEBAR ───────────────────────────────────
-            <aside class=move || {
-                let mut cls = String::from("cx-sidebar");
-                if sidebar_collapsed.get() { cls.push_str(" collapsed"); }
-                if no_transition.get() { cls.push_str(" no-transition"); }
-                cls
-            }>
-                <div class="cx-sidebar-brand">"feral"</div>
-                <button class="cx-new-chat-full" on:click=move |e| {
-                    new_chat(e);
-                }>
-                    <span>"+"</span><span>"New Chat"</span>
-                </button>
-                <div class="cx-drawer-nav">
-                    <A href="/models" class="cx-nav-link">"◧ Models"</A>
-                    <A href="/agents" class="cx-nav-link">"⚙ Assistants"</A>
-                    <A href="/settings" class="cx-nav-link">"⚒ Settings"</A>
-                </div>
-                <div class="cx-drawer-section">
-                    <div class="cx-thread-group">
-                        <div class="cx-thread-group-label">"Recent"</div>
-                        <div class="cx-hist-list">
-                            {move || {
-                                let convs = chat.history.get();
-                                let active = chat.active_session_id.get();
-                                if convs.is_empty() {
-                                    view! { <div class="cx-hist-empty">"No conversations yet"</div> }.into_view()
-                                } else {
-                                    convs.into_iter().rev().map(|s| {
-                                        let is_active = active.as_ref() == Some(&s.id);
-                                        let title = s.title.clone();
-                                        let id = s.id.clone();
-                                        view! {
-                                            <div class=if is_active { "cx-hist-item active" } else { "cx-hist-item" }
-                                                on:click=move |_| {
-                                                    load_conv(id.clone());
-                                                }>
-                                                <span class="cx-hist-dot">"◆"</span>
-                                                <span class="cx-hist-name">{title}</span>
-                                            </div>
-                                        }.into_view()
-                                    }).collect_view()
-                                }
-                            }}
-                        </div>
-                    </div>
-                </div>
-                <button class="cx-focus-mode-btn"
-                    on:click=move |_| {
-                        let new_val = !sidebar_collapsed.get_untracked();
-                        set_sidebar_collapsed.set(new_val);
-                        write_sidebar_collapsed(new_val);
-                    }
-                >
-                    <span class="cx-focus-mode-label"><span>"⊡"</span>" Focus Mode"</span>
-                    <span class="cx-focus-mode-badge">"Ctrl+B"</span>
-                </button>
-                <div class="cx-sidebar-footer">"v0.1.0"</div>
-            </aside>
-
-            // ── RIGHT COLUMN (topbar + canvas) ────────────────────────
+            // ── RIGHT COLUMN (topbar + canvas) — flex column inside the app shell ──
             <div class="cx-right-col">
 
             // ── TOP BAR ──────────────────────────────────────────────
-            <div class="cx-topbar">
+            <div class="cx-topbar" data-tauri-drag-region="true">
                 <div class="cx-topbar-side">
                     <button
-                        class=move || if sidebar_collapsed.get() {
+                        class=move || if layout.sidebar_collapsed.get() {
                             "cx-icon-btn cx-burger"
                         } else {
                             "cx-icon-btn cx-burger cx-burger-hidden"
                         }
-                        on:click=move |_| {
-                            set_sidebar_collapsed.set(false);
-                            write_sidebar_collapsed(false);
-                        }
+                        on:click=move |_| layout.collapse(false)
                         title="Expand sidebar"
                     >"≡"</button>
-                    <A href="/models" class="cx-model-pill" attr:title="Switch model">
-                        <span class=move || {
-                            if loaded.get().is_some() { "cx-model-pill-dot loaded" } else { "cx-model-pill-dot" }
-                        }></span>
-                        <span class="cx-model-pill-name">
-                            {move || pill_model_name()}
-                        </span>
-                    </A>
+
+                    <div class="cx-pill-wrapper">
+                        <div class="cx-pill">
+                            <button class="cx-pill-left"
+                                on:click=move |_| {
+                                    let was_open = model_dd_open.get_untracked();
+                                    set_model_dd_open.set(!was_open);
+                                    if !was_open {
+                                        spawn_local(async move {
+                                            if let Ok(list) = tauri_bridge::invoke::<Vec<ModelInfo>>(
+                                                "get_models", json!({})
+                                            ).await {
+                                                set_local_models.set(list);
+                                            }
+                                            if let Ok(provs) = tauri_bridge::invoke::<Vec<ByokProviderInfo>>(
+                                                "get_byok_settings", json!({})
+                                            ).await {
+                                                set_byok_providers.set(provs);
+                                            }
+                                        });
+                                    }
+                                }
+                            >
+                                <span class=move || {
+                                    if loaded.get().is_some() { "cx-pill-dot loaded" } else { "cx-pill-dot" }
+                                }></span>
+                                <span class="cx-pill-name">
+                                    {move || if loading_pill.get() { "Loading\u{2026}".to_string() } else { pill_model_name() }}
+                                </span>
+                            </button>
+                            <div class="cx-pill-sep"></div>
+                            <button class="cx-pill-right"
+                                on:click=move |_| set_controls_open.update(|v| *v = !*v)
+                                title="Controls"
+                            >
+                                <span class="cx-gear">"⚙"</span>
+                            </button>
+                        </div>
+
+                        {move || model_dd_open.get().then(|| view! {
+                            <div class="cx-dd-overlay"
+                                on:click=move |_| set_model_dd_open.set(false)
+                            ></div>
+                        })}
+
+                        {move || {
+                            if !model_dd_open.get() { return None; }
+
+                            let models = local_models.get();
+                            let loaded_path = loaded.get().map(|l| l.path.clone()).unwrap_or_default();
+                            let providers: Vec<ByokProviderInfo> = byok_providers.get()
+                                .into_iter()
+                                .filter(|p| p.enabled || p.has_api_key)
+                                .collect();
+                            let has_byok = !providers.is_empty();
+
+                            let model_rows: Vec<_> = models.into_iter().map(|m| {
+                                let is_active = m.path == loaded_path;
+                                let path = m.path.clone();
+                                let display = strip_model_name(&m.name);
+                                view! {
+                                    <button
+                                        class=if is_active { "cx-dd-item active" } else { "cx-dd-item" }
+                                        on:click=move |_| {
+                                            set_model_dd_open.set(false);
+                                            if !is_active {
+                                                set_loading_pill.set(true);
+                                                let p = path.clone();
+                                                spawn_local(async move {
+                                                    if let Ok(l) = tauri_bridge::invoke::<LoadedModel>(
+                                                        "start_model_load", json!({ "path": p })
+                                                    ).await {
+                                                        set_loaded.set(Some(l));
+                                                    }
+                                                    set_loading_pill.set(false);
+                                                });
+                                            }
+                                        }
+                                    >
+                                        <span class=if is_active { "cx-pill-dot loaded" } else { "cx-pill-dot" }></span>
+                                        <span class="cx-dd-name">{display}</span>
+                                        {if is_active { Some(view! { <span class="cx-dd-check">"✓"</span> }) } else { None }}
+                                    </button>
+                                }
+                            }).collect();
+
+                            let byok_rows: Vec<_> = providers.into_iter().map(|p| {
+                                let nav = navigate.clone();
+                                let name = p.name.clone();
+                                view! {
+                                    <button class="cx-dd-item cx-dd-item-byok"
+                                        on:click=move |_| {
+                                            set_model_dd_open.set(false);
+                                            nav("/models", Default::default());
+                                        }
+                                    >
+                                        <span class="cx-pill-dot byok"></span>
+                                        <span class="cx-dd-name">{name}</span>
+                                        <span class="cx-dd-configure">"→"</span>
+                                    </button>
+                                }
+                            }).collect();
+
+                            Some(view! {
+                                <div class="cx-model-dropdown">
+                                    <div class="cx-dd-section">"LOCAL MODELS"</div>
+                                    {model_rows}
+                                    {has_byok.then(|| view! {
+                                        <div class="cx-dd-sep"></div>
+                                        <div class="cx-dd-section">"CLOUD PROVIDERS"</div>
+                                        {byok_rows}
+                                    })}
+                                </div>
+                            })
+                        }}
+                    </div>
                 </div>
-                <button class="cx-controls-pill"
-                    on:click=move |_| set_controls_open.update(|v| *v = !*v)
-                    title="Controls">
-                    <span class="cx-gear">"⚙"</span>
-                </button>
             </div>
 
             // ── MAIN CANVAS ──────────────────────────────────────────────
-            <main class="cx-canvas">
+            <main class=move || if has_messages() { "cx-canvas" } else { "cx-canvas cx-canvas--empty" }>
+
+                // Spacer above — expands when empty to push content to center
+                <div class="cx-v-spacer cx-v-spacer--top"></div>
 
                 // ── BODY: scrollable zone (messages OR empty mascot) ──────
                 <div class="cx-body" id="feral-chat-scroll">
@@ -584,8 +547,8 @@ pub fn ChatPage() -> impl IntoView {
                                                             {parsed.thinking.into_iter().filter(|t| !t.trim().is_empty()).map(|t| view! {
                                                                 <details class="thinking-container">
                                                                     <summary>
-                                                                        <span class="thinking-dot"></span>
-                                                                        "▸ Thinking"
+                                                                        <span class="thinking-chevron"></span>
+                                                                        "Thinking"
                                                                     </summary>
                                                                     <div class="thinking-content">{t}</div>
                                                                 </details>
@@ -593,8 +556,8 @@ pub fn ChatPage() -> impl IntoView {
                                                             {(!partial.trim().is_empty()).then(|| view! {
                                                                 <details class="thinking-container">
                                                                     <summary>
-                                                                        <span class="thinking-dot"></span>
-                                                                        "▸ Thinking (incomplete)"
+                                                                        <span class="thinking-chevron"></span>
+                                                                        "Thinking"
                                                                     </summary>
                                                                     <div class="thinking-content">{partial}</div>
                                                                 </details>
@@ -673,8 +636,8 @@ pub fn ChatPage() -> impl IntoView {
                                                             {parsed.thinking.into_iter().filter(|t| !t.trim().is_empty()).map(|t| view! {
                                                                 <details class="thinking-container">
                                                                     <summary>
-                                                                        <span class="thinking-dot"></span>
-                                                                        "▸ Thinking"
+                                                                        <span class="thinking-chevron"></span>
+                                                                        "Thinking"
                                                                     </summary>
                                                                     <div class="thinking-content">{t}</div>
                                                                 </details>
@@ -683,15 +646,14 @@ pub fn ChatPage() -> impl IntoView {
                                                                 <details class="thinking-container thinking-live" open>
                                                                     <summary>
                                                                         <span class="thinking-dot thinking-dot--pulse"></span>
-                                                                        "▸ Thinking..."
+                                                                        "Thinking..."
                                                                         <span class="stream-cursor"></span>
                                                                     </summary>
                                                                     <div class="thinking-content">{current}</div>
                                                                 </details>
                                                             })}
-                                                            // Plain text during streaming — no markdown_to_html() call per token.
-                                                            // Full markdown renders when stream ends and message moves to completed list.
-                                                            <div class="message-text">{parsed.answer.clone()}</div>
+                                                            // Render markdown during streaming with open code-block protection.
+                                                            <div class="message-text" inner_html={markdown_to_html(&close_open_code_blocks(&parsed.answer))}></div>
                                                             {(!still_thinking).then(||
                                                                 view! { <span class="stream-cursor"></span> }
                                                             )}
@@ -705,39 +667,40 @@ pub fn ChatPage() -> impl IntoView {
                             </div>
                         }.into_view()
                     } else {
-                        // Empty state: mascot + headline + suggestion chips
-                        let suggestions = ["Explain something complex", "Help me write code", "Summarize a document"];
-                        view! {
-                            <div class="cx-empty-center">
-                                <div class="cx-empty-mascot-wrap">
-                                    <img class="cx-empty-mascot" src="/public/LOGO%20NO%20BG.png" alt="Feral" />
-                                </div>
-                                <div class="cx-empty-prompt">"What's on your mind?"</div>
-                                <div class="cx-empty-chips">
-                                    {suggestions.iter().map(|s| {
-                                        let label: &'static str = s;
-                                        view! {
-                                            <button class="cx-empty-chip"
-                                                on:click=move |_| {
-                                                    set_input.set(label.to_string());
-                                                    if let Some(el) = web_sys::window()
-                                                        .and_then(|w| w.document())
-                                                        .and_then(|d| d.query_selector(".cx-pill-textarea").ok().flatten())
-                                                    {
-                                                        if let Ok(ta) = el.dyn_into::<HtmlTextAreaElement>() {
-                                                            let _ = ta.focus();
-                                                        }
-                                                    }
-                                                }>
-                                                {label}
-                                            </button>
-                                        }
-                                    }).collect_view()}
-                                </div>
-                            </div>
-                        }.into_view()
+                        view! { <div></div> }.into_view()
                     }}
                 </div>
+
+                // ── EMPTY INLINE: greeting + chips, shown as sibling when no messages
+                {move || (!has_messages()).then(|| {
+                    let suggestions = ["Explain something complex", "Help me write code", "Summarize a document"];
+                    view! {
+                        <div class="cx-empty-inline">
+                            <div class="cx-empty-prompt">"What's on your mind?"</div>
+                            <div class="cx-empty-chips">
+                                {suggestions.iter().map(|s| {
+                                    let label: &'static str = s;
+                                    view! {
+                                        <button class="cx-empty-chip"
+                                            on:click=move |_| {
+                                                set_input.set(label.to_string());
+                                                if let Some(el) = web_sys::window()
+                                                    .and_then(|w| w.document())
+                                                    .and_then(|d| d.query_selector(".cx-pill-textarea").ok().flatten())
+                                                {
+                                                    if let Ok(ta) = el.dyn_into::<HtmlTextAreaElement>() {
+                                                        let _ = ta.focus();
+                                                    }
+                                                }
+                                            }>
+                                            {label}
+                                        </button>
+                                    }
+                                }).collect_view()}
+                            </div>
+                        </div>
+                    }
+                })}
 
                 // ↓ New content pill — shown when user scrolled up during streaming
                 {move || (busy.get() && !at_bottom.get()).then(|| view! {
@@ -917,6 +880,10 @@ pub fn ChatPage() -> impl IntoView {
                         </div>
                     </div>
                 </div>
+
+                // Spacer below — mirrors top spacer, keeps input centered when empty
+                <div class="cx-v-spacer cx-v-spacer--bottom"></div>
+
             </main>
             </div> // cx-right-col
 
