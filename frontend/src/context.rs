@@ -110,6 +110,11 @@ pub struct ChatContext {
     /// Per-completed-AI-message metadata: (datetime, token_count, tokens_per_sec).
     /// Lives in context so it survives navigation; reset on session swap.
     pub ai_meta: RwSignal<Vec<(String, u32, f32)>>,
+    /// Per-session token accumulator for streams whose session is NOT currently
+    /// active. Avoids invalidating the `sessions` signal on every background
+    /// token. Flushed into `sessions` either on stream-done or when the user
+    /// navigates back to the session via `load_session`.
+    pub bg_buffers: StoredValue<HashMap<String, String>>,
 }
 
 impl ChatContext {
@@ -122,7 +127,26 @@ impl ChatContext {
             busy: create_rw_signal(false),
             streaming_content: create_rw_signal(String::new()),
             ai_meta: create_rw_signal(Vec::new()),
+            bg_buffers: store_value(HashMap::new()),
         }
+    }
+
+    /// Drain any buffered background tokens for `id` into the `sessions` map.
+    /// Call before reading `sessions[id]` to ensure the snapshot is complete.
+    pub fn flush_bg_buffer(&self, id: &str) {
+        let pending = self.bg_buffers.with_value(|b| b.get(id).cloned());
+        let Some(pending) = pending else { return };
+        if pending.is_empty() { return; }
+        self.bg_buffers.update_value(|b| { b.remove(id); });
+        self.sessions.update(|s| {
+            if let Some(msgs) = s.get_mut(id) {
+                if let Some(last) = msgs.last_mut() {
+                    if last.role == "assistant" {
+                        last.content.push_str(&pending);
+                    }
+                }
+            }
+        });
     }
 
     fn session_title(msgs: &[Message]) -> String {
@@ -172,6 +196,10 @@ impl ChatContext {
     pub fn load_session(&self, id: String) {
         self.save_current();
         self.ai_meta.set(vec![]);
+        // Drain any pending background tokens for this id BEFORE snapshotting
+        // sessions[id] — otherwise the user would see a stale view missing
+        // tokens that arrived while the session was off-screen.
+        self.flush_bg_buffer(&id);
 
         // If already in memory, switch immediately
         if let Some(msgs) = self.sessions.get_untracked().get(&id).cloned() {
@@ -214,6 +242,7 @@ impl ChatContext {
         self.active_session_id.set(None);
         self.busy.set(false);
         self.streaming_content.set(String::new());
+        self.bg_buffers.update_value(|b| b.clear());
         wasm_bindgen_futures::spawn_local(async move {
             let _ = crate::tauri_bridge::invoke_unit("clear_all_conversations", &serde_json::json!({})).await;
         });

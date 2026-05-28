@@ -2,13 +2,16 @@ use leptos::*;
 use leptos_router::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use js_sys;
 
 mod context;
 mod tauri_bridge;
 mod pages;
 
-use context::{ChatContext, ChatSessionSummary, DownloadContext};
+use context::{ChatContext, ChatSessionSummary, DownloadContext, LayoutContext, PersistedSummary};
 use pages::{agents::AgentsPage, chat::ChatPage, models::ModelsPage, settings::SettingsPage};
+use pages::components::sidebar::Sidebar;
+use pages::components::hw_notification::HwNotification;
 use pages::types::Message;
 
 fn session_title(msgs: &[Message]) -> String {
@@ -43,6 +46,29 @@ fn App() -> impl IntoView {
 
     let chat = ChatContext::new();
     provide_context(chat);
+
+    // ── Boot hydration: load conversation history from disk ───────────────────
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Ok(summaries) = tauri_bridge::invoke::<Vec<PersistedSummary>>(
+            "load_conversations",
+            &serde_json::json!({}),
+        ).await {
+            // Sort newest-first by updated_at (lexicographic ISO-8601 works correctly)
+            let mut sorted = summaries;
+            sorted.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+            chat.history.update(|h| {
+                for s in sorted {
+                    if !h.iter().any(|e| e.id == s.id) {
+                        h.push(ChatSessionSummary { id: s.id, title: s.title });
+                    }
+                }
+            });
+        }
+    });
+
+    let layout = LayoutContext::new();
+    provide_context(layout);
 
     // Listeners live for the entire app lifetime (closures are forgotten intentionally).
     tauri_bridge::listen("feral://download-progress", move |evt: JsValue| {
@@ -81,13 +107,11 @@ fn App() -> impl IntoView {
                         // chat.messages is updated once at stream end with the full text.
                         chat.streaming_content.update(|s| s.push_str(&tok));
                     } else {
-                        // Background session: accumulate directly into sessions map (no live display)
-                        chat.sessions.update(|s| {
-                            if let Some(msgs) = s.get_mut(&tok_session) {
-                                if let Some(last) = msgs.last_mut() {
-                                    if last.role == "assistant" { last.content.push_str(&tok); }
-                                }
-                            }
+                        // Background session: append to a plain HashMap buffer (no
+                        // signal write). Flushed into `sessions` on stream-done or
+                        // when the user navigates back via load_session.
+                        chat.bg_buffers.update_value(|b| {
+                            b.entry(tok_session).or_default().push_str(&tok);
                         });
                     }
                 }
@@ -120,17 +144,31 @@ fn App() -> impl IntoView {
             let msgs = chat.messages.get();
             if !msgs.is_empty() {
                 let title = session_title(&msgs);
-                chat.sessions.update(|s| { s.insert(done_session.clone(), msgs); });
+                chat.sessions.update(|s| { s.insert(done_session.clone(), msgs.clone()); });
                 chat.history.update(|h| {
                     if let Some(entry) = h.iter_mut().find(|s| s.id == done_session) {
-                        entry.title = title;
+                        entry.title = title.clone();
                     } else {
-                        h.push(ChatSessionSummary { id: done_session, title });
+                        h.push(ChatSessionSummary { id: done_session.clone(), title: title.clone() });
                     }
+                });
+
+                // Persist to disk immediately — no buffering
+                let persist_id = done_session.clone();
+                let persist_title = title;
+                let persist_msgs = msgs;
+                wasm_bindgen_futures::spawn_local(async move {
+                    let _ = tauri_bridge::invoke_unit("save_conversation", &serde_json::json!({
+                        "id": persist_id,
+                        "title": persist_title,
+                        "messages": persist_msgs,
+                    })).await;
                 });
             }
         } else if !done_session.is_empty() {
-            // Stream completed for a background session — update title only
+            // Stream completed for a background session — flush accumulated
+            // tokens into sessions, then update title.
+            chat.flush_bg_buffer(&done_session);
             let title = chat.sessions.get()
                 .get(&done_session)
                 .map(|m| session_title(m))
@@ -175,90 +213,42 @@ fn App() -> impl IntoView {
         }
     });
 
+    // ── Persistent Layout Shell ─────────────────────────────────────────────────
+    // <Sidebar/> mounts ONCE at app boot and never re-renders across navigation.
+    // <Routes/> swaps only the inner page view inside <main class="app-main">.
     view! {
         <Router>
-            <div class="layout">
+            // ── Custom titlebar (replaces native OS bar) ──────────────────────
+            <div class="app-titlebar" data-tauri-drag-region="true">
+                <div class="app-titlebar-drag" data-tauri-drag-region="true"></div>
+                <div class="app-titlebar-btns">
+                    <button class="app-tb-btn app-tb-min" title="Minimize"
+                        on:click=|_| { let _ = js_sys::eval("window.__TAURI__.window.getCurrentWindow().minimize()"); }>
+                        <span></span>
+                    </button>
+                    <button class="app-tb-btn app-tb-max" title="Maximize"
+                        on:click=|_| { let _ = js_sys::eval("window.__TAURI__.window.getCurrentWindow().toggleMaximize()"); }>
+                        <span></span>
+                    </button>
+                    <button class="app-tb-btn app-tb-close" title="Close"
+                        on:click=|_| { let _ = js_sys::eval("window.__TAURI__.window.getCurrentWindow().close()"); }>
+                        <span></span>
+                    </button>
+                </div>
+            </div>
+            <div class="app-shell">
                 <Sidebar/>
-                <main class="main">
+                <main class="app-main">
+                    <HwNotification/>
                     <Routes>
-                        <Route path="/" view=ModelsPage/>
-                        <Route path="/models" view=ModelsPage/>
+                        <Route path="/" view=ChatPage/>
                         <Route path="/chat" view=ChatPage/>
+                        <Route path="/models" view=ModelsPage/>
                         <Route path="/agents" view=AgentsPage/>
                         <Route path="/settings" view=SettingsPage/>
                     </Routes>
                 </main>
             </div>
         </Router>
-    }
-}
-
-#[component]
-fn Sidebar() -> impl IntoView {
-    let dl = use_context::<DownloadContext>().expect("DownloadContext not provided");
-    let chat = use_context::<ChatContext>().expect("ChatContext not provided");
-
-    view! {
-        <aside class="sidebar">
-            <div class="brand">"FERAL"</div>
-            <NavItem href="/models" icon="◧" label="Models"/>
-            <NavItem href="/chat" icon="✦" label="Chat"/>
-            <NavItem href="/agents" icon="⚙" label="Agents"/>
-            <NavItem href="/settings" icon="⚒" label="Settings"/>
-
-            <div class="sidebar-spacer"></div>
-
-            {move || {
-                let history: Vec<_> = chat.history.get().iter().rev().map(|s| {
-                    let title = s.title.clone();
-                    view! {
-                        <A href="/chat" class="sidebar-chat-item">{title}</A>
-                    }.into_view()
-                }).collect();
-                if history.is_empty() {
-                    view! { <span></span> }.into_view()
-                } else {
-                    view! {
-                        <div class="sidebar-chat-hist">
-                            <div class="sidebar-chat-hist-label">"Recent Chats"</div>
-                            {history}
-                        </div>
-                    }.into_view()
-                }
-            }}
-
-            {move || dl.downloading.get().then(|| view! {
-                <div class="sidebar-dl">
-                    <div class="sidebar-dl-name">{move || {
-                        let raw = dl.model_name.get();
-                        if raw.chars().count() > 20 {
-                            format!("{}…", raw.chars().take(20).collect::<String>())
-                        } else {
-                            raw
-                        }
-                    }}</div>
-                    <div class="sidebar-dl-label">
-                        "Downloading · "
-                        {move || format!("{:.0}%", dl.progress.get() * 100.0)}
-                    </div>
-                    <div class="sidebar-dl-track">
-                        <div
-                            class="sidebar-dl-fill"
-                            style=move || format!("width:{:.1}%", dl.progress.get() * 100.0)
-                        ></div>
-                    </div>
-                </div>
-            })}
-        </aside>
-    }
-}
-
-#[component]
-fn NavItem(href: &'static str, icon: &'static str, label: &'static str) -> impl IntoView {
-    view! {
-        <A href=href class="nav-link" active_class="active">
-            <span class="nav-icon">{icon}</span>
-            <span>{label}</span>
-        </A>
     }
 }

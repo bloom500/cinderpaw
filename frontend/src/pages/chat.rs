@@ -45,6 +45,18 @@ fn markdown_to_html(md: &str) -> String {
 }
 
 fn parse_think(content: &str) -> ParsedMessage {
+    // Fast path: streaming hot path runs this per token. Models without
+    // <think> tags (most non-reasoning models) skip the full state machine
+    // and avoid the Vec / two-String allocations entirely.
+    if !content.contains("<think>") {
+        return ParsedMessage {
+            thinking: Vec::new(),
+            current_think: String::new(),
+            answer: content.trim_start().to_string(),
+            still_thinking: false,
+        };
+    }
+
     let mut thinking: Vec<String> = Vec::new();
     let mut answer = String::new();
     let mut current_think = String::new();
