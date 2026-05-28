@@ -157,6 +157,7 @@ pub fn ChatPage() -> impl IntoView {
         .unwrap_or(0);
     let (reasoning_mode, set_reasoning_mode) = create_signal(stored_reasoning);
     let (skills_open, set_skills_open) = create_signal(false);
+    let (reasoning_dd_open, set_reasoning_dd_open) = create_signal(false);
 
     create_effect(move |_| {
         let mode = reasoning_mode.get();
@@ -807,53 +808,92 @@ pub fn ChatPage() -> impl IntoView {
 
                         <div class="cx-pill-meta">
                             <div class="cx-pill-left-actions">
-                                // ── Reasoning toggle (brain)
-                                <button
-                                    class=move || match reasoning_mode.get() {
-                                        1 => "cx-ibar-btn cx-ibar-btn--active",
-                                        2 => "cx-ibar-btn cx-ibar-btn--off",
-                                        _ => "cx-ibar-btn",
-                                    }
-                                    title="Reasoning: cycle Auto / On / Off"
-                                    on:click=move |_| set_reasoning_mode.update(|v| *v = (*v + 1) % 3)
-                                >
-                                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
-                                        stroke="currentColor" stroke-width="1.3"
+                                // ── Attach file (+)
+                                <button class="cx-ibar-btn" title="Attach file">
+                                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                                        stroke="currentColor" stroke-width="2"
                                         stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M5 8.5C5 6 6.3 4 8 4s3 2 3 4.5c0 .8-.2 1.5-.5 2L10 12H6l-.5-1.5C5.2 10 5 9.3 5 8.5z"/>
-                                        <path d="M6 12v.5a2 2 0 004 0V12"/>
-                                        <line x1="8" y1="4" x2="8" y2="6.5"/>
+                                        <line x1="12" y1="5" x2="12" y2="19"/>
+                                        <line x1="5" y1="12" x2="19" y2="12"/>
                                     </svg>
                                 </button>
-                                // ── Skills picker (wrench)
+                                // ── Skills picker (wrench/spanner)
                                 <div class="cx-ibar-popup-wrap">
                                     <button
                                         class=move || if skills_open.get() { "cx-ibar-btn cx-ibar-btn--active" } else { "cx-ibar-btn" }
                                         title="Skills"
-                                        on:click=move |_| set_skills_open.update(|v| *v = !*v)
+                                        on:click=move |_| {
+                                            let was_open = skills_open.get_untracked();
+                                            set_skills_open.set(!was_open);
+                                            if !was_open { set_reasoning_dd_open.set(false); }
+                                        }
                                     >
-                                        <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
-                                            stroke="currentColor" stroke-width="1.3"
+                                        <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                                            stroke="currentColor" stroke-width="2"
                                             stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M11.5 1.5a3 3 0 00-2.8 4L2 12.3l1.7 1.7 6.8-6.7a3 3 0 004.2-3.3l-2 2-1.2-1.2 2-2A3 3 0 0011.5 1.5z"/>
+                                            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                                         </svg>
                                     </button>
                                     {move || skills_open.get().then(|| view! {
                                         <div class="cx-skills-popup">
-                                            <div class="cx-skills-popup-header">"Skills"</div>
+                                            <div class="cx-skills-popup-header">"Available Skills"</div>
                                             <div class="cx-skills-empty">"No skills installed"</div>
                                         </div>
                                     })}
                                 </div>
-                                // ── Attach file (+)
-                                <button class="cx-ibar-btn" title="Attach file">
-                                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
-                                        stroke="currentColor" stroke-width="1.3"
-                                        stroke-linecap="round" stroke-linejoin="round">
-                                        <line x1="8" y1="3" x2="8" y2="13"/>
-                                        <line x1="3" y1="8" x2="13" y2="8"/>
-                                    </svg>
-                                </button>
+                                // ── Reasoning dropdown (brain + label)
+                                <div class="cx-ibar-popup-wrap">
+                                    <button
+                                        class=move || if reasoning_dd_open.get() || reasoning_mode.get() != 0 {
+                                            "cx-ibar-btn cx-ibar-btn--active"
+                                        } else {
+                                            "cx-ibar-btn"
+                                        }
+                                        title="Reasoning mode"
+                                        on:click=move |_| {
+                                            let was_open = reasoning_dd_open.get_untracked();
+                                            set_reasoning_dd_open.set(!was_open);
+                                            if !was_open { set_skills_open.set(false); }
+                                        }
+                                    >
+                                        <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                                            stroke="currentColor" stroke-width="1.5"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/>
+                                            <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/>
+                                        </svg>
+                                        <span class="cx-ibar-label">{move || match reasoning_mode.get() {
+                                            0 => "auto",
+                                            1 => "on",
+                                            _ => "off",
+                                        }}</span>
+                                    </button>
+                                    {move || reasoning_dd_open.get().then(|| view! {
+                                        <div class="cx-reasoning-popup">
+                                            <button
+                                                class=move || if reasoning_mode.get() == 0 { "cx-rd-item cx-rd-item--active" } else { "cx-rd-item" }
+                                                on:click=move |_| { set_reasoning_mode.set(0); set_reasoning_dd_open.set(false); }
+                                            >
+                                                <span>"Auto"</span>
+                                                {move || (reasoning_mode.get() == 0).then(|| view! { <span class="cx-rd-check">"✓"</span> })}
+                                            </button>
+                                            <button
+                                                class=move || if reasoning_mode.get() == 1 { "cx-rd-item cx-rd-item--active" } else { "cx-rd-item" }
+                                                on:click=move |_| { set_reasoning_mode.set(1); set_reasoning_dd_open.set(false); }
+                                            >
+                                                <span>"On"</span>
+                                                {move || (reasoning_mode.get() == 1).then(|| view! { <span class="cx-rd-check">"✓"</span> })}
+                                            </button>
+                                            <button
+                                                class=move || if reasoning_mode.get() == 2 { "cx-rd-item cx-rd-item--active" } else { "cx-rd-item" }
+                                                on:click=move |_| { set_reasoning_mode.set(2); set_reasoning_dd_open.set(false); }
+                                            >
+                                                <span>"Off"</span>
+                                                {move || (reasoning_mode.get() == 2).then(|| view! { <span class="cx-rd-check">"✓"</span> })}
+                                            </button>
+                                        </div>
+                                    })}
+                                </div>
                             </div>
                             <div style="flex:1"></div>
                             // Context window ring — full conversation token estimate + live popup

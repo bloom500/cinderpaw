@@ -2126,37 +2126,35 @@ details.thinking-live .thinking-content {
 .cx-ibar-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.55);
   border-radius: 8px;
-  padding: 4px 7px;
-  height: 28px;
+  padding: 5px 8px;
   cursor: pointer;
   font-family: var(--font);
   transition: background 0.12s ease, color 0.12s ease;
 }
 .cx-ibar-btn:hover {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.85);
 }
 .cx-ibar-btn--active {
   color: var(--accent);
   background: var(--accent-soft);
 }
-.cx-ibar-btn--off {
-  color: rgba(255,255,255,0.18);
-}
-.cx-ibar-btn-label {
-  font-size: 10px;
-  font-weight: 600;
+.cx-ibar-label {
+  font-size: 11px;
+  font-weight: 500;
   letter-spacing: 0.02em;
+  color: inherit;
 }
-/* Skills popup */
+/* Popups */
 .cx-ibar-popup-wrap {
   position: relative;
 }
+/* Skills popup */
 .cx-skills-popup {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -2178,11 +2176,44 @@ details.thinking-live .thinking-content {
   margin-bottom: 8px;
 }
 .cx-skills-empty {
-  font-size: 12px;
+  font-size: 13px;
   color: rgba(255,255,255,0.28);
   text-align: center;
-  padding: 16px 0 8px;
+  padding: 20px 0 12px;
 }
+/* Reasoning dropdown */
+.cx-reasoning-popup {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: #1e1e24;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 4px;
+  min-width: 130px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  z-index: 50;
+}
+.cx-rd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.72);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  text-align: left;
+}
+.cx-rd-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.92); }
+.cx-rd-item--active { color: rgba(255,255,255,0.95); }
+.cx-rd-check { color: var(--accent); font-size: 12px; font-weight: 700; }
 
 .cx-stop-icon {
   display: inline-block;
