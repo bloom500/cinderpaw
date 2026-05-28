@@ -1,5 +1,8 @@
 mod agents;
 mod api;
+mod byok;
+mod conversations;
+mod gpu_detect;
 mod inference;
 mod models;
 mod paths;
@@ -32,6 +35,7 @@ pub struct AppState {
     pub manager: Arc<ModelManager>,
     pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
     pub stop_signal: Arc<AtomicBool>,
+    pub settings: Settings,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -183,8 +187,9 @@ async fn load_model(
     path: String,
 ) -> Result<inference::LoadedModel, String> {
     let manager = state.manager.clone();
+    let n_gpu_layers = state.settings.default_gpu_layers;
     tokio::task::spawn_blocking(move || {
-        manager.load(PathBuf::from(path)).map_err(|e| e.to_string())
+        manager.load(PathBuf::from(path), n_gpu_layers).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -203,6 +208,7 @@ async fn start_model_load(
 
     let manager = state.manager.clone();
     let path_buf = PathBuf::from(&path);
+    let n_gpu_layers = state.settings.default_gpu_layers;
 
     let _ = app.emit("model-load-progress", ProgressPayload {
         percentage: 0.0,
@@ -236,7 +242,7 @@ async fn start_model_load(
             for i in 1..=steps {
                 if done2.load(Ordering::Relaxed) { break; }
                 tokio::time::sleep(Duration::from_millis(step_ms)).await;
-                let pct = prev + gap * i as f64 / steps as f64;
+                let pct = (prev + gap * i as f64 / steps as f64).min(99.0);
                 let _ = app2.emit("model-load-progress", ProgressPayload {
                     percentage: pct,
                     status_text: label.to_string(),
@@ -247,7 +253,7 @@ async fn start_model_load(
     });
 
     let result = tokio::task::spawn_blocking(move || {
-        manager.load(path_buf).map_err(|e| e.to_string())
+        manager.load(path_buf, n_gpu_layers).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -273,7 +279,96 @@ fn unload_model(state: State<AppState>) {
 
 #[tauri::command]
 fn delete_model(path: String) -> Result<(), String> {
-    models::delete_model(std::path::Path::new(&path)).map_err(|e| e.to_string())
+    let target = std::path::Path::new(&path)
+        .canonicalize()
+        .map_err(|e| format!("invalid path: {}", e))?;
+    let models_dir = crate::paths::models_dir()
+        .canonicalize()
+        .map_err(|e| format!("could not resolve models dir: {}", e))?;
+    if !target.starts_with(&models_dir) {
+        return Err("path is outside models directory".into());
+    }
+    models::delete_model(&target).map_err(|e| e.to_string())
+}
+
+/// Fetches file size in bytes for a HuggingFace model file via HTTP HEAD.
+/// Used by the frontend to display download size before starting a download.
+#[tauri::command]
+async fn get_model_size_info(repo_id: String, filename: String) -> Result<u64, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let url = format!("https://huggingface.co/{}/resolve/main/{}", repo_id, filename);
+    let resp = client.head(&url).send().await.map_err(|e| e.to_string())?;
+
+    resp.content_length()
+        .ok_or_else(|| "Content-Length not present in response".to_string())
+}
+
+/// Fetches the size of the largest GGUF file in a HuggingFace model repository
+/// by first getting the file list from the model details API, then making parallel
+/// HEAD requests to get file sizes. Returns a human-readable string (e.g. "4.25 GB").
+/// Used by the frontend Browse tab to show model sizes directly in the results list.
+#[tauri::command]
+async fn get_hf_model_size(repo_id: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Fetch model details to get the list of GGUF files
+    let detail_url = format!("https://huggingface.co/api/models/{}", repo_id);
+
+    #[derive(serde::Deserialize)]
+    struct ModelSibling {
+        rfilename: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct ModelDetail {
+        siblings: Vec<ModelSibling>,
+    }
+
+    let resp = client.get(&detail_url).send().await.map_err(|e| e.to_string())?;
+    let model: ModelDetail = resp.json().await.map_err(|e| e.to_string())?;
+
+    // Get all GGUF filenames
+    let gguf_files: Vec<String> = model.siblings.into_iter()
+        .filter(|s| s.rfilename.ends_with(".gguf"))
+        .map(|s| s.rfilename)
+        .collect();
+
+    if gguf_files.is_empty() {
+        return Err("No GGUF files found".to_string());
+    }
+
+    // Make parallel HEAD requests to get file sizes
+    let sizes: Vec<u64> = futures::future::join_all(
+        gguf_files.iter().map(|fname| {
+            let client = client.clone();
+            let repo_id = repo_id.clone();
+            let fname = fname.clone();
+            async move {
+                let url = format!("https://huggingface.co/{}/resolve/main/{}", repo_id, fname);
+                match client.head(&url).send().await {
+                    Ok(resp) => resp.content_length().unwrap_or(0),
+                    Err(_) => 0,
+                }
+            }
+        })
+    ).await;
+
+    let largest_bytes = sizes.iter().max().copied().unwrap_or(0);
+
+    if largest_bytes == 0 {
+        return Err("Could not determine file size".to_string());
+    }
+
+    let gb = largest_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    Ok(format!("{:.2} GB", gb))
 }
 
 // ---------- Chat ----------
@@ -292,10 +387,11 @@ async fn chat_stream(
     session_id: String,
 ) -> Result<(), String> {
     use futures::StreamExt;
-    // Reset stop signal before new generation
+    // Reset stop signal before each new generation so a previous stop doesn't
+    // immediately abort the next request.
     state.stop_signal.store(false, Ordering::SeqCst);
     let stop = state.stop_signal.clone();
-    let mut stream = Box::pin(state.manager.stream_chat(messages, params));
+    let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop.clone()));
     while let Some(tok) = stream.next().await {
         if stop.load(Ordering::SeqCst) {
             let _ = app.emit("feral://stream-done", serde_json::json!({ "session_id": &session_id }));
@@ -406,8 +502,14 @@ pub struct HfModelDetail {
     pub readme: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HfSearchPage {
+    pub models: Vec<HfModelSummary>,
+    pub next_cursor: Option<String>,
+}
+
 #[tauri::command]
-async fn search_hf_models(query: String) -> Result<Vec<HfModelSummary>, String> {
+async fn search_hf_models(query: String, cursor: Option<String>) -> Result<HfSearchPage, String> {
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
         .build()
@@ -428,25 +530,42 @@ async fn search_hf_models(query: String) -> Result<Vec<HfModelSummary>, String> 
         tags: Vec<String>,
     }
 
-    let url = format!(
-        "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=24&full=false",
+    let url = cursor.unwrap_or_else(|| format!(
+        "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=50&full=false",
         urlencoding::encode(&query)
-    );
-    let resp: Vec<RawModel> = client.get(&url).send().await
-        .map_err(|e| e.to_string())?
-        .json().await
-        .map_err(|e| e.to_string())?;
+    ));
 
-    Ok(resp.into_iter().map(|m| HfModelSummary {
-        author: m.author.unwrap_or_else(|| {
-            m.id.split('/').next().unwrap_or("").to_string()
-        }),
-        id: m.id,
-        downloads: m.downloads,
-        likes: m.likes,
-        last_modified: m.last_modified,
-        tags: m.tags,
-    }).collect())
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+
+    // Parse Link header for next-page cursor
+    let next_cursor = resp.headers()
+        .get("link")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|link| {
+            link.split(',')
+                .find(|p| p.contains(r#"rel="next""#))
+                .and_then(|p| {
+                    let s = p.find('<')? + 1;
+                    let e = p.find('>')?;
+                    Some(p[s..e].trim().to_string())
+                })
+        });
+
+    let raw: Vec<RawModel> = resp.json().await.map_err(|e| e.to_string())?;
+
+    Ok(HfSearchPage {
+        models: raw.into_iter().map(|m| HfModelSummary {
+            author: m.author.unwrap_or_else(|| {
+                m.id.split('/').next().unwrap_or("").to_string()
+            }),
+            id: m.id,
+            downloads: m.downloads,
+            likes: m.likes,
+            last_modified: m.last_modified,
+            tags: m.tags,
+        }).collect(),
+        next_cursor,
+    })
 }
 
 #[tauri::command]
@@ -473,21 +592,59 @@ async fn get_hf_model_detail(repo_id: String) -> Result<HfModelDetail, String> {
         siblings: Vec<RawSibling>,
     }
     #[derive(Deserialize)]
+    struct LfsInfo {
+        size: u64,
+    }
+    #[derive(Deserialize)]
     struct RawSibling {
         rfilename: String,
+        #[serde(default)]
+        size: Option<u64>,
+        #[serde(default)]
+        lfs: Option<LfsInfo>,
+    }
+
+    #[derive(Deserialize)]
+    struct TreeEntry {
+        path: String,
         #[serde(default)]
         size: Option<u64>,
     }
 
     let url = format!("https://huggingface.co/api/models/{}", repo_id);
-    let raw: RawModel = client.get(&url).send().await
-        .map_err(|e| e.to_string())?
-        .json().await
-        .map_err(|e| e.to_string())?;
+    let tree_url = format!("https://huggingface.co/api/models/{}/tree/main", repo_id);
+
+    // Fetch model metadata and tree listing in parallel
+    let (raw_resp, tree_resp) = tokio::join!(
+        client.get(&url).send(),
+        client.get(&tree_url).send()
+    );
+
+    let raw: RawModel = raw_resp.map_err(|e| e.to_string())?
+        .json().await.map_err(|e| e.to_string())?;
+
+    // Tree endpoint reliably returns actual file sizes (not LFS pointer sizes)
+    let tree_sizes: std::collections::HashMap<String, u64> = match tree_resp {
+        Ok(r) if r.status().is_success() => {
+            r.json::<Vec<TreeEntry>>().await
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|e| e.size.filter(|&n| n > 1_048_576).map(|s| (e.path, s)))
+                .collect()
+        }
+        _ => std::collections::HashMap::new(),
+    };
 
     let gguf_files = raw.siblings.into_iter()
         .filter(|s| s.rfilename.ends_with(".gguf"))
-        .map(|s| HfFile { rfilename: s.rfilename, size: s.size })
+        .map(|s| {
+            // Priority: tree API size > lfs.size > siblings.size
+            let actual_size = tree_sizes.get(&s.rfilename).copied()
+                .or_else(|| s.lfs.as_ref().map(|l| l.size))
+                .or(s.size)
+                .filter(|&n| n > 1_048_576);
+            HfFile { rfilename: s.rfilename, size: actual_size }
+        })
         .collect();
 
     // Fetch README
@@ -514,6 +671,37 @@ async fn get_hf_model_detail(repo_id: String) -> Result<HfModelDetail, String> {
     })
 }
 
+// ---------- Conversations ----------
+
+#[tauri::command]
+fn save_conversation(
+    id: String,
+    title: String,
+    messages: Vec<conversations::PersistedMessage>,
+) -> Result<(), String> {
+    conversations::save(&id, &title, &messages).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_conversations() -> Result<Vec<conversations::ConversationSummary>, String> {
+    conversations::load_all().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_conversation(id: String) -> Result<conversations::Conversation, String> {
+    conversations::load(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_conversation(id: String) -> Result<(), String> {
+    conversations::delete(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_all_conversations() -> Result<(), String> {
+    conversations::clear_all().map_err(|e| e.to_string())
+}
+
 // ---------- Settings ----------
 
 #[tauri::command]
@@ -522,6 +710,90 @@ fn get_settings() -> Settings { settings::load() }
 #[tauri::command]
 fn save_settings(settings: Settings) -> Result<(), String> {
     settings::save(&settings).map_err(|e| e.to_string())
+}
+
+// ---------- BYOK ----------
+
+#[tauri::command]
+fn get_byok_settings() -> Vec<byok::ProviderInfo> {
+    let settings = byok::load(&settings::load());
+    settings.get_all_providers()
+}
+
+#[tauri::command]
+fn save_byok_provider(provider_id: String, enabled: bool, api_key: String, base_url: Option<String>, default_model: Option<String>) -> Result<(), String> {
+    let mut settings = byok::load(&settings::load());
+    let config = byok::ProviderConfig {
+        enabled,
+        api_key,
+        base_url,
+        default_model,
+    };
+    settings.update_provider(&provider_id, config);
+    byok::save(&settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn test_byok_provider(provider_id: String, api_key: String, base_url: Option<String>) -> Result<byok::TestProviderResponse, String> {
+    use byok::Provider;
+
+    let provider = match provider_id.as_str() {
+        "openai" => Provider::Openai,
+        "anthropic" => Provider::Anthropic,
+        "google" => Provider::Google,
+        "kimi" => Provider::Kimi,
+        "glm" => Provider::Glm,
+        "minimax" => Provider::Minimax,
+        "groq" => Provider::Groq,
+        "mistral" => Provider::Mistral,
+        "deepseek" => Provider::Deepseek,
+        "openrouter" => Provider::Openrouter,
+        _ => Provider::Custom,
+    };
+
+    let url = base_url.unwrap_or_else(|| provider.default_base_url().to_string());
+    let endpoint = format!("{}/models", url.trim_end_matches('/'));
+
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let header_key = provider.api_key_header();
+    let header_prefix = provider.api_key_prefix();
+
+    let resp = client
+        .get(&endpoint)
+        .header(header_key, format!("{}{}", header_prefix, api_key))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() {
+        // Try to parse as OpenAI-compatible list response
+        #[derive(serde::Deserialize)]
+        struct ModelList { data: Option<Vec<serde_json::Value>> }
+        let models: Vec<String> = resp.json::<ModelList>().await
+            .ok()
+            .and_then(|r| r.data)
+            .map(|items| items.iter().filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from)).collect())
+            .unwrap_or_default();
+
+        Ok(byok::TestProviderResponse {
+            success: true,
+            message: "Connection successful".to_string(),
+            models,
+        })
+    } else {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        Ok(byok::TestProviderResponse {
+            success: false,
+            message: format!("HTTP {}: {}", status, body),
+            models: vec![],
+        })
+    }
 }
 
 // ---------- Entry ----------
@@ -535,11 +807,13 @@ pub fn run() {
 
     let _ = paths::ensure_dirs();
 
+    let settings = settings::load();
     let manager = Arc::new(ModelManager::new());
     let state = AppState {
         manager: manager.clone(),
         downloads: Arc::new(Mutex::new(HashMap::new())),
         stop_signal: Arc::new(AtomicBool::new(false)),
+        settings,
     };
 
     tauri::Builder::default()
@@ -575,10 +849,20 @@ pub fn run() {
             delete_agent,
             get_agent_presets,
             run_agent,
+            save_conversation,
+            load_conversations,
+            load_conversation,
+            delete_conversation,
+            clear_all_conversations,
             get_settings,
             save_settings,
             search_hf_models,
             get_hf_model_detail,
+            get_model_size_info,
+            get_hf_model_size,
+            get_byok_settings,
+            save_byok_provider,
+            test_byok_provider,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

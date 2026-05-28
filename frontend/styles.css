@@ -2564,20 +2564,60 @@ details.thinking-live .thinking-content {
   letter-spacing: 0.01em;
   color: var(--text-muted);
 }
+.cx-thread-more-wrap {
+  position: relative;
+}
 .cx-thread-more-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
-  font-size: 13px;
+  color: rgba(255,255,255,0.55);
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 4px 6px;
   border-radius: 5px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background 0.12s, color 0.12s;
 }
 .cx-thread-more-btn:hover {
   background: rgba(255,255,255,0.07);
-  color: var(--fg);
+  color: rgba(255,255,255,0.9);
+}
+.cx-thread-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: #1e1e22;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  min-width: 160px;
+  z-index: 100;
+  overflow: hidden;
+}
+.cx-thread-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  background: transparent;
+  border: none;
+  font-family: var(--font);
+  font-size: 13px;
+  color: rgba(255,255,255,0.75);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.cx-thread-dropdown-item:hover {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.95);
+}
+.cx-thread-dropdown-danger {
+  color: #f87171;
+}
+.cx-thread-dropdown-danger:hover {
+  background: rgba(248,113,113,0.08);
+  color: #fca5a5;
 }
 .cx-sidebar-footer {
   padding: 10px 10px 10px;

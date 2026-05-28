@@ -82,6 +82,13 @@ pub fn Sidebar() -> impl IntoView {
         }
     };
 
+    let recent_menu_open = create_rw_signal(false);
+
+    let delete_all = move |_| {
+        recent_menu_open.set(false);
+        chat.clear_all();
+    };
+
     view! {
         <aside class=aside_cls>
             // ── Brand header: logo + action icons ─────────────────────────────
@@ -185,7 +192,29 @@ pub fn Sidebar() -> impl IntoView {
                 <div class="cx-thread-group">
                     <div class="cx-thread-group-header">
                         <span class="cx-thread-group-label">"Recent"</span>
-                        <button class="cx-thread-more-btn" title="More">"···"</button>
+                        <div class="cx-thread-more-wrap">
+                            <button class="cx-thread-more-btn"
+                                title="More"
+                                on:click=move |e| {
+                                    e.stop_propagation();
+                                    recent_menu_open.update(|v| *v = !*v);
+                                }>
+                                // Three actual dots via SVG circles
+                                <svg viewBox="0 0 14 4" width="14" height="4" fill="currentColor">
+                                    <circle cx="2" cy="2" r="1.5"/>
+                                    <circle cx="7" cy="2" r="1.5"/>
+                                    <circle cx="12" cy="2" r="1.5"/>
+                                </svg>
+                            </button>
+                            {move || recent_menu_open.get().then(|| view! {
+                                <div class="cx-thread-dropdown">
+                                    <button class="cx-thread-dropdown-item cx-thread-dropdown-danger"
+                                        on:click=delete_all>
+                                        "Delete All Chats"
+                                    </button>
+                                </div>
+                            })}
+                        </div>
                     </div>
                     <div class="cx-hist-list">
                         {move || {
