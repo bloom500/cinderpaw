@@ -2995,6 +2995,7 @@ details.thinking-live .thinking-content {
   max-width: 800px;
   margin-left: auto;
   margin-right: auto;
+  margin-top: 16px;
   width: 100%;
 }
 .mlib-card {
