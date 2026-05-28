@@ -1,7 +1,30 @@
 use leptos::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::pages::types::Message;
+use crate::pages::types::{LoadedModel, Message};
+
+// ── Model Load Context ────────────────────────────────────────────────────────
+
+/// Global model loading state. Shared between ChatPage pill and ModelsPage so
+/// both UIs stay in sync with a single source of truth.
+#[derive(Clone, Copy)]
+pub struct ModelLoadContext {
+    pub loaded: RwSignal<Option<LoadedModel>>,
+    pub loading: RwSignal<bool>,
+    pub progress: RwSignal<f64>,
+    pub status: RwSignal<String>,
+}
+
+impl ModelLoadContext {
+    pub fn new() -> Self {
+        Self {
+            loaded: create_rw_signal(None),
+            loading: create_rw_signal(false),
+            progress: create_rw_signal(0.0),
+            status: create_rw_signal(String::new()),
+        }
+    }
+}
 
 // ── Download Context ──────────────────────────────────────────────────────────
 

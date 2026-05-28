@@ -8,7 +8,7 @@ mod context;
 mod tauri_bridge;
 mod pages;
 
-use context::{ChatContext, ChatSessionSummary, DownloadContext, LayoutContext, PersistedSummary};
+use context::{ChatContext, ChatSessionSummary, DownloadContext, LayoutContext, ModelLoadContext, PersistedSummary};
 use pages::{agents::AgentsPage, chat::ChatPage, models::ModelsPage, settings::SettingsPage};
 use pages::components::sidebar::Sidebar;
 use pages::components::hw_notification::HwNotification;
@@ -46,6 +46,9 @@ fn App() -> impl IntoView {
 
     let chat = ChatContext::new();
     provide_context(chat);
+
+    let model_load = ModelLoadContext::new();
+    provide_context(model_load);
 
     // ── Boot hydration: load conversation history from disk ───────────────────
     wasm_bindgen_futures::spawn_local(async move {
@@ -209,6 +212,23 @@ fn App() -> impl IntoView {
                     .unwrap_or("Download failed")
                     .to_string();
                 dl.dl_error.set(Some(err));
+            }
+        }
+    });
+
+    // Global model-load-progress listener — handles both chat pill and models page.
+    tauri_bridge::listen("model-load-progress", move |evt: JsValue| {
+        if let Ok(obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(evt) {
+            if let Some(p) = obj.get("payload") {
+                if let Some(pct) = p.get("percentage").and_then(|v| v.as_f64()) {
+                    model_load.progress.set(pct);
+                    if (pct - 100.0).abs() < f64::EPSILON {
+                        model_load.loading.set(false);
+                    }
+                }
+                if let Some(txt) = p.get("status_text").and_then(|v| v.as_str()) {
+                    model_load.status.set(txt.to_string());
+                }
             }
         }
     });

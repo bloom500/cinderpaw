@@ -1443,6 +1443,22 @@ details.thinking-live .thinking-content {
   flex-shrink: 0;
 }
 .cx-gear { opacity: 0.7; font-size: 13px; }
+/* Progress bar under the model pill, visible only during load */
+.cx-pill-load-bar {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: -3px;
+  height: 2px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 0 0 999px 999px;
+  overflow: hidden;
+}
+.cx-pill-load-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
 
 /* ── MODEL DROPDOWN ──────────────────────────────────────────────────── */
 .cx-dd-overlay {

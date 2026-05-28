@@ -6,7 +6,7 @@ use wasm_bindgen::JsValue;
 
 use crate::pages::types::{human_bytes, LoadedModel, ModelInfo, SystemInfo};
 use crate::tauri_bridge;
-use crate::context::DownloadContext;
+use crate::context::{DownloadContext, ModelLoadContext};
 
 // ── BYOK Panel ──
 
@@ -671,7 +671,9 @@ fn HfDetailPanel(
 #[component]
 pub fn ModelsPage() -> impl IntoView {
     let (local_models, set_local_models) = create_signal::<Vec<ModelInfo>>(vec![]);
-    let (loaded, set_loaded) = create_signal::<Option<LoadedModel>>(None);
+    let ml = use_context::<ModelLoadContext>().expect("ModelLoadContext not provided");
+    let loaded = ml.loaded;
+    let set_loaded = ml.loaded.write_only();
     let (sysinfo, set_sysinfo) = create_signal::<Option<SystemInfo>>(None);
 
     let dl = use_context::<DownloadContext>().expect("DownloadContext not provided");
@@ -687,8 +689,8 @@ pub fn ModelsPage() -> impl IntoView {
     let (tab, set_tab) = create_signal("local");
     let (loading_path, set_loading_path) = create_signal::<Option<String>>(None);
     let (load_error, set_load_error) = create_signal::<Option<String>>(None);
-    let (load_progress, set_load_progress) = create_signal(0.0f64);
-    let (load_status, set_load_status) = create_signal(String::new());
+    let load_progress = ml.progress;
+    let load_status = ml.status;
     let (popular_loaded, set_popular_loaded) = create_signal(false);
     let (hf_next_cursor, set_hf_next_cursor) = create_signal::<Option<String>>(None);
     let (deleting_model, set_deleting_model) = create_signal::<Option<String>>(None);
@@ -841,38 +843,21 @@ pub fn ModelsPage() -> impl IntoView {
 
     let do_load = move |path: String| {
         set_loading_path.set(Some(path.clone()));
-        set_load_progress.set(0.0);
-        set_load_status.set("Initializing...".into());
+        ml.progress.set(0.0);
+        ml.status.set("Initializing...".into());
+        ml.loading.set(true);
         set_load_error.set(None);
         spawn_local(async move {
-            let sp = set_load_progress;
-            let ss = set_load_status;
-            // Register listener BEFORE invoking to avoid missing the first event.
-            let unlisten = tauri_bridge::listen_once_async(
-                "model-load-progress",
-                move |val: JsValue| {
-                    if let Ok(obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(val) {
-                        if let Some(p) = obj.get("payload") {
-                            if let Some(pct) = p.get("percentage").and_then(|v| v.as_f64()) {
-                                sp.set(pct);
-                            }
-                            if let Some(txt) = p.get("status_text").and_then(|v| v.as_str()) {
-                                ss.set(txt.to_string());
-                            }
-                        }
-                    }
-                },
-            ).await;
             match tauri_bridge::invoke::<LoadedModel>(
                 "start_model_load", json!({ "path": path })
             ).await {
-                Ok(l) => { set_loaded.set(Some(l)); set_load_error.set(None); }
+                Ok(l) => { ml.loaded.set(Some(l)); set_load_error.set(None); }
                 Err(e) => { set_load_error.set(Some(e)); }
             }
-            tauri_bridge::call_unlisten(&unlisten);
+            ml.loading.set(false);
+            ml.progress.set(0.0);
+            ml.status.set(String::new());
             set_loading_path.set(None);
-            set_load_progress.set(0.0);
-            set_load_status.set(String::new());
         });
     };
 
@@ -881,41 +866,25 @@ pub fn ModelsPage() -> impl IntoView {
         Callback::new(move |path: String| {
             let nav2 = nav.clone();
             set_loading_path.set(Some(path.clone()));
-            set_load_progress.set(0.0);
-            set_load_status.set("Initializing...".into());
+            ml.progress.set(0.0);
+            ml.status.set("Initializing...".into());
+            ml.loading.set(true);
             set_load_error.set(None);
             spawn_local(async move {
-                let sp = set_load_progress;
-                let ss = set_load_status;
-                let unlisten = tauri_bridge::listen_once_async(
-                    "model-load-progress",
-                    move |val: JsValue| {
-                        if let Ok(obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(val) {
-                            if let Some(p) = obj.get("payload") {
-                                if let Some(pct) = p.get("percentage").and_then(|v| v.as_f64()) {
-                                    sp.set(pct);
-                                }
-                                if let Some(txt) = p.get("status_text").and_then(|v| v.as_str()) {
-                                    ss.set(txt.to_string());
-                                }
-                            }
-                        }
-                    },
-                ).await;
                 match tauri_bridge::invoke::<LoadedModel>(
                     "start_model_load", json!({ "path": path })
                 ).await {
                     Ok(l) => {
-                        set_loaded.set(Some(l));
+                        ml.loaded.set(Some(l));
                         set_load_error.set(None);
                         nav2("/chat", Default::default());
                     }
                     Err(e) => { set_load_error.set(Some(e)); }
                 }
-                tauri_bridge::call_unlisten(&unlisten);
+                ml.loading.set(false);
+                ml.progress.set(0.0);
+                ml.status.set(String::new());
                 set_loading_path.set(None);
-                set_load_progress.set(0.0);
-                set_load_status.set(String::new());
             });
         })
     };

@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlElement, HtmlTextAreaElement, MouseEvent, KeyboardEvent};
 
-use crate::context::{ChatContext, ChatSessionSummary, LayoutContext};
+use crate::context::{ChatContext, ChatSessionSummary, LayoutContext, ModelLoadContext};
 use crate::pages::types::{InferParams, LoadedModel, Message, ModelInfo};
 use crate::pages::models::ByokProviderInfo;
 use crate::tauri_bridge;
@@ -135,7 +135,10 @@ fn strip_model_name(name: &str) -> String {
 
 #[component]
 pub fn ChatPage() -> impl IntoView {
-    let (loaded, set_loaded) = create_signal::<Option<LoadedModel>>(None);
+    // Global model load context — shared with ModelsPage
+    let ml = use_context::<ModelLoadContext>().expect("ModelLoadContext not provided");
+    let loaded = ml.loaded;
+    let set_loaded = ml.loaded.write_only();
 
     // Global chat context
     let chat = use_context::<ChatContext>().expect("ChatContext not provided");
@@ -182,7 +185,9 @@ pub fn ChatPage() -> impl IntoView {
     let (model_dd_open, set_model_dd_open) = create_signal(false);
     let (local_models, set_local_models) = create_signal::<Vec<ModelInfo>>(vec![]);
     let (byok_providers, set_byok_providers) = create_signal::<Vec<ByokProviderInfo>>(vec![]);
-    let (loading_pill, set_loading_pill) = create_signal(false);
+    let loading_pill = ml.loading;
+    let load_progress = ml.progress;
+    let load_status = ml.status;
     let navigate = use_navigate();
 
     // Register scroll listener once on component mount (no signal reads inside = runs exactly once).
@@ -411,10 +416,25 @@ pub fn ChatPage() -> impl IntoView {
                                     if loaded.get().is_some() { "cx-pill-dot loaded" } else { "cx-pill-dot" }
                                 }></span>
                                 <span class="cx-pill-name">
-                                    {move || if loading_pill.get() { "Loading\u{2026}".to_string() } else { pill_model_name() }}
+                                    {move || if loading_pill.get() {
+                                        let pct = load_progress.get();
+                                        if pct > 0.0 && pct < 100.0 {
+                                            format!("{:.0}%", pct)
+                                        } else {
+                                            "Loading\u{2026}".to_string()
+                                        }
+                                    } else { pill_model_name() }}
                                 </span>
                                 <span class="cx-pill-chevron">"▾"</span>
                             </button>
+                            // Progress bar under pill — visible only while loading
+                            {move || loading_pill.get().then(|| view! {
+                                <div class="cx-pill-load-bar">
+                                    <div class="cx-pill-load-fill"
+                                        style=move || format!("width:{}%", load_progress.get())>
+                                    </div>
+                                </div>
+                            })}
                             <div class="cx-pill-sep"></div>
                             <button class="cx-pill-right"
                                 on:click=move |_| set_controls_open.update(|v| *v = !*v)
@@ -451,15 +471,20 @@ pub fn ChatPage() -> impl IntoView {
                                         on:click=move |_| {
                                             set_model_dd_open.set(false);
                                             if !is_active {
-                                                set_loading_pill.set(true);
+                                                ml.loading.set(true);
+                                                ml.progress.set(0.0);
+                                                ml.status.set("Initializing...".into());
                                                 let p = path.clone();
                                                 spawn_local(async move {
-                                                    if let Ok(l) = tauri_bridge::invoke::<LoadedModel>(
+                                                    match tauri_bridge::invoke::<LoadedModel>(
                                                         "start_model_load", json!({ "path": p })
                                                     ).await {
-                                                        set_loaded.set(Some(l));
+                                                        Ok(l) => { ml.loaded.set(Some(l)); }
+                                                        Err(_) => {}
                                                     }
-                                                    set_loading_pill.set(false);
+                                                    ml.loading.set(false);
+                                                    ml.progress.set(0.0);
+                                                    ml.status.set(String::new());
                                                 });
                                             }
                                         }
