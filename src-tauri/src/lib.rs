@@ -528,10 +528,10 @@ async fn search_hf_models(query: String, cursor: Option<String>) -> Result<HfSea
 
     let url = cursor.unwrap_or_else(|| {
         if query.is_empty() {
-            // No query — show trending GGUF models
-            "https://huggingface.co/api/models?filter=gguf&sort=trending&direction=-1&limit=50&full=false".to_string()
+            // No query — show most downloaded GGUF models
+            "https://huggingface.co/api/models?filter=gguf&sort=downloads&direction=-1&limit=50&full=false".to_string()
         } else {
-            // With query — sort by relevance (no explicit sort = HF relevance ranking)
+            // With query — HF default sort = relevance ranking
             format!(
                 "https://huggingface.co/api/models?search={}&filter=gguf&limit=50&full=false",
                 urlencoding::encode(&query)

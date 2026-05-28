@@ -728,13 +728,18 @@ pub fn ModelsPage() -> impl IntoView {
     });
 
     let refresh_local = move || {
+        // Fast path: models + loaded state in parallel, renders immediately.
         spawn_local(async move {
-            if let Ok(list) = tauri_bridge::invoke::<Vec<ModelInfo>>("get_models", json!({})).await {
-                set_local_models.set(list);
-            }
-            if let Ok(l) = tauri_bridge::invoke::<Option<LoadedModel>>("get_loaded_model", json!({})).await {
-                set_loaded.set(l);
-            }
+            let (models_res, loaded_res) = futures::join!(
+                tauri_bridge::invoke::<Vec<ModelInfo>>("get_models", json!({})),
+                tauri_bridge::invoke::<Option<LoadedModel>>("get_loaded_model", json!({})),
+            );
+            if let Ok(list) = models_res { set_local_models.set(list); }
+            if let Ok(l) = loaded_res   { set_loaded.set(l); }
+        });
+        // Slow path: sysinfo (reads CPU/RAM) in its own task so it never
+        // blocks the model list from appearing.
+        spawn_local(async move {
             if let Ok(s) = tauri_bridge::invoke::<SystemInfo>("get_system_info", json!({})).await {
                 set_sysinfo.set(Some(s));
             }
