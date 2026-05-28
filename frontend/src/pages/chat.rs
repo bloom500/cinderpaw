@@ -347,7 +347,7 @@ pub fn ChatPage() -> impl IntoView {
                     >"≡"</button>
 
                     <div class="cx-pill-wrapper">
-                        <div class="cx-pill">
+                        <div class="cx-tpill">
                             <button class="cx-pill-left"
                                 on:click=move |_| {
                                     let was_open = model_dd_open.get_untracked();
