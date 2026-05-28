@@ -697,7 +697,7 @@ pub fn ModelsPage() -> impl IntoView {
     let (fitted_fetching_repo, set_fitted_fetching_repo) = create_signal::<Option<String>>(None);
     let navigate = use_navigate();
 
-    // Load popular GGUF models on mount so Browse tab isn't empty
+    // Load trending GGUF models on mount so Browse tab isn't empty
     let load_popular = move || {
         if popular_loaded.get() { return; }
         set_hf_loading.set(true);
@@ -707,7 +707,7 @@ pub fn ModelsPage() -> impl IntoView {
         set_hf_selected.set(None);
         spawn_local(async move {
             match tauri_bridge::invoke::<HfSearchPage>(
-                "search_hf_models", json!({ "query": "llama", "cursor": null })
+                "search_hf_models", json!({ "query": "", "cursor": null })
             ).await {
                 Ok(page) => {
                     set_hf_results.set(page.models);
@@ -776,7 +776,7 @@ pub fn ModelsPage() -> impl IntoView {
         set_hf_loading.set(true);
         spawn_local(async move {
             match tauri_bridge::invoke::<HfSearchPage>(
-                "search_hf_models", json!({ "query": "", "cursor": cursor })
+                "search_hf_models", json!({ "query": null, "cursor": cursor })
             ).await {
                 Ok(page) => {
                     set_hf_results.update(|list| list.extend(page.models));
