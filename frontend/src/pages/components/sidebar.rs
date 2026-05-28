@@ -118,20 +118,61 @@ pub fn Sidebar() -> impl IntoView {
             </div>
 
             <button class="cx-new-chat-full" on:click=new_chat>
-                <span>"+"</span>
-                <span>"New Chat"</span>
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                    stroke="currentColor" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="8" y1="3" x2="8" y2="13"/>
+                    <line x1="3" y1="8" x2="13" y2="8"/>
+                </svg>
+                <span class="cx-nav-label">"New Chat"</span>
+                <span class="cx-nav-shortcut">"Ctrl N"</span>
             </button>
 
             <div class="cx-drawer-nav">
-                <A href="/chat" class=move || nav_cls("/chat")>"✦ Chat"</A>
-                <A href="/models" class=move || nav_cls("/models")>"◧ Models"</A>
-                <A href="/agents" class=move || nav_cls("/agents")>"⚙ Assistants"</A>
-                <A href="/settings" class=move || nav_cls("/settings")>"⚒ Settings"</A>
+                <A href="/chat" class=move || nav_cls("/chat")>
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                        stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 3h10a1 1 0 011 1v6a1 1 0 01-1 1H9l-3 2v-2H3a1 1 0 01-1-1V4a1 1 0 011-1z"/>
+                    </svg>
+                    <span class="cx-nav-label">"Chat"</span>
+                </A>
+                <A href="/models" class=move || nav_cls("/models")>
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                        stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 2l6 3.5v5L8 14 2 10.5v-5z"/>
+                        <path d="M2 5.5l6 3.5 6-3.5"/>
+                        <line x1="8" y1="9" x2="8" y2="14"/>
+                    </svg>
+                    <span class="cx-nav-label">"Models"</span>
+                </A>
+                <A href="/agents" class=move || nav_cls("/agents")>
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                        stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="8" cy="5.5" r="2.5"/>
+                        <path d="M2 14c0-2.8 2.7-5 6-5s6 2.2 6 5"/>
+                    </svg>
+                    <span class="cx-nav-label">"Assistants"</span>
+                </A>
+                <A href="/settings" class=move || nav_cls("/settings")>
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                        stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="8" cy="8" r="2.5"/>
+                        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M11.4 3.2l-1.4 1.4M4.6 11.4l-1.4 1.4"/>
+                    </svg>
+                    <span class="cx-nav-label">"Settings"</span>
+                </A>
             </div>
 
             <div class="cx-drawer-section">
                 <div class="cx-thread-group">
-                    <div class="cx-thread-group-label">"Recent"</div>
+                    <div class="cx-thread-group-header">
+                        <span class="cx-thread-group-label">"Recent"</span>
+                        <button class="cx-thread-more-btn" title="More">"···"</button>
+                    </div>
                     <div class="cx-hist-list">
                         {move || {
                             let convs = chat.history.get();
@@ -153,7 +194,6 @@ pub fn Sidebar() -> impl IntoView {
                                                 nav("/chat", Default::default());
                                             }
                                         >
-                                            <span class="cx-hist-dot">"◆"</span>
                                             <span class="cx-hist-name">{title}</span>
                                         </div>
                                     }.into_view()

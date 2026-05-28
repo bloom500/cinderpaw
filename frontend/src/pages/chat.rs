@@ -824,11 +824,6 @@ pub fn ChatPage() -> impl IntoView {
                                         <path d="M6 12v.5a2 2 0 004 0V12"/>
                                         <line x1="8" y1="4" x2="8" y2="6.5"/>
                                     </svg>
-                                    <span class="cx-ibar-btn-label">{move || match reasoning_mode.get() {
-                                        0 => "Auto",
-                                        1 => "On",
-                                        _ => "Off",
-                                    }}</span>
                                 </button>
                                 // ── Skills picker (wrench)
                                 <div class="cx-ibar-popup-wrap">
