@@ -77,7 +77,7 @@ describe('useSettings', () => {
   });
 
   it('testByokProvider returns ok:true on success', async () => {
-    mockTestByok.mockResolvedValue({ ok: true } as any);
+    mockTestByok.mockResolvedValue({ success: true, message: 'Connected' } as any);
     const result = await useSettings.getState().testByokProvider({
       providerId: 'openai', apiKey: 'sk-test', baseUrl: null,
     });
@@ -91,5 +91,14 @@ describe('useSettings', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error).toContain('Network error');
+  });
+
+  it('testByokProvider returns ok:false with Rust error message on failure', async () => {
+    mockTestByok.mockResolvedValue({ success: false, message: 'Invalid API key' } as any);
+    const result = await useSettings.getState().testByokProvider({
+      providerId: 'openai', apiKey: 'sk-invalid', baseUrl: null,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('Invalid API key');
   });
 });

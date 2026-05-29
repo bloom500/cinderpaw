@@ -86,8 +86,8 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
 
   testByokProvider: async (p) => {
     try {
-      const result = await tauri.raw.testByokProvider(p.providerId, p.apiKey, p.baseUrl) as ByokTestResult;
-      return result;
+      const raw = await tauri.raw.testByokProvider(p.providerId, p.apiKey, p.baseUrl) as { success: boolean; message: string };
+      return { ok: raw.success, error: raw.success ? undefined : raw.message };
     } catch (e) {
       return { ok: false, error: String(e) };
     }
