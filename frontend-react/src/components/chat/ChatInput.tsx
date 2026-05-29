@@ -1,19 +1,33 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Paperclip, Wrench, Brain, ArrowUp, Square } from 'lucide-react';
+import { Brain, ArrowUp, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ModelSelector } from './ModelSelector';
+import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
+import { FileAttachButton } from './FileAttachButton';
+import { ToolsPopover } from './ToolsPopover';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { tauri } from '@/lib/tauri';
+import { cn } from '@/lib/utils';
+
+const REASONING_CONFIG = {
+  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400' },
+  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400' },
+  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400' },
+} as const;
 
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
 export function ChatInput() {
   const [text, setText] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const loaded = useModel((s) => s.loaded);
   const status = useChat((s) => s.streamStatus);
+  const reasoningMode = useUI((s) => s.reasoningMode);
+  const cycleReasoningMode = useUI((s) => s.cycleReasoningMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const send = useSendMessage();
 
@@ -32,6 +46,7 @@ export function ChatInput() {
     if (!text.trim() || isStreaming || disabled) return;
     const content = text;
     setText('');
+    setAttachedFiles([]);
     await send(content);
   };
 
@@ -42,10 +57,26 @@ export function ChatInput() {
     }
   };
 
+  const removeFile = (path: string) =>
+    setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
+
+  const rc = REASONING_CONFIG[reasoningMode];
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="border-t border-border-subtle bg-bg-primary px-4 py-3">
         <div className="rounded-xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
+          {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-1 px-3 pt-2">
+              {attachedFiles.map((f) => (
+                <AttachedFileChip
+                  key={f.path}
+                  file={f}
+                  onRemove={() => removeFile(f.path)}
+                />
+              ))}
+            </div>
+          )}
           <Textarea
             ref={taRef}
             value={text}
@@ -58,39 +89,33 @@ export function ChatInput() {
           />
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex gap-1">
+              <FileAttachButton
+                onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+              />
+              <ToolsPopover />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    disabled
-                    className="p-1.5 rounded text-text-muted opacity-60 cursor-not-allowed"
-                    aria-label="Attach file"
+                    onClick={cycleReasoningMode}
+                    className={cn('relative p-1.5 rounded hover:bg-bg-hover', rc.iconClass)}
+                    aria-label={`Reasoning: ${reasoningMode}`}
                   >
-                    <Paperclip size={16} />
+                    <Brain size={16} />
+                    <span
+                      className={cn(
+                        'absolute -bottom-0.5 -right-0.5 rounded px-[3px] text-[8px] font-bold leading-[11px]',
+                        rc.badgeClass,
+                      )}
+                    >
+                      {rc.label}
+                    </span>
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Coming soon</TooltipContent>
+                <TooltipContent>
+                  Reasoning: {reasoningMode === 'auto' ? 'Auto (detect from model)' : reasoningMode === 'on' ? 'Always on' : 'Off'}
+                </TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled
-                    className="p-1.5 rounded text-text-muted opacity-60 cursor-not-allowed"
-                    aria-label="Tools"
-                  >
-                    <Wrench size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Coming soon</TooltipContent>
-              </Tooltip>
-              <button
-                type="button"
-                className="p-1.5 rounded text-text-muted hover:bg-bg-hover hover:text-text-secondary"
-                aria-label="Reasoning toggle"
-              >
-                <Brain size={16} />
-              </button>
             </div>
             <div className="flex items-center gap-2">
               <ModelSelector />
