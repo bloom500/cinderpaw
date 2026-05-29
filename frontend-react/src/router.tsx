@@ -2,6 +2,7 @@ import { createMemoryRouter, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { ChatPage } from '@/pages/ChatPage';
 import { ModelsPage } from '@/pages/ModelsPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 import { StubPage } from '@/pages/StubPage';
 
 export const router = createMemoryRouter([
@@ -14,7 +15,7 @@ export const router = createMemoryRouter([
       { path: 'chat/:id', element: <ChatPage /> },
       { path: 'models',   element: <ModelsPage /> },
       { path: 'agents',   element: <StubPage title="Agents"   message="Coming in spec 3" /> },
-      { path: 'settings', element: <StubPage title="Settings" message="Coming in spec 4" /> },
+      { path: 'settings', element: <SettingsPage /> },
       { path: 'skills',   element: <StubPage title="Skills"   message="Coming in v0.2" /> },
     ],
   },

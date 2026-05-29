@@ -28,7 +28,7 @@ const MENU: MenuItem[] = [
   { icon: FolderPlus,    label: 'New Projects', shortcut: '⌘P', action: 'newProject', disabled: true  },
   { icon: Search,        label: 'Search',       shortcut: '⌘K', action: 'search',     disabled: true  },
   { icon: Box,           label: 'Models',       shortcut: null, action: 'models',     disabled: false, route: '/models' },
-  { icon: Settings,      label: 'Settings',     shortcut: null, action: 'settings',   disabled: true,  route: '/settings' },
+  { icon: Settings,      label: 'Settings',     shortcut: null, action: 'settings',   disabled: false, route: '/settings' },
   { icon: Sparkles,      label: 'Skills',       shortcut: null, action: 'skills',     disabled: true,  route: '/skills' },
 ];
 

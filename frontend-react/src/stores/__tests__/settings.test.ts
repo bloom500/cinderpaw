@@ -20,7 +20,6 @@ import { tauri } from '@/lib/tauri';
 const mockGet      = vi.mocked(tauri.settings.get);
 const mockSave     = vi.mocked(tauri.settings.save);
 const mockGetByok  = vi.mocked(tauri.raw.getByokSettings);
-const mockSaveByok = vi.mocked(tauri.raw.saveByokProvider);
 const mockTestByok = vi.mocked(tauri.raw.testByokProvider);
 
 const sample = {
