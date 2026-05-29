@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   QUANT_RANK, quantQualityRank, extractQuant, cleanModelName,
-  quantToQuality, quantToBadge, sizeGb, fmtNum, fmtDate,
-  shortRepo, stripFrontmatter, compatLevel, pickFittedFile, globalFittedQuant,
+  quantToQuality, quantToBadge, sizeGb,
+  stripFrontmatter, compatLevel, pickFittedFile, globalFittedQuant,
 } from '@/lib/modelUtils';
 import type { SystemInfo, HfFile } from '@/lib/tauri';
 
