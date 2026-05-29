@@ -838,6 +838,12 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
     }
 }
 
+#[tauri::command]
+#[specta::specta]
+async fn read_file_as_text(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
 // ---------- Entry ----------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -890,6 +896,7 @@ pub fn run() {
             get_byok_settings,
             save_byok_provider,
             test_byok_provider,
+            read_file_as_text,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
@@ -915,6 +922,7 @@ pub fn run() {
 
     let specta_builder_for_setup = specta_builder.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
