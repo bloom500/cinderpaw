@@ -29,11 +29,13 @@ export function MessageList() {
   // Virtualization deferred. Add react-virtuoso if profiling shows scroll jank
   // or messages.length > 500 routinely. See spec §4.5.
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-6 max-w-3xl mx-auto w-full">
-      {messages.map((m) => (
-        <MessageItem key={m.id} message={m} />
-      ))}
-      {status === 'streaming' && <StreamingIndicator />}
+    <div ref={containerRef} className="flex-1 overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
+        {messages.map((m) => (
+          <MessageItem key={m.id} message={m} />
+        ))}
+        {status === 'streaming' && <StreamingIndicator />}
+      </div>
     </div>
   );
 }
