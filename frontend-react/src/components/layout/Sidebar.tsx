@@ -206,10 +206,10 @@ function RecentSection() {
         </button>
       </div>
       <div className="space-y-0.5">
-        {list.length === 0 && (
+        {(!list || list.length === 0) && (
           <div className="px-2 py-1 text-xs text-text-disabled">No conversations yet</div>
         )}
-        {list.map((c) => (
+        {(list ?? []).map((c) => (
           <RecentRow key={c.id} conv={c} currentId={currentId} onOpen={open} />
         ))}
       </div>

@@ -12,6 +12,7 @@ pub struct ModelInfo {
     pub id: String,
     pub name: String,
     pub path: PathBuf,
+    #[specta(type = specta_typescript::Number)]
     pub size_bytes: u64,
     pub quant: Option<String>,
     pub ctx_len: Option<u32>,

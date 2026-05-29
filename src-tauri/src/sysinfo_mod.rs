@@ -7,11 +7,16 @@ use crate::inference;
 pub struct SystemInfo {
     pub os: String,
     pub cpu: String,
+    #[specta(type = specta_typescript::Number)]
     pub cores: usize,
+    #[specta(type = specta_typescript::Number)]
     pub ram_total_mb: u64,
+    #[specta(type = specta_typescript::Number)]
     pub ram_used_mb: u64,
     pub gpu_name: String,
+    #[specta(type = specta_typescript::Number)]
     pub vram_total_mb: u64,
+    #[specta(type = specta_typescript::Number)]
     pub vram_used_mb: u64,
     pub supports_vulkan: bool,
 }

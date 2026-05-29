@@ -2,8 +2,8 @@
   "build": {
     "frontendDist": "../frontend-react/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd frontend-react && npm run dev",
-    "beforeBuildCommand": "cd frontend-react && npm run build"
+    "beforeDevCommand": "cd frontend-react & npm run dev",
+    "beforeBuildCommand": "cd frontend-react & npm run build"
   },
   "app": {
     "windows": [

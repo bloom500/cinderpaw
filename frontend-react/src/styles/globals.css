@@ -1,3 +1,7 @@
+/* highlight.js themes must come before @tailwind to satisfy CSS @import order */
+@import 'highlight.js/styles/atom-one-dark.css';
+@import 'highlight.js/styles/github.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -114,11 +118,7 @@
  * shadcn aliases. Use rgba() inline or add an explicit --bg-surface-50 var.
  */
 
-/* highlight.js themes — both light + dark, spec §3.4 */
-@import 'highlight.js/styles/atom-one-dark.css';
-@import 'highlight.js/styles/github.css';
-
-/* scope each theme; :where() avoids specificity wars */
+/* highlight.js theme scoping */
 :where([data-theme="dark"]) .hljs { /* atom-one-dark wins via source order */ }
 :where([data-theme="light"]) .hljs { /* github.css overrides below */ }
 :where([data-theme="light"]) .hljs,
