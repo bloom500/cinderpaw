@@ -101,14 +101,14 @@ const raw = {
   unloadModel:           ()    => invoke<void>('unload_model'),
   deleteModel:           (path: string) => invoke<void>('delete_model', { path }),
   chatStream:            (messages: Message[], params: InferParams, sessionId: string) =>
-    invoke<void>('chat_stream', { messages, params, session_id: sessionId }),
+    invoke<void>('chat_stream', { messages, params, sessionId }),
   stopGeneration:        ()    => invoke<void>('stop_generation'),
   downloadModel:         (repoId: string, filename: string) =>
-    invoke<string>('download_model', { repo_id: repoId, filename }),
+    invoke<string>('download_model', { repoId, filename }),
   cancelDownload:        (modelId: string) =>
-    invoke<void>('cancel_download', { model_id: modelId }),
+    invoke<void>('cancel_download', { modelId }),
   getModelSizeInfo:      (repoId: string, filename: string) =>
-    invoke<number>('get_model_size_info', { repo_id: repoId, filename }),
+    invoke<number>('get_model_size_info', { repoId, filename }),
   getSystemInfo:         ()    => invoke<SystemInfo>('get_system_info'),
   saveAgent:             (cfg: object) => invoke<void>('save_agent', { cfg }),
   getAgents:             ()    => invoke<object[]>('get_agents'),
@@ -125,12 +125,12 @@ const raw = {
   searchHfModels:        (query: string, cursor?: string | null) =>
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
-    invoke<HfModelDetail>('get_hf_model_detail', { repo_id: repoId }),
+    invoke<HfModelDetail>('get_hf_model_detail', { repoId }),
   getByokSettings:       ()    => invoke<object[]>('get_byok_settings'),
   saveByokProvider:      (providerId: string, enabled: boolean, apiKey: string, baseUrl?: string | null, defaultModel?: string | null) =>
-    invoke<void>('save_byok_provider', { provider_id: providerId, enabled, api_key: apiKey, base_url: baseUrl, default_model: defaultModel }),
+    invoke<void>('save_byok_provider', { providerId, enabled, apiKey, baseUrl, defaultModel }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
-    invoke<object>('test_byok_provider', { provider_id: providerId, api_key: apiKey, base_url: baseUrl }),
+    invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
