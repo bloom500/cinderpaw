@@ -131,6 +131,7 @@ const raw = {
     invoke<void>('save_byok_provider', { providerId, enabled, apiKey, baseUrl, defaultModel }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
+  readFileAsText:        (path: string) => invoke<string>('read_file_as_text', { path }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -184,6 +185,10 @@ export const tauri = {
 
   system: {
     info: async () => raw.getSystemInfo(),
+  },
+
+  files: {
+    readAsText: async (path: string) => raw.readFileAsText(path),
   },
 };
 
