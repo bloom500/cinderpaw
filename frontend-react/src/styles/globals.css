@@ -1,1 +1,130 @@
-placeholder
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ═══════════════════════════════════════════════════════════════════════════
+ * CRITICAL NAMING CONVENTION — read before editing this file
+ *
+ * 1. Our BRAND color (warm orange) is --brand / --brand-hover / --brand-muted.
+ *    The design spec calls it "accent" — the variable name differs here to
+ *    prevent a fatal CSS collision with shadcn's --accent (last-declaration-
+ *    wins in a single rule block would silently erase the brand color).
+ *
+ * 2. shadcn's --accent is intentionally bound to --bg-hover (NOT brand orange).
+ *    This prevents DropdownMenuItem, Select, etc. from painting brand orange
+ *    on hover, violating the "accent used sparingly" design rule.
+ *    shadcn's --primary and --ring DO use var(--brand).
+ *
+ * DO NOT rename --brand back to --accent.
+ * DO NOT remove the --accent → --bg-hover mapping.
+ * See spec §3.4 for the full rationale.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+:root[data-theme="dark"] {
+  /* ── Source of truth ────────────────────────────────────────────────── */
+  --bg-primary:      #100E09;
+  --bg-surface:      #1C1916;
+  --bg-elevated:     #252119;
+  --bg-hover:        #2C2820;
+  --bg-active:       #353027;
+  --border-subtle:   #2C2820;
+  --border-default:  #3A342B;
+  --text-primary:    #F0E6D3;
+  --text-secondary:  #B8AC95;
+  --text-muted:      #8C7E6A;
+  --text-disabled:   #4A4035;
+  --brand:           #C4843A;
+  --brand-hover:     #D4944A;
+  --brand-muted:     #6B4820;
+  --error:           #C0472A;
+  --success:         #6A9E5A;
+  --warning:         #D4A03A;
+
+  /* ── shadcn aliases ─────────────────────────────────────────────────── */
+  --background:           var(--bg-primary);
+  --foreground:           var(--text-primary);
+  --card:                 var(--bg-surface);
+  --card-foreground:      var(--text-primary);
+  --popover:              var(--bg-elevated);
+  --popover-foreground:   var(--text-primary);
+  --primary:              var(--brand);
+  --primary-foreground:   var(--bg-primary);
+  --secondary:            var(--bg-elevated);
+  --secondary-foreground: var(--text-secondary);
+  --muted:                var(--bg-surface);
+  --muted-foreground:     var(--text-muted);
+  --accent:               var(--bg-hover);
+  --accent-foreground:    var(--text-primary);
+  --destructive:          var(--error);
+  --destructive-foreground: var(--text-primary);
+  --border:               var(--border-default);
+  --input:                var(--border-default);
+  --ring:                 var(--brand);
+  --radius:               0.5rem;
+}
+
+:root[data-theme="light"] {
+  /* ── Source of truth ────────────────────────────────────────────────── */
+  --bg-primary:      #FFF5EE;
+  --bg-surface:      #F5EBE0;
+  --bg-elevated:     #FFFFFF;
+  --bg-hover:        #EBE0D2;
+  --bg-active:       #E0D0C0;
+  --border-subtle:   #E8DCC9;
+  --border-default:  #D4C4B0;
+  --text-primary:    #1C1610;
+  --text-secondary:  #4A3F32;
+  --text-muted:      #8C7060;
+  --text-disabled:   #C0B0A0;
+  --brand:           #A06828;
+  --brand-hover:     #8B5820;
+  --brand-muted:     #E8D4B8;
+  --error:           #A03820;
+  --success:         #5A8A4A;
+  --warning:         #B8862A;
+
+  /* ── shadcn aliases ─────────────────────────────────────────────────── */
+  --background:           var(--bg-primary);
+  --foreground:           var(--text-primary);
+  --card:                 var(--bg-surface);
+  --card-foreground:      var(--text-primary);
+  --popover:              var(--bg-elevated);
+  --popover-foreground:   var(--text-primary);
+  --primary:              var(--brand);
+  --primary-foreground:   var(--bg-primary);
+  --secondary:            var(--bg-elevated);
+  --secondary-foreground: var(--text-secondary);
+  --muted:                var(--bg-surface);
+  --muted-foreground:     var(--text-muted);
+  --accent:               var(--bg-hover);
+  --accent-foreground:    var(--text-primary);
+  --destructive:          var(--error);
+  --destructive-foreground: #FFFFFF;
+  --border:               var(--border-default);
+  --input:                var(--border-default);
+  --ring:                 var(--brand);
+  --radius:               0.5rem;
+}
+
+/*
+ * Semi-transparency escape hatch
+ * Palette is hex → Tailwind's bg-card/50 opacity utilities don't work on
+ * shadcn aliases. Use rgba() inline or add an explicit --bg-surface-50 var.
+ */
+
+/* highlight.js themes — both light + dark, spec §3.4 */
+@import 'highlight.js/styles/atom-one-dark.css';
+@import 'highlight.js/styles/github.css';
+
+/* scope each theme; :where() avoids specificity wars */
+:where([data-theme="dark"]) .hljs { /* atom-one-dark wins via source order */ }
+:where([data-theme="light"]) .hljs { /* github.css overrides below */ }
+:where([data-theme="light"]) .hljs,
+:where([data-theme="light"]) .hljs-subst { color: #24292e; }
+
+/* Base resets */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { overflow: hidden; }
