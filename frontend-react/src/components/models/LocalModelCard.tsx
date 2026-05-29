@@ -23,8 +23,9 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const loadProgress = useModel((s) => s.loadProgress);
   const load         = useModel((s) => s.load);
   const unload       = useModel((s) => s.unload);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [loadError, setLoadError]   = useState<string | null>(null);
+  const [isDeleting, setIsDeleting]   = useState(false);
+  const [loadError, setLoadError]     = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const path          = model.path as unknown as string;
   const isActive      = loaded?.path === path;
@@ -45,8 +46,15 @@ export function LocalModelCard({ model, onDelete }: Props) {
   };
   const handleUnload = () => { void unload(); };
   const handleDelete = async () => {
+    setDeleteError(null);
     setIsDeleting(true);
-    try { await onDelete(path); } finally { setIsDeleting(false); }
+    try {
+      await onDelete(path);
+    } catch (err) {
+      setDeleteError(String(err));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -132,6 +140,9 @@ export function LocalModelCard({ model, onDelete }: Props) {
 
       {loadError && (
         <p className="text-xs text-error break-words">{loadError}</p>
+      )}
+      {deleteError && (
+        <p className="text-xs text-error break-words">{deleteError}</p>
       )}
     </div>
   );
