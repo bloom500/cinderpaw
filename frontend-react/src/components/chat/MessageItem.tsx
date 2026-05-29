@@ -4,11 +4,22 @@ import { ThinkingBlock } from './ThinkingBlock';
 import type { ChatMessage } from '@/stores/chat';
 
 export function MessageItem({ message }: { message: ChatMessage }) {
-  return (
-    <div className={cn('rounded-lg px-4 py-3', message.role === 'user' && 'bg-bg-surface')}>
-      <div className="text-xs font-medium text-text-muted mb-2">
-        {message.role === 'user' ? 'You' : 'Assistant'}
+  const isUser = message.role === 'user';
+
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-bg-elevated border border-border-default">
+          <p className="text-sm text-text-primary whitespace-pre-wrap break-words leading-relaxed">
+            {message.content}
+          </p>
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
       {message.thinking != null && (
         <ThinkingBlock
           id={message.id}
@@ -17,7 +28,9 @@ export function MessageItem({ message }: { message: ChatMessage }) {
           active={!message.thinkingComplete}
         />
       )}
-      <Markdown>{message.content}</Markdown>
+      <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
+        <Markdown>{message.content}</Markdown>
+      </div>
     </div>
   );
 }
