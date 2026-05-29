@@ -45,9 +45,10 @@ export function ChatInput() {
   const trySend = async () => {
     if (!text.trim() || isStreaming || disabled) return;
     const content = text;
+    const files = attachedFiles;
     setText('');
     setAttachedFiles([]);
-    await send(content);
+    await send(content, files);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
