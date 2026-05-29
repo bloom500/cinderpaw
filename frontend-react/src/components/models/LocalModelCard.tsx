@@ -24,9 +24,10 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const load         = useModel((s) => s.load);
   const unload       = useModel((s) => s.unload);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [loadError, setLoadError]   = useState<string | null>(null);
 
-  const path         = model.path as unknown as string;
-  const isActive     = loaded?.path === path;
+  const path          = model.path as unknown as string;
+  const isActive      = loaded?.path === path;
   const isLoadingThis = isLoading && loadProgress !== null && !isActive;
 
   const displayName = cleanModelName(model.name);
@@ -34,7 +35,14 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const quality     = quantToQuality(model.quant ?? '');
   const { label: badgeLabel, variant } = quantToBadge(model.quant ?? '');
 
-  const handleLoad   = () => { void load(path); };
+  const handleLoad = async () => {
+    setLoadError(null);
+    try {
+      await load(path);
+    } catch (err) {
+      setLoadError(String(err));
+    }
+  };
   const handleUnload = () => { void unload(); };
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -101,7 +109,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
             <>
               <button
                 type="button"
-                onClick={handleLoad}
+                onClick={() => { void handleLoad(); }}
                 disabled={isDeleting || isLoading}
                 aria-label="Load"
                 className="flex-1 text-xs py-1.5 rounded bg-bg-elevated text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-60"
@@ -120,6 +128,10 @@ export function LocalModelCard({ model, onDelete }: Props) {
             </>
           )}
         </div>
+      )}
+
+      {loadError && (
+        <p className="text-xs text-error break-words">{loadError}</p>
       )}
     </div>
   );
