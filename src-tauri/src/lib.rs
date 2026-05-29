@@ -841,7 +841,9 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
 #[tauri::command]
 #[specta::specta]
 async fn read_file_as_text(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    std::fs::read_to_string(&canonical).map_err(|e| format!("Read failed: {}", e))
 }
 
 // ---------- Entry ----------
