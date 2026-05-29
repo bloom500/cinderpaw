@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolType {
     WebSearch,
@@ -91,24 +91,17 @@ fn file_write(args: Value) -> Result<String> {
 }
 
 async fn code_execute(args: Value) -> Result<String> {
-    let lang = args.get("lang").and_then(|v| v.as_str()).unwrap_or("shell");
+    let lang = args.get("lang").and_then(|v| v.as_str()).unwrap_or("python");
+    if lang != "python" {
+        return Err(anyhow!("only 'python' is supported for code execution"));
+    }
     let code = args.get("code").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("missing code"))?;
     let output = tokio::task::spawn_blocking({
         let code = code.to_string();
-        let lang = lang.to_string();
         move || -> Result<String> {
-            let out = match lang.as_str() {
-                "python" => std::process::Command::new("python").arg("-c").arg(&code).output()?,
-                _ => {
-                    #[cfg(target_os = "windows")]
-                    let out = std::process::Command::new("powershell")
-                        .args(["-NoProfile", "-Command", &code])
-                        .output()?;
-                    #[cfg(not(target_os = "windows"))]
-                    let out = std::process::Command::new("sh").arg("-c").arg(&code).output()?;
-                    out
-                }
-            };
+            let out = std::process::Command::new("python")
+                .args(["-c", &code])
+                .output()?;
             let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
             if !out.stderr.is_empty() {
                 s.push_str("\n[stderr]\n");
@@ -124,7 +117,9 @@ async fn code_execute(args: Value) -> Result<String> {
 async fn http_request(args: Value) -> Result<String> {
     let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("GET").to_uppercase();
     let url = args.get("url").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("missing url"))?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
     let req = match method.as_str() {
         "POST" => {
             let body = args.get("body").and_then(|v| v.as_str()).unwrap_or("");

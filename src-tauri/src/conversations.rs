@@ -5,13 +5,13 @@ use std::path::{Path, PathBuf};
 
 use crate::paths;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct PersistedMessage {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct Conversation {
     pub id: String,
     pub title: String,
@@ -20,7 +20,7 @@ pub struct Conversation {
     pub messages: Vec<PersistedMessage>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ConversationSummary {
     pub id: String,
     pub title: String,

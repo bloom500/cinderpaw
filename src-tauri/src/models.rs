@@ -7,7 +7,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::paths;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
@@ -19,7 +19,7 @@ pub struct ModelInfo {
     pub modelfile: Option<Modelfile>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
 pub struct Modelfile {
     pub system_prompt: Option<String>,
     pub temperature: Option<f32>,
@@ -137,6 +137,12 @@ pub async fn download_hf_model(
     let total = resp.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
     let mut last_emitted_percent: u64 = 0;
+
+    if let Some(parent) = tmp.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("create dir {:?}", parent))?;
+    }
 
     let mut file = tokio::fs::File::create(&tmp)
         .await

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::paths;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct Settings {
     pub models_dir: PathBuf,
     pub default_gpu_layers: i32,

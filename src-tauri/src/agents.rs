@@ -8,7 +8,7 @@ use crate::inference::{InferParams, Message, ModelManager};
 use crate::paths;
 use crate::tools::{self, ToolType};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct AgentConfig {
     #[serde(default = "new_id")]
     pub id: String,
@@ -145,7 +145,8 @@ pub fn run(
 
         for _step in 0..max_steps {
             let mut buffer = String::new();
-            let mut stream = Box::pin(manager.stream_chat(messages.clone(), params.clone()));
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let mut stream = Box::pin(manager.stream_chat(messages.clone(), params.clone(), stop));
             use futures::StreamExt;
             while let Some(tok) = stream.next().await {
                 match tok {

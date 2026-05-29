@@ -4,15 +4,16 @@ use futures::Stream;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct Message {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct InferParams {
     pub temperature: f32,
     pub top_p: f32,
@@ -33,7 +34,7 @@ impl Default for InferParams {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct LoadedModel {
     pub path: PathBuf,
     pub name: String,
@@ -47,15 +48,9 @@ pub struct GpuInfo {
     pub supports_vulkan: bool,
 }
 
-/// Detect available GPU. Best-effort — uses sysinfo + heuristic.
-/// Real GPU probe would call into Vulkan / DXGI; we keep this minimal.
+/// Detect available GPU using platform-native APIs.
 pub fn detect_gpu() -> GpuInfo {
-    // Heuristic: on Windows, assume Vulkan-capable AMD/NVIDIA if present.
-    GpuInfo {
-        name: "Unknown GPU".into(),
-        vram_mb: 0,
-        supports_vulkan: cfg!(target_os = "windows") || cfg!(target_os = "linux"),
-    }
+    crate::gpu_detect::detect()
 }
 
 // ── Template detection & prompt building ─────────────────────────────────────
@@ -77,6 +72,11 @@ pub(crate) fn detect_template(name: &str) -> &'static str {
     }
 }
 
+const MARKDOWN_DIRECTIVE: &str = "Always respond using clean, valid Markdown. \
+Use standard syntax for headings, bold, italic, and lists. \
+For source code, always use fenced code blocks with the language specified (e.g. ```rust, ```python, ```bash). \
+Never return raw HTML tags in your answer.";
+
 pub(crate) fn build_prompt(messages: &[Message], model_name: &str) -> String {
     // Strip any trailing empty assistant placeholder the UI may have left in the list.
     // An empty assistant turn confuses models: they see a completed (empty) turn and
@@ -84,6 +84,30 @@ pub(crate) fn build_prompt(messages: &[Message], model_name: &str) -> String {
     let messages: Vec<&Message> = messages.iter()
         .filter(|m| !(m.role == "assistant" && m.content.trim().is_empty()))
         .collect();
+
+    // Build an augmented message list: inject/prepend the Markdown formatting directive
+    // into the system message (or create one) so all models respond in valid Markdown.
+    let has_system = messages.iter().any(|m| m.role == "system");
+    let augmented: Vec<Message>;
+    let messages: Vec<&Message> = if has_system {
+        augmented = messages.iter().map(|m| {
+            if m.role == "system" {
+                Message {
+                    role: "system".into(),
+                    content: format!("{}\n\n{}", MARKDOWN_DIRECTIVE, m.content),
+                }
+            } else {
+                (*m).clone()
+            }
+        }).collect();
+        augmented.iter().collect()
+    } else {
+        let synthetic = Message { role: "system".into(), content: MARKDOWN_DIRECTIVE.into() };
+        augmented = std::iter::once(synthetic)
+            .chain(messages.iter().map(|m| (*m).clone()))
+            .collect();
+        augmented.iter().collect()
+    };
 
     match detect_template(model_name) {
         "llama3" => {
@@ -153,7 +177,7 @@ impl ModelManager {
         Self::default()
     }
 
-    pub fn load(&self, path: PathBuf) -> Result<LoadedModel> {
+    pub fn load(&self, path: PathBuf, n_gpu_layers: i32) -> Result<LoadedModel> {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -161,7 +185,7 @@ impl ModelManager {
             .to_string();
 
         #[cfg(feature = "inference")]
-        let ctx_len = backend::load(&path)?;
+        let ctx_len = backend::load(&path, n_gpu_layers)?;
         #[cfg(not(feature = "inference"))]
         let ctx_len = 4096u32;
 
@@ -181,10 +205,12 @@ impl ModelManager {
     }
 
     /// Stream chat completion. Yields token strings.
+    /// `stop` is checked between tokens — set it to `true` to interrupt generation.
     pub fn stream_chat(
         &self,
         messages: Vec<Message>,
         params: InferParams,
+        stop: Arc<AtomicBool>,
     ) -> impl Stream<Item = Result<String>> + Send + 'static {
         let _loaded = self.current.lock().clone();
         stream! {
@@ -194,15 +220,14 @@ impl ModelManager {
                     yield Err(anyhow::anyhow!("no model loaded"));
                     return;
                 }
-                let mut rx = backend::generate(messages, params);
+                let mut rx = backend::generate(messages, params, stop.clone());
                 while let Some(tok) = rx.recv().await {
+                    if stop.load(Ordering::Relaxed) { break; }
                     yield Ok(tok);
                 }
             }
             #[cfg(not(feature = "inference"))]
             {
-                // Stub: echo a canned response token-by-token so the UI works
-                // without the inference feature.
                 let prompt = messages.last().map(|m| m.content.clone()).unwrap_or_default();
                 let _ = params;
                 let reply = format!(
@@ -210,6 +235,7 @@ impl ModelManager {
                     prompt.chars().take(200).collect::<String>()
                 );
                 for word in reply.split_inclusive(' ') {
+                    if stop.load(Ordering::Relaxed) { break; }
                     tokio::time::sleep(std::time::Duration::from_millis(25)).await;
                     yield Ok(word.to_string());
                 }
@@ -234,6 +260,8 @@ mod backend {
     use parking_lot::Mutex;
     use std::num::NonZeroU32;
     use std::path::Path;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use tokio::sync::mpsc;
 
     // LlamaBackend lives for the app lifetime — initialized once.
@@ -251,13 +279,17 @@ mod backend {
 
     static MODEL: Lazy<Mutex<Option<ModelHandle>>> = Lazy::new(|| Mutex::new(None));
 
-    pub fn load(path: &Path) -> Result<u32> {
+    pub fn load(path: &Path, n_gpu_layers: i32) -> Result<u32> {
         let backend = BACKEND.get_or_try_init(|| {
             LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
         })?;
 
-        // Try GPU layers; fall back to CPU if Vulkan isn't available
-        let model_params = LlamaModelParams::default().with_n_gpu_layers(99);
+        // GPU layers set via Settings; -1 means auto (llama.cpp default)
+        let model_params = if n_gpu_layers >= 0 {
+            LlamaModelParams::default().with_n_gpu_layers(n_gpu_layers as u32)
+        } else {
+            LlamaModelParams::default()
+        };
         let model = LlamaModel::load_from_file(backend, path, &model_params)
             .map_err(|e| anyhow!("load {:?}: {}", path, e))?;
 
@@ -279,10 +311,10 @@ mod backend {
     fn detect_template(name: &str) -> &'static str { super::detect_template(name) }
     fn build_prompt(messages: &[Message], model_name: &str) -> String { super::build_prompt(messages, model_name) }
 
-    pub fn generate(messages: Vec<Message>, params: InferParams) -> mpsc::Receiver<String> {
+    pub fn generate(messages: Vec<Message>, params: InferParams, stop: Arc<AtomicBool>) -> mpsc::Receiver<String> {
         let (tx, rx) = mpsc::channel(256);
         tokio::task::spawn_blocking(move || {
-            if let Err(e) = run_inference(&messages, &params, &tx) {
+            if let Err(e) = run_inference(&messages, &params, &tx, &stop) {
                 tracing::error!("inference: {}", e);
                 let _ = tx.blocking_send(format!("\n[Error: {}]", e));
             }
@@ -294,6 +326,7 @@ mod backend {
         messages: &[Message],
         params: &InferParams,
         tx: &mpsc::Sender<String>,
+        stop: &Arc<AtomicBool>,
     ) -> Result<()> {
         let backend = BACKEND.get().ok_or_else(|| anyhow!("backend not initialized"))?;
 
@@ -370,6 +403,8 @@ mod backend {
         let mut piece_decoder = UTF_8.new_decoder();
 
         loop {
+            if stop.load(Ordering::Relaxed) { break; }
+
             let token = sampler.sample(&ctx, -1);
             sampler.accept(token);
 

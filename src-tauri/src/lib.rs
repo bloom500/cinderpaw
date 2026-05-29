@@ -2,6 +2,7 @@ mod agents;
 mod api;
 mod byok;
 mod conversations;
+mod events;
 mod gpu_detect;
 mod inference;
 mod models;
@@ -17,7 +18,6 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tauri::{ipc::Channel, AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
@@ -42,13 +42,13 @@ fn download_key(repo_id: &str, filename: &str) -> String {
     format!("{}::{}", repo_id, filename)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ProgressPayload {
     pub percentage: f64,
     pub status_text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct DownloadProgress {
     pub repo_id: String,
     pub filename: String,
@@ -58,6 +58,7 @@ pub struct DownloadProgress {
 // ---------- Model commands ----------
 
 #[tauri::command]
+#[specta::specta]
 fn get_models() -> Result<Vec<ModelInfo>, String> {
     let mut list = models::scan_models_dir().map_err(|e| e.to_string())?;
     // No way to know "loaded" here without state; mark from singleton:
@@ -67,6 +68,7 @@ fn get_models() -> Result<Vec<ModelInfo>, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 fn get_loaded_model(state: State<AppState>) -> Option<inference::LoadedModel> {
     state.manager.current()
 }
@@ -76,6 +78,7 @@ fn get_loaded_model(state: State<AppState>) -> Option<inference::LoadedModel> {
 /// Completion: `feral://download-complete`. Failure: `feral://download-error`.
 /// Use `cancel_download(model_id)` to abort an in-flight download.
 #[tauri::command]
+#[specta::specta]
 async fn download_model(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -105,7 +108,7 @@ async fn download_model(
             while let Some(p) = rx.recv().await {
                 let _ = app.emit(
                     "feral://download-progress",
-                    DownloadProgress {
+                    events::DownloadProgressEvent {
                         repo_id: repo.clone(),
                         filename: file.clone(),
                         progress: p,
@@ -138,11 +141,11 @@ async fn download_model(
             Ok(path) => {
                 let _ = app_for_task.emit(
                     "feral://download-complete",
-                    json!({
-                        "repoId": repo_for_task,
-                        "filename": file_for_task,
-                        "path": path.to_string_lossy(),
-                    }),
+                    events::DownloadCompleteEvent {
+                        repo_id: repo_for_task.clone(),
+                        filename: file_for_task.clone(),
+                        path: path.to_string_lossy().into_owned(),
+                    },
                 );
             }
             Err(e) => {
@@ -151,12 +154,12 @@ async fn download_model(
                 tracing::warn!(repo=%repo_for_task, file=%file_for_task, kind, error=%e, "download ended");
                 let _ = app_for_task.emit(
                     "feral://download-error",
-                    json!({
-                        "repoId": repo_for_task,
-                        "filename": file_for_task,
-                        "error": e.to_string(),
-                        "cancelled": cancelled,
-                    }),
+                    events::DownloadErrorEvent {
+                        repo_id: repo_for_task.clone(),
+                        filename: file_for_task.clone(),
+                        error: e.to_string(),
+                        cancelled,
+                    },
                 );
             }
         }
@@ -170,6 +173,7 @@ async fn download_model(
 /// deletes the partial `.part` file, and emits `feral://download-error`
 /// with `cancelled: true`.
 #[tauri::command]
+#[specta::specta]
 fn cancel_download(state: State<AppState>, model_id: String) -> Result<(), String> {
     let map = state.downloads.lock();
     match map.get(&model_id) {
@@ -182,6 +186,7 @@ fn cancel_download(state: State<AppState>, model_id: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn load_model(
     state: State<'_, AppState>,
     path: String,
@@ -199,6 +204,7 @@ async fn load_model(
 /// Emits `"model-load-progress"` with `{ percentage: f64, status_text: String }`.
 /// The progress task runs in a separate tokio task; the UI never freezes.
 #[tauri::command]
+#[specta::specta]
 async fn start_model_load(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -210,7 +216,7 @@ async fn start_model_load(
     let path_buf = PathBuf::from(&path);
     let n_gpu_layers = state.settings.default_gpu_layers;
 
-    let _ = app.emit("model-load-progress", ProgressPayload {
+    let _ = app.emit("model-load-progress", events::ModelLoadProgressEvent {
         percentage: 0.0,
         status_text: "Initializing...".into(),
     });
@@ -243,7 +249,7 @@ async fn start_model_load(
                 if done2.load(Ordering::Relaxed) { break; }
                 tokio::time::sleep(Duration::from_millis(step_ms)).await;
                 let pct = (prev + gap * i as f64 / steps as f64).min(99.0);
-                let _ = app2.emit("model-load-progress", ProgressPayload {
+                let _ = app2.emit("model-load-progress", events::ModelLoadProgressEvent {
                     percentage: pct,
                     status_text: label.to_string(),
                 });
@@ -262,7 +268,7 @@ async fn start_model_load(
 
     match result {
         Ok(model) => {
-            let _ = app.emit("model-load-progress", ProgressPayload {
+            let _ = app.emit("model-load-progress", events::ModelLoadProgressEvent {
                 percentage: 100.0,
                 status_text: "Model Loaded!".into(),
             });
@@ -273,11 +279,13 @@ async fn start_model_load(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn unload_model(state: State<AppState>) {
     state.manager.unload();
 }
 
 #[tauri::command]
+#[specta::specta]
 fn delete_model(path: String) -> Result<(), String> {
     let target = std::path::Path::new(&path)
         .canonicalize()
@@ -294,6 +302,7 @@ fn delete_model(path: String) -> Result<(), String> {
 /// Fetches file size in bytes for a HuggingFace model file via HTTP HEAD.
 /// Used by the frontend to display download size before starting a download.
 #[tauri::command]
+#[specta::specta]
 async fn get_model_size_info(repo_id: String, filename: String) -> Result<u64, String> {
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -313,6 +322,7 @@ async fn get_model_size_info(repo_id: String, filename: String) -> Result<u64, S
 /// HEAD requests to get file sizes. Returns a human-readable string (e.g. "4.25 GB").
 /// Used by the frontend Browse tab to show model sizes directly in the results list.
 #[tauri::command]
+#[specta::specta]
 async fn get_hf_model_size(repo_id: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -374,11 +384,13 @@ async fn get_hf_model_size(repo_id: String) -> Result<String, String> {
 // ---------- Chat ----------
 
 #[tauri::command]
+#[specta::specta]
 fn stop_generation(state: State<AppState>) {
     state.stop_signal.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn chat_stream(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -394,26 +406,27 @@ async fn chat_stream(
     let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop.clone()));
     while let Some(tok) = stream.next().await {
         if stop.load(Ordering::SeqCst) {
-            let _ = app.emit("feral://stream-done", serde_json::json!({ "session_id": &session_id }));
+            let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id: session_id.clone() });
             return Ok(());
         }
         match tok {
             Ok(t) => {
-                let _ = app.emit("feral://token", serde_json::json!({ "session_id": &session_id, "text": t }));
+                let _ = app.emit("feral://token", events::TokenEvent { session_id: session_id.clone(), text: t });
             }
             Err(e) => {
-                let _ = app.emit("feral://stream-error", serde_json::json!({ "session_id": &session_id, "error": e.to_string() }));
+                let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() });
                 return Err(e.to_string());
             }
         }
     }
-    let _ = app.emit("feral://stream-done", serde_json::json!({ "session_id": &session_id }));
+    let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id: session_id.clone() });
     Ok(())
 }
 
 // ---------- System ----------
 
 #[tauri::command]
+#[specta::specta]
 fn get_system_info() -> SystemInfo {
     sysinfo_mod::collect()
 }
@@ -421,26 +434,31 @@ fn get_system_info() -> SystemInfo {
 // ---------- Agents ----------
 
 #[tauri::command]
+#[specta::specta]
 fn save_agent(cfg: AgentConfig) -> Result<(), String> {
     agents::save(&cfg).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 fn get_agents() -> Result<Vec<AgentConfig>, String> {
     agents::list().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 fn delete_agent(id: String) -> Result<(), String> {
     agents::delete(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 fn get_agent_presets() -> Vec<AgentConfig> {
     agents::presets()
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn run_agent(
     state: State<'_, AppState>,
     agent_id: String,
@@ -470,7 +488,7 @@ where
     Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct HfModelSummary {
     pub id: String,
     pub author: String,
@@ -480,13 +498,13 @@ pub struct HfModelSummary {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct HfFile {
     pub rfilename: String,
     pub size: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct HfModelDetail {
     pub id: String,
     pub author: String,
@@ -498,13 +516,14 @@ pub struct HfModelDetail {
     pub readme: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct HfSearchPage {
     pub models: Vec<HfModelSummary>,
     pub next_cursor: Option<String>,
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn search_hf_models(query: String, cursor: Option<String>) -> Result<HfSearchPage, String> {
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -573,6 +592,7 @@ async fn search_hf_models(query: String, cursor: Option<String>) -> Result<HfSea
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn get_hf_model_detail(repo_id: String) -> Result<HfModelDetail, String> {
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -678,6 +698,7 @@ async fn get_hf_model_detail(repo_id: String) -> Result<HfModelDetail, String> {
 // ---------- Conversations ----------
 
 #[tauri::command]
+#[specta::specta]
 fn save_conversation(
     id: String,
     title: String,
@@ -687,21 +708,25 @@ fn save_conversation(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn load_conversations() -> Result<Vec<conversations::ConversationSummary>, String> {
     conversations::load_all().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 fn load_conversation(id: String) -> Result<conversations::Conversation, String> {
     conversations::load(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 fn delete_conversation(id: String) -> Result<(), String> {
     conversations::delete(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 fn clear_all_conversations() -> Result<(), String> {
     conversations::clear_all().map_err(|e| e.to_string())
 }
@@ -709,9 +734,11 @@ fn clear_all_conversations() -> Result<(), String> {
 // ---------- Settings ----------
 
 #[tauri::command]
+#[specta::specta]
 fn get_settings() -> Settings { settings::load() }
 
 #[tauri::command]
+#[specta::specta]
 fn save_settings(settings: Settings) -> Result<(), String> {
     settings::save(&settings).map_err(|e| e.to_string())
 }
@@ -719,12 +746,14 @@ fn save_settings(settings: Settings) -> Result<(), String> {
 // ---------- BYOK ----------
 
 #[tauri::command]
+#[specta::specta]
 fn get_byok_settings() -> Vec<byok::ProviderInfo> {
     let settings = byok::load(&settings::load());
     settings.get_all_providers()
 }
 
 #[tauri::command]
+#[specta::specta]
 fn save_byok_provider(provider_id: String, enabled: bool, api_key: String, base_url: Option<String>, default_model: Option<String>) -> Result<(), String> {
     let mut settings = byok::load(&settings::load());
     let config = byok::ProviderConfig {
@@ -738,6 +767,7 @@ fn save_byok_provider(provider_id: String, enabled: bool, api_key: String, base_
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn test_byok_provider(provider_id: String, api_key: String, base_url: Option<String>) -> Result<byok::TestProviderResponse, String> {
     use byok::Provider;
 
@@ -820,23 +850,8 @@ pub fn run() {
         settings,
     };
 
-    tauri::Builder::default()
-        .manage(state)
-        .setup(move |app| {
-            let handle = app.handle().clone();
-            // Start API server in background if enabled.
-            let cfg = settings::load();
-            if cfg.api_server_enabled {
-                let api_state = api::ApiState { manager: manager.clone() };
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = api::serve(api_state, cfg.api_port).await {
-                        tracing::error!(?e, "api server stopped");
-                    }
-                });
-            }
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
+        .commands(tauri_specta::collect_commands![
             get_models,
             get_loaded_model,
             download_model,
@@ -868,6 +883,44 @@ pub fn run() {
             save_byok_provider,
             test_byok_provider,
         ])
+        .events(tauri_specta::collect_events![
+            crate::events::TokenEvent,
+            crate::events::StreamDoneEvent,
+            crate::events::StreamErrorEvent,
+            crate::events::DownloadProgressEvent,
+            crate::events::DownloadCompleteEvent,
+            crate::events::DownloadErrorEvent,
+            crate::events::ModelLoadProgressEvent,
+        ]);
+
+    #[cfg(debug_assertions)]
+    specta_builder
+        .export(
+            specta_typescript::Typescript::default()
+                .header("// AUTO-GENERATED — do not edit. Regenerated by `cargo tauri dev/build`.\n"),
+            "../frontend-react/src/lib/tauri/bindings.ts",
+        )
+        .expect("failed to export specta bindings");
+
+    let specta_builder_for_setup = specta_builder.clone();
+    tauri::Builder::default()
+        .manage(state)
+        .setup(move |app| {
+            specta_builder_for_setup.mount_events(app);
+            let _handle = app.handle().clone();
+            // Start API server in background if enabled.
+            let cfg = settings::load();
+            if cfg.api_server_enabled {
+                let api_state = api::ApiState { manager: manager.clone() };
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = api::serve(api_state, cfg.api_port).await {
+                        tracing::error!(?e, "api server stopped");
+                    }
+                });
+            }
+            Ok(())
+        })
+        .invoke_handler(specta_builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

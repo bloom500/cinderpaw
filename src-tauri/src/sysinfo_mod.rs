@@ -3,7 +3,7 @@ use sysinfo::System;
 
 use crate::inference;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct SystemInfo {
     pub os: String,
     pub cpu: String,
