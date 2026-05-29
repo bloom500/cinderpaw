@@ -16,7 +16,7 @@ export function LocalModelsTab({ onBrowse }: Props) {
   const refresh = async () => {
     try {
       const list = await tauri.models.list();
-      setModels(list);
+      setModels(list ?? []);
     } catch (e) {
       setError(String(e));
     }
