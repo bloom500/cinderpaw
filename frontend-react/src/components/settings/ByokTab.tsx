@@ -155,7 +155,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
               <select
                 value={defaultModel}
                 onChange={(e) => setDefModel(e.target.value)}
-                className={cn(inputCls, 'cursor-pointer')}
+                className={cn(inputCls, 'cursor-pointer appearance-none')}
               >
                 {def.availableModels.map((m) => (
                   <option key={m} value={m}>{m}</option>
