@@ -843,6 +843,11 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
 async fn read_file_as_text(path: String) -> Result<String, String> {
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
+    let meta = std::fs::metadata(&canonical)
+        .map_err(|e| format!("Stat failed: {}", e))?;
+    if meta.len() > 10 * 1024 * 1024 {
+        return Err("File too large (max 10 MB)".into());
+    }
     std::fs::read_to_string(&canonical).map_err(|e| format!("Read failed: {}", e))
 }
 

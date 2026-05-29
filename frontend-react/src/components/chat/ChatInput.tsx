@@ -91,7 +91,12 @@ export function ChatInput() {
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex gap-1">
               <FileAttachButton
-                onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+                onFilesSelected={(files) =>
+                  setAttachedFiles((prev) => {
+                    const existing = new Set(prev.map((f) => f.path));
+                    return [...prev, ...files.filter((f) => !existing.has(f.path))];
+                  })
+                }
               />
               <ToolsPopover />
               <Tooltip>
