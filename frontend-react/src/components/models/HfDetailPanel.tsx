@@ -35,25 +35,25 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
   const modelLoad    = useModel((s) => s.load);
   const download     = useDownload();
 
-  const recommended = pickFittedFile(detail.ggufFiles, sysInfo);
-  const [selected, setSelected] = useState<HfFile | null>(recommended ?? detail.ggufFiles[0] ?? null);
+  const recommended = pickFittedFile(detail.gguf_files, sysInfo);
+  const [selected, setSelected] = useState<HfFile | null>(recommended ?? detail.gguf_files[0] ?? null);
   const [fileSizes, setFileSizes] = useState<Record<string, number>>(() => {
     const m: Record<string, number> = {};
-    detail.ggufFiles.forEach((f) => { if (f.size) m[f.rfilename] = f.size; });
+    detail.gguf_files.forEach((f) => { if (f.size) m[f.rfilename] = f.size; });
     return m;
   });
   const [localModelPath, setLocalModelPath] = useState<string | null>(null);
 
   // Fetch missing file sizes via HEAD request
   useEffect(() => {
-    detail.ggufFiles
+    detail.gguf_files
       .filter((f) => !f.size)
       .forEach((f) => {
         void tauri.hf.modelSizeInfo(repoId, f.rfilename).then((bytes) => {
           if (bytes > 0) setFileSizes((prev) => ({ ...prev, [f.rfilename]: bytes }));
         }).catch(() => {});
       });
-  }, [repoId, detail.ggufFiles]);
+  }, [repoId, detail.gguf_files]);
 
   useEffect(() => {
     if (!selected) { setLocalModelPath(null); return; }
@@ -86,7 +86,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
       {/* File list */}
       <div className="space-y-1">
         <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">Download Options</p>
-        {detail.ggufFiles.map((f) => {
+        {detail.gguf_files.map((f) => {
           const isSelected    = selected?.rfilename === f.rfilename;
           const isRecommended = recommended?.rfilename === f.rfilename;
           const size          = fileSizes[f.rfilename];

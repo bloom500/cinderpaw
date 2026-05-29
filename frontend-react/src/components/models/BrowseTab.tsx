@@ -28,7 +28,7 @@ export function BrowseTab() {
         setSelectedRepoId(null);
         setDetail(null);
       }
-      setNextCursor(page.nextCursor);
+      setNextCursor(page.next_cursor);
     } catch (e) {
       setError(String(e));
     } finally {

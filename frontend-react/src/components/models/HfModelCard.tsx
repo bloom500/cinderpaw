@@ -31,7 +31,7 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand }
           <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5 flex-wrap">
             <span>⬇ {fmtNum(model.downloads)}</span>
             <span>♥ {model.likes}</span>
-            <span>{fmtDate(model.lastModified)}</span>
+            <span>{fmtDate(model.last_modified)}</span>
             {tags && <><span>·</span><span className="truncate">{tags}</span></>}
           </div>
         </div>
