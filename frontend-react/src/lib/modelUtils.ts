@@ -162,3 +162,9 @@ export function globalFittedQuant(sys: SystemInfo | null): string {
   if (mb >= 4096) return 'Q3_K_M';
   return 'Q2_K';
 }
+
+const THINKING_PATTERNS = /think|qwq|deepseek-r/i;
+
+export function modelSupportsThinking(name: string): boolean {
+  return THINKING_PATTERNS.test(name);
+}

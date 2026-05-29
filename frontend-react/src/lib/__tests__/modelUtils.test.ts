@@ -3,6 +3,7 @@ import {
   QUANT_RANK, quantQualityRank, extractQuant, cleanModelName,
   quantToQuality, quantToBadge, sizeGb,
   stripFrontmatter, compatLevel, pickFittedFile, globalFittedQuant,
+  modelSupportsThinking,
 } from '@/lib/modelUtils';
 import type { SystemInfo, HfFile } from '@/lib/tauri';
 
@@ -166,5 +167,27 @@ describe('globalFittedQuant', () => {
   });
   it('null sys → Q4_K_M (8192 default)', () => {
     expect(globalFittedQuant(null)).toBe('Q4_K_M');
+  });
+});
+
+describe('modelSupportsThinking', () => {
+  it('matches "think" in name', () => {
+    expect(modelSupportsThinking('Qwen3-think-Q4.gguf')).toBe(true);
+  });
+  it('matches "qwq" in name', () => {
+    expect(modelSupportsThinking('QwQ-32B-Q4_K_M.gguf')).toBe(true);
+  });
+  it('matches "deepseek-r" in name', () => {
+    expect(modelSupportsThinking('DeepSeek-R1-Distill-Q4.gguf')).toBe(true);
+  });
+  it('is case-insensitive', () => {
+    expect(modelSupportsThinking('MISTRAL-THINK-7B.gguf')).toBe(true);
+  });
+  it('returns false for non-reasoning models', () => {
+    expect(modelSupportsThinking('llama-3.2-3b-instruct-q4_k_m.gguf')).toBe(false);
+    expect(modelSupportsThinking('mistral-7b-instruct.gguf')).toBe(false);
+  });
+  it('returns false for empty string', () => {
+    expect(modelSupportsThinking('')).toBe(false);
   });
 });
