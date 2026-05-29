@@ -38,6 +38,48 @@ export interface ModelInfo     {
   id: string; name: string; path: string; size_bytes: number;
   quant?: string | null; ctx_len?: number | null; loaded: boolean;
 }
+export interface SystemInfo {
+  os: string;
+  cpu: string;
+  cores: number;
+  ram_total_mb: number;
+  ram_used_mb: number;
+  gpu_name: string;
+  vram_total_mb: number;
+  vram_used_mb: number;
+  supports_vulkan: boolean;
+}
+
+export interface HfModelSummary {
+  id: string;
+  author: string;
+  downloads: number;
+  likes: number;
+  lastModified: string;
+  tags: string[];
+}
+
+export interface HfFile {
+  rfilename: string;
+  size: number | null;
+}
+
+export interface HfModelDetail {
+  id: string;
+  author: string;
+  downloads: number;
+  likes: number;
+  lastModified: string;
+  tags: string[];
+  ggufFiles: HfFile[];
+  readme: string | null;
+}
+
+export interface HfSearchPage {
+  models: HfModelSummary[];
+  nextCursor: string | null;
+}
+
 export interface Settings {
   models_dir: string;
   default_gpu_layers: number;
@@ -73,7 +115,13 @@ const raw = {
   chatStream:            (messages: Message[], params: InferParams, sessionId: string) =>
     invoke<Result<void, string>>('chat_stream', { messages, params, session_id: sessionId }),
   stopGeneration:        ()    => invoke<void>('stop_generation'),
-  getSystemInfo:         ()    => invoke<object>('get_system_info'),
+  downloadModel:         (repoId: string, filename: string) =>
+    invoke<Result<string, string>>('download_model', { repo_id: repoId, filename }),
+  cancelDownload:        (modelId: string) =>
+    invoke<Result<void, string>>('cancel_download', { model_id: modelId }),
+  getModelSizeInfo:      (repoId: string, filename: string) =>
+    invoke<Result<number, string>>('get_model_size_info', { repo_id: repoId, filename }),
+  getSystemInfo:         ()    => invoke<SystemInfo>('get_system_info'),
   saveAgent:             (cfg: object) => invoke<Result<void, string>>('save_agent', { cfg }),
   getAgents:             ()    => invoke<Result<object[], string>>('get_agents'),
   deleteAgent:           (id: string) => invoke<Result<void, string>>('delete_agent', { id }),
@@ -87,8 +135,8 @@ const raw = {
   getSettings:           ()    => invoke<Settings>('get_settings'),
   saveSettings:          (settings: Settings) => invoke<Result<void, string>>('save_settings', { settings }),
   searchHfModels:        (query: string, cursor?: string | null) =>
-    invoke<Result<object, string>>('search_hf_models', { query, cursor }),
-  getHfModelDetail:      (repoId: string) => invoke<Result<object, string>>('get_hf_model_detail', { repo_id: repoId }),
+    invoke<Result<HfSearchPage, string>>('search_hf_models', { query, cursor }),
+  getHfModelDetail:      (repoId: string) => invoke<Result<HfModelDetail, string>>('get_hf_model_detail', { repo_id: repoId }),
   getByokSettings:       ()    => invoke<object[]>('get_byok_settings'),
   saveByokProvider:      (providerId: string, enabled: boolean, apiKey: string, baseUrl?: string | null, defaultModel?: string | null) =>
     invoke<Result<void, string>>('save_byok_provider', { provider_id: providerId, enabled, api_key: apiKey, base_url: baseUrl, default_model: defaultModel }),
@@ -121,11 +169,32 @@ export const tauri = {
     load:      async (path: string) => unwrap(await raw.loadModel(path)),
     startLoad: async (path: string) => unwrap(await raw.startModelLoad(path)),
     unload:    async () => raw.unloadModel(),
+    delete:    async (path: string) => unwrap(await raw.deleteModel(path)),
   },
 
   settings: {
     get:  async () => raw.getSettings(),
     save: async (s: Settings) => unwrap(await raw.saveSettings(s)),
+  },
+
+  hf: {
+    search:        async (query: string, cursor?: string | null) =>
+      unwrap(await raw.searchHfModels(query, cursor)),
+    detail:        async (repoId: string) =>
+      unwrap(await raw.getHfModelDetail(repoId)),
+    modelSizeInfo: async (repoId: string, filename: string) =>
+      unwrap(await raw.getModelSizeInfo(repoId, filename)),
+  },
+
+  download: {
+    start:  async (repoId: string, filename: string) =>
+      unwrap(await raw.downloadModel(repoId, filename)),
+    cancel: async (modelId: string) =>
+      unwrap(await raw.cancelDownload(modelId)),
+  },
+
+  system: {
+    info: async () => raw.getSystemInfo(),
   },
 };
 
