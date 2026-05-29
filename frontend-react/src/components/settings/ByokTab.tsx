@@ -6,12 +6,17 @@ import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import type { ByokProvider } from '@/lib/tauri';
 
 const PROVIDER_DEFS = [
-  { id: 'openai',    name: 'OpenAI',          hasBaseUrl: true  },
-  { id: 'anthropic', name: 'Anthropic',       hasBaseUrl: false },
-  { id: 'google',    name: 'Google Gemini',   hasBaseUrl: false },
-  { id: 'groq',      name: 'Groq',            hasBaseUrl: false },
-  { id: 'mistral',   name: 'Mistral',         hasBaseUrl: false },
-  { id: 'custom',    name: 'Custom Endpoint', hasBaseUrl: true  },
+  { id: 'openai',     name: 'OpenAI',         hasBaseUrl: true,  baseUrlHint: 'https://api.openai.com/v1',     availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  { id: 'anthropic',  name: 'Anthropic',       hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  { id: 'google',     name: 'Google Gemini',   hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  { id: 'kimi',       name: 'Kimi',            hasBaseUrl: false, baseUrlHint: '',                              availableModels: ['kimi-for-coding'] as const,                                                                    keyPrefix: 'sk-kimi-' },
+  { id: 'glm',        name: 'GLM (Z.ai)',      hasBaseUrl: false, baseUrlHint: '',                              availableModels: ['glm-5.1', 'glm-5', 'glm-5-turbo', 'glm-4.7', 'glm-4.5-air'] as const,                       keyPrefix: undefined  },
+  { id: 'minimax',    name: 'MiniMax',         hasBaseUrl: false, baseUrlHint: '',                              availableModels: ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5', 'MiniMax-M2.5-highspeed'] as const, keyPrefix: 'sk-cp-'   },
+  { id: 'deepseek',   name: 'DeepSeek',        hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  { id: 'groq',       name: 'Groq',            hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  { id: 'mistral',    name: 'Mistral',         hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  { id: 'openrouter', name: 'OpenRouter',      hasBaseUrl: true,  baseUrlHint: 'https://openrouter.ai/api/v1', availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  { id: 'custom',     name: 'Custom Endpoint', hasBaseUrl: true,  baseUrlHint: 'https://your-endpoint/v1',      availableModels: undefined,                                                                                      keyPrefix: undefined  },
 ] as const;
 
 type ProviderDef = typeof PROVIDER_DEFS[number];
@@ -24,7 +29,9 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
   const [enabled, setEnabled]       = useState(state?.enabled ?? false);
   const [apiKey, setApiKey]         = useState('');
   const [baseUrl, setBaseUrl]       = useState(state?.base_url ?? '');
-  const [defaultModel, setDefModel] = useState(state?.default_model ?? '');
+  const [defaultModel, setDefModel] = useState(
+    state?.default_model ?? (def.availableModels ? def.availableModels[0] : ''),
+  );
   const [showKey, setShowKey]       = useState(false);
   const [saving, setSaving]         = useState(false);
   const [saveMsg, setSaveMsg]       = useState<string | null>(null);
@@ -95,9 +102,9 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
               role="switch"
               aria-checked={enabled}
               onClick={() => setEnabled(!enabled)}
-              className={cn('w-10 h-6 rounded-full transition-colors relative shrink-0', enabled ? 'bg-blue-500' : 'bg-bg-hover')}
+              className={cn('w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden', enabled ? 'bg-blue-500' : 'bg-neutral-600')}
             >
-              <span className={cn('absolute top-1 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
+              <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
             </button>
           </div>
 
@@ -120,30 +127,49 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
+            {def.keyPrefix && apiKey.startsWith(def.keyPrefix) && (
+              <p className="text-xs text-green-400 mt-1">✓ {def.name} key detected</p>
+            )}
           </div>
 
           {def.hasBaseUrl && (
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Base URL</label>
+              <label className="text-xs text-text-muted">
+                Base URL
+              </label>
               <input
                 type="url"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.openai.com/v1"
+                placeholder={def.baseUrlHint || 'https://…'}
                 className={inputCls}
               />
             </div>
           )}
 
           <div className="space-y-1">
-            <label className="text-xs text-text-muted">Default model (optional)</label>
-            <input
-              type="text"
-              value={defaultModel}
-              onChange={(e) => setDefModel(e.target.value)}
-              placeholder="gpt-4o"
-              className={inputCls}
-            />
+            <label className="text-xs text-text-muted">
+              {def.availableModels ? 'Model' : 'Default model (optional)'}
+            </label>
+            {def.availableModels ? (
+              <select
+                value={defaultModel}
+                onChange={(e) => setDefModel(e.target.value)}
+                className={cn(inputCls, 'cursor-pointer')}
+              >
+                {def.availableModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={defaultModel}
+                onChange={(e) => setDefModel(e.target.value)}
+                placeholder="gpt-4o"
+                className={inputCls}
+              />
+            )}
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
