@@ -82,6 +82,17 @@ export interface Settings {
   api_port: number;
   version: string;
 }
+
+export interface ByokProvider {
+  id: string;
+  name: string;
+  provider: string;
+  enabled: boolean;
+  has_api_key: boolean;
+  base_url?: string | null;
+  default_model?: string | null;
+}
+
 export interface PersistedMessage    { role: string; content: string }
 export interface ConversationSummary { id: string; title: string; updated_at: string }
 export interface Conversation {
@@ -126,7 +137,7 @@ const raw = {
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
     invoke<HfModelDetail>('get_hf_model_detail', { repoId }),
-  getByokSettings:       ()    => invoke<object[]>('get_byok_settings'),
+  getByokSettings:       ()    => invoke<ByokProvider[]>('get_byok_settings'),
   saveByokProvider:      (providerId: string, enabled: boolean, apiKey: string, baseUrl?: string | null, defaultModel?: string | null) =>
     invoke<void>('save_byok_provider', { providerId, enabled, apiKey, baseUrl, defaultModel }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
