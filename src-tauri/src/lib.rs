@@ -286,7 +286,7 @@ fn unload_model(state: State<AppState>) {
 
 #[tauri::command]
 #[specta::specta]
-fn delete_model(path: String) -> Result<(), String> {
+fn delete_model(state: State<AppState>, path: String) -> Result<(), String> {
     let target = std::path::Path::new(&path)
         .canonicalize()
         .map_err(|e| format!("invalid path: {}", e))?;
@@ -296,6 +296,11 @@ fn delete_model(path: String) -> Result<(), String> {
     if !target.starts_with(&models_dir) {
         return Err("path is outside models directory".into());
     }
+    // Force-unload on the Rust side if this model is currently loaded.
+    // The frontend already calls unload(), but a failed-load can leave
+    // an llama.cpp file handle open without putting anything in the manager.
+    // Unconditional unload + retry gives the OS time to release mmap handles.
+    state.manager.unload();
     models::delete_model(&target).map_err(|e| e.to_string())
 }
 

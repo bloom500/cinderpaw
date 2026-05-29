@@ -86,13 +86,45 @@ fn load_modelfile(gguf_path: &Path) -> Option<Modelfile> {
 
 pub fn delete_model(path: &Path) -> Result<()> {
     if path.exists() {
-        std::fs::remove_file(path)?;
+        remove_file_with_retry(path)?;
     }
     let mf = path.with_extension("feral");
     if mf.exists() {
-        let _ = std::fs::remove_file(mf);
+        let _ = remove_file_with_retry(&mf);
     }
     Ok(())
+}
+
+/// Delete a file, retrying on Windows ERROR_SHARING_VIOLATION (os error 32).
+///
+/// A failed `llama_load_model_from_file` call can leave a memory-mapped handle
+/// open on Windows. llama.cpp's C++ cleanup is correct but asynchronous —
+/// the OS releases the mapping a few hundred ms after the Rust error returns.
+/// Retrying with backoff lets that window close without requiring an app restart.
+fn remove_file_with_retry(path: &Path) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => return Ok(()),
+        Err(e) => {
+            // os error 32 = ERROR_SHARING_VIOLATION on Windows
+            #[cfg(windows)]
+            if e.raw_os_error() == Some(32) {
+                for delay_ms in [200u64, 500, 1000] {
+                    std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                    match std::fs::remove_file(path) {
+                        Ok(()) => return Ok(()),
+                        Err(retry_err) if retry_err.raw_os_error() == Some(32) => continue,
+                        Err(retry_err) => return Err(retry_err.into()),
+                    }
+                }
+                return Err(anyhow::anyhow!(
+                    "File is still locked after retries. \
+                     Restart the app and try again — this happens when a model \
+                     failed to load and Windows has not yet released the file handle."
+                ));
+            }
+            Err(e.into())
+        }
+    }
 }
 
 /// Download a GGUF model from HuggingFace. Streams progress (0.0..=1.0).
