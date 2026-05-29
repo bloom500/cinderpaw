@@ -50,6 +50,7 @@ export function ToolsPopover() {
             key={id}
             checked={enabledTools.includes(id)}
             onCheckedChange={() => toggleTool(id)}
+            onSelect={(e) => e.preventDefault()}
             className="gap-2 text-sm"
           >
             <Icon size={13} />

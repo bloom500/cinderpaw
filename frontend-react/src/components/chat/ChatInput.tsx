@@ -2,23 +2,38 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Brain, ArrowUp, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ModelSelector } from './ModelSelector';
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { ToolsPopover } from './ToolsPopover';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
+import { useUI, type ReasoningMode } from '@/stores/ui';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { tauri } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 
-const REASONING_CONFIG = {
-  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400' },
-  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400' },
-  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400' },
-} as const;
+const REASONING_CONFIG: Record<ReasoningMode, {
+  label: string;
+  iconClass: string;
+  badgeClass: string;
+  dot: string;
+  description: string;
+}> = {
+  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400',      dot: 'bg-sky-400',     description: 'Auto — detect from model name' },
+  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400', dot: 'bg-emerald-400', description: 'On — always enable thinking' },
+  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off — suppress thinking blocks' },
+};
 
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
 export function ChatInput() {
@@ -27,7 +42,7 @@ export function ChatInput() {
   const loaded = useModel((s) => s.loaded);
   const status = useChat((s) => s.streamStatus);
   const reasoningMode = useUI((s) => s.reasoningMode);
-  const cycleReasoningMode = useUI((s) => s.cycleReasoningMode);
+  const setReasoningMode = useUI((s) => s.setReasoningMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const send = useSendMessage();
 
@@ -99,11 +114,10 @@ export function ChatInput() {
                 }
               />
               <ToolsPopover />
-              <Tooltip>
-                <TooltipTrigger asChild>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    onClick={cycleReasoningMode}
                     className={cn('relative p-1.5 rounded hover:bg-bg-hover', rc.iconClass)}
                     aria-label={`Reasoning: ${reasoningMode}`}
                   >
@@ -117,11 +131,23 @@ export function ChatInput() {
                       {rc.label}
                     </span>
                   </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Reasoning: {reasoningMode === 'auto' ? 'Auto (detect from model)' : reasoningMode === 'on' ? 'Always on' : 'Off'}
-                </TooltipContent>
-              </Tooltip>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="start" className="w-52">
+                  <DropdownMenuLabel className="text-xs text-text-muted">Reasoning mode</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuRadioGroup
+                    value={reasoningMode}
+                    onValueChange={(v) => setReasoningMode(v as ReasoningMode)}
+                  >
+                    {(Object.entries(REASONING_CONFIG) as [ReasoningMode, typeof REASONING_CONFIG[ReasoningMode]][]).map(([mode, cfg]) => (
+                      <DropdownMenuRadioItem key={mode} value={mode} className="gap-2 text-sm">
+                        <span className={cn('h-2 w-2 rounded-full shrink-0', cfg.dot)} />
+                        <span>{cfg.description}</span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
               <ModelSelector />
