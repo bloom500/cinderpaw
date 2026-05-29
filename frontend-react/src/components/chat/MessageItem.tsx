@@ -2,9 +2,11 @@ import { cn } from '@/lib/utils';
 import { Markdown } from '@/lib/markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import type { ChatMessage } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 
 export function MessageItem({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
+  const reasoningMode = useUI((s) => s.reasoningMode);
 
   if (isUser) {
     return (
@@ -18,12 +20,14 @@ export function MessageItem({ message }: { message: ChatMessage }) {
     );
   }
 
+  const showThinking = message.thinking != null && reasoningMode !== 'off';
+
   return (
     <div className="flex flex-col gap-2">
-      {message.thinking != null && (
+      {showThinking && (
         <ThinkingBlock
           id={message.id}
-          content={message.thinking}
+          content={message.thinking!}
           duration={message.thinkingDurationMs ? Math.round(message.thinkingDurationMs / 1000) : 0}
           active={!message.thinkingComplete}
         />
