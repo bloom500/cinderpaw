@@ -27,7 +27,7 @@ const MENU: MenuItem[] = [
   { icon: MessageSquare, label: 'New Chat',     shortcut: '⌘N', action: 'newChat',    disabled: false, route: '/chat' },
   { icon: FolderPlus,    label: 'New Projects', shortcut: '⌘P', action: 'newProject', disabled: true  },
   { icon: Search,        label: 'Search',       shortcut: '⌘K', action: 'search',     disabled: true  },
-  { icon: Box,           label: 'Models',       shortcut: null, action: 'models',     disabled: true,  route: '/models' },
+  { icon: Box,           label: 'Models',       shortcut: null, action: 'models',     disabled: false, route: '/models' },
   { icon: Settings,      label: 'Settings',     shortcut: null, action: 'settings',   disabled: true,  route: '/settings' },
   { icon: Sparkles,      label: 'Skills',       shortcut: null, action: 'skills',     disabled: true,  route: '/skills' },
 ];
