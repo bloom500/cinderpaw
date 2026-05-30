@@ -44,7 +44,7 @@ export const useModel = create<ModelStore>((set) => ({
   },
 
   load: async (path) => {
-    set({ isLoading: true, loadProgress: { percentage: 0, statusText: 'Initializing...' } });
+    set({ isLoading: true, cloudModel: null, loadProgress: { percentage: 0, statusText: 'Initializing...' } });
     if (progressUnlisten) { progressUnlisten(); progressUnlisten = null; }
     progressUnlisten = await events.modelLoadProgressEvent.listen((e) => {
       set({ loadProgress: { percentage: e.payload.percentage, statusText: e.payload.statusText } });
