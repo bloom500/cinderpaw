@@ -119,9 +119,9 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
             placeholder={!disabled ? 'Ask anything…' : 'Load a model or add a cloud key to start chatting'}
             disabled={disabled}
             rows={1}
-            className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px]"
+            className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 pt-4"
           />
-          <div className="flex items-center justify-between px-2 pb-2">
+          <div className="flex items-center justify-between px-4 pb-3">
             <div className="flex gap-1">
               <FileAttachButton
                 onFilesSelected={(files) =>
