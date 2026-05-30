@@ -1,6 +1,7 @@
 import { tauri, type InferParams, type Settings } from '@/lib/tauri';
 import { modelSupportsThinking } from '@/lib/modelUtils';
 import type { ReasoningMode } from '@/stores/ui';
+import { useModel } from '@/stores/model';
 
 let cachedSettings: Settings | null = null;
 
@@ -16,21 +17,26 @@ const THINKING_SYSTEM_PROMPT =
 export async function currentInferParams(opts?: {
   reasoningMode?: ReasoningMode;
   modelName?: string;
+  enabledTools?: string[];
 }): Promise<InferParams> {
   await ensureSettingsLoaded();
 
   const mode = opts?.reasoningMode ?? 'auto';
   const name = opts?.modelName ?? '';
+  const { temperature, top_p, max_tokens } = useModel.getState().inferParams;
 
   const enableThinking =
     mode === 'on' ||
     (mode === 'auto' && modelSupportsThinking(name));
 
+  const tools = opts?.enabledTools?.length ? opts.enabledTools : null;
+
   return {
-    temperature: 0.8,
-    top_p: 0.95,
+    temperature,
+    top_p,
     repeat_penalty: 1.1,
-    max_tokens: 2048,
+    max_tokens,
     system_prompt: enableThinking ? THINKING_SYSTEM_PROMPT : null,
+    tools,
   };
 }
