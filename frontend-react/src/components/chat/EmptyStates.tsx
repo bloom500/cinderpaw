@@ -1,8 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getRandomSuggestions } from '@/lib/suggestions';
 import { cn } from '@/lib/utils';
+
+const GREETINGS = [
+  'What can I help you with?',
+  "What's on your mind?",
+  'How can I assist you today?',
+  'What would you like to explore?',
+  'What can I help you build?',
+];
 
 export function NoModelEmptyState() {
   const navigate = useNavigate();
@@ -29,6 +37,20 @@ interface NewChatEmptyStateProps {
 
 export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStateProps) {
   const [suggestions] = useState(() => getRandomSuggestions(3));
+  const [greetingIndex, setGreetingIndex] = useState(0);
+  const [greetingVisible, setGreetingVisible] = useState(true);
+
+  useEffect(() => {
+    if (!isEmpty) return;
+    const id = setInterval(() => {
+      setGreetingVisible(false);
+      setTimeout(() => {
+        setGreetingIndex((i) => (i + 1) % GREETINGS.length);
+        setGreetingVisible(true);
+      }, 350);
+    }, 4000);
+    return () => clearInterval(id);
+  }, [isEmpty]);
 
   return (
     <div
@@ -37,25 +59,27 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
         isEmpty ? 'opacity-100' : 'opacity-0',
       )}
     >
-      {/* Greeting — centered but pushed up to sit above the input */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pb-44">
-        <h1 className="text-2xl font-semibold text-text-primary select-none">
-          What can I help you with?
+      {/* Greeting + pills as one column, pushed above the centered input */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center pb-52">
+        <h1
+          className="text-2xl font-semibold text-text-primary select-none transition-opacity duration-300"
+          style={{ opacity: greetingVisible ? 1 : 0 }}
+        >
+          {GREETINGS[greetingIndex]}
         </h1>
-      </div>
 
-      {/* Suggestion pills — sit below the input */}
-      <div className="absolute inset-x-0 top-1/2 pt-16 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">
-        {suggestions.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onSuggestion(s)}
-            className="px-4 py-1.5 rounded-full border border-border-default bg-bg-surface hover:bg-bg-hover text-sm text-text-secondary transition-colors cursor-pointer"
-          >
-            {s}
-          </button>
-        ))}
+        <div className="mt-4 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onSuggestion(s)}
+              className="px-4 py-1.5 rounded-full border border-border-default bg-bg-surface hover:bg-bg-hover text-sm text-text-secondary transition-colors cursor-pointer"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
