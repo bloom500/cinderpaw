@@ -7,6 +7,7 @@ mod gpu_detect;
 mod inference;
 mod models;
 mod paths;
+mod projects;
 mod settings;
 mod sysinfo_mod;
 mod tools;
@@ -739,6 +740,27 @@ fn clear_all_conversations() -> Result<(), String> {
     conversations::clear_all().map_err(|e| e.to_string())
 }
 
+// ---------- Projects ----------
+
+#[tauri::command]
+#[specta::specta]
+fn load_projects() -> Result<Vec<projects::ProjectSummary>, String> {
+    projects::load_all().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+fn save_project(id: String, name: String, conversation_ids: Vec<String>) -> Result<(), String> {
+    projects::save(&projects::ProjectSummary { id, name, conversation_ids })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+fn delete_project(id: String) -> Result<(), String> {
+    projects::delete(&id).map_err(|e| e.to_string())
+}
+
 // ---------- Settings ----------
 
 #[tauri::command]
@@ -752,6 +774,19 @@ fn save_settings(settings: Settings) -> Result<(), String> {
 }
 
 // ---------- BYOK ----------
+
+/// Append a path segment to a base URL that may already contain a query string.
+/// e.g. url_join("https://api.minimax.chat/v1?GroupId=123", "chat/completions")
+///      → "https://api.minimax.chat/v1/chat/completions?GroupId=123"
+fn url_join(base: &str, path: &str) -> String {
+    match base.find('?') {
+        Some(q) => {
+            let (base_path, query) = base.split_at(q);
+            format!("{}/{}{}", base_path.trim_end_matches('/'), path.trim_start_matches('/'), query)
+        }
+        None => format!("{}/{}", base.trim_end_matches('/'), path.trim_start_matches('/')),
+    }
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -794,7 +829,8 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
     };
 
     let url = base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let endpoint = format!("{}/models", url.trim_end_matches('/'));
+    let models_endpoint = url_join(&url, "models");
+    let chat_endpoint   = url_join(&url, "chat/completions");
 
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -802,40 +838,315 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
         .build()
         .map_err(|e| e.to_string())?;
 
-    let header_key = provider.api_key_header();
+    let header_key    = provider.api_key_header();
     let header_prefix = provider.api_key_prefix();
+    let auth_value    = format!("{}{}", header_prefix, api_key);
 
-    let resp = client
-        .get(&endpoint)
-        .header(header_key, format!("{}{}", header_prefix, api_key))
+    // First try GET /models (OpenAI-compatible providers expose this)
+    let models_resp = client
+        .get(&models_endpoint)
+        .header(header_key, &auth_value)
         .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    if resp.status().is_success() {
-        // Try to parse as OpenAI-compatible list response
+    let models_status = models_resp.status();
+
+    if models_status.is_success() {
         #[derive(serde::Deserialize)]
         struct ModelList { data: Option<Vec<serde_json::Value>> }
-        let models: Vec<String> = resp.json::<ModelList>().await
+        let models: Vec<String> = models_resp.json::<ModelList>().await
             .ok()
             .and_then(|r| r.data)
-            .map(|items| items.iter().filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from)).collect())
+            .map(|items| items.iter()
+                .filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
+                .collect())
             .unwrap_or_default();
-
-        Ok(byok::TestProviderResponse {
+        return Ok(byok::TestProviderResponse {
             success: true,
             message: "Connection successful".to_string(),
             models,
-        })
-    } else {
-        let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        });
+    }
+
+    // If /models returned 401/403 the key is wrong — report immediately.
+    if models_status == 401 || models_status == 403 {
+        let body = models_resp.text().await.unwrap_or_default();
+        return Ok(byok::TestProviderResponse {
+            success: false,
+            message: format!("Auth failed (HTTP {}): {}", models_status.as_u16(), body),
+            models: vec![],
+        });
+    }
+
+    // /models returned 404 or another non-auth error — provider may not expose it.
+    // Fall back: send a minimal non-streaming chat completion to verify credentials.
+    let probe = serde_json::json!({
+        "model": "__probe__",
+        "messages": [{ "role": "user", "content": "Hi" }],
+        "max_tokens": 1,
+        "stream": false,
+    });
+    let chat_resp = client
+        .post(&chat_endpoint)
+        .header(header_key, &auth_value)
+        .header("Content-Type", "application/json")
+        .json(&probe)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let chat_status = chat_resp.status();
+    let chat_body   = chat_resp.text().await.unwrap_or_default();
+
+    // 401/403 = bad key; 4xx on model-not-found (404/400/422) = key is valid
+    if chat_status == 401 || chat_status == 403 {
         Ok(byok::TestProviderResponse {
             success: false,
-            message: format!("HTTP {}: {}", status, body),
+            message: format!("Auth failed (HTTP {}): {}", chat_status.as_u16(), chat_body),
+            models: vec![],
+        })
+    } else {
+        Ok(byok::TestProviderResponse {
+            success: true,
+            message: "Connection successful (auth verified via chat endpoint)".to_string(),
             models: vec![],
         })
     }
+}
+
+/// Stream a chat completion from an OpenAI-compatible cloud provider via BYOK.
+/// Supports the full agentic tool-use loop: if the model responds with tool_calls,
+/// the tools are executed and the results are fed back until the model returns a
+/// plain content response.
+#[tauri::command]
+#[specta::specta]
+async fn chat_cloud_stream(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider_id: String,
+    model: String,
+    messages: Vec<inference::Message>,
+    params: inference::InferParams,
+    session_id: String,
+) -> Result<(), String> {
+    use futures::StreamExt;
+
+    let byok = byok::load(&settings::load());
+    let cfg = byok.get_provider(&provider_id).cloned().unwrap_or_default();
+
+    macro_rules! emit_err {
+        ($msg:expr) => {{
+            let s: String = $msg;
+            let _ = app.emit("feral://stream-error", events::StreamErrorEvent {
+                session_id: session_id.clone(),
+                error: s.clone(),
+            });
+            return Err(s);
+        }};
+    }
+
+    if !cfg.enabled   { emit_err!(format!("Provider '{}' is not enabled", provider_id)); }
+    if cfg.api_key.is_empty() { emit_err!(format!("No API key configured for provider '{}'", provider_id)); }
+
+    let provider = match provider_id.as_str() {
+        "openai"     => byok::Provider::Openai,
+        "anthropic"  => byok::Provider::Anthropic,
+        "google"     => byok::Provider::Google,
+        "kimi"       => byok::Provider::Kimi,
+        "glm"        => byok::Provider::Glm,
+        "minimax"    => byok::Provider::Minimax,
+        "groq"       => byok::Provider::Groq,
+        "mistral"    => byok::Provider::Mistral,
+        "deepseek"   => byok::Provider::Deepseek,
+        "openrouter" => byok::Provider::Openrouter,
+        _            => byok::Provider::Custom,
+    };
+
+    let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
+    let endpoint = url_join(&base_url, "chat/completions");
+    let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
+
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
+
+    // Build tool definitions from the enabled tool IDs passed in params
+    let tool_defs: Vec<serde_json::Value> = params.tools
+        .as_ref()
+        .map(|ids| ids.iter()
+            .filter_map(|id| tools::ToolType::from_name(id))
+            .map(|t| t.to_openai_definition())
+            .collect())
+        .unwrap_or_default();
+
+    // Build initial message context
+    let mut ctx: Vec<serde_json::Value> = Vec::new();
+    if let Some(sys) = &params.system_prompt {
+        if !sys.is_empty() {
+            ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+        }
+    }
+    for m in &messages {
+        ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+    }
+
+    state.stop_signal.store(false, Ordering::SeqCst);
+    let stop = state.stop_signal.clone();
+
+    // Agentic loop: continue until the model returns a plain content response
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id });
+            return Ok(());
+        }
+
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": ctx,
+            "stream": true,
+            "temperature": params.temperature,
+            "top_p": params.top_p,
+            "max_tokens": params.max_tokens,
+        });
+        if !tool_defs.is_empty() {
+            body["tools"] = serde_json::json!(tool_defs);
+            body["tool_choice"] = serde_json::json!("auto");
+        }
+
+        let resp = client
+            .post(&endpoint)
+            .header(provider.api_key_header(), &auth_value)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body_text = resp.text().await.unwrap_or_default();
+            emit_err!(format!("HTTP {}: {}", status, body_text));
+        }
+
+        let mut byte_stream = resp.bytes_stream();
+        let mut line_buf = String::new();
+
+        // Accumulators for the current response turn
+        let mut content_acc = String::new();
+        // index → (call_id, function_name, arguments_fragment)
+        let mut pending_calls: std::collections::HashMap<usize, (String, String, String)> =
+            std::collections::HashMap::new();
+        let mut finish_reason = String::new();
+
+        'sse: while let Some(chunk) = byte_stream.next().await {
+            if stop.load(Ordering::SeqCst) {
+                let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id });
+                return Ok(());
+            }
+            let bytes = chunk.map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
+            let text = String::from_utf8_lossy(&bytes);
+
+            for ch in text.chars() {
+                if ch == '\n' {
+                    let line = line_buf.trim().to_string();
+                    line_buf.clear();
+                    if line.is_empty() { continue; }
+                    if line == "data: [DONE]" { break 'sse; }
+
+                    if let Some(json_str) = line.strip_prefix("data: ") {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            let choice = val.get("choices").and_then(|c| c.get(0));
+                            if let Some(choice) = choice {
+                                if let Some(fr) = choice.get("finish_reason").and_then(|v| v.as_str()) {
+                                    if !fr.is_empty() { finish_reason = fr.to_string(); }
+                                }
+                                if let Some(delta) = choice.get("delta") {
+                                    // Plain text content
+                                    if let Some(tok) = delta.get("content").and_then(|c| c.as_str()) {
+                                        if !tok.is_empty() {
+                                            content_acc.push_str(tok);
+                                            let _ = app.emit("feral://token", events::TokenEvent {
+                                                session_id: session_id.clone(),
+                                                text: tok.to_string(),
+                                            });
+                                        }
+                                    }
+                                    // Tool call fragments
+                                    if let Some(tc_arr) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+                                        for tc in tc_arr {
+                                            let idx = tc.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                            let entry = pending_calls.entry(idx)
+                                                .or_insert_with(|| (String::new(), String::new(), String::new()));
+                                            if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
+                                                entry.0 = id.to_string();
+                                            }
+                                            if let Some(func) = tc.get("function") {
+                                                if let Some(name) = func.get("name").and_then(|v| v.as_str()) {
+                                                    entry.1 = name.to_string();
+                                                }
+                                                if let Some(args) = func.get("arguments").and_then(|v| v.as_str()) {
+                                                    entry.2.push_str(args);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    line_buf.push(ch);
+                }
+            }
+        }
+
+        // If no tool calls, we're done
+        if finish_reason != "tool_calls" || pending_calls.is_empty() {
+            break;
+        }
+
+        // Sort by index so the assistant message lists them in order
+        let mut sorted: Vec<(usize, (String, String, String))> = pending_calls.into_iter().collect();
+        sorted.sort_by_key(|(idx, _)| *idx);
+
+        // Append assistant turn with tool_calls to context
+        let asst_tool_calls: Vec<serde_json::Value> = sorted.iter()
+            .map(|(_, (id, name, args))| serde_json::json!({
+                "id": id,
+                "type": "function",
+                "function": { "name": name, "arguments": args }
+            }))
+            .collect();
+
+        ctx.push(serde_json::json!({
+            "role": "assistant",
+            "content": serde_json::Value::Null,
+            "tool_calls": asst_tool_calls,
+        }));
+
+        // Execute each tool and append its result to context
+        for (_, (id, name, args_str)) in &sorted {
+            let args: serde_json::Value = serde_json::from_str(args_str)
+                .unwrap_or(serde_json::json!({}));
+            let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
+                tools::execute(tool_type, args).await
+            } else {
+                tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
+            };
+            ctx.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": id,
+                "content": result.output,
+            }));
+        }
+        // Loop continues — model will now generate a response using the tool results
+    }
+
+    let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id });
+    Ok(())
 }
 
 #[tauri::command]
@@ -894,6 +1205,9 @@ pub fn run() {
             load_conversation,
             delete_conversation,
             clear_all_conversations,
+            load_projects,
+            save_project,
+            delete_project,
             get_settings,
             save_settings,
             search_hf_models,
@@ -903,6 +1217,7 @@ pub fn run() {
             get_byok_settings,
             save_byok_provider,
             test_byok_provider,
+            chat_cloud_stream,
             read_file_as_text,
         ])
         .events(tauri_specta::collect_events![
