@@ -12,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ModelSelector } from './ModelSelector';
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { ToolsPopover } from './ToolsPopover';
@@ -168,7 +167,6 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
               </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
-              <ModelSelector />
               {isStreaming ? (
                 <Button
                   size="icon"
