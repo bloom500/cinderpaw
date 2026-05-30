@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type KeyboardEvent } from 'react';
 import { Brain, ArrowUp, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,16 +35,30 @@ const REASONING_CONFIG: Record<ReasoningMode, {
   off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off — suppress thinking blocks' },
 };
 
+export interface ChatInputHandle {
+  setText: (text: string) => void;
+  focus: () => void;
+}
+
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
-export function ChatInput() {
+export const ChatInput = forwardRef<ChatInputHandle, object>(function ChatInput(_props, ref) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const loaded = useModel((s) => s.loaded);
+  const loaded      = useModel((s) => s.loaded);
+  const cloudModel  = useModel((s) => s.cloudModel);
   const status = useChat((s) => s.streamStatus);
   const reasoningMode = useUI((s) => s.reasoningMode);
   const setReasoningMode = useUI((s) => s.setReasoningMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const send = useSendMessage();
+
+  useImperativeHandle(ref, () => ({
+    setText: (t: string) => {
+      setText(t);
+      setTimeout(() => taRef.current?.focus(), 0);
+    },
+    focus: () => taRef.current?.focus(),
+  }));
 
   // Auto-resize textarea
   useEffect(() => {
@@ -55,7 +69,7 @@ export function ChatInput() {
   }, [text]);
 
   const isStreaming = status === 'streaming';
-  const disabled = !loaded;
+  const disabled = !loaded && !cloudModel;
 
   const trySend = async () => {
     if (!text.trim() || isStreaming || disabled) return;
@@ -98,7 +112,7 @@ export function ChatInput() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={loaded ? 'Ask anything…' : 'Load a model to start chatting'}
+            placeholder={!disabled ? 'Ask anything…' : 'Load a model or add a cloud key to start chatting'}
             disabled={disabled}
             rows={1}
             className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px]"
@@ -175,12 +189,12 @@ export function ChatInput() {
             </div>
           </div>
         </div>
-        {!loaded && (
+        {disabled && (
           <p className="text-xs text-text-muted mt-2">
-            No model loaded. Open Models to load one.
+            No model loaded. Open Models to download one, or add a cloud key in Settings.
           </p>
         )}
       </div>
     </TooltipProvider>
   );
-}
+});
