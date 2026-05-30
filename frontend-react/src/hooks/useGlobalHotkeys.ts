@@ -24,11 +24,21 @@ export function useGlobalHotkeys() {
 
       if (e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        // Search — registered to prevent browser fallthrough; no-op for now
+        window.dispatchEvent(new CustomEvent('feral:open-search'));
       }
     };
 
+    const searchHandler = () => {
+      import('@/stores/ui').then(({ useUI }) => {
+        useUI.getState().openSearch();
+      });
+    };
+
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener('feral:open-search', searchHandler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('feral:open-search', searchHandler);
+    };
   }, [navigate]);
 }

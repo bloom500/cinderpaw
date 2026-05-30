@@ -1,15 +1,16 @@
 import { Outlet } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useUI } from '@/stores/ui';
-import { useSystemThemeSync } from '@/stores/ui';
+import { useUI, useSystemThemeSync } from '@/stores/ui';
 import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
 import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
+import { SearchOverlay } from '@/components/chat/SearchOverlay';
 
 export function AppShell() {
   useSystemThemeSync();
   useGlobalHotkeys();
 
-  const collapsed = useUI((s) => s.sidebarCollapsed);
+  const collapsed   = useUI((s) => s.sidebarCollapsed);
+  const searchOpen  = useUI((s) => s.searchOpen);
 
   return (
     <div className="h-screen w-screen flex bg-bg-primary text-text-primary overflow-hidden">
@@ -21,6 +22,7 @@ export function AppShell() {
       >
         <Outlet />
       </motion.main>
+      {searchOpen && <SearchOverlay />}
     </div>
   );
 }
