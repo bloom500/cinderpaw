@@ -96,7 +96,7 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
       <div className={cn(
         isEmpty
           ? 'px-4 py-3 max-w-2xl mx-auto w-full'
-          : 'border-t border-border-subtle bg-bg-primary px-4 py-3',
+          : 'px-4 py-3',
       )}>
         <div className="rounded-3xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
           {attachedFiles.length > 0 && (
