@@ -65,8 +65,8 @@ export function ModelPickerPopover() {
             </DropdownMenuLabel>
             {localModels.map((m) => (
               <DropdownMenuItem
-                key={m.path as unknown as string}
-                onClick={() => { setCloudModel(null); void load(m.path as unknown as string); }}
+                key={m.path}
+                onClick={() => { setCloudModel(null); void load(m.path); }}
                 className="flex flex-col items-start gap-0.5"
               >
                 <span className="text-text-primary">{m.name}</span>
