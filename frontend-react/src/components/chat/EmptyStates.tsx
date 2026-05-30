@@ -60,7 +60,7 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
       )}
     >
       {/* Greeting + pills as one column, pushed above the centered input */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pb-52">
+      <div className="absolute inset-0 flex flex-col items-center justify-center pb-72">
         <h1
           className="text-2xl font-semibold text-text-primary select-none transition-opacity duration-300"
           style={{ opacity: greetingVisible ? 1 : 0 }}
@@ -68,7 +68,7 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
           {GREETINGS[greetingIndex]}
         </h1>
 
-        <div className="mt-4 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">
+        <div className="mt-5 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">
           {suggestions.map((s) => (
             <button
               key={s}

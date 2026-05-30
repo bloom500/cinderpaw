@@ -99,7 +99,7 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
           ? 'px-4 py-3 max-w-2xl mx-auto w-full'
           : 'border-t border-border-subtle bg-bg-primary px-4 py-3',
       )}>
-        <div className="rounded-xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
+        <div className="rounded-3xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
               {attachedFiles.map((f) => (
