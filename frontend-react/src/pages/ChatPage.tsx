@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useChat } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useModel } from '@/stores/model';
+import { useProjects } from '@/stores/projects';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
@@ -41,6 +42,7 @@ export function ChatPage() {
   // Initial data hydration
   useEffect(() => {
     void useConversations.getState().refresh();
+    void useProjects.getState().refresh();
     void useModel.getState().refresh();
   }, []);
 
