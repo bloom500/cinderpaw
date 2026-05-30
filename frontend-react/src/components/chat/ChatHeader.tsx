@@ -1,18 +1,17 @@
-import { useModel } from '@/stores/model';
 import { useConversations } from '@/stores/conversations';
+import { ModelPill } from './ModelPill';
 
 export function ChatHeader() {
-  const loaded = useModel((s) => s.loaded);
   const currentId = useConversations((s) => s.currentId);
-  const list = useConversations((s) => s.list);
-  const current = list?.find((c) => c.id === currentId);
+  const list      = useConversations((s) => s.list);
+  const current   = list?.find((c) => c.id === currentId);
 
   return (
-    <div className="h-12 px-4 flex items-center justify-between shrink-0 border-b border-border-subtle">
-      <span className="text-sm text-text-secondary truncate">
+    <div className="h-12 px-3 flex items-center gap-3 shrink-0 border-b border-white/5">
+      <ModelPill />
+      <span className="text-sm text-text-muted/50 truncate flex-1 min-w-0">
         {current?.title ?? 'New chat'}
       </span>
-      <span className="text-xs text-text-muted">{loaded?.name ?? 'No model'}</span>
     </div>
   );
 }
