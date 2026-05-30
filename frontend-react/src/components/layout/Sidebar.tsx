@@ -1,18 +1,26 @@
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  MessageSquare, FolderPlus, Search, Box, Settings, Sparkles,
-  Download, PanelLeftClose, PanelLeftOpen, Lock,
+  MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot,
+  Download, PanelLeftClose, PanelLeftOpen, Lock, Folder,
+  ChevronDown, ChevronRight, MoreHorizontal, Trash2, FolderInput, FolderMinus,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub,
+  DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { useProjects, type Project } from '@/stores/projects';
 
 export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
 
-type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills';
+type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'agents';
 
 interface MenuItem {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
@@ -24,17 +32,49 @@ interface MenuItem {
 }
 
 const MENU: MenuItem[] = [
-  { icon: MessageSquare, label: 'New Chat',     shortcut: '⌘N', action: 'newChat',    disabled: false, route: '/chat' },
-  { icon: FolderPlus,    label: 'New Projects', shortcut: '⌘P', action: 'newProject', disabled: true  },
-  { icon: Search,        label: 'Search',       shortcut: '⌘K', action: 'search',     disabled: true  },
-  { icon: Box,           label: 'Models',       shortcut: null, action: 'models',     disabled: false, route: '/models' },
-  { icon: Settings,      label: 'Settings',     shortcut: null, action: 'settings',   disabled: false, route: '/settings' },
-  { icon: Sparkles,      label: 'Skills',       shortcut: null, action: 'skills',     disabled: true,  route: '/skills' },
+  { icon: MessageSquare, label: 'New Chat',    shortcut: '⌘N', action: 'newChat',    disabled: false, route: '/chat' },
+  { icon: FolderPlus,   label: 'New Project',  shortcut: '⌘P', action: 'newProject', disabled: false },
+  { icon: Search,       label: 'Search',       shortcut: '⌘K', action: 'search',     disabled: false },
+  { icon: Box,          label: 'Models',       shortcut: null,  action: 'models',     disabled: false, route: '/models' },
+  { icon: Settings,     label: 'Settings',     shortcut: null,  action: 'settings',   disabled: false, route: '/settings' },
+  { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: true,  route: '/skills' },
+  { icon: Bot,          label: 'Agents',       shortcut: null,  action: 'agents',     disabled: true,  route: '/agents' },
 ];
 
+// ── Sidebar root ───────────────────────────────────────────────────────────────
+
 export function Sidebar() {
-  const collapsed = useUI((s) => s.sidebarCollapsed);
+  const collapsed     = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
+  const openSearch    = useUI((s) => s.openSearch);
+
+  const [newProjectOpen, setNewProjectOpen]     = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState('');
+  const [renameTarget, setRenameTarget]         = useState<Project | null>(null);
+  const [renameDraft, setRenameDraft]           = useState('');
+
+  const handleMenuAction = (action: MenuAction) => {
+    if (action === 'newProject') {
+      setProjectNameDraft('');
+      setNewProjectOpen(true);
+    } else if (action === 'search') {
+      openSearch();
+    }
+  };
+
+  const handleCreateProject = async () => {
+    const name = projectNameDraft.trim();
+    if (!name) return;
+    await useProjects.getState().create(name);
+    setNewProjectOpen(false);
+  };
+
+  const handleRenameProject = async () => {
+    const name = renameDraft.trim();
+    if (!name || !renameTarget) return;
+    await useProjects.getState().rename(renameTarget.id, name);
+    setRenameTarget(null);
+  };
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -70,14 +110,26 @@ export function Sidebar() {
         {/* Primary menu */}
         <nav className="px-2 py-2 space-y-0.5 shrink-0">
           {MENU.map((item) => (
-            <MenuRow key={item.action} item={item} collapsed={collapsed} />
+            <MenuRow
+              key={item.action}
+              item={item}
+              collapsed={collapsed}
+              onAction={handleMenuAction}
+            />
           ))}
         </nav>
 
-        {/* Recent conversations */}
+        {/* Recent conversations + projects */}
         <div className="flex-1 overflow-y-auto px-2 pt-2 min-h-0">
           <AnimatePresence>
-            {!collapsed && <RecentSection />}
+            {!collapsed && (
+              <RecentSection
+                onRenameProject={(p) => {
+                  setRenameDraft(p.name);
+                  setRenameTarget(p);
+                }}
+              />
+            )}
           </AnimatePresence>
         </div>
 
@@ -97,11 +149,83 @@ export function Sidebar() {
           </AnimatePresence>
         </div>
       </motion.aside>
+
+      {/* New Project dialog */}
+      <Dialog open={newProjectOpen} onOpenChange={setNewProjectOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New Project</DialogTitle>
+          </DialogHeader>
+          <input
+            autoFocus
+            value={projectNameDraft}
+            onChange={(e) => setProjectNameDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateProject(); }}
+            placeholder="Project name"
+            className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+          />
+          <DialogFooter>
+            <button
+              onClick={() => setNewProjectOpen(false)}
+              className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void handleCreateProject()}
+              disabled={!projectNameDraft.trim()}
+              className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
+            >
+              Create
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Project dialog */}
+      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename Project</DialogTitle>
+          </DialogHeader>
+          <input
+            autoFocus
+            value={renameDraft}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleRenameProject(); }}
+            placeholder="Project name"
+            className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+          />
+          <DialogFooter>
+            <button
+              onClick={() => setRenameTarget(null)}
+              className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void handleRenameProject()}
+              disabled={!renameDraft.trim()}
+              className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
+            >
+              Save
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }
 
-function MenuRow({ item, collapsed }: { item: MenuItem; collapsed: boolean }) {
+// ── MenuRow ────────────────────────────────────────────────────────────────────
+
+function MenuRow({
+  item, collapsed, onAction,
+}: {
+  item: MenuItem;
+  collapsed: boolean;
+  onAction: (action: MenuAction) => void;
+}) {
   const navigate = useNavigate();
   const Icon = item.icon;
 
@@ -110,6 +234,10 @@ function MenuRow({ item, collapsed }: { item: MenuItem; collapsed: boolean }) {
     if (item.action === 'newChat') {
       navigate('/chat');
       window.dispatchEvent(new CustomEvent('feral:new-chat'));
+      return;
+    }
+    if (item.action === 'newProject' || item.action === 'search') {
+      onAction(item.action);
       return;
     }
     if (item.route) navigate(item.route);
@@ -185,10 +313,16 @@ function MenuRow({ item, collapsed }: { item: MenuItem; collapsed: boolean }) {
   return row;
 }
 
-function RecentSection() {
-  const list = useConversations((s) => s.list);
+// ── RecentSection ──────────────────────────────────────────────────────────────
+
+function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => void }) {
+  const list      = useConversations((s) => s.list);
   const currentId = useConversations((s) => s.currentId);
-  const open = useConversations((s) => s.open);
+  const open      = useConversations((s) => s.open);
+  const projects  = useProjects((s) => s.list);
+
+  const projectedIds = new Set(projects.flatMap((p) => p.conversation_ids));
+  const flatList     = (list ?? []).filter((c) => !projectedIds.has(c.id));
 
   return (
     <motion.div
@@ -201,42 +335,195 @@ function RecentSection() {
         <span className="text-[11px] uppercase tracking-wider text-text-muted select-none">
           Recent
         </span>
-        <button className="text-text-muted hover:text-text-secondary p-0.5 text-sm leading-none" aria-label="More">
-          ⋯
-        </button>
       </div>
-      <div className="space-y-0.5">
-        {(!list || list.length === 0) && (
+
+      {projects.map((project) => (
+        <ProjectRow
+          key={project.id}
+          project={project}
+          allConvs={list ?? []}
+          currentId={currentId}
+          onOpen={open}
+          onRename={onRenameProject}
+        />
+      ))}
+
+      <div className="space-y-0.5 mt-1">
+        {flatList.length === 0 && projects.length === 0 && (
           <div className="px-2 py-1 text-xs text-text-disabled">No conversations yet</div>
         )}
-        {(list ?? []).map((c) => (
-          <RecentRow key={c.id} conv={c} currentId={currentId} onOpen={open} />
+        {flatList.map((c) => (
+          <RecentRow key={c.id} conv={c} currentId={currentId} onOpen={open} projectId={null} />
         ))}
       </div>
     </motion.div>
   );
 }
 
+// ── ProjectRow ─────────────────────────────────────────────────────────────────
+
+function ProjectRow({
+  project, allConvs, currentId, onOpen, onRename,
+}: {
+  project: Project;
+  allConvs: ConversationSummary[];
+  currentId: string | null;
+  onOpen: (id: string) => Promise<void>;
+  onRename: (p: Project) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const convMap      = new Map(allConvs.map((c) => [c.id, c]));
+  const projectConvs = project.conversation_ids
+    .map((id) => convMap.get(id))
+    .filter(Boolean) as ConversationSummary[];
+
+  const handleDelete = async () => {
+    await useProjects.getState().delete(project.id);
+  };
+
+  return (
+    <div className="mb-1">
+      <div className="group flex items-center gap-1 px-1 py-1 rounded hover:bg-bg-hover">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1.5 flex-1 text-left text-sm text-text-secondary min-w-0"
+        >
+          {expanded
+            ? <ChevronDown size={13} className="shrink-0 text-text-muted" />
+            : <ChevronRight size={13} className="shrink-0 text-text-muted" />}
+          <Folder size={13} className="shrink-0 text-text-muted" />
+          <span className="truncate">{project.name}</span>
+        </button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Project options"
+              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary shrink-0"
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="right" align="start">
+            <DropdownMenuItem onClick={() => onRename(project)}>
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => void handleDelete()}
+              className="text-red-400 focus:text-red-400"
+            >
+              <Trash2 size={13} />
+              Delete project
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {expanded && (
+        <div className="pl-4 space-y-0.5">
+          {projectConvs.length === 0 && (
+            <div className="px-2 py-1 text-xs text-text-disabled">Empty project</div>
+          )}
+          {projectConvs.map((c) => (
+            <RecentRow
+              key={c.id}
+              conv={c}
+              currentId={currentId}
+              onOpen={onOpen}
+              projectId={project.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── RecentRow ──────────────────────────────────────────────────────────────────
+
 function RecentRow({
-  conv, currentId, onOpen,
+  conv, currentId, onOpen, projectId,
 }: {
   conv: ConversationSummary;
   currentId: string | null;
   onOpen: (id: string) => Promise<void>;
+  projectId: string | null;
 }) {
+  const navigate = useNavigate();
+  const projects = useProjects((s) => s.list);
   const isActive = conv.id === currentId;
+
+  const handleDelete = async () => {
+    await useConversations.getState().delete(conv.id);
+  };
+
+  const handleAddToProject = async (pid: string) => {
+    await useProjects.getState().addChat(pid, conv.id);
+  };
+
+  const handleRemoveFromProject = async () => {
+    if (!projectId) return;
+    await useProjects.getState().removeChat(projectId, conv.id);
+  };
+
   return (
-    <button
-      type="button"
-      onClick={() => void onOpen(conv.id)}
-      className={cn(
-        'w-full text-left px-2 py-1.5 text-sm rounded truncate transition-colors',
-        isActive
-          ? 'bg-bg-active text-text-primary'
-          : 'text-text-secondary hover:bg-bg-hover',
-      )}
-    >
-      {conv.title}
-    </button>
+    <div className={cn('group flex items-center rounded transition-colors', isActive ? 'bg-bg-active' : 'hover:bg-bg-hover')}>
+      <button
+        type="button"
+        onClick={() => { navigate('/chat'); void onOpen(conv.id); }}
+        className={cn(
+          'flex-1 text-left px-2 py-1.5 text-sm truncate',
+          isActive ? 'text-text-primary' : 'text-text-secondary',
+        )}
+      >
+        {conv.title}
+      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Chat options"
+            className="opacity-0 group-hover:opacity-100 p-1 mr-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary shrink-0"
+          >
+            <MoreHorizontal size={13} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start">
+          {projectId ? (
+            <DropdownMenuItem onClick={() => void handleRemoveFromProject()}>
+              <FolderMinus size={13} />
+              Remove from project
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={projects.length === 0}>
+                <FolderInput size={13} />
+                {projects.length === 0 ? 'No projects yet' : 'Add to project'}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {projects.map((p) => (
+                  <DropdownMenuItem key={p.id} onClick={() => void handleAddToProject(p.id)}>
+                    <Folder size={13} />
+                    {p.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => void handleDelete()}
+            className="text-red-400 focus:text-red-400"
+          >
+            <Trash2 size={13} />
+            Delete chat
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
