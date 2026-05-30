@@ -26,6 +26,7 @@ export interface InferParams   {
   repeat_penalty: number;
   max_tokens: number;
   system_prompt?: string | null;
+  tools?: string[] | null;
 }
 export interface LoadedModel   { path: string; name: string; ctx_len: number }
 export interface ModelInfo     {
@@ -100,6 +101,7 @@ export interface Conversation {
   created_at: string; updated_at: string;
   messages: PersistedMessage[];
 }
+export interface Project { id: string; name: string; conversation_ids: string[] }
 
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
@@ -131,6 +133,10 @@ const raw = {
   loadConversation:      (id: string) => invoke<Conversation>('load_conversation', { id }),
   deleteConversation:    (id: string) => invoke<void>('delete_conversation', { id }),
   clearAllConversations: ()    => invoke<void>('clear_all_conversations'),
+  loadProjects:          ()    => invoke<Project[]>('load_projects'),
+  saveProject:           (id: string, name: string, conversationIds: string[]) =>
+    invoke<void>('save_project', { id, name, conversationIds }),
+  deleteProject:         (id: string) => invoke<void>('delete_project', { id }),
   getSettings:           ()    => invoke<Settings>('get_settings'),
   saveSettings:          (settings: Settings) => invoke<void>('save_settings', { settings }),
   searchHfModels:        (query: string, cursor?: string | null) =>
@@ -142,6 +148,8 @@ const raw = {
     invoke<void>('save_byok_provider', { providerId, enabled, apiKey, baseUrl, defaultModel }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
+  chatCloudStream:       (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
+    invoke<void>('chat_cloud_stream', { providerId, model, messages, params, sessionId }),
   readFileAsText:        (path: string) => invoke<string>('read_file_as_text', { path }),
 };
 
@@ -150,8 +158,10 @@ export const tauri = {
   raw,
 
   chat: {
-    stream: async (messages: Message[], params: InferParams, sessionId: string) =>
+    stream:      async (messages: Message[], params: InferParams, sessionId: string) =>
       raw.chatStream(messages, params, sessionId),
+    cloudStream: async (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
+      raw.chatCloudStream(providerId, model, messages, params, sessionId),
     stop: async () => raw.stopGeneration(),
   },
 
@@ -162,6 +172,13 @@ export const tauri = {
       raw.saveConversation(id, title, msgs),
     delete:   async (id: string) => raw.deleteConversation(id),
     clearAll: async () => raw.clearAllConversations(),
+  },
+
+  projects: {
+    list:   async () => raw.loadProjects(),
+    save:   async (id: string, name: string, ids: string[]) =>
+      raw.saveProject(id, name, ids),
+    delete: async (id: string) => raw.deleteProject(id),
   },
 
   models: {
