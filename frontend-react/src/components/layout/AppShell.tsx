@@ -16,7 +16,7 @@ export function AppShell() {
     <div className="h-screen w-screen flex bg-bg-primary text-text-primary overflow-hidden">
       <Sidebar />
       <motion.main
-        animate={{ marginLeft: collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W }}
+        animate={{ marginLeft: (collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W) + 16 }}
         transition={{ duration: 0.22, ease: 'easeInOut' }}
         className="flex-1 flex flex-col min-w-0"
       >

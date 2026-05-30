@@ -30,7 +30,7 @@ export function MessageList() {
   // or messages.length > 500 routinely. See spec §4.5.
   return (
     <div ref={containerRef} className="h-full overflow-y-auto scroll-smooth scrollbar-hide">
-      <div className="max-w-3xl mx-auto px-6 py-6 pb-24 space-y-6">
+      <div className="max-w-3xl mx-auto px-6 py-6 pb-48 space-y-6">
         {messages.map((m) => (
           <MessageItem key={m.id} message={m} />
         ))}

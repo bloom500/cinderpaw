@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { tauri, events, type Message, type InferParams } from '@/lib/tauri';
+import type { CloudModel } from '@/stores/model';
 
 type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 
@@ -69,6 +70,41 @@ export function useChatStream(externalSessionId?: string) {
     [sessionId, stop, teardown],
   );
 
+  const startCloud = useCallback(
+    async (cloud: CloudModel, messages: Message[], params: InferParams, cb: Callbacks) => {
+      if (statusRef.current === 'streaming') {
+        statusRef.current = 'stopped';
+        await tauri.chat.stop();
+        teardown();
+      }
+      statusRef.current = 'streaming';
+      const unlistens = await Promise.all([
+        events.tokenEvent.listen((e) => {
+          if (e.payload.sessionId !== sessionId) return;
+          cb.onToken(e.payload.text);
+        }),
+        events.streamDoneEvent.listen((e) => {
+          if (e.payload.sessionId !== sessionId) return;
+          if (statusRef.current === 'stopped') { cb.onStopped?.(); return; }
+          statusRef.current = 'done';
+          cb.onDone();
+        }),
+        events.streamErrorEvent.listen((e) => {
+          if (e.payload.sessionId !== sessionId) return;
+          statusRef.current = 'error';
+          cb.onError(e.payload.error);
+        }),
+      ]);
+      unlistensRef.current = unlistens;
+      try {
+        await tauri.chat.cloudStream(cloud.providerId, cloud.modelId, messages, params, sessionId);
+      } finally {
+        teardown();
+      }
+    },
+    [sessionId, teardown],
+  );
+
   // Unmount safety: stop in-flight stream and clean up listeners (spec §2 amendment)
   useEffect(
     () => () => {
@@ -80,5 +116,5 @@ export function useChatStream(externalSessionId?: string) {
     [teardown],
   );
 
-  return { start, stop, sessionId };
+  return { start, startCloud, stop, sessionId };
 }

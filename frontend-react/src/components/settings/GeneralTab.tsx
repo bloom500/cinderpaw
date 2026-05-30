@@ -1,14 +1,18 @@
-import { useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
+import { RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 import { useSettings } from '@/stores/settings';
+import { useUI, type LangPref } from '@/stores/ui';
+import { useUpdater } from '@/hooks/useUpdater';
+import { cn } from '@/lib/utils';
 
 export function GeneralTab() {
-  const settings = useSettings((s) => s.settings);
-  const update   = useSettings((s) => s.updateSettings);
-  const save     = useSettings((s) => s.save);
-  const saved    = useSettings((s) => s.saved);
-  const [language, setLanguage] = useState('en');
+  const settings    = useSettings((s) => s.settings);
+  const update      = useSettings((s) => s.updateSettings);
+  const save        = useSettings((s) => s.save);
+  const saved       = useSettings((s) => s.saved);
+  const language    = useUI((s) => s.language);
+  const setLanguage = useUI((s) => s.setLanguage);
 
   const handleChangeFolder = async () => {
     const selected = await openDialog({ directory: true, multiple: false });
@@ -31,6 +35,8 @@ export function GeneralTab() {
     await shellOpen(parent || settings.models_dir);
   };
 
+  const { status: updateStatus, error: updateError, checkAndInstall } = useUpdater();
+
   const rowCls = 'flex items-center justify-between gap-4';
   const btnCls = 'px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors shrink-0';
 
@@ -44,9 +50,29 @@ export function GeneralTab() {
           <p className="text-sm font-medium text-text-primary">App version</p>
           <p className="text-xs text-text-muted mt-0.5">{settings?.version ?? 'v0.1.0'}</p>
         </div>
-        <button type="button" disabled className={`${btnCls} opacity-50 cursor-not-allowed`}>
-          Check for updates
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {updateStatus === 'up-to-date' && (
+            <span className="flex items-center gap-1 text-xs text-emerald-400">
+              <CheckCircle size={12} /> Latest
+            </span>
+          )}
+          {updateStatus === 'error' && (
+            <span className="flex items-center gap-1 text-xs text-rose-400" title={updateError ?? ''}>
+              <AlertCircle size={12} /> Error
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void checkAndInstall()}
+            disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
+            className={cn(btnCls, (updateStatus === 'checking' || updateStatus === 'downloading') && 'opacity-50 cursor-not-allowed')}
+          >
+            <span className="flex items-center gap-1.5">
+              <RefreshCw size={13} className={cn(updateStatus === 'checking' && 'animate-spin')} />
+              {updateStatus === 'downloading' ? 'Downloading…' : 'Check for updates'}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Language */}
@@ -57,7 +83,7 @@ export function GeneralTab() {
         </div>
         <select
           value={language}
-          onChange={(e) => setLanguage(e.target.value)}
+          onChange={(e) => setLanguage(e.target.value as LangPref)}
           className="px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-primary"
         >
           <option value="en">English</option>
