@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot,
@@ -152,12 +152,14 @@ export function Sidebar() {
 
       {/* New Project dialog */}
       <Dialog open={newProjectOpen} onOpenChange={setNewProjectOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent
+          className="sm:max-w-sm"
+          onOpenAutoFocus={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>('input')?.focus(); }}
+        >
           <DialogHeader>
             <DialogTitle>New Project</DialogTitle>
           </DialogHeader>
           <input
-            autoFocus
             value={projectNameDraft}
             onChange={(e) => setProjectNameDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateProject(); }}
@@ -183,13 +185,15 @@ export function Sidebar() {
       </Dialog>
 
       {/* Rename Project dialog */}
-      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
-        <DialogContent className="sm:max-w-sm">
+      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) { setRenameTarget(null); setRenameDraft(''); } }}>
+        <DialogContent
+          className="sm:max-w-sm"
+          onOpenAutoFocus={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>('input')?.focus(); }}
+        >
           <DialogHeader>
             <DialogTitle>Rename Project</DialogTitle>
           </DialogHeader>
           <input
-            autoFocus
             value={renameDraft}
             onChange={(e) => setRenameDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void handleRenameProject(); }}
@@ -345,6 +349,7 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
           currentId={currentId}
           onOpen={open}
           onRename={onRenameProject}
+          projects={projects}
         />
       ))}
 
@@ -353,7 +358,7 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
           <div className="px-2 py-1 text-xs text-text-disabled">No conversations yet</div>
         )}
         {flatList.map((c) => (
-          <RecentRow key={c.id} conv={c} currentId={currentId} onOpen={open} projectId={null} />
+          <RecentRow key={c.id} conv={c} currentId={currentId} onOpen={open} projectId={null} projects={projects} />
         ))}
       </div>
     </motion.div>
@@ -363,16 +368,17 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
 // ── ProjectRow ─────────────────────────────────────────────────────────────────
 
 function ProjectRow({
-  project, allConvs, currentId, onOpen, onRename,
+  project, allConvs, currentId, onOpen, onRename, projects,
 }: {
   project: Project;
   allConvs: ConversationSummary[];
   currentId: string | null;
   onOpen: (id: string) => Promise<void>;
   onRename: (p: Project) => void;
+  projects: Project[];
 }) {
   const [expanded, setExpanded] = useState(true);
-  const convMap      = new Map(allConvs.map((c) => [c.id, c]));
+  const convMap = useMemo(() => new Map(allConvs.map((c) => [c.id, c])), [allConvs]);
   const projectConvs = project.conversation_ids
     .map((id) => convMap.get(id))
     .filter(Boolean) as ConversationSummary[];
@@ -412,7 +418,7 @@ function ProjectRow({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => void handleDelete()}
+              onClick={() => void handleDelete().catch(console.error)}
               className="text-red-400 focus:text-red-400"
             >
               <Trash2 size={13} />
@@ -434,6 +440,7 @@ function ProjectRow({
               currentId={currentId}
               onOpen={onOpen}
               projectId={project.id}
+              projects={projects}
             />
           ))}
         </div>
@@ -445,15 +452,15 @@ function ProjectRow({
 // ── RecentRow ──────────────────────────────────────────────────────────────────
 
 function RecentRow({
-  conv, currentId, onOpen, projectId,
+  conv, currentId, onOpen, projectId, projects,
 }: {
   conv: ConversationSummary;
   currentId: string | null;
   onOpen: (id: string) => Promise<void>;
   projectId: string | null;
+  projects: Project[];
 }) {
   const navigate = useNavigate();
-  const projects = useProjects((s) => s.list);
   const isActive = conv.id === currentId;
 
   const handleDelete = async () => {
@@ -494,7 +501,7 @@ function RecentRow({
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="start">
           {projectId ? (
-            <DropdownMenuItem onClick={() => void handleRemoveFromProject()}>
+            <DropdownMenuItem onClick={() => void handleRemoveFromProject().catch(console.error)}>
               <FolderMinus size={13} />
               Remove from project
             </DropdownMenuItem>
@@ -506,7 +513,7 @@ function RecentRow({
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {projects.map((p) => (
-                  <DropdownMenuItem key={p.id} onClick={() => void handleAddToProject(p.id)}>
+                  <DropdownMenuItem key={p.id} onClick={() => void handleAddToProject(p.id).catch(console.error)}>
                     <Folder size={13} />
                     {p.name}
                   </DropdownMenuItem>
@@ -516,7 +523,7 @@ function RecentRow({
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => void handleDelete()}
+            onClick={() => void handleDelete().catch(console.error)}
             className="text-red-400 focus:text-red-400"
           >
             <Trash2 size={13} />
