@@ -6,6 +6,7 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export type ReasoningMode = 'auto' | 'on' | 'off';
 export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' | 'code_execute';
+export type LangPref = 'en' | 'ro';
 
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
@@ -13,13 +14,18 @@ interface UIStore {
   sidebarCollapsed: boolean;
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
+  language: LangPref;
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
   toggleSidebar: () => void;
   setTheme: (t: ThemePref) => void;
+  setLanguage: (l: LangPref) => void;
   cycleReasoningMode: () => void;
   setReasoningMode: (m: ReasoningMode) => void;
   toggleTool: (id: ToolId) => void;
+  searchOpen:  boolean;
+  openSearch:  () => void;
+  closeSearch: () => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -35,11 +41,16 @@ export const useUI = create<UIStore>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
-      theme: 'system',
+      theme: 'dark',
       resolvedTheme: 'dark',
+      language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setLanguage: (language) => {
+        document.documentElement.lang = language;
+        set({ language });
+      },
       setTheme: (theme) => {
         const resolved = resolveTheme(theme);
         applyTheme(resolved);
@@ -57,12 +68,16 @@ export const useUI = create<UIStore>()(
             ? s.enabledTools.filter((t) => t !== id)
             : [...s.enabledTools, id],
         })),
+      searchOpen: false,
+      openSearch:  () => set({ searchOpen: true }),
+      closeSearch: () => set({ searchOpen: false }),
     }),
     {
       name: 'feral-ui',
       partialize: (s) => ({
         sidebarCollapsed: s.sidebarCollapsed,
         theme: s.theme,
+        language: s.language,
         reasoningMode: s.reasoningMode,
         enabledTools: s.enabledTools,
       }),
@@ -71,6 +86,7 @@ export const useUI = create<UIStore>()(
         const resolved = resolveTheme(state.theme);
         applyTheme(resolved);
         state.resolvedTheme = resolved;
+        document.documentElement.lang = state.language ?? 'en';
       },
     },
   ),
