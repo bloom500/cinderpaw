@@ -38,7 +38,7 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
       )}
     >
       {/* Greeting — centered but pushed up to sit above the input */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pb-28">
+      <div className="absolute inset-0 flex flex-col items-center justify-center pb-44">
         <h1 className="text-2xl font-semibold text-text-primary select-none">
           What can I help you with?
         </h1>

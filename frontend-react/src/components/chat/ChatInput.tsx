@@ -41,7 +41,7 @@ export interface ChatInputHandle {
 }
 
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
-export const ChatInput = forwardRef<ChatInputHandle, object>(function ChatInput(_props, ref) {
+export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(function ChatInput({ isEmpty }, ref) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const loaded      = useModel((s) => s.loaded);
@@ -94,7 +94,11 @@ export const ChatInput = forwardRef<ChatInputHandle, object>(function ChatInput(
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="border-t border-border-subtle bg-bg-primary px-4 py-3">
+      <div className={cn(
+        isEmpty
+          ? 'px-4 py-3 max-w-2xl mx-auto w-full'
+          : 'border-t border-border-subtle bg-bg-primary px-4 py-3',
+      )}>
         <div className="rounded-xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
@@ -189,7 +193,7 @@ export const ChatInput = forwardRef<ChatInputHandle, object>(function ChatInput(
             </div>
           </div>
         </div>
-        {disabled && (
+        {disabled && !isEmpty && (
           <p className="text-xs text-text-muted mt-2">
             No model loaded. Open Models to download one, or add a cloud key in Settings.
           </p>

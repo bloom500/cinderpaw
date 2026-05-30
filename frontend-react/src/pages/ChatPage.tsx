@@ -89,7 +89,7 @@ export function ChatPage() {
             }}
             className="absolute inset-x-0 bottom-0 z-20"
           >
-            <ChatInput ref={chatInputRef} />
+            <ChatInput ref={chatInputRef} isEmpty={isEmpty} />
           </div>
         )}
       </div>
