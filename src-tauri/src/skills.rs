@@ -29,10 +29,12 @@ fn validate_content_url(url: &str) -> Result<()> {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum SourceProvider {
     Local,
+    #[serde(rename = "github")]
     GitHub,
+    #[serde(rename = "clawhub")]
     ClawHub,
 }
 
