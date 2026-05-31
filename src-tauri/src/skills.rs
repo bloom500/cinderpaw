@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::paths;
 
 const GITHUB_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/feralai/feral-skills/main/manifest.json";
+    "https://raw.githubusercontent.com/bloom500/feral/main/skills/manifest.json";
 
 const ALLOWED_CONTENT_HOSTS: &[&str] = &[
     "raw.githubusercontent.com",
@@ -497,7 +497,7 @@ mod tests {
     #[test]
     fn accepts_allowed_hosts() {
         assert!(validate_content_url(
-            "https://raw.githubusercontent.com/feralai/skills/main/skill.md"
+            "https://raw.githubusercontent.com/bloom500/feral/main/skills/manifest.json"
         ).is_ok());
     }
 
