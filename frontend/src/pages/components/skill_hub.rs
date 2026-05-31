@@ -218,6 +218,7 @@ pub fn SkillHubDrawer() -> impl IntoView {
                                     selected_content_error.set(None);
                                     overwrite_pending.set(None);
                                     remove_pending.set(None);
+                                    installing.set(None);
                                 }>
                                     <svg viewBox="0 0 16 16" width="12" height="12" fill="none"
                                         stroke="currentColor" stroke-width="1.8"
@@ -303,13 +304,19 @@ pub fn SkillHubDrawer() -> impl IntoView {
                                                                     let id = sid2.clone();
                                                                     remove_pending.set(None);
                                                                     spawn_local(async move {
-                                                                        let _ = tauri_bridge::invoke_unit(
+                                                                        match tauri_bridge::invoke_unit(
                                                                             "remove_skill",
                                                                             json!({ "id": id }),
-                                                                        ).await;
-                                                                        selected_skill.set(None);
-                                                                        selected_content.set(None);
-                                                                        reload_installed();
+                                                                        ).await {
+                                                                            Ok(()) => {
+                                                                                selected_skill.set(None);
+                                                                                selected_content.set(None);
+                                                                                reload_installed();
+                                                                            }
+                                                                            Err(e) => {
+                                                                                selected_content_error.set(Some(format!("Remove failed: {}", e)));
+                                                                            }
+                                                                        }
                                                                     });
                                                                 }>
                                                                 "Confirm Remove"
@@ -350,15 +357,21 @@ pub fn SkillHubDrawer() -> impl IntoView {
                                                                     let content = selected_content.get().unwrap_or_default();
                                                                     if let Some(m) = selected_skill.get() {
                                                                         spawn_local(async move {
-                                                                            let _ = tauri_bridge::invoke_unit(
+                                                                            match tauri_bridge::invoke_unit(
                                                                                 "install_skill",
                                                                                 json!({ "meta": m, "content": content, "overwrite": true }),
-                                                                            ).await;
+                                                                            ).await {
+                                                                                Ok(()) => {
+                                                                                    reload_installed();
+                                                                                    selected_skill.update(|s| {
+                                                                                        if let Some(s) = s { s.install_status = "installed".to_string(); }
+                                                                                    });
+                                                                                }
+                                                                                Err(e) => {
+                                                                                    selected_content_error.set(Some(format!("Install failed: {}", e)));
+                                                                                }
+                                                                            }
                                                                             installing.set(None);
-                                                                            reload_installed();
-                                                                            selected_skill.update(|s| {
-                                                                                if let Some(s) = s { s.install_status = "installed".to_string(); }
-                                                                            });
                                                                         });
                                                                     }
                                                                 }>
@@ -390,17 +403,26 @@ pub fn SkillHubDrawer() -> impl IntoView {
                                                                             overwrite_pending.set(Some(id));
                                                                         }
                                                                         Ok(false) => {
-                                                                            let _ = tauri_bridge::invoke_unit(
+                                                                            match tauri_bridge::invoke_unit(
                                                                                 "install_skill",
                                                                                 json!({ "meta": m, "content": content, "overwrite": false }),
-                                                                            ).await;
+                                                                            ).await {
+                                                                                Ok(()) => {
+                                                                                    reload_installed();
+                                                                                    selected_skill.update(|s| {
+                                                                                        if let Some(s) = s { s.install_status = "installed".to_string(); }
+                                                                                    });
+                                                                                }
+                                                                                Err(e) => {
+                                                                                    selected_content_error.set(Some(format!("Install failed: {}", e)));
+                                                                                }
+                                                                            }
                                                                             installing.set(None);
-                                                                            reload_installed();
-                                                                            selected_skill.update(|s| {
-                                                                                if let Some(s) = s { s.install_status = "installed".to_string(); }
-                                                                            });
                                                                         }
-                                                                        Err(_) => { installing.set(None); }
+                                                                        Err(e) => {
+                                                                            installing.set(None);
+                                                                            selected_content_error.set(Some(format!("Failed to check: {}", e)));
+                                                                        }
                                                                     }
                                                                 });
                                                             }
@@ -574,6 +596,8 @@ pub fn SkillHubDrawer() -> impl IntoView {
                                                                 selected_content.set(Some(preview.content));
                                                                 selected_content_loading.set(false);
                                                                 selected_content_error.set(None);
+                                                                import_input.set(String::new());
+                                                                import_error.set(None);
                                                             }
                                                             Err(e) => {
                                                                 import_error.set(Some(e));
