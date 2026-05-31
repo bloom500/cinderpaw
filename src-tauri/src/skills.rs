@@ -80,6 +80,60 @@ pub fn skill_path(id: &str) -> Result<std::path::PathBuf> {
     Ok(base.join(id))
 }
 
+/// Scan ~/.feral/skills/ and return one SkillMeta per subdirectory
+/// that contains a SKILL.md file.
+pub fn local_list() -> Result<Vec<SkillMeta>> {
+    paths::ensure_dirs()?;
+    let dir = paths::skills_dir();
+    let mut out = Vec::new();
+
+    if !dir.exists() {
+        return Ok(out);
+    }
+
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let skill_md = path.join("SKILL.md");
+        if !skill_md.exists() {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().to_string();
+        if validate_id(&id).is_err() {
+            continue; // skip dirs with invalid names
+        }
+        let content = std::fs::read_to_string(&skill_md).unwrap_or_default();
+        let mut meta = parse_frontmatter(&id, &content);
+        meta.source_provider = SourceProvider::Local;
+        meta.install_status = InstallStatus::Installed;
+        meta.trust_label = TrustLabel::Local;
+        out.push(meta);
+    }
+
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// Read the raw SKILL.md content for an installed skill.
+pub fn get_installed_content(id: &str) -> Result<String> {
+    let skill_dir = skill_path(id)?;
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.exists() {
+        bail!("skill '{}' is not installed", id);
+    }
+    // Extra safety: confirm skill_md is inside skills_dir
+    let base = paths::skills_dir();
+    let base_canon = base.canonicalize().unwrap_or(base);
+    let md_canon = skill_md.canonicalize()?;
+    if !md_canon.starts_with(&base_canon) {
+        bail!("path traversal detected");
+    }
+    Ok(std::fs::read_to_string(skill_md)?)
+}
+
 /// Parse SKILL.md content and extract a partial SkillMeta.
 /// Unknown fields default to empty/None. The caller fills in
 /// source_provider, source_url, content_url, install_status, trust_label.
@@ -138,6 +192,20 @@ pub fn parse_frontmatter(id: &str, content: &str) -> SkillMeta {
     }
 }
 
+// ── Tauri Commands ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_installed_skills() -> Result<Vec<SkillMeta>, String> {
+    local_list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_installed_skill_content(id: String) -> Result<String, String> {
+    get_installed_content(&id).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +262,12 @@ mod tests {
         let content = "---\nname: X\ntags: foo, bar, baz\n---\nbody";
         let meta = parse_frontmatter("x", content);
         assert_eq!(meta.tags, vec!["foo", "bar", "baz"]);
+    }
+
+    #[test]
+    fn local_list_empty_when_no_dir() {
+        // Verifies no panic when skills dir doesn't exist yet.
+        let result = local_list();
+        assert!(result.is_ok());
     }
 }

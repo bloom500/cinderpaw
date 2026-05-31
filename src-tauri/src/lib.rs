@@ -1248,6 +1248,8 @@ pub fn run() {
             test_byok_provider,
             chat_cloud_stream,
             read_file_as_text,
+            skills::list_installed_skills,
+            skills::get_installed_skill_content,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
