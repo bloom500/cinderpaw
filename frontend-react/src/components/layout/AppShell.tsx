@@ -1,11 +1,14 @@
+import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUI, useSystemThemeSync } from '@/stores/ui';
+import { useUpdater } from '@/stores/updater';
 import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
 import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
+import { UpdateToast } from '@/components/UpdateToast';
 import { cn } from '@/lib/utils';
 
 function WinControls() {
@@ -49,6 +52,10 @@ export function AppShell() {
   const collapsed   = useUI((s) => s.sidebarCollapsed);
   const searchOpen  = useUI((s) => s.searchOpen);
 
+  // Silent update check once on startup; the toast appears only if one is available.
+  const checkForUpdate = useUpdater((s) => s.check);
+  useEffect(() => { void checkForUpdate(); }, [checkForUpdate]);
+
   return (
     <div className="h-screen w-screen flex bg-bg-primary text-text-primary overflow-hidden">
       <Sidebar />
@@ -64,6 +71,7 @@ export function AppShell() {
         <WinControls />
       </div>
       {searchOpen && <SearchOverlay />}
+      <UpdateToast />
     </div>
   );
 }

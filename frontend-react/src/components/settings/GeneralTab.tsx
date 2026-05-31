@@ -3,7 +3,8 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 import { useSettings } from '@/stores/settings';
 import { useUI, type LangPref } from '@/stores/ui';
-import { useUpdater } from '@/hooks/useUpdater';
+import { useUpdater } from '@/stores/updater';
+import { useAppVersion } from '@/hooks/useAppVersion';
 import { cn } from '@/lib/utils';
 
 export function GeneralTab() {
@@ -35,7 +36,10 @@ export function GeneralTab() {
     await shellOpen(parent || settings.models_dir);
   };
 
-  const { status: updateStatus, error: updateError, checkAndInstall } = useUpdater();
+  const updateStatus = useUpdater((s) => s.status);
+  const updateError  = useUpdater((s) => s.error);
+  const check        = useUpdater((s) => s.check);
+  const appVersion   = useAppVersion();
 
   const rowCls = 'flex items-center justify-between gap-4';
   const btnCls = 'px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors shrink-0';
@@ -48,7 +52,7 @@ export function GeneralTab() {
       <div className={rowCls}>
         <div>
           <p className="text-sm font-medium text-text-primary">App version</p>
-          <p className="text-xs text-text-muted mt-0.5">{settings?.version ?? 'v0.1.0'}</p>
+          <p className="text-xs text-text-muted mt-0.5">{appVersion ?? '…'}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {updateStatus === 'up-to-date' && (
@@ -63,7 +67,7 @@ export function GeneralTab() {
           )}
           <button
             type="button"
-            onClick={() => void checkAndInstall()}
+            onClick={() => void check()}
             disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
             className={cn(btnCls, (updateStatus === 'checking' || updateStatus === 'downloading') && 'opacity-50 cursor-not-allowed')}
           >
