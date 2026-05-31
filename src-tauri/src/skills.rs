@@ -5,7 +5,7 @@ use crate::paths;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceProvider {
     Local,
@@ -13,7 +13,7 @@ pub enum SourceProvider {
     ClawHub,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TrustLabel {
     Bundled,
@@ -24,7 +24,7 @@ pub enum TrustLabel {
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallStatus {
     Installed,
@@ -70,8 +70,9 @@ pub fn validate_id(id: &str) -> Result<()> {
 /// Resolve the skills dir entry for `id` and assert it stays inside skills_dir().
 pub fn skill_path(id: &str) -> Result<std::path::PathBuf> {
     validate_id(id)?;
+    paths::ensure_dirs()?;
     let base = paths::skills_dir();
-    let base_canon = base.canonicalize().unwrap_or_else(|_| base.clone());
+    let base_canon = base.canonicalize()?;
     let joined = base_canon.join(id);
     if !joined.starts_with(&base_canon) {
         bail!("path traversal detected for id '{}'", id);
