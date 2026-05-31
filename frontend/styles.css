@@ -4681,3 +4681,34 @@ details.thinking-live .thinking-content {
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: var(--radius-sm);
 }
+
+/* ── Discover tab: skeleton loader + installed check ──────────────────────── */
+.skh-skeleton-list { display: flex; flex-direction: column; gap: 8px; }
+.skh-skeleton-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.skh-skeleton-line {
+  height: 10px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  animation: skh-shimmer 1.4s infinite;
+}
+.skh-skeleton-line--title { width: 55%; height: 13px; }
+.skh-skeleton-line--body { width: 90%; }
+.skh-skeleton-line.short { width: 70%; }
+@keyframes skh-shimmer {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.skh-installed-check {
+  font-size: 11px;
+  color: var(--green);
+  font-weight: 600;
+  align-self: flex-start;
+}

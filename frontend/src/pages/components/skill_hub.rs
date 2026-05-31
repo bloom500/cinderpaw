@@ -232,9 +232,112 @@ pub fn SkillHubDrawer() -> impl IntoView {
                                 selected_content_error,
                                 reload_installed,
                             ).into_view(),
-                            Tab::Discover => view! {
-                                <div class="skh-loading-text">"Discover — coming soon"</div>
-                            }.into_view(),
+                            Tab::Discover => {
+                                view! {
+                                    <div>
+                                    {move || {
+                                        if remote_loading.get() {
+                                            // Skeleton while loading
+                                            view! {
+                                                <div class="skh-skeleton-list">
+                                                    {(0..3).map(|_i: usize| view! {
+                                                        <div class="skh-skeleton-card">
+                                                            <div class="skh-skeleton-line skh-skeleton-line--title"></div>
+                                                            <div class="skh-skeleton-line skh-skeleton-line--body"></div>
+                                                            <div class="skh-skeleton-line skh-skeleton-line--body short"></div>
+                                                        </div>
+                                                    }).collect_view()}
+                                                </div>
+                                            }.into_view()
+                                        } else if let Some(err) = remote_error.get() {
+                                            view! {
+                                                <div class="skh-error">
+                                                    {err}
+                                                    <button class="btn ghost" style="margin-top:8px;" on:click=move |_| {
+                                                        remote_fetched.set(false);
+                                                        remote_loading.set(true);
+                                                        remote_error.set(None);
+                                                        spawn_local(async move {
+                                                            match tauri_bridge::invoke::<Vec<SkillMeta>>(
+                                                                "fetch_remote_skills",
+                                                                json!({}),
+                                                            ).await {
+                                                                Ok(list) => {
+                                                                    remote_skills.set(list);
+                                                                    remote_fetched.set(true);
+                                                                    remote_loading.set(false);
+                                                                }
+                                                                Err(e) => {
+                                                                    remote_error.set(Some(e));
+                                                                    remote_fetched.set(true);
+                                                                    remote_loading.set(false);
+                                                                }
+                                                            }
+                                                        });
+                                                    }>"Retry"</button>
+                                                </div>
+                                            }.into_view()
+                                        } else if remote_skills.get().is_empty() {
+                                            view! {
+                                                <div class="skh-empty">
+                                                    "No remote skills found."
+                                                    <br/>
+                                                    <span class="skh-empty-hint">"Check your connection or try again."</span>
+                                                </div>
+                                            }.into_view()
+                                        } else {
+                                            remote_skills.get().into_iter().map(|skill| {
+                                                let is_installed = skill.install_status == "installed";
+                                                let skill_for_click = skill.clone();
+                                                let content_url = skill.content_url.clone().unwrap_or_default();
+                                                view! {
+                                                    <div class="skh-card">
+                                                        <div class="skh-card-row">
+                                                            <span class="skh-card-name">{skill.name.clone()}</span>
+                                                            <span class=format!("skh-badge skh-badge--{}", skill.trust_label)>
+                                                                {skill.trust_label.clone()}
+                                                            </span>
+                                                        </div>
+                                                        <div class="skh-card-desc">{skill.description.clone()}</div>
+                                                        {if is_installed {
+                                                            view! { <span class="skh-installed-check">"✓ Installed"</span> }.into_view()
+                                                        } else {
+                                                            view! {
+                                                                <button class="btn ghost skh-card-btn"
+                                                                    on:click=move |_| {
+                                                                        let url = content_url.clone();
+                                                                        selected_skill.set(Some(skill_for_click.clone()));
+                                                                        selected_content.set(None);
+                                                                        selected_content_loading.set(true);
+                                                                        selected_content_error.set(None);
+                                                                        spawn_local(async move {
+                                                                            match tauri_bridge::invoke::<SkillPreview>(
+                                                                                "preview_remote_skill",
+                                                                                json!({ "url": url }),
+                                                                            ).await {
+                                                                                Ok(preview) => {
+                                                                                    selected_content.set(Some(preview.content));
+                                                                                    selected_content_loading.set(false);
+                                                                                }
+                                                                                Err(e) => {
+                                                                                    selected_content_error.set(Some(e));
+                                                                                    selected_content_loading.set(false);
+                                                                                }
+                                                                            }
+                                                                        });
+                                                                    }>
+                                                                    "Preview"
+                                                                </button>
+                                                            }.into_view()
+                                                        }}
+                                                    </div>
+                                                }
+                                            }).collect_view().into_view()
+                                        }
+                                    }}
+                                    </div>
+                                }.into_view()
+                            },
                             Tab::Import => view! {
                                 <div class="skh-loading-text">"Import — coming soon"</div>
                             }.into_view(),
