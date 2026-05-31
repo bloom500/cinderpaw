@@ -4712,3 +4712,52 @@ details.thinking-live .thinking-content {
   font-weight: 600;
   align-self: flex-start;
 }
+
+/* ── Detail panel ──────────────────────────────────────────────────────────── */
+.skh-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skh-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.skh-detail-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.skh-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.skh-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+}
+.skh-detail-source { font-size: 11px; }
+.skh-source-link { color: var(--accent); text-decoration: none; }
+.skh-source-link:hover { text-decoration: underline; }
+.skh-detail-content-wrap {
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex: 1;
+}
+.skh-detail-actions {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+.skh-confirm { display: flex; flex-direction: column; gap: 8px; }
+.skh-confirm-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.skh-confirm-btns { display: flex; gap: 8px; }

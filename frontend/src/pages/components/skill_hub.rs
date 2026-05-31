@@ -192,32 +192,218 @@ pub fn SkillHubDrawer() -> impl IntoView {
             // ── Content area ────────────────────────────────────────────────────
             <div class="skh-content">
                 {move || {
-                    if selected_skill.get().is_some() {
-                        // Detail panel — stub for now (Task 9)
+                    if let Some(skill) = selected_skill.get() {
+                        let skill_id = skill.id.clone();
+                        let is_installed = skill.install_status == "installed";
+
+                        // Pre-clone skill_id for the back button and other closures
+                        let skill_id_for_remove_check = skill_id.clone();
+                        let skill_id_for_overwrite_check = skill_id.clone();
+
                         view! {
-                            <div>
+                            <div class="skh-detail">
+                                // Back
                                 <button class="skh-back" on:click=move |_| {
                                     selected_skill.set(None);
                                     selected_content.set(None);
+                                    selected_content_loading.set(false);
+                                    selected_content_error.set(None);
                                     overwrite_pending.set(None);
                                     remove_pending.set(None);
                                 }>
-                                    "← Back"
+                                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none"
+                                        stroke="currentColor" stroke-width="1.8"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M10 3L5 8l5 5"/>
+                                    </svg>
+                                    " Back"
                                 </button>
-                                {move || selected_skill.get().map(|s| view! {
-                                    <div class="skh-detail-name">{s.name.clone()}</div>
-                                })}
-                                {move || {
-                                    if selected_content_loading.get() {
-                                        view! { <div class="skh-loading-text">"Loading content…"</div> }.into_view()
-                                    } else if let Some(err) = selected_content_error.get() {
-                                        view! { <div class="skh-error">{err}</div> }.into_view()
-                                    } else if let Some(content) = selected_content.get() {
-                                        view! { <pre class="skh-skill-content">{content}</pre> }.into_view()
-                                    } else {
-                                        view! { <span></span> }.into_view()
-                                    }
-                                }}
+
+                                // Header
+                                <div class="skh-detail-header">
+                                    <div class="skh-detail-name">{skill.name.clone()}</div>
+                                    <span class=format!("skh-badge skh-badge--{}", skill.trust_label)>
+                                        {skill.trust_label.clone()}
+                                    </span>
+                                </div>
+
+                                // Metadata row
+                                <div class="skh-detail-meta">
+                                    {if !skill.author.is_empty() {
+                                        view! { <span>{skill.author.clone()}</span> }.into_view()
+                                    } else { view! { <span></span> }.into_view() }}
+                                    {if !skill.version.is_empty() && skill.version != "0.0.0" {
+                                        view! { <span>"v"{skill.version.clone()}</span> }.into_view()
+                                    } else { view! { <span></span> }.into_view() }}
+                                    {if !skill.license.is_empty() {
+                                        view! { <span>{skill.license.clone()}</span> }.into_view()
+                                    } else { view! { <span></span> }.into_view() }}
+                                </div>
+
+                                // Tags
+                                {if !skill.tags.is_empty() {
+                                    let tags = skill.tags.clone();
+                                    view! {
+                                        <div class="skh-detail-tags">
+                                            {tags.into_iter().map(|t| view! {
+                                                <span class="skh-tag">{t}</span>
+                                            }).collect_view()}
+                                        </div>
+                                    }.into_view()
+                                } else { view! { <span></span> }.into_view() }}
+
+                                // Source link
+                                {if let Some(url) = skill.source_url.clone() {
+                                    view! {
+                                        <div class="skh-detail-source">
+                                            <a href=url target="_blank" class="skh-source-link">"View source ↗"</a>
+                                        </div>
+                                    }.into_view()
+                                } else { view! { <span></span> }.into_view() }}
+
+                                // SKILL.md content
+                                <div class="skh-detail-content-wrap">
+                                    {move || {
+                                        if selected_content_loading.get() {
+                                            view! { <div class="skh-loading-text">"Loading skill content…"</div> }.into_view()
+                                        } else if let Some(err) = selected_content_error.get() {
+                                            view! { <div class="skh-error">{err}</div> }.into_view()
+                                        } else if let Some(content) = selected_content.get() {
+                                            view! { <pre class="skh-skill-content">{content}</pre> }.into_view()
+                                        } else {
+                                            view! { <span></span> }.into_view()
+                                        }
+                                    }}
+                                </div>
+
+                                // Actions
+                                <div class="skh-detail-actions">
+                                    {move || {
+                                        if is_installed {
+                                            // Remove flow
+                                            let sid = skill_id_for_remove_check.clone();
+                                            if remove_pending.get().as_deref() == Some(&skill_id_for_remove_check) {
+                                                let sid2 = sid.clone();
+                                                view! {
+                                                    <div class="skh-confirm">
+                                                        <div class="skh-confirm-text">
+                                                            "Remove this skill from Feral? This cannot be undone in v1."
+                                                        </div>
+                                                        <div class="skh-confirm-btns">
+                                                            <button class="btn" style="background:var(--red);"
+                                                                on:click=move |_| {
+                                                                    let id = sid2.clone();
+                                                                    remove_pending.set(None);
+                                                                    spawn_local(async move {
+                                                                        let _ = tauri_bridge::invoke_unit(
+                                                                            "remove_skill",
+                                                                            json!({ "id": id }),
+                                                                        ).await;
+                                                                        selected_skill.set(None);
+                                                                        selected_content.set(None);
+                                                                        reload_installed();
+                                                                    });
+                                                                }>
+                                                                "Confirm Remove"
+                                                            </button>
+                                                            <button class="btn ghost"
+                                                                on:click=move |_| remove_pending.set(None)>
+                                                                "Cancel"
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                }.into_view()
+                                            } else {
+                                                view! {
+                                                    <button class="btn ghost" style="color:var(--red);"
+                                                        on:click=move |_| remove_pending.set(Some(sid.clone()))>
+                                                        "Remove"
+                                                    </button>
+                                                }.into_view()
+                                            }
+                                        } else {
+                                            // Install flow
+                                            let sid = skill_id_for_overwrite_check.clone();
+                                            let skill_id_for_disabled = skill_id_for_overwrite_check.clone();
+                                            let skill_id_for_label = skill_id_for_overwrite_check.clone();
+                                            if overwrite_pending.get().as_deref() == Some(&skill_id_for_overwrite_check) {
+                                                let sid2 = sid.clone();
+                                                view! {
+                                                    <div class="skh-confirm">
+                                                        <div class="skh-confirm-text">
+                                                            "A skill with this ID is already installed. Overwrite?"
+                                                        </div>
+                                                        <div class="skh-confirm-btns">
+                                                            <button class="btn"
+                                                                on:click=move |_| {
+                                                                    let id = sid2.clone();
+                                                                    overwrite_pending.set(None);
+                                                                    installing.set(Some(id.clone()));
+                                                                    let content = selected_content.get().unwrap_or_default();
+                                                                    if let Some(m) = selected_skill.get() {
+                                                                        spawn_local(async move {
+                                                                            let _ = tauri_bridge::invoke_unit(
+                                                                                "install_skill",
+                                                                                json!({ "meta": m, "content": content, "overwrite": true }),
+                                                                            ).await;
+                                                                            installing.set(None);
+                                                                            reload_installed();
+                                                                            selected_skill.update(|s| {
+                                                                                if let Some(s) = s { s.install_status = "installed".to_string(); }
+                                                                            });
+                                                                        });
+                                                                    }
+                                                                }>
+                                                                "Overwrite"
+                                                            </button>
+                                                            <button class="btn ghost"
+                                                                on:click=move |_| overwrite_pending.set(None)>
+                                                                "Cancel"
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                }.into_view()
+                                            } else {
+                                                view! {
+                                                    <button class="btn"
+                                                        disabled=move || installing.get().as_deref() == Some(&skill_id_for_disabled)
+                                                        on:click=move |_| {
+                                                            let id = sid.clone();
+                                                            let content = selected_content.get().unwrap_or_default();
+                                                            if let Some(m) = selected_skill.get() {
+                                                                installing.set(Some(id.clone()));
+                                                                spawn_local(async move {
+                                                                    match tauri_bridge::invoke::<bool>(
+                                                                        "skill_exists_cmd",
+                                                                        json!({ "id": id }),
+                                                                    ).await {
+                                                                        Ok(true) => {
+                                                                            installing.set(None);
+                                                                            overwrite_pending.set(Some(id));
+                                                                        }
+                                                                        Ok(false) => {
+                                                                            let _ = tauri_bridge::invoke_unit(
+                                                                                "install_skill",
+                                                                                json!({ "meta": m, "content": content, "overwrite": false }),
+                                                                            ).await;
+                                                                            installing.set(None);
+                                                                            reload_installed();
+                                                                            selected_skill.update(|s| {
+                                                                                if let Some(s) = s { s.install_status = "installed".to_string(); }
+                                                                            });
+                                                                        }
+                                                                        Err(_) => { installing.set(None); }
+                                                                    }
+                                                                });
+                                                            }
+                                                        }>
+                                                        {move || if installing.get().as_deref() == Some(&skill_id_for_label) { "Installing…" } else { "Install" }}
+                                                    </button>
+                                                }.into_view()
+                                            }
+                                        }
+                                    }}
+                                </div>
                             </div>
                         }.into_view()
                     } else {
