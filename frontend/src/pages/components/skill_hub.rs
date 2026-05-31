@@ -128,7 +128,15 @@ pub fn SkillHubDrawer() -> impl IntoView {
     };
 
     view! {
-        <div class=move || if layout.skill_hub_open.get() { "skh-drawer open" } else { "skh-drawer" }>
+        <>
+            // Click-outside backdrop — only shown when drawer is open
+            {move || layout.skill_hub_open.get().then(|| view! {
+                <div class="skh-overlay"
+                    on:click=move |_| layout.skill_hub_open.set(false)>
+                </div>
+            })}
+            // The drawer itself
+            <div class=move || if layout.skill_hub_open.get() { "skh-drawer open" } else { "skh-drawer" }>
 
             // ── Header ──────────────────────────────────────────────────────────
             <div class="skh-header">
@@ -586,7 +594,8 @@ pub fn SkillHubDrawer() -> impl IntoView {
                     }
                 }}
             </div>
-        </div>
+            </div>
+        </>
     }
 }
 

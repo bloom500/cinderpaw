@@ -4531,6 +4531,17 @@ details.thinking-live .thinking-content {
 .skh-drawer.open {
   transform: translateX(0);
 }
+.skh-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: rgba(0,0,0,0.25);
+  animation: skh-fade-in 150ms ease;
+}
+@keyframes skh-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .skh-header {
   display: flex;
   align-items: center;
