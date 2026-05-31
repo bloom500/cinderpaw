@@ -280,7 +280,13 @@ export function SkillHubDrawer() {
                   {/* Content */}
                   <div className="border border-border-subtle rounded-lg overflow-hidden">
                     {contentLoading && <p className="text-xs text-text-muted p-3">Loading content…</p>}
-                    {contentError && <p className="text-xs text-error p-3">{contentError}</p>}
+                    {contentError && (
+                      <p className="text-xs text-error p-3">
+                        {contentError.includes('404') || contentError.includes('Not Found')
+                          ? 'Skill content not found. The manifest URL may be outdated.'
+                          : contentError}
+                      </p>
+                    )}
                     {content && !contentLoading && !contentError && (
                       <pre className="text-[11px] leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
                     )}
@@ -325,7 +331,7 @@ export function SkillHubDrawer() {
                       </div>
                     ) : (
                       <button type="button" onClick={() => void tryInstall()}
-                        disabled={installing || content === null}
+                        disabled={installing || content === null || contentError !== null}
                         className="px-3 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 transition-colors">
                         {installing ? 'Installing…' : 'Install'}
                       </button>
