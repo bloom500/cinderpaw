@@ -3,6 +3,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
+const GITHUB_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/feralai/feral-skills/main/manifest.json";
+
+const ALLOWED_CONTENT_HOSTS: &[&str] = &[
+    "raw.githubusercontent.com",
+    "gist.githubusercontent.com",
+];
+
+fn validate_content_url(url: &str) -> Result<()> {
+    if !url.starts_with("https://") {
+        bail!("only https:// URLs are allowed for skill content fetching");
+    }
+    let without_scheme = url.trim_start_matches("https://");
+    let host = without_scheme.split('/').next().unwrap_or("");
+    if !ALLOWED_CONTENT_HOSTS.contains(&host) {
+        bail!(
+            "host '{}' is not in the allowed list for skill content fetching",
+            host
+        );
+    }
+    Ok(())
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -192,6 +215,80 @@ pub fn parse_frontmatter(id: &str, content: &str) -> SkillMeta {
     }
 }
 
+/// Download the GitHub skills manifest and return SkillMeta list.
+/// Cross-references with local installed skills to set install_status.
+pub async fn github_list() -> Result<Vec<SkillMeta>> {
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+
+    validate_content_url(GITHUB_MANIFEST_URL)?;
+
+    let resp = client
+        .get(GITHUB_MANIFEST_URL)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let mut remote: Vec<SkillMeta> = resp.json().await?;
+
+    // Cross-reference with installed skills to set install_status
+    let installed_ids: std::collections::HashSet<String> = local_list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+
+    for skill in &mut remote {
+        if installed_ids.contains(&skill.id) {
+            skill.install_status = InstallStatus::Installed;
+        } else {
+            skill.install_status = InstallStatus::NotInstalled;
+        }
+        skill.source_provider = SourceProvider::GitHub;
+        skill.trust_label = TrustLabel::Community;
+    }
+
+    Ok(remote)
+}
+
+/// Fetch the raw SKILL.md from a remote URL, validate host, parse frontmatter.
+pub async fn fetch_remote_preview(url: &str) -> Result<SkillPreview> {
+    validate_content_url(url)?;
+
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+
+    let content = client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+
+    // Derive a provisional id from the URL filename (without .md extension).
+    let provisional_id = url
+        .rsplit('/')
+        .next()
+        .unwrap_or("unknown")
+        .trim_end_matches(".md")
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>();
+
+    let mut meta = parse_frontmatter(&provisional_id, &content);
+    meta.source_provider = SourceProvider::GitHub;
+    meta.trust_label = TrustLabel::Community;
+    meta.content_url = Some(url.to_string());
+
+    Ok(SkillPreview { meta, content })
+}
+
 // ── Tauri Commands ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -204,6 +301,18 @@ pub fn list_installed_skills() -> Result<Vec<SkillMeta>, String> {
 #[specta::specta]
 pub fn get_installed_skill_content(id: String) -> Result<String, String> {
     get_installed_content(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_remote_skills() -> Result<Vec<SkillMeta>, String> {
+    github_list().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_remote_skill(url: String) -> Result<SkillPreview, String> {
+    fetch_remote_preview(&url).await.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -269,5 +378,23 @@ mod tests {
         // Verifies no panic when skills dir doesn't exist yet.
         let result = local_list();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_non_https_url() {
+        assert!(validate_content_url("http://raw.githubusercontent.com/x").is_err());
+        assert!(validate_content_url("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn rejects_unlisted_host() {
+        assert!(validate_content_url("https://evil.com/skill.md").is_err());
+    }
+
+    #[test]
+    fn accepts_allowed_hosts() {
+        assert!(validate_content_url(
+            "https://raw.githubusercontent.com/feralai/skills/main/skill.md"
+        ).is_ok());
     }
 }

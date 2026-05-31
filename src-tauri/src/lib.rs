@@ -1250,6 +1250,8 @@ pub fn run() {
             read_file_as_text,
             skills::list_installed_skills,
             skills::get_installed_skill_content,
+            skills::fetch_remote_skills,
+            skills::preview_remote_skill,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
