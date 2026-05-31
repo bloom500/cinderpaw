@@ -80,6 +80,64 @@ pub fn skill_path(id: &str) -> Result<std::path::PathBuf> {
     Ok(base.join(id))
 }
 
+/// Parse SKILL.md content and extract a partial SkillMeta.
+/// Unknown fields default to empty/None. The caller fills in
+/// source_provider, source_url, content_url, install_status, trust_label.
+pub fn parse_frontmatter(id: &str, content: &str) -> SkillMeta {
+    let mut name = id.to_string();
+    let mut description = String::new();
+    let mut author = String::new();
+    let mut version = String::from("0.0.0");
+    let mut license = String::new();
+    let mut tags: Vec<String> = Vec::new();
+    let mut last_updated: Option<String> = None;
+
+    // Extract the block between the first two `---` delimiters.
+    let mut parts = content.splitn(3, "---");
+    let _ = parts.next(); // content before first ---
+    if let Some(front) = parts.next() {
+        for line in front.lines() {
+            let line = line.trim();
+            if let Some(val) = line.strip_prefix("name:") {
+                name = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("description:") {
+                description = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("author:") {
+                author = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("version:") {
+                version = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("license:") {
+                license = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("last_updated:") {
+                last_updated = Some(val.trim().to_string());
+            } else if let Some(val) = line.strip_prefix("tags:") {
+                // Inline: tags: [foo, bar] or tags: foo, bar
+                let raw = val.trim().trim_matches(|c| c == '[' || c == ']');
+                tags = raw.split(',')
+                    .map(|t| t.trim().trim_matches('"').trim_matches('\'').to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect();
+            }
+        }
+    }
+
+    SkillMeta {
+        id: id.to_string(),
+        name,
+        description,
+        author,
+        version,
+        license,
+        tags,
+        source_provider: SourceProvider::Local,
+        source_url: None,
+        content_url: None,
+        install_status: InstallStatus::NotInstalled,
+        trust_label: TrustLabel::Local,
+        last_updated,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +155,34 @@ mod tests {
         assert!(validate_id("Has Spaces").is_err());
         assert!(validate_id("CamelCase").is_err());
         assert!(validate_id("../../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn parses_full_frontmatter() {
+        let content = "---\nname: My Skill\ndescription: Does stuff\nauthor: Alice\nversion: 1.2.3\nlicense: MIT\ntags: [debug, workflow]\n---\n# Body";
+        let meta = parse_frontmatter("my-skill", content);
+        assert_eq!(meta.name, "My Skill");
+        assert_eq!(meta.description, "Does stuff");
+        assert_eq!(meta.author, "Alice");
+        assert_eq!(meta.version, "1.2.3");
+        assert_eq!(meta.license, "MIT");
+        assert_eq!(meta.tags, vec!["debug", "workflow"]);
+    }
+
+    #[test]
+    fn parses_partial_frontmatter() {
+        let content = "---\nname: Minimal\n---\nBody here";
+        let meta = parse_frontmatter("minimal", content);
+        assert_eq!(meta.name, "Minimal");
+        assert_eq!(meta.description, "");
+        assert_eq!(meta.version, "0.0.0");
+        assert!(meta.tags.is_empty());
+    }
+
+    #[test]
+    fn handles_missing_frontmatter() {
+        let content = "# Just a heading\nSome content";
+        let meta = parse_frontmatter("no-front", content);
+        assert_eq!(meta.name, "no-front");
     }
 }
