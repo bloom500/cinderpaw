@@ -4,6 +4,29 @@ import { useModel } from '@/stores/model';
 import { cleanModelName, quantToQuality, quantToBadge, sizeGb, type QuantVariant } from '@/lib/modelUtils';
 import type { ModelInfo } from '@/lib/tauri';
 
+function DeleteSpinner() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" className="animate-spin shrink-0" aria-hidden>
+      <circle
+        cx="7" cy="7" r="5.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.25"
+      />
+      <circle
+        cx="7" cy="7" r="5.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeDasharray="34.56"
+        strokeDashoffset="26"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 const badgeClass: Record<QuantVariant, string> = {
   full:     'text-text-secondary bg-bg-elevated',
   high:     'text-success',
@@ -110,7 +133,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
                 aria-label="Delete"
                 className="flex-1 text-xs py-1.5 rounded border border-error text-error hover:bg-bg-hover transition-colors disabled:opacity-60"
               >
-                {isDeleting ? '⠼ Deleting' : 'Delete'}
+                {isDeleting ? <span className="flex items-center justify-center gap-1.5"><DeleteSpinner />Deleting…</span> : 'Delete'}
               </button>
             </>
           ) : (
@@ -131,7 +154,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
                 aria-label="Delete"
                 className="flex-1 text-xs py-1.5 rounded border border-border-default text-text-muted hover:bg-bg-hover transition-colors disabled:opacity-60"
               >
-                {isDeleting ? '⠼ Deleting' : 'Delete'}
+                {isDeleting ? <span className="flex items-center justify-center gap-1.5"><DeleteSpinner />Deleting…</span> : 'Delete'}
               </button>
             </>
           )}

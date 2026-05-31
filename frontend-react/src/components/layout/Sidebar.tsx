@@ -4,10 +4,12 @@ import {
   MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot,
   Download, PanelLeftClose, PanelLeftOpen, Lock, Folder,
   ChevronDown, ChevronRight, MoreHorizontal, Trash2, FolderInput, FolderMinus,
+  X, CheckCircle, AlertCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub,
   DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, DropdownMenuSeparator,
@@ -16,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
 import { useProjects, type Project } from '@/stores/projects';
+import { useDownload } from '@/stores/download';
 
 export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
@@ -40,6 +43,120 @@ const MENU: MenuItem[] = [
   { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: true,  route: '/skills' },
   { icon: Bot,          label: 'Agents',       shortcut: null,  action: 'agents',     disabled: true,  route: '/agents' },
 ];
+
+// ── Download status popover ───────────────────────────────────────────────────
+
+function DownloadButton() {
+  const active   = useDownload((s) => s.active);
+  const done     = useDownload((s) => s.done);
+  const error    = useDownload((s) => s.error);
+  const hasActivity = active !== null || done || error !== null;
+  const progress = active ? Math.round(active.progress * 100) : 0;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className="relative p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary transition-colors"
+          aria-label="Downloads"
+        >
+          <Download size={16} />
+          {/* Active indicator dot */}
+          {active && (
+            <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-brand border border-bg-surface" />
+          )}
+          {done && !active && (
+            <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-success border border-bg-surface" />
+          )}
+          {error && (
+            <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-error border border-bg-surface" />
+          )}
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        side="bottom"
+        align="end"
+        sideOffset={8}
+        className="w-72 bg-bg-surface border border-border-subtle text-text-primary p-4"
+      >
+        <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+          Downloads
+        </p>
+
+        {!hasActivity && (
+          <p className="text-sm text-text-muted text-center py-3">No active downloads</p>
+        )}
+
+        {/* Active download */}
+        {active && (
+          <div className="space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-text-primary truncate">{active.filename}</p>
+                <p className="text-[11px] text-text-muted truncate">{active.repoId}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void useDownload.getState().cancel()}
+                className="shrink-0 p-0.5 rounded text-text-muted hover:text-error hover:bg-error/10 transition-colors"
+                aria-label="Cancel download"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] text-text-muted">
+                <span>Downloading…</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-bg-elevated overflow-hidden">
+                <motion.div
+                  className="h-full bg-brand rounded-full"
+                  animate={{ width: `${progress}%` }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Completed */}
+        {done && !active && (
+          <div className="flex items-center gap-2 text-success text-sm">
+            <CheckCircle size={14} />
+            <span>Download complete</span>
+            <button
+              type="button"
+              onClick={() => useDownload.getState().reset()}
+              className="ml-auto text-[11px] text-text-muted hover:text-text-secondary"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-error text-sm">
+              <AlertCircle size={14} />
+              <span>Download failed</span>
+            </div>
+            <p className="text-[11px] text-text-muted break-all">{error}</p>
+            <button
+              type="button"
+              onClick={() => useDownload.getState().reset()}
+              className="text-[11px] text-text-muted hover:text-text-secondary mt-1"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ── Sidebar root ───────────────────────────────────────────────────────────────
 
@@ -89,14 +206,7 @@ export function Sidebar() {
             <span className="font-semibold text-text-primary text-sm select-none">Feral</span>
           )}
           <div className={cn('flex gap-1', collapsed && 'mx-auto')}>
-            {!collapsed && (
-              <button
-                className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary"
-                aria-label="Downloads"
-              >
-                <Download size={16} />
-              </button>
-            )}
+            {!collapsed && <DownloadButton />}
             <button
               onClick={toggleSidebar}
               className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary"
@@ -143,7 +253,7 @@ export function Sidebar() {
                 exit={{ opacity: 0 }}
                 className="text-[11px] text-text-muted select-none"
               >
-                v0.1.0
+                v0.1.2
               </motion.span>
             )}
           </AnimatePresence>

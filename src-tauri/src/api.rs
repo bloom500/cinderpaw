@@ -1,18 +1,19 @@
 //! Ollama-compatible HTTP API on port 11435.
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     response::sse::{Event, Sse},
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
 use futures::stream::Stream;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::convert::Infallible;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::inference::{InferParams, Message, ModelManager};
 use crate::models;
@@ -23,7 +24,13 @@ pub struct ApiState {
 }
 
 pub fn router(state: ApiState) -> Router {
-    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+            origin.as_bytes().starts_with(b"http://localhost")
+                || origin.as_bytes().starts_with(b"http://127.0.0.1")
+        }))
+        .allow_methods(tower_http::cors::Any)
+        .allow_headers(tower_http::cors::Any);
 
     Router::new()
         // Ollama-compatible
@@ -190,10 +197,14 @@ fn params_from_options(opts: Option<&Value>) -> InferParams {
 
 async fn collect_chat(state: &ApiState, messages: Vec<Message>, params: InferParams) -> String {
     use futures::StreamExt;
+    let stop = Arc::new(AtomicBool::new(false));
     let mut out = String::new();
-    let mut stream = Box::pin(state.manager.stream_chat(messages, params));
+    let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop));
     while let Some(tok) = stream.next().await {
-        if let Ok(t) = tok { out.push_str(&t); }
+        match tok {
+            Ok(t) => out.push_str(&t),
+            Err(e) => { tracing::warn!("token error: {}", e); break; }
+        }
     }
     out
 }
@@ -209,9 +220,10 @@ fn sse_from_chat(
     use futures::StreamExt;
 
     let s = stream! {
-        let mut chat = Box::pin(state.manager.stream_chat(messages, params));
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut chat = Box::pin(state.manager.stream_chat(messages, params, stop));
         while let Some(tok) = chat.next().await {
-            let t = tok.unwrap_or_default();
+            let t = match tok { Ok(t) => t, Err(e) => { tracing::warn!("sse token error: {}", e); break; } };
             let payload = if openai_format {
                 json!({
                     "id": "chatcmpl-stream",
@@ -242,6 +254,3 @@ fn sse_from_chat(
     };
     Sse::new(s)
 }
-
-#[derive(Serialize)]
-struct _Unused;

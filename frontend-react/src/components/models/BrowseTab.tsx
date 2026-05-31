@@ -12,8 +12,11 @@ export function BrowseTab() {
   const [loading, setLoading]               = useState(false);
   const [error, setError]                   = useState<string | null>(null);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [detail, setDetail]                 = useState<HfModelDetail | null>(null);
+  // Cache of loaded details — keyed by repoId, populated by expand AND silent pill requests
+  const [detailCache, setDetailCache]       = useState<Record<string, HfModelDetail>>({});
   const [detailLoading, setDetailLoading]   = useState(false);
+  // Track silent fetches so we don't double-fetch
+  const fetchingRef = useRef<Set<string>>(new Set());
   const popularLoaded = useRef(false);
 
   const doSearch = async (q: string, cursor?: string | null) => {
@@ -26,7 +29,7 @@ export function BrowseTab() {
       } else {
         setResults(page.models);
         setSelectedRepoId(null);
-        setDetail(null);
+        setDetailCache({});
       }
       setNextCursor(page.next_cursor);
     } catch (e) {
@@ -49,23 +52,32 @@ export function BrowseTab() {
     if (e.key === 'Enter') handleSearch();
   };
 
-  const handleExpand = async (repoId: string) => {
-    if (selectedRepoId === repoId) {
-      setSelectedRepoId(null);
-      return;
-    }
-    setSelectedRepoId(repoId);
-    setDetail(null);
-    setDetailLoading(true);
+  // Shared fetch — populates cache; used by both expand and silent pill requests
+  const fetchDetail = async (repoId: string) => {
+    if (detailCache[repoId] || fetchingRef.current.has(repoId)) return;
+    fetchingRef.current.add(repoId);
     try {
       const d = await tauri.hf.detail(repoId);
-      setDetail(d);
+      setDetailCache((prev) => ({ ...prev, [repoId]: d }));
     } catch (e) {
       setError(String(e));
     } finally {
+      fetchingRef.current.delete(repoId);
+    }
+  };
+
+  const handleExpand = async (repoId: string) => {
+    if (selectedRepoId === repoId) { setSelectedRepoId(null); return; }
+    setSelectedRepoId(repoId);
+    if (!detailCache[repoId]) {
+      setDetailLoading(true);
+      await fetchDetail(repoId);
       setDetailLoading(false);
     }
   };
+
+  // Silent — loads detail into cache without expanding the card
+  const handleRequestDetail = (repoId: string) => { void fetchDetail(repoId); };
 
   return (
     <div className="flex flex-col h-full">
@@ -87,39 +99,48 @@ export function BrowseTab() {
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
-        {error && (
-          <div className="text-error text-sm p-3 rounded bg-bg-surface border border-error">
-            {error}
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto py-4
+        [&::-webkit-scrollbar]:w-[3px]
+        [&::-webkit-scrollbar-track]:bg-transparent
+        [&::-webkit-scrollbar-thumb]:bg-white/10
+        [&::-webkit-scrollbar-thumb]:rounded-full
+        hover:[&::-webkit-scrollbar-thumb]:bg-white/20"
+      >
+        <div className="max-w-3xl mx-auto px-6 space-y-1.5">
+          {error && (
+            <div className="text-error text-sm p-3 rounded bg-bg-surface border border-error">
+              {error}
+            </div>
+          )}
 
-        {loading && results.length === 0 && (
-          <div className="flex justify-center py-8 text-text-muted text-sm">Searching...</div>
-        )}
+          {loading && results.length === 0 && (
+            <div className="flex justify-center py-8 text-text-muted text-sm">Searching...</div>
+          )}
 
-        {results.map((m) => (
-          <HfModelCard
-            key={m.id}
-            model={m}
-            expanded={selectedRepoId === m.id}
-            detail={selectedRepoId === m.id ? detail : null}
-            detailLoading={selectedRepoId === m.id && detailLoading}
-            onExpand={handleExpand}
-          />
-        ))}
+          {results.map((m) => (
+            <HfModelCard
+              key={m.id}
+              model={m}
+              expanded={selectedRepoId === m.id}
+              detail={detailCache[m.id] ?? null}
+              detailLoading={selectedRepoId === m.id && detailLoading}
+              onExpand={handleExpand}
+              onRequestDetail={handleRequestDetail}
+            />
+          ))}
 
-        {nextCursor && (
-          <div className="flex justify-center pt-2 pb-4">
-            <Button
-              variant="outline"
-              onClick={handleLoadMore}
-              disabled={loading}
-            >
-              {loading ? 'Loading...' : 'Load more'}
-            </Button>
-          </div>
-        )}
+          {nextCursor && (
+            <div className="flex justify-center pt-2 pb-4">
+              <Button
+                variant="outline"
+                onClick={handleLoadMore}
+                disabled={loading}
+              >
+                {loading ? 'Loading...' : 'Load more'}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

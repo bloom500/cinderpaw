@@ -36,6 +36,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
 
   refresh: async () => {
     const list = await tauri.conversations.list();
+    list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     set({ list });
   },
 

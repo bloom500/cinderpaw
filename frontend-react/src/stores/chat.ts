@@ -11,6 +11,9 @@ export interface ChatMessage {
   thinkingDurationMs?: number;
   thinkingComplete?: boolean;
   createdAt: number;
+  completedAt?: number;
+  tokenCount?: number;
+  tokensPerSec?: number;
 }
 
 interface ChatStore {

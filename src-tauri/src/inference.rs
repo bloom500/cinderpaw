@@ -20,6 +20,8 @@ pub struct InferParams {
     pub repeat_penalty: f32,
     pub max_tokens: u32,
     pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub tools: Option<Vec<String>>,
 }
 
 impl Default for InferParams {
@@ -30,6 +32,7 @@ impl Default for InferParams {
             repeat_penalty: 1.1,
             max_tokens: 1024,
             system_prompt: None,
+            tools: None,
         }
     }
 }

@@ -38,11 +38,11 @@ export function ApiServerTab() {
           aria-checked={enabled}
           onClick={() => update({ api_server_enabled: !enabled })}
           className={cn(
-            'w-10 h-6 rounded-full transition-colors relative shrink-0',
-            enabled ? 'bg-blue-500' : 'bg-bg-hover',
+            'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden',
+            enabled ? 'bg-blue-500' : 'bg-neutral-600',
           )}
         >
-          <span className={cn('absolute top-1 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
+          <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
         </button>
       </div>
 

@@ -33,9 +33,9 @@ export function useSendMessage() {
   return useCallback(
     async (text: string, files: AttachedFile[] = []) => {
       const chat = useChat.getState();
-      const { reasoningMode } = useUI.getState();
-      const loaded = useModel.getState().loaded;
-      const modelName = loaded?.name ?? '';
+      const { reasoningMode, enabledTools } = useUI.getState();
+      const { loaded, cloudModel } = useModel.getState();
+      const modelName = cloudModel?.modelId ?? loaded?.name ?? '';
 
       const content = buildUserContent(text, files);
 
@@ -57,32 +57,86 @@ export function useSendMessage() {
       chat.setStreamStatus('streaming');
 
       const messages = useChat.getState().messages.slice(0, -1).map(toIpcMessage);
-      const params = await currentInferParams({ reasoningMode, modelName });
+      const params = await currentInferParams({ reasoningMode, modelName, enabledTools });
 
       let buffer = '';
       let thinkingStartAt: number | null = null;
+      let thinkingDurationMsFixed = false;
+      let streamStartAt: number | null = null;
+      let charCount = 0;
 
-      await stream.start(messages, params, {
+      // RAF-based flushing: accumulate token patches between frames so React
+      // re-renders once per animation frame (~60fps) instead of once per token.
+      // This produces smooth word-by-word streaming without overwhelming the renderer.
+      let rafId: number | null = null;
+      const pendingPatch: Partial<ChatMessage> = {};
+
+      const flushNow = () => {
+        if (Object.keys(pendingPatch).length > 0) {
+          useChat.getState().updateLastAssistantMessage({ ...pendingPatch });
+        }
+        rafId = null;
+      };
+
+      const scheduleFlush = () => {
+        if (rafId === null) {
+          rafId = requestAnimationFrame(flushNow);
+        }
+      };
+
+      const cancelFlush = () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+      };
+
+      const streamMethod = cloudModel
+        ? (cb: Parameters<typeof stream.start>[2]) => stream.startCloud(cloudModel, messages, params, cb)
+        : (cb: Parameters<typeof stream.start>[2]) => stream.start(messages, params, cb);
+
+      await streamMethod({
         onToken: (chunk) => {
+          if (streamStartAt === null) streamStartAt = Date.now();
+          charCount += chunk.length;
           buffer += chunk;
           const split = splitThinking(buffer);
-          const patch: Partial<ChatMessage> = { content: split.answer };
+
+          pendingPatch.content = split.answer;
+
           if (split.thinking !== null) {
-            patch.thinking = split.thinking;
-            patch.thinkingComplete = split.thinkingComplete;
+            pendingPatch.thinking = split.thinking;
+            pendingPatch.thinkingComplete = split.thinkingComplete;
             if (thinkingStartAt === null) thinkingStartAt = Date.now();
-            if (split.thinkingComplete && thinkingStartAt !== null) {
-              patch.thinkingDurationMs = Date.now() - thinkingStartAt;
+            if (split.thinkingComplete && !thinkingDurationMsFixed && thinkingStartAt !== null) {
+              pendingPatch.thinkingDurationMs = Date.now() - thinkingStartAt;
+              thinkingDurationMsFixed = true;
             }
           }
-          useChat.getState().updateLastAssistantMessage(patch);
+
+          scheduleFlush();
         },
         onDone: () => {
+          // Flush any remaining buffered patch before computing final stats
+          cancelFlush();
+          flushNow();
+
+          const completedAt = Date.now();
+          const elapsedSec = streamStartAt ? (completedAt - streamStartAt) / 1000 : 0;
+          const tokenCount = Math.round(charCount / 4);
+          const tokensPerSec = elapsedSec > 0 ? Math.round(tokenCount / elapsedSec) : 0;
+          useChat.getState().updateLastAssistantMessage({ completedAt, tokenCount, tokensPerSec });
           useChat.getState().setStreamStatus('done');
           autoSaveIfEligible();
         },
-        onError: (err) => useChat.getState().setStreamStatus('error', err),
-        onStopped: () => useChat.getState().setStreamStatus('stopped'),
+        onError: (err) => {
+          cancelFlush();
+          useChat.getState().setStreamStatus('error', err);
+        },
+        onStopped: () => {
+          cancelFlush();
+          useChat.getState().setStreamStatus('stopped');
+        },
       });
     },
     [stream],

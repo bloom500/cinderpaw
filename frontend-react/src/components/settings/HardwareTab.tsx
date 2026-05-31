@@ -37,13 +37,13 @@ export function HardwareTab() {
           aria-checked={gpuOn}
           onClick={() => update({ default_gpu_layers: gpuOn ? 0 : 100 })}
           className={cn(
-            'w-10 h-6 rounded-full transition-colors relative shrink-0',
-            gpuOn ? 'bg-blue-500' : 'bg-bg-hover',
+            'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden',
+            gpuOn ? 'bg-blue-500' : 'bg-neutral-600',
           )}
         >
           <span
             className={cn(
-              'absolute top-1 w-4 h-4 rounded-full bg-white transition-transform',
+              'absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform',
               gpuOn ? 'translate-x-5' : 'translate-x-1',
             )}
           />

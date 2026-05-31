@@ -13,20 +13,10 @@ export const QUANT_RANK: Record<string, number> = {
 };
 
 export function extractQuant(filename: string): string {
-  const lower = filename.toLowerCase();
-  const noExt = lower.endsWith('.gguf') ? lower.slice(0, -5) : lower;
-  const lastDot = noExt.lastIndexOf('.');
-  if (lastDot === -1) return '—';
-  const suffix = noExt.slice(lastDot + 1);
-  if (
-    suffix.startsWith('q') ||
-    suffix.startsWith('iq') ||
-    suffix.startsWith('f') ||
-    suffix.startsWith('bf')
-  ) {
-    return suffix.toUpperCase();
-  }
-  return '—';
+  const noExt = filename.replace(/\.gguf$/i, '');
+  // Match quant tokens separated by . or - : Q4_K_M, IQ2_XXS, BF16, F16, F32, Q4_0 …
+  const m = noExt.match(/[-.]((IQ\d[\w]*|Q\d[\w]*|BF\d+|F\d+))(?:[-.]|$)/i);
+  return m ? m[1].toUpperCase() : 'N/A';
 }
 
 export function quantQualityRank(filename: string): number {
@@ -129,24 +119,69 @@ export function compatLevel(bytes: number, sys: SystemInfo | null): Compat | nul
   return 'no';
 }
 
+function isStandaloneGguf({ rfilename: filename }: HfFile): boolean {
+  // Exclude split shards (e.g. BF16/model-00001-of-00002.gguf) and subdirectory files.
+  // These are partial files — their individual size is not the full model size.
+  if (filename.includes('/')) return false;
+  if (/\d+-of-\d+/i.test(filename)) return false;
+  return true;
+}
+
 export function pickFittedFile(files: HfFile[], sys: SystemInfo | null): HfFile | null {
   if (files.length === 0) return null;
-  const withSize = files.filter((f) => f.size && f.size > 0);
-  if (withSize.length === 0) return files[0];
 
-  const fits = withSize.filter((f) => compatLevel(f.size!, sys) === 'fits');
-  if (fits.length > 0) {
-    return fits.reduce((best, f) =>
+  // Prefer standalone (non-split) files; fall back to all if none exist
+  const pool = files.filter(isStandaloneGguf);
+  const candidates = pool.length > 0 ? pool : files;
+
+  const withSize = candidates.filter((f) => f.size && f.size > 0);
+
+  // Full-precision quants (F32, F16, BF16) are deprioritised — even if they
+  // technically fit in VRAM they are rarely what the user wants from a GGUF hub.
+  const isFullPrecision = (f: HfFile) => {
+    const q = extractQuant(f.rfilename).toLowerCase();
+    return q === 'f32' || q === 'f16' || q === 'fp16' || q === 'bf16' || q === 'n/a';
+  };
+
+  if (sys && withSize.length > 0) {
+    const targetQuant = globalFittedQuant(sys);
+
+    const fits = withSize.filter((f) => compatLevel(f.size!, sys) === 'fits');
+    if (fits.length > 0) {
+      const fitsQ = fits.filter((f) => !isFullPrecision(f));
+      const fitsPool = fitsQ.length > 0 ? fitsQ : fits;
+      const exact = fitsPool.find((f) => extractQuant(f.rfilename) === targetQuant);
+      if (exact) return exact;
+      return fitsPool.reduce((best, f) =>
+        quantQualityRank(f.rfilename) > quantQualityRank(best.rfilename) ? f : best,
+      );
+    }
+
+    const slow = withSize.filter((f) => compatLevel(f.size!, sys) === 'slow');
+    if (slow.length > 0) {
+      const slowQ = slow.filter((f) => !isFullPrecision(f));
+      const slowPool = slowQ.length > 0 ? slowQ : slow;
+      return slowPool.reduce((best, f) => (f.size! < best.size! ? f : best));
+    }
+
+    const nofitQ = withSize.filter((f) => !isFullPrecision(f));
+    const nofitPool = nofitQ.length > 0 ? nofitQ : withSize;
+    return nofitPool.reduce((best, f) => (f.size! < best.size! ? f : best));
+  }
+
+  if (withSize.length > 0) {
+    const rankQ = withSize.filter((f) => !isFullPrecision(f));
+    const rankPool = rankQ.length > 0 ? rankQ : withSize;
+    return rankPool.reduce((best, f) =>
       quantQualityRank(f.rfilename) > quantQualityRank(best.rfilename) ? f : best,
     );
   }
 
-  const slow = withSize.filter((f) => compatLevel(f.size!, sys) === 'slow');
-  if (slow.length > 0) {
-    return slow.reduce((best, f) => (f.size! < best.size! ? f : best));
-  }
-
-  return withSize.reduce((best, f) => (f.size! < best.size! ? f : best));
+  const noSizeQ = candidates.filter((f) => !isFullPrecision(f));
+  const noSizePool = noSizeQ.length > 0 ? noSizeQ : candidates;
+  return noSizePool.reduce((best, f) =>
+    quantQualityRank(f.rfilename) > quantQualityRank(best.rfilename) ? f : best,
+  );
 }
 
 export function globalFittedQuant(sys: SystemInfo | null): string {

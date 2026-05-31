@@ -37,6 +37,9 @@ pub struct AppState {
     pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
     pub stop_signal: Arc<AtomicBool>,
     pub settings: Settings,
+    /// System info pre-computed in a background thread at startup so the
+    /// first call to get_system_info() returns instantly.
+    pub system_info_cache: Arc<Mutex<Option<SystemInfo>>>,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -433,8 +436,20 @@ async fn chat_stream(
 
 #[tauri::command]
 #[specta::specta]
-fn get_system_info() -> SystemInfo {
-    sysinfo_mod::collect()
+async fn get_system_info(state: State<'_, AppState>) -> Result<SystemInfo, String> {
+    // Return cached value immediately if background thread has finished
+    if let Some(info) = state.system_info_cache.lock().clone() {
+        return Ok(info);
+    }
+    // Cache not ready yet — compute now, store for future calls
+    let cache = state.system_info_cache.clone();
+    tokio::task::spawn_blocking(move || {
+        let info = sysinfo_mod::collect();
+        *cache.lock() = Some(info.clone());
+        info
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // ---------- Agents ----------
@@ -1175,11 +1190,24 @@ pub fn run() {
 
     let settings = settings::load();
     let manager = Arc::new(ModelManager::new());
+
+    // Pre-compute system info in a background thread so the first IPC call
+    // returns instantly instead of waiting 2-3 s for PowerShell + sysinfo.
+    let system_info_cache: Arc<Mutex<Option<SystemInfo>>> = Arc::new(Mutex::new(None));
+    {
+        let cache = system_info_cache.clone();
+        std::thread::spawn(move || {
+            let info = sysinfo_mod::collect();
+            *cache.lock() = Some(info);
+        });
+    }
+
     let state = AppState {
         manager: manager.clone(),
         downloads: Arc::new(Mutex::new(HashMap::new())),
         stop_signal: Arc::new(AtomicBool::new(false)),
         settings,
+        system_info_cache,
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -1244,6 +1272,8 @@ pub fn run() {
 
     let specta_builder_for_setup = specta_builder.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .setup(move |app| {

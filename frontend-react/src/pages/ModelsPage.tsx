@@ -42,7 +42,7 @@ export function ModelsPage() {
         <TabButton active={tab === 'local'}  onClick={() => setTab('local')}>Local Models</TabButton>
         <TabButton active={tab === 'browse'} onClick={() => setTab('browse')}>Browse HuggingFace</TabButton>
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex flex-col">
         {tab === 'local'  ? <LocalModelsTab onBrowse={() => setTab('browse')} /> : null}
         {tab === 'browse' ? <BrowseTab /> : null}
       </div>

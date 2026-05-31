@@ -13,6 +13,10 @@ pub fn agents_dir() -> PathBuf {
     feral_dir().join("agents")
 }
 
+pub fn conversations_dir() -> PathBuf {
+    feral_dir().join("conversations")
+}
+
 pub fn settings_path() -> PathBuf {
     feral_dir().join("settings.json")
 }
@@ -20,5 +24,6 @@ pub fn settings_path() -> PathBuf {
 pub fn ensure_dirs() -> anyhow::Result<()> {
     std::fs::create_dir_all(models_dir())?;
     std::fs::create_dir_all(agents_dir())?;
+    std::fs::create_dir_all(conversations_dir())?;
     Ok(())
 }
