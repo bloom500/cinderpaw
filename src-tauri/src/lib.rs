@@ -9,6 +9,7 @@ mod models;
 mod paths;
 mod projects;
 mod settings;
+mod skills;
 mod sysinfo_mod;
 mod tools;
 
