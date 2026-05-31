@@ -255,7 +255,7 @@ export function Sidebar() {
                 exit={{ opacity: 0 }}
                 className="text-[11px] text-text-muted select-none"
               >
-                v0.1.2
+                v0.1.3
               </motion.span>
             )}
           </AnimatePresence>
