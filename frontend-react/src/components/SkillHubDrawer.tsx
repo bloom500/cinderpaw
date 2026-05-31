@@ -88,9 +88,27 @@ export function SkillHubDrawer() {
     setCommunityFetched(true);
     setCommunityLoading(true);
     setCommunityError(null);
-    tauri.skills.fetchCommunity()
-      .then(list => { setCommunity(list); setCommunityLoading(false); })
+    // Load from bundled public/community-manifest.json — works in both dev (Vite) and prod (dist)
+    fetch('/community-manifest.json')
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<SkillMeta[]>; })
+      .then(list => {
+        // Cross-reference with installed skills to set install_status
+        tauri.skills.listInstalled()
+          .then(installed => {
+            const ids = new Set(installed.map(s => s.id));
+            setCommunity(list.map(s => ({ ...s, install_status: ids.has(s.id) ? 'installed' : 'not_installed' })));
+          })
+          .catch(() => { setCommunity(list); });
+        setCommunityLoading(false);
+      })
       .catch((e: unknown) => { setCommunityError(String(e)); setCommunityLoading(false); });
+  }
+
+  // Fetch a bundled local SKILL.md via browser fetch (public/ dir, no backend needed)
+  async function fetchBundledContent(localPath: string): Promise<string> {
+    const r = await fetch(localPath);
+    if (!r.ok) throw new Error(`HTTP ${r.status} — skill content not found`);
+    return r.text();
   }
 
   function openDetail(skill: SkillMeta, getContent: () => Promise<string>) {
@@ -424,12 +442,14 @@ export function SkillHubDrawer() {
                         showAuthor
                         action={skill.install_status === 'installed'
                           ? { label: '✓ Installed', disabled: true, onClick: () => {} }
-                          : { label: 'Preview', onClick: () =>
-                              openDetail(skill, () =>
-                                tauri.skills.previewRemote(skill.content_url ?? '')
-                                  .then((p: SkillPreview) => p.content)
-                              )
-                            }
+                          : { label: 'Preview', onClick: () => {
+                              const url = skill.content_url ?? '';
+                              // Bundled local file (starts with /) → browser fetch; otherwise → backend
+                              const getContent = url.startsWith('/')
+                                ? () => fetchBundledContent(url)
+                                : () => tauri.skills.previewRemote(url).then((p: SkillPreview) => p.content);
+                              openDetail(skill, getContent);
+                            }}
                         }
                         badgeColor={badgeColor}
                       />
