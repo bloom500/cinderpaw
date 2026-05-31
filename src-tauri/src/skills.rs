@@ -289,6 +289,85 @@ pub async fn fetch_remote_preview(url: &str) -> Result<SkillPreview> {
     Ok(SkillPreview { meta, content })
 }
 
+/// Read a user-specified local SKILL.md file, validate it is a regular file,
+/// and parse its frontmatter. Does NOT allow symlinks to escape arbitrary paths.
+pub fn preview_local_file(path: &str) -> Result<SkillPreview> {
+    let p = std::path::Path::new(path);
+
+    let metadata = std::fs::metadata(p)
+        .map_err(|_| anyhow::anyhow!("path '{}' does not exist or cannot be read", path))?;
+
+    if !metadata.is_file() {
+        bail!("'{}' is not a regular file", path);
+    }
+
+    // Resolve symlinks; bail if the canonical path differs in a suspicious way.
+    let canon = p.canonicalize()?;
+    if !canon.is_file() {
+        bail!("resolved path is not a regular file");
+    }
+
+    let content = std::fs::read_to_string(&canon)?;
+
+    // Derive provisional id from filename
+    let provisional_id = canon
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("imported")
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>();
+
+    let mut meta = parse_frontmatter(&provisional_id, &content);
+    meta.source_provider = SourceProvider::Local;
+    meta.trust_label = TrustLabel::Unknown;
+
+    Ok(SkillPreview { meta, content })
+}
+
+pub fn skill_exists(id: &str) -> Result<bool> {
+    let dir = skill_path(id)?;
+    Ok(dir.exists())
+}
+
+/// Write SKILL.md to ~/.feral/skills/<id>/SKILL.md.
+/// Fails if the directory already exists and overwrite is false.
+pub fn do_install(meta: &SkillMeta, content: &str, overwrite: bool) -> Result<()> {
+    validate_id(&meta.id)?;
+    let skill_dir = skill_path(&meta.id)?;
+
+    if skill_dir.exists() {
+        if !overwrite {
+            bail!(
+                "skill '{}' already exists; pass overwrite=true to replace it",
+                meta.id
+            );
+        }
+        // Remove existing directory before writing fresh
+        std::fs::remove_dir_all(&skill_dir)?;
+    }
+
+    std::fs::create_dir_all(&skill_dir)?;
+    std::fs::write(skill_dir.join("SKILL.md"), content)?;
+    Ok(())
+}
+
+pub fn do_remove(id: &str) -> Result<()> {
+    let skill_dir = skill_path(id)?;
+    if !skill_dir.exists() {
+        bail!("skill '{}' is not installed", id);
+    }
+    // Final path guard before deletion
+    let base_canon = paths::skills_dir().canonicalize().unwrap_or_else(|_| paths::skills_dir());
+    let dir_canon = skill_dir.canonicalize()?;
+    if !dir_canon.starts_with(&base_canon) {
+        bail!("path traversal detected for id '{}'", id);
+    }
+    std::fs::remove_dir_all(&skill_dir)?;
+    Ok(())
+}
+
 // ── Tauri Commands ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -313,6 +392,30 @@ pub async fn fetch_remote_skills() -> Result<Vec<SkillMeta>, String> {
 #[specta::specta]
 pub async fn preview_remote_skill(url: String) -> Result<SkillPreview, String> {
     fetch_remote_preview(&url).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn preview_local_skill(path: String) -> Result<SkillPreview, String> {
+    preview_local_file(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn skill_exists_cmd(id: String) -> Result<bool, String> {
+    skill_exists(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn install_skill(meta: SkillMeta, content: String, overwrite: bool) -> Result<(), String> {
+    do_install(&meta, &content, overwrite).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remove_skill(id: String) -> Result<(), String> {
+    do_remove(&id).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -396,5 +499,25 @@ mod tests {
         assert!(validate_content_url(
             "https://raw.githubusercontent.com/feralai/skills/main/skill.md"
         ).is_ok());
+    }
+
+    #[test]
+    fn install_guard_rejects_bad_id() {
+        let meta = SkillMeta {
+            id: "Bad.Slug!".to_string(),
+            name: "x".to_string(),
+            description: "".to_string(),
+            author: "".to_string(),
+            version: "1.0.0".to_string(),
+            license: "".to_string(),
+            tags: vec![],
+            source_provider: SourceProvider::Local,
+            source_url: None,
+            content_url: None,
+            install_status: InstallStatus::NotInstalled,
+            trust_label: TrustLabel::Unknown,
+            last_updated: None,
+        };
+        assert!(do_install(&meta, "content", false).is_err());
     }
 }

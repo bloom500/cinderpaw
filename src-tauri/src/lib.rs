@@ -1252,6 +1252,10 @@ pub fn run() {
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
             skills::preview_remote_skill,
+            skills::preview_local_skill,
+            skills::skill_exists_cmd,
+            skills::install_skill,
+            skills::remove_skill,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
