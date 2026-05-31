@@ -228,7 +228,7 @@ export function SkillHubDrawer() {
             )}
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+            <div className="flex-1 overflow-y-auto scrollbar-hide p-3 flex flex-col gap-2">
 
               {/* Detail panel */}
               {selected ? (
@@ -282,7 +282,7 @@ export function SkillHubDrawer() {
                     {contentLoading && <p className="text-xs text-text-muted p-3">Loading content…</p>}
                     {contentError && <p className="text-xs text-error p-3">{contentError}</p>}
                     {content && !contentLoading && !contentError && (
-                      <pre className="text-[11px] leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto font-mono">{content}</pre>
+                      <pre className="text-[11px] leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
                     )}
                   </div>
 

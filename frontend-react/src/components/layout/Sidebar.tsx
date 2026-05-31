@@ -232,7 +232,7 @@ export function Sidebar() {
         </nav>
 
         {/* Recent conversations + projects */}
-        <div className="flex-1 overflow-y-auto px-2 pt-2 min-h-0">
+        <div className="flex-1 overflow-y-auto px-2 pt-2 min-h-0 scrollbar-hide">
           <AnimatePresence>
             {!collapsed && (
               <RecentSection
@@ -352,7 +352,7 @@ function MenuRow({
       window.dispatchEvent(new CustomEvent('feral:new-chat'));
       return;
     }
-    if (item.action === 'newProject' || item.action === 'search') {
+    if (item.action === 'newProject' || item.action === 'search' || item.action === 'skills') {
       onAction(item.action);
       return;
     }
