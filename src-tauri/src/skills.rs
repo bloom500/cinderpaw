@@ -167,6 +167,9 @@ mod tests {
         assert_eq!(meta.version, "1.2.3");
         assert_eq!(meta.license, "MIT");
         assert_eq!(meta.tags, vec!["debug", "workflow"]);
+        assert!(matches!(meta.source_provider, SourceProvider::Local));
+        assert!(matches!(meta.install_status, InstallStatus::NotInstalled));
+        assert!(matches!(meta.trust_label, TrustLabel::Local));
     }
 
     #[test]
@@ -184,5 +187,12 @@ mod tests {
         let content = "# Just a heading\nSome content";
         let meta = parse_frontmatter("no-front", content);
         assert_eq!(meta.name, "no-front");
+    }
+
+    #[test]
+    fn parses_tags_without_brackets() {
+        let content = "---\nname: X\ntags: foo, bar, baz\n---\nbody";
+        let meta = parse_frontmatter("x", content);
+        assert_eq!(meta.tags, vec!["foo", "bar", "baz"]);
     }
 }
