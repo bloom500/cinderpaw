@@ -4761,3 +4761,16 @@ details.thinking-live .thinking-content {
   line-height: 1.5;
 }
 .skh-confirm-btns { display: flex; gap: 8px; }
+
+/* ── Import tab ───────────────────────────────────────────────────────────── */
+.skh-import {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+.skh-import-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}

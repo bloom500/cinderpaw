@@ -524,9 +524,64 @@ pub fn SkillHubDrawer() -> impl IntoView {
                                     </div>
                                 }.into_view()
                             },
-                            Tab::Import => view! {
-                                <div class="skh-loading-text">"Import — coming soon"</div>
-                            }.into_view(),
+                            Tab::Import => {
+                                view! {
+                                    <div class="skh-import">
+                                        <div class="skh-import-label">
+                                            "Paste a SKILL.md URL (https://raw.githubusercontent.com/…) or a local file path:"
+                                        </div>
+                                        <input
+                                            class="input"
+                                            style="font-size:12px;"
+                                            placeholder="https://raw.githubusercontent.com/… or /path/to/SKILL.md"
+                                            prop:value=move || import_input.get()
+                                            on:input=move |e| import_input.set(event_target_value(&e))
+                                        />
+                                        <div class="row" style="margin-top:4px;">
+                                            <button class="btn"
+                                                disabled=move || import_loading.get() || import_input.get().trim().is_empty()
+                                                on:click=move |_| {
+                                                    let raw = import_input.get();
+                                                    let input = raw.trim().to_string();
+                                                    if input.is_empty() { return; }
+                                                    import_loading.set(true);
+                                                    import_error.set(None);
+                                                    let is_url = input.starts_with("https://");
+                                                    spawn_local(async move {
+                                                        let result = if is_url {
+                                                            tauri_bridge::invoke::<SkillPreview>(
+                                                                "preview_remote_skill",
+                                                                json!({ "url": input }),
+                                                            ).await
+                                                        } else {
+                                                            tauri_bridge::invoke::<SkillPreview>(
+                                                                "preview_local_skill",
+                                                                json!({ "path": input }),
+                                                            ).await
+                                                        };
+                                                        import_loading.set(false);
+                                                        match result {
+                                                            Ok(preview) => {
+                                                                selected_skill.set(Some(preview.meta));
+                                                                selected_content.set(Some(preview.content));
+                                                                selected_content_loading.set(false);
+                                                                selected_content_error.set(None);
+                                                            }
+                                                            Err(e) => {
+                                                                import_error.set(Some(e));
+                                                            }
+                                                        }
+                                                    });
+                                                }>
+                                                {move || if import_loading.get() { "Loading…" } else { "Preview" }}
+                                            </button>
+                                        </div>
+                                        {move || import_error.get().map(|e| view! {
+                                            <div class="skh-error">{e}</div>
+                                        })}
+                                    </div>
+                                }.into_view()
+                            },
                         }
                     }
                 }}
