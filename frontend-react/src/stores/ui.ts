@@ -26,6 +26,9 @@ interface UIStore {
   searchOpen:  boolean;
   openSearch:  () => void;
   closeSearch: () => void;
+  skillsOpen:  boolean;
+  openSkills:  () => void;
+  closeSkills: () => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -71,6 +74,9 @@ export const useUI = create<UIStore>()(
       searchOpen: false,
       openSearch:  () => set({ searchOpen: true }),
       closeSearch: () => set({ searchOpen: false }),
+      skillsOpen:  false,
+      openSkills:  () => set({ skillsOpen: true }),
+      closeSkills: () => set({ skillsOpen: false }),
     }),
     {
       name: 'feral-ui',

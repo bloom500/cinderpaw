@@ -9,6 +9,7 @@ import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
 import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
+import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { cn } from '@/lib/utils';
 
 function WinControls() {
@@ -72,6 +73,7 @@ export function AppShell() {
       </div>
       {searchOpen && <SearchOverlay />}
       <UpdateToast />
+      <SkillHubDrawer />
     </div>
   );
 }

@@ -40,7 +40,7 @@ const MENU: MenuItem[] = [
   { icon: Search,       label: 'Search',       shortcut: '⌘K', action: 'search',     disabled: false },
   { icon: Box,          label: 'Models',       shortcut: null,  action: 'models',     disabled: false, route: '/models' },
   { icon: Settings,     label: 'Settings',     shortcut: null,  action: 'settings',   disabled: false, route: '/settings' },
-  { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: true,  route: '/skills' },
+  { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: false },
   { icon: Bot,          label: 'Agents',       shortcut: null,  action: 'agents',     disabled: true,  route: '/agents' },
 ];
 
@@ -176,6 +176,8 @@ export function Sidebar() {
       setNewProjectOpen(true);
     } else if (action === 'search') {
       openSearch();
+    } else if (action === 'skills') {
+      useUI.getState().openSkills();
     }
   };
 

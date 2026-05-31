@@ -76,6 +76,27 @@ export interface HfSearchPage {
   next_cursor: string | null;
 }
 
+export interface SkillMeta {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  version: string;
+  license: string;
+  tags: string[];
+  source_provider: string;
+  source_url: string | null;
+  content_url: string | null;
+  install_status: string; // "installed" | "not_installed"
+  trust_label: string;    // "local" | "community" | "unknown" | etc.
+  last_updated: string | null;
+}
+
+export interface SkillPreview {
+  meta: SkillMeta;
+  content: string;
+}
+
 export interface Settings {
   models_dir: string;
   default_gpu_layers: number;
@@ -151,6 +172,15 @@ const raw = {
   chatCloudStream:       (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
     invoke<void>('chat_cloud_stream', { providerId, model, messages, params, sessionId }),
   readFileAsText:        (path: string) => invoke<string>('read_file_as_text', { path }),
+  listInstalledSkills:      () => invoke<SkillMeta[]>('list_installed_skills'),
+  getInstalledSkillContent: (id: string) => invoke<string>('get_installed_skill_content', { id }),
+  fetchRemoteSkills:        () => invoke<SkillMeta[]>('fetch_remote_skills'),
+  previewRemoteSkill:       (url: string) => invoke<SkillPreview>('preview_remote_skill', { url }),
+  previewLocalSkill:        (path: string) => invoke<SkillPreview>('preview_local_skill', { path }),
+  skillExistsCmd:           (id: string) => invoke<boolean>('skill_exists_cmd', { id }),
+  installSkill:             (meta: SkillMeta, content: string, overwrite: boolean) =>
+    invoke<void>('install_skill', { meta, content, overwrite }),
+  removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -217,6 +247,18 @@ export const tauri = {
 
   files: {
     readAsText: async (path: string) => raw.readFileAsText(path),
+  },
+
+  skills: {
+    listInstalled:      async () => raw.listInstalledSkills(),
+    getContent:         async (id: string) => raw.getInstalledSkillContent(id),
+    fetchRemote:        async () => raw.fetchRemoteSkills(),
+    previewRemote:      async (url: string) => raw.previewRemoteSkill(url),
+    previewLocal:       async (path: string) => raw.previewLocalSkill(path),
+    exists:             async (id: string) => raw.skillExistsCmd(id),
+    install:            async (meta: SkillMeta, content: string, overwrite: boolean) =>
+      raw.installSkill(meta, content, overwrite),
+    remove:             async (id: string) => raw.removeSkill(id),
   },
 };
 
