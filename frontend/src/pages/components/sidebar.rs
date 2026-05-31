@@ -177,8 +177,12 @@ pub fn Sidebar() -> impl IntoView {
                     </svg>
                     <span class="cx-nav-label">"Settings"</span>
                 </A>
-                // Skills (placeholder)
-                <button class="cx-nav-link">
+                // Skills — toggles SkillHub drawer
+                <button class=move || {
+                    if layout.skill_hub_open.get() { "cx-nav-link active" } else { "cx-nav-link" }
+                } on:click=move |_| {
+                    layout.skill_hub_open.update(|v| *v = !*v);
+                }>
                     <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
                         stroke="currentColor" stroke-width="1.5"
                         stroke-linecap="round" stroke-linejoin="round">

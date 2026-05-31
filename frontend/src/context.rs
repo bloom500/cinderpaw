@@ -49,6 +49,7 @@ pub struct LayoutContext {
     /// True until the first paint completes. Used to suppress slide-in animation
     /// on initial load when restoring collapsed state from localStorage.
     pub no_transition: RwSignal<bool>,
+    pub skill_hub_open: RwSignal<bool>,
 }
 
 impl LayoutContext {
@@ -56,6 +57,7 @@ impl LayoutContext {
         Self {
             sidebar_collapsed: create_rw_signal(read_sidebar_collapsed()),
             no_transition: create_rw_signal(true),
+            skill_hub_open: create_rw_signal(false),
         }
     }
 

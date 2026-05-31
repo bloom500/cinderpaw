@@ -12,6 +12,7 @@ use context::{ChatContext, ChatSessionSummary, DownloadContext, LayoutContext, M
 use pages::{agents::AgentsPage, chat::ChatPage, models::ModelsPage, settings::SettingsPage};
 use pages::components::sidebar::Sidebar;
 use pages::components::hw_notification::HwNotification;
+use pages::components::skill_hub::SkillHubDrawer;
 use pages::types::Message;
 
 fn session_title(msgs: &[Message]) -> String {
@@ -258,6 +259,7 @@ fn App() -> impl IntoView {
             </div>
             <div class="app-shell">
                 <Sidebar/>
+                <SkillHubDrawer/>
                 <main class="app-main">
                     <HwNotification/>
                     <Routes>
