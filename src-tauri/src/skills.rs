@@ -6,6 +6,9 @@ use crate::paths;
 const GITHUB_MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/bloom500/feral/main/skills/manifest.json";
 
+const COMMUNITY_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/bloom500/feral/main/skills/community-manifest.json";
+
 const ALLOWED_CONTENT_HOSTS: &[&str] = &[
     "raw.githubusercontent.com",
     "gist.githubusercontent.com",
@@ -255,6 +258,43 @@ pub async fn github_list() -> Result<Vec<SkillMeta>> {
     Ok(remote)
 }
 
+/// Download the community manifest and return SkillMeta list.
+/// Skills are stamped ClawHub / Community trust level; install_status cross-referenced.
+pub async fn community_list() -> Result<Vec<SkillMeta>> {
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+
+    validate_content_url(COMMUNITY_MANIFEST_URL)?;
+
+    let resp = client
+        .get(COMMUNITY_MANIFEST_URL)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let mut skills: Vec<SkillMeta> = resp.json().await?;
+
+    let installed_ids: std::collections::HashSet<String> = local_list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+
+    for skill in &mut skills {
+        skill.install_status = if installed_ids.contains(&skill.id) {
+            InstallStatus::Installed
+        } else {
+            InstallStatus::NotInstalled
+        };
+        skill.source_provider = SourceProvider::ClawHub;
+        skill.trust_label = TrustLabel::Community;
+    }
+
+    Ok(skills)
+}
+
 /// Fetch the raw SKILL.md from a remote URL, validate host, parse frontmatter.
 pub async fn fetch_remote_preview(url: &str) -> Result<SkillPreview> {
     validate_content_url(url)?;
@@ -388,6 +428,12 @@ pub fn get_installed_skill_content(id: String) -> Result<String, String> {
 #[specta::specta]
 pub async fn fetch_remote_skills() -> Result<Vec<SkillMeta>, String> {
     github_list().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_community_skills() -> Result<Vec<SkillMeta>, String> {
+    community_list().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

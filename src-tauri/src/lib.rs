@@ -1251,6 +1251,7 @@ pub fn run() {
             skills::list_installed_skills,
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
+            skills::fetch_community_skills,
             skills::preview_remote_skill,
             skills::preview_local_skill,
             skills::skill_exists_cmd,

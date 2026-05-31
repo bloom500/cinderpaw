@@ -4,7 +4,7 @@ import { X, ChevronLeft, ArrowUpRight } from 'lucide-react';
 import { useUI } from '@/stores/ui';
 import { tauri, type SkillMeta, type SkillPreview } from '@/lib/tauri';
 
-type Tab = 'installed' | 'discover' | 'import';
+type Tab = 'installed' | 'discover' | 'community' | 'import';
 
 export function SkillHubDrawer() {
   const open       = useUI((s) => s.skillsOpen);
@@ -22,6 +22,12 @@ export function SkillHubDrawer() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError]   = useState<string | null>(null);
   const [remoteFetched, setRemoteFetched] = useState(false);
+
+  // Community tab state
+  const [community, setCommunity]               = useState<SkillMeta[]>([]);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityError, setCommunityError]     = useState<string | null>(null);
+  const [communityFetched, setCommunityFetched] = useState(false);
 
   // Detail panel state
   const [selected, setSelected]               = useState<SkillMeta | null>(null);
@@ -57,10 +63,12 @@ export function SkillHubDrawer() {
       .then(list => {
         setInstalled(list);
         const ids = new Set(list.map(s => s.id));
-        setRemote(prev => prev.map(s => ({
+        const syncStatus = (s: SkillMeta) => ({
           ...s,
           install_status: ids.has(s.id) ? 'installed' : 'not_installed',
-        })));
+        });
+        setRemote(prev => prev.map(syncStatus));
+        setCommunity(prev => prev.map(syncStatus));
       })
       .catch(() => {});
   }
@@ -73,6 +81,16 @@ export function SkillHubDrawer() {
     tauri.skills.fetchRemote()
       .then(list => { setRemote(list); setRemoteLoading(false); })
       .catch((e: unknown) => { setRemoteError(String(e)); setRemoteLoading(false); });
+  }
+
+  function fetchCommunity() {
+    if (communityFetched) return;
+    setCommunityFetched(true);
+    setCommunityLoading(true);
+    setCommunityError(null);
+    tauri.skills.fetchCommunity()
+      .then(list => { setCommunity(list); setCommunityLoading(false); })
+      .catch((e: unknown) => { setCommunityError(String(e)); setCommunityLoading(false); });
   }
 
   function openDetail(skill: SkillMeta, getContent: () => Promise<string>) {
@@ -207,15 +225,16 @@ export function SkillHubDrawer() {
             {/* Tabs — hidden when detail is open */}
             {!selected && (
               <div className="flex border-b border-border-subtle shrink-0">
-                {(['installed', 'discover', 'import'] as Tab[]).map(t => (
+                {(['installed', 'discover', 'community', 'import'] as Tab[]).map(t => (
                   <button
                     key={t}
                     type="button"
                     onClick={() => {
                       setTab(t);
                       if (t === 'discover') fetchRemote();
+                      if (t === 'community') fetchCommunity();
                     }}
-                    className={`flex-1 py-2.5 text-xs font-medium capitalize transition-colors border-b-2 -mb-px ${
+                    className={`flex-1 py-2.5 text-[11px] font-medium capitalize transition-colors border-b-2 -mb-px ${
                       tab === t
                         ? 'border-brand text-text-primary'
                         : 'border-transparent text-text-muted hover:text-text-secondary'
@@ -384,6 +403,39 @@ export function SkillHubDrawer() {
                     />
                   ))
                 )
+              ) : tab === 'community' ? (
+                /* Community tab — ClawHub/community-attributed skills */
+                communityLoading ? (
+                  <SkeletonList />
+                ) : communityError ? (
+                  <ErrorState message={communityError} onRetry={() => { setCommunityFetched(false); fetchCommunity(); }} />
+                ) : community.length === 0 ? (
+                  <EmptyState message="No community skills found." hint="Check your connection or try again." />
+                ) : (
+                  <>
+                    <p className="text-[11px] text-text-muted px-1 pb-1">
+                      Community skills are contributed by third-party authors and are not vetted or maintained by Feral.
+                      Preview before installing.
+                    </p>
+                    {community.map(skill => (
+                      <SkillCard
+                        key={skill.id}
+                        skill={skill}
+                        showAuthor
+                        action={skill.install_status === 'installed'
+                          ? { label: '✓ Installed', disabled: true, onClick: () => {} }
+                          : { label: 'Preview', onClick: () =>
+                              openDetail(skill, () =>
+                                tauri.skills.previewRemote(skill.content_url ?? '')
+                                  .then((p: SkillPreview) => p.content)
+                              )
+                            }
+                        }
+                        badgeColor={badgeColor}
+                      />
+                    ))}
+                  </>
+                )
               ) : (
                 /* Import tab */
                 <div className="flex flex-col gap-3">
@@ -420,12 +472,19 @@ export function SkillHubDrawer() {
 // Sub-components
 
 function SkillCard({
-  skill, action, badgeColor,
+  skill, action, badgeColor, showAuthor = false,
 }: {
   skill: SkillMeta;
   action: { label: string; onClick: () => void; disabled?: boolean };
   badgeColor: Record<string, string>;
+  showAuthor?: boolean;
 }) {
+  const providerLabel: Record<string, string> = {
+    clawhub: 'ClawHub',
+    github:  'GitHub',
+    local:   'Local',
+  };
+
   return (
     <div className="bg-bg-elevated border border-border-subtle rounded-xl p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -434,6 +493,16 @@ function SkillCard({
           {skill.trust_label}
         </span>
       </div>
+      {showAuthor && (skill.author || skill.source_provider) && (
+        <div className="flex items-center gap-2 text-[11px] text-text-muted">
+          {skill.author && <span>by {skill.author}</span>}
+          {skill.source_provider && (
+            <span className="px-1.5 py-px rounded bg-bg-hover text-[10px]">
+              {providerLabel[skill.source_provider] ?? skill.source_provider}
+            </span>
+          )}
+        </div>
+      )}
       {skill.description && (
         <p className="text-xs text-text-muted leading-relaxed line-clamp-2">{skill.description}</p>
       )}
