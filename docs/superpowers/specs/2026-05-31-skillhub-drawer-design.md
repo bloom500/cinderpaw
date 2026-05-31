@@ -37,6 +37,30 @@ Three providers:
 
 The manifest URL is a compile-time constant in `skills.rs`; can be promoted to a settings value later.
 
+### GitHub manifest format
+
+The manifest is a JSON array of `SkillMeta` objects. Every remote entry **must** include `content_url` (the raw SKILL.md URL) — entries without it are skipped during load. Example:
+
+```json
+[
+  {
+    "id": "systematic-debugging",
+    "name": "Systematic Debugging",
+    "description": "Step-by-step debugging workflow for Claude Code.",
+    "author": "Feral",
+    "version": "1.0.0",
+    "license": "MIT",
+    "tags": ["debugging", "workflow"],
+    "source_provider": "github",
+    "source_url": "https://github.com/example/skills",
+    "content_url": "https://raw.githubusercontent.com/example/skills/main/systematic-debugging/SKILL.md",
+    "install_status": "not_installed",
+    "trust_label": "community",
+    "last_updated": "2026-05-31"
+  }
+]
+```
+
 ---
 
 ## Data Model
@@ -97,7 +121,7 @@ struct SkillPreview {
 All file operations validate:
 1. `id` matches `^[a-z0-9\-_]+$` — rejects path components
 2. Resolved final path starts with `~/.feral/skills/` — prevents traversal
-3. `get_skill_content`-style calls only accept `https://` URLs from an allowlist (`raw.githubusercontent.com` + manifest domain)
+3. URL-fetching commands accept only `https://` URLs from an allowlist (`raw.githubusercontent.com` + manifest domain)
 
 | Command | Signature | Behavior |
 |---|---|---|
@@ -105,7 +129,7 @@ All file operations validate:
 | `get_installed_skill_content` | `id: String → String` | Reads `~/.feral/skills/<id>/SKILL.md` with path guard |
 | `fetch_remote_skills` | `→ Vec<SkillMeta>` | GETs GitHub manifest JSON; sets `install_status` by cross-referencing local |
 | `preview_remote_skill` | `url: String → SkillPreview` | Fetches URL (https-only, allowlisted hosts), parses SKILL.md frontmatter into meta + returns raw content |
-| `preview_local_skill` | `path: String → SkillPreview` | Reads file at path (validated as a regular file), parses same way |
+| `preview_local_skill` | `path: String → SkillPreview` | Reads file at path explicitly provided by the user; validates it exists, is a regular file, and is not a symlink escape. Future v2 can use a native file picker for stronger consent UX. |
 | `skill_exists` | `id: String → bool` | Checks if `~/.feral/skills/<id>/` exists |
 | `install_skill` | `meta: SkillMeta, content: String, overwrite: bool → ()` | Writes `~/.feral/skills/<id>/SKILL.md`; errors if folder exists and `overwrite=false` |
 | `remove_skill` | `id: String → ()` | Hard-deletes `~/.feral/skills/<id>/`; slug-validated + path-guarded |
@@ -200,7 +224,7 @@ Sections:
 ### Installed → Remove
 1. Open Installed tab → cards render
 2. Click "Details" → detail panel, content loads async
-3. Click "Remove" → inline "Remove this skill?" Confirm / Cancel
+3. Click "Remove" → inline **"Remove this skill from Feral? This cannot be undone in v1."** Confirm / Cancel
 4. Confirm → `remove_skill(id)` → back to list → refresh `installed_skills` → also update `remote_skills` statuses
 
 ### Import (URL)
