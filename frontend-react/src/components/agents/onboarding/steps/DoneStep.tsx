@@ -18,13 +18,14 @@ export function DoneStep({ agentName, agentId, onViewAgents }: Props) {
 
   useEffect(() => {
     if (!agentId) return;
+    const id = agentId;
     let cancelled = false;
 
     async function run() {
       setWarmup({ phase: 'running' });
       // warmupAgent handles all failure cases (gateway down, auth error, timeout)
       // by returning a result with kind != 'ok'. It never throws.
-      const result = await tauri.openclaw.warmupAgent(agentId!);
+      const result = await tauri.openclaw.warmupAgent(id);
       if (!cancelled) setWarmup({ phase: 'done', result });
     }
 

@@ -69,9 +69,9 @@ describe('DoneStep', () => {
 
   it('works without agentId — no warmup fires, agent is shown as saved', async () => {
     render(<DoneStep agentName="My Agent" onViewAgents={vi.fn()} />);
-    await waitFor(() => {
-      expect(mockWarmup).not.toHaveBeenCalled();
-    });
+    // Let any pending microtasks flush before asserting warmup was not called.
+    await Promise.resolve();
+    expect(mockWarmup).not.toHaveBeenCalled();
     expect(screen.getByText(/"my agent" is saved/i)).toBeInTheDocument();
   });
 });
