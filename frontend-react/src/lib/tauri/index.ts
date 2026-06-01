@@ -124,6 +124,33 @@ export interface Conversation {
 }
 export interface Project { id: string; name: string; conversation_ids: string[] }
 
+// ── OpenClaw ────────────────────────────────────────────────────────────────
+export interface OpenClawDetectResult {
+  installed: boolean;
+  binary_path: string | null;
+  version: string | null;
+}
+
+export interface OpenClawDiagnostic {
+  command: string;
+  ok: boolean;
+  exit_code: number | null;
+  stdout_redacted: string;
+  stderr_redacted: string;
+  error: string | null;
+}
+
+export interface OpenClawStatusResult {
+  installed: boolean;
+  binary_path: string | null;
+  version: string | null;
+  gateway_running: boolean;
+  health_ok: boolean;
+  health_summary: string | null;
+  diagnostics: OpenClawDiagnostic[];
+  recommended_action: string;
+}
+
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
 // No Result wrapper needed — errors propagate as thrown exceptions.
@@ -182,6 +209,9 @@ const raw = {
   installSkill:             (meta: SkillMeta, content: string, overwrite: boolean) =>
     invoke<void>('install_skill', { meta, content, overwrite }),
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
+  openclawDetect:           ()    => invoke<OpenClawDetectResult>('openclaw_detect'),
+  openclawStatus:           ()    => invoke<OpenClawStatusResult>('openclaw_status'),
+  openclawOpenDocs:         ()    => invoke<void>('openclaw_open_docs'),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -261,6 +291,12 @@ export const tauri = {
     install:            async (meta: SkillMeta, content: string, overwrite: boolean) =>
       raw.installSkill(meta, content, overwrite),
     remove:             async (id: string) => raw.removeSkill(id),
+  },
+
+  openclaw: {
+    detect:   async () => raw.openclawDetect(),
+    status:   async () => raw.openclawStatus(),
+    openDocs: async () => raw.openclawOpenDocs(),
   },
 };
 

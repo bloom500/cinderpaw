@@ -6,6 +6,7 @@ mod events;
 mod gpu_detect;
 mod inference;
 mod models;
+mod openclaw;
 mod paths;
 mod projects;
 mod settings;
@@ -1257,6 +1258,9 @@ pub fn run() {
             skills::skill_exists_cmd,
             skills::install_skill,
             skills::remove_skill,
+            openclaw::openclaw_detect,
+            openclaw::openclaw_status,
+            openclaw::openclaw_open_docs,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,

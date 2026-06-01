@@ -6,10 +6,11 @@ import { AppearanceTab } from '@/components/settings/AppearanceTab';
 import { HardwareTab }   from '@/components/settings/HardwareTab';
 import { ApiServerTab }  from '@/components/settings/ApiServerTab';
 import { ByokTab }       from '@/components/settings/ByokTab';
+import { OpenClawTab }   from '@/components/settings/OpenClawTab';
 import { PrivacyTab }    from '@/components/settings/PrivacyTab';
 import { AboutTab }      from '@/components/settings/AboutTab';
 
-type Category = 'general' | 'appearance' | 'hardware' | 'api' | 'byok' | 'privacy' | 'about';
+type Category = 'general' | 'appearance' | 'hardware' | 'api' | 'byok' | 'openclaw' | 'privacy' | 'about';
 
 const CATS: { id: Category; label: string; icon: string }[] = [
   { id: 'general',    label: 'General',     icon: '⚙' },
@@ -17,6 +18,7 @@ const CATS: { id: Category; label: string; icon: string }[] = [
   { id: 'hardware',   label: 'Hardware',    icon: '⌬' },
   { id: 'api',        label: 'API Server',  icon: '⇄' },
   { id: 'byok',       label: 'Cloud Keys',  icon: '⚷' },
+  { id: 'openclaw',   label: 'OpenClaw',    icon: '🜲' },
   { id: 'privacy',    label: 'Privacy',     icon: '⚿' },
   { id: 'about',      label: 'About',       icon: 'ⓘ' },
 ];
@@ -57,6 +59,7 @@ export function SettingsPage() {
         {cat === 'hardware'   && <HardwareTab />}
         {cat === 'api'        && <ApiServerTab />}
         {cat === 'byok'       && <ByokTab />}
+        {cat === 'openclaw'   && <OpenClawTab />}
         {cat === 'privacy'    && <PrivacyTab />}
         {cat === 'about'      && <AboutTab />}
       </div>
