@@ -24,7 +24,26 @@ fn new_id() -> String {
     Uuid::new_v4().to_string()
 }
 
+/// Validate that an agent id is safe for use as a filename component.
+/// Accepts only `[a-zA-Z0-9_-]`, 1–64 chars. Rejects empty, dots, slashes,
+/// backslashes, spaces, or any other character that could form a path traversal.
+pub fn validate_agent_id(id: &str) -> Result<()> {
+    if id.is_empty() || id.len() > 64 {
+        return Err(anyhow::anyhow!(
+            "agent id must be 1–64 characters; got {}",
+            id.len()
+        ));
+    }
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(anyhow::anyhow!(
+            "agent id contains invalid characters (only a-z, A-Z, 0-9, '-', '_' allowed)"
+        ));
+    }
+    Ok(())
+}
+
 pub fn save(cfg: &AgentConfig) -> Result<()> {
+    validate_agent_id(&cfg.id)?;
     paths::ensure_dirs()?;
     let path = paths::agents_dir().join(format!("{}.json", cfg.id));
     std::fs::write(path, serde_json::to_vec_pretty(cfg)?)?;
@@ -52,6 +71,7 @@ pub fn list() -> Result<Vec<AgentConfig>> {
 }
 
 pub fn delete(id: &str) -> Result<()> {
+    validate_agent_id(id)?;
     let path = paths::agents_dir().join(format!("{}.json", id));
     if path.exists() {
         std::fs::remove_file(path)?;
@@ -204,6 +224,62 @@ pub fn run(
     });
 
     rx
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── agent ID validation ──────────────────────────────────────────────────
+
+    #[test]
+    fn valid_uuid_id_is_accepted() {
+        assert!(validate_agent_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
+    }
+
+    #[test]
+    fn valid_slug_id_is_accepted() {
+        assert!(validate_agent_id("my-agent_1").is_ok());
+    }
+
+    #[test]
+    fn empty_id_is_rejected() {
+        assert!(validate_agent_id("").is_err());
+    }
+
+    #[test]
+    fn id_too_long_is_rejected() {
+        assert!(validate_agent_id(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn path_traversal_id_is_rejected() {
+        assert!(validate_agent_id("../passwd").is_err());
+        assert!(validate_agent_id("..").is_err());
+        assert!(validate_agent_id(".").is_err());
+    }
+
+    #[test]
+    fn slash_in_id_is_rejected() {
+        assert!(validate_agent_id("foo/bar").is_err());
+    }
+
+    #[test]
+    fn backslash_in_id_is_rejected() {
+        assert!(validate_agent_id("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn space_in_id_is_rejected() {
+        assert!(validate_agent_id("foo bar").is_err());
+    }
+
+    #[test]
+    fn dot_in_id_is_rejected() {
+        assert!(validate_agent_id("foo.bar").is_err());
+    }
 }
 
 #[derive(Debug)]

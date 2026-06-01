@@ -17,7 +17,7 @@ export function ReviewStep({ name, preset, saveError }: Props) {
     <div className="max-w-md mx-auto space-y-5 pt-2">
       <div className="space-y-1">
         <h2 className="text-xl font-semibold text-text-primary">Here's what your agent will look like</h2>
-        <p className="text-xs text-text-muted">Review before saving. You can edit it later.</p>
+        <p className="text-xs text-text-muted">Review before saving. Editing will be available in a future update.</p>
       </div>
 
       <div className="rounded-lg border border-border-subtle bg-bg-surface p-4 space-y-3">
@@ -48,7 +48,7 @@ export function ReviewStep({ name, preset, saveError }: Props) {
               ))}
             </div>
           ) : (
-            <span className="text-sm text-text-muted">None (you can add tools later)</span>
+            <span className="text-sm text-text-muted">None (tool configuration coming soon)</span>
           )}
         </div>
       </div>

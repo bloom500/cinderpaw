@@ -18,7 +18,7 @@ export function NameAgentStep({ name, onChange, onSubmit }: Props) {
     <div className="max-w-md mx-auto space-y-4 pt-2">
       <div className="space-y-1">
         <h2 className="text-xl font-semibold text-text-primary">What do you want to call it?</h2>
-        <p className="text-xs text-text-muted">You can change this at any time.</p>
+        <p className="text-xs text-text-muted">You'll be able to rename this in a future update.</p>
       </div>
 
       <input

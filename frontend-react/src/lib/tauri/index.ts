@@ -3,7 +3,8 @@
 // Tauri returns T directly on success and throws a string on Err.
 // Domain groups keep components to ~5 imports each.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
+export { Channel };
 import type {
   TokenEvent,
   StreamDoneEvent,
@@ -125,6 +126,14 @@ export interface Conversation {
 export interface Project { id: string; name: string; conversation_ids: string[] }
 
 // ── Agents ───────────────────────────────────────────────────────────────────
+/** Mirrors Rust AgentEvent — `#[serde(tag = "kind", rename_all = "snake_case")]` */
+export type AgentEvent =
+  | { kind: 'token';       text: string }
+  | { kind: 'tool_call';   name: string; args: unknown }
+  | { kind: 'tool_result'; name: string; ok: boolean; output: string }
+  | { kind: 'final';       text: string }
+  | { kind: 'error';       message: string };
+
 export interface AgentConfig {
   /** Omit when creating a new agent — the backend assigns a UUID. */
   id?: string;
@@ -187,6 +196,8 @@ const raw = {
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
   getAgentPresets:       ()    => invoke<AgentConfig[]>('get_agent_presets'),
+  runAgent:              (agentId: string, prompt: string, onEvent: Channel<string>) =>
+    invoke<void>('run_agent', { agentId, prompt, onEvent }),
   saveConversation:      (id: string, title: string, messages: PersistedMessage[]) =>
     invoke<void>('save_conversation', { id, title, messages }),
   loadConversations:     ()    => invoke<ConversationSummary[]>('load_conversations'),
@@ -316,6 +327,8 @@ export const tauri = {
     save:       async (cfg: AgentConfig) => raw.saveAgent(cfg),
     getAll:     async () => raw.getAgents(),
     delete:     async (id: string) => raw.deleteAgent(id),
+    run:        async (agentId: string, prompt: string, onEvent: Channel<string>) =>
+      raw.runAgent(agentId, prompt, onEvent),
   },
 };
 
