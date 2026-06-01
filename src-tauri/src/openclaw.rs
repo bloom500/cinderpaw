@@ -21,6 +21,11 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 
+// reqwest is used only for the test-message HTTP call.
+// All other probing uses subprocess (openclaw CLI).
+#[allow(unused_imports)]
+use reqwest;
+
 /// Hard cap on every spawned probe. OpenClaw is supposed to be a local CLI
 /// that returns in milliseconds; anything past 5 s is treated as failure and
 /// the child is killed.
@@ -668,6 +673,230 @@ pub fn parse_gateway_endpoint(output: &str) -> Option<String> {
     None
 }
 
+// ── Test-message layer ───────────────────────────────────────────────────────
+//
+// Sends ONE explicit user-triggered message to an already-detected, already-
+// healthy OpenClaw gateway. Only loopback endpoints are accepted. The two
+// well-known API paths tried in order are:
+//
+//   POST /v1/chat/completions   (OpenAI-compatible — most common)
+//   POST /api/chat              (Ollama-compatible)
+//
+// If neither returns 2xx, the result kind is `Unsupported` with a clear note
+// about what API paths were tried. No OpenClaw config is written.
+
+/// Paths tried in order when sending a test message.
+const CHAT_API_PATHS: &[&str] = &["/v1/chat/completions", "/api/chat"];
+
+/// Timeout for the HTTP test-message request. Longer than probe timeout to
+/// allow a first-token delay from a cold model.
+const TEST_MESSAGE_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TestMessageKind {
+    /// Message sent and a text response was received.
+    Ok,
+    /// No response within `TEST_MESSAGE_TIMEOUT`.
+    Timeout,
+    /// Gateway is running but no compatible API path was found.
+    Unsupported,
+    /// Gateway or health capability is missing — cannot attempt.
+    CapabilityMissing,
+    /// An unexpected error occurred (network, parse, etc.).
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct OpenClawTestMessageResult {
+    pub kind: TestMessageKind,
+    /// Response text from OpenClaw (only present when `kind == Ok`).
+    pub response_text: Option<String>,
+    /// Redacted diagnostic / error message.
+    pub error_message: Option<String>,
+    /// The URL (scheme + host + path) that was last attempted.
+    pub endpoint_tried: Option<String>,
+}
+
+// ── Tauri command ─────────────────────────────────────────────────────────────
+
+/// Send a single explicit test message to the OpenClaw gateway.
+///
+/// The `endpoint` must be the loopback URL already returned by
+/// `openclaw_status`. It is re-validated server-side before any HTTP call.
+/// The `prompt` is sent as-is; the caller is responsible for choosing a safe
+/// default (the UI provides one).
+#[tauri::command]
+#[specta::specta]
+pub async fn openclaw_test_message(
+    prompt: String,
+    endpoint: Option<String>,
+) -> Result<OpenClawTestMessageResult, String> {
+    let ep = match endpoint {
+        Some(ep) => ep,
+        None => return Ok(OpenClawTestMessageResult {
+            kind: TestMessageKind::CapabilityMissing,
+            response_text: None,
+            error_message: Some(
+                "No gateway endpoint provided. Run a status refresh first, then retry."
+                    .to_string(),
+            ),
+            endpoint_tried: None,
+        }),
+    };
+
+    if !is_loopback_url(&ep) {
+        return Ok(OpenClawTestMessageResult {
+            kind: TestMessageKind::Error,
+            response_text: None,
+            error_message: Some(
+                "Endpoint is not a loopback address. Feral only contacts local gateways."
+                    .to_string(),
+            ),
+            endpoint_tried: Some(ep),
+        });
+    }
+
+    Ok(send_test_message(&ep, &prompt).await)
+}
+
+// ── HTTP helper ───────────────────────────────────────────────────────────────
+
+async fn send_test_message(endpoint: &str, prompt: &str) -> OpenClawTestMessageResult {
+    let client = match reqwest::Client::builder()
+        .timeout(TEST_MESSAGE_TIMEOUT)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return OpenClawTestMessageResult {
+            kind: TestMessageKind::Error,
+            response_text: None,
+            error_message: Some(redact_secrets(&format!("Failed to build HTTP client: {e}"))),
+            endpoint_tried: Some(endpoint.to_string()),
+        },
+    };
+
+    let body = serde_json::json!({
+        "model": "default",
+        "messages": [{ "role": "user", "content": prompt }],
+        "max_tokens": 150,
+        "stream": false
+    });
+
+    for path in CHAT_API_PATHS {
+        let url = format!("{}{}", endpoint.trim_end_matches('/'), path);
+
+        match client.post(&url).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                let raw = resp.text().await.unwrap_or_default();
+                let text = parse_chat_response(&raw).or_else(|| {
+                    // Surface the raw body (redacted) when parsing fails but HTTP succeeded.
+                    let r = redact_secrets(&raw);
+                    if r.is_empty() { None } else { Some(r) }
+                });
+                return OpenClawTestMessageResult {
+                    kind: TestMessageKind::Ok,
+                    response_text: text,
+                    error_message: None,
+                    endpoint_tried: Some(url),
+                };
+            }
+            // 404 / 405 → this path doesn't exist, try next
+            Ok(resp) if resp.status() == 404 || resp.status() == 405 => continue,
+            Ok(resp) => {
+                return OpenClawTestMessageResult {
+                    kind: TestMessageKind::Error,
+                    response_text: None,
+                    error_message: Some(format!("HTTP {}", resp.status())),
+                    endpoint_tried: Some(url),
+                };
+            }
+            Err(e) if e.is_timeout() => {
+                return OpenClawTestMessageResult {
+                    kind: TestMessageKind::Timeout,
+                    response_text: None,
+                    error_message: Some(format!(
+                        "No response within {}s.",
+                        TEST_MESSAGE_TIMEOUT.as_secs()
+                    )),
+                    endpoint_tried: Some(url),
+                };
+            }
+            Err(e) => {
+                return OpenClawTestMessageResult {
+                    kind: TestMessageKind::Error,
+                    response_text: None,
+                    error_message: Some(redact_secrets(&e.to_string())),
+                    endpoint_tried: Some(url),
+                };
+            }
+        }
+    }
+
+    // All known paths returned 404/405.
+    OpenClawTestMessageResult {
+        kind: TestMessageKind::Unsupported,
+        response_text: None,
+        error_message: Some(format!(
+            "Gateway is running at {endpoint} but none of the known API paths responded: {}. \
+             To enable this test, the OpenClaw gateway must expose one of those paths.",
+            CHAT_API_PATHS.join(", ")
+        )),
+        endpoint_tried: Some(endpoint.to_string()),
+    }
+}
+
+// ── Pure helpers (unit-tested) ────────────────────────────────────────────────
+
+/// Returns `true` when `url` uses http/https and the host is a loopback address.
+/// Anything else — external hosts, IPs, non-HTTP schemes — returns `false`.
+pub fn is_loopback_url(url: &str) -> bool {
+    let rest = if let Some(r) = url.strip_prefix("https://") {
+        r
+    } else if let Some(r) = url.strip_prefix("http://") {
+        r
+    } else {
+        return false;
+    };
+    // IPv6 bracketed address — must start with [::1]
+    if rest.starts_with('[') {
+        return rest.starts_with("[::1]");
+    }
+    // The host ends at the first ':' (port separator) or '/' (path start).
+    let host = rest.split(&[':', '/'][..]).next().unwrap_or("");
+    host == "localhost"
+        || host == "0.0.0.0"
+        || (host.starts_with("127.") && host.chars().all(|c| c.is_ascii_digit() || c == '.'))
+}
+
+/// Extract the first human-readable text from a chat API JSON body.
+/// Tries OpenAI-compatible, then Ollama-compatible, then generic top-level keys.
+pub fn parse_chat_response(body: &str) -> Option<String> {
+    if body.is_empty() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+
+    // OpenAI: choices[0].message.content
+    if let Some(c) = v["choices"][0]["message"]["content"].as_str() {
+        let t = c.trim();
+        if !t.is_empty() { return Some(t.to_string()); }
+    }
+    // Ollama: message.content
+    if let Some(c) = v["message"]["content"].as_str() {
+        let t = c.trim();
+        if !t.is_empty() { return Some(t.to_string()); }
+    }
+    // Generic top-level string keys
+    for key in &["response", "text", "content", "answer"] {
+        if let Some(c) = v[key].as_str() {
+            let t = c.trim();
+            if !t.is_empty() { return Some(t.to_string()); }
+        }
+    }
+    None
+}
+
 // ── URL opener (platform-specific) ───────────────────────────────────────────
 
 /// Open `url` in the OS default browser. We deliberately do NOT shell out
@@ -932,5 +1161,96 @@ mod tests {
     fn recommend_all_green() {
         let s = recommend_action(true, true, true);
         assert!(s.contains("pass"), "got: {}", s);
+    }
+
+    // ── test message: loopback guard ─────────────────────────────────────────
+
+    #[test]
+    fn loopback_localhost_is_accepted() {
+        assert!(is_loopback_url("http://localhost:8888"));
+        assert!(is_loopback_url("https://localhost:9000"));
+    }
+
+    #[test]
+    fn loopback_127_is_accepted() {
+        assert!(is_loopback_url("http://127.0.0.1:9000"));
+        assert!(is_loopback_url("https://127.0.0.2:443"));
+    }
+
+    #[test]
+    fn loopback_zero_zero_is_accepted() {
+        assert!(is_loopback_url("http://0.0.0.0:8080"));
+    }
+
+    #[test]
+    fn loopback_ipv6_is_accepted() {
+        assert!(is_loopback_url("http://[::1]:8888"));
+    }
+
+    #[test]
+    fn external_hostname_is_rejected() {
+        assert!(!is_loopback_url("http://api.example.com:443"));
+        assert!(!is_loopback_url("https://openclaw.example.com/api"));
+    }
+
+    #[test]
+    fn external_ip_is_rejected() {
+        assert!(!is_loopback_url("http://192.168.1.1:8888"));
+        assert!(!is_loopback_url("http://10.0.0.5:8080"));
+    }
+
+    #[test]
+    fn non_http_scheme_is_rejected() {
+        assert!(!is_loopback_url("ws://localhost:8888"));
+        assert!(!is_loopback_url("ftp://localhost/path"));
+        assert!(!is_loopback_url("localhost:8888"));
+    }
+
+    // ── test message: response parsing ───────────────────────────────────────
+
+    #[test]
+    fn parses_openai_chat_completions_response() {
+        let body = r#"{"choices":[{"message":{"content":"Hello from OpenClaw!"},"index":0}]}"#;
+        assert_eq!(
+            parse_chat_response(body).as_deref(),
+            Some("Hello from OpenClaw!"),
+        );
+    }
+
+    #[test]
+    fn parses_ollama_style_message_content() {
+        let body = r#"{"message":{"content":"Ollama says hi"},"done":true}"#;
+        assert_eq!(
+            parse_chat_response(body).as_deref(),
+            Some("Ollama says hi"),
+        );
+    }
+
+    #[test]
+    fn parses_generic_response_key() {
+        let body = r#"{"response":"Generic response text"}"#;
+        assert_eq!(
+            parse_chat_response(body).as_deref(),
+            Some("Generic response text"),
+        );
+    }
+
+    #[test]
+    fn returns_none_for_empty_body() {
+        assert!(parse_chat_response("").is_none());
+    }
+
+    #[test]
+    fn returns_none_for_unrecognized_json() {
+        assert!(parse_chat_response(r#"{"status":"ok","running":true}"#).is_none());
+    }
+
+    #[test]
+    fn trims_whitespace_from_response() {
+        let body = r#"{"choices":[{"message":{"content":"  trimmed  "}}]}"#;
+        assert_eq!(
+            parse_chat_response(body).as_deref(),
+            Some("trimmed"),
+        );
     }
 }

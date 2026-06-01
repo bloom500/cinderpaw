@@ -176,6 +176,24 @@ export interface OpenClawStatusResult {
   gateway_endpoint: string | null;
 }
 
+/** Mirrors Rust TestMessageKind — `#[serde(rename_all = "snake_case")]` */
+export type TestMessageKind =
+  | 'ok'
+  | 'timeout'
+  | 'unsupported'
+  | 'capability_missing'
+  | 'error';
+
+export interface OpenClawTestMessageResult {
+  kind: TestMessageKind;
+  /** Response text from OpenClaw (only present when kind == 'ok'). */
+  response_text: string | null;
+  /** Redacted diagnostic / error message. */
+  error_message: string | null;
+  /** Last URL attempted. */
+  endpoint_tried: string | null;
+}
+
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
 // No Result wrapper needed — errors propagate as thrown exceptions.
@@ -239,6 +257,8 @@ const raw = {
   openclawDetect:           ()    => invoke<OpenClawDetectResult>('openclaw_detect'),
   openclawStatus:           ()    => invoke<OpenClawStatusResult>('openclaw_status'),
   openclawOpenDocs:         ()    => invoke<void>('openclaw_open_docs'),
+  openclawTestMessage:      (prompt: string, endpoint: string | null) =>
+    invoke<OpenClawTestMessageResult>('openclaw_test_message', { prompt, endpoint }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -321,9 +341,11 @@ export const tauri = {
   },
 
   openclaw: {
-    detect:   async () => raw.openclawDetect(),
-    status:   async () => raw.openclawStatus(),
-    openDocs: async () => raw.openclawOpenDocs(),
+    detect:      async () => raw.openclawDetect(),
+    status:      async () => raw.openclawStatus(),
+    openDocs:    async () => raw.openclawOpenDocs(),
+    testMessage: async (prompt: string, endpoint: string | null) =>
+      raw.openclawTestMessage(prompt, endpoint),
   },
 
   agents: {

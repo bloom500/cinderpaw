@@ -7,15 +7,17 @@ import { tauri, type OpenClawStatusResult } from '@/lib/tauri';
 vi.mock('@/lib/tauri', () => ({
   tauri: {
     openclaw: {
-      detect:   vi.fn(),
-      status:   vi.fn(),
-      openDocs: vi.fn(),
+      detect:      vi.fn(),
+      status:      vi.fn(),
+      openDocs:    vi.fn(),
+      testMessage: vi.fn(),
     },
   },
 }));
 
-const mockStatus   = vi.mocked(tauri.openclaw.status);
-const mockOpenDocs = vi.mocked(tauri.openclaw.openDocs);
+const mockStatus      = vi.mocked(tauri.openclaw.status);
+const mockOpenDocs    = vi.mocked(tauri.openclaw.openDocs);
+const mockTestMessage = vi.mocked(tauri.openclaw.testMessage);
 
 function makeReady(overrides: Partial<OpenClawStatusResult> = {}): OpenClawStatusResult {
   return {
@@ -38,6 +40,9 @@ describe('OpenClawTab', () => {
     vi.clearAllMocks();
     mockStatus.mockResolvedValue(makeReady());
     mockOpenDocs.mockResolvedValue(undefined);
+    mockTestMessage.mockResolvedValue({
+      kind: 'ok', response_text: null, error_message: null, endpoint_tried: null,
+    });
   });
 
   it('auto-refreshes on mount and shows the not-installed empty state', async () => {
@@ -186,6 +191,104 @@ describe('OpenClawTab', () => {
     render(<OpenClawTab />);
     await waitFor(() => {
       expect(screen.getByText(/routing.*not yet enabled|not yet enabled.*routing/i)).toBeInTheDocument();
+    });
+  });
+
+  // ── test message panel ───────────────────────────────────────────────────
+
+  it('Send test message button is disabled when capabilities are empty', async () => {
+    mockStatus.mockResolvedValue(makeReady({ capabilities: [] }));
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    const btn = screen.getByRole('button', { name: /send test message/i });
+    expect(btn).toBeDisabled();
+  });
+
+  it('Send test message button is disabled when only gateway capability is present', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true, gateway_running: true,
+      capabilities: ['gateway'], gateway_endpoint: 'http://localhost:8888',
+    }));
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: /send test message/i })).toBeDisabled();
+  });
+
+  it('Send test message button is enabled when both capabilities are present', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true, gateway_running: true, health_ok: true,
+      capabilities: ['gateway', 'health_check'],
+      gateway_endpoint: 'http://localhost:8888',
+    }));
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: /send test message/i })).not.toBeDisabled();
+  });
+
+  it('shows success response after testMessage returns ok', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true, gateway_running: true, health_ok: true,
+      capabilities: ['gateway', 'health_check'],
+      gateway_endpoint: 'http://localhost:8888',
+    }));
+    mockTestMessage.mockResolvedValue({
+      kind: 'ok',
+      response_text: 'Connection confirmed!',
+      error_message: null,
+      endpoint_tried: 'http://localhost:8888/v1/chat/completions',
+    });
+
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: /send test message/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Connection confirmed!')).toBeInTheDocument();
+    });
+  });
+
+  it('shows unsupported state when testMessage kind is unsupported', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true, gateway_running: true, health_ok: true,
+      capabilities: ['gateway', 'health_check'],
+      gateway_endpoint: 'http://localhost:8888',
+    }));
+    mockTestMessage.mockResolvedValue({
+      kind: 'unsupported',
+      response_text: null,
+      error_message: 'No compatible API path found.',
+      endpoint_tried: 'http://localhost:8888',
+    });
+
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: /send test message/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/no compatible api path found/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/unsupported/i)).toBeInTheDocument();
+  });
+
+  it('shows error state when testMessage kind is error', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true, gateway_running: true, health_ok: true,
+      capabilities: ['gateway', 'health_check'],
+      gateway_endpoint: 'http://localhost:8888',
+    }));
+    mockTestMessage.mockResolvedValue({
+      kind: 'error',
+      response_text: null,
+      error_message: 'Connection refused.',
+      endpoint_tried: 'http://localhost:8888/v1/chat/completions',
+    });
+
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: /send test message/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
     });
   });
 

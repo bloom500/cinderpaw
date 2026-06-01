@@ -1261,6 +1261,7 @@ pub fn run() {
             openclaw::openclaw_detect,
             openclaw::openclaw_status,
             openclaw::openclaw_open_docs,
+            openclaw::openclaw_test_message,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,

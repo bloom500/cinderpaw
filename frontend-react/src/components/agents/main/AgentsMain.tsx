@@ -96,7 +96,9 @@ export function AgentsMain({ onCreateFirst }: Props) {
         <Info size={13} className="text-text-muted shrink-0 mt-0.5" />
         <p className="text-xs text-text-muted">
           These agents run on your <span className="text-text-secondary font-medium">local Feral model</span>.
-          OpenClaw-backed agent routing is not yet enabled in this version.
+          OpenClaw-backed agent routing is not yet enabled in this version.{' '}
+          An OpenClaw runtime test is available in{' '}
+          <span className="text-text-secondary font-medium">Settings → OpenClaw</span>.
         </p>
       </div>
 
