@@ -1,46 +1,107 @@
-# 🐺 Feral
+# Feral
 
-> **The Alpha for Local Autonomous Agents.** A premium, ultra-fast, native desktop application designed to build, manage, and execute autonomous local agent workflows with zero server costs and absolute privacy.
+**Your local AI workspace. No cloud. No subscription. No compromise.**
 
-Built entirely on a high-performance native stack: **Rust (Tauri v2)** + **Leptos (WASM)** + **Tailwind CSS**.
-
----
-
-## ⚡ Why Feral?
-
-Most AI agent interfaces are heavy, sluggish Electron wrappers that leak your data to third-party cloud APIs and drain your machine's resources. Feral flips the script. By combining the safety and raw speed of Rust with local inference engines, Feral runs seamlessly on consumer hardware, transforming your computer into a local operations center for digital workers.
-
-### 🚀 Core Pillars
-
-* **Zero AI Slop UX:** A highly structural, minimalist dashboard designed heavily around elite developer workflows (inspired by Linear and Vercel aesthetics).
-* **1-Click Local Onboarding:** No Docker, no complex WSL/Terminal configurations. Connect natively to local inference runtimes (Ollama/Llama.cpp) and download optimized quantized GGUF models directly inside the app.
-* **Privacy-First & Offline-Ready:** Your data, agent memory, and task logs never leave your hardware. Zero server latency, zero api subscription fees.
-* **Agentic Sovereignty:** Engineered to natively wrap and orchestrate advanced agent structures—such as **Nous Hermes Agent**—giving local models tool-execution capabilities, autonomous skill loops, and persistent cross-session memory.
+[Download for Windows](https://github.com/bloom500/feral/releases/latest) · [Report an issue](https://github.com/bloom500/feral/issues)
 
 ---
 
-## 🛠️ The Tech Stack
+## TL;DR
 
-Feral is written from the ground up to guarantee a sub-20MB binary size, near-instant startup times, and minimal RAM usage.
-
-* **Backend:** Rust (Tauri v2) — handles local process management, native OS access, resource monitoring (`sysinfo`), and secure sandbox network requests via `reqwest`.
-* **Frontend:** Leptos Framework (WebAssembly) — reactive, highly performant UI compilation with zero JavaScript overhead.
-* **Styling:** Tailwind CSS — micro-interaction padding, sharp monolithic dark theme layouts.
-* **Model Integration:** High-speed local REST bridge to Ollama/Llama.cpp APIs and seamless Model Downloader powered by the public Hugging Face Hub API.
+Feral is a desktop app that lets you chat with AI models running entirely on your own computer — no internet required, no API bills, no data leaving your machine. You can also plug in your own API keys for cloud models (ChatGPT, Claude, Gemini, etc.) and switch between local and cloud with one click. Think of it as a polished, private AI assistant that lives on your PC and does whatever you need.
 
 ---
 
-## 🗺️ Roadmap & Current Status
-
-- [x] **Core UI Shell:** High-fidelity dark mode dashboard with live hardware metric telemetry (CPU/GPU/VRAM).
-- [ ] **HuggingFace Native Explorer:** Direct model discovery and chunked asynchronous GGUF downloader with live progress events.
-- [ ] **Nous Hermes Core Integration:** Programmatic setup and background lifecycle management of the autonomous Hermes runtime as a Tauri Sidecar.
-- [ ] **Local Tool Execution Sandbox:** Giving local agents secure file, terminal, and browser scraping capabilities locally.
+![Chat](.github/screenshots/chat.png)
 
 ---
 
-## 🤝 Next Steps & Collaborations
+## What's inside
 
-Feral is currently in active development. We aim to become the definitive desktop distribution channel for the open-source agent ecosystem. If you are building foundational agent runtimes like **Nous Hermes**, let's bridge the gap between complex terminal architectures and a smooth, production-grade desktop experience.
+| Feature | Description |
+|---|---|
+| **Chat** | Persistent conversations with any local or cloud model. Projects keep related chats grouped. |
+| **Local Models** | Load GGUF models from disk. One-click load/unload with live Active status. |
+| **Browse HuggingFace** | Search and download models directly inside the app — no terminal, no manual file moves. |
+| **SkillHub** | Install, discover, and import skills that extend what the AI can do. Community tab ships with curated third-party skills. |
+| **Cloud Keys (BYOK)** | Add your own API keys for OpenAI, Anthropic, Google Gemini, Kimi, GLM, MiniMax, DeepSeek, Groq, Mistral, OpenRouter, or any custom endpoint. |
+| **Hardware Monitor** | Live GPU/VRAM/RAM readout and Vulkan detection in the title bar — always know what your machine is doing. |
+| **Auto-updater** | Silent background update checks. One click to install the latest version. |
 
-*Developed with 💜 by a Builder for Builders.*
+---
+
+## Screenshots
+
+### Chat
+
+![Chat view](.github/screenshots/chat.png)
+
+### Models — Local
+
+![Local models](.github/screenshots/models.png)
+
+### Models — Browse HuggingFace
+
+![Browse HuggingFace](.github/screenshots/models_browse.png)
+
+### SkillHub
+
+![SkillHub Community](.github/screenshots/skills.png)
+
+### Cloud Keys
+
+![Cloud Keys](.github/screenshots/cloud_keys.png)
+
+---
+
+## Why Feral
+
+Most AI desktop apps are Electron wrappers — heavy, slow, and built around a single cloud provider. Feral is different:
+
+- **Native binary.** Built with Rust + Tauri v2. Fast startup, low RAM, no Chromium tax.
+- **Local-first.** Connect to Ollama or llama.cpp. Your conversations stay on your machine.
+- **Flexible.** BYOK support for 10+ cloud providers means you're never locked in.
+- **Extensible.** SkillHub lets you install agent skills that give your models new capabilities.
+- **Honest UX.** No dark patterns, no upsells, no telemetry. Just the tool.
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Rust + Tauri v2 |
+| Frontend | React + TypeScript + Vite |
+| Styling | Tailwind CSS |
+| Local inference | Ollama / llama.cpp (via REST) |
+| Model discovery | HuggingFace Hub API |
+| Signing & updates | tauri-plugin-updater + minisign |
+
+---
+
+## Getting started
+
+1. Download the latest installer from [Releases](https://github.com/bloom500/feral/releases/latest)
+2. Run the setup — no admin rights required
+3. Open Feral, go to **Models** and either load a local GGUF file or browse HuggingFace to download one
+4. Start chatting
+
+For cloud models: go to **Settings → Cloud Keys** and paste in your API key for any supported provider.
+
+---
+
+## Roadmap
+
+- [x] Chat with local models (Ollama / llama.cpp)
+- [x] HuggingFace model browser and downloader
+- [x] SkillHub — install, discover, and import agent skills
+- [x] BYOK cloud keys (10+ providers)
+- [x] Live hardware monitor (GPU / VRAM / RAM)
+- [x] Auto-updater
+- [x] Projects and conversation history
+- [ ] Agents — autonomous workflows with tool execution, memory, and skill loops
+- [ ] Local API server — expose a local endpoint for other apps to consume
+
+---
+
+*Built by [Bloom Lab](https://github.com/bloom500) · MIT + Apache 2.0*
