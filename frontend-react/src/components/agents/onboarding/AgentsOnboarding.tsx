@@ -40,6 +40,7 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
   const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedName, setSavedName] = useState('');
+  const [savedId, setSavedId]     = useState('');
 
   // ── Navigation helpers ──────────────────────────────────────────────────────
 
@@ -103,8 +104,9 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
         model_id:      '',
         tools:         preset?.tools ?? [],
       };
-      await tauri.agents.save(cfg);
-      setSavedName(cfg.name);
+      const saved = await tauri.agents.save(cfg);
+      setSavedName(saved.name);
+      setSavedId(saved.id ?? '');
       localStorage.setItem(ONBOARDING_KEY, 'completed');
       advance('done');
     } catch (e) {
@@ -124,7 +126,7 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
   if (step === 'done') {
     return (
       <div className="h-full flex items-center justify-center p-6">
-        <DoneStep agentName={savedName} onViewAgents={onDone} />
+        <DoneStep agentName={savedName} agentId={savedId || undefined} onViewAgents={onDone} />
       </div>
     );
   }
