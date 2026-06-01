@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AgentCard } from '../AgentCard';
-import { tauri, type AgentConfig, type OpenClawTestMessageResult } from '@/lib/tauri';
+import { tauri, type AgentConfig } from '@/lib/tauri';
 
 const agent: AgentConfig = {
   id: 'test-id-1',
@@ -72,132 +72,87 @@ describe('AgentCard', () => {
     });
   });
 
-  // ── OpenClaw test mode ─────────────────────────────────────────────────────
+  // ── OpenClaw runtime mode ─────────────────────────────────────────────────
 
-  async function openOpenClawPanel() {
-    // Open the run panel first.
+  async function openRunPanel() {
     await userEvent.click(screen.getByRole('button', { name: /test panel for/i }));
-    // Switch the runtime selector to OpenClaw.
-    await userEvent.click(screen.getByRole('button', { name: /openclaw \(test\)/i }));
   }
 
-  it('shows a runtime selector inside the test panel and defaults to local', async () => {
+  async function switchToOpenClawRuntime() {
+    await userEvent.click(screen.getByRole('button', { name: /openclaw/i }));
+  }
+
+  it('shows a runtime selector inside the run panel and defaults to local when preferred_runtime is unset', async () => {
     render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: /test panel for/i }));
+    await openRunPanel();
     // Two runtime buttons present.
     expect(screen.getByRole('button', { name: /local feral/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /openclaw \(test\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /openclaw/i })).toBeInTheDocument();
     // The local run UI is shown by default.
     expect(screen.getByText(/local test — feral agent only/i)).toBeInTheDocument();
   });
 
-  it('switching to OpenClaw reveals the test panel with a clear "test mode" banner', async () => {
-    render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await openOpenClawPanel();
-    expect(screen.getByText(/openclaw test mode/i)).toBeInTheDocument();
-    expect(screen.getByText(/openclaw-backed routing is experimental/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /test with openclaw/i })).toBeInTheDocument();
+  it('defaults RuntimeSelector to OpenClaw when agent.preferred_runtime is "openclaw"', async () => {
+    const openclawAgent: AgentConfig = { ...agent, preferred_runtime: 'openclaw' };
+    render(<AgentCard agent={openclawAgent} onDelete={vi.fn()} />);
+    await openRunPanel();
+    // The OpenClaw runtime banner is the visible signal that the selector
+    // is on OpenClaw. We don't assert against the local body label because
+    // LocalTestBody is also re-used inside the OpenClaw body (it owns the
+    // prompt textarea + Run button). The active runtime is unambiguous
+    // because only one banner is rendered per branch.
+    expect(screen.getByText(/openclaw runtime/i)).toBeInTheDocument();
   });
 
-  it('sends a one-shot test request and shows the OK state with the response text', async () => {
-    mockTestAgent.mockResolvedValue({
-      kind: 'ok',
-      response_text: 'Hello from OpenClaw!',
-      error_message: null,
-      endpoint_tried: 'http://localhost:18789/v1/chat/completions',
-    } satisfies OpenClawTestMessageResult);
-
+  it('switching to OpenClaw reveals the runtime panel with a clear banner and a Run button', async () => {
     render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await openOpenClawPanel();
-
-    const promptBox = screen.getByPlaceholderText(/enter one prompt to test/i);
-    await userEvent.type(promptBox, 'say hi');
-    await userEvent.click(screen.getByRole('button', { name: /test with openclaw/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/openclaw responded/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/hello from openclaw!/i)).toBeInTheDocument();
-    expect(mockTestAgent).toHaveBeenCalledWith('test-id-1', 'say hi', null);
+    await openRunPanel();
+    await switchToOpenClawRuntime();
+    expect(screen.getByText(/openclaw runtime/i)).toBeInTheDocument();
+    expect(screen.getByText(/streams your prompt through the local openclaw gateway/i)).toBeInTheDocument();
+    // Run button still says "Run" — same execution path as local.
+    expect(screen.getByRole('button', { name: /run agent/i })).toBeInTheDocument();
   });
 
-  it('shows a timeout state when the backend reports kind=timeout', async () => {
-    mockTestAgent.mockResolvedValue({
-      kind: 'timeout',
-      response_text: null,
-      error_message: 'No response within 15s. The gateway may be starting up or the model is loading.',
-      endpoint_tried: 'http://localhost:18789/v1/chat/completions',
-    } satisfies OpenClawTestMessageResult);
-
+  it('OpenClaw Run button routes through tauri.agents.run (real backend), not the legacy testAgentMessage call site', async () => {
+    // The OpenClaw runtime reuses the Local Feral Run path — the only
+    // contract we need to assert at this layer is that the legacy
+    // one-shot `tauri.openclaw.testAgentMessage` call site is NOT used.
+    // (The actual `tauri.agents.run` invocation is covered by the
+    //  Local Feral run-path tests, which use the same handler.)
     render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await openOpenClawPanel();
-    await userEvent.type(screen.getByPlaceholderText(/enter one prompt to test/i), 'slow?');
-    await userEvent.click(screen.getByRole('button', { name: /test with openclaw/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/^timeout$/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/no response within 15s/i)).toBeInTheDocument();
+    await openRunPanel();
+    await switchToOpenClawRuntime();
+    // The OpenClaw banner is up and the Run button is the local-style
+    // one (not the legacy "Test with OpenClaw" label).
+    expect(screen.getByText(/openclaw runtime/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /run agent/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /test with openclaw/i })).not.toBeInTheDocument();
+    // mockTestAgent must not have been touched — there is no UI path
+    // that calls the legacy one-shot test endpoint from the runtime
+    // selector any more.
+    expect(mockTestAgent).not.toHaveBeenCalled();
   });
 
-  it('shows an auth-required state when the gateway returns 401/403', async () => {
-    mockTestAgent.mockResolvedValue({
-      kind: 'unsupported',
-      response_text: null,
-      error_message: 'OpenClaw gateway requires authentication (HTTP 401). Set the OPENCLAW_GATEWAY_TOKEN environment variable.',
-      endpoint_tried: 'http://localhost:18789/v1/chat/completions',
-    } satisfies OpenClawTestMessageResult);
-
-    render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await openOpenClawPanel();
-    await userEvent.type(screen.getByPlaceholderText(/enter one prompt to test/i), 'hello');
-    await userEvent.click(screen.getByRole('button', { name: /test with openclaw/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/auth required/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/settings → openclaw → connection/i)).toBeInTheDocument();
+  it('OpenClaw runtime shows system prompt preview in the banner details', async () => {
+    const richAgent: AgentConfig = {
+      ...agent,
+      system_prompt: 'You are a precise research assistant. Always cite sources.',
+    };
+    render(<AgentCard agent={richAgent} onDelete={vi.fn()} />);
+    await openRunPanel();
+    await switchToOpenClawRuntime();
+    expect(screen.getByText(/openclaw runtime/i)).toBeInTheDocument();
+    // The collapsible details summary is rendered.
+    expect(screen.getByText(/system prompt/i)).toBeInTheDocument();
   });
 
-  it('shows a generic error state for kind=error', async () => {
-    mockTestAgent.mockResolvedValue({
-      kind: 'error',
-      response_text: null,
-      error_message: 'connection refused',
-      endpoint_tried: 'http://localhost:18789/v1/chat/completions',
-    } satisfies OpenClawTestMessageResult);
-
-    render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await openOpenClawPanel();
-    await userEvent.type(screen.getByPlaceholderText(/enter one prompt to test/i), 'hello');
-    await userEvent.click(screen.getByRole('button', { name: /test with openclaw/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/^error$/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
-  });
-
-  it('shows an invoke error if tauri.openclaw.testAgentMessage rejects', async () => {
-    mockTestAgent.mockRejectedValue(new Error('IPC channel closed'));
-
-    render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await openOpenClawPanel();
-    await userEvent.type(screen.getByPlaceholderText(/enter one prompt to test/i), 'hello');
-    await userEvent.click(screen.getByRole('button', { name: /test with openclaw/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/test failed/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/IPC channel closed/i)).toBeInTheDocument();
-  });
-
-  it('does NOT render the OpenClaw test UI when runtime is Local (local run stays the default path)', async () => {
+  it('does NOT render the OpenClaw runtime UI when runtime is Local (local run stays the default path)', async () => {
     mockRun.mockResolvedValue(undefined);
     render(<AgentCard agent={agent} onDelete={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: /test panel for/i }));
+    await openRunPanel();
     // Default is local — the OpenClaw banner should not be visible.
-    expect(screen.queryByText(/openclaw test mode/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/openclaw runtime/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /run agent/i })).toBeInTheDocument();
   });
 

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { Trash2, AlertCircle, ChevronDown, Play, Square, Server, FlaskConical, CheckCircle, Clock, ShieldAlert, Plug } from 'lucide-react';
+import { Trash2, AlertCircle, ChevronDown, Play, Square, Server, FlaskConical } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { tauri, Channel, type AgentConfig, type AgentEvent, type OpenClawTestMessageResult } from '@/lib/tauri';
+import { tauri, Channel, type AgentConfig, type AgentEvent } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 import { TOOL_LABELS } from '../agentUtils';
 
@@ -181,7 +181,14 @@ type DisplayItem =
   | { type: 'error';       message: string };
 
 function AgentRunPanel({ agent }: { agent: AgentConfig }) {
-  const [runtime, setRuntime]       = useState<Runtime>('local');
+  // Default the runtime selector to whatever the agent is bound to. The
+  // backend (`run_agent` in lib.rs) branches on the agent's persisted
+  // `preferred_runtime` — the selector here is a *display* of that
+  // preference, and the Run button always calls the same
+  // `tauri.agents.run` command; the backend picks the path.
+  const [runtime, setRuntime]       = useState<Runtime>(
+    agent.preferred_runtime === 'openclaw' ? 'openclaw' : 'local'
+  );
   const [prompt, setPrompt]         = useState('');
   const [running, setRunning]       = useState(false);
   const [tokenText, setTokenText]   = useState('');
@@ -255,10 +262,16 @@ function AgentRunPanel({ agent }: { agent: AgentConfig }) {
           onRun={handleRun}
         />
       ) : (
-        <OpenClawTestBody
+        <OpenClawRuntimeBody
           agent={agent}
           prompt={prompt}
           setPrompt={setPrompt}
+          running={running}
+          tokenText={tokenText}
+          items={items}
+          runError={runError}
+          hasOutput={hasOutput}
+          onRun={handleRun}
         />
       )}
     </div>
@@ -453,36 +466,36 @@ function LocalTestBody({
   );
 }
 
-// ── OpenClaw test-mode body (NEW) ────────────────────────────────────────────
+// ── OpenClaw runtime body ─────────────────────────────────────────────────────
+//
+// Same execution path as the Local Feral runtime — the Run button calls
+// `tauri.agents.run(agent.id, prompt, ch)` and the backend
+// (`run_agent` in lib.rs) branches on `agent.preferred_runtime`. The
+// banner below is purely informational: it tells the user that the
+// request will be streamed through the local OpenClaw gateway, which
+// serves the agent's local model from `~/.feral/models/`.
 
-function OpenClawTestBody({
+function OpenClawRuntimeBody({
   agent,
   prompt,
   setPrompt,
+  running,
+  tokenText,
+  items,
+  runError,
+  hasOutput,
+  onRun,
 }: {
   agent: AgentConfig;
   prompt: string;
   setPrompt: (s: string) => void;
+  running: boolean;
+  tokenText: string;
+  items: DisplayItem[];
+  runError: string | null;
+  hasOutput: boolean;
+  onRun: () => Promise<void> | void;
 }) {
-  const [testing, setTesting]       = useState(false);
-  const [result, setResult]         = useState<OpenClawTestMessageResult | null>(null);
-  const [invokeError, setInvokeErr] = useState<string | null>(null);
-
-  const handleTest = async () => {
-    if (!prompt.trim() || testing || !agent.id) return;
-    setTesting(true);
-    setResult(null);
-    setInvokeErr(null);
-    try {
-      const r = await tauri.openclaw.testAgentMessage(agent.id, prompt.trim(), null);
-      setResult(r);
-    } catch (e) {
-      setInvokeErr(String(e));
-    } finally {
-      setTesting(false);
-    }
-  };
-
   const hasSystemPrompt = agent.system_prompt.trim().length > 0;
   const systemPreview = hasSystemPrompt
     ? agent.system_prompt.length > 200
@@ -494,18 +507,18 @@ function OpenClawTestBody({
     <>
       <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5 space-y-1">
         <p className="text-[11px] font-medium text-amber-400 inline-flex items-center gap-1.5">
-          <FlaskConical size={11} /> OpenClaw test mode
+          <FlaskConical size={11} /> OpenClaw runtime
         </p>
         <p className="text-[11px] text-text-muted">
-          Sends one prompt to the local OpenClaw gateway via{' '}
-          <code className="text-text-secondary">POST /v1/chat/completions</code>{' '}
-          using model <code className="text-text-secondary">openclaw/default</code>.
-          No sessions, no persistence — read-only against your gateway.
+          Streams your prompt through the local OpenClaw gateway, which
+          serves your local model. Same execution path as a normal Run;
+          the agent's <code className="text-text-secondary">preferred_runtime</code>{' '}
+          selects OpenClaw instead of the in-process Feral model.
         </p>
         {systemPreview && (
           <details className="text-[11px]">
             <summary className="text-text-muted cursor-pointer hover:text-text-secondary">
-              System prompt (from agent, sent as <code>system</code> message)
+              System prompt (sent as <code>system</code> message)
             </summary>
             <pre className="mt-1.5 text-text-secondary font-mono whitespace-pre-wrap break-words bg-bg-primary rounded p-2 max-h-32 overflow-y-auto">
               {systemPreview}
@@ -514,155 +527,17 @@ function OpenClawTestBody({
         )}
       </div>
 
-      <div className="flex gap-2">
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void handleTest();
-            }
-          }}
-          placeholder="Enter one prompt to test… (Enter to send, Shift+Enter for newline)"
-          rows={2}
-          disabled={testing}
-          className="flex-1 rounded-md border border-bg-hover bg-bg-surface px-3 py-2 text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted resize-none disabled:opacity-50"
-        />
-        <button
-          type="button"
-          onClick={() => void handleTest()}
-          disabled={testing || !prompt.trim()}
-          aria-label="Test with OpenClaw"
-          className="shrink-0 px-3 py-2 rounded-md bg-amber-500 text-white text-xs font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5"
-        >
-          <FlaskConical size={11} />
-          {testing ? 'Sending…' : 'Test with OpenClaw'}
-        </button>
-      </div>
-
-      {/* Result area */}
-      {(result || invokeError) && (
-        <OpenClawResultPanel result={result} invokeError={invokeError} />
-      )}
+      <LocalTestBody
+        agent={agent}
+        prompt={prompt}
+        setPrompt={setPrompt}
+        running={running}
+        tokenText={tokenText}
+        items={items}
+        runError={runError}
+        hasOutput={hasOutput}
+        onRun={onRun}
+      />
     </>
-  );
-}
-
-function OpenClawResultPanel({
-  result,
-  invokeError,
-}: {
-  result: OpenClawTestMessageResult | null;
-  invokeError: string | null;
-}) {
-  if (invokeError) {
-    return (
-      <div className="flex items-start gap-2 rounded border border-red-500/30 bg-red-500/5 p-2.5">
-        <AlertCircle size={12} className="text-red-400 shrink-0 mt-0.5" />
-        <div className="space-y-1 min-w-0">
-          <p className="text-[11px] font-medium text-red-400">Test failed</p>
-          <p className="text-[11px] text-red-400 break-words">{invokeError}</p>
-        </div>
-      </div>
-    );
-  }
-  if (!result) return null;
-
-  // 401/403 cases are mapped to kind=unsupported by the backend, with a
-  // message that includes the OPENCLAW_GATEWAY_TOKEN hint. Detect that
-  // specifically so the UI can show a clear auth-required state.
-  const msgLower = (result.error_message ?? '').toLowerCase();
-  const isAuthRequired = result.kind === 'unsupported'
-    && (msgLower.includes('openclaw_gateway_token') || msgLower.includes('gateway.auth'));
-
-  if (result.kind === 'ok') {
-    return (
-      <div className="rounded border border-green-500/20 bg-green-500/5 p-2.5 space-y-1">
-        <p className="text-[11px] font-medium text-green-400 inline-flex items-center gap-1.5">
-          <CheckCircle size={12} /> OpenClaw responded
-        </p>
-        {result.response_text && (
-          <p className="text-xs text-text-primary whitespace-pre-wrap break-words">
-            {result.response_text}
-          </p>
-        )}
-        {result.endpoint_tried && (
-          <p className="text-[10px] text-text-muted font-mono break-all">
-            {result.endpoint_tried}
-          </p>
-        )}
-      </div>
-    );
-  }
-  if (result.kind === 'timeout') {
-    return (
-      <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/5 p-2.5">
-        <Clock size={12} className="text-amber-400 shrink-0 mt-0.5" />
-        <div className="space-y-1 min-w-0">
-          <p className="text-[11px] font-medium text-amber-400">Timeout</p>
-          <p className="text-[11px] text-amber-400 break-words">
-            {result.error_message ?? 'No response within 15s.'}
-          </p>
-          {result.endpoint_tried && (
-            <p className="text-[10px] text-text-muted font-mono break-all">
-              {result.endpoint_tried}
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-  if (isAuthRequired) {
-    return (
-      <div className="flex items-start gap-2 rounded border border-red-500/30 bg-red-500/5 p-2.5">
-        <ShieldAlert size={12} className="text-red-400 shrink-0 mt-0.5" />
-        <div className="space-y-1 min-w-0">
-          <p className="text-[11px] font-medium text-red-400">Auth required</p>
-          <p className="text-[11px] text-red-400 break-words">
-            {result.error_message}
-          </p>
-          <p className="text-[11px] text-text-muted">
-            Set the token in <span className="text-text-secondary">Settings → OpenClaw → Connection</span>,
-            then retry.
-          </p>
-        </div>
-      </div>
-    );
-  }
-  if (result.kind === 'unsupported' || result.kind === 'capability_missing') {
-    return (
-      <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/5 p-2.5">
-        <Plug size={12} className="text-amber-400 shrink-0 mt-0.5" />
-        <div className="space-y-1 min-w-0">
-          <p className="text-[11px] font-medium text-amber-400">Gateway not ready</p>
-          <p className="text-[11px] text-amber-400 break-words">
-            {result.error_message ?? 'OpenClaw gateway is not reachable.'}
-          </p>
-          {result.endpoint_tried && (
-            <p className="text-[10px] text-text-muted font-mono break-all">
-              {result.endpoint_tried}
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-  // error
-  return (
-    <div className="flex items-start gap-2 rounded border border-red-500/30 bg-red-500/5 p-2.5">
-      <AlertCircle size={12} className="text-red-400 shrink-0 mt-0.5" />
-      <div className="space-y-1 min-w-0">
-        <p className="text-[11px] font-medium text-red-400">Error</p>
-        <p className="text-[11px] text-red-400 break-words">
-          {result.error_message ?? 'Unknown error.'}
-        </p>
-        {result.endpoint_tried && (
-          <p className="text-[10px] text-text-muted font-mono break-all">
-            {result.endpoint_tried}
-          </p>
-        )}
-      </div>
-    </div>
   );
 }
