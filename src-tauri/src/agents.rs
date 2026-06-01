@@ -336,7 +336,7 @@ mod tests {
             "name": "Legacy",
             "system_prompt": "old prompt",
             "model_id": "",
-            "tools": ["WebSearch"]
+            "tools": ["web_search"]
         }"#;
         let cfg: AgentConfig = serde_json::from_str(legacy)
             .expect("legacy agent JSON must remain loadable");
@@ -349,6 +349,8 @@ mod tests {
             "missing preferred_runtime must default to None");
         assert!(cfg.openclaw_model.is_none(),
             "missing openclaw_model must default to None");
+        assert!(cfg.openclaw_ready.is_none(),
+            "missing openclaw_ready must default to None");
     }
 
     #[test]
