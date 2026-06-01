@@ -1621,6 +1621,7 @@ mod tests {
         assert_eq!(msgs[1]["role"].as_str(), Some("user"));
         assert_eq!(msgs[1]["content"].as_str(), Some("hi"));
         assert_eq!(body["model"].as_str(), Some("openclaw/default"));
+        assert!(body.get("user").is_none(), "user field must be absent when None is passed");
     }
 
     #[tokio::test]
@@ -1705,14 +1706,23 @@ mod tests {
 
     #[tokio::test]
     async fn send_test_message_with_messages_includes_user_field_when_provided() {
-        use axum::{routing::post, Router};
+        use axum::{routing::post, Router, http::HeaderMap};
+        use std::sync::{Arc, Mutex};
+
+        let captured_body: Arc<Mutex<Option<serde_json::Value>>> =
+            Arc::new(Mutex::new(None));
+        let cap_body = captured_body.clone();
 
         let app = Router::new().route(
             "/v1/chat/completions",
-            post(|| async {
-                axum::Json(serde_json::json!({
-                    "choices": [{ "message": { "content": "ok" }, "finish_reason": "stop" }]
-                }))
+            post(move |_headers: HeaderMap, body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap_body.clone();
+                async move {
+                    *cap.lock().unwrap() = Some(body.0);
+                    axum::Json(serde_json::json!({
+                        "choices": [{ "message": { "content": "ok" } }]
+                    }))
+                }
             }),
         );
 
@@ -1737,6 +1747,8 @@ mod tests {
             "expected Ok, got {:?}",
             result.kind
         );
+        let body = captured_body.lock().unwrap().clone().expect("body captured");
+        assert_eq!(body["user"].as_str(), Some("feral-agent:test-42"));
     }
 
     #[test]
