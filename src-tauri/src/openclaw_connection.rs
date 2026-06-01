@@ -17,6 +17,9 @@ pub struct OpenClawConnectionView {
 pub fn load() -> OpenClawConnectionSettings {
     let path = crate::paths::openclaw_connection_path();
     if let Ok(bytes) = std::fs::read(&path) {
+        // If the file exists but fails to deserialise (corrupted / schema drift),
+        // we silently return Default. The next save() will overwrite the file.
+        // This matches the byok.rs pattern and is an accepted tradeoff.
         if let Ok(s) = serde_json::from_slice::<OpenClawConnectionSettings>(&bytes) {
             return s;
         }
