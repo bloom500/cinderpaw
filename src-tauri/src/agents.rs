@@ -50,7 +50,7 @@ pub fn openclaw_user_id(agent_id: &str) -> String {
 /// Default OpenClaw model target when the agent's `openclaw_model` is unset.
 pub const DEFAULT_OPENCLAW_MODEL: &str = "openclaw/default";
 
-/// Short warmup prompt sent by `openclaw_prepare_agent_runtime` to confirm
+/// Short warmup prompt sent by `openclaw_warmup_agent` to confirm
 /// the gateway can answer as this agent. Kept tiny so the call is fast and
 /// the response fits well under our `max_tokens` cap.
 pub const OPENCLAW_WARMUP_PROMPT: &str =

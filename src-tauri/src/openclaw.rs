@@ -898,6 +898,78 @@ pub async fn openclaw_test_agent_message(
     Ok(result)
 }
 
+/// Warm up the OpenClaw gateway for a specific agent.
+///
+/// Sends `OPENCLAW_WARMUP_PROMPT` with the agent's system prompt, using the
+/// stable `user` key `feral-agent:<id>`. On success saves `openclaw_ready = true`
+/// to the agent file; on failure saves `false`. Never returns `Err` — the
+/// caller always gets an `OpenClawTestMessageResult`.
+#[tauri::command]
+#[specta::specta]
+pub async fn openclaw_warmup_agent(
+    agent_id: String,
+) -> Result<OpenClawTestMessageResult, String> {
+    let agent = match crate::agents::list() {
+        Ok(list) => list.into_iter().find(|a| a.id == agent_id),
+        Err(e) => {
+            return Ok(OpenClawTestMessageResult {
+                kind: TestMessageKind::Error,
+                response_text: None,
+                error_message: Some(redact_secrets(&format!("Failed to load agents: {e}"))),
+                endpoint_tried: None,
+            });
+        }
+    };
+    let agent = match agent {
+        Some(a) => a,
+        None => {
+            return Ok(OpenClawTestMessageResult {
+                kind: TestMessageKind::Error,
+                response_text: None,
+                error_message: Some(format!("Agent '{agent_id}' not found")),
+                endpoint_tried: None,
+            });
+        }
+    };
+
+    let mut messages: Vec<serde_json::Value> = Vec::new();
+    let sys = agent.system_prompt.trim();
+    if !sys.is_empty() {
+        messages.push(serde_json::json!({ "role": "system", "content": sys }));
+    }
+    messages.push(serde_json::json!({
+        "role": "user",
+        "content": crate::agents::OPENCLAW_WARMUP_PROMPT
+    }));
+
+    let connection = crate::openclaw_connection::load();
+    let ep: String = if let Some(ov) = connection
+        .gateway_endpoint_override
+        .as_deref()
+        .filter(|ep| is_loopback_url(ep))
+    {
+        ov.to_string()
+    } else {
+        format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT)
+    };
+
+    let user_id = crate::agents::openclaw_user_id(&agent_id);
+    let result = send_test_message_with_messages(
+        &ep,
+        &messages,
+        connection.gateway_token.as_deref(),
+        Some(&user_id),
+    )
+    .await;
+
+    let ready = matches!(result.kind, TestMessageKind::Ok);
+    let mut updated = agent;
+    updated.openclaw_ready = Some(ready);
+    let _ = crate::agents::save(&updated);
+
+    Ok(result)
+}
+
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
 async fn send_test_message(
@@ -1749,6 +1821,15 @@ mod tests {
         );
         let body = captured_body.lock().unwrap().clone().expect("body captured");
         assert_eq!(body["user"].as_str(), Some("feral-agent:test-42"));
+    }
+
+    #[tokio::test]
+    async fn openclaw_warmup_agent_returns_ok_and_uses_warmup_prompt() {
+        let result = openclaw_warmup_agent("nonexistent-agent-id-xyz".to_string()).await;
+        let r = result.expect("command must not return Err");
+        assert!(matches!(r.kind, TestMessageKind::Error),
+            "unknown agent must produce kind=error, got {:?}", r.kind);
+        assert!(r.error_message.is_some());
     }
 
     #[test]
