@@ -67,6 +67,9 @@ default = ["inference"]
 inference = ["dep:llama-cpp-2"]
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
 
+[dev-dependencies]
+tempfile = "3"
+
 [profile.release]
 lto = true
 codegen-units = 1
