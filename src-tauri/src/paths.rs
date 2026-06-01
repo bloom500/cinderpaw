@@ -25,6 +25,10 @@ pub fn settings_path() -> PathBuf {
     feral_dir().join("settings.json")
 }
 
+pub fn openclaw_connection_path() -> PathBuf {
+    feral_dir().join("openclaw_connection.json")
+}
+
 pub fn ensure_dirs() -> anyhow::Result<()> {
     std::fs::create_dir_all(models_dir())?;
     std::fs::create_dir_all(agents_dir())?;
