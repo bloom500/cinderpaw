@@ -1073,6 +1073,90 @@ async fn send_test_message_with_messages(
     }
 }
 
+/// Streaming chat-completions call to OpenClaw. Posts `messages` with
+/// `stream: true`, parses the OpenAI-compatible SSE response
+/// (`data: {…}\n\n` chunks, terminated by `data: [DONE]`), and returns
+/// the accumulated `choices[0].delta.content` strings in order.
+///
+/// The caller (e.g. `agents::run_openclaw`) decides how to surface each
+/// delta — typically as an `AgentEvent::Token` on a channel.
+///
+/// Errors:
+///   * Transport / connect failures → `Err(redacted)` string
+///   * Non-2xx HTTP status           → `Err` from `error_for_http_status`
+///   * Malformed SSE / JSON chunks   → silently skipped (we never panic on a
+///                                    bad chunk; we just keep parsing)
+pub async fn send_chat_completions_stream(
+    endpoint: &str,
+    messages: &[serde_json::Value],
+    model: &str,
+    user: Option<&str>,
+    auth_token: Option<&str>,
+) -> Result<Vec<String>, String> {
+    use futures::StreamExt;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "stream": true,
+    });
+    if let Some(u) = user {
+        body["user"] = serde_json::Value::String(u.to_string());
+    }
+
+    let url = format!("{}{}", endpoint.trim_end_matches('/'), CHAT_API_PATHS[0]);
+    let mut req = client.post(&url).json(&body);
+    if let Some(token) = auth_token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+
+    let resp = req.send().await.map_err(|e| redact_secrets(&e.to_string()))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(error_for_http_status(status.as_u16(), &url)
+            .error_message
+            .unwrap_or_else(|| format!("HTTP {status} from {url}")));
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+    let mut deltas: Vec<String> = Vec::new();
+
+    while let Some(chunk_result) = stream.next().await {
+        let bytes = chunk_result.map_err(|e| redact_secrets(&e.to_string()))?;
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+        // Process complete SSE events (terminated by a blank line).
+        while let Some(idx) = buffer.find("\n\n") {
+            let event = buffer[..idx].to_string();
+            buffer.drain(..idx + 2);
+
+            for line in event.lines() {
+                let Some(data) = line.strip_prefix("data: ") else { continue };
+                let data = data.trim();
+                if data == "[DONE]" {
+                    return Ok(deltas);
+                }
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(content) =
+                        parsed["choices"][0]["delta"]["content"].as_str()
+                    {
+                        if !content.is_empty() {
+                            deltas.push(content.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(deltas)
+}
+
 /// Map an HTTP status code to the appropriate `OpenClawTestMessageResult`.
 /// Extracted as a pure function so it can be unit-tested without a live server.
 pub fn error_for_http_status(status: u16, url: &str) -> OpenClawTestMessageResult {
@@ -1854,5 +1938,168 @@ mod tests {
         assert!(!msg.contains("sk-"));
         // The hint is present so the UI can guide the user.
         assert!(msg.contains("OPENCLAW_GATEWAY_TOKEN") || msg.contains("gateway.auth"));
+    }
+
+    // ── streaming helper (Task 1) ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn send_chat_completions_stream_returns_deltas_in_order() {
+        use axum::{body::Body, http::{header, StatusCode}, response::Response, routing::post, Router};
+
+        let sse_body = "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n\
+                        data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n\
+                        data: [DONE]\n\n";
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move || async move {
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "text/event-stream")
+                    .body(Body::from(sse_body))
+                    .unwrap()
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![serde_json::json!({"role":"user","content":"hi"})];
+        let deltas = send_chat_completions_stream(
+            &endpoint,
+            &messages,
+            "openclaw/default",
+            Some("feral-agent:test-stream-1"),
+            None,
+        )
+        .await
+        .expect("stream should succeed");
+
+        assert_eq!(
+            deltas,
+            vec!["Hello".to_string(), " world".to_string()],
+            "deltas must be returned in arrival order"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_chat_completions_stream_sends_model_user_and_stream_in_body() {
+        use axum::{http::HeaderMap, routing::post, Router};
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
+        let cap2 = captured.clone();
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |_headers: HeaderMap, body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap2.clone();
+                async move {
+                    *cap.lock().unwrap() = Some(body.0);
+                    // Return an empty 200 with a stub stream that ends immediately
+                    // (text/event-stream body that the parser will treat as no-deltas).
+                    axum::Json(serde_json::json!({"choices":[]}))
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![serde_json::json!({"role":"user","content":"ping"})];
+
+        // The JSON response is valid for our parser (empty choices = no deltas),
+        // so the call should resolve with an empty Vec.
+        let _ = send_chat_completions_stream(
+            &endpoint,
+            &messages,
+            "openclaw/custom-model",
+            Some("feral-agent:t-body"),
+            None,
+        )
+        .await
+        .expect("stream should succeed");
+
+        let body = captured.lock().unwrap().clone().expect("body captured");
+        assert_eq!(body["model"].as_str(), Some("openclaw/custom-model"));
+        assert_eq!(body["user"].as_str(), Some("feral-agent:t-body"));
+        assert_eq!(body["stream"].as_bool(), Some(true));
+    }
+
+    #[tokio::test]
+    async fn send_chat_completions_stream_attaches_auth_header_when_token_present() {
+        use axum::{http::HeaderMap, routing::post, Router};
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let cap2 = captured.clone();
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, _body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap2.clone();
+                async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    *cap.lock().unwrap() = auth;
+                    axum::Json(serde_json::json!({"choices":[]}))
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![serde_json::json!({"role":"user","content":"hi"})];
+        let _ = send_chat_completions_stream(
+            &endpoint,
+            &messages,
+            "openclaw/default",
+            Some("feral-agent:t-auth"),
+            Some("secret-stream-token"),
+        )
+        .await
+        .expect("stream should succeed");
+
+        let auth = captured.lock().unwrap().clone();
+        assert_eq!(auth.as_deref(), Some("Bearer secret-stream-token"));
+    }
+
+    #[tokio::test]
+    async fn send_chat_completions_stream_returns_error_on_401() {
+        use axum::{routing::post, Router};
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|| async {
+                axum::http::StatusCode::UNAUTHORIZED
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![serde_json::json!({"role":"user","content":"hi"})];
+        let result = send_chat_completions_stream(
+            &endpoint,
+            &messages,
+            "openclaw/default",
+            Some("feral-agent:t-401"),
+            None,
+        )
+        .await;
+
+        let err = result.expect_err("expected Err on HTTP 401");
+        assert!(err.contains("401"), "error should mention status: {err}");
     }
 }
