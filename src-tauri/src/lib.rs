@@ -7,6 +7,7 @@ mod gpu_detect;
 mod inference;
 mod models;
 mod openclaw;
+mod openclaw_connection;
 mod paths;
 mod projects;
 mod settings;
@@ -1262,6 +1263,9 @@ pub fn run() {
             openclaw::openclaw_status,
             openclaw::openclaw_open_docs,
             openclaw::openclaw_test_message,
+            openclaw_connection::get_openclaw_connection_settings,
+            openclaw_connection::save_openclaw_connection_settings,
+            openclaw_connection::clear_openclaw_token,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
