@@ -1263,6 +1263,7 @@ pub fn run() {
             openclaw::openclaw_status,
             openclaw::openclaw_open_docs,
             openclaw::openclaw_test_message,
+            openclaw::openclaw_test_agent_message,
             openclaw_connection::get_openclaw_connection_settings,
             openclaw_connection::save_openclaw_connection_settings,
             openclaw_connection::clear_openclaw_token,

@@ -266,6 +266,8 @@ const raw = {
   openclawOpenDocs:         ()    => invoke<void>('openclaw_open_docs'),
   openclawTestMessage:      (prompt: string, endpoint: string | null) =>
     invoke<OpenClawTestMessageResult>('openclaw_test_message', { prompt, endpoint }),
+  openclawTestAgentMessage: (agentId: string, prompt: string, endpoint: string | null) =>
+    invoke<OpenClawTestMessageResult>('openclaw_test_agent_message', { agentId, prompt, endpoint }),
   getOpenclawConnectionSettings: () =>
     invoke<OpenClawConnectionView>('get_openclaw_connection_settings'),
   saveOpenclawConnectionSettings: (endpointOverride: string | null, token: string | null) =>
@@ -359,6 +361,8 @@ export const tauri = {
     openDocs:               async () => raw.openclawOpenDocs(),
     testMessage:            async (prompt: string, endpoint: string | null) =>
       raw.openclawTestMessage(prompt, endpoint),
+    testAgentMessage:       async (agentId: string, prompt: string, endpoint: string | null) =>
+      raw.openclawTestAgentMessage(agentId, prompt, endpoint),
     getConnectionSettings:  async () => raw.getOpenclawConnectionSettings(),
     saveConnectionSettings: async (endpointOverride: string | null, token: string | null) =>
       raw.saveOpenclawConnectionSettings(endpointOverride, token),

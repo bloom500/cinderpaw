@@ -1310,6 +1310,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-updater",
  "tauri-specta",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",

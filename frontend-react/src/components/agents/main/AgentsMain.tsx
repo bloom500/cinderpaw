@@ -95,10 +95,12 @@ export function AgentsMain({ onCreateFirst }: Props) {
       <div className="flex items-start gap-2 rounded-md bg-bg-hover p-3">
         <Info size={13} className="text-text-muted shrink-0 mt-0.5" />
         <p className="text-xs text-text-muted">
-          These agents run on your <span className="text-text-secondary font-medium">local Feral model</span>.
-          OpenClaw-backed agent routing is not yet enabled in this version.{' '}
-          An OpenClaw runtime test is available in{' '}
-          <span className="text-text-secondary font-medium">Settings → OpenClaw</span>.
+          These agents run on your <span className="text-text-secondary font-medium">local Feral model</span>{' '}
+          by default. Open a card below and switch the runtime to{' '}
+          <span className="text-text-secondary font-medium">OpenClaw (test)</span>{' '}
+          to send one prompt through the local OpenClaw gateway.{' '}
+          OpenClaw-backed routing is <span className="text-amber-400/90">experimental</span>{' '}
+          and not used for normal execution.
         </p>
       </div>
 

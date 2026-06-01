@@ -795,11 +795,115 @@ pub async fn openclaw_test_message(
     Ok(send_test_message(&ep, &prompt, connection.gateway_token.as_deref()).await)
 }
 
+/// Send a single explicit test message that **uses a Feral agent's profile**.
+///
+/// This is the "Test with OpenClaw" path: it loads the agent by id, includes
+/// the agent's `system_prompt` as the system message, and the user prompt as
+/// the user message. It does NOT replace the local `run_agent` execution — the
+/// UI surfaces this as a separate runtime selector and the result is not
+/// persisted as a session.
+///
+/// Constraints (preserved from `openclaw_test_message`):
+///   * Loopback-only endpoint.
+///   * Saved Feral token from `~/.feral/openclaw_connection.json`.
+///   * 15 s timeout, redacted error text, no streaming.
+#[tauri::command]
+#[specta::specta]
+pub async fn openclaw_test_agent_message(
+    agent_id: String,
+    prompt: String,
+    endpoint: Option<String>,
+) -> Result<OpenClawTestMessageResult, String> {
+    // Locate the agent. We deliberately do NOT expose the agent's full body
+    // (system_prompt included) outside this function — only the system prompt
+    // string is forwarded into the outbound request body.
+    let agent = match crate::agents::list() {
+        Ok(list) => list.into_iter().find(|a| a.id == agent_id),
+        Err(e) => {
+            return Ok(OpenClawTestMessageResult {
+                kind: TestMessageKind::Error,
+                response_text: None,
+                error_message: Some(redact_secrets(&format!("Failed to load agents: {e}"))),
+                endpoint_tried: None,
+            });
+        }
+    };
+    let agent = match agent {
+        Some(a) => a,
+        None => {
+            return Ok(OpenClawTestMessageResult {
+                kind: TestMessageKind::Error,
+                response_text: None,
+                error_message: Some(format!("Agent '{agent_id}' not found")),
+                endpoint_tried: None,
+            });
+        }
+    };
+
+    // Build the OpenAI-style message list. The agent's system_prompt is
+    // included only if non-empty — saves a redundant system turn on tiny
+    // "from scratch" agents.
+    let mut messages: Vec<serde_json::Value> = Vec::new();
+    let sys = agent.system_prompt.trim();
+    if !sys.is_empty() {
+        messages.push(serde_json::json!({ "role": "system", "content": sys }));
+    }
+    messages.push(serde_json::json!({ "role": "user", "content": prompt }));
+
+    let connection = crate::openclaw_connection::load();
+
+    // Same endpoint resolution as `openclaw_test_message`:
+    //   1. Feral-saved override (loopback-validated)
+    //   2. Caller's detected endpoint param (loopback-validated)
+    //   3. Default port as fallback
+    let ep: String = if let Some(ov) = connection
+        .gateway_endpoint_override
+        .as_deref()
+        .filter(|ep| is_loopback_url(ep))
+    {
+        ov.to_string()
+    } else if let Some(ep) = &endpoint {
+        if !is_loopback_url(ep) {
+            return Ok(OpenClawTestMessageResult {
+                kind: TestMessageKind::Error,
+                response_text: None,
+                error_message: Some(
+                    "Endpoint is not a loopback address. Feral only contacts local gateways."
+                        .to_string(),
+                ),
+                endpoint_tried: Some(ep.clone()),
+            });
+        }
+        ep.clone()
+    } else {
+        format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT)
+    };
+
+    Ok(send_test_message_with_messages(
+        &ep,
+        &messages,
+        connection.gateway_token.as_deref(),
+    )
+    .await)
+}
+
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
 async fn send_test_message(
     endpoint: &str,
     prompt: &str,
+    auth_token: Option<&str>,
+) -> OpenClawTestMessageResult {
+    // User-only path used by `openclaw_test_message` and the existing
+    // auth-header tests. The agent path calls `send_test_message_with_messages`
+    // directly to include a system_prompt.
+    let messages = vec![serde_json::json!({ "role": "user", "content": prompt })];
+    send_test_message_with_messages(endpoint, &messages, auth_token).await
+}
+
+async fn send_test_message_with_messages(
+    endpoint: &str,
+    messages: &[serde_json::Value],
     auth_token: Option<&str>,
 ) -> OpenClawTestMessageResult {
     let client = match reqwest::Client::builder()
@@ -819,7 +923,7 @@ async fn send_test_message(
     // Source: https://docs.openclaw.ai/gateway
     let body = serde_json::json!({
         "model": "openclaw/default",
-        "messages": [{ "role": "user", "content": prompt }],
+        "messages": messages,
         "max_tokens": 150,
         "stream": false
     });
@@ -1455,5 +1559,156 @@ mod tests {
         assert!(matches!(result.kind, TestMessageKind::Ok), "expected Ok, got {:?}", result.kind);
         let auth_header = captured.lock().unwrap().clone();
         assert!(auth_header.is_none(), "expected no Authorization header, got {auth_header:?}");
+    }
+
+    // ── agent-backed test message ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn send_test_message_with_messages_sends_system_and_user_roles() {
+        use axum::{routing::post, Router, http::HeaderMap};
+        use std::sync::{Arc, Mutex};
+
+        let captured_body: Arc<Mutex<Option<serde_json::Value>>> =
+            Arc::new(Mutex::new(None));
+        let cap_body = captured_body.clone();
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |_headers: HeaderMap, body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap_body.clone();
+                async move {
+                    *cap.lock().unwrap() = Some(body.0);
+                    axum::Json(serde_json::json!({
+                        "choices": [{ "message": { "content": "ok" } }]
+                    }))
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![
+            serde_json::json!({ "role": "system", "content": "You are concise." }),
+            serde_json::json!({ "role": "user",   "content": "hi" }),
+        ];
+        let result =
+            send_test_message_with_messages(&endpoint, &messages, Some("tok-abc")).await;
+
+        assert!(matches!(result.kind, TestMessageKind::Ok), "got {:?}", result.kind);
+        let body = captured_body.lock().unwrap().clone().expect("body captured");
+        let msgs = body["messages"].as_array().expect("messages array");
+        assert_eq!(msgs.len(), 2, "expected 2 messages, got {msgs:?}");
+        assert_eq!(msgs[0]["role"].as_str(), Some("system"));
+        assert_eq!(msgs[0]["content"].as_str(), Some("You are concise."));
+        assert_eq!(msgs[1]["role"].as_str(), Some("user"));
+        assert_eq!(msgs[1]["content"].as_str(), Some("hi"));
+        assert_eq!(body["model"].as_str(), Some("openclaw/default"));
+    }
+
+    #[tokio::test]
+    async fn send_test_message_with_messages_attaches_auth_header_when_token_present() {
+        use axum::{routing::post, Router, http::HeaderMap};
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let cap2 = captured.clone();
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, _body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap2.clone();
+                async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    *cap.lock().unwrap() = auth;
+                    axum::Json(serde_json::json!({
+                        "choices": [{ "message": { "content": "pong" } }]
+                    }))
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![
+            serde_json::json!({ "role": "system", "content": "sys" }),
+            serde_json::json!({ "role": "user",   "content": "ping" }),
+        ];
+        let result =
+            send_test_message_with_messages(&endpoint, &messages, Some("agent-tok")).await;
+
+        assert!(matches!(result.kind, TestMessageKind::Ok));
+        let auth = captured.lock().unwrap().clone();
+        assert_eq!(auth.as_deref(), Some("Bearer agent-tok"));
+    }
+
+    #[tokio::test]
+    async fn send_test_message_with_messages_omits_auth_header_when_no_token() {
+        use axum::{routing::post, Router, http::HeaderMap};
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let cap2 = captured.clone();
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, _body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap2.clone();
+                async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    *cap.lock().unwrap() = auth;
+                    axum::Json(serde_json::json!({
+                        "choices": [{ "message": { "content": "pong" } }]
+                    }))
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![serde_json::json!({ "role": "user", "content": "ping" })];
+        let result = send_test_message_with_messages(&endpoint, &messages, None).await;
+
+        assert!(matches!(result.kind, TestMessageKind::Ok));
+        let auth = captured.lock().unwrap().clone();
+        assert!(auth.is_none(), "expected no Authorization header, got {auth:?}");
+    }
+
+    #[test]
+    fn token_never_appears_in_error_for_http_status() {
+        // The auth path that gets included in the (mocked) error response body
+        // must never leak through. The error mapper does not include response
+        // bodies, but we assert against the redacted helper as well.
+        let token = "Bearer sk-leakme-1234567890abcdef";
+        let body = format!("Authorization: {token}");
+        let redacted = redact_secrets(&body);
+        assert!(!redacted.contains("sk-leakme-1234567890abcdef"));
+        assert!(redacted.contains("<redacted>"));
+    }
+
+    #[test]
+    fn error_for_http_status_401_does_not_contain_token_phrase() {
+        let r = error_for_http_status(401, "http://localhost:18789/v1/chat/completions");
+        let msg = r.error_message.unwrap_or_default();
+        // The "token" word appears in the hint about OPENCLAW_GATEWAY_TOKEN,
+        // but the actual <token> value (Bearer / sk-…) must not.
+        assert!(!msg.contains("Bearer "));
+        assert!(!msg.contains("sk-"));
+        // The hint is present so the UI can guide the user.
+        assert!(msg.contains("OPENCLAW_GATEWAY_TOKEN") || msg.contains("gateway.auth"));
     }
 }
