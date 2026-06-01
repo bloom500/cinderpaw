@@ -143,6 +143,12 @@ export interface AgentConfig {
   /** Serialised as Rust enum variant names: "WebSearch" | "FileRead" | "FileWrite" | "CodeExecute" | "HttpRequest" */
   tools: string[];
   params?: Record<string, unknown> | null;
+  /** "local" | "openclaw" | null */
+  preferred_runtime?: string | null;
+  /** Defaults to "openclaw/default" at the call site when null. */
+  openclaw_model?: string | null;
+  /** null = never tested, false = tested+failed, true = tested+ok */
+  openclaw_ready?: boolean | null;
 }
 
 // ── OpenClaw ────────────────────────────────────────────────────────────────
@@ -221,7 +227,7 @@ const raw = {
   getModelSizeInfo:      (repoId: string, filename: string) =>
     invoke<number>('get_model_size_info', { repoId, filename }),
   getSystemInfo:         ()    => invoke<SystemInfo>('get_system_info'),
-  saveAgent:             (cfg: AgentConfig) => invoke<void>('save_agent', { cfg }),
+  saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
   getAgentPresets:       ()    => invoke<AgentConfig[]>('get_agent_presets'),
@@ -268,6 +274,8 @@ const raw = {
     invoke<OpenClawTestMessageResult>('openclaw_test_message', { prompt, endpoint }),
   openclawTestAgentMessage: (agentId: string, prompt: string, endpoint: string | null) =>
     invoke<OpenClawTestMessageResult>('openclaw_test_agent_message', { agentId, prompt, endpoint }),
+  openclawWarmupAgent:            (agentId: string) =>
+                                  invoke<OpenClawTestMessageResult>('openclaw_warmup_agent', { agent_id: agentId }),
   getOpenclawConnectionSettings: () =>
     invoke<OpenClawConnectionView>('get_openclaw_connection_settings'),
   saveOpenclawConnectionSettings: (endpointOverride: string | null, token: string | null) =>
@@ -363,6 +371,7 @@ export const tauri = {
       raw.openclawTestMessage(prompt, endpoint),
     testAgentMessage:       async (agentId: string, prompt: string, endpoint: string | null) =>
       raw.openclawTestAgentMessage(agentId, prompt, endpoint),
+    warmupAgent:            async (agentId: string) => raw.openclawWarmupAgent(agentId),
     getConnectionSettings:  async () => raw.getOpenclawConnectionSettings(),
     saveConnectionSettings: async (endpointOverride: string | null, token: string | null) =>
       raw.saveOpenclawConnectionSettings(endpointOverride, token),
