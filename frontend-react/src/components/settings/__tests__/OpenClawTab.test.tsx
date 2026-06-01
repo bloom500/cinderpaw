@@ -362,7 +362,7 @@ describe('OpenClawTab', () => {
     const tokenInput = screen.getByPlaceholderText(/paste gateway token/i);
     await userEvent.type(tokenInput, 'my-secret-token');
 
-    await userEvent.click(screen.getByRole('button', { name: /save token/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(mockSaveConnectionSettings).toHaveBeenCalledWith(
@@ -385,7 +385,7 @@ describe('OpenClawTab', () => {
 
     const tokenInput = screen.getByPlaceholderText(/paste gateway token/i);
     await userEvent.type(tokenInput, 'super-secret-tok');
-    await userEvent.click(screen.getByRole('button', { name: /save token/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => expect(mockSaveConnectionSettings).toHaveBeenCalled());
 

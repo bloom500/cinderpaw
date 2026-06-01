@@ -490,7 +490,7 @@ function OpenClawAuthPanel() {
             disabled={saveState === 'saving'}
             className="px-3 py-1.5 rounded-md bg-brand text-white text-xs font-medium hover:bg-brand/90 disabled:opacity-50 transition-colors"
           >
-            {saveState === 'saving' ? 'Saving…' : 'Save token'}
+            {saveState === 'saving' ? 'Saving…' : 'Save'}
           </button>
           {view?.has_token && (
             <button
