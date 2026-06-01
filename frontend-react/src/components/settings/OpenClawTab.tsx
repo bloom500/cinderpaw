@@ -71,11 +71,15 @@ export function OpenClawTab() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="space-y-2">
         <h2 className="text-lg font-semibold text-text-primary">OpenClaw</h2>
-        <p className="text-xs text-text-muted mt-1">
+        <p className="text-xs text-text-muted">
           Detect an external OpenClaw agent runtime installed on this machine.
           Feral does not start, configure, or store credentials for OpenClaw.
+        </p>
+        <p className="text-xs text-amber-400/80">
+          OpenClaw-backed agent routing is not yet enabled in this version.
+          This panel is read-only detection only.
         </p>
       </div>
 
@@ -123,7 +127,12 @@ export function OpenClawTab() {
         {state.kind === 'ready' ? (
           state.data.installed ? (
             state.data.gateway_running ? (
-              <KeyValue rows={[['Status', 'Running']]} />
+              <KeyValue rows={[
+                ['Status', 'Running'],
+                ...(state.data.gateway_endpoint
+                  ? [['Endpoint', state.data.gateway_endpoint] as [string, string]]
+                  : []),
+              ]} />
             ) : (
               <EmptyHint
                 text="OpenClaw is installed but the gateway is not running."
@@ -159,6 +168,36 @@ export function OpenClawTab() {
             />
           ) : (
             <EmptyHint text="Health is only checked when OpenClaw is installed." />
+          )
+        ) : (
+          <Skeleton lines={2} />
+        )}
+      </Card>
+
+      {/* Capabilities card */}
+      <Card title="Capabilities">
+        {state.kind === 'ready' ? (
+          state.data.capabilities.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                {state.data.capabilities.map((cap) => (
+                  <span
+                    key={cap}
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/20"
+                  >
+                    {cap}
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] text-text-muted">
+                Read-only detection only — agent routing not yet enabled.
+              </p>
+            </div>
+          ) : (
+            <EmptyHint
+              text="No capabilities confirmed yet."
+              subtext="OpenClaw must be installed and the gateway must be running."
+            />
           )
         ) : (
           <Skeleton lines={2} />

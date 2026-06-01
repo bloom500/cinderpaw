@@ -73,6 +73,12 @@ pub struct OpenClawStatusResult {
     pub diagnostics: Vec<OpenClawDiagnostic>,
     /// Short next-step message for the UI to surface.
     pub recommended_action: String,
+    /// Capabilities confirmed by read-only probing (e.g. "gateway", "health_check").
+    /// An empty vec means nothing could be verified.
+    pub capabilities: Vec<String>,
+    /// Gateway listen address extracted from `gateway status` output, loopback only.
+    /// `None` if not detectable or gateway is not running.
+    pub gateway_endpoint: Option<String>,
 }
 
 // ── Tauri commands ───────────────────────────────────────────────────────────
@@ -105,13 +111,19 @@ pub async fn openclaw_status() -> Result<OpenClawStatusResult, String> {
     let mut gateway_running = false;
     let mut health_ok = false;
     let mut health_summary: Option<String> = None;
+    let mut gateway_endpoint: Option<String> = None;
 
     if let Some(p) = &path {
         for (label, args) in DIAG_COMMANDS {
             let diag = run_diagnostic(p, label, args).await;
             if diag.ok {
                 match *label {
-                    "gateway" => gateway_running = parse_gateway_running(&diag.stdout_redacted),
+                    "gateway" => {
+                        gateway_running = parse_gateway_running(&diag.stdout_redacted);
+                        if gateway_running && gateway_endpoint.is_none() {
+                            gateway_endpoint = parse_gateway_endpoint(&diag.stdout_redacted);
+                        }
+                    }
                     "health" => {
                         health_ok = true;
                         health_summary = summarize_health(&diag.stdout_redacted);
@@ -123,11 +135,8 @@ pub async fn openclaw_status() -> Result<OpenClawStatusResult, String> {
         }
     }
 
-    let recommended_action = recommend_action(
-        path.is_some(),
-        gateway_running,
-        health_ok,
-    );
+    let capabilities = detect_capabilities(gateway_running, health_ok);
+    let recommended_action = recommend_action(path.is_some(), gateway_running, health_ok);
 
     Ok(OpenClawStatusResult {
         installed: path.is_some(),
@@ -138,6 +147,8 @@ pub async fn openclaw_status() -> Result<OpenClawStatusResult, String> {
         health_summary,
         diagnostics,
         recommended_action,
+        capabilities,
+        gateway_endpoint,
     })
 }
 
@@ -617,6 +628,46 @@ fn scan_blob_end(bytes: &[u8], start: usize) -> usize {
     i
 }
 
+// ── Connection layer helpers ──────────────────────────────────────────────────
+
+/// Derive capability labels from observed status booleans.
+/// Labels are intentionally conservative — they only reflect what Feral has
+/// been able to confirm via read-only probes, not what OpenClaw claims.
+pub fn detect_capabilities(gateway_running: bool, health_ok: bool) -> Vec<String> {
+    let mut caps = Vec::new();
+    if gateway_running {
+        caps.push("gateway".to_string());
+    }
+    if health_ok {
+        caps.push("health_check".to_string());
+    }
+    caps
+}
+
+/// Extract a gateway listen address from `gateway status` stdout.
+/// Accepts only loopback addresses (localhost, 127.x, 0.0.0.0, ::1) so that
+/// external URLs from diagnostics are never accidentally surfaced.
+pub fn parse_gateway_endpoint(output: &str) -> Option<String> {
+    for prefix in &["https://", "http://"] {
+        if let Some(pos) = output.find(prefix) {
+            let rest = &output[pos..];
+            let end = rest
+                .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ','))
+                .unwrap_or(rest.len());
+            let url = &rest[..end];
+            let host = &rest[prefix.len()..end];
+            let is_local = host.starts_with("localhost")
+                || host.starts_with("127.")
+                || host.starts_with("0.0.0.0")
+                || host.starts_with("[::1]");
+            if is_local {
+                return Some(url.to_string());
+            }
+        }
+    }
+    None
+}
+
 // ── URL opener (platform-specific) ───────────────────────────────────────────
 
 /// Open `url` in the OS default browser. We deliberately do NOT shell out
@@ -797,6 +848,64 @@ mod tests {
     fn summarize_health_returns_none_for_blank() {
         assert!(summarize_health("").is_none());
         assert!(summarize_health("   \n\n  ").is_none());
+    }
+
+    // ── connection layer: capabilities ───────────────────────────────────────
+
+    #[test]
+    fn capabilities_empty_when_nothing_running() {
+        assert!(detect_capabilities(false, false).is_empty());
+    }
+
+    #[test]
+    fn capabilities_includes_gateway_when_running() {
+        let caps = detect_capabilities(true, false);
+        assert!(caps.contains(&"gateway".to_string()));
+        assert!(!caps.contains(&"health_check".to_string()));
+    }
+
+    #[test]
+    fn capabilities_includes_health_check_when_ok() {
+        let caps = detect_capabilities(false, true);
+        assert!(caps.contains(&"health_check".to_string()));
+    }
+
+    #[test]
+    fn capabilities_includes_both_when_all_green() {
+        let caps = detect_capabilities(true, true);
+        assert!(caps.contains(&"gateway".to_string()));
+        assert!(caps.contains(&"health_check".to_string()));
+    }
+
+    // ── connection layer: gateway endpoint ───────────────────────────────────
+
+    #[test]
+    fn extracts_localhost_http_endpoint() {
+        let output = "gateway running at http://localhost:8888\nstatus: active";
+        assert_eq!(
+            parse_gateway_endpoint(output).as_deref(),
+            Some("http://localhost:8888"),
+        );
+    }
+
+    #[test]
+    fn extracts_loopback_ip_endpoint() {
+        let output = "endpoint: https://127.0.0.1:9443/api";
+        assert_eq!(
+            parse_gateway_endpoint(output).as_deref(),
+            Some("https://127.0.0.1:9443/api"),
+        );
+    }
+
+    #[test]
+    fn returns_none_when_no_endpoint_in_output() {
+        assert!(parse_gateway_endpoint("state: running\nhealth: ok").is_none());
+    }
+
+    #[test]
+    fn ignores_external_urls_for_safety() {
+        let output = "connected to https://api.example.com:443";
+        assert!(parse_gateway_endpoint(output).is_none());
     }
 
     // ── recommendation ───────────────────────────────────────────────────────

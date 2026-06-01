@@ -170,6 +170,10 @@ export interface OpenClawStatusResult {
   health_summary: string | null;
   diagnostics: OpenClawDiagnostic[];
   recommended_action: string;
+  /** Capabilities confirmed by read-only probing. Empty = nothing verified. */
+  capabilities: string[];
+  /** Gateway loopback address extracted from gateway status output, or null. */
+  gateway_endpoint: string | null;
 }
 
 // ── Raw invoke helpers ────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bot, Plus, AlertCircle } from 'lucide-react';
+import { Bot, Plus, AlertCircle, Info } from 'lucide-react';
 import { tauri, type AgentConfig } from '@/lib/tauri';
 import { ONBOARDING_KEY } from '../agentUtils';
 import { AgentCard } from './AgentCard';
@@ -91,6 +91,15 @@ export function AgentsMain({ onCreateFirst }: Props) {
 
   return (
     <div className="p-6 space-y-4 max-w-2xl">
+      {/* Runtime mode banner */}
+      <div className="flex items-start gap-2 rounded-md bg-bg-hover p-3">
+        <Info size={13} className="text-text-muted shrink-0 mt-0.5" />
+        <p className="text-xs text-text-muted">
+          These agents run on your <span className="text-text-secondary font-medium">local Feral model</span>.
+          OpenClaw-backed agent routing is not yet enabled in this version.
+        </p>
+      </div>
+
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-text-primary">My Agents</h1>
         <button

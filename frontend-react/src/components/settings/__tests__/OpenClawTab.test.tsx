@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OpenClawTab } from '@/components/settings/OpenClawTab';
-import { tauri, type OpenClawStatusResult, type OpenClawDiagnostic } from '@/lib/tauri';
+import { tauri, type OpenClawStatusResult } from '@/lib/tauri';
 
 vi.mock('@/lib/tauri', () => ({
   tauri: {
@@ -17,16 +17,7 @@ vi.mock('@/lib/tauri', () => ({
 const mockStatus   = vi.mocked(tauri.openclaw.status);
 const mockOpenDocs = vi.mocked(tauri.openclaw.openDocs);
 
-function makeReady(overrides: Partial<{
-  installed: boolean;
-  binary_path: string | null;
-  version: string | null;
-  gateway_running: boolean;
-  health_ok: boolean;
-  health_summary: string | null;
-  diagnostics: OpenClawDiagnostic[];
-  recommended_action: string;
-}> = {}): OpenClawStatusResult {
+function makeReady(overrides: Partial<OpenClawStatusResult> = {}): OpenClawStatusResult {
   return {
     installed: false,
     binary_path: null,
@@ -36,6 +27,8 @@ function makeReady(overrides: Partial<{
     health_summary: null,
     diagnostics: [],
     recommended_action: 'Install OpenClaw to enable agent capabilities.',
+    capabilities: [],
+    gateway_endpoint: null,
     ...overrides,
   };
 }
@@ -143,6 +136,57 @@ describe('OpenClawTab', () => {
     expect(screen.getByText(/all good/)).toBeInTheDocument();
     // The secret must never reach the UI.
     expect(screen.queryByText(/Bearer\s+[A-Za-z0-9]/)).not.toBeInTheDocument();
+  });
+
+  // ── capabilities card ────────────────────────────────────────────────────
+
+  it('shows capability badges when gateway and health are green', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true,
+      gateway_running: true,
+      health_ok: true,
+      capabilities: ['gateway', 'health_check'],
+    }));
+    render(<OpenClawTab />);
+    await waitFor(() => {
+      expect(screen.getByText('gateway')).toBeInTheDocument();
+      expect(screen.getByText('health_check')).toBeInTheDocument();
+    });
+  });
+
+  it('shows no-capabilities message when nothing is confirmed', async () => {
+    mockStatus.mockResolvedValue(makeReady({ capabilities: [] }));
+    render(<OpenClawTab />);
+    await waitFor(() => {
+      expect(screen.getByText(/no capabilities confirmed/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows gateway endpoint when present', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true,
+      gateway_running: true,
+      health_ok: true,
+      capabilities: ['gateway'],
+      gateway_endpoint: 'http://localhost:8888',
+    }));
+    render(<OpenClawTab />);
+    await waitFor(() => {
+      expect(screen.getByText('http://localhost:8888')).toBeInTheDocument();
+    });
+  });
+
+  it('shows not-yet-enabled routing disclaimer regardless of connection state', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true,
+      gateway_running: true,
+      health_ok: true,
+      capabilities: ['gateway', 'health_check'],
+    }));
+    render(<OpenClawTab />);
+    await waitFor(() => {
+      expect(screen.getByText(/routing.*not yet enabled|not yet enabled.*routing/i)).toBeInTheDocument();
+    });
   });
 
   it('docs-open failure shows an inline error without clearing the status cards', async () => {
