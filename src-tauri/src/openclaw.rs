@@ -879,12 +879,23 @@ pub async fn openclaw_test_agent_message(
         format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT)
     };
 
-    Ok(send_test_message_with_messages(
+    let user_id = crate::agents::openclaw_user_id(&agent_id);
+    let result = send_test_message_with_messages(
         &ep,
         &messages,
         connection.gateway_token.as_deref(),
+        Some(&user_id),
     )
-    .await)
+    .await;
+
+    // Persist readiness so the agent card badge stays accurate.
+    let ready = matches!(result.kind, TestMessageKind::Ok);
+    let mut updated_agent = agent;
+    updated_agent.openclaw_ready = Some(ready);
+    // Best-effort save — never fail the test call because of a write error.
+    let _ = crate::agents::save(&updated_agent);
+
+    Ok(result)
 }
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
@@ -898,13 +909,14 @@ async fn send_test_message(
     // auth-header tests. The agent path calls `send_test_message_with_messages`
     // directly to include a system_prompt.
     let messages = vec![serde_json::json!({ "role": "user", "content": prompt })];
-    send_test_message_with_messages(endpoint, &messages, auth_token).await
+    send_test_message_with_messages(endpoint, &messages, auth_token, None).await
 }
 
 async fn send_test_message_with_messages(
     endpoint: &str,
     messages: &[serde_json::Value],
     auth_token: Option<&str>,
+    user: Option<&str>,
 ) -> OpenClawTestMessageResult {
     let client = match reqwest::Client::builder()
         .timeout(TEST_MESSAGE_TIMEOUT)
@@ -921,12 +933,15 @@ async fn send_test_message_with_messages(
 
     // "openclaw/default" is the stable alias for the configured default agent.
     // Source: https://docs.openclaw.ai/gateway
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": "openclaw/default",
         "messages": messages,
         "max_tokens": 150,
         "stream": false
     });
+    if let Some(u) = user {
+        body["user"] = serde_json::Value::String(u.to_string());
+    }
 
     for path in CHAT_API_PATHS {
         let url = format!("{}{}", endpoint.trim_end_matches('/'), path);
@@ -1595,7 +1610,7 @@ mod tests {
             serde_json::json!({ "role": "user",   "content": "hi" }),
         ];
         let result =
-            send_test_message_with_messages(&endpoint, &messages, Some("tok-abc")).await;
+            send_test_message_with_messages(&endpoint, &messages, Some("tok-abc"), None).await;
 
         assert!(matches!(result.kind, TestMessageKind::Ok), "got {:?}", result.kind);
         let body = captured_body.lock().unwrap().clone().expect("body captured");
@@ -1643,7 +1658,7 @@ mod tests {
             serde_json::json!({ "role": "user",   "content": "ping" }),
         ];
         let result =
-            send_test_message_with_messages(&endpoint, &messages, Some("agent-tok")).await;
+            send_test_message_with_messages(&endpoint, &messages, Some("agent-tok"), None).await;
 
         assert!(matches!(result.kind, TestMessageKind::Ok));
         let auth = captured.lock().unwrap().clone();
@@ -1681,11 +1696,47 @@ mod tests {
 
         let endpoint = format!("http://127.0.0.1:{}", addr.port());
         let messages = vec![serde_json::json!({ "role": "user", "content": "ping" })];
-        let result = send_test_message_with_messages(&endpoint, &messages, None).await;
+        let result = send_test_message_with_messages(&endpoint, &messages, None, None).await;
 
         assert!(matches!(result.kind, TestMessageKind::Ok));
         let auth = captured.lock().unwrap().clone();
         assert!(auth.is_none(), "expected no Authorization header, got {auth:?}");
+    }
+
+    #[tokio::test]
+    async fn send_test_message_with_messages_includes_user_field_when_provided() {
+        use axum::{routing::post, Router};
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|| async {
+                axum::Json(serde_json::json!({
+                    "choices": [{ "message": { "content": "ok" }, "finish_reason": "stop" }]
+                }))
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let messages = vec![
+            serde_json::json!({"role": "system", "content": "sys"}),
+            serde_json::json!({"role": "user", "content": "hi"}),
+        ];
+        let result = send_test_message_with_messages(
+            &endpoint,
+            &messages,
+            None,
+            Some("feral-agent:test-42"),
+        )
+        .await;
+        assert!(
+            matches!(result.kind, TestMessageKind::Ok),
+            "expected Ok, got {:?}",
+            result.kind
+        );
     }
 
     #[test]
