@@ -459,8 +459,9 @@ async fn get_system_info(state: State<'_, AppState>) -> Result<SystemInfo, Strin
 
 #[tauri::command]
 #[specta::specta]
-fn save_agent(cfg: AgentConfig) -> Result<(), String> {
-    agents::save(&cfg).map_err(|e| e.to_string())
+fn save_agent(cfg: AgentConfig) -> Result<AgentConfig, String> {
+    agents::save(&cfg).map_err(|e| e.to_string())?;
+    Ok(cfg)
 }
 
 #[tauri::command]
