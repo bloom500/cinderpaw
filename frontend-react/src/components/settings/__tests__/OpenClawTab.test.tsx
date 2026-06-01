@@ -450,7 +450,7 @@ describe('OpenClawTab', () => {
     await userEvent.click(screen.getByRole('button', { name: /send test message/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/401.*auth|auth.*401|paste your gateway token/i)).toBeInTheDocument();
+      expect(screen.getByText(/token required.*enter your token|enter your token.*token required/i)).toBeInTheDocument();
     });
   });
 });
