@@ -41,7 +41,7 @@ const MENU: MenuItem[] = [
   { icon: Box,          label: 'Models',       shortcut: null,  action: 'models',     disabled: false, route: '/models' },
   { icon: Settings,     label: 'Settings',     shortcut: null,  action: 'settings',   disabled: false, route: '/settings' },
   { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: false },
-  { icon: Bot,          label: 'Agents',       shortcut: null,  action: 'agents',     disabled: true,  route: '/agents' },
+  { icon: Bot,          label: 'Agents',       shortcut: null,  action: 'agents',     disabled: false, route: '/agents' },
 ];
 
 // ── Download status popover ───────────────────────────────────────────────────

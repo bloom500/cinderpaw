@@ -124,6 +124,18 @@ export interface Conversation {
 }
 export interface Project { id: string; name: string; conversation_ids: string[] }
 
+// ── Agents ───────────────────────────────────────────────────────────────────
+export interface AgentConfig {
+  /** Omit when creating a new agent — the backend assigns a UUID. */
+  id?: string;
+  name: string;
+  system_prompt: string;
+  model_id: string;
+  /** Serialised as Rust enum variant names: "WebSearch" | "FileRead" | "FileWrite" | "CodeExecute" | "HttpRequest" */
+  tools: string[];
+  params?: Record<string, unknown> | null;
+}
+
 // ── OpenClaw ────────────────────────────────────────────────────────────────
 export interface OpenClawDetectResult {
   installed: boolean;
@@ -171,10 +183,10 @@ const raw = {
   getModelSizeInfo:      (repoId: string, filename: string) =>
     invoke<number>('get_model_size_info', { repoId, filename }),
   getSystemInfo:         ()    => invoke<SystemInfo>('get_system_info'),
-  saveAgent:             (cfg: object) => invoke<void>('save_agent', { cfg }),
-  getAgents:             ()    => invoke<object[]>('get_agents'),
+  saveAgent:             (cfg: AgentConfig) => invoke<void>('save_agent', { cfg }),
+  getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
-  getAgentPresets:       ()    => invoke<object[]>('get_agent_presets'),
+  getAgentPresets:       ()    => invoke<AgentConfig[]>('get_agent_presets'),
   saveConversation:      (id: string, title: string, messages: PersistedMessage[]) =>
     invoke<void>('save_conversation', { id, title, messages }),
   loadConversations:     ()    => invoke<ConversationSummary[]>('load_conversations'),
@@ -297,6 +309,13 @@ export const tauri = {
     detect:   async () => raw.openclawDetect(),
     status:   async () => raw.openclawStatus(),
     openDocs: async () => raw.openclawOpenDocs(),
+  },
+
+  agents: {
+    getPresets: async () => raw.getAgentPresets(),
+    save:       async (cfg: AgentConfig) => raw.saveAgent(cfg),
+    getAll:     async () => raw.getAgents(),
+    delete:     async (id: string) => raw.deleteAgent(id),
   },
 };
 
