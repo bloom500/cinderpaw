@@ -194,6 +194,13 @@ export interface OpenClawTestMessageResult {
   endpoint_tried: string | null;
 }
 
+export interface OpenClawConnectionView {
+  /** Feral-saved loopback endpoint override, or null if not set. */
+  endpoint_override: string | null;
+  /** True if a token has been saved; the raw token is never returned. */
+  has_token: boolean;
+}
+
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
 // No Result wrapper needed — errors propagate as thrown exceptions.
@@ -259,6 +266,12 @@ const raw = {
   openclawOpenDocs:         ()    => invoke<void>('openclaw_open_docs'),
   openclawTestMessage:      (prompt: string, endpoint: string | null) =>
     invoke<OpenClawTestMessageResult>('openclaw_test_message', { prompt, endpoint }),
+  getOpenclawConnectionSettings: () =>
+    invoke<OpenClawConnectionView>('get_openclaw_connection_settings'),
+  saveOpenclawConnectionSettings: (endpointOverride: string | null, token: string | null) =>
+    invoke<void>('save_openclaw_connection_settings', { endpoint_override: endpointOverride, token }),
+  clearOpenclawToken: () =>
+    invoke<void>('clear_openclaw_token'),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -341,11 +354,15 @@ export const tauri = {
   },
 
   openclaw: {
-    detect:      async () => raw.openclawDetect(),
-    status:      async () => raw.openclawStatus(),
-    openDocs:    async () => raw.openclawOpenDocs(),
-    testMessage: async (prompt: string, endpoint: string | null) =>
+    detect:                 async () => raw.openclawDetect(),
+    status:                 async () => raw.openclawStatus(),
+    openDocs:               async () => raw.openclawOpenDocs(),
+    testMessage:            async (prompt: string, endpoint: string | null) =>
       raw.openclawTestMessage(prompt, endpoint),
+    getConnectionSettings:  async () => raw.getOpenclawConnectionSettings(),
+    saveConnectionSettings: async (endpointOverride: string | null, token: string | null) =>
+      raw.saveOpenclawConnectionSettings(endpointOverride, token),
+    clearToken:             async () => raw.clearOpenclawToken(),
   },
 
   agents: {
