@@ -7,14 +7,52 @@ import { TOOL_LABELS } from '../agentUtils';
 
 interface Props {
   agent: AgentConfig;
+  /** Result of the one-shot openclaw_detect call from AgentsMain.
+   *  `null` = still loading; `true` = gateway reachable; `false` = not reachable. */
+  gatewayUp?: boolean | null;
   onDelete: () => Promise<void>;
 }
 
-export function AgentCard({ agent, onDelete }: Props) {
+export function AgentCard({ agent, gatewayUp, onDelete }: Props) {
   const [confirmOpen, setConfirmOpen]   = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [deleteError, setDeleteError]   = useState<string | null>(null);
   const [runOpen, setRunOpen]           = useState(false);
+
+  // Runtime status badge — reflects the agent's persisted openclaw_ready
+  // flag plus the live gateway-detect result. The badge is intentionally
+  // hidden while the gateway status is still loading.
+  const runtimeBadge = (() => {
+    if (gatewayUp === null || gatewayUp === undefined) return null;
+    if (!gatewayUp) {
+      return (
+        <span
+          data-testid="runtime-badge"
+          className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-hover text-text-muted border border-border-subtle"
+        >
+          Gateway unavailable
+        </span>
+      );
+    }
+    if (agent.openclaw_ready === true) {
+      return (
+        <span
+          data-testid="runtime-badge"
+          className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20"
+        >
+          OpenClaw ready
+        </span>
+      );
+    }
+    return (
+      <span
+        data-testid="runtime-badge"
+        className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20"
+      >
+        Setup needed
+      </span>
+    );
+  })();
 
   const handleConfirmDelete = async () => {
     setDeleting(true);
@@ -51,6 +89,7 @@ export function AgentCard({ agent, onDelete }: Props) {
                   ))}
                 </div>
               )}
+              {runtimeBadge && <div className="mt-1">{runtimeBadge}</div>}
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <button

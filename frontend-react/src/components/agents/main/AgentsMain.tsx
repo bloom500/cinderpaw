@@ -9,9 +9,10 @@ interface Props {
 }
 
 export function AgentsMain({ onCreateFirst }: Props) {
-  const [agents, setAgents]   = useState<AgentConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [agents, setAgents]       = useState<AgentConfig[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+  const [gatewayUp, setGatewayUp] = useState<boolean | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -26,7 +27,12 @@ export function AgentsMain({ onCreateFirst }: Props) {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    tauri.openclaw.detect()
+      .then((r) => setGatewayUp(r.installed))
+      .catch(() => setGatewayUp(false));
+  }, []);
 
   const handleDelete = async (id: string) => {
     await tauri.agents.delete(id);
@@ -120,6 +126,7 @@ export function AgentsMain({ onCreateFirst }: Props) {
           <AgentCard
             key={a.id}
             agent={a}
+            gatewayUp={gatewayUp}
             onDelete={() => handleDelete(a.id!)}
           />
         ))}
