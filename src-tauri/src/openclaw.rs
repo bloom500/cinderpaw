@@ -965,6 +965,16 @@ pub async fn openclaw_warmup_agent(
     let ready = matches!(result.kind, TestMessageKind::Ok);
     let mut updated = agent;
     updated.openclaw_ready = Some(ready);
+    // Finalise the runtime binding so the user can immediately run via
+    // OpenClaw. On success, set `preferred_runtime = "openclaw"`. On
+    // failure, clear any stale binding from a prior successful warmup —
+    // better to fall back to Local Feral than to keep a half-broken
+    // OpenClaw pointer on the agent.
+    if ready {
+        updated.preferred_runtime = Some("openclaw".to_string());
+    } else {
+        updated.preferred_runtime = None;
+    }
     let _ = crate::agents::save(&updated);
 
     Ok(result)
