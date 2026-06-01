@@ -1,19 +1,36 @@
-//! OpenClaw awareness — read-only detection + diagnostics for an external
-//! agent gateway / runtime.
+//! OpenClaw awareness and test-message layer.
 //!
-//! Scope (intentionally narrow):
+//! ## Confirmed OpenClaw Gateway API (source: docs.openclaw.ai/gateway)
+//!
+//! Default port: 18789  (env OPENCLAW_GATEWAY_PORT or flag --port override it)
+//!
+//! HTTP endpoints enabled by default:
+//!   GET  /v1/models              — list available agent targets
+//!   POST /v1/chat/completions    — OpenAI-compatible chat (the one we probe)
+//!   POST /v1/embeddings
+//!   POST /v1/responses
+//!
+//! Auth: required by default.  Set OPENCLAW_GATEWAY_TOKEN env var or
+//!   gateway.auth.token in config.  Loopback callers can use trusted-proxy mode
+//!   (no token required).
+//!
+//! Correct model alias: "openclaw/default"  (stable, routes to the default agent)
+//!
+//! Async hook endpoint (not used here — response is async / requires token):
+//!   POST /hooks/agent
+//!
+//! ## Scope of this module
 //!   * Locate the `openclaw` binary in PATH.
-//!   * Run read-only diagnostic commands (`openclaw --version`,
-//!     `openclaw status --all`, `openclaw gateway status`,
-//!     `openclaw health --json`).
-//!   * Redact anything that resembles a token / secret before returning output
-//!     to the UI.
+//!   * Run read-only diagnostic commands (--version, status --all,
+//!     gateway status, health --json).
+//!   * Redact secrets before returning output to the UI.
+//!   * Send ONE explicit user-triggered test message via POST /v1/chat/completions.
 //!   * Open the install docs in the OS default browser.
 //!
-//! Explicit non-goals (Phase 2):
+//! ## Explicit non-goals
 //!   * No chat routing, no streaming, no model picker integration.
-//!   * No writes to `~/.openclaw/openclaw.json` or any other OpenClaw file.
-//!   * No reads of `~/.openclaw/openclaw.json` — config is opaque here.
+//!   * No writes to ~/.openclaw or any OpenClaw file.
+//!   * No reads of ~/.openclaw/openclaw.json — config is opaque here.
 //!   * No auto-start, no daemon supervision, no kill / restart.
 
 use serde::{Deserialize, Serialize};
@@ -138,6 +155,12 @@ pub async fn openclaw_status() -> Result<OpenClawStatusResult, String> {
             }
             diagnostics.push(diag);
         }
+    }
+
+    // If the gateway is running but its status output did not contain a URL we
+    // could parse, fall back to the official default (localhost:18789).
+    if gateway_running && gateway_endpoint.is_none() {
+        gateway_endpoint = Some(format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT));
     }
 
     let capabilities = detect_capabilities(gateway_running, health_ok);
@@ -676,17 +699,25 @@ pub fn parse_gateway_endpoint(output: &str) -> Option<String> {
 // ── Test-message layer ───────────────────────────────────────────────────────
 //
 // Sends ONE explicit user-triggered message to an already-detected, already-
-// healthy OpenClaw gateway. Only loopback endpoints are accepted. The two
-// well-known API paths tried in order are:
+// healthy OpenClaw gateway. Only loopback endpoints are accepted.
 //
-//   POST /v1/chat/completions   (OpenAI-compatible — most common)
-//   POST /api/chat              (Ollama-compatible)
+// Official OpenClaw endpoint (source: docs.openclaw.ai/gateway/openai-http-api):
+//   POST /v1/chat/completions
 //
-// If neither returns 2xx, the result kind is `Unsupported` with a clear note
-// about what API paths were tried. No OpenClaw config is written.
+// Auth: `Authorization: Bearer <token>` required by default.
+//   → HTTP 401/403 → surface clear instructions to configure OPENCLAW_GATEWAY_TOKEN.
+//   → HTTP 404   → endpoint not found (check port / version).
+//   → HTTP 2xx   → success.
+//
+// /api/chat is the Ollama route — NOT an OpenClaw endpoint. Not probed.
 
-/// Paths tried in order when sending a test message.
-const CHAT_API_PATHS: &[&str] = &["/v1/chat/completions", "/api/chat"];
+/// Official OpenClaw gateway default port.
+/// Source: https://docs.openclaw.ai/gateway
+pub const OPENCLAW_DEFAULT_PORT: u16 = 18789;
+
+/// Only the official OpenClaw/OpenAI-compatible path is probed.
+/// /api/chat is an Ollama route and is intentionally excluded.
+const CHAT_API_PATHS: &[&str] = &["/v1/chat/completions"];
 
 /// Timeout for the HTTP test-message request. Longer than probe timeout to
 /// allow a first-token delay from a cold model.
@@ -776,8 +807,10 @@ async fn send_test_message(endpoint: &str, prompt: &str) -> OpenClawTestMessageR
         },
     };
 
+    // "openclaw/default" is the stable alias for the configured default agent.
+    // Source: https://docs.openclaw.ai/gateway
     let body = serde_json::json!({
-        "model": "default",
+        "model": "openclaw/default",
         "messages": [{ "role": "user", "content": prompt }],
         "max_tokens": 150,
         "stream": false
@@ -790,7 +823,6 @@ async fn send_test_message(endpoint: &str, prompt: &str) -> OpenClawTestMessageR
             Ok(resp) if resp.status().is_success() => {
                 let raw = resp.text().await.unwrap_or_default();
                 let text = parse_chat_response(&raw).or_else(|| {
-                    // Surface the raw body (redacted) when parsing fails but HTTP succeeded.
                     let r = redact_secrets(&raw);
                     if r.is_empty() { None } else { Some(r) }
                 });
@@ -801,22 +833,14 @@ async fn send_test_message(endpoint: &str, prompt: &str) -> OpenClawTestMessageR
                     endpoint_tried: Some(url),
                 };
             }
-            // 404 / 405 → this path doesn't exist, try next
-            Ok(resp) if resp.status() == 404 || resp.status() == 405 => continue,
-            Ok(resp) => {
-                return OpenClawTestMessageResult {
-                    kind: TestMessageKind::Error,
-                    response_text: None,
-                    error_message: Some(format!("HTTP {}", resp.status())),
-                    endpoint_tried: Some(url),
-                };
-            }
+            // Delegate non-2xx to the pure status mapper.
+            Ok(resp) => return error_for_http_status(resp.status().as_u16(), &url),
             Err(e) if e.is_timeout() => {
                 return OpenClawTestMessageResult {
                     kind: TestMessageKind::Timeout,
                     response_text: None,
                     error_message: Some(format!(
-                        "No response within {}s.",
+                        "No response within {}s. The gateway may be starting up or the model is loading.",
                         TEST_MESSAGE_TIMEOUT.as_secs()
                     )),
                     endpoint_tried: Some(url),
@@ -833,16 +857,54 @@ async fn send_test_message(endpoint: &str, prompt: &str) -> OpenClawTestMessageR
         }
     }
 
-    // All known paths returned 404/405.
+    // Unreachable in practice — CHAT_API_PATHS has one entry and all HTTP
+    // responses are returned above. Guard remains for future path additions.
     OpenClawTestMessageResult {
         kind: TestMessageKind::Unsupported,
         response_text: None,
         error_message: Some(format!(
-            "Gateway is running at {endpoint} but none of the known API paths responded: {}. \
-             To enable this test, the OpenClaw gateway must expose one of those paths.",
-            CHAT_API_PATHS.join(", ")
+            "No response from {endpoint}/{} — check that the gateway is running on port {}.",
+            CHAT_API_PATHS[0], OPENCLAW_DEFAULT_PORT,
         )),
         endpoint_tried: Some(endpoint.to_string()),
+    }
+}
+
+/// Map an HTTP status code to the appropriate `OpenClawTestMessageResult`.
+/// Extracted as a pure function so it can be unit-tested without a live server.
+pub fn error_for_http_status(status: u16, url: &str) -> OpenClawTestMessageResult {
+    let (kind, msg) = match status {
+        401 | 403 => (
+            TestMessageKind::Unsupported,
+            format!(
+                "OpenClaw gateway requires authentication (HTTP {status}). \
+                 Set the OPENCLAW_GATEWAY_TOKEN environment variable or configure \
+                 gateway.auth.token. \
+                 Docs: https://docs.openclaw.ai/gateway"
+            ),
+        ),
+        404 => (
+            TestMessageKind::Unsupported,
+            format!(
+                "/v1/chat/completions not found at {url} (HTTP 404). \
+                 Verify the gateway is running on port {OPENCLAW_DEFAULT_PORT} \
+                 and matches the expected version."
+            ),
+        ),
+        405 => (
+            TestMessageKind::Unsupported,
+            format!("Method not allowed at {url} (HTTP 405)."),
+        ),
+        _ => (
+            TestMessageKind::Error,
+            format!("Unexpected HTTP {status} from {url}."),
+        ),
+    };
+    OpenClawTestMessageResult {
+        kind,
+        response_text: None,
+        error_message: Some(msg),
+        endpoint_tried: Some(url.to_string()),
     }
 }
 
@@ -1252,5 +1314,57 @@ mod tests {
             parse_chat_response(body).as_deref(),
             Some("trimmed"),
         );
+    }
+
+    // ── OpenClaw official API alignment ──────────────────────────────────────
+
+    #[test]
+    fn default_port_is_18789() {
+        // Official OpenClaw gateway default.
+        // source: https://docs.openclaw.ai/gateway
+        assert_eq!(OPENCLAW_DEFAULT_PORT, 18789);
+    }
+
+    #[test]
+    fn default_endpoint_is_loopback_at_default_port() {
+        let ep = format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT);
+        assert!(is_loopback_url(&ep));
+        assert!(ep.contains("18789"));
+    }
+
+    #[test]
+    fn http_status_401_produces_auth_error() {
+        let r = error_for_http_status(401, "http://localhost:18789/v1/chat/completions");
+        assert!(matches!(r.kind, TestMessageKind::Unsupported));
+        let msg = r.error_message.unwrap_or_default();
+        assert!(msg.contains("401") || msg.to_lowercase().contains("auth"),
+            "expected auth info in: {msg}");
+        assert!(msg.contains("OPENCLAW_GATEWAY_TOKEN") || msg.contains("gateway.auth"),
+            "expected config hint in: {msg}");
+    }
+
+    #[test]
+    fn http_status_403_produces_auth_error() {
+        let r = error_for_http_status(403, "http://localhost:18789/v1/chat/completions");
+        assert!(matches!(r.kind, TestMessageKind::Unsupported));
+        let msg = r.error_message.unwrap_or_default();
+        assert!(msg.contains("403") || msg.to_lowercase().contains("auth"),
+            "got: {msg}");
+    }
+
+    #[test]
+    fn http_status_404_produces_unsupported_with_endpoint_hint() {
+        let r = error_for_http_status(404, "http://localhost:18789/v1/chat/completions");
+        assert!(matches!(r.kind, TestMessageKind::Unsupported));
+        let msg = r.error_message.unwrap_or_default();
+        assert!(msg.contains("404") || msg.contains("/v1/chat/completions"),
+            "got: {msg}");
+    }
+
+    #[test]
+    fn chat_api_path_is_official_openclaw_endpoint() {
+        // The only probe path must be the official OpenClaw/OpenAI-compat endpoint.
+        // /api/chat is Ollama — not an OpenClaw route.
+        assert_eq!(CHAT_API_PATHS, &["/v1/chat/completions"]);
     }
 }
