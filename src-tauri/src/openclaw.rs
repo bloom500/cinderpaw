@@ -763,37 +763,45 @@ pub async fn openclaw_test_message(
     prompt: String,
     endpoint: Option<String>,
 ) -> Result<OpenClawTestMessageResult, String> {
-    let ep = match endpoint {
-        Some(ep) => ep,
-        None => return Ok(OpenClawTestMessageResult {
-            kind: TestMessageKind::CapabilityMissing,
-            response_text: None,
-            error_message: Some(
-                "No gateway endpoint provided. Run a status refresh first, then retry."
-                    .to_string(),
-            ),
-            endpoint_tried: None,
-        }),
+    let connection = crate::openclaw_connection::load();
+
+    // Resolve effective endpoint:
+    //   1. Feral-saved override (loopback-validated)
+    //   2. Caller's detected endpoint param (loopback-validated)
+    //   3. Default port as fallback
+    let ep: String = if let Some(ov) = connection
+        .gateway_endpoint_override
+        .as_deref()
+        .filter(|ep| is_loopback_url(ep))
+    {
+        ov.to_string()
+    } else if let Some(ep) = &endpoint {
+        if !is_loopback_url(ep) {
+            return Ok(OpenClawTestMessageResult {
+                kind: TestMessageKind::Error,
+                response_text: None,
+                error_message: Some(
+                    "Endpoint is not a loopback address. Feral only contacts local gateways."
+                        .to_string(),
+                ),
+                endpoint_tried: Some(ep.clone()),
+            });
+        }
+        ep.clone()
+    } else {
+        format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT)
     };
 
-    if !is_loopback_url(&ep) {
-        return Ok(OpenClawTestMessageResult {
-            kind: TestMessageKind::Error,
-            response_text: None,
-            error_message: Some(
-                "Endpoint is not a loopback address. Feral only contacts local gateways."
-                    .to_string(),
-            ),
-            endpoint_tried: Some(ep),
-        });
-    }
-
-    Ok(send_test_message(&ep, &prompt).await)
+    Ok(send_test_message(&ep, &prompt, connection.gateway_token.as_deref()).await)
 }
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
-async fn send_test_message(endpoint: &str, prompt: &str) -> OpenClawTestMessageResult {
+async fn send_test_message(
+    endpoint: &str,
+    prompt: &str,
+    auth_token: Option<&str>,
+) -> OpenClawTestMessageResult {
     let client = match reqwest::Client::builder()
         .timeout(TEST_MESSAGE_TIMEOUT)
         .build()
@@ -819,7 +827,11 @@ async fn send_test_message(endpoint: &str, prompt: &str) -> OpenClawTestMessageR
     for path in CHAT_API_PATHS {
         let url = format!("{}{}", endpoint.trim_end_matches('/'), path);
 
-        match client.post(&url).json(&body).send().await {
+        let mut req = client.post(&url).json(&body);
+        if let Some(token) = auth_token {
+            req = req.header("Authorization", format!("Bearer {token}"));
+        }
+        match req.send().await {
             Ok(resp) if resp.status().is_success() => {
                 let raw = resp.text().await.unwrap_or_default();
                 let text = parse_chat_response(&raw).or_else(|| {
@@ -1366,5 +1378,82 @@ mod tests {
         // The only probe path must be the official OpenClaw/OpenAI-compat endpoint.
         // /api/chat is Ollama — not an OpenClaw route.
         assert_eq!(CHAT_API_PATHS, &["/v1/chat/completions"]);
+    }
+
+    // ── auth-header tests (require a local HTTP server) ──────────────────────
+
+    #[tokio::test]
+    async fn send_test_message_attaches_auth_header_when_token_present() {
+        use axum::{routing::post, Router, http::HeaderMap};
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let cap2 = captured.clone();
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, _body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap2.clone();
+                async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    *cap.lock().unwrap() = auth;
+                    axum::Json(serde_json::json!({
+                        "choices": [{ "message": { "content": "pong" } }]
+                    }))
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        // This call will fail to compile until send_test_message has the new signature.
+        let result = send_test_message(&endpoint, "ping", Some("test-token-xyz")).await;
+
+        assert!(matches!(result.kind, TestMessageKind::Ok), "expected Ok, got {:?}", result.kind);
+        let auth_header = captured.lock().unwrap().clone();
+        assert_eq!(auth_header.as_deref(), Some("Bearer test-token-xyz"));
+    }
+
+    #[tokio::test]
+    async fn send_test_message_omits_auth_header_when_no_token() {
+        use axum::{routing::post, Router, http::HeaderMap};
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let cap2 = captured.clone();
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, _body: axum::extract::Json<serde_json::Value>| {
+                let cap = cap2.clone();
+                async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    *cap.lock().unwrap() = auth;
+                    axum::Json(serde_json::json!({
+                        "choices": [{ "message": { "content": "pong" } }]
+                    }))
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let endpoint = format!("http://127.0.0.1:{}", addr.port());
+        let result = send_test_message(&endpoint, "ping", None).await;
+
+        assert!(matches!(result.kind, TestMessageKind::Ok), "expected Ok, got {:?}", result.kind);
+        let auth_header = captured.lock().unwrap().clone();
+        assert!(auth_header.is_none(), "expected no Authorization header, got {auth_header:?}");
     }
 }
