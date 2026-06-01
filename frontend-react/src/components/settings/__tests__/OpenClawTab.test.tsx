@@ -7,10 +7,13 @@ import { tauri, type OpenClawStatusResult } from '@/lib/tauri';
 vi.mock('@/lib/tauri', () => ({
   tauri: {
     openclaw: {
-      detect:      vi.fn(),
-      status:      vi.fn(),
-      openDocs:    vi.fn(),
-      testMessage: vi.fn(),
+      detect:                 vi.fn(),
+      status:                 vi.fn(),
+      openDocs:               vi.fn(),
+      testMessage:            vi.fn(),
+      getConnectionSettings:  vi.fn(),
+      saveConnectionSettings: vi.fn(),
+      clearToken:             vi.fn(),
     },
   },
 }));
@@ -18,6 +21,9 @@ vi.mock('@/lib/tauri', () => ({
 const mockStatus      = vi.mocked(tauri.openclaw.status);
 const mockOpenDocs    = vi.mocked(tauri.openclaw.openDocs);
 const mockTestMessage = vi.mocked(tauri.openclaw.testMessage);
+const mockGetConnectionSettings  = vi.mocked(tauri.openclaw.getConnectionSettings);
+const mockSaveConnectionSettings = vi.mocked(tauri.openclaw.saveConnectionSettings);
+const mockClearToken             = vi.mocked(tauri.openclaw.clearToken);
 
 function makeReady(overrides: Partial<OpenClawStatusResult> = {}): OpenClawStatusResult {
   return {
@@ -43,6 +49,9 @@ describe('OpenClawTab', () => {
     mockTestMessage.mockResolvedValue({
       kind: 'ok', response_text: null, error_message: null, endpoint_tried: null,
     });
+    mockGetConnectionSettings.mockResolvedValue({ endpoint_override: null, has_token: false });
+    mockSaveConnectionSettings.mockResolvedValue(undefined);
+    mockClearToken.mockResolvedValue(undefined);
   });
 
   it('auto-refreshes on mount and shows the not-installed empty state', async () => {
@@ -321,5 +330,127 @@ describe('OpenClawTab', () => {
     expect(screen.getByText('Healthy')).toBeInTheDocument();
     // Status card content must still be visible (not wiped to Skeleton)
     expect(screen.getByText('openclaw 1.2.3')).toBeInTheDocument();
+  });
+
+  // ── Gateway auth panel ───────────────────────────────────────────────────
+
+  it('token input has type="password" so the raw value is never rendered as plain text', async () => {
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    const tokenInput = screen.getByPlaceholderText(/paste gateway token/i);
+    expect(tokenInput).toHaveAttribute('type', 'password');
+  });
+
+  it('shows "No token saved" badge when has_token is false', async () => {
+    mockGetConnectionSettings.mockResolvedValue({ endpoint_override: null, has_token: false });
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockGetConnectionSettings).toHaveBeenCalled());
+    expect(screen.getByText(/no token saved/i)).toBeInTheDocument();
+  });
+
+  it('shows "Token saved" badge when has_token is true', async () => {
+    mockGetConnectionSettings.mockResolvedValue({ endpoint_override: null, has_token: true });
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockGetConnectionSettings).toHaveBeenCalled());
+    expect(screen.getByText(/token saved/i)).toBeInTheDocument();
+  });
+
+  it('calls saveConnectionSettings with correct args and clears the input on Save', async () => {
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockGetConnectionSettings).toHaveBeenCalled());
+
+    const tokenInput = screen.getByPlaceholderText(/paste gateway token/i);
+    await userEvent.type(tokenInput, 'my-secret-token');
+
+    await userEvent.click(screen.getByRole('button', { name: /save token/i }));
+
+    await waitFor(() => {
+      expect(mockSaveConnectionSettings).toHaveBeenCalledWith(
+        expect.anything(),  // endpointOverride (whatever is in the field)
+        'my-secret-token',
+      );
+    });
+    // Input must be cleared after save
+    expect(tokenInput).toHaveValue('');
+  });
+
+  it('token string is not findable in the DOM after Save', async () => {
+    mockSaveConnectionSettings.mockResolvedValue(undefined);
+    mockGetConnectionSettings
+      .mockResolvedValueOnce({ endpoint_override: null, has_token: false })
+      .mockResolvedValue({ endpoint_override: null, has_token: true });
+
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockGetConnectionSettings).toHaveBeenCalled());
+
+    const tokenInput = screen.getByPlaceholderText(/paste gateway token/i);
+    await userEvent.type(tokenInput, 'super-secret-tok');
+    await userEvent.click(screen.getByRole('button', { name: /save token/i }));
+
+    await waitFor(() => expect(mockSaveConnectionSettings).toHaveBeenCalled());
+
+    // The literal token must not appear anywhere in the rendered output.
+    expect(screen.queryByText('super-secret-tok')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('super-secret-tok')).not.toBeInTheDocument();
+  });
+
+  it('clicking Clear token calls clearToken and resets badge to "No token saved"', async () => {
+    mockGetConnectionSettings
+      .mockResolvedValueOnce({ endpoint_override: null, has_token: true })
+      .mockResolvedValue({ endpoint_override: null, has_token: false });
+
+    render(<OpenClawTab />);
+    await waitFor(() => expect(screen.getByText(/token saved/i)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /clear token/i }));
+
+    await waitFor(() => {
+      expect(mockClearToken).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(/no token saved/i)).toBeInTheDocument();
+    });
+  });
+
+  it('Clear token button does NOT affect the endpoint override field', async () => {
+    mockGetConnectionSettings.mockResolvedValue({
+      endpoint_override: 'http://localhost:9999',
+      has_token: true,
+    });
+    mockClearToken.mockResolvedValue(undefined);
+
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockGetConnectionSettings).toHaveBeenCalled());
+
+    const overrideInput = screen.getByPlaceholderText(/endpoint override/i);
+    expect(overrideInput).toHaveValue('http://localhost:9999');
+
+    await userEvent.click(screen.getByRole('button', { name: /clear token/i }));
+    await waitFor(() => expect(mockClearToken).toHaveBeenCalled());
+
+    // Endpoint override field must keep its value.
+    expect(overrideInput).toHaveValue('http://localhost:9999');
+  });
+
+  it('shows auth guidance hint when test result is unsupported with a 401 message', async () => {
+    mockStatus.mockResolvedValue(makeReady({
+      installed: true,
+      gateway_running: true,
+      health_ok: true,
+      capabilities: ['gateway', 'health_check'],
+      gateway_endpoint: 'http://localhost:18789',
+    }));
+    mockTestMessage.mockResolvedValue({
+      kind: 'unsupported',
+      response_text: null,
+      error_message: 'OpenClaw gateway requires authentication (HTTP 401).',
+      endpoint_tried: 'http://localhost:18789/v1/chat/completions',
+    });
+
+    render(<OpenClawTab />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: /send test message/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/401.*auth|auth.*401|paste your gateway token/i)).toBeInTheDocument();
+    });
   });
 });

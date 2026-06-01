@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle, AlertCircle, ExternalLink, RefreshCw, Terminal, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { tauri, type OpenClawStatusResult, type OpenClawTestMessageResult, type TestMessageKind } from '@/lib/tauri';
+import { tauri, type OpenClawStatusResult, type OpenClawTestMessageResult, type TestMessageKind, type OpenClawConnectionView } from '@/lib/tauri';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 type LoadState =
@@ -204,6 +204,9 @@ export function OpenClawTab() {
         )}
       </Card>
 
+      {/* Gateway auth */}
+      <OpenClawAuthPanel />
+
       {/* Test message panel */}
       {state.kind !== 'idle' && (
         <TestMessagePanel
@@ -318,6 +321,8 @@ type TestState =
   | { kind: 'sending' }
   | { kind: 'result'; data: OpenClawTestMessageResult };
 
+type AuthSaveState = 'idle' | 'saving' | 'saved' | 'error';
+
 function TestMessagePanel({
   capabilities,
   gatewayEndpoint,
@@ -388,6 +393,124 @@ function TestMessagePanel({
   );
 }
 
+// ── OpenClawAuthPanel ─────────────────────────────────────────────────────────
+
+function OpenClawAuthPanel() {
+  const [view, setView]                   = useState<OpenClawConnectionView | null>(null);
+  const [endpointInput, setEndpointInput] = useState('');
+  const [tokenInput, setTokenInput]       = useState('');
+  const [saveState, setSaveState]         = useState<AuthSaveState>('idle');
+  const [saveError, setSaveError]         = useState<string | null>(null);
+  const [clearing, setClearing]           = useState(false);
+
+  useEffect(() => {
+    void tauri.openclaw.getConnectionSettings().then((v) => {
+      setView(v);
+      setEndpointInput(v.endpoint_override ?? '');
+    });
+  }, []);
+
+  const handleSave = async () => {
+    setSaveState('saving');
+    setSaveError(null);
+    try {
+      const ep  = endpointInput.trim();
+      const tok = tokenInput.trim() || null;
+      await tauri.openclaw.saveConnectionSettings(ep, tok);
+      const updated = await tauri.openclaw.getConnectionSettings();
+      setView(updated);
+      setTokenInput('');
+      setSaveState('saved');
+    } catch (e) {
+      setSaveError(String(e));
+      setSaveState('error');
+    }
+  };
+
+  const handleClear = async () => {
+    setClearing(true);
+    try {
+      await tauri.openclaw.clearToken();
+      const updated = await tauri.openclaw.getConnectionSettings();
+      setView(updated);
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <Card title="Gateway auth">
+      <div className="space-y-4">
+        <p className="text-xs text-text-muted">
+          Stored in Feral settings only — does not modify OpenClaw config.
+        </p>
+
+        {/* Endpoint override */}
+        <div className="space-y-1">
+          <label className="text-xs text-text-muted">Endpoint override (optional, loopback only)</label>
+          <input
+            type="text"
+            value={endpointInput}
+            onChange={(e) => setEndpointInput(e.target.value)}
+            placeholder="Endpoint override — e.g. http://localhost:18789"
+            className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+          />
+        </div>
+
+        {/* Token */}
+        <div className="space-y-1.5">
+          <label className="text-xs text-text-muted">Gateway token</label>
+          <input
+            type="password"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder="Paste gateway token to replace saved token"
+            className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+          />
+          {view && (
+            <div className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  'inline-block h-1.5 w-1.5 rounded-full',
+                  view.has_token ? 'bg-green-400' : 'bg-text-muted',
+                )}
+              />
+              <span className="text-xs text-text-muted">
+                {view.has_token ? 'Token saved' : 'No token saved'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saveState === 'saving'}
+            className="px-3 py-1.5 rounded-md bg-brand text-white text-xs font-medium hover:bg-brand/90 disabled:opacity-50 transition-colors"
+          >
+            {saveState === 'saving' ? 'Saving…' : 'Save token'}
+          </button>
+          {view?.has_token && (
+            <button
+              type="button"
+              onClick={() => void handleClear()}
+              disabled={clearing}
+              className="px-3 py-1.5 rounded-md border border-border-subtle text-xs text-text-secondary hover:bg-bg-hover disabled:opacity-50 transition-colors"
+            >
+              {clearing ? 'Clearing…' : 'Clear token'}
+            </button>
+          )}
+          {saveState === 'error' && saveError && (
+            <span className="text-xs text-red-400">{saveError}</span>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function TestResultDisplay({ result }: { result: OpenClawTestMessageResult }) {
   const kindLabel: Record<TestMessageKind, string> = {
     ok:                 'Connected',
@@ -424,6 +547,13 @@ function TestResultDisplay({ result }: { result: OpenClawTestMessageResult }) {
       {result.error_message && (
         <p className="text-xs text-red-400 break-words">{result.error_message}</p>
       )}
+      {result.kind === 'unsupported' &&
+        result.error_message != null &&
+        /401|403|auth/i.test(result.error_message) && (
+          <p className="text-xs text-amber-400/90 mt-1">
+            Token required — enter your token in the Gateway auth panel above, then retry.
+          </p>
+        )}
     </div>
   );
 }
