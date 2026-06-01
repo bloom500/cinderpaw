@@ -493,7 +493,20 @@ async fn run_agent(
     let list = agents::list().map_err(|e| e.to_string())?;
     let cfg = list.into_iter().find(|a| a.id == agent_id)
         .ok_or_else(|| format!("agent {} not found", agent_id))?;
-    let mut rx = agents::run(cfg, prompt, state.manager.clone());
+
+    // Branch on the agent's persisted `preferred_runtime`:
+    //   * `"openclaw"` → stream the reply through the local OpenClaw
+    //     gateway (which reads the local model from ~/.feral/models/).
+    //   * anything else (None / "local" / future values) → in-process
+    //     llama.cpp execution via the Local Feral model manager.
+    //
+    // The same JSON-encoded `AgentEvent` shape is emitted on the channel
+    // in both branches, so the UI does not need to know which path ran.
+    let mut rx = if cfg.preferred_runtime.as_deref() == Some("openclaw") {
+        agents::run_openclaw(cfg, prompt)
+    } else {
+        agents::run(cfg, prompt, state.manager.clone())
+    };
     while let Some(ev) = rx.recv().await {
         let _ = on_event.send(ev);
     }
