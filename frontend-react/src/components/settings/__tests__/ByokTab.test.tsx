@@ -74,13 +74,14 @@ describe('ByokTab', () => {
     await waitFor(() => expect(screen.getByText(/Invalid API key/)).toBeInTheDocument());
   });
 
-  it('MiniMax row shows a model <select> with MiniMax-M2.7 preselected', async () => {
+  it('MiniMax row shows a model <select> with MiniMax-M3 preselected', async () => {
     render(<ByokTab />);
     await userEvent.click(screen.getByText('MiniMax'));
     const select = await screen.findByRole('combobox');
-    expect(select).toHaveValue('MiniMax-M2.7');
+    expect(select).toHaveValue('MiniMax-M3');
     const options = within(select as HTMLSelectElement).getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
+      'MiniMax-M3',
       'MiniMax-M2.7',
       'MiniMax-M2.7-highspeed',
       'MiniMax-M2.5',
