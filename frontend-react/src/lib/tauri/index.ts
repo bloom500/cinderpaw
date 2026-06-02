@@ -275,7 +275,7 @@ const raw = {
   openclawTestAgentMessage: (agentId: string, prompt: string, endpoint: string | null) =>
     invoke<OpenClawTestMessageResult>('openclaw_test_agent_message', { agentId, prompt, endpoint }),
   openclawWarmupAgent:            (agentId: string) =>
-                                  invoke<OpenClawTestMessageResult>('openclaw_warmup_agent', { agent_id: agentId }),
+                                  invoke<OpenClawTestMessageResult>('openclaw_warmup_agent', { agentId }),
   getOpenclawConnectionSettings: () =>
     invoke<OpenClawConnectionView>('get_openclaw_connection_settings'),
   saveOpenclawConnectionSettings: (endpointOverride: string | null, token: string | null) =>
