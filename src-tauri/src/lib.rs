@@ -1344,14 +1344,25 @@ pub fn run() {
 
                 let token = crate::openclaw_sidecar::generate_token();
 
-                // Persist token so warmup/run_openclaw/test_message all authenticate.
-                let mut conn = crate::openclaw_connection::load();
-                conn.gateway_token = Some(token.clone());
-                if let Err(e) = crate::openclaw_connection::save(&conn) {
-                    tracing::warn!("OpenClaw sidecar: failed to save token: {e}");
+                // Write Feral's OpenClaw config: provider pointing to Feral API + port 18790.
+                let config_path = crate::openclaw_config::config_path();
+                if let Err(e) = crate::openclaw_config::write_feral_config(&token) {
+                    tracing::warn!("OpenClaw sidecar: failed to write config: {e}");
                 }
 
-                match crate::openclaw_sidecar::start_sidecar(&binary, &token) {
+                // Persist token and endpoint so all OpenClaw callers (warmup, run, test)
+                // authenticate and route to the correct port.
+                let mut conn = crate::openclaw_connection::load();
+                conn.gateway_token = Some(token.clone());
+                conn.gateway_endpoint_override = Some(format!(
+                    "http://localhost:{}",
+                    crate::openclaw_config::FERAL_GATEWAY_PORT,
+                ));
+                if let Err(e) = crate::openclaw_connection::save(&conn) {
+                    tracing::warn!("OpenClaw sidecar: failed to save connection: {e}");
+                }
+
+                match crate::openclaw_sidecar::start_sidecar(&binary, &token, &config_path) {
                     Ok(child) => {
                         tracing::info!("OpenClaw sidecar started (pid {:?})", child.id());
                         let state = sidecar_handle.state::<AppState>();
