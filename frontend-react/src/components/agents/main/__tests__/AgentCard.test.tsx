@@ -24,10 +24,13 @@ vi.mock('@/lib/tauri', async () => {
       agents: {
         ...actual.tauri.agents,
         run: vi.fn(),
+        getAll: vi.fn(),
       },
       openclaw: {
         ...actual.tauri.openclaw,
         testAgentMessage: vi.fn(),
+        detect: vi.fn(),
+        warmupAgent: vi.fn(),
       },
     },
   };
@@ -75,7 +78,7 @@ describe('AgentCard', () => {
     // Open the run panel first.
     await userEvent.click(screen.getByRole('button', { name: /test panel for/i }));
     // Switch the runtime selector to OpenClaw.
-    await userEvent.click(screen.getByRole('button', { name: /openclaw \(test\)/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^openclaw$/i }));
   }
 
   it('shows a runtime selector inside the test panel and defaults to local', async () => {
@@ -83,7 +86,7 @@ describe('AgentCard', () => {
     await userEvent.click(screen.getByRole('button', { name: /test panel for/i }));
     // Two runtime buttons present.
     expect(screen.getByRole('button', { name: /local feral/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /openclaw \(test\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^openclaw$/i })).toBeInTheDocument();
     // The local run UI is shown by default.
     expect(screen.getByText(/local test — feral agent only/i)).toBeInTheDocument();
   });
@@ -92,7 +95,6 @@ describe('AgentCard', () => {
     render(<AgentCard agent={agent} onDelete={vi.fn()} />);
     await openOpenClawPanel();
     expect(screen.getByText(/openclaw test mode/i)).toBeInTheDocument();
-    expect(screen.getByText(/openclaw-backed routing is experimental/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /test with openclaw/i })).toBeInTheDocument();
   });
 
@@ -196,6 +198,38 @@ describe('AgentCard', () => {
     // Default is local — the OpenClaw banner should not be visible.
     expect(screen.queryByText(/openclaw test mode/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /run agent/i })).toBeInTheDocument();
+  });
+
+  describe('runtime badge', () => {
+    it('shows "OpenClaw ready" badge when gatewayUp=true and openclaw_ready=true', () => {
+      const readyAgent: AgentConfig = { ...agent, openclaw_ready: true };
+      render(<AgentCard agent={readyAgent} gatewayUp={true} onDelete={vi.fn()} />);
+      expect(screen.getByText(/openclaw ready/i)).toBeInTheDocument();
+    });
+
+    it('shows "Setup needed" badge when gatewayUp=true and openclaw_ready=null', () => {
+      render(<AgentCard agent={agent} gatewayUp={true} onDelete={vi.fn()} />);
+      expect(screen.getByText(/setup needed/i)).toBeInTheDocument();
+    });
+
+    it('shows "Setup needed" badge when gatewayUp=true and openclaw_ready=false', () => {
+      const failedAgent: AgentConfig = { ...agent, openclaw_ready: false };
+      render(<AgentCard agent={failedAgent} gatewayUp={true} onDelete={vi.fn()} />);
+      expect(screen.getByText(/setup needed/i)).toBeInTheDocument();
+    });
+
+    it('shows "Gateway unavailable" badge when gatewayUp=false regardless of openclaw_ready', () => {
+      const readyAgent: AgentConfig = { ...agent, openclaw_ready: true };
+      render(<AgentCard agent={readyAgent} gatewayUp={false} onDelete={vi.fn()} />);
+      expect(screen.getByText(/gateway unavailable/i)).toBeInTheDocument();
+    });
+
+    it('shows no badge when gatewayUp is null/undefined (still loading)', () => {
+      render(<AgentCard agent={agent} gatewayUp={null} onDelete={vi.fn()} />);
+      expect(screen.queryByText(/openclaw ready/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/setup needed/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/gateway unavailable/i)).not.toBeInTheDocument();
+    });
   });
 });
 

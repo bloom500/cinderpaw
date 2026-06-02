@@ -81,7 +81,7 @@ export function AgentCard({ agent, gatewayUp, onDelete }: Props) {
 
           <OpenClawBadge gatewayUp={gatewayUp} openclaw_ready={agent.openclaw_ready} />
 
-          {!agent.model_id && (
+          {!agent.model_id && agent.preferred_runtime !== 'openclaw' && (
             <p className="text-[11px] text-text-muted">
               No model assigned — load a model in the Models tab to run this agent.
             </p>
@@ -294,12 +294,9 @@ function RuntimeSelector({
           disabled={disabled}
           onClick={() => onChange('openclaw')}
           icon={<FlaskConical size={11} />}
-          label="OpenClaw (test)"
+          label="OpenClaw"
         />
       </div>
-      <span className="text-[10px] text-amber-400/80">
-        OpenClaw-backed routing is experimental
-      </span>
     </div>
   );
 }

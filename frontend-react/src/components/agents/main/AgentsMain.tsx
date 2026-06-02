@@ -9,9 +9,10 @@ interface Props {
 }
 
 export function AgentsMain({ onCreateFirst }: Props) {
-  const [agents, setAgents]   = useState<AgentConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [agents, setAgents]       = useState<AgentConfig[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+  const [gatewayUp, setGatewayUp] = useState<boolean | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -26,7 +27,12 @@ export function AgentsMain({ onCreateFirst }: Props) {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    tauri.openclaw.detect()
+      .then((r) => setGatewayUp(r.installed))
+      .catch(() => setGatewayUp(false));
+  }, []);
 
   const handleDelete = async (id: string) => {
     await tauri.agents.delete(id);
@@ -95,12 +101,9 @@ export function AgentsMain({ onCreateFirst }: Props) {
       <div className="flex items-start gap-2 rounded-md bg-bg-hover p-3">
         <Info size={13} className="text-text-muted shrink-0 mt-0.5" />
         <p className="text-xs text-text-muted">
-          These agents run on your <span className="text-text-secondary font-medium">local Feral model</span>{' '}
-          by default. Open a card below and switch the runtime to{' '}
-          <span className="text-text-secondary font-medium">OpenClaw (test)</span>{' '}
-          to send one prompt through the local OpenClaw gateway.{' '}
-          OpenClaw-backed routing is <span className="text-amber-400/90">experimental</span>{' '}
-          and not used for normal execution.
+          These agents run through{' '}
+          <span className="text-text-secondary font-medium">OpenClaw</span>{' '}
+          on your local model. Open a card below to run an agent or test it directly.
         </p>
       </div>
 
@@ -120,6 +123,7 @@ export function AgentsMain({ onCreateFirst }: Props) {
           <AgentCard
             key={a.id}
             agent={a}
+            gatewayUp={gatewayUp}
             onDelete={() => handleDelete(a.id!)}
           />
         ))}
