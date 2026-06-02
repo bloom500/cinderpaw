@@ -898,6 +898,21 @@ pub async fn openclaw_test_agent_message(
     Ok(result)
 }
 
+/// Pure function — builds the updated agent after a warmup result.
+/// Extracted so it can be unit-tested without disk I/O.
+fn apply_warmup_result(
+    mut agent: crate::agents::AgentConfig,
+    success: bool,
+) -> crate::agents::AgentConfig {
+    agent.openclaw_ready = Some(success);
+    agent.preferred_runtime = if success {
+        Some("openclaw".to_string())
+    } else {
+        None
+    };
+    agent
+}
+
 /// Warm up the OpenClaw gateway for a specific agent.
 ///
 /// Sends `OPENCLAW_WARMUP_PROMPT` with the agent's system prompt, using the
@@ -962,10 +977,12 @@ pub async fn openclaw_warmup_agent(
     )
     .await;
 
+    // Persist readiness and preferred_runtime so the agent is immediately
+    // functional: success wires the agent to OpenClaw, failure falls back to local.
     let ready = matches!(result.kind, TestMessageKind::Ok);
-    let mut updated = agent;
-    updated.openclaw_ready = Some(ready);
-    let _ = crate::agents::save(&updated);
+    let updated_agent = apply_warmup_result(agent, ready);
+    // Best-effort save — never fail the test call because of a write error.
+    let _ = crate::agents::save(&updated_agent);
 
     Ok(result)
 }
@@ -2182,6 +2199,42 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(events[0].contains("\"kind\":\"error\""), "should be error event");
         assert!(events[0].contains("auth"), "should mention auth");
+    }
+
+    #[test]
+    fn warmup_builds_correct_updated_agent_on_success() {
+        let agent = crate::agents::AgentConfig {
+            id: "wup-test-1".into(),
+            name: "W".into(),
+            system_prompt: String::new(),
+            model_id: String::new(),
+            tools: vec![],
+            params: None,
+            preferred_runtime: None,
+            openclaw_model: None,
+            openclaw_ready: None,
+        };
+        let updated = apply_warmup_result(agent, true);
+        assert_eq!(updated.openclaw_ready, Some(true));
+        assert_eq!(updated.preferred_runtime.as_deref(), Some("openclaw"));
+    }
+
+    #[test]
+    fn warmup_builds_correct_updated_agent_on_failure() {
+        let agent = crate::agents::AgentConfig {
+            id: "wup-test-2".into(),
+            name: "W".into(),
+            system_prompt: String::new(),
+            model_id: String::new(),
+            tools: vec![],
+            params: None,
+            preferred_runtime: Some("openclaw".into()),
+            openclaw_model: None,
+            openclaw_ready: Some(true),
+        };
+        let updated = apply_warmup_result(agent, false);
+        assert_eq!(updated.openclaw_ready, Some(false));
+        assert!(updated.preferred_runtime.is_none(), "runtime should be cleared on failure");
     }
 
     #[tokio::test]
