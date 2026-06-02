@@ -8,6 +8,7 @@ mod inference;
 mod models;
 mod openclaw;
 mod openclaw_connection;
+mod openclaw_sidecar;
 mod paths;
 mod projects;
 mod settings;
