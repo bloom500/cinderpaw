@@ -1100,7 +1100,7 @@ fn run_openclaw_inner(
             }
             Err(e) if e.is_connect() => {
                 send_ev(&tx, AgentEvent::Error {
-                    message: "OpenClaw gateway not running — start with `openclaw start`".into(),
+                    message: "OpenClaw gateway not running — start with `openclaw gateway start`".into(),
                 }).await;
                 return;
             }

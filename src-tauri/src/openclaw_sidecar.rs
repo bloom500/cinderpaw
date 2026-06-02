@@ -64,7 +64,7 @@ pub fn start_sidecar(
     token: &str,
 ) -> Result<tokio::process::Child, String> {
     let mut cmd = tokio::process::Command::new(binary);
-    cmd.arg("start")
+    cmd.args(["gateway", "run"])
         .env("OPENCLAW_GATEWAY_TOKEN", token)
         .kill_on_drop(true);
 
