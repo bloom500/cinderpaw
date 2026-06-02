@@ -493,7 +493,11 @@ async fn run_agent(
     let list = agents::list().map_err(|e| e.to_string())?;
     let cfg = list.into_iter().find(|a| a.id == agent_id)
         .ok_or_else(|| format!("agent {} not found", agent_id))?;
-    let mut rx = agents::run(cfg, prompt, state.manager.clone());
+    let mut rx = if cfg.preferred_runtime.as_deref() == Some("openclaw") {
+        openclaw::run_openclaw(cfg, prompt)
+    } else {
+        agents::run(cfg, prompt, state.manager.clone())
+    };
     while let Some(ev) = rx.recv().await {
         let _ = on_event.send(ev);
     }
