@@ -7,10 +7,11 @@ import { TOOL_LABELS } from '../agentUtils';
 
 interface Props {
   agent: AgentConfig;
+  gatewayUp?: boolean | null;
   onDelete: () => Promise<void>;
 }
 
-export function AgentCard({ agent, onDelete }: Props) {
+export function AgentCard({ agent, gatewayUp, onDelete }: Props) {
   const [confirmOpen, setConfirmOpen]   = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [deleteError, setDeleteError]   = useState<string | null>(null);
@@ -78,6 +79,8 @@ export function AgentCard({ agent, onDelete }: Props) {
             </div>
           </div>
 
+          <OpenClawBadge gatewayUp={gatewayUp} openclaw_ready={agent.openclaw_ready} />
+
           {!agent.model_id && (
             <p className="text-[11px] text-text-muted">
               No model assigned — load a model in the Models tab to run this agent.
@@ -130,6 +133,40 @@ export function AgentCard({ agent, onDelete }: Props) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+// ── OpenClaw status badge ─────────────────────────────────────────────────────
+
+function OpenClawBadge({
+  gatewayUp,
+  openclaw_ready,
+}: {
+  gatewayUp?: boolean | null;
+  openclaw_ready?: boolean | null;
+}) {
+  if (gatewayUp === null || gatewayUp === undefined) return null;
+
+  if (!gatewayUp) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+        <Plug size={10} /> Gateway unavailable
+      </span>
+    );
+  }
+
+  if (openclaw_ready === true) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-green-400">
+        <CheckCircle size={10} /> OpenClaw ready
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
+      <FlaskConical size={10} /> Setup needed
+    </span>
   );
 }
 
