@@ -6,23 +6,25 @@ interface Props {
   presets: AgentConfig[];
   loading: boolean;
   error: string | null;
-  selected: AgentConfig | null | 'scratch'; // null = nothing chosen yet
+  selected: AgentConfig | null | 'scratch';
   onSelect: (v: AgentConfig | 'scratch') => void;
   onRetry: () => void;
 }
 
 export function PickPresetStep({ presets, loading, error, selected, onSelect, onRetry }: Props) {
   return (
-    <div className="max-w-md mx-auto space-y-4 pt-2">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold text-text-primary">What kind of tasks do you want help with?</h2>
-        <p className="text-xs text-text-muted">Pick a template or start with a blank agent.</p>
+    <div className="space-y-6">
+      <div className="text-center space-y-1">
+        <h2 className="text-2xl font-bold text-text-primary tracking-tight">
+          What will your agent do?
+        </h2>
+        <p className="text-sm text-text-muted">Pick a template or start from scratch.</p>
       </div>
 
       {loading && (
         <div className="space-y-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-20 rounded-lg bg-bg-hover animate-pulse" />
+            <div key={i} className="h-16 rounded-lg bg-bg-hover animate-pulse" />
           ))}
         </div>
       )}
@@ -44,7 +46,7 @@ export function PickPresetStep({ presets, loading, error, selected, onSelect, on
       )}
 
       {!loading && !error && (
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           {presets.map((p) => (
             <PresetCard
               key={p.id ?? p.name}

@@ -15,10 +15,12 @@ export function NameAgentStep({ name, onChange, onSubmit }: Props) {
   }, []);
 
   return (
-    <div className="max-w-md mx-auto space-y-4 pt-2">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold text-text-primary">What do you want to call it?</h2>
-        <p className="text-xs text-text-muted">You'll be able to rename this in a future update.</p>
+    <div className="space-y-6 text-center">
+      <div className="space-y-2">
+        <h2 className="text-2xl font-bold text-text-primary tracking-tight">
+          Give it a name
+        </h2>
+        <p className="text-sm text-text-muted">You can always rename it later.</p>
       </div>
 
       <input
@@ -28,7 +30,7 @@ export function NameAgentStep({ name, onChange, onSubmit }: Props) {
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onSubmit(); }}
         placeholder="e.g. My Research Assistant"
-        className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2.5 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+        className="w-full rounded-xl border border-bg-hover bg-bg-primary px-4 py-3 text-sm text-text-primary outline-none focus:ring-2 focus:ring-brand placeholder:text-text-muted text-center"
       />
     </div>
   );
