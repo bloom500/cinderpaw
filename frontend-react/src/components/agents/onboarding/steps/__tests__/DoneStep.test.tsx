@@ -31,7 +31,7 @@ describe('DoneStep', () => {
     } satisfies OpenClawTestMessageResult);
 
     render(<DoneStep agentName="My Agent" agentId="agent-abc" onViewAgents={vi.fn()} />);
-    expect(screen.getByText(/preparing openclaw/i)).toBeInTheDocument();
+    expect(screen.getByText(/connecting to openclaw/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText(/openclaw ready/i)).toBeInTheDocument();
@@ -49,7 +49,7 @@ describe('DoneStep', () => {
 
     render(<DoneStep agentName="My Agent" agentId="agent-abc" onViewAgents={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByText(/setup needed/i)).toBeInTheDocument();
+      expect(screen.getByText(/openclaw not connected/i)).toBeInTheDocument();
     });
   });
 
@@ -63,7 +63,7 @@ describe('DoneStep', () => {
 
     render(<DoneStep agentName="My Agent" agentId="agent-abc" onViewAgents={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByText(/setup needed/i)).toBeInTheDocument();
+      expect(screen.getByText(/openclaw not connected/i)).toBeInTheDocument();
     });
   });
 
@@ -72,6 +72,55 @@ describe('DoneStep', () => {
     // Let any pending microtasks flush before asserting warmup was not called.
     await Promise.resolve();
     expect(mockWarmup).not.toHaveBeenCalled();
-    expect(screen.getByText(/"my agent" is saved/i)).toBeInTheDocument();
+    expect(screen.getByText(/"my agent" is ready/i)).toBeInTheDocument();
+  });
+
+  it('shows model name when loadedModelName is provided', async () => {
+    mockWarmup.mockResolvedValue({
+      kind: 'ok',
+      response_text: 'ready',
+      error_message: null,
+      endpoint_tried: null,
+    } satisfies OpenClawTestMessageResult);
+
+    render(
+      <DoneStep
+        agentName="My Agent"
+        agentId="agent-abc"
+        loadedModelName="mistral-7b-q4.gguf"
+        onViewAgents={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/mistral-7b-q4\.gguf/i)).toBeInTheDocument();
+    expect(screen.queryByText(/next steps/i)).not.toBeInTheDocument();
+  });
+
+  it('shows load-model hint when no loadedModelName', async () => {
+    mockWarmup.mockResolvedValue({
+      kind: 'error',
+      response_text: null,
+      error_message: null,
+      endpoint_tried: null,
+    } satisfies OpenClawTestMessageResult);
+
+    render(<DoneStep agentName="My Agent" agentId="agent-abc" onViewAgents={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText(/load a model/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/next steps/i)).not.toBeInTheDocument();
+  });
+
+  it('never renders a numbered list of next steps', async () => {
+    mockWarmup.mockResolvedValue({
+      kind: 'error',
+      response_text: null,
+      error_message: null,
+      endpoint_tried: null,
+    } satisfies OpenClawTestMessageResult);
+
+    render(<DoneStep agentName="My Agent" agentId="agent-abc" onViewAgents={vi.fn()} />);
+    await Promise.resolve();
+    expect(document.querySelector('ol')).toBeNull();
+    expect(document.querySelector('li')).toBeNull();
   });
 });
