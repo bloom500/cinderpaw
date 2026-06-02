@@ -35,6 +35,36 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Build OpenClaw standalone binary
+        shell: pwsh
+        run: |
+          # Install openclaw package and pkg bundler
+          npm install openclaw@latest
+          npm install -g @vercel/pkg
+
+          # Read the JS entry point from openclaw's package.json
+          $pkgJson = Get-Content ./node_modules/openclaw/package.json | ConvertFrom-Json
+          $entry = $pkgJson.bin.openclaw
+          if (-not $entry) {
+            # Fallback: use main field
+            $entry = $pkgJson.main
+          }
+          $entryPath = "./node_modules/openclaw/$entry"
+          Write-Host "Packaging entry: $entryPath"
+
+          # Build standalone Windows x64 binary
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          npx pkg $entryPath `
+            --target node18-win-x64 `
+            --output src-tauri/binaries/openclaw-x86_64-pc-windows-msvc.exe
+
+          # Verify
+          if (-not (Test-Path src-tauri/binaries/openclaw-x86_64-pc-windows-msvc.exe)) {
+            Write-Error "Binary not produced — pkg step failed"
+            exit 1
+          }
+          Write-Host "OpenClaw binary built successfully"
+
       - name: Build, sign and publish release
         uses: tauri-apps/tauri-action@v0
         env:
