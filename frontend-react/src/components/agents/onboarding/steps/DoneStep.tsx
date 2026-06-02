@@ -37,7 +37,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
       return (
         <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
           <Loader2 size={12} className="animate-spin" />
-          Connecting to OpenClaw…
+          Activating agent…
         </div>
       );
     }
@@ -46,12 +46,11 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
       return ok ? (
         <div className="flex items-center justify-center gap-1.5 text-xs text-green-400">
           <CheckCircle size={12} />
-          OpenClaw ready
+          Agent ready
         </div>
       ) : (
-        <div className="text-xs text-amber-400 text-center">
-          OpenClaw not connected —{' '}
-          <span className="text-text-muted">check Settings → OpenClaw.</span>
+        <div className="text-xs text-text-muted text-center">
+          Load a model in the Models tab to activate this agent.
         </div>
       );
     }
@@ -68,17 +67,17 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
 
       <div className="space-y-2">
         <h2 className="text-2xl font-bold text-text-primary tracking-tight">
-          "{agentName}" is ready
+          "{agentName}" created
         </h2>
         {loadedModelName ? (
           <p className="text-sm text-text-muted">
             Connected to <span className="text-text-secondary font-medium">{loadedModelName}</span>.
           </p>
-        ) : (
+        ) : !(warmup.phase === 'done' && warmup.result.kind !== 'ok') ? (
           <p className="text-sm text-text-muted">
-            Load a model in the Models tab to start running it.
+            Load a model in the Models tab to start using it.
           </p>
-        )}
+        ) : null}
       </div>
 
       {badge}
