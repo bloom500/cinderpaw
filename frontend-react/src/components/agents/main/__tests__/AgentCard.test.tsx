@@ -27,7 +27,6 @@ vi.mock('@/lib/tauri', async () => {
       },
       openclaw: {
         ...actual.tauri.openclaw,
-        testAgentMessage: vi.fn(),
         detect: vi.fn(),
         warmupAgent: vi.fn(),
       },
