@@ -970,6 +970,38 @@ pub async fn openclaw_warmup_agent(
     Ok(result)
 }
 
+// ── SSE streaming ─────────────────────────────────────────────────────────────
+
+/// Result of parsing a single SSE line from a streaming chat completion.
+#[derive(Debug, PartialEq)]
+enum SseChunk {
+    /// A content delta to emit as a token.
+    Token(String),
+    /// `data: [DONE]` — the stream is finished.
+    Done,
+    /// Non-data line, empty delta, or parse error — skip silently.
+    Skip,
+}
+
+/// Parse one line of an OpenAI-compatible Server-Sent Events stream.
+fn parse_sse_line(line: &str) -> SseChunk {
+    let data = match line.strip_prefix("data: ") {
+        Some(d) => d,
+        None => return SseChunk::Skip,
+    };
+    if data.trim() == "[DONE]" {
+        return SseChunk::Done;
+    }
+    let v: serde_json::Value = match serde_json::from_str(data) {
+        Ok(v) => v,
+        Err(_) => return SseChunk::Skip,
+    };
+    match v["choices"][0]["delta"]["content"].as_str() {
+        Some(s) if !s.is_empty() => SseChunk::Token(s.to_string()),
+        _ => SseChunk::Skip,
+    }
+}
+
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
 async fn send_test_message(
@@ -1830,6 +1862,41 @@ mod tests {
         assert!(matches!(r.kind, TestMessageKind::Error),
             "unknown agent must produce kind=error, got {:?}", r.kind);
         assert!(r.error_message.is_some());
+    }
+
+    // ── SSE parser ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn sse_parse_token_extracts_content() {
+        let line = r#"data: {"id":"x","choices":[{"delta":{"content":"Hello"},"index":0}]}"#;
+        assert_eq!(parse_sse_line(line), SseChunk::Token("Hello".into()));
+    }
+
+    #[test]
+    fn sse_parse_done_signal() {
+        assert_eq!(parse_sse_line("data: [DONE]"), SseChunk::Done);
+        assert_eq!(parse_sse_line("data: [DONE] "), SseChunk::Done);
+    }
+
+    #[test]
+    fn sse_parse_skip_non_data_lines() {
+        assert_eq!(parse_sse_line(""), SseChunk::Skip);
+        assert_eq!(parse_sse_line(": ping"), SseChunk::Skip);
+        assert_eq!(parse_sse_line("event: message"), SseChunk::Skip);
+    }
+
+    #[test]
+    fn sse_parse_skip_empty_delta() {
+        let no_content = r#"data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}]}"#;
+        assert_eq!(parse_sse_line(no_content), SseChunk::Skip);
+
+        let empty_str = r#"data: {"choices":[{"delta":{"content":""},"index":0}]}"#;
+        assert_eq!(parse_sse_line(empty_str), SseChunk::Skip);
+    }
+
+    #[test]
+    fn sse_parse_skip_malformed_json() {
+        assert_eq!(parse_sse_line("data: {not json}"), SseChunk::Skip);
     }
 
     #[test]
