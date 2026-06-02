@@ -57,15 +57,17 @@ pub fn find_binary(app: &AppHandle) -> Option<PathBuf> {
 
 /// Start the OpenClaw gateway sidecar. Returns the child process on success.
 ///
-/// Passes `OPENCLAW_GATEWAY_TOKEN` so all callers that read from
-/// `openclaw_connection::load()` authenticate correctly.
+/// `config_path` is passed as `OPENCLAW_CONFIG_PATH` so OpenClaw loads
+/// Feral's model-provider config instead of its default `~/.openclaw/openclaw.json`.
 pub fn start_sidecar(
     binary: &Path,
     token: &str,
+    config_path: &Path,
 ) -> Result<tokio::process::Child, String> {
     let mut cmd = tokio::process::Command::new(binary);
     cmd.arg("gateway")
         .env("OPENCLAW_GATEWAY_TOKEN", token)
+        .env("OPENCLAW_CONFIG_PATH", config_path)
         .kill_on_drop(true);
 
     // Suppress console window on Windows.
@@ -103,5 +105,18 @@ mod tests {
         let t2 = generate_token();
         assert!(!t1.is_empty());
         assert_ne!(t1, t2);
+    }
+
+    #[test]
+    fn start_sidecar_signature_accepts_config_path() {
+        // Calling with a non-existent binary returns Err — we're only checking
+        // the function is callable with the new signature.
+        use std::path::Path;
+        let result = start_sidecar(
+            Path::new("nonexistent-binary"),
+            "tok",
+            Path::new("/tmp/config.json"),
+        );
+        assert!(result.is_err(), "expected Err for nonexistent binary");
     }
 }
