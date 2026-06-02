@@ -7,6 +7,7 @@ mod gpu_detect;
 mod inference;
 mod models;
 mod openclaw;
+mod openclaw_config;
 mod openclaw_connection;
 mod openclaw_sidecar;
 mod paths;
