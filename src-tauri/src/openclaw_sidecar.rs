@@ -111,11 +111,11 @@ mod tests {
     fn start_sidecar_signature_accepts_config_path() {
         // Calling with a non-existent binary returns Err — we're only checking
         // the function is callable with the new signature.
-        use std::path::Path;
+        let config = std::env::temp_dir().join("config.json");
         let result = start_sidecar(
-            Path::new("nonexistent-binary"),
+            std::path::Path::new("nonexistent-binary"),
             "tok",
-            Path::new("/tmp/config.json"),
+            &config,
         );
         assert!(result.is_err(), "expected Err for nonexistent binary");
     }
