@@ -15,30 +15,27 @@ pub fn write_feral_config(token: &str) -> Result<()> {
 }
 
 fn build_config(token: &str) -> String {
-    format!(
-        r#"{{
-  "gateway": {{
-    "port": {port},
-    "bind": "loopback",
-    "auth": {{ "mode": "token", "token": "{token}" }}
-  }},
-  "models": {{
-    "providers": {{
-      "feral": {{
-        "baseUrl": "http://localhost:11435/v1",
-        "models": [{{ "id": "current" }}]
-      }}
-    }}
-  }},
-  "agents": {{
-    "defaults": {{
-      "model": {{ "primary": "feral/current" }}
-    }}
-  }}
-}}"#,
-        port = FERAL_GATEWAY_PORT,
-        token = token,
-    )
+    let v = serde_json::json!({
+        "gateway": {
+            "port": FERAL_GATEWAY_PORT,
+            "bind": "loopback",
+            "auth": { "mode": "token", "token": token }
+        },
+        "models": {
+            "providers": {
+                "feral": {
+                    "baseUrl": "http://localhost:11435/v1",
+                    "models": [{ "id": "current" }]
+                }
+            }
+        },
+        "agents": {
+            "defaults": {
+                "model": { "primary": "feral/current" }
+            }
+        }
+    });
+    serde_json::to_string_pretty(&v).expect("config serialization never fails")
 }
 
 #[cfg(test)]
@@ -79,5 +76,16 @@ mod tests {
         let cfg = build_config("tok-xyz");
         serde_json::from_str::<serde_json::Value>(&cfg)
             .expect("config must be valid JSON");
+    }
+
+    #[test]
+    fn build_config_escapes_special_chars_in_token() {
+        let cfg = build_config(r#"tok"with"quotes"#);
+        let v: serde_json::Value = serde_json::from_str(&cfg)
+            .expect("must be valid JSON even with special chars");
+        assert_eq!(
+            v["gateway"]["auth"]["token"].as_str().unwrap(),
+            r#"tok"with"quotes"#
+        );
     }
 }
