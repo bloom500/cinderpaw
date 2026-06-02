@@ -1,11 +1,11 @@
 import { cn } from '@/lib/utils';
 
 interface ShellProps {
-  step: number;          // 1-based, for filled dots
+  step: number;
   totalSteps: number;
   children: React.ReactNode;
-  onBack?: () => void;   // undefined → hides Back
-  onSkip?: () => void;   // undefined → hides Skip
+  onBack?: () => void;
+  onSkip?: () => void;
   onContinue?: () => void;
   continueLabel?: string;
   continueDisabled?: boolean;
@@ -19,60 +19,65 @@ export function OnboardingShell({
   continueDisabled = false,
   continueBusy = false,
 }: ShellProps) {
+  const pct = Math.round((step / totalSteps) * 100);
+  const showStepLabel = step > 1 && step < totalSteps;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Progress dots */}
-      <div className="pt-8 pb-6 flex justify-center gap-2">
-        {Array.from({ length: totalSteps }, (_, i) => (
-          <span
-            key={i}
-            className={cn(
-              'w-2 h-2 rounded-full transition-colors',
-              i < step ? 'bg-brand' : 'bg-bg-hover',
+      {/* Progress line */}
+      <div className="h-0.5 w-full bg-bg-hover shrink-0">
+        <div
+          className="h-full bg-brand transition-all duration-300 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      {/* Content — vertically + horizontally centered */}
+      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-6 py-6">
+        <div className="w-full max-w-sm">
+          {showStepLabel && (
+            <p className="text-xs font-semibold text-brand uppercase tracking-widest text-center mb-6">
+              Step {step - 1} of {totalSteps - 2}
+            </p>
+          )}
+          {children}
+        </div>
+      </div>
+
+      {/* CTA — no border, part of flow */}
+      <div className="px-6 pb-8 flex flex-col items-center gap-3 shrink-0 w-full max-w-sm mx-auto">
+        {onContinue && (
+          <button
+            type="button"
+            onClick={onContinue}
+            disabled={continueDisabled || continueBusy}
+            className="w-full py-2.5 rounded-xl bg-brand text-white text-sm font-semibold hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {continueBusy ? 'Saving…' : continueLabel}
+          </button>
+        )}
+        {(onBack || onSkip) && (
+          <div className={cn('flex items-center text-xs text-text-muted', onBack && onSkip ? 'gap-4' : '')}>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="hover:text-text-secondary transition-colors"
+              >
+                ← Back
+              </button>
             )}
-          />
-        ))}
-      </div>
-
-      {/* Step content */}
-      <div className="flex-1 overflow-y-auto px-6 pb-4">
-        {children}
-      </div>
-
-      {/* Footer buttons */}
-      <div className="px-6 py-4 border-t border-border-subtle flex items-center justify-between gap-3 shrink-0">
-        <div>
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="text-sm text-text-muted hover:text-text-secondary transition-colors"
-            >
-              ← Back
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {onSkip && (
-            <button
-              type="button"
-              onClick={onSkip}
-              className="text-sm text-text-muted hover:text-text-secondary transition-colors"
-            >
-              Skip for now
-            </button>
-          )}
-          {onContinue && (
-            <button
-              type="button"
-              onClick={onContinue}
-              disabled={continueDisabled || continueBusy}
-              className="px-4 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {continueBusy ? 'Saving…' : continueLabel}
-            </button>
-          )}
-        </div>
+            {onSkip && (
+              <button
+                type="button"
+                onClick={onSkip}
+                className="hover:text-text-secondary transition-colors"
+              >
+                Skip for now
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
