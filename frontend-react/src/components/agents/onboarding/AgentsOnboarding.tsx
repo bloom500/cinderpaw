@@ -37,10 +37,11 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
   const [presetsError, setPresetsError]   = useState<string | null>(null);
 
   // Save state
-  const [saving, setSaving]       = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedName, setSavedName] = useState('');
-  const [savedId, setSavedId]     = useState('');
+  const [saving, setSaving]             = useState(false);
+  const [saveError, setSaveError]       = useState<string | null>(null);
+  const [savedName, setSavedName]       = useState('');
+  const [savedId, setSavedId]           = useState('');
+  const [loadedModelName, setLoadedModelName] = useState<string | undefined>(undefined);
 
   // ── Navigation helpers ──────────────────────────────────────────────────────
 
@@ -96,17 +97,22 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      const preset = selectedPreset && selectedPreset !== 'scratch' ? selectedPreset : null;
+      const [loadedModel, preset] = await Promise.all([
+        tauri.models.loaded().catch(() => null),
+        Promise.resolve(selectedPreset && selectedPreset !== 'scratch' ? selectedPreset : null),
+      ]);
       const cfg: AgentConfig = {
         // No id — backend generates a stable UUID via serde(default)
-        name:          agentName.trim(),
-        system_prompt: preset?.system_prompt ?? DEFAULT_SCRATCH_PROMPT,
-        model_id:      '',
-        tools:         preset?.tools ?? [],
+        name:              agentName.trim(),
+        system_prompt:     preset?.system_prompt ?? DEFAULT_SCRATCH_PROMPT,
+        model_id:          loadedModel?.path ?? '',
+        tools:             preset?.tools ?? [],
+        preferred_runtime: 'openclaw',
       };
       const saved = await tauri.agents.save(cfg);
       setSavedName(saved.name);
       setSavedId(saved.id ?? '');
+      setLoadedModelName(loadedModel?.name ?? undefined);
       localStorage.setItem(ONBOARDING_KEY, 'completed');
       advance('done');
     } catch (e) {
@@ -126,7 +132,7 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
   if (step === 'done') {
     return (
       <div className="h-full flex items-center justify-center p-6">
-        <DoneStep agentName={savedName} agentId={savedId || undefined} onViewAgents={onDone} />
+        <DoneStep agentName={savedName} agentId={savedId || undefined} loadedModelName={loadedModelName} onViewAgents={onDone} />
       </div>
     );
   }
