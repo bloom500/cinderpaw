@@ -1002,6 +1002,165 @@ fn parse_sse_line(line: &str) -> SseChunk {
     }
 }
 
+/// Streaming timeout for a full OpenClaw chat completion.
+/// Longer than the test-message timeout — real prompts can take minutes.
+const OPENCLAW_STREAM_TIMEOUT_SECS: u64 = 300;
+
+/// Inner runner — takes endpoint and token directly so tests can inject them
+/// without touching disk. Called by `run_openclaw` after loading connection settings.
+fn run_openclaw_inner(
+    cfg: crate::agents::AgentConfig,
+    user_prompt: String,
+    endpoint: String,
+    auth_token: Option<String>,
+) -> tokio::sync::mpsc::Receiver<String> {
+    use crate::agents::AgentEvent;
+    use futures::StreamExt;
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+
+    tokio::spawn(async move {
+        let send_ev = |tx: &tokio::sync::mpsc::Sender<String>, ev: AgentEvent| {
+            let json = serde_json::to_string(&ev).unwrap_or_default();
+            let tx = tx.clone();
+            async move { let _ = tx.send(json).await; }
+        };
+
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(OPENCLAW_STREAM_TIMEOUT_SECS))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                send_ev(&tx, AgentEvent::Error {
+                    message: format!("Failed to build HTTP client: {e}"),
+                }).await;
+                return;
+            }
+        };
+
+        let model = cfg.openclaw_model.as_deref()
+            .unwrap_or(crate::agents::DEFAULT_OPENCLAW_MODEL)
+            .to_string();
+        let user_id = crate::agents::openclaw_user_id(&cfg.id);
+
+        let mut messages: Vec<serde_json::Value> = Vec::new();
+        let sys = cfg.system_prompt.trim();
+        if !sys.is_empty() {
+            messages.push(serde_json::json!({"role": "system", "content": sys}));
+        }
+        messages.push(serde_json::json!({"role": "user", "content": user_prompt}));
+
+        let body = serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "stream": true,
+            "user": user_id,
+        });
+
+        let url = format!("{}/v1/chat/completions", endpoint.trim_end_matches('/'));
+        let mut req = client.post(&url).json(&body);
+        if let Some(token) = auth_token.as_deref() {
+            req = req.header("Authorization", format!("Bearer {token}"));
+        }
+
+        let resp = match req.send().await {
+            Ok(r) if r.status().is_success() => r,
+            Ok(r) => {
+                let message = match r.status().as_u16() {
+                    401 | 403 => "OpenClaw auth required — check Settings → OpenClaw".into(),
+                    404 => "OpenClaw endpoint not found — check Settings → OpenClaw".into(),
+                    s => format!("OpenClaw returned HTTP {s}"),
+                };
+                send_ev(&tx, AgentEvent::Error { message }).await;
+                return;
+            }
+            Err(e) if e.is_timeout() => {
+                send_ev(&tx, AgentEvent::Error {
+                    message: "OpenClaw did not respond in time".into(),
+                }).await;
+                return;
+            }
+            Err(e) if e.is_connect() => {
+                send_ev(&tx, AgentEvent::Error {
+                    message: "OpenClaw gateway not running — start with `openclaw start`".into(),
+                }).await;
+                return;
+            }
+            Err(e) => {
+                send_ev(&tx, AgentEvent::Error {
+                    message: redact_secrets(&e.to_string()),
+                }).await;
+                return;
+            }
+        };
+
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        let mut full_text = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let bytes = match chunk {
+                Ok(b) => b,
+                Err(e) => {
+                    send_ev(&tx, AgentEvent::Error {
+                        message: format!("Stream error: {}", redact_secrets(&e.to_string())),
+                    }).await;
+                    return;
+                }
+            };
+
+            buf.push_str(&String::from_utf8_lossy(&bytes[..]));
+
+            loop {
+                match buf.find('\n') {
+                    None => break,
+                    Some(pos) => {
+                        let line = buf[..pos].trim_end_matches('\r').to_string();
+                        buf = buf[pos + 1..].to_string();
+                        match parse_sse_line(&line) {
+                            SseChunk::Token(text) => {
+                                full_text.push_str(&text);
+                                send_ev(&tx, AgentEvent::Token { text }).await;
+                            }
+                            SseChunk::Done => {
+                                send_ev(&tx, AgentEvent::Final { text: full_text }).await;
+                                return;
+                            }
+                            SseChunk::Skip => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        // Stream closed without [DONE] — emit whatever was accumulated.
+        if !full_text.is_empty() {
+            send_ev(&tx, AgentEvent::Final { text: full_text }).await;
+        }
+    });
+
+    rx
+}
+
+/// Run an agent through the OpenClaw gateway. Returns a receiver of JSON-encoded
+/// `AgentEvent`s — identical shape to `agents::run()` so `run_agent` in lib.rs
+/// can use either without knowing which path was taken.
+pub fn run_openclaw(
+    cfg: crate::agents::AgentConfig,
+    user_prompt: String,
+) -> tokio::sync::mpsc::Receiver<String> {
+    let connection = crate::openclaw_connection::load();
+    let endpoint = connection
+        .gateway_endpoint_override
+        .as_deref()
+        .filter(|ep| is_loopback_url(ep))
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT));
+    let token = connection.gateway_token;
+    run_openclaw_inner(cfg, user_prompt, endpoint, token)
+}
+
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
 async fn send_test_message(
@@ -1921,5 +2080,143 @@ mod tests {
         assert!(!msg.contains("sk-"));
         // The hint is present so the UI can guide the user.
         assert!(msg.contains("OPENCLAW_GATEWAY_TOKEN") || msg.contains("gateway.auth"));
+    }
+
+    // ── run_openclaw ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn run_openclaw_emits_token_and_final_events() {
+        use axum::{routing::post, Router};
+
+        let sse_body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"index\":0}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" world\"},\"index\":0}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move || async move {
+                (
+                    axum::http::StatusCode::OK,
+                    [("content-type", "text/event-stream")],
+                    sse_body,
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let cfg = crate::agents::AgentConfig {
+            id: "test-run-123".into(),
+            name: "Test".into(),
+            system_prompt: "You are helpful.".into(),
+            model_id: String::new(),
+            tools: vec![],
+            params: None,
+            preferred_runtime: Some("openclaw".into()),
+            openclaw_model: None,
+            openclaw_ready: None,
+        };
+
+        let mut rx = run_openclaw_inner(
+            cfg,
+            "Hi".into(),
+            format!("http://{addr}"),
+            None,
+        );
+
+        let mut events: Vec<String> = Vec::new();
+        while let Some(ev) = rx.recv().await {
+            events.push(ev);
+        }
+
+        assert_eq!(events.len(), 3, "expected 3 events, got: {:?}", events);
+        assert!(events[0].contains("\"kind\":\"token\""), "first event should be token");
+        assert!(events[0].contains("Hello"), "first token should be Hello");
+        assert!(events[1].contains("\"kind\":\"token\""), "second event should be token");
+        assert!(events[1].contains(" world"), "second token should be ' world'");
+        assert!(events[2].contains("\"kind\":\"final\""), "last event should be final");
+        assert!(events[2].contains("Hello world"), "final text should be accumulated");
+    }
+
+    #[tokio::test]
+    async fn run_openclaw_emits_error_on_401() {
+        use axum::{routing::post, Router};
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|| async { axum::http::StatusCode::UNAUTHORIZED }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let cfg = crate::agents::AgentConfig {
+            id: "test-run-401".into(),
+            name: "Test".into(),
+            system_prompt: String::new(),
+            model_id: String::new(),
+            tools: vec![],
+            params: None,
+            preferred_runtime: Some("openclaw".into()),
+            openclaw_model: None,
+            openclaw_ready: None,
+        };
+
+        let mut rx = run_openclaw_inner(
+            cfg,
+            "Hi".into(),
+            format!("http://{addr}"),
+            None,
+        );
+
+        let mut events: Vec<String> = Vec::new();
+        while let Some(ev) = rx.recv().await {
+            events.push(ev);
+        }
+
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("\"kind\":\"error\""), "should be error event");
+        assert!(events[0].contains("auth"), "should mention auth");
+    }
+
+    #[tokio::test]
+    async fn run_openclaw_emits_error_on_connection_refused() {
+        let port = {
+            let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            l.local_addr().unwrap().port()
+        };
+
+        let cfg = crate::agents::AgentConfig {
+            id: "test-run-refused".into(),
+            name: "Test".into(),
+            system_prompt: String::new(),
+            model_id: String::new(),
+            tools: vec![],
+            params: None,
+            preferred_runtime: Some("openclaw".into()),
+            openclaw_model: None,
+            openclaw_ready: None,
+        };
+
+        let mut rx = run_openclaw_inner(
+            cfg,
+            "Hi".into(),
+            format!("http://127.0.0.1:{port}"),
+            None,
+        );
+
+        let mut events: Vec<String> = Vec::new();
+        while let Some(ev) = rx.recv().await {
+            events.push(ev);
+        }
+
+        assert_eq!(events.len(), 1);
+        let ev = &events[0];
+        assert!(ev.contains("\"kind\":\"error\""), "should be error event, got: {ev}");
     }
 }
