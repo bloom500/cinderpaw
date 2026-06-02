@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{ipc::Channel, AppHandle, Emitter, State};
+use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 use crate::agents::AgentConfig;
@@ -44,6 +44,9 @@ pub struct AppState {
     /// System info pre-computed in a background thread at startup so the
     /// first call to get_system_info() returns instantly.
     pub system_info_cache: Arc<Mutex<Option<SystemInfo>>>,
+    /// Bundled OpenClaw sidecar process. None if the user has OpenClaw on PATH
+    /// (they manage it themselves) or if the sidecar failed to start.
+    pub openclaw_process: Arc<Mutex<Option<tokio::process::Child>>>,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -1217,6 +1220,7 @@ pub fn run() {
         stop_signal: Arc::new(AtomicBool::new(false)),
         settings,
         system_info_cache,
+        openclaw_process: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -1316,11 +1320,64 @@ pub fn run() {
                     }
                 });
             }
+            // Start bundled OpenClaw sidecar if no system-wide OpenClaw is on PATH.
+            // PATH takes priority: users who installed OpenClaw themselves keep their version.
+            let sidecar_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // probe_path and bundled_binary_path are sync — run in blocking thread.
+                let result = tokio::task::spawn_blocking({
+                    let h = sidecar_handle.clone();
+                    move || {
+                        // If on PATH, user manages it — skip bundled entirely.
+                        if crate::openclaw_sidecar::probe_path("openclaw").is_some() {
+                            return None;
+                        }
+                        crate::openclaw_sidecar::bundled_binary_path(&h)
+                    }
+                }).await.unwrap_or(None);
+
+                let Some(binary) = result else {
+                    tracing::info!("OpenClaw sidecar: PATH version found or no binary — skipping");
+                    return;
+                };
+
+                let token = crate::openclaw_sidecar::generate_token();
+
+                // Persist token so warmup/run_openclaw/test_message all authenticate.
+                let mut conn = crate::openclaw_connection::load();
+                conn.gateway_token = Some(token.clone());
+                if let Err(e) = crate::openclaw_connection::save(&conn) {
+                    tracing::warn!("OpenClaw sidecar: failed to save token: {e}");
+                }
+
+                match crate::openclaw_sidecar::start_sidecar(&binary, &token) {
+                    Ok(child) => {
+                        tracing::info!("OpenClaw sidecar started (pid {:?})", child.id());
+                        let state = sidecar_handle.state::<AppState>();
+                        *state.openclaw_process.lock() = Some(child);
+                    }
+                    Err(e) => {
+                        tracing::warn!("OpenClaw sidecar failed to start: {e}");
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(specta_builder.invoke_handler())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    let mut guard = state.openclaw_process.lock();
+                    if let Some(ref mut child) = *guard {
+                        let _ = child.start_kill();
+                        tracing::info!("OpenClaw sidecar stopped");
+                    }
+                }
+            }
+        });
 }
 
 #[cfg(test)]
