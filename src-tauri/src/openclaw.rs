@@ -28,10 +28,10 @@
 //!   * Open the install docs in the OS default browser.
 //!
 //! ## Explicit non-goals
-//!   * No chat routing, no streaming, no model picker integration.
 //!   * No writes to ~/.openclaw or any OpenClaw file.
 //!   * No reads of ~/.openclaw/openclaw.json — config is opaque here.
 //!   * No auto-start, no daemon supervision, no kill / restart.
+//!   * No tool loop through OpenClaw (tools run locally; OpenClaw handles its own).
 
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
