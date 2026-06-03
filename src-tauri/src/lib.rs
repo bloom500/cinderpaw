@@ -510,10 +510,18 @@ async fn run_agent(
     let list = agents::list().map_err(|e| e.to_string())?;
     let cfg = list.into_iter().find(|a| a.id == agent_id)
         .ok_or_else(|| format!("agent {} not found", agent_id))?;
-    let mut rx = if cfg.preferred_runtime.as_deref() == Some("openclaw") {
-        openclaw::run_openclaw(cfg, prompt)
-    } else {
+    // Route by the *active execution backend*, not a stored flag:
+    //   • Local model loaded → Feral's native agent loop. It streams token-by-token
+    //     like chat, respects the model's EOS, runs the tool-calling loop, and has no
+    //     external watchdog — so a slow CPU prefill can't trip a timeout.
+    //   • No local model (cloud/BYOK active) → OpenClaw, whose agent runtime is built
+    //     for fast cloud providers where its stall watchdog is not a problem.
+    // OpenClaw's watchdog kills slow local-CPU runs ("stalled_agent_run") because the
+    // long prompt prefill emits no tokens within its grace window — hence this split.
+    let mut rx = if state.manager.current().is_some() {
         agents::run(cfg, prompt, state.manager.clone())
+    } else {
+        openclaw::run_openclaw(cfg, prompt)
     };
     // Stream each AgentEvent (already JSON-serialized) over the feral:// event
     // bus, tagged with session_id so concurrent run panels don't cross streams.
