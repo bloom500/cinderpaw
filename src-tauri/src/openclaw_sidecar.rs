@@ -23,22 +23,42 @@ pub fn generate_token() -> String {
 
 /// Check PATH for an `openclaw` binary synchronously.
 /// Returns the full path if found.
+///
+/// On Windows, npm-installed CLIs ship as `<name>.cmd` wrappers alongside an
+/// extensionless Unix shebang script. We probe for `<name>.cmd` first so that
+/// `start_sidecar` gets a path it can actually execute via `cmd /c`.
 pub fn probe_path(name: &str) -> Option<PathBuf> {
-    let (program, arg) = if cfg!(windows) {
-        ("where", name)
-    } else {
-        ("which", name)
-    };
-    let output = std::process::Command::new(program)
-        .arg(arg)
-        .output()
-        .ok()?;
-    if output.status.success() {
-        let line = String::from_utf8_lossy(&output.stdout);
-        let first = line.lines().next()?.trim();
-        if first.is_empty() { None } else { Some(PathBuf::from(first)) }
-    } else {
+    #[cfg(windows)]
+    {
+        // Prefer .cmd (npm wrapper), then .exe (native binary).
+        // The extensionless shebang file is skipped — os error 193 on Windows.
+        for candidate in [format!("{}.cmd", name), format!("{}.exe", name)] {
+            let output = std::process::Command::new("where")
+                .arg(&candidate)
+                .output()
+                .ok()?;
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Some(first) = text.lines().next().map(str::trim).filter(|s| !s.is_empty()) {
+                    return Some(PathBuf::from(first));
+                }
+            }
+        }
         None
+    }
+    #[cfg(not(windows))]
+    {
+        let output = std::process::Command::new("which")
+            .arg(name)
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let line = String::from_utf8_lossy(&output.stdout);
+            let first = line.lines().next()?.trim();
+            if first.is_empty() { None } else { Some(PathBuf::from(first)) }
+        } else {
+            None
+        }
     }
 }
 
@@ -59,14 +79,16 @@ pub fn find_binary(app: &AppHandle) -> Option<PathBuf> {
 ///
 /// `config_path` is passed as `OPENCLAW_CONFIG_PATH` so OpenClaw loads
 /// Feral's model-provider config instead of its default `~/.openclaw/openclaw.json`.
+///
+/// On Windows, npm-installed `.cmd` wrappers must be invoked via `cmd /c`
+/// because `CreateProcess` cannot execute batch files directly.
 pub fn start_sidecar(
     binary: &Path,
     token: &str,
     config_path: &Path,
 ) -> Result<tokio::process::Child, String> {
-    let mut cmd = tokio::process::Command::new(binary);
-    cmd.arg("gateway")
-        .env("OPENCLAW_GATEWAY_TOKEN", token)
+    let mut cmd = build_sidecar_command(binary);
+    cmd.env("OPENCLAW_GATEWAY_TOKEN", token)
         .env("OPENCLAW_CONFIG_PATH", config_path)
         .kill_on_drop(true);
 
@@ -79,6 +101,25 @@ pub fn start_sidecar(
     }
 
     cmd.spawn().map_err(|e| format!("Failed to start OpenClaw sidecar: {e}"))
+}
+
+fn build_sidecar_command(binary: &Path) -> tokio::process::Command {
+    #[cfg(windows)]
+    {
+        let ext = binary.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ext == "cmd" || ext == "bat" {
+            // cmd /c <wrapper.cmd> gateway
+            let mut c = tokio::process::Command::new("cmd");
+            c.arg("/c").arg(binary).arg("gateway");
+            return c;
+        }
+    }
+    let mut c = tokio::process::Command::new(binary);
+    c.arg("gateway");
+    c
 }
 
 #[cfg(test)]
