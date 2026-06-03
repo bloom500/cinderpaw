@@ -1322,23 +1322,21 @@ pub fn run() {
                 });
             }
             // Start bundled OpenClaw sidecar if no system-wide OpenClaw is on PATH.
-            // PATH takes priority: users who installed OpenClaw themselves keep their version.
+            // Use PATH version if available, otherwise fall back to bundled.
+            // Either way, Feral manages the lifecycle and injects its own config.
             let sidecar_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // probe_path and bundled_binary_path are sync — run in blocking thread.
                 let result = tokio::task::spawn_blocking({
                     let h = sidecar_handle.clone();
                     move || {
-                        // If on PATH, user manages it — skip bundled entirely.
-                        if crate::openclaw_sidecar::probe_path("openclaw").is_some() {
-                            return None;
-                        }
-                        crate::openclaw_sidecar::bundled_binary_path(&h)
+                        crate::openclaw_sidecar::probe_path("openclaw")
+                            .or_else(|| crate::openclaw_sidecar::bundled_binary_path(&h))
                     }
                 }).await.unwrap_or(None);
 
                 let Some(binary) = result else {
-                    tracing::info!("OpenClaw sidecar: PATH version found or no binary — skipping");
+                    tracing::info!("OpenClaw sidecar: no binary found — skipping");
                     return;
                 };
 
