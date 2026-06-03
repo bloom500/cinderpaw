@@ -1,0 +1,102 @@
+<h2>Jan-style Layout — Sidebar Full Height</h2>
+<p class="subtitle">Sidebar spans top-to-bottom with no shared topbar. Model pill lives in the right column only. Matches Jan's aesthetic.</p>
+
+<div class="split" style="gap: 24px; align-items: stretch;">
+
+  <!-- EXPANDED STATE -->
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">Expanded (default)</div>
+    <div class="mockup-body" style="padding:0; overflow:hidden; background:#0d0d0f; border-radius: 0 0 8px 8px;">
+      <div style="display:flex; height:460px;">
+
+        <!-- Sidebar — full height, no topbar above it -->
+        <aside style="width:220px; flex-shrink:0; background:#191919; border-radius:0 16px 16px 0; display:flex; flex-direction:column; padding:14px 10px 10px; gap:6px; border-right:1px solid rgba(255,255,255,0.05);">
+          <!-- Brand -->
+          <div style="font-size:17px; font-weight:700; color:#fff; padding:2px 6px 10px; letter-spacing:0.01em;">feral</div>
+
+          <!-- New Chat -->
+          <button style="display:flex; align-items:center; gap:7px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:7px; padding:7px 10px; color:#ccc; font-size:11px; cursor:pointer; width:100%;">
+            <span>+</span> New Chat
+          </button>
+
+          <!-- Nav links -->
+          <div style="height:8px"></div>
+          <a style="display:flex; align-items:center; gap:8px; padding:7px 10px; color:#888; font-size:11px; border-radius:7px; text-decoration:none;">◧ Models</a>
+          <a style="display:flex; align-items:center; gap:8px; padding:7px 10px; color:#888; font-size:11px; border-radius:7px; text-decoration:none;">⚙ Assistants</a>
+          <a style="display:flex; align-items:center; gap:8px; padding:7px 10px; color:#888; font-size:11px; border-radius:7px; text-decoration:none;">⚒ Settings</a>
+
+          <!-- Chat history -->
+          <div style="font-size:10px; color:#444; text-transform:uppercase; letter-spacing:0.08em; padding:10px 6px 4px;">Chats</div>
+          <div style="padding:5px 10px; color:#666; font-size:11px; border-radius:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Why Does Qwen Lag vs ...</div>
+          <div style="padding:5px 10px; color:#666; font-size:11px; border-radius:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Local AI Assistant Capab...</div>
+          <div style="padding:5px 10px; color:#666; font-size:11px; border-radius:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Bing Bong Chat Begins</div>
+
+          <div style="flex:1"></div>
+
+          <!-- Focus Mode button pinned to footer -->
+          <button style="display:flex; align-items:center; justify-content:space-between; width:100%; background:transparent; border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:8px 10px; color:#aaa; font-size:11px; cursor:pointer;">
+            <span style="display:flex; align-items:center; gap:7px;"><span style="font-size:13px">⊡</span> Focus Mode</span>
+            <span style="font-size:10px; color:#555; background:rgba(255,255,255,0.05); border-radius:4px; padding:2px 5px;">Ctrl+B</span>
+          </button>
+          <div style="font-size:10px; color:#333; text-align:center; padding-top:4px;">v0.1.0</div>
+        </aside>
+
+        <!-- Right column: topbar + canvas -->
+        <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+          <!-- Right-col topbar (no burger needed when expanded) -->
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0;">
+            <div style="width:28px"></div><!-- placeholder for burger (hidden when expanded) -->
+            <div style="display:flex; align-items:center; gap:7px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:4px 11px; font-size:10px; color:#ccc;">
+              <span style="width:6px;height:6px;background:#5afa8a;border-radius:50%;display:inline-block"></span>
+              Mistral-7B
+            </div>
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:999px; padding:4px 11px; font-size:10px; color:#aaa;">⚙</div>
+          </div>
+          <!-- Canvas -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#555; font-size:11px; gap:6px;">
+            <div style="opacity:0.35; font-size:24px;">🐺</div>
+            <div>How can I help you today?</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COLLAPSED STATE -->
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">Collapsed (Focus Mode on)</div>
+    <div class="mockup-body" style="padding:0; overflow:hidden; background:#0d0d0f; border-radius: 0 0 8px 8px;">
+      <div style="display:flex; height:460px;">
+
+        <!-- Right column fills full width -->
+        <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+          <!-- Topbar — burger visible top-left -->
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0;">
+            <button style="width:28px; height:28px; background:transparent; border:none; color:#aaa; font-size:17px; cursor:pointer; border-radius:7px; display:flex; align-items:center; justify-content:center;">≡</button>
+            <div style="display:flex; align-items:center; gap:7px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:4px 11px; font-size:10px; color:#ccc;">
+              <span style="width:6px;height:6px;background:#5afa8a;border-radius:50%;display:inline-block"></span>
+              Mistral-7B
+            </div>
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:999px; padding:4px 11px; font-size:10px; color:#aaa;">⚙</div>
+          </div>
+          <!-- Canvas full width -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#555; font-size:11px; gap:6px;">
+            <div style="opacity:0.35; font-size:24px;">🐺</div>
+            <div>How can I help you today?</div>
+            <div style="font-size:10px; color:#333; margin-top:4px;">Press Ctrl+B or ≡ to restore sidebar</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:20px; padding:14px 16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; font-size:11px; color:#888; line-height:1.8;">
+  <strong style="color:#ccc">What changes from current Feral:</strong><br>
+  • <strong>Layout restructure</strong> — <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">cx-root</code> changes to <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">flex-direction: row</code>; sidebar is the first column, right-col wraps topbar+canvas<br>
+  • <strong>Sidebar is persistent</strong> — not an overlay/drawer anymore; pushes canvas right<br>
+  • <strong>Focus Mode</strong> = collapse sidebar (translateX + margin-left, 200ms); burger reappears in topbar<br>
+  • <strong>Ctrl+B</strong> registered at app level to toggle<br>
+  • <strong>State</strong> saved to localStorage
+</div>

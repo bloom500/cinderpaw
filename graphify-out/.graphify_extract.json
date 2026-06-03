@@ -1,0 +1,3357 @@
+{
+  "nodes": [
+    {
+      "id": "ferallocalai_src_tauri_src_inference_rs",
+      "label": "inference.rs",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_inference_message",
+      "label": "Message",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L10"
+    },
+    {
+      "id": "src_inference_inferparams",
+      "label": "InferParams",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L16"
+    },
+    {
+      "id": "src_inference_inferparams_default",
+      "label": ".default()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L25"
+    },
+    {
+      "id": "src_inference_loadedmodel",
+      "label": "LoadedModel",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L37"
+    },
+    {
+      "id": "src_inference_gpuinfo",
+      "label": "GpuInfo",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L44"
+    },
+    {
+      "id": "src_inference_detect_gpu",
+      "label": "detect_gpu()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L52"
+    },
+    {
+      "id": "src_inference_detect_template",
+      "label": "detect_template()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L64"
+    },
+    {
+      "id": "src_inference_build_prompt",
+      "label": "build_prompt()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L80"
+    },
+    {
+      "id": "src_inference_modelmanager",
+      "label": "ModelManager",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L147"
+    },
+    {
+      "id": "src_inference_modelmanager_new",
+      "label": ".new()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L152"
+    },
+    {
+      "id": "src_inference_modelmanager_load",
+      "label": ".load()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L156"
+    },
+    {
+      "id": "src_inference_modelmanager_unload",
+      "label": ".unload()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L173"
+    },
+    {
+      "id": "src_inference_modelmanager_current",
+      "label": ".current()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L179"
+    },
+    {
+      "id": "src_inference_modelmanager_stream_chat",
+      "label": ".stream_chat()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L184"
+    },
+    {
+      "id": "src_inference_modelhandle",
+      "label": "ModelHandle",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L245"
+    },
+    {
+      "id": "src_inference_load",
+      "label": "load()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L254"
+    },
+    {
+      "id": "src_inference_unload",
+      "label": "unload()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L274"
+    },
+    {
+      "id": "src_inference_generate",
+      "label": "generate()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L282"
+    },
+    {
+      "id": "src_inference_run_inference",
+      "label": "run_inference()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L293"
+    },
+    {
+      "id": "src_inference_template_llama3_variants",
+      "label": "template_llama3_variants()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L411"
+    },
+    {
+      "id": "src_inference_template_mistral_variants",
+      "label": "template_mistral_variants()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L423"
+    },
+    {
+      "id": "src_inference_template_ministral_is_mistral_not_chatml",
+      "label": "template_ministral_is_mistral_not_chatml()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L434"
+    },
+    {
+      "id": "src_inference_template_gemma",
+      "label": "template_gemma()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L442"
+    },
+    {
+      "id": "src_inference_template_chatml_fallback",
+      "label": "template_chatml_fallback()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L448"
+    },
+    {
+      "id": "src_inference_template_detection_is_case_insensitive",
+      "label": "template_detection_is_case_insensitive()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L460"
+    },
+    {
+      "id": "src_inference_msg",
+      "label": "msg()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L469"
+    },
+    {
+      "id": "src_inference_prompt_llama3_contains_header_tags",
+      "label": "prompt_llama3_contains_header_tags()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L474"
+    },
+    {
+      "id": "src_inference_prompt_mistral_uses_inst_tags",
+      "label": "prompt_mistral_uses_inst_tags()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L483"
+    },
+    {
+      "id": "src_inference_prompt_ministral_uses_inst_tags_not_chatml",
+      "label": "prompt_ministral_uses_inst_tags_not_chatml()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L492"
+    },
+    {
+      "id": "src_inference_prompt_mistral_system_prepended_to_first_user",
+      "label": "prompt_mistral_system_prepended_to_first_user()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L500"
+    },
+    {
+      "id": "src_inference_prompt_chatml_uses_im_tags",
+      "label": "prompt_chatml_uses_im_tags()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L512"
+    },
+    {
+      "id": "src_inference_prompt_gemma_uses_turn_tags",
+      "label": "prompt_gemma_uses_turn_tags()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L521"
+    },
+    {
+      "id": "src_inference_infer_params_defaults_are_sensible",
+      "label": "infer_params_defaults_are_sensible()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L532"
+    },
+    {
+      "id": "src_inference_model_manager_starts_empty",
+      "label": "model_manager_starts_empty()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L544"
+    },
+    {
+      "id": "src_inference_model_manager_name_extraction",
+      "label": "model_manager_name_extraction()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L550"
+    },
+    {
+      "id": "ferallocalai_src_tauri_src_lib_rs",
+      "label": "lib.rs",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_lib_appstate",
+      "label": "AppState",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L31"
+    },
+    {
+      "id": "src_lib_download_key",
+      "label": "download_key()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L37"
+    },
+    {
+      "id": "src_lib_progresspayload",
+      "label": "ProgressPayload",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L42"
+    },
+    {
+      "id": "src_lib_downloadprogress",
+      "label": "DownloadProgress",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L48"
+    },
+    {
+      "id": "src_lib_get_models",
+      "label": "get_models()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L57"
+    },
+    {
+      "id": "src_lib_get_loaded_model",
+      "label": "get_loaded_model()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L66"
+    },
+    {
+      "id": "src_lib_download_model",
+      "label": "download_model()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L75"
+    },
+    {
+      "id": "src_lib_cancel_download",
+      "label": "cancel_download()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L169"
+    },
+    {
+      "id": "src_lib_load_model",
+      "label": "load_model()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L181"
+    },
+    {
+      "id": "src_lib_start_model_load",
+      "label": "start_model_load()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L197"
+    },
+    {
+      "id": "src_lib_unload_model",
+      "label": "unload_model()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L270"
+    },
+    {
+      "id": "src_lib_delete_model",
+      "label": "delete_model()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L275"
+    },
+    {
+      "id": "src_lib_get_model_size_info",
+      "label": "get_model_size_info()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L282"
+    },
+    {
+      "id": "src_lib_get_hf_model_size",
+      "label": "get_hf_model_size()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L300"
+    },
+    {
+      "id": "src_lib_stop_generation",
+      "label": "stop_generation()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L361"
+    },
+    {
+      "id": "src_lib_chat_stream",
+      "label": "chat_stream()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L366"
+    },
+    {
+      "id": "src_lib_get_system_info",
+      "label": "get_system_info()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L404"
+    },
+    {
+      "id": "src_lib_save_agent",
+      "label": "save_agent()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L411"
+    },
+    {
+      "id": "src_lib_get_agents",
+      "label": "get_agents()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L416"
+    },
+    {
+      "id": "src_lib_delete_agent",
+      "label": "delete_agent()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L421"
+    },
+    {
+      "id": "src_lib_get_agent_presets",
+      "label": "get_agent_presets()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L426"
+    },
+    {
+      "id": "src_lib_run_agent",
+      "label": "run_agent()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L431"
+    },
+    {
+      "id": "src_lib_deser_default",
+      "label": "deser_default()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L452"
+    },
+    {
+      "id": "src_lib_hfmodelsummary",
+      "label": "HfModelSummary",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L461"
+    },
+    {
+      "id": "src_lib_hffile",
+      "label": "HfFile",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L471"
+    },
+    {
+      "id": "src_lib_hfmodeldetail",
+      "label": "HfModelDetail",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L477"
+    },
+    {
+      "id": "src_lib_search_hf_models",
+      "label": "search_hf_models()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L489"
+    },
+    {
+      "id": "src_lib_get_hf_model_detail",
+      "label": "get_hf_model_detail()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L532"
+    },
+    {
+      "id": "src_lib_get_settings",
+      "label": "get_settings()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L609"
+    },
+    {
+      "id": "src_lib_save_settings",
+      "label": "save_settings()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L612"
+    },
+    {
+      "id": "src_lib_run",
+      "label": "run()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L619"
+    },
+    {
+      "id": "src_lib_download_key_format",
+      "label": "download_key_format()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L683"
+    },
+    {
+      "id": "src_lib_download_key_uniqueness",
+      "label": "download_key_uniqueness()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L689"
+    },
+    {
+      "id": "src_lib_deser_default_handles_null",
+      "label": "deser_default_handles_null()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L699"
+    },
+    {
+      "id": "src_lib_deser_default_handles_missing_via_option",
+      "label": "deser_default_handles_missing_via_option()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L709"
+    },
+    {
+      "id": "ferallocalai_src_tauri_src_main_rs",
+      "label": "main.rs",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\main.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_main_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\main.rs",
+      "source_location": "L4"
+    },
+    {
+      "id": "ferallocalai_src_tauri_src_models_rs",
+      "label": "models.rs",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_models_modelinfo",
+      "label": "ModelInfo",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L11"
+    },
+    {
+      "id": "src_models_modelfile",
+      "label": "Modelfile",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L23"
+    },
+    {
+      "id": "src_models_scan_models_dir",
+      "label": "scan_models_dir()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L32"
+    },
+    {
+      "id": "src_models_parse_quant",
+      "label": "parse_quant()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L70"
+    },
+    {
+      "id": "src_models_load_modelfile",
+      "label": "load_modelfile()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L80"
+    },
+    {
+      "id": "src_models_delete_model",
+      "label": "delete_model()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L86"
+    },
+    {
+      "id": "src_models_download_hf_model",
+      "label": "download_hf_model()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L100"
+    },
+    {
+      "id": "src_models_parse_quant_detects_known_quants",
+      "label": "parse_quant_detects_known_quants()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L198"
+    },
+    {
+      "id": "src_models_parse_quant_ministral_real_filename",
+      "label": "parse_quant_ministral_real_filename()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L213"
+    },
+    {
+      "id": "src_models_parse_quant_returns_none_for_unknown",
+      "label": "parse_quant_returns_none_for_unknown()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L219"
+    },
+    {
+      "id": "src_models_parse_quant_prefers_first_match",
+      "label": "parse_quant_prefers_first_match()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L225"
+    },
+    {
+      "id": "ferallocalai_src_tauri_src_paths_rs",
+      "label": "paths.rs",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_paths_feral_dir",
+      "label": "feral_dir()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L3"
+    },
+    {
+      "id": "src_paths_models_dir",
+      "label": "models_dir()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L8"
+    },
+    {
+      "id": "src_paths_agents_dir",
+      "label": "agents_dir()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L12"
+    },
+    {
+      "id": "src_paths_settings_path",
+      "label": "settings_path()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L16"
+    },
+    {
+      "id": "src_paths_ensure_dirs",
+      "label": "ensure_dirs()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L20"
+    },
+    {
+      "id": "ferallocalai_src_tauri_src_settings_rs",
+      "label": "settings.rs",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_settings_settings",
+      "label": "Settings",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L7"
+    },
+    {
+      "id": "src_settings_settings_default",
+      "label": ".default()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L16"
+    },
+    {
+      "id": "src_settings_load",
+      "label": "load()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L27"
+    },
+    {
+      "id": "src_settings_save",
+      "label": "save()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L37"
+    },
+    {
+      "id": "ferallocalai_src_tauri_src_sysinfo_mod_rs",
+      "label": "sysinfo_mod.rs",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_sysinfo_mod_systeminfo",
+      "label": "SystemInfo",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L7"
+    },
+    {
+      "id": "src_sysinfo_mod_collect",
+      "label": "collect()",
+      "file_type": "code",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L19"
+    },
+    {
+      "id": "feral_project",
+      "label": "Feral",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tauri_v2",
+      "label": "Tauri v2",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "leptos_framework",
+      "label": "Leptos Framework",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tailwind_css",
+      "label": "Tailwind CSS",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rust_backend",
+      "label": "Rust Backend",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "nous_hermes_agent",
+      "label": "Nous Hermes Agent",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "ollama_llamacpp",
+      "label": "Ollama/Llama.cpp API",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "huggingface_hub_api",
+      "label": "Hugging Face Hub API",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_mascot_3d",
+      "label": "Feral Mascot 3D Application",
+      "file_type": "code",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "threejs",
+      "label": "Three.js WebGL",
+      "file_type": "code",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 27-28",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "gltf_loader",
+      "label": "GLTFLoader",
+      "file_type": "code",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 28",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "draco_loader",
+      "label": "DRACOLoader",
+      "file_type": "code",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 29",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_application_entry",
+      "label": "Feral Application Entry Point",
+      "file_type": "code",
+      "source_file": "frontend/index.html",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_frontend_bin",
+      "label": "feral-frontend Binary",
+      "file_type": "code",
+      "source_file": "frontend/index.html",
+      "source_location": "line 7",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_frontend_styles",
+      "label": "Feral Frontend Styles",
+      "file_type": "code",
+      "source_file": "frontend/index.html",
+      "source_location": "line 8",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "public_assets_directory",
+      "label": "public Assets Directory",
+      "file_type": "code",
+      "source_file": "frontend/index.html",
+      "source_location": "line 9",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tauri_ipc_typing",
+      "label": "feral://typing Event",
+      "file_type": "rationale",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 162-163",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tauri_ipc_thinking",
+      "label": "feral://thinking Event",
+      "file_type": "rationale",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 162-164",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tauri_ipc_done",
+      "label": "feral://done Event",
+      "file_type": "rationale",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 162-165",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tauri_ipc_error",
+      "label": "feral://error Event",
+      "file_type": "rationale",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 162-166",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "github_release_action",
+      "label": "softprops/action-gh-release",
+      "file_type": "code",
+      "source_file": ".github/workflows/release.yml",
+      "source_location": "line 22",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_logo_image",
+      "label": "Feral Logo",
+      "file_type": "image",
+      "source_file": "frontend/public/LOGO NO BG.png",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "mascot_glb_model",
+      "label": "Mascot GLB Model",
+      "file_type": "image",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 110",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "body_png_fallback",
+      "label": "Body.png Fallback Image",
+      "file_type": "image",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 24",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "mascot_state_machine",
+      "label": "Mascot State Machine",
+      "file_type": "rationale",
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 70-99",
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "agentic_sovereignty",
+      "label": "Agentic Sovereignty",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "privacy_first_architecture",
+      "label": "Privacy-First Architecture",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "huggingface_native_explorer",
+      "label": "HuggingFace Native Explorer",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "core_ui_shell",
+      "label": "Core UI Shell",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "nous_hermes_core_integration",
+      "label": "Nous Hermes Core Integration",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "local_tool_execution_sandbox",
+      "label": "Local Tool Execution Sandbox",
+      "file_type": "rationale",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_app_icon",
+      "label": "Feral Local AI Application Icon",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/icon.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_icon_32x32",
+      "label": "Feral Window Icon 32x32",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/32x32.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_icon_128x128",
+      "label": "Feral Window Icon 128x128",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/128x128.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_icon_128x128_retina",
+      "label": "Feral Window Icon 128x128 Retina",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/128x128@2x.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_30x30",
+      "label": "Feral Microsoft Store Logo 30x30",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square30x30Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_44x44",
+      "label": "Feral Microsoft Store Logo 44x44",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square44x44Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_71x71",
+      "label": "Feral Microsoft Store Logo 71x71",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square71x71Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_89x89",
+      "label": "Feral Microsoft Store Logo 89x89",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square89x89Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_107x107",
+      "label": "Feral Microsoft Store Logo 107x107",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square107x107Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_142x142",
+      "label": "Feral Microsoft Store Logo 142x142",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square142x142Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_150x150",
+      "label": "Feral Microsoft Store Logo 150x150",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square150x150Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_284x284",
+      "label": "Feral Microsoft Store Logo 284x284",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square284x284Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_310x310",
+      "label": "Feral Microsoft Store Logo 310x310",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/Square310x310Logo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feral_store_logo_main",
+      "label": "Feral Microsoft Store StoreLogo",
+      "file_type": "image",
+      "source_file": "src-tauri/icons/StoreLogo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": "2026-05-26",
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tauri_framework",
+      "label": "Tauri Framework",
+      "file_type": "rationale",
+      "source_file": "src-tauri/icons",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "result",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "stream",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "stream",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "mutex",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L4",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "serde",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "pathbuf",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "arc",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L7",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_message",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_inferparams",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_inferparams",
+      "target": "src_inference_inferparams_default",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_loadedmodel",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_gpuinfo",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L44",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_detect_gpu",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L52",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_detect_template",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L64",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_build_prompt",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L80",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_modelmanager",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L147",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager",
+      "target": "src_inference_modelmanager_new",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L152",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager",
+      "target": "src_inference_modelmanager_load",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L156",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager",
+      "target": "src_inference_modelmanager_unload",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L173",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager",
+      "target": "src_inference_modelmanager_current",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L179",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager",
+      "target": "src_inference_modelmanager_stream_chat",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L184",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "super",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L223",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "anyhow",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L224",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "utf_8",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L225",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "llama_cpp_2",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L226",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "sync",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L233",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "mutex",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L234",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "nonzerou32",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L235",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "path",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L236",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "mpsc",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L237",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_modelhandle",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L245",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_load",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L254",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_unload",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L274",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_detect_template",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L279",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_build_prompt",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L280",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_generate",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L282",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_run_inference",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L293",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "super",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L406",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_template_llama3_variants",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L411",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_template_mistral_variants",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L423",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_template_ministral_is_mistral_not_chatml",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L434",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_template_gemma",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L442",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_template_chatml_fallback",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L448",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_template_detection_is_case_insensitive",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L460",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_msg",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L469",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_prompt_llama3_contains_header_tags",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L474",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_prompt_mistral_uses_inst_tags",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L483",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_prompt_ministral_uses_inst_tags_not_chatml",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L492",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_prompt_mistral_system_prepended_to_first_user",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L500",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_prompt_chatml_uses_im_tags",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L512",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_prompt_gemma_uses_turn_tags",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L521",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_infer_params_defaults_are_sensible",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L532",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_model_manager_starts_empty",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L544",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_inference_rs",
+      "target": "src_inference_model_manager_name_extraction",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L550",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_build_prompt",
+      "target": "src_inference_detect_template",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L88",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_build_prompt",
+      "target": "src_inference_modelmanager_new",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L90",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager_new",
+      "target": "src_inference_inferparams_default",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L153",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager_load",
+      "target": "src_inference_load",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L164",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_modelmanager_unload",
+      "target": "src_inference_unload",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L175",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_load",
+      "target": "src_inference_inferparams_default",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L260",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_generate",
+      "target": "src_inference_run_inference",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L285",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_run_inference",
+      "target": "src_inference_detect_template",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L303",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_run_inference",
+      "target": "src_inference_build_prompt",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L304",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_run_inference",
+      "target": "src_inference_modelmanager_new",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L327",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_run_inference",
+      "target": "src_inference_inferparams_default",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L332",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_prompt_llama3_contains_header_tags",
+      "target": "src_inference_build_prompt",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L476",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_prompt_mistral_uses_inst_tags",
+      "target": "src_inference_build_prompt",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L485",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_prompt_ministral_uses_inst_tags_not_chatml",
+      "target": "src_inference_build_prompt",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L494",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_prompt_mistral_system_prepended_to_first_user",
+      "target": "src_inference_build_prompt",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L502",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_prompt_chatml_uses_im_tags",
+      "target": "src_inference_build_prompt",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L514",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_prompt_gemma_uses_turn_tags",
+      "target": "src_inference_build_prompt",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L523",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_infer_params_defaults_are_sensible",
+      "target": "src_inference_inferparams_default",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L533",
+      "weight": 1.0
+    },
+    {
+      "source": "src_inference_model_manager_starts_empty",
+      "target": "src_inference_modelmanager_new",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\inference.rs",
+      "source_location": "L545",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "hashmap",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L10",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "pathbuf",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L11",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "atomic",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L12",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "arc",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L13",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "mutex",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L15",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "serde",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L16",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "json",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L17",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "tauri",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L18",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "mpsc",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L19",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "agentconfig",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L21",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "inference",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L22",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "modelinfo",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L23",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "settings",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L24",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "systeminfo",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L25",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_appstate",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_download_key",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_progresspayload",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_downloadprogress",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L48",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_models",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L57",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_loaded_model",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L66",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_download_model",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L75",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_cancel_download",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L169",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_load_model",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L181",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_start_model_load",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L197",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_unload_model",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L270",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_delete_model",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L275",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_model_size_info",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L282",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_hf_model_size",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L300",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_stop_generation",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L361",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_chat_stream",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L366",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_system_info",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L404",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_save_agent",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L411",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_agents",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L416",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_delete_agent",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L421",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_agent_presets",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L426",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_run_agent",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L431",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_deser_default",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L452",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_hfmodelsummary",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L461",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_hffile",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L471",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_hfmodeldetail",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L477",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_search_hf_models",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L489",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_hf_model_detail",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L532",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_get_settings",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L609",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_save_settings",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L612",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_run",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L619",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "super",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L680",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_download_key_format",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L683",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_download_key_uniqueness",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L689",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_deser_default_handles_null",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L699",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_lib_rs",
+      "target": "src_lib_deser_default_handles_missing_via_option",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L709",
+      "weight": 1.0
+    },
+    {
+      "source": "src_lib_download_model",
+      "target": "src_lib_download_key",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L81",
+      "weight": 1.0
+    },
+    {
+      "source": "src_lib_run_agent",
+      "target": "src_lib_run",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L440",
+      "weight": 1.0
+    },
+    {
+      "source": "src_lib_download_key_uniqueness",
+      "target": "src_lib_download_key",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\lib.rs",
+      "source_location": "L690",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_main_rs",
+      "target": "src_main_main",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\main.rs",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "anyhow",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "serde",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "path",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "atomic",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L4",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "arc",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "sender",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "paths",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L8",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_modelinfo",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_modelfile",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_scan_models_dir",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_parse_quant",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L70",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_load_modelfile",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L80",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_delete_model",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L86",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_download_hf_model",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L100",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "super",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L195",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_parse_quant_detects_known_quants",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L198",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_parse_quant_ministral_real_filename",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L213",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_parse_quant_returns_none_for_unknown",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L219",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_models_rs",
+      "target": "src_models_parse_quant_prefers_first_match",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L225",
+      "weight": 1.0
+    },
+    {
+      "source": "src_models_scan_models_dir",
+      "target": "src_models_parse_quant",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L53",
+      "weight": 1.0
+    },
+    {
+      "source": "src_models_scan_models_dir",
+      "target": "src_models_load_modelfile",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L54",
+      "weight": 1.0
+    },
+    {
+      "source": "src_models_parse_quant_ministral_real_filename",
+      "target": "src_models_parse_quant",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L214",
+      "weight": 1.0
+    },
+    {
+      "source": "src_models_parse_quant_prefers_first_match",
+      "target": "src_models_parse_quant",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\models.rs",
+      "source_location": "L227",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_paths_rs",
+      "target": "pathbuf",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_paths_rs",
+      "target": "src_paths_feral_dir",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_paths_rs",
+      "target": "src_paths_models_dir",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_paths_rs",
+      "target": "src_paths_agents_dir",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_paths_rs",
+      "target": "src_paths_settings_path",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_paths_rs",
+      "target": "src_paths_ensure_dirs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "src_paths_models_dir",
+      "target": "src_paths_feral_dir",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "src_paths_agents_dir",
+      "target": "src_paths_feral_dir",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "src_paths_settings_path",
+      "target": "src_paths_feral_dir",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "src_paths_ensure_dirs",
+      "target": "src_paths_models_dir",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "src_paths_ensure_dirs",
+      "target": "src_paths_agents_dir",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\paths.rs",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_settings_rs",
+      "target": "serde",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_settings_rs",
+      "target": "pathbuf",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_settings_rs",
+      "target": "paths",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L4",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_settings_rs",
+      "target": "src_settings_settings",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "src_settings_settings",
+      "target": "src_settings_settings_default",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_settings_rs",
+      "target": "src_settings_load",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_settings_rs",
+      "target": "src_settings_save",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "src_settings_load",
+      "target": "src_settings_settings_default",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\settings.rs",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_sysinfo_mod_rs",
+      "target": "serde",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_sysinfo_mod_rs",
+      "target": "system",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_sysinfo_mod_rs",
+      "target": "inference",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L4",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_sysinfo_mod_rs",
+      "target": "src_sysinfo_mod_systeminfo",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "ferallocalai_src_tauri_src_sysinfo_mod_rs",
+      "target": "src_sysinfo_mod_collect",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "FeralLocalAI\\src-tauri\\src\\sysinfo_mod.rs",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "tauri_v2",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "leptos_framework",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "tailwind_css",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "rust_backend",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "nous_hermes_agent",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "ollama_llamacpp",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "huggingface_hub_api",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "agentic_sovereignty",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "threejs",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "gltf_loader",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 28",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "draco_loader",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 29",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "mascot_state_machine",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 70-99",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "feral_logo_image",
+      "relation": "references",
+      "confidence": "AMBIGUOUS",
+      "confidence_score": 0.55,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "AMBIGUOUS",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "tauri_ipc_typing",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 163",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "tauri_ipc_thinking",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 164",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "tauri_ipc_done",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 165",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "tauri_ipc_error",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 166",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "mascot_glb_model",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 110",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_mascot_3d",
+      "target": "body_png_fallback",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "line 24",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_application_entry",
+      "target": "feral_frontend_bin",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/index.html",
+      "source_location": "line 7",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_application_entry",
+      "target": "feral_frontend_styles",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/index.html",
+      "source_location": "line 8",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_application_entry",
+      "target": "public_assets_directory",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/index.html",
+      "source_location": "line 9",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_application_entry",
+      "target": "feral_mascot_3d",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "frontend/index.html",
+      "source_location": "line 9",
+      "weight": 1.0
+    },
+    {
+      "source": "github_release_action",
+      "target": "nous_hermes_agent",
+      "relation": "conceptually_related_to",
+      "confidence": "AMBIGUOUS",
+      "confidence_score": 0.3,
+      "source_file": ".github/workflows/release.yml",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "core_ui_shell",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "huggingface_native_explorer",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "nous_hermes_core_integration",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "local_tool_execution_sandbox",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_v2",
+      "target": "tauri_ipc_typing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 160-168",
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_v2",
+      "target": "tauri_ipc_thinking",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 160-168",
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_v2",
+      "target": "tauri_ipc_done",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 160-168",
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_v2",
+      "target": "tauri_ipc_error",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html",
+      "source_location": "lines 160-168",
+      "weight": 1.0
+    },
+    {
+      "source": "feral_project",
+      "target": "privacy_first_architecture",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_app_icon",
+      "target": "tauri_framework",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/icon.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_icon_32x32",
+      "target": "tauri_framework",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/32x32.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_icon_128x128",
+      "target": "tauri_framework",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/128x128.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_icon_128x128_retina",
+      "target": "tauri_framework",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/128x128@2x.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_store_logo_main",
+      "target": "tauri_framework",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/StoreLogo.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_app_icon",
+      "target": "feral_icon_128x128",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 1.0,
+      "source_file": "src-tauri/icons/icon.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_icon_128x128",
+      "target": "feral_icon_128x128_retina",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/128x128.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_icon_128x128",
+      "target": "feral_icon_32x32",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src-tauri/icons/128x128.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_store_logo_main",
+      "target": "feral_store_logo_150x150",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src-tauri/icons/StoreLogo.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "feral_store_logo_150x150",
+      "target": "feral_store_logo_310x310",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src-tauri/icons/Square150x150Logo.png",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "feral_ui_components",
+      "label": "Feral UI Component Architecture",
+      "nodes": [
+        "feral_application_entry",
+        "feral_frontend_styles",
+        "public_assets_directory",
+        "feral_mascot_3d"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/index.html"
+    },
+    {
+      "id": "tauri_event_system",
+      "label": "Tauri Event-driven IPC System",
+      "nodes": [
+        "tauri_ipc_typing",
+        "tauri_ipc_thinking",
+        "tauri_ipc_done",
+        "tauri_ipc_error"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/public/mascot_3d.html"
+    },
+    {
+      "id": "feral_agent_platform",
+      "label": "Feral Agent Platform Components",
+      "nodes": [
+        "nous_hermes_agent",
+        "ollama_llamacpp",
+        "huggingface_hub_api",
+        "local_tool_execution_sandbox"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "README.md"
+    },
+    {
+      "id": "feral_window_icon_set",
+      "label": "Feral Window Icon Set",
+      "nodes": [
+        "feral_icon_32x32",
+        "feral_icon_128x128",
+        "feral_icon_128x128_retina",
+        "feral_app_icon"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/"
+    },
+    {
+      "id": "feral_msstore_icon_set",
+      "label": "Feral Microsoft Store Icon Set",
+      "nodes": [
+        "feral_store_logo_30x30",
+        "feral_store_logo_44x44",
+        "feral_store_logo_71x71",
+        "feral_store_logo_89x89",
+        "feral_store_logo_107x107",
+        "feral_store_logo_142x142",
+        "feral_store_logo_150x150",
+        "feral_store_logo_284x284",
+        "feral_store_logo_310x310",
+        "feral_store_logo_main"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri/icons/"
+    },
+    {
+      "id": "feral_app_icon_assets",
+      "label": "Feral App Icon Assets",
+      "nodes": [
+        "feral_app_icon",
+        "feral_icon_32x32",
+        "feral_icon_128x128",
+        "feral_icon_128x128_retina",
+        "feral_store_logo_main",
+        "feral_store_logo_150x150",
+        "feral_store_logo_310x310"
+      ],
+      "relation": "implement",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src-tauri/tauri.conf.json"
+    }
+  ],
+  "input_tokens": 10700,
+  "output_tokens": 13300
+}

@@ -1,0 +1,94 @@
+<h2>Sidebar Layout — Expanded vs Collapsed</h2>
+<p class="subtitle">Two states for the persistent sidebar. The Focus Mode toggle in the footer collapses it; a small icon in the topbar restores it.</p>
+
+<div class="split" style="gap: 24px; align-items: stretch;">
+
+  <!-- EXPANDED STATE -->
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">Expanded (default)</div>
+    <div class="mockup-body" style="padding:0; overflow:hidden; background:#0d0d0f; border-radius: 0 0 8px 8px;">
+      <div style="display:flex; flex-direction:column; height:460px;">
+
+        <!-- Topbar -->
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; background:#0d0d0f; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0;">
+          <div style="width:32px"></div><!-- no burger visible when expanded -->
+          <div style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:4px 12px; font-size:11px; color:#ccc;">
+            <span style="width:6px;height:6px;background:#5afa8a;border-radius:50%;display:inline-block"></span>
+            Mistral-7B
+          </div>
+          <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:999px; padding:4px 12px; font-size:11px; color:#aaa;">⚙</div>
+        </div>
+
+        <!-- Body row -->
+        <div style="display:flex; flex:1; min-height:0;">
+
+          <!-- Sidebar -->
+          <aside style="width:240px; flex-shrink:0; background:#191919; border-radius:0 16px 16px 0; display:flex; flex-direction:column; padding:16px 12px; gap:8px; border-right:1px solid rgba(255,255,255,0.05);">
+            <div style="font-size:18px; font-weight:700; color:#fff; padding:0 4px 8px; letter-spacing:0.01em;">feral</div>
+            <button style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:7px 12px; color:#ccc; font-size:12px; cursor:pointer; width:100%;">
+              <span style="font-size:14px">+</span> New Chat
+            </button>
+            <div style="font-size:10px; color:#555; text-transform:uppercase; letter-spacing:0.08em; padding:8px 4px 4px;">Navigation</div>
+            <a style="display:block; padding:7px 12px; color:#999; font-size:12px; border-radius:8px; text-decoration:none; background:transparent;">◧ Models</a>
+            <a style="display:block; padding:7px 12px; color:#999; font-size:12px; border-radius:8px; text-decoration:none; background:transparent;">⚙ Assistants</a>
+            <a style="display:block; padding:7px 12px; color:#999; font-size:12px; border-radius:8px; text-decoration:none; background:transparent;">⚒ Settings</a>
+            <div style="font-size:10px; color:#555; text-transform:uppercase; letter-spacing:0.08em; padding:8px 4px 4px;">Recent</div>
+            <div style="padding:5px 12px; color:#777; font-size:11px; border-radius:6px;">◆ Chat with llama</div>
+            <div style="padding:5px 12px; color:#777; font-size:11px; border-radius:6px;">◆ Rust lifetimes help</div>
+            <div style="flex:1"></div>
+            <!-- Focus Mode footer -->
+            <button style="display:flex; align-items:center; justify-content:space-between; width:100%; background:transparent; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px 12px; color:#aaa; font-size:12px; cursor:pointer;">
+              <span style="display:flex; align-items:center; gap:8px;"><span>⊡</span> Focus Mode</span>
+              <span style="font-size:10px; color:#555; background:rgba(255,255,255,0.05); border-radius:4px; padding:2px 5px;">Ctrl+B</span>
+            </button>
+            <div style="font-size:10px; color:#444; text-align:center; padding-top:4px;">v0.1.0</div>
+          </aside>
+
+          <!-- Chat canvas -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#555; font-size:12px;">
+            <div style="opacity:0.4; font-size:28px; margin-bottom:8px;">🐺</div>
+            <div>Chat area expands to fill remaining space</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COLLAPSED STATE -->
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">Collapsed (Focus Mode on)</div>
+    <div class="mockup-body" style="padding:0; overflow:hidden; background:#0d0d0f; border-radius: 0 0 8px 8px;">
+      <div style="display:flex; flex-direction:column; height:460px;">
+
+        <!-- Topbar — burger visible -->
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; background:#0d0d0f; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0;">
+          <button style="width:32px; height:32px; background:transparent; border:none; color:#ccc; font-size:18px; cursor:pointer; border-radius:8px; display:flex; align-items:center; justify-content:center;" title="Expand sidebar">≡</button>
+          <div style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:4px 12px; font-size:11px; color:#ccc;">
+            <span style="width:6px;height:6px;background:#5afa8a;border-radius:50%;display:inline-block"></span>
+            Mistral-7B
+          </div>
+          <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:999px; padding:4px 12px; font-size:11px; color:#aaa;">⚙</div>
+        </div>
+
+        <!-- Body row — no sidebar -->
+        <div style="display:flex; flex:1; min-height:0;">
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#555; font-size:12px;">
+            <div style="opacity:0.4; font-size:28px; margin-bottom:8px;">🐺</div>
+            <div>Full-width chat — sidebar hidden</div>
+            <div style="margin-top:6px; font-size:11px; color:#444;">Press Ctrl+B or click ≡ to restore</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:24px; padding:16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; font-size:12px; color:#888; line-height:1.7;">
+  <strong style="color:#ccc">Layout notes:</strong><br>
+  • Sidebar sits <strong>inline</strong> in a flex row below the topbar — it pushes the canvas right (no overlay)<br>
+  • <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px;">border-radius: 0 16px 16px 0</code> on sidebar right side only (floating pill look)<br>
+  • Collapse animates sidebar with <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px;">translateX(-240px)</code> + <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px;">margin-left: -240px</code> simultaneously — 200ms ease-in-out<br>
+  • Burger icon (≡) in topbar: visible only when collapsed, hidden when expanded<br>
+  • State persisted to localStorage
+</div>

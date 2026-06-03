@@ -1,0 +1,1651 @@
+{
+  "nodes": [
+    {
+      "id": "lib_rs",
+      "label": "lib.rs",
+      "file_type": "code",
+      "source_file": "lib.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "main_rs",
+      "label": "main.rs",
+      "file_type": "code",
+      "source_file": "main.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_main_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "main.rs",
+      "source_location": "L9"
+    },
+    {
+      "id": "src_main_app",
+      "label": "App()",
+      "file_type": "code",
+      "source_file": "main.rs",
+      "source_location": "L15"
+    },
+    {
+      "id": "src_main_sidebar",
+      "label": "Sidebar()",
+      "file_type": "code",
+      "source_file": "main.rs",
+      "source_location": "L35"
+    },
+    {
+      "id": "src_main_navitem",
+      "label": "NavItem()",
+      "file_type": "code",
+      "source_file": "main.rs",
+      "source_location": "L48"
+    },
+    {
+      "id": "tauri_bridge_rs",
+      "label": "tauri_bridge.rs",
+      "file_type": "code",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_tauri_bridge_invoke",
+      "label": "invoke()",
+      "file_type": "code",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L16"
+    },
+    {
+      "id": "src_tauri_bridge_invoke_unit",
+      "label": "invoke_unit()",
+      "file_type": "code",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L22"
+    },
+    {
+      "id": "src_tauri_bridge_invoke_json",
+      "label": "invoke_json()",
+      "file_type": "code",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L28"
+    },
+    {
+      "id": "src_tauri_bridge_listen",
+      "label": "listen()",
+      "file_type": "code",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L33"
+    },
+    {
+      "id": "pages_agents_rs",
+      "label": "agents.rs",
+      "file_type": "code",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "pages_agents_agentspage",
+      "label": "AgentsPage()",
+      "file_type": "code",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L9"
+    },
+    {
+      "id": "pages_agents_agenteditor",
+      "label": "AgentEditor()",
+      "file_type": "code",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L194"
+    },
+    {
+      "id": "pages_agents_rand_id",
+      "label": "rand_id()",
+      "file_type": "code",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L278"
+    },
+    {
+      "id": "pages_chat_rs",
+      "label": "chat.rs",
+      "file_type": "code",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "pages_chat_chatpage",
+      "label": "ChatPage()",
+      "file_type": "code",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L9"
+    },
+    {
+      "id": "pages_mod_rs",
+      "label": "mod.rs",
+      "file_type": "code",
+      "source_file": "pages\\mod.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "pages_models_rs",
+      "label": "models.rs",
+      "file_type": "code",
+      "source_file": "pages\\models.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "pages_models_modelspage",
+      "label": "ModelsPage()",
+      "file_type": "code",
+      "source_file": "pages\\models.rs",
+      "source_location": "L9"
+    },
+    {
+      "id": "pages_settings_rs",
+      "label": "settings.rs",
+      "file_type": "code",
+      "source_file": "pages\\settings.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "pages_settings_settingspage",
+      "label": "SettingsPage()",
+      "file_type": "code",
+      "source_file": "pages\\settings.rs",
+      "source_location": "L8"
+    },
+    {
+      "id": "pages_types_rs",
+      "label": "types.rs",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "pages_types_modelinfo",
+      "label": "ModelInfo",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L4"
+    },
+    {
+      "id": "pages_types_loadedmodel",
+      "label": "LoadedModel",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L15"
+    },
+    {
+      "id": "pages_types_systeminfo",
+      "label": "SystemInfo",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L22"
+    },
+    {
+      "id": "pages_types_message",
+      "label": "Message",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L35"
+    },
+    {
+      "id": "pages_types_inferparams",
+      "label": "InferParams",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L41"
+    },
+    {
+      "id": "pages_types_inferparams_default",
+      "label": ".default()",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L50"
+    },
+    {
+      "id": "pages_types_tooltype",
+      "label": "ToolType",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L63"
+    },
+    {
+      "id": "pages_types_tooltype_all",
+      "label": ".all()",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L72"
+    },
+    {
+      "id": "pages_types_tooltype_label",
+      "label": ".label()",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L81"
+    },
+    {
+      "id": "pages_types_agentconfig",
+      "label": "AgentConfig",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L93"
+    },
+    {
+      "id": "pages_types_settings",
+      "label": "Settings",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L104"
+    },
+    {
+      "id": "pages_types_human_bytes",
+      "label": "human_bytes()",
+      "file_type": "code",
+      "source_file": "pages\\types.rs",
+      "source_location": "L112"
+    },
+    {
+      "id": "app_component",
+      "label": "App Router Component",
+      "file_type": "code",
+      "source_file": "src/main.rs",
+      "source_location": "14-32",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sidebar_component",
+      "label": "Sidebar Navigation Component",
+      "file_type": "code",
+      "source_file": "src/main.rs",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "navitem_component",
+      "label": "NavItem Component",
+      "file_type": "code",
+      "source_file": "src/main.rs",
+      "source_location": "47-55",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tauri_bridge_module",
+      "label": "Tauri Bridge Module",
+      "file_type": "code",
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "1-48",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "invoke_function",
+      "label": "invoke Function",
+      "file_type": "code",
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "16-20",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "invoke_unit_function",
+      "label": "invoke_unit Function",
+      "file_type": "code",
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "22-26",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "invoke_json_function",
+      "label": "invoke_json Function",
+      "file_type": "code",
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "28-30",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "listen_function",
+      "label": "listen Function",
+      "file_type": "code",
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "33-47",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "models_page",
+      "label": "ModelsPage Component",
+      "file_type": "code",
+      "source_file": "src/pages/models.rs",
+      "source_location": "1-149",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "refresh_function_models",
+      "label": "refresh Function (Models)",
+      "file_type": "code",
+      "source_file": "src/pages/models.rs",
+      "source_location": "18-30",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "do_load_function",
+      "label": "do_load Function",
+      "file_type": "code",
+      "source_file": "src/pages/models.rs",
+      "source_location": "42-49",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "do_unload_function",
+      "label": "do_unload Function",
+      "file_type": "code",
+      "source_file": "src/pages/models.rs",
+      "source_location": "51-56",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "do_delete_function",
+      "label": "do_delete Function",
+      "file_type": "code",
+      "source_file": "src/pages/models.rs",
+      "source_location": "58-65",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "do_download_function",
+      "label": "do_download Function",
+      "file_type": "code",
+      "source_file": "src/pages/models.rs",
+      "source_location": "67-84",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "chat_page",
+      "label": "ChatPage Component",
+      "file_type": "code",
+      "source_file": "src/pages/chat.rs",
+      "source_location": "1-163",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "send_function",
+      "label": "send Function",
+      "file_type": "code",
+      "source_file": "src/pages/chat.rs",
+      "source_location": "28-86",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "clear_function",
+      "label": "clear Function",
+      "file_type": "code",
+      "source_file": "src/pages/chat.rs",
+      "source_location": "88",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "agents_page",
+      "label": "AgentsPage Component",
+      "file_type": "code",
+      "source_file": "src/pages/agents.rs",
+      "source_location": "1-191",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "agent_editor_component",
+      "label": "AgentEditor Component",
+      "file_type": "code",
+      "source_file": "src/pages/agents.rs",
+      "source_location": "193-275",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rand_id_function",
+      "label": "rand_id Function",
+      "file_type": "code",
+      "source_file": "src/pages/agents.rs",
+      "source_location": "277-287",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "settings_page",
+      "label": "SettingsPage Component",
+      "file_type": "code",
+      "source_file": "src/pages/settings.rs",
+      "source_location": "1-77",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "save_function",
+      "label": "save Function (Settings)",
+      "file_type": "code",
+      "source_file": "src/pages/settings.rs",
+      "source_location": "18-25",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "model_info_struct",
+      "label": "ModelInfo Struct",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "3-12",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "loaded_model_struct",
+      "label": "LoadedModel Struct",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "14-19",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "system_info_struct",
+      "label": "SystemInfo Struct",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "21-32",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "message_struct",
+      "label": "Message Struct",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "34-38",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "infer_params_struct",
+      "label": "InferParams Struct",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "40-59",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tool_type_enum",
+      "label": "ToolType Enum",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "61-90",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "agent_config_struct",
+      "label": "AgentConfig Struct",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "92-101",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "settings_struct",
+      "label": "Settings Struct",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "103-110",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "human_bytes_function",
+      "label": "human_bytes Function",
+      "file_type": "code",
+      "source_file": "src/pages/types.rs",
+      "source_location": "112-118",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "index_html",
+      "label": "Index HTML Entry Point",
+      "file_type": "code",
+      "source_file": "index.html",
+      "source_location": "1-13",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "pages_mod",
+      "label": "Pages Module",
+      "file_type": "code",
+      "source_file": "src/pages/mod.rs",
+      "source_location": "1-6",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "streaming_event_pattern",
+      "label": "Tauri Channel Streaming Pattern",
+      "file_type": "rationale",
+      "source_file": "src/pages/chat.rs",
+      "source_location": "50-83",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "main_rs",
+      "target": "leptos",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "main.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "main_rs",
+      "target": "leptos_router",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "main.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "main_rs",
+      "target": "pages",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "main.rs",
+      "source_location": "L7",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "main_rs",
+      "target": "src_main_main",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "main.rs",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "main_rs",
+      "target": "src_main_app",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "main.rs",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "main_rs",
+      "target": "src_main_sidebar",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "main.rs",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "main_rs",
+      "target": "src_main_navitem",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "main.rs",
+      "source_location": "L48",
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "serde",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "value",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "prelude",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L4",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "jsvalue",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "src_tauri_bridge_invoke",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "src_tauri_bridge_invoke_unit",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "src_tauri_bridge_invoke_json",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "tauri_bridge_rs",
+      "target": "src_tauri_bridge_listen",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_bridge_invoke_json",
+      "target": "src_tauri_bridge_invoke",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tauri_bridge.rs",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "leptos",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "json",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "prelude",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "types",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "tauri_bridge",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "pages_agents_agentspage",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "pages_agents_agenteditor",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L194",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_agents_rs",
+      "target": "pages_agents_rand_id",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L278",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_agents_agentspage",
+      "target": "pages_agents_rand_id",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\agents.rs",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_chat_rs",
+      "target": "leptos",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_chat_rs",
+      "target": "json",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_chat_rs",
+      "target": "prelude",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_chat_rs",
+      "target": "types",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_chat_rs",
+      "target": "tauri_bridge",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_chat_rs",
+      "target": "pages_chat_chatpage",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\chat.rs",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_models_rs",
+      "target": "leptos",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\models.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_models_rs",
+      "target": "json",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\models.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_models_rs",
+      "target": "jsvalue",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\models.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_models_rs",
+      "target": "types",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\models.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_models_rs",
+      "target": "tauri_bridge",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\models.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_models_rs",
+      "target": "pages_models_modelspage",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\models.rs",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_settings_rs",
+      "target": "leptos",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\settings.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_settings_rs",
+      "target": "json",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\settings.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_settings_rs",
+      "target": "settings",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\settings.rs",
+      "source_location": "L4",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_settings_rs",
+      "target": "tauri_bridge",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\settings.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_settings_rs",
+      "target": "pages_settings_settingspage",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\settings.rs",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "serde",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import"
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_modelinfo",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_loadedmodel",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_systeminfo",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_message",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_inferparams",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_inferparams",
+      "target": "pages_types_inferparams_default",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_tooltype",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L63",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_tooltype",
+      "target": "pages_types_tooltype_all",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L72",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_tooltype",
+      "target": "pages_types_tooltype_label",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L81",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_agentconfig",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L93",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_settings",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L104",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_types_rs",
+      "target": "pages_types_human_bytes",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "pages\\types.rs",
+      "source_location": "L112",
+      "weight": 1.0
+    },
+    {
+      "source": "app_component",
+      "target": "sidebar_component",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/main.rs",
+      "source_location": "19",
+      "weight": 1.0
+    },
+    {
+      "source": "app_component",
+      "target": "models_page",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/main.rs",
+      "source_location": "22",
+      "weight": 1.0
+    },
+    {
+      "source": "app_component",
+      "target": "chat_page",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/main.rs",
+      "source_location": "24",
+      "weight": 1.0
+    },
+    {
+      "source": "app_component",
+      "target": "agents_page",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/main.rs",
+      "source_location": "25",
+      "weight": 1.0
+    },
+    {
+      "source": "app_component",
+      "target": "settings_page",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/main.rs",
+      "source_location": "26",
+      "weight": 1.0
+    },
+    {
+      "source": "sidebar_component",
+      "target": "navitem_component",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/main.rs",
+      "source_location": "39-42",
+      "weight": 1.0
+    },
+    {
+      "source": "models_page",
+      "target": "tauri_bridge",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "20,23,26",
+      "weight": 1.0
+    },
+    {
+      "source": "models_page",
+      "target": "model_info_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "5,10",
+      "weight": 1.0
+    },
+    {
+      "source": "models_page",
+      "target": "loaded_model_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "5,11",
+      "weight": 1.0
+    },
+    {
+      "source": "models_page",
+      "target": "system_info_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "5,12",
+      "weight": 1.0
+    },
+    {
+      "source": "models_page",
+      "target": "refresh_function_models",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "31",
+      "weight": 1.0
+    },
+    {
+      "source": "refresh_function_models",
+      "target": "invoke_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "20-26",
+      "weight": 1.0
+    },
+    {
+      "source": "do_load_function",
+      "target": "invoke_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "44",
+      "weight": 1.0
+    },
+    {
+      "source": "do_unload_function",
+      "target": "invoke_unit_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "53",
+      "weight": 1.0
+    },
+    {
+      "source": "do_delete_function",
+      "target": "invoke_unit_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "60",
+      "weight": 1.0
+    },
+    {
+      "source": "do_download_function",
+      "target": "invoke_unit_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs",
+      "source_location": "74",
+      "weight": 1.0
+    },
+    {
+      "source": "chat_page",
+      "target": "tauri_bridge",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs",
+      "source_location": "5",
+      "weight": 1.0
+    },
+    {
+      "source": "chat_page",
+      "target": "message_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs",
+      "source_location": "5,35-39",
+      "weight": 1.0
+    },
+    {
+      "source": "chat_page",
+      "target": "loaded_model_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs",
+      "source_location": "5,10",
+      "weight": 1.0
+    },
+    {
+      "source": "chat_page",
+      "target": "infer_params_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs",
+      "source_location": "5,42-48",
+      "weight": 1.0
+    },
+    {
+      "source": "chat_page",
+      "target": "send_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs",
+      "source_location": "28,157",
+      "weight": 1.0
+    },
+    {
+      "source": "send_function",
+      "target": "invoke_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs",
+      "source_location": "78-82",
+      "weight": 1.0
+    },
+    {
+      "source": "send_function",
+      "target": "streaming_event_pattern",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs",
+      "source_location": "50-83",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_page",
+      "target": "tauri_bridge",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "5",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_page",
+      "target": "agent_config_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "5,10-16",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_page",
+      "target": "model_info_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "5,12",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_page",
+      "target": "tool_type_enum",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "5",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_page",
+      "target": "invoke_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "20,23,26,45,99",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_page",
+      "target": "invoke_unit_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "44",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_page",
+      "target": "agent_editor_component",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "94",
+      "weight": 1.0
+    },
+    {
+      "source": "agent_editor_component",
+      "target": "tool_type_enum",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "245",
+      "weight": 1.0
+    },
+    {
+      "source": "agent_editor_component",
+      "target": "agent_config_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs",
+      "source_location": "195",
+      "weight": 1.0
+    },
+    {
+      "source": "settings_page",
+      "target": "tauri_bridge",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/settings.rs",
+      "source_location": "5",
+      "weight": 1.0
+    },
+    {
+      "source": "settings_page",
+      "target": "settings_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/settings.rs",
+      "source_location": "4,9",
+      "weight": 1.0
+    },
+    {
+      "source": "settings_page",
+      "target": "invoke_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/settings.rs",
+      "source_location": "13",
+      "weight": 1.0
+    },
+    {
+      "source": "settings_page",
+      "target": "invoke_unit_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/settings.rs",
+      "source_location": "21",
+      "weight": 1.0
+    },
+    {
+      "source": "invoke_function",
+      "target": "tauri_bridge_module",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "16",
+      "weight": 1.0
+    },
+    {
+      "source": "invoke_unit_function",
+      "target": "tauri_bridge_module",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "22",
+      "weight": 1.0
+    },
+    {
+      "source": "invoke_json_function",
+      "target": "invoke_function",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "28-29",
+      "weight": 1.0
+    },
+    {
+      "source": "listen_function",
+      "target": "tauri_bridge_module",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/tauri_bridge.rs",
+      "source_location": "33-47",
+      "weight": 1.0
+    },
+    {
+      "source": "infer_params_struct",
+      "target": "infer_params_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/types.rs",
+      "source_location": "49-58",
+      "weight": 1.0
+    },
+    {
+      "source": "tool_type_enum",
+      "target": "human_bytes_function",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "src/pages/types.rs",
+      "source_location": "71-90,112-118",
+      "weight": 1.0
+    },
+    {
+      "source": "loaded_model_struct",
+      "target": "model_info_struct",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src/pages/types.rs",
+      "source_location": "3-19",
+      "weight": 1.0
+    },
+    {
+      "source": "agent_config_struct",
+      "target": "infer_params_struct",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/types.rs",
+      "source_location": "100",
+      "weight": 1.0
+    },
+    {
+      "source": "agent_config_struct",
+      "target": "tool_type_enum",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/types.rs",
+      "source_location": "98",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "llm_inference_flow",
+      "label": "LLM Inference Flow",
+      "nodes": [
+        "chat_page",
+        "send_function",
+        "streaming_event_pattern",
+        "infer_params_struct",
+        "loaded_model_struct"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/chat.rs"
+    },
+    {
+      "id": "model_management_flow",
+      "label": "Model Management Flow",
+      "nodes": [
+        "models_page",
+        "refresh_function_models",
+        "do_load_function",
+        "do_unload_function",
+        "do_delete_function",
+        "do_download_function",
+        "model_info_struct"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/models.rs"
+    },
+    {
+      "id": "agent_execution_flow",
+      "label": "Agent Execution Flow",
+      "nodes": [
+        "agents_page",
+        "agent_editor_component",
+        "do_run",
+        "invoke_function",
+        "agent_config_struct",
+        "tool_type_enum"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pages/agents.rs"
+    }
+  ],
+  "input_tokens": 30161,
+  "output_tokens": 0
+}

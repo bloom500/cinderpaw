@@ -1,0 +1,114 @@
+<h2>Floating Sidebar + Sliding Model Pill</h2>
+<p class="subtitle">Sidebar floats with margin on all sides. Model pill left-aligned, glides left as sidebar collapses.</p>
+
+<div class="split" style="gap:24px; align-items:stretch;">
+
+  <!-- EXPANDED -->
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">Expanded</div>
+    <div class="mockup-body" style="padding:0; overflow:hidden; background:#0d0d0f; border-radius:0 0 8px 8px;">
+      <div style="display:flex; height:480px; background:#0a0a0c;">
+
+        <!-- Sidebar floating: margin on all 4 sides -->
+        <aside style="
+          width:220px; flex-shrink:0;
+          background:#191919;
+          border-radius:16px;
+          margin:8px 0 8px 8px;
+          display:flex; flex-direction:column;
+          padding:14px 10px 10px;
+          gap:5px;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+          transition: all 200ms ease-in-out;
+        ">
+          <div style="font-size:16px; font-weight:700; color:#fff; padding:2px 6px 10px; letter-spacing:0.01em;">feral</div>
+
+          <button style="display:flex; align-items:center; gap:7px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:7px; padding:7px 10px; color:#ccc; font-size:11px; cursor:pointer; width:100%;">
+            <span>+</span> New Chat
+          </button>
+
+          <div style="height:6px"></div>
+          <a style="display:flex; align-items:center; gap:8px; padding:7px 10px; color:#888; font-size:11px; border-radius:7px; text-decoration:none;">◧ Models</a>
+          <a style="display:flex; align-items:center; gap:8px; padding:7px 10px; color:#888; font-size:11px; border-radius:7px; text-decoration:none;">⚙ Assistants</a>
+          <a style="display:flex; align-items:center; gap:8px; padding:7px 10px; color:#888; font-size:11px; border-radius:7px; text-decoration:none;">⚒ Settings</a>
+
+          <div style="font-size:10px; color:#444; text-transform:uppercase; letter-spacing:0.08em; padding:10px 6px 4px;">Chats</div>
+          <div style="padding:5px 10px; color:#666; font-size:11px; border-radius:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Why Does Qwen Lag vs...</div>
+          <div style="padding:5px 10px; color:#666; font-size:11px; border-radius:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Local AI Assistant Capab...</div>
+          <div style="padding:5px 10px; color:#666; font-size:11px; border-radius:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Bing Bong Chat Begins</div>
+
+          <div style="flex:1"></div>
+
+          <button style="display:flex; align-items:center; justify-content:space-between; width:100%; background:transparent; border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:8px 10px; color:#aaa; font-size:11px; cursor:pointer;">
+            <span style="display:flex; align-items:center; gap:7px;"><span style="font-size:13px">⊡</span> Focus Mode</span>
+            <span style="font-size:10px; color:#555; background:rgba(255,255,255,0.05); border-radius:4px; padding:2px 5px;">Ctrl+B</span>
+          </button>
+          <div style="font-size:10px; color:#333; text-align:center; padding-top:4px;">v0.1.0</div>
+        </aside>
+
+        <!-- Right col -->
+        <div style="flex:1; display:flex; flex-direction:column; min-width:0; padding-left:4px;">
+          <!-- Topbar: model pill LEFT-aligned, close to sidebar edge -->
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px 10px 10px; flex-shrink:0;">
+            <!-- No burger when expanded -->
+            <div style="display:flex; align-items:center; gap:7px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:5px 13px; font-size:11px; color:#ccc;">
+              <span style="width:6px;height:6px;background:#5afa8a;border-radius:50%;display:inline-block"></span>
+              Mistral-7B
+            </div>
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:999px; padding:5px 13px; font-size:11px; color:#aaa;">⚙</div>
+          </div>
+          <!-- Canvas -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#555; font-size:11px; gap:8px;">
+            <div style="opacity:0.3; font-size:26px;">🐺</div>
+            <div style="font-weight:600; font-size:13px; color:#666;">How can I help you today?</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- COLLAPSED -->
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">Collapsed — model pill slides left</div>
+    <div class="mockup-body" style="padding:0; overflow:hidden; background:#0d0d0f; border-radius:0 0 8px 8px;">
+      <div style="display:flex; height:480px; background:#0a0a0c;">
+
+        <!-- Sidebar visually gone (zero effective width) -->
+
+        <!-- Right col now full width -->
+        <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+          <!-- Topbar: burger + model pill now at far LEFT since col starts at 0 -->
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; flex-shrink:0;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <!-- Burger reveal -->
+              <button style="width:28px; height:28px; background:transparent; border:none; color:#aaa; font-size:17px; cursor:pointer; border-radius:7px; display:flex; align-items:center; justify-content:center;">≡</button>
+              <!-- Model pill left, now at true left edge -->
+              <div style="display:flex; align-items:center; gap:7px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:5px 13px; font-size:11px; color:#ccc;">
+                <span style="width:6px;height:6px;background:#5afa8a;border-radius:50%;display:inline-block"></span>
+                Mistral-7B
+              </div>
+            </div>
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:999px; padding:5px 13px; font-size:11px; color:#aaa;">⚙</div>
+          </div>
+          <!-- Full-width canvas -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#555; font-size:11px; gap:8px;">
+            <div style="opacity:0.3; font-size:26px;">🐺</div>
+            <div style="font-weight:600; font-size:13px; color:#666;">How can I help you today?</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Transition annotation -->
+<div style="margin-top:20px; padding:14px 16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; font-size:11px; color:#888; line-height:1.9;">
+  <strong style="color:#ccc">Animation (200ms ease-in-out, simultaneous):</strong><br>
+  • Sidebar: <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">transform: translateX(-240px)</code> + <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">margin-left: -240px</code> — hides sidebar and reclaims its space<br>
+  • Right column naturally expands leftward as sidebar space is freed — model pill follows<br>
+  • Burger <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">opacity: 0 → 1</code> fades in as sidebar disappears (same 200ms)<br>
+  • <strong style="color:#ccc">border-radius: 16px</strong> on all 4 corners (sidebar floats, doesn't touch any edge)
+</div>

@@ -1,0 +1,11 @@
+{
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/bloom500/feral/releases/download/v0.1.2/Feral_0.1.2_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSZ3JjbTNEaGlldGhFcFNFZHBrS1dXS3pMb0R1VFlaSmFFM1dXdkRlRmJBdXJTVnl3OHNuYkhpOXRtbURQb2dvMFZhSERjUnN3MlIxeHNQSHJyeEhicGtRWTZtMGluWmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwMjI5ODM4CWZpbGU6RmVyYWxfMC4xLjJfeDY0LXNldHVwLmV4ZQp6b01KT1ZhaHRQbXJsWEh3c0NuOURLdmVTMHVsdElzMHpDeGFWN2xIdlZyR0JtNzErajhJY1JvcEtQaVNDajRGRGFPaG5EQ3ZleWk5WEU1aVBBZnpBUT09Cg=="
+    }
+  },
+  "version": "0.1.2",
+  "notes": "Models tab overhaul (smart HuggingFace download pills, compatibility badges, per-variant downloads, download sidebar), performance fixes (instant system info, no terminal flash, faster model scan), frameless window with custom controls on all pages.",
+  "pub_date": "2026-05-31T11:58:01Z"
+}

@@ -1,0 +1,52 @@
+{
+  "D:\\FeralLocalAI\\frontend\\src\\lib.rs": {
+    "mtime": 1779639715.8429482,
+    "ast_hash": "0109bdf305626877a26fd3caa74e48eb",
+    "semantic_hash": "0109bdf305626877a26fd3caa74e48eb"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\main.rs": {
+    "mtime": 1779639533.0575004,
+    "ast_hash": "a30a17899d6d70fc6208a8287446c0cb",
+    "semantic_hash": "a30a17899d6d70fc6208a8287446c0cb"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\tauri_bridge.rs": {
+    "mtime": 1779639552.126754,
+    "ast_hash": "d1db4e78efc6fcc6a182d7108f5ee58f",
+    "semantic_hash": "d1db4e78efc6fcc6a182d7108f5ee58f"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\agents.rs": {
+    "mtime": 1779642637.7154355,
+    "ast_hash": "c2b473aff357e1f1ff78692157b566a5",
+    "semantic_hash": "c2b473aff357e1f1ff78692157b566a5"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\chat.rs": {
+    "mtime": 1779640459.543263,
+    "ast_hash": "d1aff3f88174bc5d9b3670e37ff38311",
+    "semantic_hash": "d1aff3f88174bc5d9b3670e37ff38311"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\mod.rs": {
+    "mtime": 1779639557.1620371,
+    "ast_hash": "fb7314ac0415c9c4865e9d7566bfef29",
+    "semantic_hash": "fb7314ac0415c9c4865e9d7566bfef29"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\models.rs": {
+    "mtime": 1779640564.2024233,
+    "ast_hash": "007a99a8b22e7645abcf5a4cc2a13978",
+    "semantic_hash": "007a99a8b22e7645abcf5a4cc2a13978"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\settings.rs": {
+    "mtime": 1779640589.312705,
+    "ast_hash": "e7dbc84f9f7a684d4fc2ec68f822fd0a",
+    "semantic_hash": "e7dbc84f9f7a684d4fc2ec68f822fd0a"
+  },
+  "D:\\FeralLocalAI\\frontend\\src\\pages\\types.rs": {
+    "mtime": 1779639573.900587,
+    "ast_hash": "1b4090f78d7b484afefde0a727b33c97",
+    "semantic_hash": "1b4090f78d7b484afefde0a727b33c97"
+  },
+  "D:\\FeralLocalAI\\frontend\\index.html": {
+    "mtime": 1779639494.5096543,
+    "ast_hash": "57f4cb24eb8d7923a8e6c1c5dab5afb3",
+    "semantic_hash": "57f4cb24eb8d7923a8e6c1c5dab5afb3"
+  }
+}
