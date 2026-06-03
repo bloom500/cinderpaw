@@ -127,14 +127,68 @@ async fn api_generate(
     }
 }
 
+/// OpenAI-compatible message content: either a plain string or an array of
+/// content parts (`[{ "type": "text", "text": "..." }, ...]`). OpenClaw and
+/// other OpenAI clients send the array form; llama.cpp only needs the text.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum FlexContent {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+#[derive(Deserialize)]
+struct ContentPart {
+    #[serde(default)]
+    text: Option<String>,
+}
+
+impl FlexContent {
+    /// Flatten to a single string. Array parts are concatenated; non-text
+    /// parts (images, etc.) contribute nothing since llama.cpp is text-only.
+    fn into_string(self) -> String {
+        match self {
+            FlexContent::Text(s) => s,
+            FlexContent::Parts(parts) => parts
+                .into_iter()
+                .filter_map(|p| p.text)
+                .collect::<Vec<_>>()
+                .join(""),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ApiMessage {
+    role: String,
+    #[serde(default)]
+    content: Option<FlexContent>,
+}
+
+impl From<ApiMessage> for Message {
+    fn from(m: ApiMessage) -> Self {
+        Message {
+            role: m.role,
+            content: m.content.map(FlexContent::into_string).unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct ChatReq {
     model: String,
-    messages: Vec<Message>,
+    messages: Vec<ApiMessage>,
     #[serde(default)]
     stream: Option<bool>,
     #[serde(default)]
     options: Option<Value>,
+}
+
+impl ChatReq {
+    /// Convert incoming OpenAI-style messages into Feral's internal `Message`.
+    fn into_messages(self) -> Vec<Message> {
+        self.messages.into_iter().map(Message::from).collect()
+    }
 }
 
 async fn api_chat(
@@ -142,12 +196,15 @@ async fn api_chat(
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
     let params = params_from_options(req.options.as_ref());
-    if req.stream.unwrap_or(true) {
-        sse_from_chat(state, req.model, req.messages, params, false).into_response()
+    let model = req.model.clone();
+    let stream = req.stream.unwrap_or(true);
+    let messages = req.into_messages();
+    if stream {
+        sse_from_chat(state, model, messages, params, false).into_response()
     } else {
-        let text = collect_chat(&state, req.messages, params).await;
+        let text = collect_chat(&state, messages, params).await;
         Json(json!({
-            "model": req.model,
+            "model": model,
             "message": { "role": "assistant", "content": text },
             "done": true,
         })).into_response()
@@ -167,14 +224,17 @@ async fn v1_chat_completions(
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
     let params = params_from_options(req.options.as_ref());
-    if req.stream.unwrap_or(false) {
-        sse_from_chat(state, req.model, req.messages, params, true).into_response()
+    let model = req.model.clone();
+    let stream = req.stream.unwrap_or(false);
+    let messages = req.into_messages();
+    if stream {
+        sse_from_chat(state, model, messages, params, true).into_response()
     } else {
-        let text = collect_chat(&state, req.messages, params).await;
+        let text = collect_chat(&state, messages, params).await;
         Json(json!({
             "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
             "object": "chat.completion",
-            "model": req.model,
+            "model": model,
             "choices": [{
                 "index": 0,
                 "message": { "role": "assistant", "content": text },
@@ -251,6 +311,13 @@ fn sse_from_chat(
             json!({ "model": model, "done": true })
         };
         yield Ok(Event::default().data(done.to_string()));
+
+        // OpenAI streaming protocol terminates with `data: [DONE]`. OpenClaw's
+        // SSE parser waits for this sentinel — without it the stream is treated
+        // as an incomplete terminal response.
+        if openai_format {
+            yield Ok(Event::default().data("[DONE]"));
+        }
     };
     Sse::new(s)
 }
