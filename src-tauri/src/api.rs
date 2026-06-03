@@ -106,6 +106,8 @@ struct GenerateReq {
     stream: Option<bool>,
     #[serde(default)]
     options: Option<Value>,
+    #[serde(default)]
+    max_tokens: Option<u32>,
 }
 
 async fn api_generate(
@@ -113,7 +115,8 @@ async fn api_generate(
     Json(req): Json<GenerateReq>,
 ) -> impl IntoResponse {
     let messages = vec![Message { role: "user".into(), content: req.prompt }];
-    let params = params_from_options(req.options.as_ref());
+    let mut params = params_from_options(req.options.as_ref());
+    apply_max_tokens(&mut params, req.max_tokens);
 
     if req.stream.unwrap_or(true) {
         sse_from_chat(state, req.model, messages, params, false).into_response()
@@ -182,6 +185,12 @@ struct ChatReq {
     stream: Option<bool>,
     #[serde(default)]
     options: Option<Value>,
+    /// OpenAI-standard generation cap. OpenClaw and other OpenAI clients send
+    /// this at the top level (not nested under `options`). Without honoring it,
+    /// every agent request fell back to the 1024-token default and ran for
+    /// minutes of CPU inference, appearing to hang.
+    #[serde(default)]
+    max_tokens: Option<u32>,
 }
 
 impl ChatReq {
@@ -195,7 +204,8 @@ async fn api_chat(
     State(state): State<ApiState>,
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
-    let params = params_from_options(req.options.as_ref());
+    let mut params = params_from_options(req.options.as_ref());
+    apply_max_tokens(&mut params, req.max_tokens);
     let model = req.model.clone();
     let stream = req.stream.unwrap_or(true);
     let messages = req.into_messages();
@@ -223,7 +233,8 @@ async fn v1_chat_completions(
     State(state): State<ApiState>,
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
-    let params = params_from_options(req.options.as_ref());
+    let mut params = params_from_options(req.options.as_ref());
+    apply_max_tokens(&mut params, req.max_tokens);
     let model = req.model.clone();
     let stream = req.stream.unwrap_or(false);
     let messages = req.into_messages();
@@ -241,6 +252,17 @@ async fn v1_chat_completions(
                 "finish_reason": "stop",
             }],
         })).into_response()
+    }
+}
+
+/// Apply the OpenAI-standard top-level `max_tokens` over whatever
+/// `params_from_options` produced. A request that explicitly asks for fewer
+/// tokens must win over the 1024-token default; `0` is ignored as a no-op.
+fn apply_max_tokens(params: &mut InferParams, max_tokens: Option<u32>) {
+    if let Some(mt) = max_tokens {
+        if mt > 0 {
+            params.max_tokens = mt;
+        }
     }
 }
 

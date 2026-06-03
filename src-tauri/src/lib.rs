@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 use crate::agents::AgentConfig;
@@ -501,10 +501,11 @@ fn get_agent_presets() -> Vec<AgentConfig> {
 #[tauri::command]
 #[specta::specta]
 async fn run_agent(
+    app: AppHandle,
     state: State<'_, AppState>,
     agent_id: String,
     prompt: String,
-    on_event: Channel<String>,
+    session_id: String,
 ) -> Result<(), String> {
     let list = agents::list().map_err(|e| e.to_string())?;
     let cfg = list.into_iter().find(|a| a.id == agent_id)
@@ -514,8 +515,13 @@ async fn run_agent(
     } else {
         agents::run(cfg, prompt, state.manager.clone())
     };
+    // Stream each AgentEvent (already JSON-serialized) over the feral:// event
+    // bus, tagged with session_id so concurrent run panels don't cross streams.
     while let Some(ev) = rx.recv().await {
-        let _ = on_event.send(ev);
+        let _ = app.emit("feral://agent-event", events::AgentStreamEvent {
+            session_id: session_id.clone(),
+            data: ev,
+        });
     }
     Ok(())
 }
@@ -1318,6 +1324,7 @@ pub fn run() {
             crate::events::DownloadCompleteEvent,
             crate::events::DownloadErrorEvent,
             crate::events::ModelLoadProgressEvent,
+            crate::events::AgentStreamEvent,
         ]);
 
     // TODO: re-enable once all u64 fields have #[specta(type = Number)] annotations.

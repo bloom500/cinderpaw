@@ -60,3 +60,16 @@ pub struct ModelLoadProgressEvent {
     pub percentage: f64,
     pub status_text: String,
 }
+
+/// One streamed agent event. `data` is a serialized `AgentEvent`
+/// (token / tool_call / tool_result / final / error). Delivered over the
+/// `feral://` event bus rather than a Tauri `Channel`: channel callback ids
+/// are torn down by Vite HMR mid-run ("Couldn't find callback id"), whereas
+/// named events re-bind cleanly on reload. `session_id` lets multiple agent
+/// run panels share the one event name without crosstalk.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStreamEvent {
+    pub session_id: String,
+    pub data: String,
+}

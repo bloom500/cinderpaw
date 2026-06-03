@@ -231,8 +231,8 @@ const raw = {
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
   getAgentPresets:       ()    => invoke<AgentConfig[]>('get_agent_presets'),
-  runAgent:              (agentId: string, prompt: string, onEvent: Channel<string>) =>
-    invoke<void>('run_agent', { agentId, prompt, onEvent }),
+  runAgent:              (agentId: string, prompt: string, sessionId: string) =>
+    invoke<void>('run_agent', { agentId, prompt, sessionId }),
   saveConversation:      (id: string, title: string, messages: PersistedMessage[]) =>
     invoke<void>('save_conversation', { id, title, messages }),
   loadConversations:     ()    => invoke<ConversationSummary[]>('load_conversations'),
@@ -383,8 +383,8 @@ export const tauri = {
     save:       async (cfg: AgentConfig) => raw.saveAgent(cfg),
     getAll:     async () => raw.getAgents(),
     delete:     async (id: string) => raw.deleteAgent(id),
-    run:        async (agentId: string, prompt: string, onEvent: Channel<string>) =>
-      raw.runAgent(agentId, prompt, onEvent),
+    run:        async (agentId: string, prompt: string, sessionId: string) =>
+      raw.runAgent(agentId, prompt, sessionId),
   },
 };
 

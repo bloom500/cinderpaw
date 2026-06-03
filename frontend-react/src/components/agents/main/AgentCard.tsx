@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Trash2, AlertCircle, ChevronDown, Play, Square, CheckCircle, Plug } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { tauri, Channel, type AgentConfig, type AgentEvent } from '@/lib/tauri';
+import { tauri, events, type AgentConfig, type AgentEvent } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 import { TOOL_LABELS } from '../agentUtils';
 
@@ -188,11 +188,15 @@ function AgentRunPanel({ agent }: { agent: AgentConfig }) {
     setItems([]);
     setRunError(null);
 
-    const ch = new Channel<string>();
+    // Unique per-run id so concurrent run panels don't read each other's tokens.
+    const sessionId = `${agent.id}-${Date.now()}`;
 
-    ch.onmessage = (raw: string) => {
+    // Listen on the feral:// event bus (robust across Vite HMR reloads, unlike
+    // Tauri Channels whose callback ids get torn down mid-run). Filter by session.
+    const unlisten = await events.agentStreamEvent.listen((evt) => {
+      if (evt.payload.sessionId !== sessionId) return;
       try {
-        const ev = JSON.parse(raw) as AgentEvent;
+        const ev = JSON.parse(evt.payload.data) as AgentEvent;
         if (ev.kind === 'token') {
           setTokenText((t) => t + ev.text);
         } else if (ev.kind === 'tool_call') {
@@ -214,14 +218,16 @@ function AgentRunPanel({ agent }: { agent: AgentConfig }) {
       } catch {
         // malformed event — ignore
       }
-    };
+    });
 
     try {
-      await tauri.agents.run(agent.id!, prompt.trim(), ch);
+      // Resolves when the backend finishes streaming this session.
+      await tauri.agents.run(agent.id!, prompt.trim(), sessionId);
     } catch (e) {
       setRunError(String(e));
     } finally {
       setRunning(false);
+      unlisten();
     }
   };
 

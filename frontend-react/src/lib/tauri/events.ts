@@ -14,6 +14,8 @@ export interface DownloadProgressEvent { repoId: string; filename: string; progr
 export interface DownloadCompleteEvent { repoId: string; filename: string; path: string }
 export interface DownloadErrorEvent    { repoId: string; filename: string; error: string; cancelled: boolean }
 export interface ModelLoadProgressEvent { percentage: number; statusText: string }
+/** One streamed agent event. `data` is a JSON-serialized AgentEvent. */
+export interface AgentStreamEvent { sessionId: string; data: string }
 
 function wrap<T>(channel: string) {
   return {
@@ -29,4 +31,5 @@ export const events = {
   downloadCompleteEvent:  wrap<DownloadCompleteEvent>('feral://download-complete'),
   downloadErrorEvent:     wrap<DownloadErrorEvent>('feral://download-error'),
   modelLoadProgressEvent: wrap<ModelLoadProgressEvent>('model-load-progress'),
+  agentStreamEvent:       wrap<AgentStreamEvent>('feral://agent-event'),
 };
