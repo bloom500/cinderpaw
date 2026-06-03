@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Trash2, AlertCircle, ChevronDown, Play, Square, CheckCircle, Plug } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { tauri, Channel, type AgentConfig, type AgentEvent } from '@/lib/tauri';
@@ -178,7 +178,6 @@ function AgentRunPanel({ agent }: { agent: AgentConfig }) {
   const [tokenText, setTokenText]   = useState('');
   const [items, setItems]           = useState<DisplayItem[]>([]);
   const [runError, setRunError]     = useState<string | null>(null);
-  const channelRef                  = useRef<Channel<string> | null>(null);
 
   const hasOutput: boolean = !!(tokenText || items.length > 0 || runError);
 
@@ -190,7 +189,6 @@ function AgentRunPanel({ agent }: { agent: AgentConfig }) {
     setRunError(null);
 
     const ch = new Channel<string>();
-    channelRef.current = ch;
 
     ch.onmessage = (raw: string) => {
       try {
@@ -224,7 +222,6 @@ function AgentRunPanel({ agent }: { agent: AgentConfig }) {
       setRunError(String(e));
     } finally {
       setRunning(false);
-      channelRef.current = null;
     }
   };
 
