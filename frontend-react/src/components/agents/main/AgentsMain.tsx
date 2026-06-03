@@ -20,11 +20,26 @@ export function AgentsMain({ onCreateFirst }: Props) {
     try {
       const list = await tauri.agents.getAll();
       setAgents(list);
+      // Refresh each OpenClaw agent's readiness with a fast gateway probe so the
+      // status badge reflects current reachability, not a stale warmup result.
+      void refreshReadiness(list);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
+  };
+
+  // Re-probe gateway readiness for every agent, then refresh the list to pick up
+  // the persisted `openclaw_ready` updates. All agents run through OpenClaw, so
+  // we probe each one (warmup also normalises preferred_runtime to openclaw).
+  // Best-effort: failures here never disrupt the page.
+  const refreshReadiness = async (list: AgentConfig[]) => {
+    const ids = list.filter((a) => a.id).map((a) => a.id!);
+    if (ids.length === 0) return;
+    await Promise.all(ids.map((id) => tauri.openclaw.warmupAgent(id).catch(() => null)));
+    const fresh = await tauri.agents.getAll().catch(() => null);
+    if (fresh) setAgents(fresh);
   };
 
   useEffect(() => {

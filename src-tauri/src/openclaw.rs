@@ -900,25 +900,32 @@ pub async fn openclaw_test_agent_message(
 
 /// Pure function — builds the updated agent after a warmup result.
 /// Extracted so it can be unit-tested without disk I/O.
+///
+/// `openclaw_ready` reflects gateway reachability (drives the status badge).
+/// `preferred_runtime` is always `openclaw` — every agent runs through the
+/// gateway now, so a failed readiness probe must NOT downgrade routing to the
+/// legacy local runner. The probe only affects the badge, never the runtime.
 fn apply_warmup_result(
     mut agent: crate::agents::AgentConfig,
     success: bool,
 ) -> crate::agents::AgentConfig {
     agent.openclaw_ready = Some(success);
-    agent.preferred_runtime = if success {
-        Some("openclaw".to_string())
-    } else {
-        None
-    };
+    agent.preferred_runtime = Some("openclaw".to_string());
     agent
 }
 
-/// Warm up the OpenClaw gateway for a specific agent.
+/// Lightweight gateway readiness timeout. A reachability probe, not inference.
+const WARMUP_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Warm up / confirm the OpenClaw gateway is ready for a specific agent.
 ///
-/// Sends `OPENCLAW_WARMUP_PROMPT` with the agent's system prompt, using the
-/// stable `user` key `feral-agent:<id>`. On success saves `openclaw_ready = true`
-/// to the agent file; on failure saves `false`. Never returns `Err` — the
-/// caller always gets an `OpenClawTestMessageResult`.
+/// This is a *reachability* check, not a full inference round-trip: it GETs
+/// `{endpoint}/v1/models` with the saved token. A 2xx means the gateway is up
+/// and auth is valid — the agent can run. We deliberately do NOT run a real
+/// completion here: on CPU-only hardware first-token latency is minutes, which
+/// would always exceed any reasonable onboarding timeout and wrongly report the
+/// agent as "not ready". On success saves `openclaw_ready = true` and
+/// `preferred_runtime = openclaw`; on failure saves `false`.
 #[tauri::command]
 #[specta::specta]
 pub async fn openclaw_warmup_agent(
@@ -947,16 +954,6 @@ pub async fn openclaw_warmup_agent(
         }
     };
 
-    let mut messages: Vec<serde_json::Value> = Vec::new();
-    let sys = agent.system_prompt.trim();
-    if !sys.is_empty() {
-        messages.push(serde_json::json!({ "role": "system", "content": sys }));
-    }
-    messages.push(serde_json::json!({
-        "role": "user",
-        "content": crate::agents::OPENCLAW_WARMUP_PROMPT
-    }));
-
     let connection = crate::openclaw_connection::load();
     let ep: String = if let Some(ov) = connection
         .gateway_endpoint_override
@@ -968,23 +965,72 @@ pub async fn openclaw_warmup_agent(
         format!("http://localhost:{}", OPENCLAW_DEFAULT_PORT)
     };
 
-    let user_id = crate::agents::openclaw_user_id(&agent_id);
-    let result = send_test_message_with_messages(
-        &ep,
-        &messages,
-        connection.gateway_token.as_deref(),
-        Some(&user_id),
-    )
-    .await;
+    let result = probe_gateway_ready(&ep, connection.gateway_token.as_deref()).await;
 
     // Persist readiness and preferred_runtime so the agent is immediately
     // functional: success wires the agent to OpenClaw, failure falls back to local.
     let ready = matches!(result.kind, TestMessageKind::Ok);
     let updated_agent = apply_warmup_result(agent, ready);
-    // Best-effort save — never fail the test call because of a write error.
+    // Best-effort save — never fail the call because of a write error.
     let _ = crate::agents::save(&updated_agent);
 
     Ok(result)
+}
+
+/// GET `{endpoint}/v1/models` with the gateway token. A 2xx response means the
+/// gateway is up and the token is accepted. Fast (5s timeout), no inference.
+async fn probe_gateway_ready(
+    endpoint: &str,
+    auth_token: Option<&str>,
+) -> OpenClawTestMessageResult {
+    let url = format!("{}/v1/models", endpoint.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(WARMUP_PROBE_TIMEOUT)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return OpenClawTestMessageResult {
+                kind: TestMessageKind::Error,
+                response_text: None,
+                error_message: Some(redact_secrets(&format!("HTTP client: {e}"))),
+                endpoint_tried: Some(url),
+            };
+        }
+    };
+
+    let mut req = client.get(&url);
+    if let Some(token) = auth_token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+
+    match req.send().await {
+        Ok(resp) if resp.status().is_success() => OpenClawTestMessageResult {
+            kind: TestMessageKind::Ok,
+            response_text: Some("Gateway reachable".to_string()),
+            error_message: None,
+            endpoint_tried: Some(url),
+        },
+        Ok(resp) => error_for_http_status(resp.status().as_u16(), &url),
+        Err(e) if e.is_timeout() => OpenClawTestMessageResult {
+            kind: TestMessageKind::Timeout,
+            response_text: None,
+            error_message: Some("Gateway did not respond in time".to_string()),
+            endpoint_tried: Some(url),
+        },
+        Err(e) if e.is_connect() => OpenClawTestMessageResult {
+            kind: TestMessageKind::Unsupported,
+            response_text: None,
+            error_message: Some("Gateway not running".to_string()),
+            endpoint_tried: Some(url),
+        },
+        Err(e) => OpenClawTestMessageResult {
+            kind: TestMessageKind::Error,
+            response_text: None,
+            error_message: Some(redact_secrets(&e.to_string())),
+            endpoint_tried: Some(url),
+        },
+    }
 }
 
 // ── SSE streaming ─────────────────────────────────────────────────────────────
@@ -2234,7 +2280,11 @@ mod tests {
         };
         let updated = apply_warmup_result(agent, false);
         assert_eq!(updated.openclaw_ready, Some(false));
-        assert!(updated.preferred_runtime.is_none(), "runtime should be cleared on failure");
+        assert_eq!(
+            updated.preferred_runtime.as_deref(),
+            Some("openclaw"),
+            "a failed readiness probe must NOT downgrade routing — all agents run through OpenClaw"
+        );
     }
 
     #[tokio::test]
