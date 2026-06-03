@@ -2,6 +2,33 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 pub const FERAL_GATEWAY_PORT: u16 = 18790;
+/// Default OpenClaw gateway port (user-installed daemon).
+pub const OPENCLAW_DEFAULT_PORT: u16 = 18789;
+
+/// Read the gateway token from the user's `~/.openclaw/openclaw.json`.
+/// Returns `None` if the file doesn't exist or has no token.
+pub fn read_user_openclaw_token() -> Option<String> {
+    let home = dirs::home_dir()?;
+    let path = home.join(".openclaw").join("openclaw.json");
+    let bytes = std::fs::read(&path).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v["gateway"]["auth"]["token"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Check whether a local OpenClaw gateway is already listening on `port`.
+/// Does a non-blocking TCP connect attempt with a short timeout.
+pub fn probe_gateway_port(port: u16) -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+    TcpStream::connect_timeout(
+        &format!("127.0.0.1:{}", port).parse().unwrap(),
+        Duration::from_millis(200),
+    ).is_ok()
+}
 
 pub fn config_path() -> PathBuf {
     crate::paths::feral_dir().join("openclaw-feral.json")

@@ -1340,6 +1340,28 @@ pub fn run() {
                     return;
                 };
 
+                // If a gateway is already running on the default port (user-managed daemon),
+                // connect to it directly instead of starting a new sidecar.
+                if crate::openclaw_config::probe_gateway_port(
+                    crate::openclaw_config::OPENCLAW_DEFAULT_PORT,
+                ) {
+                    tracing::info!(
+                        "OpenClaw gateway already running on port {} — attaching",
+                        crate::openclaw_config::OPENCLAW_DEFAULT_PORT
+                    );
+                    let token = crate::openclaw_config::read_user_openclaw_token();
+                    let mut conn = crate::openclaw_connection::load();
+                    conn.gateway_token = token;
+                    conn.gateway_endpoint_override = Some(format!(
+                        "http://localhost:{}",
+                        crate::openclaw_config::OPENCLAW_DEFAULT_PORT,
+                    ));
+                    if let Err(e) = crate::openclaw_connection::save(&conn) {
+                        tracing::warn!("OpenClaw: failed to save connection: {e}");
+                    }
+                    return;
+                }
+
                 let token = crate::openclaw_sidecar::generate_token();
 
                 // Write Feral's OpenClaw config: provider pointing to Feral API + port 18790.
