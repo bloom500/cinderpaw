@@ -25,6 +25,7 @@ fn build_config(token: &str) -> String {
             "providers": {
                 "feral": {
                     "baseUrl": "http://localhost:11435/v1",
+                    "api": "openai-completions",
                     "models": [{ "id": "current" }]
                 }
             }
@@ -69,6 +70,17 @@ mod tests {
     fn build_config_contains_feral_current_model() {
         let cfg = build_config("tok");
         assert!(cfg.contains("feral/current"), "model ref missing:\n{cfg}");
+    }
+
+    #[test]
+    fn build_config_contains_openai_completions_api() {
+        // Required: without "api" OpenClaw throws "No API provider registered for api: undefined"
+        let cfg = build_config("tok");
+        let v: serde_json::Value = serde_json::from_str(&cfg).unwrap();
+        assert_eq!(
+            v["models"]["providers"]["feral"]["api"].as_str().unwrap(),
+            "openai-completions"
+        );
     }
 
     #[test]
