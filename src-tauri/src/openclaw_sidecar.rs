@@ -104,6 +104,13 @@ pub fn start_sidecar(
 }
 
 fn build_sidecar_command(binary: &Path) -> tokio::process::Command {
+    // Force Feral's dedicated port explicitly on the CLI. Relying on
+    // `gateway.port` in the config alone is not enough when a user daemon is
+    // already running — OpenClaw may attach to it. `--port` + `--force`
+    // guarantees a fresh isolated instance bound to Feral's port.
+    let port = crate::openclaw_config::FERAL_GATEWAY_PORT.to_string();
+    let gateway_args = ["gateway", "--port", &port, "--force"];
+
     #[cfg(windows)]
     {
         let ext = binary.extension()
@@ -111,14 +118,14 @@ fn build_sidecar_command(binary: &Path) -> tokio::process::Command {
             .unwrap_or("")
             .to_ascii_lowercase();
         if ext == "cmd" || ext == "bat" {
-            // cmd /c <wrapper.cmd> gateway
+            // cmd /c <wrapper.cmd> gateway --port <port> --force
             let mut c = tokio::process::Command::new("cmd");
-            c.arg("/c").arg(binary).arg("gateway");
+            c.arg("/c").arg(binary).args(gateway_args);
             return c;
         }
     }
     let mut c = tokio::process::Command::new(binary);
-    c.arg("gateway");
+    c.args(gateway_args);
     c
 }
 

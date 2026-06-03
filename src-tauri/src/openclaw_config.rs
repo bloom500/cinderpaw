@@ -2,22 +2,6 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 pub const FERAL_GATEWAY_PORT: u16 = 18790;
-/// Default OpenClaw gateway port (user-installed daemon).
-pub const OPENCLAW_DEFAULT_PORT: u16 = 18789;
-
-/// Read the gateway token from the user's `~/.openclaw/openclaw.json`.
-/// Returns `None` if the file doesn't exist or has no token.
-pub fn read_user_openclaw_token() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let path = home.join(".openclaw").join("openclaw.json");
-    let bytes = std::fs::read(&path).ok()?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    v["gateway"]["auth"]["token"]
-        .as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-}
 
 /// Check whether a local OpenClaw gateway is already listening on `port`.
 /// Does a non-blocking TCP connect attempt with a short timeout.
@@ -44,22 +28,36 @@ pub fn write_feral_config(token: &str) -> Result<()> {
 fn build_config(token: &str) -> String {
     let v = serde_json::json!({
         "gateway": {
+            "mode": "local",
             "port": FERAL_GATEWAY_PORT,
             "bind": "loopback",
-            "auth": { "mode": "token", "token": token }
+            "auth": { "mode": "token", "token": token },
+            // Enable the OpenAI-compatible HTTP API — Feral's runner POSTs to
+            // /v1/chat/completions. Disabled by default in OpenClaw.
+            "http": {
+                "endpoints": {
+                    "chatCompletions": { "enabled": true }
+                }
+            }
         },
         "models": {
             "providers": {
                 "feral": {
                     "baseUrl": "http://localhost:11435/v1",
                     "api": "openai-completions",
-                    "models": [{ "id": "current" }]
+                    // Local CPU inference can take minutes for the first token.
+                    // OpenClaw's default LLM timeout (~12s) is far too short.
+                    "timeoutSeconds": 600,
+                    "models": [{ "id": "current", "name": "Feral Local Model" }]
                 }
             }
         },
         "agents": {
             "defaults": {
-                "model": { "primary": "feral/current" }
+                "model": { "primary": "feral/current" },
+                // Agent-level timeout (separate from the provider timeout).
+                // Local CPU inference is slow; default is far too short.
+                "timeoutSeconds": 600
             }
         }
     });
@@ -97,6 +95,26 @@ mod tests {
     fn build_config_contains_feral_current_model() {
         let cfg = build_config("tok");
         assert!(cfg.contains("feral/current"), "model ref missing:\n{cfg}");
+    }
+
+    #[test]
+    fn build_config_enables_chat_completions_endpoint() {
+        // Required: /v1/chat/completions returns 404 unless explicitly enabled.
+        let cfg = build_config("tok");
+        let v: serde_json::Value = serde_json::from_str(&cfg).unwrap();
+        assert_eq!(
+            v["gateway"]["http"]["endpoints"]["chatCompletions"]["enabled"]
+                .as_bool().unwrap(),
+            true
+        );
+    }
+
+    #[test]
+    fn build_config_sets_gateway_mode_local() {
+        // Required: OpenClaw refuses to start with "missing gateway.mode".
+        let cfg = build_config("tok");
+        let v: serde_json::Value = serde_json::from_str(&cfg).unwrap();
+        assert_eq!(v["gateway"]["mode"].as_str().unwrap(), "local");
     }
 
     #[test]

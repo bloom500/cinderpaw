@@ -1340,25 +1340,18 @@ pub fn run() {
                     return;
                 };
 
-                // If a gateway is already running on the default port (user-managed daemon),
-                // connect to it directly instead of starting a new sidecar.
+                // Feral runs its OWN isolated OpenClaw gateway on FERAL_GATEWAY_PORT.
+                // It never attaches to or modifies a user-installed daemon — if the
+                // user has their own OpenClaw on 18789, Feral's instance lives on 18790
+                // with a config Feral fully controls. If 18790 is already bound (Feral
+                // already running), skip — nothing to do.
                 if crate::openclaw_config::probe_gateway_port(
-                    crate::openclaw_config::OPENCLAW_DEFAULT_PORT,
+                    crate::openclaw_config::FERAL_GATEWAY_PORT,
                 ) {
                     tracing::info!(
-                        "OpenClaw gateway already running on port {} — attaching",
-                        crate::openclaw_config::OPENCLAW_DEFAULT_PORT
+                        "Feral OpenClaw gateway already running on port {} — skipping",
+                        crate::openclaw_config::FERAL_GATEWAY_PORT
                     );
-                    let token = crate::openclaw_config::read_user_openclaw_token();
-                    let mut conn = crate::openclaw_connection::load();
-                    conn.gateway_token = token;
-                    conn.gateway_endpoint_override = Some(format!(
-                        "http://localhost:{}",
-                        crate::openclaw_config::OPENCLAW_DEFAULT_PORT,
-                    ));
-                    if let Err(e) = crate::openclaw_connection::save(&conn) {
-                        tracing::warn!("OpenClaw: failed to save connection: {e}");
-                    }
                     return;
                 }
 
