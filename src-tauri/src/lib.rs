@@ -284,6 +284,17 @@ async fn start_model_load(
                 percentage: 100.0,
                 status_text: "Model Loaded!".into(),
             });
+
+            // Regenerate OpenClaw config now that a model is loaded.
+            // This routes agents to the local model instead of whatever was active before.
+            let token = crate::openclaw_connection::load().gateway_token;
+            if let Some(token) = token {
+                let byok = crate::byok::load(&state.settings);
+                // Model is now loaded, so preference is local. Regenerate to route through it.
+                let _ = crate::openclaw_config::regenerate_config(&token, true, &byok);
+                // Config will be reloaded on next agent run (gateway restart happens then)
+            }
+
             Ok(model)
         }
         Err(e) => Err(e),
@@ -825,8 +836,15 @@ fn get_byok_settings() -> Vec<byok::ProviderInfo> {
 
 #[tauri::command]
 #[specta::specta]
-fn save_byok_provider(provider_id: String, enabled: bool, api_key: String, base_url: Option<String>, default_model: Option<String>) -> Result<(), String> {
-    let mut settings = byok::load(&settings::load());
+fn save_byok_provider(
+    state: State<AppState>,
+    provider_id: String,
+    enabled: bool,
+    api_key: String,
+    base_url: Option<String>,
+    default_model: Option<String>,
+) -> Result<(), String> {
+    let mut settings = byok::load(&state.settings);
     let config = byok::ProviderConfig {
         enabled,
         api_key,
@@ -834,7 +852,19 @@ fn save_byok_provider(provider_id: String, enabled: bool, api_key: String, base_
         default_model,
     };
     settings.update_provider(&provider_id, config);
-    byok::save(&settings).map_err(|e| e.to_string())
+    byok::save(&settings).map_err(|e| e.to_string())?;
+
+    // Regenerate OpenClaw config now that BYOK settings changed.
+    // This updates routing if the newly-enabled provider should become primary.
+    let token = crate::openclaw_connection::load().gateway_token;
+    if let Some(token) = token {
+        let model_loaded = state.manager.current().is_some();
+        let _ = crate::openclaw_config::regenerate_config(&token, model_loaded, &settings);
+        // Note: config will be reloaded on next agent run (no sync kill available here).
+        // For async context, see start_model_load which kills the process.
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
