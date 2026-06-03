@@ -370,15 +370,28 @@ mod backend {
             .new_context(backend, ctx_params)
             .map_err(|e| anyhow!("create context: {}", e))?;
 
-        // Prefill batch
-        let mut batch = LlamaBatch::new(n_prompt.max(512), 1);
-        for (i, &tok) in tokens.iter().enumerate() {
-            batch
-                .add(tok, i as i32, &[0], i == n_prompt - 1)
-                .map_err(|e| anyhow!("batch add (prefill): {}", e))?;
+        // Prefill in chunks. A single decode of all prompt tokens trips
+        // `GGML_ASSERT(n_tokens_all <= cparams.n_batch)` (default n_batch = 2048)
+        // for long prompts — notably agent runs whose tool-calling system prompt
+        // can exceed 2048 tokens. Chunking keeps every decode within n_batch and
+        // bounds the compute buffer regardless of prompt length.
+        const PREFILL_CHUNK: usize = 512;
+        let mut batch = LlamaBatch::new(PREFILL_CHUNK, 1);
+        let mut start = 0usize;
+        while start < n_prompt {
+            let end = (start + PREFILL_CHUNK).min(n_prompt);
+            batch.clear();
+            for i in start..end {
+                // Only the final token of the whole prompt needs logits.
+                let want_logits = i == n_prompt - 1;
+                batch
+                    .add(tokens[i], i as i32, &[0], want_logits)
+                    .map_err(|e| anyhow!("batch add (prefill): {}", e))?;
+            }
+            ctx.decode(&mut batch)
+                .map_err(|e| anyhow!("decode prefill: {}", e))?;
+            start = end;
         }
-        ctx.decode(&mut batch)
-            .map_err(|e| anyhow!("decode prefill: {}", e))?;
 
         // Sampler chain: penalties → top-k → top-p → temperature → random dist.
         // Order matters: penalties first (reshape logits), then truncation samplers
