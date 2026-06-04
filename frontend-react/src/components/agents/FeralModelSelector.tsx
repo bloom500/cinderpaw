@@ -11,23 +11,31 @@ import {
 import { useFeralStore } from '@/stores/feral';
 import { tauri, type ByokProvider } from '@/lib/tauri';
 
-const OLLAMA_BASE_URL = 'http://localhost:11434';
+// Feral's own model engine exposes an Ollama/OpenAI-compatible API here. The
+// agent must target THIS (not external Ollama on 11434) so it uses the model
+// loaded in the Models tab. We route local models through the OpenAI-compatible
+// path (/v1/chat/completions) — Feral's /api/chat emits SSE, which the agent's
+// `ollama` provider (expecting NDJSON) cannot parse.
+const FERAL_API_BASE = 'http://localhost:11435';
+// Sentinel provider id — the backend ignores it for the openai_compatible
+// source (it keys off baseUrl), but the FeralModelSelection type requires one.
+const LOCAL_PROVIDER_ID = 'feral-local';
 
 export function FeralModelSelector() {
   const modelConfig = useFeralStore((s) => s.modelConfig);
   const switching   = useFeralStore((s) => s.switching);
   const setModel    = useFeralStore((s) => s.setModel);
 
-  const [ollamaModels, setOllamaModels]       = useState<string[]>([]);
+  const [localModels, setLocalModels]         = useState<string[]>([]);
   const [cloudProviders, setCloudProviders]   = useState<ByokProvider[]>([]);
   const [open, setOpen]                       = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    // Fetch available Ollama models and enabled BYOK providers when the menu opens.
-    void tauri.raw.listOllamaModels(OLLAMA_BASE_URL)
-      .then(setOllamaModels)
-      .catch(() => setOllamaModels([]));
+    // Fetch Feral's local models (via its /api/tags) and enabled BYOK providers.
+    void tauri.raw.listOllamaModels(FERAL_API_BASE)
+      .then(setLocalModels)
+      .catch(() => setLocalModels([]));
     void tauri.raw.getByokSettings()
       .then((ps) => setCloudProviders(ps.filter((p) => p.enabled && p.has_api_key && !!p.default_model)))
       .catch(() => setCloudProviders([]));
@@ -37,8 +45,8 @@ export function FeralModelSelector() {
     ? 'Switching…'
     : modelConfig?.display_name ?? 'Select model';
 
-  const hasOllama = ollamaModels.length > 0;
-  const hasCloud  = cloudProviders.length > 0;
+  const hasLocal = localModels.length > 0;
+  const hasCloud = cloudProviders.length > 0;
 
   return (
     <DropdownMenu onOpenChange={setOpen}>
@@ -61,31 +69,38 @@ export function FeralModelSelector() {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="w-64">
-        {hasOllama && (
+        {hasLocal && (
           <>
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
-              <Cpu size={11} /> Ollama (local)
+              <Cpu size={11} /> Local (Feral)
             </DropdownMenuLabel>
-            {ollamaModels.map((m) => (
-              <DropdownMenuItem
-                key={m}
-                onClick={() =>
-                  void setModel({ source: 'ollama', model: m, baseUrl: OLLAMA_BASE_URL })
-                }
-                className="flex items-center gap-2"
-              >
-                <span className="text-text-primary">{m}</span>
-                {modelConfig?.model === m && modelConfig.provider === 'ollama' && (
-                  <span className="ml-auto text-xs text-brand">active</span>
-                )}
-              </DropdownMenuItem>
-            ))}
+            {localModels.map((m) => {
+              const isActive =
+                modelConfig?.model === m && modelConfig.provider === 'openai_compatible';
+              return (
+                <DropdownMenuItem
+                  key={m}
+                  onClick={() =>
+                    void setModel({
+                      source: 'openai_compatible',
+                      model: m,
+                      baseUrl: FERAL_API_BASE,
+                      providerId: LOCAL_PROVIDER_ID,
+                    })
+                  }
+                  className="flex items-center gap-2"
+                >
+                  <span className="text-text-primary truncate">{m}</span>
+                  {isActive && <span className="ml-auto text-xs text-brand">active</span>}
+                </DropdownMenuItem>
+              );
+            })}
           </>
         )}
 
         {hasCloud && (
           <>
-            {hasOllama && <DropdownMenuSeparator />}
+            {hasLocal && <DropdownMenuSeparator />}
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
               <Cloud size={11} /> Cloud (BYOK)
             </DropdownMenuLabel>
@@ -114,9 +129,9 @@ export function FeralModelSelector() {
           </>
         )}
 
-        {!hasOllama && !hasCloud && (
+        {!hasLocal && !hasCloud && (
           <DropdownMenuItem disabled className="text-text-muted text-xs">
-            No models found — start Ollama or add a cloud key in Settings
+            No models found — load a model in the Models tab or add a cloud key in Settings
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
