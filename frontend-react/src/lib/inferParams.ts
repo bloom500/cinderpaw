@@ -18,6 +18,12 @@ export async function currentInferParams(opts?: {
   reasoningMode?: ReasoningMode;
   modelName?: string;
   enabledTools?: string[];
+  /**
+   * Override the system prompt sent to the model. When set, this wins
+   * over the default THINKING_SYSTEM_PROMPT — used by Agent mode to inject
+   * the agent's system_prompt verbatim.
+   */
+  systemPromptOverride?: string | null;
 }): Promise<InferParams> {
   await ensureSettingsLoaded();
 
@@ -31,12 +37,19 @@ export async function currentInferParams(opts?: {
 
   const tools = opts?.enabledTools?.length ? opts.enabledTools : null;
 
+  // systemPromptOverride wins over the default thinking prompt. A
+  // falsy value (null / undefined) falls through to the default.
+  const systemPrompt =
+    opts && 'systemPromptOverride' in opts
+      ? (opts.systemPromptOverride ?? null)
+      : (enableThinking ? THINKING_SYSTEM_PROMPT : null);
+
   return {
     temperature,
     top_p,
     repeat_penalty: 1.1,
     max_tokens,
-    system_prompt: enableThinking ? THINKING_SYSTEM_PROMPT : null,
+    system_prompt: systemPrompt,
     tools,
   };
 }

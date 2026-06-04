@@ -11,10 +11,10 @@ interface Props {
   agentName: string;
   agentId?: string;
   loadedModelName?: string;
-  onViewAgents: () => void;
+  onStartChatting: () => void;
 }
 
-export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: Props) {
+export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting }: Props) {
   const [probe, setProbe] = useState<ProbeState>({ phase: 'idle' });
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
       setProbe({ phase: 'running' });
       // Cheap reachability probe: returns true when the Feral Agent sidecar
       // is alive and responded to a health check. We don't run a full
-      // inference round-trip here — that happens in AgentCard's Run panel.
+      // inference round-trip here — that happens on the first user message.
       const up = await tauri.feralAgent.status().catch(() => false);
       if (!cancelled) setProbe({ phase: 'done', up });
     }
@@ -68,7 +68,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
 
       <div className="space-y-2">
         <h2 className="text-2xl font-bold text-text-primary tracking-tight">
-          "{agentName}" created
+          "{agentName}" is ready
         </h2>
         {loadedModelName ? (
           <p className="text-sm text-text-muted">
@@ -85,10 +85,10 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
 
       <button
         type="button"
-        onClick={onViewAgents}
+        onClick={onStartChatting}
         className="w-full py-2.5 rounded-xl bg-brand text-white text-sm font-semibold hover:bg-brand/90 transition-colors"
       >
-        Go to agents
+        Start chatting →
       </button>
     </div>
   );

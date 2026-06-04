@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { tauri, type AgentConfig } from '@/lib/tauri';
+import { useAgent } from '@/stores/agent';
 import { ONBOARDING_KEY, DEFAULT_SCRATCH_PROMPT } from '../agentUtils';
 import { OnboardingShell } from './OnboardingShell';
 import { WelcomeStep }    from './steps/WelcomeStep';
@@ -108,7 +109,10 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
         model_id:          loadedModel?.path ?? '',
         tools:             preset?.tools ?? [],
       };
-      const saved = await tauri.agents.save(cfg);
+      // Use the agent store so the new agent becomes the active one in
+      // a single place — the gate above will switch us to the chat view
+      // on the next render.
+      const saved = await useAgent.getState().save(cfg);
       setSavedName(saved.name);
       setSavedId(saved.id ?? '');
       setLoadedModelName(loadedModel?.name ?? undefined);
@@ -131,7 +135,7 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
   if (step === 'done') {
     return (
       <div className="h-full flex items-center justify-center p-6">
-        <DoneStep agentName={savedName} agentId={savedId || undefined} loadedModelName={loadedModelName} onViewAgents={onDone} />
+        <DoneStep agentName={savedName} agentId={savedId || undefined} loadedModelName={loadedModelName} onStartChatting={onDone} />
       </div>
     );
   }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { GeneralTab }    from '@/components/settings/GeneralTab';
@@ -6,10 +7,11 @@ import { AppearanceTab } from '@/components/settings/AppearanceTab';
 import { HardwareTab }   from '@/components/settings/HardwareTab';
 import { ApiServerTab }  from '@/components/settings/ApiServerTab';
 import { ByokTab }       from '@/components/settings/ByokTab';
+import { AgentSettingsTab } from '@/components/settings/AgentSettingsTab';
 import { PrivacyTab }    from '@/components/settings/PrivacyTab';
 import { AboutTab }      from '@/components/settings/AboutTab';
 
-type Category = 'general' | 'appearance' | 'hardware' | 'api' | 'byok' | 'privacy' | 'about';
+type Category = 'general' | 'appearance' | 'hardware' | 'api' | 'byok' | 'agent' | 'privacy' | 'about';
 
 const CATS: { id: Category; label: string; icon: string }[] = [
   { id: 'general',    label: 'General',     icon: '⚙' },
@@ -17,12 +19,19 @@ const CATS: { id: Category; label: string; icon: string }[] = [
   { id: 'hardware',   label: 'Hardware',    icon: '⌬' },
   { id: 'api',        label: 'API Server',  icon: '⇄' },
   { id: 'byok',       label: 'Cloud Keys',  icon: '⚷' },
+  { id: 'agent',      label: 'Agent',       icon: '◈' },
   { id: 'privacy',    label: 'Privacy',     icon: '⚿' },
   { id: 'about',      label: 'About',       icon: 'ⓘ' },
 ];
 
+function isCategory(s: string | null): s is Category {
+  return s !== null && CATS.some((c) => c.id === s);
+}
+
 export function SettingsPage() {
-  const [cat, setCat] = useState<Category>('general');
+  const [searchParams] = useSearchParams();
+  const initial = searchParams.get('cat');
+  const [cat, setCat] = useState<Category>(isCategory(initial) ? initial : 'general');
   const fetchSettings = useSettings((s) => s.fetchSettings);
   const fetchByok     = useSettings((s) => s.fetchByok);
 
@@ -30,6 +39,12 @@ export function SettingsPage() {
     void fetchSettings();
     void fetchByok();
   }, [fetchSettings, fetchByok]);
+
+  // Allow deep-links like /settings?cat=agent to switch tabs.
+  useEffect(() => {
+    const next = searchParams.get('cat');
+    if (isCategory(next) && next !== cat) setCat(next);
+  }, [searchParams, cat]);
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -57,6 +72,7 @@ export function SettingsPage() {
         {cat === 'hardware'   && <HardwareTab />}
         {cat === 'api'        && <ApiServerTab />}
         {cat === 'byok'       && <ByokTab />}
+        {cat === 'agent'      && <AgentSettingsTab />}
         {cat === 'privacy'    && <PrivacyTab />}
         {cat === 'about'      && <AboutTab />}
       </div>

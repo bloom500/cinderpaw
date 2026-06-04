@@ -5,7 +5,7 @@
   "identifier": "ai.feral.app",
   "build": {
     "frontendDist": "../frontend-react/dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": "cd ../frontend-react && npm run dev",
     "beforeBuildCommand": "cd ../frontend-react && npm run build"
   },

@@ -3,6 +3,7 @@ import { useChat, type ChatMessage } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useModel } from '@/stores/model';
 import { useUI } from '@/stores/ui';
+import { useAgent } from '@/stores/agent';
 import { useChatStream } from './useChatStream';
 import { toIpcMessage } from '@/lib/messageMapping';
 import { currentInferParams } from '@/lib/inferParams';
@@ -57,7 +58,21 @@ export function useSendMessage() {
       chat.setStreamStatus('streaming');
 
       const messages = useChat.getState().messages.slice(0, -1).map(toIpcMessage);
-      const params = await currentInferParams({ reasoningMode, modelName, enabledTools });
+
+      // Agent mode override: when an active agent exists, its
+      // system_prompt and tool list are authoritative. This lets the
+      // same hook serve both Chat (user-controlled) and Agents
+      // (agent-controlled) without two parallel code paths.
+      const agent = useAgent.getState().current;
+      const effectiveEnabledTools = agent ? agent.tools : enabledTools;
+      const effectiveSystemPrompt = agent ? agent.system_prompt : undefined;
+
+      const params = await currentInferParams({
+        reasoningMode,
+        modelName,
+        enabledTools: effectiveEnabledTools,
+        systemPromptOverride: effectiveSystemPrompt,
+      });
 
       let buffer = '';
       let thinkingStartAt: number | null = null;

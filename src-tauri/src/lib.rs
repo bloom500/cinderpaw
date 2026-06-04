@@ -472,6 +472,7 @@ fn save_agent(cfg: AgentConfig) -> Result<AgentConfig, String> {
 #[tauri::command]
 #[specta::specta]
 fn get_agents() -> Result<Vec<AgentConfig>, String> {
+    tracing::info!("get_agents: invoked");
     agents::list().map_err(|e| e.to_string())
 }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { DoneStep } from '../DoneStep';
 import { tauri } from '@/lib/tauri';
 
@@ -29,7 +30,7 @@ describe('DoneStep', () => {
       <DoneStep
         agentName="Test"
         agentId="agent-1"
-        onViewAgents={vi.fn()}
+        onStartChatting={vi.fn()}
       />
     );
 
@@ -44,11 +45,29 @@ describe('DoneStep', () => {
       <DoneStep
         agentName="Test"
         agentId="agent-1"
-        onViewAgents={vi.fn()}
+        onStartChatting={vi.fn()}
       />
     );
 
     await waitFor(() => expect(mockStatus).toHaveBeenCalled());
     expect(screen.getByText(/feral agent ready/i)).toBeTruthy();
+  });
+
+  it('invokes onStartChatting when the "Start chatting" button is clicked', async () => {
+    mockStatus.mockResolvedValue(true);
+    const onStartChatting = vi.fn();
+
+    render(
+      <DoneStep
+        agentName="Test"
+        agentId="agent-1"
+        onStartChatting={onStartChatting}
+      />
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /start chatting/i }));
+
+    expect(onStartChatting).toHaveBeenCalledTimes(1);
   });
 });

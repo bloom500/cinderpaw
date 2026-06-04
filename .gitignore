@@ -26,3 +26,11 @@ desktop.ini
 # Env / secrets
 .env
 .env.local
+
+# Tauri dev / Vite dev logs (untracked build output)
+.feral-tauri.log
+.feral-tauri.log.err
+.vite-dev.log
+.vite-dev.log.err
+.feral-dev.log
+.feral-dev.log.err

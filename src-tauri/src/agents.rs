@@ -55,16 +55,25 @@ pub fn list() -> Result<Vec<AgentConfig>> {
     let mut out = Vec::new();
     let dir = paths::agents_dir();
     if !dir.exists() {
+        tracing::info!("agents::list: agents dir does not exist");
         return Ok(out);
     }
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
+    let entries: Vec<_> = std::fs::read_dir(&dir)?.filter_map(|e| e.ok()).collect();
+    tracing::info!("agents::list: scanning {} entries in {:?}", entries.len(), dir);
+    for entry in entries {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let bytes = std::fs::read(entry.path())?;
-        if let Ok(cfg) = serde_json::from_slice::<AgentConfig>(&bytes) {
-            out.push(cfg);
+        let bytes = std::fs::read(&path)?;
+        match serde_json::from_slice::<AgentConfig>(&bytes) {
+            Ok(cfg) => {
+                tracing::info!("agents::list: loaded agent {} ({:?})", cfg.id, cfg.name);
+                out.push(cfg);
+            }
+            Err(e) => {
+                tracing::warn!("agents::list: skipping {:?} — deserialization failed: {}", path, e);
+            }
         }
     }
     Ok(out)

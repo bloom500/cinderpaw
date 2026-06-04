@@ -1,22 +1,22 @@
 import { ReactNode } from 'react';
-import { ModelSelector } from './ModelSelector';
 
+/**
+ * Layout shell for the Agents tab.
+ *
+ * The previous version mounted a dedicated `ModelSelector` sidebar here on
+ * top of the global AppShell sidebar. That second sidebar was redundant
+ * — the agent header already shows the loaded model via `ModelPill`, and
+ * the model picker lives in the global Models tab. The Agents tab is now
+ * single-column, just like Chat.
+ *
+ * This component is kept as a thin wrapper so that any page-level
+ * Agents-specific layout (error boundaries, focus traps, etc.) can be
+ * added here later without touching every call site.
+ */
 interface Props {
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 export function AgentsPageLayout({ children }: Props) {
-  return (
-    <div className="flex h-screen w-full overflow-hidden bg-bg-primary">
-      {/* Left sidebar: Model selector (fixed 280px) */}
-      <div className="w-80 flex-shrink-0 flex flex-col">
-        <ModelSelector />
-      </div>
-
-      {/* Right side: Agents content (flex-1) */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {children}
-      </div>
-    </div>
-  );
+  return <>{children}</>;
 }
