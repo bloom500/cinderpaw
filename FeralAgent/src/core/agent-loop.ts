@@ -42,7 +42,13 @@ export interface AgentLoopConfig {
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxIterations: 6,
-  maxTokensPerCall: 1024,
+  // 1024 was starving models that emit chain-of-thought (Gemma, DeepSeek,
+  // QwQ, …) — the think block alone often consumed 600+ tokens, leaving the
+  // actual answer with barely a few sentences before the stream cut off.
+  // 4096 leaves comfortable room for both the think block and a real reply.
+  // If you need longer completions, raise this; the router's per-conversation
+  // and per-day token budgets still cap total usage.
+  maxTokensPerCall: 4096,
   onBudgetExhausted: "compress_and_continue",
 };
 

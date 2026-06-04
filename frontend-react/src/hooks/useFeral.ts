@@ -9,10 +9,11 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat } from '@/stores/chat';
+import { useChat, type ChatMessage } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useFeralStore } from '@/stores/feral';
 import { autoTitle } from '@/lib/autoTitle';
+import { splitThinking } from '@/lib/parseThink';
 import type { FeralAgentEvent } from '@/lib/tauri';
 
 interface StreamCallbacks {
@@ -129,9 +130,26 @@ export function useFeralSendMessage(chatSessionId: string) {
       chat.addMessage(asstMsg);
       chat.setStreamStatus('streaming');
 
+      // Local buffer for think-block parsing — see onToken below.
+      let buffer = '';
+
       await send(content, {
         onToken: (token) => {
-          chat.appendToStreamingAssistant(token);
+          // Mirror useSendMessage: buffer tokens locally, split <think>…</think>
+          // out of the visible answer, and write the clean answer + a
+          // separate `thinking` field. Without this, reasoning models (Gemma
+          // 4, DeepSeek-R1, QwQ, …) leak their chain-of-thought straight into
+          // the chat bubble.
+          buffer += token;
+          const split = splitThinking(buffer);
+          const patch: Partial<ChatMessage> = {
+            content: split.answer,
+          };
+          if (split.thinking !== null) {
+            patch.thinking = split.thinking;
+            patch.thinkingComplete = split.thinkingComplete;
+          }
+          chat.updateLastAssistantMessage(patch);
         },
         onDone: () => {
           chat.setStreamStatus('done');
