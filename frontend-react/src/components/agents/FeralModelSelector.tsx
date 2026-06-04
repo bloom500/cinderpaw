@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFeralStore } from '@/stores/feral';
-import { tauri, type ByokProvider } from '@/lib/tauri';
+import { tauri, type ByokProvider, type ModelInfo } from '@/lib/tauri';
 
 // Feral's own model engine exposes an Ollama/OpenAI-compatible API here. The
 // agent must target THIS (not external Ollama on 11434) so it uses the model
@@ -22,18 +22,21 @@ const FERAL_API_BASE = 'http://localhost:11435';
 const LOCAL_PROVIDER_ID = 'feral-local';
 
 export function FeralModelSelector() {
-  const modelConfig = useFeralStore((s) => s.modelConfig);
-  const switching   = useFeralStore((s) => s.switching);
-  const setModel    = useFeralStore((s) => s.setModel);
+  const modelConfig   = useFeralStore((s) => s.modelConfig);
+  const switching     = useFeralStore((s) => s.switching);
+  const setModel      = useFeralStore((s) => s.setModel);
+  const setModelError = useFeralStore((s) => s.setModelError);
 
-  const [localModels, setLocalModels]         = useState<string[]>([]);
+  const [localModels, setLocalModels]         = useState<ModelInfo[]>([]);
   const [cloudProviders, setCloudProviders]   = useState<ByokProvider[]>([]);
+  const [loadingModel, setLoadingModel]       = useState<string | null>(null);
   const [open, setOpen]                       = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    // Fetch Feral's local models (via its /api/tags) and enabled BYOK providers.
-    void tauri.raw.listOllamaModels(FERAL_API_BASE)
+    // List Feral's local GGUF models (with paths so we can load on select) and
+    // enabled BYOK providers.
+    void tauri.models.list()
       .then(setLocalModels)
       .catch(() => setLocalModels([]));
     void tauri.raw.getByokSettings()
@@ -41,9 +44,33 @@ export function FeralModelSelector() {
       .catch(() => setCloudProviders([]));
   }, [open]);
 
-  const label = switching
-    ? 'Switching…'
-    : modelConfig?.display_name ?? 'Select model';
+  // Selecting a local model must also LOAD it into Feral's engine — otherwise
+  // /v1/chat/completions has nothing in memory and returns an empty completion.
+  // Load first (blocks until the model is resident), then point the agent at it.
+  const selectLocal = async (m: ModelInfo) => {
+    setLoadingModel(m.path);
+    setModelError(null);
+    try {
+      await tauri.models.startLoad(m.path);
+      await setModel({
+        source: 'openai_compatible',
+        model: m.name,
+        baseUrl: FERAL_API_BASE,
+        providerId: LOCAL_PROVIDER_ID,
+      });
+    } catch (err) {
+      setModelError(String(err));
+    } finally {
+      setLoadingModel(null);
+    }
+  };
+
+  const busy = switching || loadingModel !== null;
+  const label = loadingModel !== null
+    ? 'Loading model…'
+    : switching
+      ? 'Switching…'
+      : modelConfig?.display_name ?? 'Select model';
 
   const hasLocal = localModels.length > 0;
   const hasCloud = cloudProviders.length > 0;
@@ -57,9 +84,9 @@ export function FeralModelSelector() {
                      text-text-secondary bg-bg-secondary hover:bg-bg-hover
                      transition-colors outline-none border border-border-subtle
                      disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={switching}
+          disabled={busy}
         >
-          {switching
+          {busy
             ? <Loader2 size={11} className="animate-spin shrink-0" />
             : <Cpu size={11} className="shrink-0 text-text-muted" />
           }
@@ -76,22 +103,19 @@ export function FeralModelSelector() {
             </DropdownMenuLabel>
             {localModels.map((m) => {
               const isActive =
-                modelConfig?.model === m && modelConfig.provider === 'openai_compatible';
+                modelConfig?.model === m.name && modelConfig.provider === 'openai_compatible';
+              const isLoading = loadingModel === m.path;
               return (
                 <DropdownMenuItem
-                  key={m}
-                  onClick={() =>
-                    void setModel({
-                      source: 'openai_compatible',
-                      model: m,
-                      baseUrl: FERAL_API_BASE,
-                      providerId: LOCAL_PROVIDER_ID,
-                    })
-                  }
+                  key={m.id}
+                  disabled={busy}
+                  onSelect={(e) => { e.preventDefault(); void selectLocal(m); }}
                   className="flex items-center gap-2"
                 >
-                  <span className="text-text-primary truncate">{m}</span>
-                  {isActive && <span className="ml-auto text-xs text-brand">active</span>}
+                  <span className="text-text-primary truncate">{m.name}</span>
+                  {isLoading
+                    ? <Loader2 size={11} className="ml-auto animate-spin text-brand shrink-0" />
+                    : isActive && <span className="ml-auto text-xs text-brand">active</span>}
                 </DropdownMenuItem>
               );
             })}
