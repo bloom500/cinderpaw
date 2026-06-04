@@ -43,10 +43,23 @@ export function AgentChat() {
   // agent would not make sense to continue under another. We depend on
   // the agent id (a stable string), not the agent object (whose
   // reference changes on every store update).
+  //
+  // Exception: when reopening a saved conversation from Recents, the sidebar
+  // arms `reopenSessionId` so we keep the loaded session instead of wiping it.
   useEffect(() => {
     if (!current?.id) return;
+    if (useAgent.getState().reopenSessionId) return; // keep — cleared once loaded
     newSession();
   }, [current?.id, newSession]);
+
+  // Clear the reopen flag once the target conversation is actually on screen,
+  // so subsequent (genuine) agent switches reset to a fresh session again.
+  const reopenSessionId = useAgent((s) => s.reopenSessionId);
+  useEffect(() => {
+    if (reopenSessionId && useChat.getState().sessionId === reopenSessionId) {
+      useAgent.getState().setReopenSessionId(null);
+    }
+  }, [reopenSessionId, sessionId]);
 
   // Re-centre the empty-state greeting whenever the agent changes.
   useLayoutEffect(() => {

@@ -8,12 +8,26 @@ interface ConversationsStore {
   list: ConversationSummary[];
   currentId: string | null;
   loadingConversation: boolean;
+  /**
+   * Session IDs that are currently mid-stream — i.e. the user sent a
+   * message and the model is still generating a response. Used by the
+   * sidebar to show a spinner next to the chat so the user can track
+   * ongoing generations even when they switch tabs.
+   *
+   * Stored as a plain object (Record) instead of a Set so Zustand
+   * re-renders subscribers on add/remove — Sets don't trigger
+   * shallow-equality updates.
+   */
+  streamingIds: Record<string, true>;
 
   refresh:     () => Promise<void>;
   open:        (id: string) => Promise<void>;
-  saveCurrent: (title: string) => Promise<void>;
+  /** `agentId` tags the conversation as agent-owned (Agents tab); omit for chat. */
+  saveCurrent: (title: string, agentId?: string | null) => Promise<void>;
   delete:      (id: string) => Promise<void>;
   newChat:     () => void;
+  markStreaming:   (id: string) => void;
+  unmarkStreaming: (id: string) => void;
 }
 
 function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
@@ -33,11 +47,17 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
   currentId: null,
   loadingConversation: false,
+  streamingIds: {},
 
   refresh: async () => {
-    const list = await tauri.conversations.list();
-    list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    set({ list });
+    try {
+      const list = await tauri.conversations.list();
+      list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      set({ list });
+    } catch (err) {
+      // Don't let a failed list read leave the UI in an inconsistent state.
+      console.error('[conversations] refresh failed:', err);
+    }
   },
 
   open: async (id) => {
@@ -52,12 +72,20 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     }
   },
 
-  saveCurrent: async (title) => {
+  saveCurrent: async (title, agentId) => {
     const chat = useChat.getState();
     const persisted = chat.messages.map(toPersisted);
-    await tauri.conversations.save(chat.sessionId, title, persisted);
-    set({ currentId: chat.sessionId });
-    await get().refresh();
+    try {
+      await tauri.conversations.save(chat.sessionId, title, persisted, agentId);
+      set({ currentId: chat.sessionId });
+    } catch (err) {
+      console.error('[conversations] save failed:', err);
+      throw err;
+    } finally {
+      // Always refresh — even if the save itself threw, the user may have
+      // partially-updated state we should reconcile with disk.
+      await get().refresh();
+    }
   },
 
   delete: async (id) => {
@@ -66,11 +94,29 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       useChat.getState().newSession();
       set({ currentId: null });
     }
+    // If the deleted chat was mid-stream, clear the flag too.
+    if (get().streamingIds[id]) {
+      const next = { ...get().streamingIds };
+      delete next[id];
+      set({ streamingIds: next });
+    }
     await get().refresh();
   },
 
   newChat: () => {
     useChat.getState().newSession();
     set({ currentId: null });
+  },
+
+  markStreaming: (id) => {
+    if (get().streamingIds[id]) return;
+    set({ streamingIds: { ...get().streamingIds, [id]: true } });
+  },
+
+  unmarkStreaming: (id) => {
+    if (!get().streamingIds[id]) return;
+    const next = { ...get().streamingIds };
+    delete next[id];
+    set({ streamingIds: next });
   },
 }));

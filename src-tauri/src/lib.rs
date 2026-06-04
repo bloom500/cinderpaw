@@ -931,8 +931,9 @@ fn save_conversation(
     id: String,
     title: String,
     messages: Vec<conversations::PersistedMessage>,
+    agent_id: Option<String>,
 ) -> Result<(), String> {
-    conversations::save(&id, &title, &messages).map_err(|e| e.to_string())
+    conversations::save(&id, &title, &messages, agent_id.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1331,6 +1332,20 @@ async fn chat_cloud_stream(
             }
         }
 
+        // If the provider reported that we hit its server-side token cap,
+        // emit a `stream-truncated` event so the frontend can mark the
+        // message and surface a hint. The partial `content_acc` is still
+        // preserved in the message bubble on the React side.
+        if finish_reason == "length" {
+            let _ = app.emit(
+                "feral://stream-truncated",
+                events::StreamTruncatedEvent {
+                    session_id: session_id.clone(),
+                    reason: finish_reason.clone(),
+                },
+            );
+        }
+
         // If no tool calls, we're done
         if finish_reason != "tool_calls" || pending_calls.is_empty() {
             break;
@@ -1482,6 +1497,7 @@ pub fn run() {
             crate::events::TokenEvent,
             crate::events::StreamDoneEvent,
             crate::events::StreamErrorEvent,
+            crate::events::StreamTruncatedEvent,
             crate::events::DownloadProgressEvent,
             crate::events::DownloadCompleteEvent,
             crate::events::DownloadErrorEvent,

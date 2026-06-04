@@ -11,6 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
+import { useAgent } from '@/stores/agent';
 import { useFeralStore } from '@/stores/feral';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking } from '@/lib/parseThink';
@@ -102,13 +103,15 @@ export function useFeralSendMessage(chatSessionId: string) {
       const sessionId = useChat.getState().sessionId;
       const snapshot  = [...useChat.getState().messages];
       const asstId    = asstMsg.id;
+      const agentId   = useAgent.getState().current?.id ?? null;
       const isActive  = () => useChat.getState().sessionId === sessionId;
 
       // Save immediately so the chat appears in the sidebar's Recent section
       // while the model is still generating (with a spinner next to it).
+      // Tag it with the agent id so a Recents click routes back to the Agents tab.
       useConversations.getState().markStreaming(sessionId);
       try {
-        await useConversations.getState().saveCurrent(autoTitle(useChat.getState().messages));
+        await useConversations.getState().saveCurrent(autoTitle(useChat.getState().messages), agentId);
       } catch (err) {
         // Non-fatal — the final save in onDone will retry.
         console.error('[feral] failed initial save to Recent:', err);
@@ -126,7 +129,7 @@ export function useFeralSendMessage(chatSessionId: string) {
           content: m.id === asstId ? answer : m.content,
         }));
         try {
-          await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
+          await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
           await useConversations.getState().refresh();
         } catch (err) {
           console.error('[feral] failed final save to Recent:', err);

@@ -4,7 +4,7 @@ import {
   MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot,
   Download, PanelLeftClose, PanelLeftOpen, Lock, Folder,
   ChevronDown, ChevronRight, MoreHorizontal, Trash2, FolderInput, FolderMinus,
-  X, CheckCircle, AlertCircle,
+  X, CheckCircle, AlertCircle, Loader2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { useAgent } from '@/stores/agent';
 import { useProjects, type Project } from '@/stores/projects';
 import { useDownload } from '@/stores/download';
 
@@ -432,13 +433,15 @@ function MenuRow({
 // ── RecentSection ──────────────────────────────────────────────────────────────
 
 function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => void }) {
-  const list      = useConversations((s) => s.list);
-  const currentId = useConversations((s) => s.currentId);
-  const open      = useConversations((s) => s.open);
-  const projects  = useProjects((s) => s.list);
+  const list         = useConversations((s) => s.list);
+  const currentId    = useConversations((s) => s.currentId);
+  const open         = useConversations((s) => s.open);
+  const streamingIds = useConversations((s) => s.streamingIds);
+  const projects     = useProjects((s) => s.list);
 
   const projectedIds = new Set(projects.flatMap((p) => p.conversation_ids));
   const flatList     = (list ?? []).filter((c) => !projectedIds.has(c.id));
+  const isStreaming  = (id: string) => Boolean(streamingIds[id]);
 
   return (
     <motion.div
@@ -462,6 +465,7 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
           onOpen={open}
           onRename={onRenameProject}
           projects={projects}
+          isStreaming={isStreaming}
         />
       ))}
 
@@ -470,7 +474,15 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
           <div className="px-2 py-1 text-xs text-text-disabled">No conversations yet</div>
         )}
         {flatList.map((c) => (
-          <RecentRow key={c.id} conv={c} currentId={currentId} onOpen={open} projectId={null} projects={projects} />
+          <RecentRow
+            key={c.id}
+            conv={c}
+            currentId={currentId}
+            onOpen={open}
+            projectId={null}
+            projects={projects}
+            isStreaming={isStreaming(c.id)}
+          />
         ))}
       </div>
     </motion.div>
@@ -480,7 +492,7 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
 // ── ProjectRow ─────────────────────────────────────────────────────────────────
 
 function ProjectRow({
-  project, allConvs, currentId, onOpen, onRename, projects,
+  project, allConvs, currentId, onOpen, onRename, projects, isStreaming,
 }: {
   project: Project;
   allConvs: ConversationSummary[];
@@ -488,6 +500,7 @@ function ProjectRow({
   onOpen: (id: string) => Promise<void>;
   onRename: (p: Project) => void;
   projects: Project[];
+  isStreaming: (id: string) => boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const convMap = useMemo(() => new Map(allConvs.map((c) => [c.id, c])), [allConvs]);
@@ -553,6 +566,7 @@ function ProjectRow({
               onOpen={onOpen}
               projectId={project.id}
               projects={projects}
+              isStreaming={isStreaming(c.id)}
             />
           ))}
         </div>
@@ -564,16 +578,34 @@ function ProjectRow({
 // ── RecentRow ──────────────────────────────────────────────────────────────────
 
 function RecentRow({
-  conv, currentId, onOpen, projectId, projects,
+  conv, currentId, onOpen, projectId, projects, isStreaming = false,
 }: {
   conv: ConversationSummary;
   currentId: string | null;
   onOpen: (id: string) => Promise<void>;
   projectId: string | null;
   projects: Project[];
+  isStreaming?: boolean;
 }) {
   const navigate = useNavigate();
   const isActive = conv.id === currentId;
+  const isAgentConv = !!conv.agent_id;
+
+  // Agent conversations must reopen in the Agents tab with their agent selected;
+  // chat conversations open in the Chat tab. Without this, every Recents click
+  // landed in Chat — showing the wrong UI for agent chats.
+  const handleOpen = () => {
+    if (conv.agent_id) {
+      // Arm the reopen flag BEFORE switching agent so AgentChat keeps the loaded
+      // session instead of starting a fresh one on the agent change.
+      useAgent.getState().setReopenSessionId(conv.id);
+      useAgent.getState().setCurrent(conv.agent_id);
+      navigate('/agents');
+    } else {
+      navigate('/chat');
+    }
+    void onOpen(conv.id);
+  };
 
   const handleDelete = async () => {
     await useConversations.getState().delete(conv.id);
@@ -592,13 +624,27 @@ function RecentRow({
     <div className={cn('group flex items-center rounded transition-colors', isActive ? 'bg-bg-active' : 'hover:bg-bg-hover')}>
       <button
         type="button"
-        onClick={() => { navigate('/chat'); void onOpen(conv.id); }}
+        onClick={handleOpen}
         className={cn(
-          'flex-1 text-left px-2 py-1.5 text-sm truncate',
+          'flex-1 text-left px-2 py-1.5 text-sm truncate flex items-center gap-2 min-w-0',
           isActive ? 'text-text-primary' : 'text-text-secondary',
         )}
+        title={isStreaming ? 'Generare în curs…' : conv.title}
       >
-        {conv.title}
+        {isStreaming ? (
+          <Loader2
+            size={12}
+            className="shrink-0 text-brand animate-spin"
+            aria-label="Generare în curs"
+          />
+        ) : isAgentConv ? (
+          <Bot
+            size={12}
+            className="shrink-0 text-text-muted"
+            aria-label="Agent conversation"
+          />
+        ) : null}
+        <span className="truncate">{conv.title}</span>
       </button>
 
       <DropdownMenu>

@@ -9,6 +9,7 @@ import type {
   TokenEvent,
   StreamDoneEvent,
   StreamErrorEvent,
+  StreamTruncatedEvent,
   DownloadProgressEvent,
   DownloadCompleteEvent,
   DownloadErrorEvent,
@@ -16,7 +17,7 @@ import type {
 } from './events';
 
 // ── Types (mirrors Rust structs exactly — snake_case, no rename_all) ──────────
-export type { TokenEvent, StreamDoneEvent, StreamErrorEvent };
+export type { TokenEvent, StreamDoneEvent, StreamErrorEvent, StreamTruncatedEvent };
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
 
@@ -117,11 +118,16 @@ export interface ByokProvider {
 }
 
 export interface PersistedMessage    { role: string; content: string }
-export interface ConversationSummary { id: string; title: string; updated_at: string }
+export interface ConversationSummary {
+  id: string; title: string; updated_at: string;
+  /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
+  agent_id?: string | null;
+}
 export interface Conversation {
   id: string; title: string;
   created_at: string; updated_at: string;
   messages: PersistedMessage[];
+  agent_id?: string | null;
 }
 export interface Project { id: string; name: string; conversation_ids: string[] }
 
@@ -199,8 +205,8 @@ const raw = {
   getAgentPresets:       ()    => invoke<AgentConfig[]>('get_agent_presets'),
   runAgent:              (agentId: string, prompt: string, sessionId: string) =>
     invoke<void>('run_agent', { agentId, prompt, sessionId }),
-  saveConversation:      (id: string, title: string, messages: PersistedMessage[]) =>
-    invoke<void>('save_conversation', { id, title, messages }),
+  saveConversation:      (id: string, title: string, messages: PersistedMessage[], agentId?: string | null) =>
+    invoke<void>('save_conversation', { id, title, messages, agentId: agentId ?? null }),
   loadConversations:     ()    => invoke<ConversationSummary[]>('load_conversations'),
   loadConversation:      (id: string) => invoke<Conversation>('load_conversation', { id }),
   deleteConversation:    (id: string) => invoke<void>('delete_conversation', { id }),
@@ -261,8 +267,8 @@ export const tauri = {
   conversations: {
     list:     async () => raw.loadConversations(),
     load:     async (id: string) => raw.loadConversation(id),
-    save:     async (id: string, title: string, msgs: PersistedMessage[]) =>
-      raw.saveConversation(id, title, msgs),
+    save:     async (id: string, title: string, msgs: PersistedMessage[], agentId?: string | null) =>
+      raw.saveConversation(id, title, msgs, agentId),
     delete:   async (id: string) => raw.deleteConversation(id),
     clearAll: async () => raw.clearAllConversations(),
   },

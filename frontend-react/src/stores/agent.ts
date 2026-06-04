@@ -9,12 +9,19 @@ interface AgentStore {
   loading: boolean;
   saving: boolean;
   error: string | null;
+  /**
+   * When set, the Agents tab is reopening this saved conversation, so AgentChat
+   * must NOT start a fresh session on the accompanying agent change. Cleared by
+   * AgentChat once that session is actually loaded.
+   */
+  reopenSessionId: string | null;
 
   refresh:     () => Promise<void>;
   setCurrent:  (id: string) => void;
   clear:       () => void;
   save:        (cfg: AgentConfig) => Promise<AgentConfig>;
   delete:      (id: string) => Promise<void>;
+  setReopenSessionId: (id: string | null) => void;
 }
 
 function readPersistedId(): string | null {
@@ -43,6 +50,9 @@ export const useAgent = create<AgentStore>((set, get) => ({
   loading: false,
   saving: false,
   error: null,
+  reopenSessionId: null,
+
+  setReopenSessionId: (id) => set({ reopenSessionId: id }),
 
   refresh: async () => {
     // Re-entrancy guard: if a refresh is already in flight, don't start
