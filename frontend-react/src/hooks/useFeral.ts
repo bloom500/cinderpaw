@@ -6,7 +6,7 @@
  * as a third inference path without changing the streaming logic.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useChat, type ChatMessage } from '@/stores/chat';
@@ -14,31 +14,31 @@ import { useConversations } from '@/stores/conversations';
 import { useFeralStore } from '@/stores/feral';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking } from '@/lib/parseThink';
-import type { FeralAgentEvent } from '@/lib/tauri';
+import { tauri, type FeralAgentEvent, type PersistedMessage } from '@/lib/tauri';
+import { ensureFeralListener, registerFeralStream } from '@/lib/feralAgentStream';
 
 interface StreamCallbacks {
-  onToken:   (chunk: string) => void;
-  onDone:    () => void;
-  onError:   (err: string) => void;
-  onStopped: () => void;
+  onToken:     (chunk: string) => void;
+  onDone:      () => void;
+  onError:     (err: string) => void;
+  onStopped:   () => void;
+  /** Optional: backend hit max_tokens before natural stop (Gemma server cap, etc.) */
+  onTruncated?: (reason: string) => void;
 }
 
-/** Returns the Feral Agent session ID for the current chat session. */
+/**
+ * Kick off a Feral Agent turn and route its stream through the global manager.
+ *
+ * The streaming listener is NOT tied to this hook's component — it lives in
+ * `feralAgentStream`, so a generation started on the Agents tab keeps applying
+ * and completes even after the user navigates away (which unmounts AgentChat).
+ */
 export function useFeralStream(chatSessionId: string) {
-  // Track the unlisten function so we can clean up on component unmount.
-  const unlistenRef = useRef<(() => void) | null>(null);
-  const activeIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      unlistenRef.current?.();
-    };
-  }, []);
-
   const send = useCallback(
     async (content: string, callbacks: StreamCallbacks) => {
-      // Clean up any previous listener.
-      unlistenRef.current?.();
+      // Arm the persistent listener before invoking so the first chunk (which
+      // can arrive immediately) is never missed.
+      await ensureFeralListener();
 
       let messageId: string;
       try {
@@ -51,47 +51,12 @@ export function useFeralStream(chatSessionId: string) {
         return;
       }
 
-      activeIdRef.current = messageId;
-
-      // Subscribe to all feral-agent output; filter to our messageId.
-      const unlisten = await listen<{ data: string }>('feral://agent-output', (event) => {
-        let parsed: FeralAgentEvent;
-        try {
-          parsed = JSON.parse(event.payload.data) as FeralAgentEvent;
-        } catch {
-          return;
-        }
-
-        switch (parsed.type) {
-          case 'chunk':
-            if (parsed.id === messageId) callbacks.onToken(parsed.content);
-            break;
-
-          case 'done':
-            if (parsed.id === messageId) {
-              callbacks.onDone();
-              unlisten();
-              unlistenRef.current = null;
-              activeIdRef.current = null;
-            }
-            break;
-
-          case 'error':
-            if (!parsed.id || parsed.id === messageId) {
-              callbacks.onError(parsed.message);
-              unlisten();
-              unlistenRef.current = null;
-              activeIdRef.current = null;
-            }
-            break;
-
-          // tool_start / tool_done / proactive / pong — not handled here yet.
-          default:
-            break;
-        }
+      // Hand the callbacks to the global registry; they outlive this component.
+      registerFeralStream(messageId, {
+        onChunk: (c) => callbacks.onToken(c),
+        onDone: () => callbacks.onDone(),
+        onError: (m) => callbacks.onError(m),
       });
-
-      unlistenRef.current = unlisten;
     },
     [chatSessionId],
   );
@@ -130,44 +95,81 @@ export function useFeralSendMessage(chatSessionId: string) {
       chat.addMessage(asstMsg);
       chat.setStreamStatus('streaming');
 
-      // Local buffer for think-block parsing — see onToken below.
+      // Capture the session + a snapshot of its messages NOW. Generation may
+      // finish after the user navigates away — which changes the *active* chat
+      // session — so all completion work keys off these captured values, not
+      // "whatever session is current".
+      const sessionId = useChat.getState().sessionId;
+      const snapshot  = [...useChat.getState().messages];
+      const asstId    = asstMsg.id;
+      const isActive  = () => useChat.getState().sessionId === sessionId;
+
+      // Save immediately so the chat appears in the sidebar's Recent section
+      // while the model is still generating (with a spinner next to it).
+      useConversations.getState().markStreaming(sessionId);
+      try {
+        await useConversations.getState().saveCurrent(autoTitle(useChat.getState().messages));
+      } catch (err) {
+        // Non-fatal — the final save in onDone will retry.
+        console.error('[feral] failed initial save to Recent:', err);
+      }
+
+      // Local buffers — `answer` is the clean (think-stripped) text we persist.
       let buffer = '';
+      let answer = '';
+
+      // Persist the finished turn to THIS conversation by id — correct even
+      // when it is no longer the active session (user switched tabs).
+      const persistFinal = async () => {
+        const persisted: PersistedMessage[] = snapshot.map((m) => ({
+          role: m.role,
+          content: m.id === asstId ? answer : m.content,
+        }));
+        try {
+          await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
+          await useConversations.getState().refresh();
+        } catch (err) {
+          console.error('[feral] failed final save to Recent:', err);
+        }
+      };
 
       await send(content, {
         onToken: (token) => {
-          // Mirror useSendMessage: buffer tokens locally, split <think>…</think>
-          // out of the visible answer, and write the clean answer + a
-          // separate `thinking` field. Without this, reasoning models (Gemma
-          // 4, DeepSeek-R1, QwQ, …) leak their chain-of-thought straight into
-          // the chat bubble.
+          // Buffer tokens, split <think>…</think> out of the visible answer.
           buffer += token;
           const split = splitThinking(buffer);
-          const patch: Partial<ChatMessage> = {
-            content: split.answer,
-          };
-          if (split.thinking !== null) {
-            patch.thinking = split.thinking;
-            patch.thinkingComplete = split.thinkingComplete;
+          answer = split.answer;
+          // Only mutate the live chat view while this session is on screen,
+          // otherwise tokens would leak into whatever conversation the user
+          // opened after switching tabs.
+          if (isActive()) {
+            const patch: Partial<ChatMessage> = { content: split.answer };
+            if (split.thinking !== null) {
+              patch.thinking = split.thinking;
+              patch.thinkingComplete = split.thinkingComplete;
+            }
+            useChat.getState().updateLastAssistantMessage(patch);
           }
-          chat.updateLastAssistantMessage(patch);
         },
-        onDone: () => {
-          chat.setStreamStatus('done');
-          // Auto-save conversation after a completed Feral Agent turn.
-          const state = useChat.getState();
-          const hasUser = state.messages.some((m) => m.role === 'user');
-          const hasAnswer = state.messages.some(
-            (m) => m.role === 'assistant' && m.content.trim().length > 0,
-          );
-          if (hasUser && hasAnswer) {
-            void useConversations.getState().saveCurrent(autoTitle(state.messages));
-          }
+        onDone: async () => {
+          if (isActive()) useChat.getState().setStreamStatus('done');
+          useConversations.getState().unmarkStreaming(sessionId);
+          if (answer.trim().length > 0) await persistFinal();
         },
         onError: (err) => {
-          chat.setStreamStatus('error', err);
+          if (isActive()) useChat.getState().setStreamStatus('error', err);
+          useConversations.getState().unmarkStreaming(sessionId);
         },
         onStopped: () => {
-          chat.setStreamStatus('stopped');
+          if (isActive()) useChat.getState().setStreamStatus('stopped');
+          useConversations.getState().unmarkStreaming(sessionId);
+        },
+        onTruncated: (reason) => {
+          if (isActive()) {
+            useChat.getState().updateLastAssistantMessage({ truncated: true, truncatedReason: reason });
+            useChat.getState().setStreamStatus('done');
+          }
+          useConversations.getState().unmarkStreaming(sessionId);
         },
       });
     },
