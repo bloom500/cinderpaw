@@ -1,0 +1,20 @@
+{
+  "name": "feral-agent",
+  "version": "0.1.0",
+  "description": "Feral Agent — proactive, portable AI agent with a native security sandbox",
+  "type": "module",
+  "module": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "build": "bun build src/index.ts --compile --outfile dist/feral-agent"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
