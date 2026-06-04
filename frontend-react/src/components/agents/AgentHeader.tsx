@@ -9,7 +9,10 @@ export function AgentHeader() {
   const current  = useAgent((s) => s.current);
 
   return (
-    <div className="h-11 px-3 flex items-center gap-3 shrink-0 select-none">
+    // pr-[132px] clears the AppShell WinControls (3 × w-10 = 120px) plus a
+    // 12px gap, so the Settings gear doesn't sit visually under the close
+    // button. If you resize the window controls, update this value too.
+    <div className="h-11 pl-3 pr-[132px] flex items-center gap-3 shrink-0 select-none">
       {/* Feral model selector replaces the local llama.cpp ModelPill —
           the Feral Agent uses Ollama/cloud inference, not GGUF files. */}
       <FeralModelSelector />
