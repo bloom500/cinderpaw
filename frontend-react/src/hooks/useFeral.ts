@@ -9,6 +9,9 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { useChat } from '@/stores/chat';
+import { useConversations } from '@/stores/conversations';
+import { autoTitle } from '@/lib/autoTitle';
 import type { FeralAgentEvent } from '@/lib/tauri';
 
 interface StreamCallbacks {
@@ -92,6 +95,65 @@ export function useFeralStream(chatSessionId: string) {
   );
 
   return { send };
+}
+
+/**
+ * useFeralSendMessage — purpose-built send hook for the Agents tab.
+ *
+ * Always routes through the Feral Agent sidecar regardless of whether a
+ * local model or cloud key is configured. Returns a stable callback
+ * compatible with the `sendFn` prop of ChatInput.
+ */
+export function useFeralSendMessage(chatSessionId: string) {
+  const { send } = useFeralStream(chatSessionId);
+
+  return useCallback(
+    async (content: string) => {
+      const chat = useChat.getState();
+
+      const userMsg = {
+        id: crypto.randomUUID(),
+        role: 'user' as const,
+        content,
+        createdAt: Date.now(),
+      };
+      const asstMsg = {
+        id: crypto.randomUUID(),
+        role: 'assistant' as const,
+        content: '',
+        thinkingComplete: true,
+        createdAt: Date.now() + 1,
+      };
+      chat.addMessage(userMsg);
+      chat.addMessage(asstMsg);
+      chat.setStreamStatus('streaming');
+
+      await send(content, {
+        onToken: (token) => {
+          chat.appendToStreamingAssistant(token);
+        },
+        onDone: () => {
+          chat.setStreamStatus('done');
+          // Auto-save conversation after a completed Feral Agent turn.
+          const state = useChat.getState();
+          const hasUser = state.messages.some((m) => m.role === 'user');
+          const hasAnswer = state.messages.some(
+            (m) => m.role === 'assistant' && m.content.trim().length > 0,
+          );
+          if (hasUser && hasAnswer) {
+            void useConversations.getState().saveCurrent(autoTitle(state.messages));
+          }
+        },
+        onError: (err) => {
+          chat.setStreamStatus('error', err);
+        },
+        onStopped: () => {
+          chat.setStreamStatus('stopped');
+        },
+      });
+    },
+    [send],
+  );
 }
 
 /** Returns true if the Feral Agent sidecar is running and ready. */

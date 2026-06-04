@@ -5,7 +5,6 @@ import { useModel } from '@/stores/model';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
 import { useChatStream } from './useChatStream';
-import { useFeralStream } from './useFeral';
 import { toIpcMessage } from '@/lib/messageMapping';
 import { currentInferParams } from '@/lib/inferParams';
 import { autoTitle } from '@/lib/autoTitle';
@@ -30,8 +29,7 @@ function autoSaveIfEligible() {
 }
 
 export function useSendMessage() {
-  const stream      = useChatStream(useChat.getState().sessionId);
-  const feralStream = useFeralStream(useChat.getState().sessionId);
+  const stream = useChatStream(useChat.getState().sessionId);
 
   return useCallback(
     async (text: string, files: AttachedFile[] = []) => {
@@ -107,20 +105,6 @@ export function useSendMessage() {
           rafId = null;
         }
       };
-
-      // Route: cloud → cloudModel stream; local model → llama.cpp stream;
-      // neither → Feral Agent sidecar (Ollama-backed, with sandbox + memory).
-      const useFeral = !cloudModel && !loaded;
-
-      if (useFeral) {
-        await feralStream.send(content, {
-          onToken:   (chunk) => { chat.appendToStreamingAssistant(chunk); },
-          onDone:    () => { chat.setStreamStatus('done'); autoSaveIfEligible(); },
-          onError:   (err) => { chat.setStreamStatus('error', err); },
-          onStopped: () => { chat.setStreamStatus('stopped'); },
-        });
-        return;
-      }
 
       const streamMethod = cloudModel
         ? (cb: Parameters<typeof stream.start>[2]) => stream.startCloud(cloudModel, messages, params, cb)

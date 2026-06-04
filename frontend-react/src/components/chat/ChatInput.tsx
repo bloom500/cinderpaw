@@ -39,8 +39,24 @@ export interface ChatInputHandle {
   focus: () => void;
 }
 
+export interface ChatInputProps {
+  isEmpty?: boolean;
+  /**
+   * When provided, overrides the default useSendMessage routing.
+   * Used by the Agents tab to route through the Feral Agent sidecar.
+   */
+  sendFn?: (text: string) => Promise<void>;
+  /**
+   * When true, the input is always enabled regardless of whether a local
+   * model or cloud key is active. Used by the Agents tab (Feral Agent
+   * provides its own Ollama-backed inference).
+   */
+  alwaysEnabled?: boolean;
+}
+
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
-export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(function ChatInput({ isEmpty }, ref) {
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
+function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const loaded      = useModel((s) => s.loaded);
@@ -68,7 +84,7 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
   }, [text]);
 
   const isStreaming = status === 'streaming';
-  const disabled = !loaded && !cloudModel;
+  const disabled = alwaysEnabled ? false : (!loaded && !cloudModel);
 
   const trySend = async () => {
     if (!text.trim() || isStreaming || disabled) return;
@@ -76,7 +92,11 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
     const files = attachedFiles;
     setText('');
     setAttachedFiles([]);
-    await send(content, files);
+    if (sendFn) {
+      await sendFn(content);
+    } else {
+      await send(content, files);
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -115,7 +135,13 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={!disabled ? 'Ask anything…' : 'Load a model or add a cloud key to start chatting'}
+            placeholder={
+              alwaysEnabled
+                ? 'Ask Feral…'
+                : disabled
+                  ? 'Load a model or add a cloud key to start chatting'
+                  : 'Ask anything…'
+            }
             disabled={disabled}
             rows={1}
             className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 pt-4"
@@ -191,7 +217,7 @@ export const ChatInput = forwardRef<ChatInputHandle, { isEmpty?: boolean }>(func
             </div>
           </div>
         </div>
-        {disabled && !isEmpty && (
+        {disabled && !isEmpty && !alwaysEnabled && (
           <p className="text-xs text-text-muted mt-2">
             No model loaded. Open Models to download one, or add a cloud key in Settings.
           </p>

@@ -3,25 +3,26 @@ import { useNavigate } from 'react-router-dom';
 import { useAgent } from '@/stores/agent';
 import { useChat } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
-import { useModel } from '@/stores/model';
 import { AgentHeader } from './AgentHeader';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
-import { NoModelEmptyState, NewChatEmptyState } from '@/components/chat/EmptyStates';
+import { useFeralSendMessage } from '@/hooks/useFeral';
+import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { ONBOARDING_KEY } from './agentUtils';
 import { Bot } from 'lucide-react';
 
 export function AgentChat() {
   const navigate     = useNavigate();
   const current      = useAgent((s) => s.current);
-  const loaded       = useModel((s) => s.loaded);
-  const cloudModel   = useModel((s) => s.cloudModel);
   const messages     = useChat((s) => s.messages);
+  const sessionId    = useChat((s) => s.sessionId);
   const newSession   = useChat((s) => s.newSession);
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
-  const hasModel  = !!loaded || !!cloudModel;
-  const isEmpty   = messages.length === 0 && hasModel;
+  // Feral Agent is always the inference backend for the Agents tab.
+  // No model check needed — the sidecar provides its own Ollama inference.
+  const feralSend = useFeralSendMessage(sessionId);
+  const isEmpty   = messages.length === 0;
 
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
@@ -80,13 +81,11 @@ export function AgentChat() {
 
         {messages.length > 0 ? (
           <MessageList />
-        ) : !hasModel ? (
-          <NoModelEmptyState />
         ) : current ? (
           <NewChatEmptyState isEmpty={isEmpty} onSuggestion={handleSuggestion} />
         ) : null}
 
-        {current && (hasModel || messages.length > 0) && (
+        {current && (
           <div
             ref={inputWrapperRef}
             style={{
@@ -95,7 +94,12 @@ export function AgentChat() {
             }}
             className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
           >
-            <ChatInput ref={chatInputRef} isEmpty={isEmpty} />
+            <ChatInput
+              ref={chatInputRef}
+              isEmpty={isEmpty}
+              sendFn={feralSend}
+              alwaysEnabled
+            />
           </div>
         )}
 
