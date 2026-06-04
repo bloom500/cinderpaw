@@ -29,10 +29,24 @@ pub fn openclaw_connection_path() -> PathBuf {
     feral_dir().join("openclaw_connection.json")
 }
 
+pub fn feral_agent_dir() -> PathBuf {
+    feral_dir().join("agent")
+}
+
+pub fn feral_agent_db_path() -> PathBuf {
+    feral_agent_dir().join("feral.db")
+}
+
+pub fn feral_agent_workspace_path() -> PathBuf {
+    feral_dir().join("workspace")
+}
+
 pub fn ensure_dirs() -> anyhow::Result<()> {
     std::fs::create_dir_all(models_dir())?;
     std::fs::create_dir_all(agents_dir())?;
     std::fs::create_dir_all(conversations_dir())?;
     std::fs::create_dir_all(skills_dir())?;
+    std::fs::create_dir_all(feral_agent_dir())?;
+    std::fs::create_dir_all(feral_agent_workspace_path())?;
     Ok(())
 }

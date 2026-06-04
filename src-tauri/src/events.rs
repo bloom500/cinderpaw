@@ -61,6 +61,16 @@ pub struct ModelLoadProgressEvent {
     pub status_text: String,
 }
 
+/// One raw JSON line emitted by the feral-agent sidecar on stdout.
+/// The React frontend parses `data` to get the typed event
+/// (`chunk`, `done`, `tool_start`, `tool_done`, `proactive`, `pong`, `error`).
+/// Using a single opaque event keeps the Rust side thin and forward-compatible.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct FeralAgentOutputEvent {
+    pub data: String,
+}
+
 /// One streamed agent event. `data` is a serialized `AgentEvent`
 /// (token / tool_call / tool_result / final / error). Delivered over the
 /// `feral://` event bus rather than a Tauri `Channel`: channel callback ids

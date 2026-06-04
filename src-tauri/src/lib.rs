@@ -3,6 +3,7 @@ mod api;
 mod byok;
 mod conversations;
 mod events;
+mod feral_agent;
 mod gpu_detect;
 mod inference;
 mod models;
@@ -48,6 +49,11 @@ pub struct AppState {
     /// Bundled OpenClaw sidecar process. None if the user has OpenClaw on PATH
     /// (they manage it themselves) or if the sidecar failed to start.
     pub openclaw_process: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// Feral Agent sidecar process.
+    pub feral_agent_process: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// Sender for writing JSON messages to the Feral Agent's stdin.
+    /// Commands clone this to send messages without holding the lock during I/O.
+    pub feral_agent_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<String>>>>,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -532,6 +538,45 @@ async fn run_agent(
         });
     }
     Ok(())
+}
+
+// ---------- Feral Agent ----------
+
+/// Send a message to the Feral Agent sidecar. Returns the message ID that
+/// will appear in the corresponding `feral://agent-output` chunk/done events.
+#[tauri::command]
+#[specta::specta]
+async fn feral_send_message(
+    state: State<'_, AppState>,
+    content: String,
+    session_id: String,
+) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let msg = serde_json::json!({
+        "type": "message",
+        "id": &id,
+        "content": content,
+        "sessionId": session_id,
+    })
+    .to_string();
+
+    // Extract the sender without holding the lock across the await.
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+/// Returns true when the Feral Agent sidecar is running and ready to receive messages.
+#[tauri::command]
+#[specta::specta]
+fn feral_agent_status(state: State<'_, AppState>) -> bool {
+    state.feral_agent_tx.lock().is_some()
 }
 
 // ---------- HuggingFace browser ----------
@@ -1266,6 +1311,8 @@ pub fn run() {
         settings,
         system_info_cache,
         openclaw_process: Arc::new(Mutex::new(None)),
+        feral_agent_process: Arc::new(Mutex::new(None)),
+        feral_agent_tx: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -1323,6 +1370,8 @@ pub fn run() {
             openclaw_connection::get_openclaw_connection_settings,
             openclaw_connection::save_openclaw_connection_settings,
             openclaw_connection::clear_openclaw_token,
+            feral_send_message,
+            feral_agent_status,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
@@ -1333,6 +1382,7 @@ pub fn run() {
             crate::events::DownloadErrorEvent,
             crate::events::ModelLoadProgressEvent,
             crate::events::AgentStreamEvent,
+            crate::events::FeralAgentOutputEvent,
         ]);
 
     // TODO: re-enable once all u64 fields have #[specta(type = Number)] annotations.
@@ -1432,6 +1482,21 @@ pub fn run() {
                 }
             });
 
+            // Spawn Feral Agent sidecar.
+            let fa_handle = app.handle().clone();
+            let fa_tx_slot = app.handle().state::<AppState>().feral_agent_tx.clone();
+            let fa_process_slot = app.handle().state::<AppState>().feral_agent_process.clone();
+            tauri::async_runtime::spawn(async move {
+                match feral_agent::spawn(fa_handle, fa_tx_slot).await {
+                    Ok(child) => {
+                        *fa_process_slot.lock() = Some(child);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Feral Agent sidecar failed to start: {e}");
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(specta_builder.invoke_handler())
@@ -1445,6 +1510,13 @@ pub fn run() {
                         let _ = child.start_kill();
                         tracing::info!("OpenClaw sidecar stopped");
                     }
+                    let mut fa_guard = state.feral_agent_process.lock();
+                    if let Some(ref mut child) = *fa_guard {
+                        let _ = child.start_kill();
+                        tracing::info!("Feral Agent sidecar stopped");
+                    }
+                    // Drop the tx so the stdin writer task exits cleanly.
+                    *state.feral_agent_tx.lock() = None;
                 }
             }
         });

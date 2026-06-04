@@ -31,7 +31,8 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/openclaw"
+      "binaries/openclaw",
+      "binaries/feral-agent"
     ],
     "icon": [
       "icons/32x32.png",
