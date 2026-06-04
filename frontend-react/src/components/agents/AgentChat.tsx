@@ -6,7 +6,7 @@ import { useConversations } from '@/stores/conversations';
 import { AgentHeader } from './AgentHeader';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
-import { useFeralSendMessage } from '@/hooks/useFeral';
+import { useFeralSendMessage, useFeralGlobal } from '@/hooks/useFeral';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { ONBOARDING_KEY } from './agentUtils';
 import { Bot } from 'lucide-react';
@@ -20,8 +20,13 @@ export function AgentChat() {
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
   // Feral Agent is always the inference backend for the Agents tab.
-  // No model check needed — the sidecar provides its own Ollama inference.
+  // No model check needed — the sidecar provides its own inference.
   const feralSend = useFeralSendMessage(sessionId);
+
+  // Mount global Feral sidecar listeners (agent-ready, model_set, model_error).
+  // This must live here — AgentChat is the first component mounted after the
+  // gate confirms an agent exists, and it lives for the whole session.
+  useFeralGlobal();
   const isEmpty   = messages.length === 0;
 
   const containerRef    = useRef<HTMLDivElement>(null);

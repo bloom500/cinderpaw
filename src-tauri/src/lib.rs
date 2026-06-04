@@ -34,6 +34,16 @@ use crate::sysinfo_mod::SystemInfo;
 /// into the AppState map so `cancel_download` can flip it from another command.
 type CancelFlag = Arc<AtomicBool>;
 
+/// Display-safe snapshot of the Feral Agent's active LLM backend.
+/// API keys are never included — Rust injects them before forwarding to the sidecar.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct FeralModelConfigView {
+    pub provider: String,
+    pub model: String,
+    pub base_url: String,
+    pub display_name: String,
+}
+
 pub struct AppState {
     pub manager: Arc<ModelManager>,
     pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
@@ -47,6 +57,9 @@ pub struct AppState {
     /// Sender for writing JSON messages to the Feral Agent's stdin.
     /// Commands clone this to send messages without holding the lock during I/O.
     pub feral_agent_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<String>>>>,
+    /// Cached display-safe view of the model the sidecar is currently using.
+    /// Updated optimistically by feral_set_model; None until first set_model call.
+    pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -562,6 +575,129 @@ async fn feral_send_message(
 #[specta::specta]
 fn feral_agent_status(state: State<'_, AppState>) -> bool {
     state.feral_agent_tx.lock().is_some()
+}
+
+/// Hot-swap the Feral Agent's LLM backend without restarting the sidecar.
+///
+/// React passes `source` + optional fields — Rust injects the API key from
+/// byok.json before forwarding. The key never appears in frontend state.
+///
+/// `source`:
+///   - "ollama"            → local Ollama, no key needed
+///   - "byok"             → cloud provider by id, key read from byok.json
+///   - "openai_compatible" → arbitrary OpenAI-compatible endpoint, caller supplies base_url
+#[tauri::command]
+#[specta::specta]
+async fn feral_set_model(
+    state: State<'_, AppState>,
+    source: String,
+    provider_id: Option<String>,
+    model: String,
+    base_url: Option<String>,
+) -> Result<(), String> {
+    let (provider, mut resolved_url, api_key) = match source.as_str() {
+        "ollama" => {
+            let url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
+            ("ollama".to_string(), url, String::new())
+        }
+        "byok" => {
+            let pid = provider_id.as_deref().ok_or("byok source requires provider_id")?;
+            let byok = byok::load(&state.settings);
+            let cfg = byok.get_provider(pid)
+                .ok_or_else(|| format!("provider '{}' is not configured", pid))?
+                .clone();
+            if !cfg.enabled {
+                return Err(format!("provider '{}' is not enabled", pid));
+            }
+            if cfg.api_key.is_empty() {
+                return Err(format!("provider '{}' has no API key saved", pid));
+            }
+            // Resolve base URL: user custom override → provider default
+            let url = if let Some(ref custom) = cfg.base_url {
+                custom.clone()
+            } else {
+                byok.get_all_providers()
+                    .into_iter()
+                    .find(|p| p.id == pid)
+                    .and_then(|p| p.base_url)
+                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
+            };
+            (pid.to_string(), url, cfg.api_key)
+        }
+        "openai_compatible" => {
+            let url = base_url.ok_or("openai_compatible source requires base_url")?;
+            ("openai_compatible".to_string(), url, String::new())
+        }
+        other => return Err(format!("unknown source: '{}'", other)),
+    };
+
+    // Strip trailing /v1 — the sidecar's InferenceRouter appends endpoint paths itself.
+    resolved_url = resolved_url.trim_end_matches("/v1").trim_end_matches('/').to_string();
+
+    let msg = serde_json::json!({
+        "type": "set_model",
+        "provider": provider,
+        "model": model,
+        "baseUrl": resolved_url,
+        "apiKey": api_key,
+    })
+    .to_string();
+
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+
+    // Optimistically cache the new config (confirmed by model_set event from sidecar).
+    let display_name = if provider == "ollama" {
+        format!("Ollama · {}", model)
+    } else {
+        format!("{} · {}", provider, model)
+    };
+    *state.feral_model_config.lock() = Some(FeralModelConfigView {
+        provider,
+        model,
+        base_url: resolved_url,
+        display_name,
+    });
+
+    Ok(())
+}
+
+/// Returns the display-safe model config currently active in the Feral Agent sidecar.
+/// Returns None until the first feral_set_model call this session.
+#[tauri::command]
+#[specta::specta]
+fn feral_get_model_config(state: State<'_, AppState>) -> Option<FeralModelConfigView> {
+    state.feral_model_config.lock().clone()
+}
+
+/// Fetch the list of models available from a local Ollama instance.
+/// Used by the Feral model selector to populate the Ollama model submenu.
+#[tauri::command]
+#[specta::specta]
+async fn list_ollama_models(base_url: String) -> Result<Vec<String>, String> {
+    let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+    let resp = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Ollama unreachable: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Ollama response parse failed: {}", e))?;
+    let models = json["models"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(models)
 }
 
 // ---------- HuggingFace browser ----------
@@ -1287,6 +1423,7 @@ pub fn run() {
         system_info_cache,
         feral_agent_process: Arc::new(Mutex::new(None)),
         feral_agent_tx: Arc::new(Mutex::new(None)),
+        feral_model_config: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -1337,6 +1474,9 @@ pub fn run() {
             skills::remove_skill,
             feral_send_message,
             feral_agent_status,
+            feral_set_model,
+            feral_get_model_config,
+            list_ollama_models,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,

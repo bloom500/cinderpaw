@@ -11,6 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useChat } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
+import { useFeralStore } from '@/stores/feral';
 import { autoTitle } from '@/lib/autoTitle';
 import type { FeralAgentEvent } from '@/lib/tauri';
 
@@ -163,4 +164,61 @@ export async function checkFeralAgentReady(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * useFeralGlobal — mount once per session (in AgentChat) to handle sidecar
+ * lifecycle events that are not tied to a specific message:
+ *
+ *  - feral://agent-ready   → mark sidecar ready, fetch model config
+ *  - feral://agent-output  → route model_set / model_error to feralStore
+ *
+ * Per-message routing (chunk / done / error) is handled by useFeralStream.
+ */
+export function useFeralGlobal() {
+  const setReady      = useFeralStore((s) => s.setReady);
+  const setModelError = useFeralStore((s) => s.setModelError);
+  const fetchConfig   = useFeralStore((s) => s.fetchModelConfig);
+
+  useEffect(() => {
+    let unlistenReady:  (() => void) | null = null;
+    let unlistenOutput: (() => void) | null = null;
+
+    const setup = async () => {
+      // feral://agent-ready — emitted by Rust when sidecar writes "ready" to stderr.
+      unlistenReady = await listen('feral://agent-ready', () => {
+        setReady(true);
+        void fetchConfig();
+      });
+
+      // feral://agent-output — global sidecar events (model_set, model_error).
+      // Per-message events are handled by useFeralStream's own listener.
+      unlistenOutput = await listen<{ data: string }>('feral://agent-output', (event) => {
+        let parsed: FeralAgentEvent;
+        try {
+          parsed = JSON.parse(event.payload.data) as FeralAgentEvent;
+        } catch {
+          return;
+        }
+
+        if (parsed.type === 'model_set') {
+          // Sidecar confirmed the hot-swap; sync display config.
+          void fetchConfig();
+        } else if (parsed.type === 'model_error') {
+          setModelError(parsed.message);
+        }
+      });
+
+      // Also try to fetch the config immediately (sidecar may already be up).
+      void fetchConfig();
+    };
+
+    void setup();
+
+    return () => {
+      unlistenReady?.();
+      unlistenOutput?.();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }

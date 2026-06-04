@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Settings, Bot } from 'lucide-react';
 import { useAgent } from '@/stores/agent';
-import { ModelPill } from '@/components/chat/ModelPill';
+import { FeralModelSelector } from './FeralModelSelector';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 export function AgentHeader() {
@@ -10,7 +10,9 @@ export function AgentHeader() {
 
   return (
     <div className="h-11 px-3 flex items-center gap-3 shrink-0 select-none">
-      <ModelPill />
+      {/* Feral model selector replaces the local llama.cpp ModelPill —
+          the Feral Agent uses Ollama/cloud inference, not GGUF files. */}
+      <FeralModelSelector />
 
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <Bot size={13} className="text-text-muted shrink-0" />

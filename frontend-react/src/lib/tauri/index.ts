@@ -149,13 +149,29 @@ export interface AgentConfig {
 
 /** Parsed output event from the Feral Agent sidecar. */
 export type FeralAgentEvent =
-  | { type: 'chunk';      id: string; content: string }
-  | { type: 'done';       id: string; content: string }
-  | { type: 'tool_start'; tool: string; args: Record<string, unknown> }
-  | { type: 'tool_done';  tool: string; result: unknown }
-  | { type: 'proactive';  content: string }
+  | { type: 'chunk';       id: string; content: string }
+  | { type: 'done';        id: string; content: string }
+  | { type: 'tool_start';  tool: string; args: Record<string, unknown> }
+  | { type: 'tool_done';   tool: string; result: unknown }
+  | { type: 'proactive';   content: string }
+  | { type: 'model_set';   provider: string; model: string }
+  | { type: 'model_error'; message: string }
   | { type: 'pong' }
-  | { type: 'error';      id?: string; message: string };
+  | { type: 'error';       id?: string; message: string };
+
+/** Display-safe snapshot of the Feral Agent's active LLM — no API keys. */
+export interface FeralModelConfigView {
+  provider: string;
+  model: string;
+  base_url: string;
+  display_name: string;
+}
+
+/** What React sends to Rust when changing the Feral model. */
+export type FeralModelSelection =
+  | { source: 'ollama';            model: string; baseUrl: string }
+  | { source: 'byok';              providerId: string; model: string }
+  | { source: 'openai_compatible'; baseUrl: string; model: string; providerId: string };
 
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
@@ -220,6 +236,14 @@ const raw = {
   feralSendMessage:         (content: string, sessionId: string) =>
     invoke<string>('feral_send_message', { content, sessionId }),
   feralAgentStatus:         () => invoke<boolean>('feral_agent_status'),
+  feralSetModel: (
+    source: string,
+    model: string,
+    providerId?: string | null,
+    baseUrl?: string | null,
+  ) => invoke<void>('feral_set_model', { source, model, providerId, baseUrl }),
+  feralGetModelConfig:      () => invoke<FeralModelConfigView | null>('feral_get_model_config'),
+  listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
