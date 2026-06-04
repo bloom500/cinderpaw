@@ -7,11 +7,11 @@ import { TOOL_LABELS } from '../agentUtils';
 
 interface Props {
   agent: AgentConfig;
-  gatewayUp?: boolean | null;
+  agentUp?: boolean | null;
   onDelete: () => Promise<void>;
 }
 
-export function AgentCard({ agent, gatewayUp, onDelete }: Props) {
+export function AgentCard({ agent, agentUp, onDelete }: Props) {
   const [confirmOpen, setConfirmOpen]   = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [deleteError, setDeleteError]   = useState<string | null>(null);
@@ -79,7 +79,7 @@ export function AgentCard({ agent, gatewayUp, onDelete }: Props) {
             </div>
           </div>
 
-          <OpenClawBadge gatewayUp={gatewayUp} openclaw_ready={agent.openclaw_ready} />
+          <FeralAgentBadge agentUp={agentUp} />
         </div>
 
         {/* Run panel */}
@@ -130,36 +130,26 @@ export function AgentCard({ agent, gatewayUp, onDelete }: Props) {
   );
 }
 
-// ── OpenClaw status badge ─────────────────────────────────────────────────────
+// ── Feral Agent status badge ──────────────────────────────────────────────────
 
-function OpenClawBadge({
-  gatewayUp,
-  openclaw_ready,
+function FeralAgentBadge({
+  agentUp,
 }: {
-  gatewayUp?: boolean | null;
-  openclaw_ready?: boolean | null;
+  agentUp?: boolean | null;
 }) {
-  if (gatewayUp === null || gatewayUp === undefined) return null;
+  if (agentUp === null || agentUp === undefined) return null;
 
-  if (!gatewayUp) {
+  if (!agentUp) {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] text-text-muted">
-        <Plug size={10} /> Gateway unavailable
-      </span>
-    );
-  }
-
-  if (openclaw_ready === true) {
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-green-400">
-        <CheckCircle size={10} /> OpenClaw ready
+        <Plug size={10} /> Feral Agent unavailable
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
-      Setup needed
+    <span className="inline-flex items-center gap-1 text-[11px] text-green-400">
+      <CheckCircle size={10} /> Feral Agent ready
     </span>
   );
 }

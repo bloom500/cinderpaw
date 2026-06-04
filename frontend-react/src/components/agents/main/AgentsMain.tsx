@@ -9,10 +9,10 @@ interface Props {
 }
 
 export function AgentsMain({ onCreateFirst }: Props) {
-  const [agents, setAgents]       = useState<AgentConfig[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
-  const [gatewayUp, setGatewayUp] = useState<boolean | null>(null);
+  const [agents, setAgents]     = useState<AgentConfig[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+  const [agentUp, setAgentUp]   = useState<boolean | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -20,9 +20,6 @@ export function AgentsMain({ onCreateFirst }: Props) {
     try {
       const list = await tauri.agents.getAll();
       setAgents(list);
-      // Refresh each OpenClaw agent's readiness with a fast gateway probe so the
-      // status badge reflects current reachability, not a stale warmup result.
-      void refreshReadiness(list);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -30,23 +27,11 @@ export function AgentsMain({ onCreateFirst }: Props) {
     }
   };
 
-  // Re-probe gateway readiness for every agent, then refresh the list to pick up
-  // the persisted `openclaw_ready` updates. All agents run through OpenClaw, so
-  // we probe each one (warmup also normalises preferred_runtime to openclaw).
-  // Best-effort: failures here never disrupt the page.
-  const refreshReadiness = async (list: AgentConfig[]) => {
-    const ids = list.filter((a) => a.id).map((a) => a.id!);
-    if (ids.length === 0) return;
-    await Promise.all(ids.map((id) => tauri.openclaw.warmupAgent(id).catch(() => null)));
-    const fresh = await tauri.agents.getAll().catch(() => null);
-    if (fresh) setAgents(fresh);
-  };
-
   useEffect(() => {
     void load();
-    tauri.openclaw.detect()
-      .then((r) => setGatewayUp(r.installed))
-      .catch(() => setGatewayUp(false));
+    tauri.feralAgent.status()
+      .then(setAgentUp)
+      .catch(() => setAgentUp(false));
   }, []);
 
   const handleDelete = async (id: string) => {
@@ -117,8 +102,9 @@ export function AgentsMain({ onCreateFirst }: Props) {
         <Info size={13} className="text-text-muted shrink-0 mt-0.5" />
         <p className="text-xs text-text-muted">
           These agents run through{' '}
-          <span className="text-text-secondary font-medium">OpenClaw</span>{' '}
-          on your local model. Open a card below to run an agent or test it directly.
+          <span className="text-text-secondary font-medium">Feral Agent</span>{' '}
+          — a sandboxed sidecar with memory, tools, and tool-call loop.
+          Open a card below to run an agent or test it directly.
         </p>
       </div>
 
@@ -138,7 +124,7 @@ export function AgentsMain({ onCreateFirst }: Props) {
           <AgentCard
             key={a.id}
             agent={a}
-            gatewayUp={gatewayUp}
+            agentUp={agentUp}
             onDelete={() => handleDelete(a.id!)}
           />
         ))}

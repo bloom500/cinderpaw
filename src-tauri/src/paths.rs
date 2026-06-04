@@ -25,10 +25,6 @@ pub fn settings_path() -> PathBuf {
     feral_dir().join("settings.json")
 }
 
-pub fn openclaw_connection_path() -> PathBuf {
-    feral_dir().join("openclaw_connection.json")
-}
-
 pub fn feral_agent_dir() -> PathBuf {
     feral_dir().join("agent")
 }

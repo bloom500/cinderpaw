@@ -7,10 +7,6 @@ mod feral_agent;
 mod gpu_detect;
 mod inference;
 mod models;
-mod openclaw;
-mod openclaw_config;
-mod openclaw_connection;
-mod openclaw_sidecar;
 mod paths;
 mod projects;
 mod settings;
@@ -46,9 +42,6 @@ pub struct AppState {
     /// System info pre-computed in a background thread at startup so the
     /// first call to get_system_info() returns instantly.
     pub system_info_cache: Arc<Mutex<Option<SystemInfo>>>,
-    /// Bundled OpenClaw sidecar process. None if the user has OpenClaw on PATH
-    /// (they manage it themselves) or if the sidecar failed to start.
-    pub openclaw_process: Arc<Mutex<Option<tokio::process::Child>>>,
     /// Feral Agent sidecar process.
     pub feral_agent_process: Arc<Mutex<Option<tokio::process::Child>>>,
     /// Sender for writing JSON messages to the Feral Agent's stdin.
@@ -291,16 +284,6 @@ async fn start_model_load(
                 status_text: "Model Loaded!".into(),
             });
 
-            // Regenerate OpenClaw config now that a model is loaded.
-            // This routes agents to the local model instead of whatever was active before.
-            let token = crate::openclaw_connection::load().gateway_token;
-            if let Some(token) = token {
-                let byok = crate::byok::load(&state.settings);
-                // Model is now loaded, so preference is local. Regenerate to route through it.
-                let _ = crate::openclaw_config::regenerate_config(&token, true, &byok);
-                // Config will be reloaded on next agent run (gateway restart happens then)
-            }
-
             Ok(model)
         }
         Err(e) => Err(e),
@@ -516,19 +499,20 @@ async fn run_agent(
     let list = agents::list().map_err(|e| e.to_string())?;
     let cfg = list.into_iter().find(|a| a.id == agent_id)
         .ok_or_else(|| format!("agent {} not found", agent_id))?;
-    // Route by the *active execution backend*, not a stored flag:
-    //   • Local model loaded → Feral's native agent loop. It streams token-by-token
-    //     like chat, respects the model's EOS, runs the tool-calling loop, and has no
-    //     external watchdog — so a slow CPU prefill can't trip a timeout.
-    //   • No local model (cloud/BYOK active) → OpenClaw, whose agent runtime is built
-    //     for fast cloud providers where its stall watchdog is not a problem.
-    // OpenClaw's watchdog kills slow local-CPU runs ("stalled_agent_run") because the
-    // long prompt prefill emits no tokens within its grace window — hence this split.
-    let mut rx = if state.manager.current().is_some() {
-        agents::run(cfg, prompt, state.manager.clone())
-    } else {
-        openclaw::run_openclaw(cfg, prompt)
-    };
+
+    // Local llama.cpp agent loop — requires a model to be loaded.
+    // For AI without a local model, use feral_send_message which routes through
+    // the Feral Agent sidecar (Ollama-backed, with sandbox + memory).
+    let manager = state.manager.clone();
+    if manager.current().is_none() {
+        return Err(
+            "No local model loaded. Use Feral Agent (feral_send_message) for AI without \
+             a local model, or load a GGUF model first."
+                .to_string(),
+        );
+    }
+    let mut rx = agents::run(cfg, prompt, manager);
+
     // Stream each AgentEvent (already JSON-serialized) over the feral:// event
     // bus, tagged with session_id so concurrent run panels don't cross streams.
     while let Some(ev) = rx.recv().await {
@@ -912,16 +896,6 @@ fn save_byok_provider(
     };
     settings.update_provider(&provider_id, config);
     byok::save(&settings).map_err(|e| e.to_string())?;
-
-    // Regenerate OpenClaw config now that BYOK settings changed.
-    // This updates routing if the newly-enabled provider should become primary.
-    let token = crate::openclaw_connection::load().gateway_token;
-    if let Some(token) = token {
-        let model_loaded = state.manager.current().is_some();
-        let _ = crate::openclaw_config::regenerate_config(&token, model_loaded, &settings);
-        // Note: config will be reloaded on next agent run (no sync kill available here).
-        // For async context, see start_model_load which kills the process.
-    }
 
     Ok(())
 }
@@ -1310,7 +1284,6 @@ pub fn run() {
         stop_signal: Arc::new(AtomicBool::new(false)),
         settings,
         system_info_cache,
-        openclaw_process: Arc::new(Mutex::new(None)),
         feral_agent_process: Arc::new(Mutex::new(None)),
         feral_agent_tx: Arc::new(Mutex::new(None)),
     };
@@ -1361,15 +1334,6 @@ pub fn run() {
             skills::skill_exists_cmd,
             skills::install_skill,
             skills::remove_skill,
-            openclaw::openclaw_detect,
-            openclaw::openclaw_status,
-            openclaw::openclaw_open_docs,
-            openclaw::openclaw_test_message,
-            openclaw::openclaw_test_agent_message,
-            openclaw::openclaw_warmup_agent,
-            openclaw_connection::get_openclaw_connection_settings,
-            openclaw_connection::save_openclaw_connection_settings,
-            openclaw_connection::clear_openclaw_token,
             feral_send_message,
             feral_agent_status,
         ])
@@ -1416,72 +1380,6 @@ pub fn run() {
                     }
                 });
             }
-            // Start bundled OpenClaw sidecar if no system-wide OpenClaw is on PATH.
-            // Use PATH version if available, otherwise fall back to bundled.
-            // Either way, Feral manages the lifecycle and injects its own config.
-            let sidecar_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                // probe_path and bundled_binary_path are sync — run in blocking thread.
-                let result = tokio::task::spawn_blocking({
-                    let h = sidecar_handle.clone();
-                    move || {
-                        crate::openclaw_sidecar::probe_path("openclaw")
-                            .or_else(|| crate::openclaw_sidecar::bundled_binary_path(&h))
-                    }
-                }).await.unwrap_or(None);
-
-                let Some(binary) = result else {
-                    tracing::info!("OpenClaw sidecar: no binary found — skipping");
-                    return;
-                };
-
-                // Feral runs its OWN isolated OpenClaw gateway on FERAL_GATEWAY_PORT.
-                // It never attaches to or modifies a user-installed daemon — if the
-                // user has their own OpenClaw on 18789, Feral's instance lives on 18790
-                // with a config Feral fully controls. If 18790 is already bound (Feral
-                // already running), skip — nothing to do.
-                if crate::openclaw_config::probe_gateway_port(
-                    crate::openclaw_config::FERAL_GATEWAY_PORT,
-                ) {
-                    tracing::info!(
-                        "Feral OpenClaw gateway already running on port {} — skipping",
-                        crate::openclaw_config::FERAL_GATEWAY_PORT
-                    );
-                    return;
-                }
-
-                let token = crate::openclaw_sidecar::generate_token();
-
-                // Write Feral's OpenClaw config: provider pointing to Feral API + port 18790.
-                let config_path = crate::openclaw_config::config_path();
-                if let Err(e) = crate::openclaw_config::write_feral_config(&token) {
-                    tracing::warn!("OpenClaw sidecar: failed to write config: {e}");
-                }
-
-                // Persist token and endpoint so all OpenClaw callers (warmup, run, test)
-                // authenticate and route to the correct port.
-                let mut conn = crate::openclaw_connection::load();
-                conn.gateway_token = Some(token.clone());
-                conn.gateway_endpoint_override = Some(format!(
-                    "http://localhost:{}",
-                    crate::openclaw_config::FERAL_GATEWAY_PORT,
-                ));
-                if let Err(e) = crate::openclaw_connection::save(&conn) {
-                    tracing::warn!("OpenClaw sidecar: failed to save connection: {e}");
-                }
-
-                match crate::openclaw_sidecar::start_sidecar(&binary, &token, &config_path) {
-                    Ok(child) => {
-                        tracing::info!("OpenClaw sidecar started (pid {:?})", child.id());
-                        let state = sidecar_handle.state::<AppState>();
-                        *state.openclaw_process.lock() = Some(child);
-                    }
-                    Err(e) => {
-                        tracing::warn!("OpenClaw sidecar failed to start: {e}");
-                    }
-                }
-            });
-
             // Spawn Feral Agent sidecar.
             let fa_handle = app.handle().clone();
             let fa_tx_slot = app.handle().state::<AppState>().feral_agent_tx.clone();
@@ -1505,11 +1403,6 @@ pub fn run() {
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
-                    let mut guard = state.openclaw_process.lock();
-                    if let Some(ref mut child) = *guard {
-                        let _ = child.start_kill();
-                        tracing::info!("OpenClaw sidecar stopped");
-                    }
                     let mut fa_guard = state.feral_agent_process.lock();
                     if let Some(ref mut child) = *fa_guard {
                         let _ = child.start_kill();

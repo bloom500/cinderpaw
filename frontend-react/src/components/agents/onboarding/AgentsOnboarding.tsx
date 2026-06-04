@@ -107,7 +107,6 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
         system_prompt:     preset?.system_prompt ?? DEFAULT_SCRATCH_PROMPT,
         model_id:          loadedModel?.path ?? '',
         tools:             preset?.tools ?? [],
-        preferred_runtime: 'openclaw',
       };
       const saved = await tauri.agents.save(cfg);
       setSavedName(saved.name);

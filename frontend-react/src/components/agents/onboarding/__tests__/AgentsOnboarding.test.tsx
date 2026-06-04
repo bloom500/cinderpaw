@@ -19,10 +19,6 @@ vi.mock('@/lib/tauri', async () => {
         ...actual.tauri.models,
         loaded: vi.fn(),
       },
-      openclaw: {
-        ...actual.tauri.openclaw,
-        warmupAgent: vi.fn(),
-      },
     },
   };
 });
@@ -44,13 +40,10 @@ beforeEach(() => {
   mockGetPresets.mockResolvedValue([fakePreset]);
   mockLoaded.mockResolvedValue(null);
   mockSave.mockImplementation(async (cfg) => ({ ...cfg, id: 'saved-id-1' }));
-  vi.mocked(tauri.openclaw.warmupAgent).mockResolvedValue({
-    kind: 'ok', response_text: 'ok', error_message: null, endpoint_tried: null,
-  });
 });
 
 describe('AgentsOnboarding', () => {
-  it('saves agent with preferred_runtime = openclaw', async () => {
+  it('saves agent without preferred_runtime field (Feral Agent only)', async () => {
     const user = userEvent.setup();
     render(<AgentsOnboarding onDone={vi.fn()} onSkip={vi.fn()} />);
 
@@ -71,6 +64,9 @@ describe('AgentsOnboarding', () => {
     await waitFor(() => expect(mockSave).toHaveBeenCalled());
 
     const savedCfg = mockSave.mock.calls[0][0];
-    expect(savedCfg.preferred_runtime).toBe('openclaw');
+    // The Feral Agent stack is the only runtime — no runtime selector field
+    // is sent to the backend. This guards against re-introducing a runtime
+    // flag (e.g. a second sidecar) without an explicit decision.
+    expect(Object.keys(savedCfg)).not.toContain('preferred_runtime');
   });
 });

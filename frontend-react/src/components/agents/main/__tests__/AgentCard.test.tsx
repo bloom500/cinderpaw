@@ -25,11 +25,6 @@ vi.mock('@/lib/tauri', async () => {
         run: vi.fn(),
         getAll: vi.fn(),
       },
-      openclaw: {
-        ...actual.tauri.openclaw,
-        detect: vi.fn(),
-        warmupAgent: vi.fn(),
-      },
     },
   };
 });
@@ -69,60 +64,28 @@ describe('AgentCard', () => {
     });
   });
 
-  it('opens the run panel and shows Run button (no OpenClaw test UI)', async () => {
+  it('opens the run panel and shows Run button', async () => {
     mockRun.mockResolvedValue(undefined);
     render(<AgentCard agent={agent} onDelete={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: /test panel for/i }));
-    // Streaming run button is present.
     expect(screen.getByRole('button', { name: /run agent/i })).toBeInTheDocument();
-    // No OpenClaw test mode banner.
-    expect(screen.queryByText(/openclaw test mode/i)).not.toBeInTheDocument();
   });
 
-  describe('runtime badge', () => {
-    it('shows "OpenClaw ready" badge when gatewayUp=true and openclaw_ready=true', () => {
-      const readyAgent: AgentConfig = { ...agent, openclaw_ready: true };
-      render(<AgentCard agent={readyAgent} gatewayUp={true} onDelete={vi.fn()} />);
-      expect(screen.getByText(/openclaw ready/i)).toBeInTheDocument();
+  describe('Feral Agent status badge', () => {
+    it('shows "Feral Agent ready" badge when agentUp=true', () => {
+      render(<AgentCard agent={agent} agentUp={true} onDelete={vi.fn()} />);
+      expect(screen.getByText(/feral agent ready/i)).toBeInTheDocument();
     });
 
-    it('shows "Setup needed" badge when gatewayUp=true and openclaw_ready=null', () => {
-      render(<AgentCard agent={agent} gatewayUp={true} onDelete={vi.fn()} />);
-      expect(screen.getByText(/setup needed/i)).toBeInTheDocument();
+    it('shows "Feral Agent unavailable" badge when agentUp=false', () => {
+      render(<AgentCard agent={agent} agentUp={false} onDelete={vi.fn()} />);
+      expect(screen.getByText(/feral agent unavailable/i)).toBeInTheDocument();
     });
 
-    it('shows "Setup needed" badge when gatewayUp=true and openclaw_ready=false', () => {
-      const failedAgent: AgentConfig = { ...agent, openclaw_ready: false };
-      render(<AgentCard agent={failedAgent} gatewayUp={true} onDelete={vi.fn()} />);
-      expect(screen.getByText(/setup needed/i)).toBeInTheDocument();
-    });
-
-    it('shows "Gateway unavailable" badge when gatewayUp=false regardless of openclaw_ready', () => {
-      const readyAgent: AgentConfig = { ...agent, openclaw_ready: true };
-      render(<AgentCard agent={readyAgent} gatewayUp={false} onDelete={vi.fn()} />);
-      expect(screen.getByText(/gateway unavailable/i)).toBeInTheDocument();
-    });
-
-    it('shows no badge when gatewayUp is null/undefined (still loading)', () => {
-      render(<AgentCard agent={agent} gatewayUp={null} onDelete={vi.fn()} />);
-      expect(screen.queryByText(/openclaw ready/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/setup needed/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/gateway unavailable/i)).not.toBeInTheDocument();
+    it('shows no badge when agentUp is null/undefined (still loading)', () => {
+      render(<AgentCard agent={agent} agentUp={null} onDelete={vi.fn()} />);
+      expect(screen.queryByText(/feral agent ready/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/feral agent unavailable/i)).not.toBeInTheDocument();
     });
   });
 });
-
-describe('AgentCard runtime selector', () => {
-  it('does not render a Local / OpenClaw toggle', () => {
-    render(
-      <AgentCard
-        agent={agent}
-        gatewayUp={true}
-        onDelete={vi.fn()}
-      />
-    );
-    expect(screen.queryByText(/local feral/i)).toBeNull();
-    expect(screen.queryByText(/openclaw test mode/i)).toBeNull();
-  });
-});
-

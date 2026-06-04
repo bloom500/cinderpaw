@@ -9,26 +9,21 @@ vi.mock('@/lib/tauri', async () => {
     ...actual,
     tauri: {
       ...actual.tauri,
-      openclaw: {
-        ...actual.tauri.openclaw,
-        warmupAgent: vi.fn(),
+      feralAgent: {
+        ...actual.tauri.feralAgent,
+        status: vi.fn(),
       },
     },
   };
 });
 
-const mockWarmup = vi.mocked(tauri.openclaw.warmupAgent);
+const mockStatus = vi.mocked(tauri.feralAgent.status);
 
 beforeEach(() => vi.clearAllMocks());
 
 describe('DoneStep', () => {
-  it('shows model-load prompt when warmup fails', async () => {
-    mockWarmup.mockResolvedValue({
-      kind: 'error',
-      response_text: null,
-      error_message: 'gateway unreachable',
-      endpoint_tried: null,
-    });
+  it('shows not-running message when Feral Agent sidecar status is false', async () => {
+    mockStatus.mockResolvedValue(false);
 
     render(
       <DoneStep
@@ -38,21 +33,12 @@ describe('DoneStep', () => {
       />
     );
 
-    await waitFor(() => expect(mockWarmup).toHaveBeenCalled());
-
-    // Must NOT mention OpenClaw to the user
-    expect(screen.queryByText(/openclaw/i)).toBeNull();
-    // Must tell user to load a model
-    expect(screen.getByText(/load a model/i)).toBeTruthy();
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    expect(screen.getByText(/not running/i)).toBeTruthy();
   });
 
-  it('shows ready state when warmup succeeds', async () => {
-    mockWarmup.mockResolvedValue({
-      kind: 'ok',
-      response_text: 'ready',
-      error_message: null,
-      endpoint_tried: null,
-    });
+  it('shows ready state when Feral Agent sidecar is up', async () => {
+    mockStatus.mockResolvedValue(true);
 
     render(
       <DoneStep
@@ -62,7 +48,7 @@ describe('DoneStep', () => {
       />
     );
 
-    await waitFor(() => expect(mockWarmup).toHaveBeenCalled());
-    expect(screen.getByText(/ready/i)).toBeTruthy();
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    expect(screen.getByText(/feral agent ready/i)).toBeTruthy();
   });
 });

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle, Loader2 } from 'lucide-react';
-import { tauri, type OpenClawTestMessageResult } from '@/lib/tauri';
+import { tauri } from '@/lib/tauri';
 
-type WarmupState =
+type ProbeState =
   | { phase: 'idle' }
   | { phase: 'running' }
-  | { phase: 'done'; result: OpenClawTestMessageResult };
+  | { phase: 'done'; up: boolean };
 
 interface Props {
   agentName: string;
@@ -15,17 +15,19 @@ interface Props {
 }
 
 export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: Props) {
-  const [warmup, setWarmup] = useState<WarmupState>({ phase: 'idle' });
+  const [probe, setProbe] = useState<ProbeState>({ phase: 'idle' });
 
   useEffect(() => {
     if (!agentId) return;
-    const id = agentId;
     let cancelled = false;
 
     async function run() {
-      setWarmup({ phase: 'running' });
-      const result = await tauri.openclaw.warmupAgent(id);
-      if (!cancelled) setWarmup({ phase: 'done', result });
+      setProbe({ phase: 'running' });
+      // Cheap reachability probe: returns true when the Feral Agent sidecar
+      // is alive and responded to a health check. We don't run a full
+      // inference round-trip here — that happens in AgentCard's Run panel.
+      const up = await tauri.feralAgent.status().catch(() => false);
+      if (!cancelled) setProbe({ phase: 'done', up });
     }
 
     void run();
@@ -33,28 +35,27 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
   }, [agentId]);
 
   const badge = (() => {
-    if (warmup.phase === 'running') {
+    if (probe.phase === 'running') {
       return (
         <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
           <Loader2 size={12} className="animate-spin" />
-          Activating agent…
+          Checking Feral Agent…
         </div>
       );
     }
-    if (warmup.phase === 'done') {
-      const ok = warmup.result.kind === 'ok';
-      return ok ? (
+    if (probe.phase === 'done' && probe.up) {
+      return (
         <div className="flex items-center justify-center gap-1.5 text-xs text-green-400">
           <CheckCircle size={12} />
-          Agent ready
-        </div>
-      ) : (
-        <div className="text-xs text-text-muted text-center">
-          Load a model in the Models tab to activate this agent.
+          Feral Agent ready
         </div>
       );
     }
-    return null;
+    return (
+      <div className="text-xs text-text-muted text-center">
+        Feral Agent sidecar is not running. Open a chat to start it.
+      </div>
+    );
   })();
 
   return (
@@ -73,11 +74,11 @@ export function DoneStep({ agentName, agentId, loadedModelName, onViewAgents }: 
           <p className="text-sm text-text-muted">
             Connected to <span className="text-text-secondary font-medium">{loadedModelName}</span>.
           </p>
-        ) : !(warmup.phase === 'done' && warmup.result.kind !== 'ok') ? (
+        ) : probe.phase === 'done' && !probe.up ? null : (
           <p className="text-sm text-text-muted">
             Load a model in the Models tab to start using it.
           </p>
-        ) : null}
+        )}
       </div>
 
       {badge}

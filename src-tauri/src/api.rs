@@ -131,8 +131,8 @@ async fn api_generate(
 }
 
 /// OpenAI-compatible message content: either a plain string or an array of
-/// content parts (`[{ "type": "text", "text": "..." }, ...]`). OpenClaw and
-/// other OpenAI clients send the array form; llama.cpp only needs the text.
+/// content parts (`[{ "type": "text", "text": "..." }, ...]`). OpenAI-spec
+/// clients send the array form; llama.cpp only needs the text.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum FlexContent {
@@ -185,9 +185,9 @@ struct ChatReq {
     stream: Option<bool>,
     #[serde(default)]
     options: Option<Value>,
-    /// OpenAI-standard generation cap. OpenClaw and other OpenAI clients send
-    /// this at the top level (not nested under `options`). Without honoring it,
-    /// every agent request fell back to the 1024-token default and ran for
+    /// OpenAI-standard generation cap. OpenAI-spec clients send this at the
+    /// top level (not nested under `options`). Without honoring it, every
+    /// agent request fell back to the 1024-token default and ran for
     /// minutes of CPU inference, appearing to hang.
     #[serde(default)]
     max_tokens: Option<u32>,
@@ -334,7 +334,7 @@ fn sse_from_chat(
         };
         yield Ok(Event::default().data(done.to_string()));
 
-        // OpenAI streaming protocol terminates with `data: [DONE]`. OpenClaw's
+        // OpenAI streaming protocol terminates with `data: [DONE]`. The
         // SSE parser waits for this sentinel — without it the stream is treated
         // as an incomplete terminal response.
         if openai_format {

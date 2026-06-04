@@ -143,69 +143,19 @@ export interface AgentConfig {
   /** Serialised as Rust enum variant names: "WebSearch" | "FileRead" | "FileWrite" | "CodeExecute" | "HttpRequest" */
   tools: string[];
   params?: Record<string, unknown> | null;
-  /** "local" | "openclaw" | null */
-  preferred_runtime?: string | null;
-  /** Defaults to "openclaw/default" at the call site when null. */
-  openclaw_model?: string | null;
-  /** null = never tested, false = tested+failed, true = tested+ok */
-  openclaw_ready?: boolean | null;
 }
 
-// ── OpenClaw ────────────────────────────────────────────────────────────────
-export interface OpenClawDetectResult {
-  installed: boolean;
-  binary_path: string | null;
-  version: string | null;
-}
+// ── Feral Agent ─────────────────────────────────────────────────────────────
 
-export interface OpenClawDiagnostic {
-  command: string;
-  ok: boolean;
-  exit_code: number | null;
-  stdout_redacted: string;
-  stderr_redacted: string;
-  error: string | null;
-}
-
-export interface OpenClawStatusResult {
-  installed: boolean;
-  binary_path: string | null;
-  version: string | null;
-  gateway_running: boolean;
-  health_ok: boolean;
-  health_summary: string | null;
-  diagnostics: OpenClawDiagnostic[];
-  recommended_action: string;
-  /** Capabilities confirmed by read-only probing. Empty = nothing verified. */
-  capabilities: string[];
-  /** Gateway loopback address extracted from gateway status output, or null. */
-  gateway_endpoint: string | null;
-}
-
-/** Mirrors Rust TestMessageKind — `#[serde(rename_all = "snake_case")]` */
-export type TestMessageKind =
-  | 'ok'
-  | 'timeout'
-  | 'unsupported'
-  | 'capability_missing'
-  | 'error';
-
-export interface OpenClawTestMessageResult {
-  kind: TestMessageKind;
-  /** Response text from OpenClaw (only present when kind == 'ok'). */
-  response_text: string | null;
-  /** Redacted diagnostic / error message. */
-  error_message: string | null;
-  /** Last URL attempted. */
-  endpoint_tried: string | null;
-}
-
-export interface OpenClawConnectionView {
-  /** Feral-saved loopback endpoint override, or null if not set. */
-  endpoint_override: string | null;
-  /** True if a token has been saved; the raw token is never returned. */
-  has_token: boolean;
-}
+/** Parsed output event from the Feral Agent sidecar. */
+export type FeralAgentEvent =
+  | { type: 'chunk';      id: string; content: string }
+  | { type: 'done';       id: string; content: string }
+  | { type: 'tool_start'; tool: string; args: Record<string, unknown> }
+  | { type: 'tool_done';  tool: string; result: unknown }
+  | { type: 'proactive';  content: string }
+  | { type: 'pong' }
+  | { type: 'error';      id?: string; message: string };
 
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
@@ -267,21 +217,9 @@ const raw = {
   installSkill:             (meta: SkillMeta, content: string, overwrite: boolean) =>
     invoke<void>('install_skill', { meta, content, overwrite }),
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
-  openclawDetect:           ()    => invoke<OpenClawDetectResult>('openclaw_detect'),
-  openclawStatus:           ()    => invoke<OpenClawStatusResult>('openclaw_status'),
-  openclawOpenDocs:         ()    => invoke<void>('openclaw_open_docs'),
-  openclawTestMessage:      (prompt: string, endpoint: string | null) =>
-    invoke<OpenClawTestMessageResult>('openclaw_test_message', { prompt, endpoint }),
-  openclawTestAgentMessage: (agentId: string, prompt: string, endpoint: string | null) =>
-    invoke<OpenClawTestMessageResult>('openclaw_test_agent_message', { agentId, prompt, endpoint }),
-  openclawWarmupAgent:            (agentId: string) =>
-                                  invoke<OpenClawTestMessageResult>('openclaw_warmup_agent', { agentId }),
-  getOpenclawConnectionSettings: () =>
-    invoke<OpenClawConnectionView>('get_openclaw_connection_settings'),
-  saveOpenclawConnectionSettings: (endpointOverride: string | null, token: string | null) =>
-    invoke<void>('save_openclaw_connection_settings', { endpoint_override: endpointOverride, token }),
-  clearOpenclawToken: () =>
-    invoke<void>('clear_openclaw_token'),
+  feralSendMessage:         (content: string, sessionId: string) =>
+    invoke<string>('feral_send_message', { content, sessionId }),
+  feralAgentStatus:         () => invoke<boolean>('feral_agent_status'),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -363,19 +301,10 @@ export const tauri = {
     remove:             async (id: string) => raw.removeSkill(id),
   },
 
-  openclaw: {
-    detect:                 async () => raw.openclawDetect(),
-    status:                 async () => raw.openclawStatus(),
-    openDocs:               async () => raw.openclawOpenDocs(),
-    testMessage:            async (prompt: string, endpoint: string | null) =>
-      raw.openclawTestMessage(prompt, endpoint),
-    testAgentMessage:       async (agentId: string, prompt: string, endpoint: string | null) =>
-      raw.openclawTestAgentMessage(agentId, prompt, endpoint),
-    warmupAgent:            async (agentId: string) => raw.openclawWarmupAgent(agentId),
-    getConnectionSettings:  async () => raw.getOpenclawConnectionSettings(),
-    saveConnectionSettings: async (endpointOverride: string | null, token: string | null) =>
-      raw.saveOpenclawConnectionSettings(endpointOverride, token),
-    clearToken:             async () => raw.clearOpenclawToken(),
+  feralAgent: {
+    sendMessage: async (content: string, sessionId: string) =>
+      raw.feralSendMessage(content, sessionId),
+    status:      async () => raw.feralAgentStatus(),
   },
 
   agents: {

@@ -8,6 +8,10 @@ use crate::inference::{InferParams, Message, ModelManager};
 use crate::paths;
 use crate::tools::{self, ToolType};
 
+fn new_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct AgentConfig {
     #[serde(default = "new_id")]
@@ -18,43 +22,7 @@ pub struct AgentConfig {
     pub tools: Vec<ToolType>,
     #[serde(default)]
     pub params: Option<InferParams>,
-    /// Preferred execution runtime. `"local"` (default — Feral's in-process
-    /// llama.cpp) or `"openclaw"` (one-shot HTTP through the local OpenClaw
-    /// gateway, currently test-only). New field — `#[serde(default)]` keeps
-    /// agents written before this change loadable.
-    #[serde(default)]
-    pub preferred_runtime: Option<String>,
-    /// OpenClaw model target passed as `"model"` in chat completions.
-    /// `None` resolves to `"openclaw/default"` at the call site.
-    /// New field — `#[serde(default)]` keeps older agents loadable.
-    #[serde(default)]
-    pub openclaw_model: Option<String>,
-    /// Whether a warmup round-trip to the OpenClaw gateway succeeded.
-    /// `None` = never tested; `Some(false)` = tested, failed; `Some(true)` = tested, ok.
-    /// New field — `#[serde(default)]` keeps older agents loadable.
-    #[serde(default)]
-    pub openclaw_ready: Option<bool>,
 }
-
-fn new_id() -> String {
-    Uuid::new_v4().to_string()
-}
-
-/// Stable OpenClaw session key for this agent. Passed as the OpenAI `user`
-/// field in chat completions so repeated calls from the same agent land in
-/// the same OpenClaw session.
-pub fn openclaw_user_id(agent_id: &str) -> String {
-    format!("feral-agent:{}", agent_id)
-}
-
-/// Default OpenClaw model target when the agent's `openclaw_model` is unset.
-pub const DEFAULT_OPENCLAW_MODEL: &str = "openclaw/default";
-
-/// Short warmup prompt sent by `openclaw_warmup_agent` to confirm
-/// the gateway can answer as this agent. Kept tiny so the call is fast and
-/// the response fits well under our `max_tokens` cap.
-pub const OPENCLAW_WARMUP_PROMPT: &str =
-    "Confirm you are ready to receive prompts as this agent. Reply with a one-sentence acknowledgement.";
 
 /// Validate that an agent id is safe for use as a filename component.
 /// Accepts only `[a-zA-Z0-9_-]`, 1–64 chars. Rejects empty, dots, slashes,
@@ -121,9 +89,6 @@ pub fn presets() -> Vec<AgentConfig> {
             model_id: String::new(),
             tools: vec![ToolType::WebSearch, ToolType::HttpRequest],
             params: None,
-            preferred_runtime: None,
-            openclaw_model: None,
-            openclaw_ready: None,
         },
         AgentConfig {
             id: new_id(),
@@ -132,9 +97,6 @@ pub fn presets() -> Vec<AgentConfig> {
             model_id: String::new(),
             tools: vec![ToolType::FileRead, ToolType::FileWrite, ToolType::CodeExecute],
             params: None,
-            preferred_runtime: None,
-            openclaw_model: None,
-            openclaw_ready: None,
         },
         AgentConfig {
             id: new_id(),
@@ -143,9 +105,6 @@ pub fn presets() -> Vec<AgentConfig> {
             model_id: String::new(),
             tools: vec![ToolType::FileRead, ToolType::FileWrite],
             params: None,
-            preferred_runtime: None,
-            openclaw_model: None,
-            openclaw_ready: None,
         },
         AgentConfig {
             id: new_id(),
@@ -154,9 +113,6 @@ pub fn presets() -> Vec<AgentConfig> {
             model_id: String::new(),
             tools: vec![ToolType::HttpRequest, ToolType::WebSearch],
             params: None,
-            preferred_runtime: None,
-            openclaw_model: None,
-            openclaw_ready: None,
         },
     ]
 }
@@ -329,7 +285,7 @@ mod tests {
 
     #[test]
     fn legacy_agent_json_without_new_fields_still_loads() {
-        // Simulates an agent written before the OpenClaw-runtime fields were
+        // Simulates an agent written before the runtime-selector fields were
         // added. The new fields default to `None` so loading must not fail.
         let legacy = r#"{
             "id": "legacy-agent",
@@ -345,63 +301,6 @@ mod tests {
         assert_eq!(cfg.system_prompt, "old prompt");
         assert_eq!(cfg.tools, vec![ToolType::WebSearch]);
         assert!(cfg.params.is_none());
-        assert!(cfg.preferred_runtime.is_none(),
-            "missing preferred_runtime must default to None");
-        assert!(cfg.openclaw_model.is_none(),
-            "missing openclaw_model must default to None");
-        assert!(cfg.openclaw_ready.is_none(),
-            "missing openclaw_ready must default to None");
-    }
-
-    #[test]
-    fn new_agent_json_with_openclaw_fields_loads() {
-        let json = r#"{
-            "id": "fresh-agent",
-            "name": "Fresh",
-            "system_prompt": "new prompt",
-            "model_id": "",
-            "tools": [],
-            "preferred_runtime": "openclaw",
-            "openclaw_model": "openclaw/default"
-        }"#;
-        let cfg: AgentConfig = serde_json::from_str(json).expect("must parse");
-        assert_eq!(cfg.preferred_runtime.as_deref(), Some("openclaw"));
-        assert_eq!(cfg.openclaw_model.as_deref(), Some("openclaw/default"));
-    }
-
-    #[test]
-    fn openclaw_ready_field_loads_and_defaults_to_none() {
-        // Missing field → None (backward compat)
-        let legacy = r#"{"id":"a","name":"A","system_prompt":"s","model_id":"","tools":[]}"#;
-        let cfg: AgentConfig = serde_json::from_str(legacy).unwrap();
-        assert!(cfg.openclaw_ready.is_none(), "missing openclaw_ready must default to None");
-
-        // Explicit true
-        let ready = r#"{"id":"b","name":"B","system_prompt":"s","model_id":"","tools":[],"openclaw_ready":true}"#;
-        let cfg: AgentConfig = serde_json::from_str(ready).unwrap();
-        assert_eq!(cfg.openclaw_ready, Some(true));
-
-        // Explicit false
-        let failed = r#"{"id":"c","name":"C","system_prompt":"s","model_id":"","tools":[],"openclaw_ready":false}"#;
-        let cfg: AgentConfig = serde_json::from_str(failed).unwrap();
-        assert_eq!(cfg.openclaw_ready, Some(false));
-    }
-
-    // ── helpers ─────────────────────────────────────────────────────────────
-
-    #[test]
-    fn openclaw_user_id_is_stable_derived_value() {
-        assert_eq!(openclaw_user_id("abc-123"), "feral-agent:abc-123");
-        // Same input → same output, every time.
-        assert_eq!(openclaw_user_id("abc-123"), openclaw_user_id("abc-123"));
-    }
-
-    #[test]
-    fn default_openclaw_model_is_documented_alias() {
-        // The default model is the official OpenClaw alias per
-        // docs.openclaw.ai/gateway. If OpenClaw ever renames it, this
-        // assertion will catch the drift.
-        assert_eq!(DEFAULT_OPENCLAW_MODEL, "openclaw/default");
     }
 }
 
