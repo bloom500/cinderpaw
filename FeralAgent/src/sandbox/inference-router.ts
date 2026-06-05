@@ -135,7 +135,7 @@ export class InferenceRouter {
    * InferenceError when both primary and fallback fail.
    */
   async complete(req: InferenceRequest): Promise<InferenceResponse> {
-    this.#enforceBudget(req.sessionId);
+    if (!req.skipBudgetCheck) this.#enforceBudget(req.sessionId);
 
     const start = Date.now();
     // Snapshot at call time so an in-flight reconfigure() doesn't affect us.

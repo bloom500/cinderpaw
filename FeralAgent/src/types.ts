@@ -171,6 +171,14 @@ export interface InferenceRequest {
    * is still returned in InferenceResponse at the end.
    */
   onToken?: (token: string) => void;
+  /**
+   * Internal maintenance calls (e.g. the working-memory summarizer) set this to
+   * skip the pre-call budget check. Without it, compress-and-continue is a dead
+   * path: once a conversation is over budget, the summarizer that would free
+   * space is itself blocked, permanently bricking the session. Usage is still
+   * recorded — this only bypasses the *gate*, never the accounting.
+   */
+  skipBudgetCheck?: boolean;
 }
 
 export interface InferenceResponse {

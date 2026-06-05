@@ -243,6 +243,9 @@ export class AgentLoop {
         { role: "user", content: transcript },
       ],
       maxTokens: 256,
+      // Bypass the budget gate: this call exists to RECOVER from budget
+      // pressure, so it must run even when the conversation is over budget.
+      skipBudgetCheck: true,
     });
     return res.content.trim();
   }

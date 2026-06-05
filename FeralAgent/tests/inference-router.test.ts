@@ -229,3 +229,63 @@ describe("end-to-end audit verification (happy path)", () => {
     db.close();
   });
 });
+
+describe("conversation budget gate", () => {
+  /** Budget so small a single OLLAMA_OK (18 tokens) blows it on the next call. */
+  const TINY_BUDGET = {
+    perConversation: 10,
+    perDay: 500_000,
+    onExhausted: "stop",
+  } as const;
+
+  test("a request over the per-conversation budget is blocked", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const mock = installFetchMock(OLLAMA_OK);
+    restoreFetch = mock.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+      tokenBudget: TINY_BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    // First call succeeds and records 18 tokens, pushing the session over 10.
+    await router.complete({ sessionId: "s1", messages: [{ role: "user", content: "hi" }] });
+    expect(router.conversationTokens("s1")).toBe(18);
+
+    // Second call is gated before reaching the network.
+    await expect(
+      router.complete({ sessionId: "s1", messages: [{ role: "user", content: "again" }] }),
+    ).rejects.toMatchObject({ name: "BudgetExhaustedError", reason: "conversation" });
+    db.close();
+  });
+
+  test("skipBudgetCheck lets an over-budget call through (summarizer recovery)", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const mock = installFetchMock(OLLAMA_OK);
+    restoreFetch = mock.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+      tokenBudget: TINY_BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    // Burn the budget.
+    await router.complete({ sessionId: "s1", messages: [{ role: "user", content: "hi" }] });
+    expect(router.conversationTokens("s1")).toBeGreaterThan(TINY_BUDGET.perConversation);
+
+    // A bypassing call (the summarizer) still runs even though we're over budget…
+    const res = await router.complete({
+      sessionId: "s1",
+      messages: [{ role: "user", content: "summarize" }],
+      skipBudgetCheck: true,
+    });
+    expect(res.content).toBe("hi");
+    // …and its usage is still accounted for (gate bypassed, accounting kept).
+    expect(router.conversationTokens("s1")).toBe(36);
+    db.close();
+  });
+});
