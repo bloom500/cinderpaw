@@ -112,7 +112,6 @@ export function ChatPage() {
       });
     }
 
-    const { loaded } = useModel.getState();
     if (loaded) {
       void useFeralStore.getState().setModel({
         source: 'openai_compatible',
@@ -121,7 +120,7 @@ export function ChatPage() {
         providerId: 'feral-local',
       }).catch(console.error);
     }
-  }, [inputMode]);
+  }, [inputMode, loaded]);
 
   // Listen for Ctrl+N / ⌘N from useGlobalHotkeys
   useEffect(() => {

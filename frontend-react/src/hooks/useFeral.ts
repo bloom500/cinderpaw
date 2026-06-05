@@ -164,12 +164,14 @@ export function useFeralSendMessage(chatSessionId: string) {
         },
         onError: (err) => {
           if (isActive()) useChat.getState().setStreamStatus('error', err);
-          useConversations.getState().unmarkStreaming(sessionId);
+          // Persist whatever was streamed so far — a partial answer is better
+          // than nothing when the user navigates away and comes back.
+          void persistFinal().finally(() => {
+            useConversations.getState().unmarkStreaming(sessionId);
+          });
         },
         onStopped: () => {
           if (isActive()) useChat.getState().setStreamStatus('stopped');
-          // Persist before unmark so navigating away and back during a stop
-          // doesn't show an empty response.
           void persistFinal().finally(() => {
             useConversations.getState().unmarkStreaming(sessionId);
           });
@@ -179,7 +181,9 @@ export function useFeralSendMessage(chatSessionId: string) {
             useChat.getState().updateLastAssistantMessage({ truncated: true, truncatedReason: reason });
             useChat.getState().setStreamStatus('done');
           }
-          useConversations.getState().unmarkStreaming(sessionId);
+          void persistFinal().finally(() => {
+            useConversations.getState().unmarkStreaming(sessionId);
+          });
         },
       });
     },
