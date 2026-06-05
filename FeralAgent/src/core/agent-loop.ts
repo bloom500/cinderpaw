@@ -33,8 +33,11 @@ import type {
 } from "../types.ts";
 
 export interface AgentLoopConfig {
-  /** Hard cap on tool-call/inference cycles per user message. */
+  /** Hard cap on tool-call/inference cycles for simple/chat tasks. */
   maxIterations: number;
+  /** Cap for deep-research and complex multi-step tasks. Model stops when it
+   *  has no more tool calls to make; this is just the safety ceiling. */
+  maxIterationsDeep: number;
   /** Soft token cap passed to each completion. */
   maxTokensPerCall: number;
   /** Behavior when a budget is exhausted (mirrors InferenceConfig). */
@@ -43,6 +46,7 @@ export interface AgentLoopConfig {
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxIterations: 6,
+  maxIterationsDeep: 50,
   // Raised from 4096 → 16384: Qwen3 and other thinking models (DeepSeek, QwQ)
   // consume a large share of the budget on chain-of-thought tokens before the
   // visible answer starts. 4096 left too little room for the actual reply,
@@ -111,7 +115,10 @@ export class AgentLoop {
     this.#episodic.record(sessionId, "user", userTextClean);
 
     try {
-      const final = await this.#run(sessionId, memory, messageId, emit);
+      const limit = isComplexTask(userText)
+        ? this.#config.maxIterationsDeep
+        : this.#config.maxIterations;
+      const final = await this.#run(sessionId, memory, messageId, emit, limit);
       memory.addAssistant(final);
       const { text: finalClean } = stripPrivate(final);
       this.#episodic.record(sessionId, "assistant", finalClean);
@@ -133,8 +140,9 @@ export class AgentLoop {
     memory: WorkingMemory,
     messageId: string,
     emit: EventSink,
+    maxIterations: number,
   ): Promise<string> {
-    for (let i = 0; i < this.#config.maxIterations; i++) {
+    for (let i = 0; i < maxIterations; i++) {
       // Stream tokens live. We optimistically stream every completion; if the
       // model ends up emitting a tool call the accumulated tokens are discarded
       // from the UI perspective (the tool events replace them), but the model
@@ -151,7 +159,10 @@ export class AgentLoop {
 
       if (parsed.toolCalls.length === 0) {
         // No tool calls → this is the final answer. Tokens already streamed.
-        return parsed.text.trim() || streamedSoFar.trim() || "(no response)";
+        // Strip reasoning tags so a thinking-only completion (degraded models
+        // that emit `<think>` and stop) never leaks raw tags as the answer.
+        const answer = stripThinking(parsed.text) || stripThinking(streamedSoFar);
+        return answer || "(no response)";
       }
 
       // Record the assistant's tool-calling turn so the model sees its own
@@ -288,6 +299,48 @@ function buildSystemPrompt(registry: ToolRegistry): string {
  * Malformed blocks are silently ignored; partial / extra text around a tool
  * call is preserved as the text portion.
  */
+/**
+ * Strip reasoning/thinking blocks from a model's final answer.
+ *
+ * Local "thinking" models wrap chain-of-thought in tags the user must never see
+ * in the answer area. The frontend splits these out of the *live* token stream,
+ * but the agent loop's final answer (and the `done` event's content) is the
+ * authoritative fallback used when streaming produced nothing — so it must be
+ * stripped here too, or a degraded model that emits only `<think>` and stops
+ * leaks the raw tag into the chat.
+ *
+ * Handles, in order:
+ *   - paired  <think>…</think> / <thinking>…</thinking>   (any number)
+ *   - Gemma   <|channel>thought … <|channel>response|end  (channel sections)
+ *   - dangling <think> with no close → everything after it is reasoning, dropped
+ *   - orphan stray tags left behind
+ */
+export function stripThinking(raw: string): string {
+  let out = raw;
+
+  // Paired blocks first (non-greedy, across newlines, case-insensitive).
+  out = out.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  out = out.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+
+  // Gemma channel: keep only the text after a <|channel>response marker; drop
+  // the thought section entirely. Then strip any remaining channel markers.
+  const responseIdx = out.indexOf("<|channel>response");
+  if (responseIdx !== -1) {
+    out = out.slice(responseIdx + "<|channel>response".length);
+  }
+  out = out.replace(/<\|channel>thought[\s\S]*?(?=<\|channel>|$)/gi, "");
+  out = out.replace(/<\|channel>[a-z]+/gi, "");
+
+  // Dangling open tag (model started reasoning and never closed / produced an
+  // answer): drop the tag and everything after it.
+  out = out.replace(/<think(?:ing)?>[\s\S]*$/gi, "");
+
+  // Orphan stray tags.
+  out = out.replace(/<\/?think(?:ing)?>/gi, "");
+
+  return out.trim();
+}
+
 export function parseResponse(raw: string, knownTools?: Set<string>): ParsedResponse {
   const toolCalls: ParsedToolCall[] = [];
   let text = raw;
@@ -415,6 +468,21 @@ function findJsonEnd(s: string): number {
     else if (c === "}") { depth--; if (depth === 0) return i; }
   }
   return -1;
+}
+
+/**
+ * Heuristic: true when the user message signals deep research or a complex
+ * multi-step task that may need many tool-call rounds to answer well.
+ *
+ * Signals checked (any one is enough):
+ *   - message is long (> 60 words) — implies multi-part or detailed request
+ *   - contains explicit research/analysis keywords
+ *   - asks for comparisons, lists, or comprehensive coverage
+ */
+export function isComplexTask(text: string): boolean {
+  const wordCount = text.trim().split(/\s+/).length;
+  if (wordCount > 60) return true;
+  return /\b(research|analyze|analyse|investigate|compare|summarize|summarise|find all|deep|comprehensive|thorough|in[\s-]depth|step[\s-]by[\s-]step|multiple|several sources?|every|all the|overview|survey|audit|report)\b/i.test(text);
 }
 
 function errorMessage(err: unknown): string {
