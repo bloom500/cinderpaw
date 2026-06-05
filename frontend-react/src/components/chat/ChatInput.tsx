@@ -17,9 +17,9 @@ import { FileAttachButton } from './FileAttachButton';
 import { ToolsPopover } from './ToolsPopover';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
-import { useUI, type ReasoningMode } from '@/stores/ui';
+import { useUI, type ReasoningMode, type InputMode } from '@/stores/ui';
 import { useSendMessage } from '@/hooks/useSendMessage';
-import { tauri } from '@/lib/tauri';
+import { requestStreamStop } from '@/lib/chatStream';
 import { cn } from '@/lib/utils';
 
 const REASONING_CONFIG: Record<ReasoningMode, {
@@ -64,6 +64,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const status = useChat((s) => s.streamStatus);
   const reasoningMode = useUI((s) => s.reasoningMode);
   const setReasoningMode = useUI((s) => s.setReasoningMode);
+  const inputMode    = useUI((s) => s.inputMode);
+  const setInputMode = useUI((s) => s.setInputMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const send = useSendMessage();
 
@@ -193,11 +195,38 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
+              {/* Chat / Agent mode toggle */}
+              <div className="flex rounded-lg border border-border-default bg-bg-elevated h-7 overflow-hidden shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setInputMode('agent')}
+                  className={cn(
+                    'px-2.5 text-[11px] font-medium transition-colors',
+                    inputMode === 'agent'
+                      ? 'bg-bg-hover text-text-primary'
+                      : 'text-text-muted hover:text-text-secondary',
+                  )}
+                >
+                  Agent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputMode('chat')}
+                  className={cn(
+                    'px-2.5 text-[11px] font-medium transition-colors',
+                    inputMode === 'chat'
+                      ? 'bg-bg-hover text-text-primary'
+                      : 'text-text-muted hover:text-text-secondary',
+                  )}
+                >
+                  Chat
+                </button>
+              </div>
               {isStreaming ? (
                 <Button
                   size="icon"
                   variant="destructive"
-                  onClick={() => void tauri.chat.stop()}
+                  onClick={() => void requestStreamStop(useChat.getState().sessionId)}
                   aria-label="Stop"
                   className="h-7 w-7"
                 >
