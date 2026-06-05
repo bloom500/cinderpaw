@@ -61,14 +61,8 @@ export function AgentSettingsTab() {
         <button
           type="button"
           onClick={() => {
-            // Hand the navigation off to AgentsPage — it owns the gate
-            // key and the route state needed to guarantee a fresh
-            // onboarding flow (re-mounting the gate, clearing the
-            // active agent). Doing it from inside this component
-            // directly fights React's render order, so we just declare
-            // the intent and let AgentsPage consume it.
             useAgent.getState().clear();
-            navigate('/agents', { state: { newAgent: true } });
+            navigate('/chat');
           }}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors"
         >
@@ -95,7 +89,7 @@ export function AgentSettingsTab() {
             type="button"
             onClick={() => {
               useAgent.getState().clear();
-              navigate('/agents');
+              navigate('/chat');
             }}
             className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors"
           >

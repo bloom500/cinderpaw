@@ -20,15 +20,18 @@ import type {
   ToolParameter,
   ToolResult,
 } from "../types.ts";
+import type { ToolObservationLog } from "../telemetry/tool-observations.ts";
 
 export class ToolRegistry {
   readonly #tools = new Map<string, Tool>();
   readonly #egress: EgressProxy;
   readonly #audit: AuditLog;
+  readonly #observations: ToolObservationLog | null;
 
-  constructor(egress: EgressProxy, audit: AuditLog) {
+  constructor(egress: EgressProxy, audit: AuditLog, observations?: ToolObservationLog) {
     this.#egress = egress;
     this.#audit = audit;
+    this.#observations = observations ?? null;
   }
 
   /** Register a tool after validating its manifest. Throws on bad manifests. */
@@ -87,6 +90,7 @@ export class ToolRegistry {
 
     try {
       const result = await tool.execute(args, ctx);
+      const durationMs = Date.now() - start;
       this.#audit.log({
         sessionId,
         actionType: "tool_call",
@@ -94,10 +98,19 @@ export class ToolRegistry {
         argsJson: safeJson(args),
         result: result.ok ? "success" : "error",
         blockedReason: result.ok ? undefined : result.error,
-        durationMs: Date.now() - start,
+        durationMs,
+      });
+      this.#observations?.append({
+        sessionId,
+        tool: name,
+        success: result.ok,
+        durationMs,
+        error: result.ok ? null : (result.error ?? result.content.slice(0, 120)),
+        argsKeys: Object.keys(args),
       });
       return result;
     } catch (err) {
+      const durationMs = Date.now() - start;
       this.#audit.log({
         sessionId,
         actionType: "tool_call",
@@ -105,7 +118,15 @@ export class ToolRegistry {
         argsJson: safeJson(args),
         result: "error",
         blockedReason: String(err),
-        durationMs: Date.now() - start,
+        durationMs,
+      });
+      this.#observations?.append({
+        sessionId,
+        tool: name,
+        success: false,
+        durationMs,
+        error: String(err).slice(0, 120),
+        argsKeys: Object.keys(args),
       });
       return {
         ok: false,

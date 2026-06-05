@@ -23,6 +23,7 @@ import type { EpisodicMemory } from "../memory/episodic.ts";
 import type { RecallEngine } from "../memory/recall.ts";
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
+import { stripPrivate } from "../memory/privacy.ts";
 import type {
   ChatMessage,
   InferenceConfig,
@@ -101,13 +102,19 @@ export class AgentLoop {
       memory.setMemoryContext(result.context);
     }
 
+    // Strip <private>...</private> blocks before persisting to episodic memory.
+    // The model still sees the full text during the current turn — only storage
+    // is affected, preserving user privacy across sessions.
+    const { text: userTextClean } = stripPrivate(userText);
+
     memory.addUser(userText);
-    this.#episodic.record(sessionId, "user", userText);
+    this.#episodic.record(sessionId, "user", userTextClean);
 
     try {
       const final = await this.#run(sessionId, memory, messageId, emit);
       memory.addAssistant(final);
-      this.#episodic.record(sessionId, "assistant", final);
+      const { text: finalClean } = stripPrivate(final);
+      this.#episodic.record(sessionId, "assistant", finalClean);
       emit({ type: "done", id: messageId, content: final });
 
       // Fire-and-forget: extract durable user facts from the turn just completed.

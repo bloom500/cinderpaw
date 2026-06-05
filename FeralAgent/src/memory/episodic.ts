@@ -112,14 +112,26 @@ function fromRow(row: EpisodicRow): EpisodicEvent {
 }
 
 /**
- * Convert free text into a safe FTS5 query: extract word tokens and OR them
- * together as prefix matches. Returns null when nothing searchable remains.
+ * Convert free text into a safe FTS5 query.
+ *
+ * Adapted from claude-mem (thedotmack/claude-mem): normalise to NFKC first so
+ * accented / composed characters (e.g. Romanian ș, ă) are folded to their base
+ * forms before tokenisation. Each token is double-quoted so it is treated as a
+ * literal phrase rather than an FTS5 operator, then suffixed with * for prefix
+ * matching. Tokens are ANDed so all terms must appear (higher precision than OR).
+ * Falls back to OR when only one token is found.
  */
 function toFtsQuery(text: string): string | null {
   const tokens = text
+    .normalize("NFKC")
     .toLowerCase()
-    .match(/[a-z0-9]+/g)
-    ?.filter((t) => t.length > 1);
-  if (!tokens || tokens.length === 0) return null;
-  return tokens.map((t) => `${t}*`).join(" OR ");
+    .split(/[\s\p{P}\p{S}]+/u)
+    .flatMap((t) => t.split(/[^\p{L}\p{N}_]+/u))
+    .filter((t) => t.length > 1)
+    .map((t) => `"${t.replace(/"/g, "")}"`);  // quote each token, strip embedded quotes
+
+  if (tokens.length === 0) return null;
+  // Single token → prefix match; multiple → AND for precision, OR suffix for recall
+  if (tokens.length === 1) return `${tokens[0]}*`;
+  return tokens.map((t) => `${t}*`).join(" ");
 }

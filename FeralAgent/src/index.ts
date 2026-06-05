@@ -23,6 +23,11 @@ import { createWriteFileTool } from "./tools/builtin/write-file.ts";
 import { createListDirectoryTool } from "./tools/builtin/list-directory.ts";
 import { createWebSearchTool } from "./tools/builtin/web-search.ts";
 import { createFetchUrlTool } from "./tools/builtin/fetch-url.ts";
+import { createReadWebpageTool } from "./tools/builtin/read-webpage.ts";
+import { createDeepResearchTool } from "./tools/builtin/deep-research.ts";
+import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
+import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
+import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { MoodEngine } from "./core/mood.ts";
 import { InnerThoughtsLoop } from "./core/inner-thoughts.ts";
@@ -106,8 +111,12 @@ function main(): void {
   const semantic = new SemanticMemory(db.raw, audit.logger);
   const recall = new RecallEngine(episodic, semantic);
 
+  // --- ECC tool observation telemetry ---
+  const dataDir = config.dbPath === ":memory:" ? "data" : require("node:path").dirname(config.dbPath);
+  const observations = new ToolObservationLog(dataDir);
+
   // --- Tools (each gated by the sandbox) ---
-  const registry = new ToolRegistry(egress, audit);
+  const registry = new ToolRegistry(egress, audit, observations);
   registry.register(createReadFileTool([config.workspace]));
   registry.register(createWriteFileTool([config.workspace]));
   registry.register(createListDirectoryTool([config.workspace]));
@@ -118,12 +127,21 @@ function main(): void {
   if (fetchDomains.length > 0) {
     registry.register(createFetchUrlTool(fetchDomains));
   }
+  // read_webpage: Jina Reader — extracts clean markdown from any URL (no API key needed)
+  const jinaApiKey = process.env.FERAL_JINA_API_KEY;
+  registry.register(createReadWebpageTool(jinaApiKey));
+  // deep_research: DeepResearch-style iterative loop (search → read → extract → synthesize)
+  registry.register(createDeepResearchTool(router, jinaApiKey));
+  // tool_health: ECC-style health report — agent can diagnose its own tool reliability
+  registry.register(createToolHealthTool(observations));
+  // scan_workspace: ECC AgentShield — detect secrets + code security issues in workspace
+  registry.register(createScanWorkspaceTool(config.workspace));
 
   // --- Mood engine ---
   const mood = new MoodEngine();
 
   // --- Memory extractor (async, fire-and-forget after each turn) ---
-  const extractor = new MemoryExtractor(router, semantic);
+  const extractor = new MemoryExtractor(router, semantic, episodic);
 
   // --- Layer 1: Agent core ---
   const agent = new AgentLoop(

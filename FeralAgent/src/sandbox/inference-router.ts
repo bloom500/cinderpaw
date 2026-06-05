@@ -286,12 +286,17 @@ export class InferenceRouter {
       return this.#streamOllama(url, target, req, isFallback);
     }
 
+    const ctxSize = req.maxTokens ?? 4096;
     const body = {
       model: target.model,
       messages: req.messages.map(toProviderMessage),
       stream: false,
       options: {
         temperature: req.temperature ?? 0.7,
+        // num_ctx is the total context window (input + thinking + output).
+        // Without it Ollama defaults to ~2048, so thinking models (Qwen3, DeepSeek)
+        // exhaust the window on chain-of-thought tokens and truncate the answer.
+        num_ctx: ctxSize,
         ...(req.maxTokens ? { num_predict: req.maxTokens } : {}),
       },
     };
@@ -321,18 +326,36 @@ export class InferenceRouter {
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
+    const ctxSize = req.maxTokens ?? 4096;
     const body = {
       model: target.model,
       messages: req.messages.map(toProviderMessage),
       stream: true,
       options: {
         temperature: req.temperature ?? 0.7,
+        // num_ctx is the total context window (input + thinking + output).
+        // Without it Ollama defaults to ~2048, so thinking models (Qwen3, DeepSeek)
+        // exhaust the window on chain-of-thought tokens and truncate the answer.
+        num_ctx: ctxSize,
         ...(req.maxTokens ? { num_predict: req.maxTokens } : {}),
       },
     };
 
+    // Idle timeout, not an absolute one: abort only if NO token arrives for
+    // IDLE_TIMEOUT_MS. A fixed 120s cap killed healthy-but-slow CPU runs of
+    // large models mid-sentence (prefill + generation of a long agent prompt
+    // easily exceeds 120s total). Resetting on each chunk distinguishes a real
+    // hang from slow-but-progressing inference.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 120_000);
+    const IDLE_TIMEOUT_MS = 300_000;
+    let timer: ReturnType<typeof setTimeout> = setTimeout(
+      () => controller.abort(),
+      IDLE_TIMEOUT_MS,
+    );
+    const resetIdle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    };
 
     let content = "";
     let promptTokens = 0;
@@ -384,6 +407,7 @@ export class InferenceRouter {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        resetIdle();
         buf += decoder.decode(value, { stream: true });
 
         // Ollama streams one JSON object per line. Keep the last incomplete
@@ -471,8 +495,19 @@ export class InferenceRouter {
       stream: true,
     };
 
+    // Idle timeout, not absolute — see #streamOllama for the rationale. This is
+    // the path agent mode actually uses (sidecar → localhost:11435), where a
+    // fixed 120s cap truncated long CPU completions mid-sentence.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 120_000);
+    const IDLE_TIMEOUT_MS = 300_000;
+    let timer: ReturnType<typeof setTimeout> = setTimeout(
+      () => controller.abort(),
+      IDLE_TIMEOUT_MS,
+    );
+    const resetIdle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    };
 
     let content = "";
 
@@ -518,6 +553,7 @@ export class InferenceRouter {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        resetIdle();
         buf += decoder.decode(value, { stream: true });
 
         // SSE format: "data: {...}\n\n"
@@ -610,8 +646,17 @@ export class InferenceRouter {
     };
     if (target.apiKey) headers["x-api-key"] = target.apiKey;
 
+    // Idle timeout, not absolute — see #streamOllama for the rationale.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 120_000);
+    const IDLE_TIMEOUT_MS = 300_000;
+    let timer: ReturnType<typeof setTimeout> = setTimeout(
+      () => controller.abort(),
+      IDLE_TIMEOUT_MS,
+    );
+    const resetIdle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    };
 
     let content = "";
     let inputTokens = 0;
@@ -667,6 +712,7 @@ export class InferenceRouter {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        resetIdle();
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
@@ -713,8 +759,10 @@ export class InferenceRouter {
     body: unknown,
     extraHeaders?: Record<string, string>,
   ): Promise<unknown> {
+    // Non-streaming single-shot: can't idle-reset (the whole body resolves at
+    // once), so use a generous absolute cap. 120s truncated slow CPU runs.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 120_000);
+    const timer = setTimeout(() => controller.abort(), 300_000);
     try {
       const res = await fetch(url, {
         method: "POST",
