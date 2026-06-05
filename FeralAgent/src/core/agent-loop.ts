@@ -42,13 +42,13 @@ export interface AgentLoopConfig {
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxIterations: 6,
-  // 1024 was starving models that emit chain-of-thought (Gemma, DeepSeek,
-  // QwQ, …) — the think block alone often consumed 600+ tokens, leaving the
-  // actual answer with barely a few sentences before the stream cut off.
-  // 4096 leaves comfortable room for both the think block and a real reply.
-  // If you need longer completions, raise this; the router's per-conversation
-  // and per-day token budgets still cap total usage.
-  maxTokensPerCall: 4096,
+  // Raised from 4096 → 16384: Qwen3 and other thinking models (DeepSeek, QwQ)
+  // consume a large share of the budget on chain-of-thought tokens before the
+  // visible answer starts. 4096 left too little room for the actual reply,
+  // cutting responses mid-sentence on anything but the shortest exchanges.
+  // 16384 gives enough headroom for thinking + a full multi-paragraph reply.
+  // The router's per-conversation and per-day budgets still cap total usage.
+  maxTokensPerCall: 16384,
   onBudgetExhausted: "compress_and_continue",
 };
 
