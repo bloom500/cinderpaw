@@ -1375,9 +1375,8 @@ async fn chat_cloud_stream(
             });
         }
 
-        // Reset usage accumulators for the next loop iteration (tool call round-trips)
-        usage_prompt_tokens = 0;
-        usage_completion_tokens = 0;
+        // usage_prompt_tokens / usage_completion_tokens are re-declared at the top
+        // of each loop iteration, so no explicit reset is needed here.
 
         // If no tool calls, we're done
         if finish_reason != "tool_calls" || pending_calls.is_empty() {

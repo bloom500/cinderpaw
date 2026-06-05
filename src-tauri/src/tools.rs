@@ -44,6 +44,7 @@ impl ToolType {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)] // reads `&self`; renaming would ripple to all callers
     pub fn to_openai_definition(&self) -> serde_json::Value {
         let (properties, required) = match self {
             Self::WebSearch => (
@@ -92,6 +93,9 @@ impl ToolType {
     }
 }
 
+/// Parsed tool call. Retained for the in-progress local-model tool-calling path;
+/// the cloud path uses the provider's native tool_calls instead.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
     pub name: String,

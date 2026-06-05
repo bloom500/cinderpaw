@@ -103,7 +103,7 @@ pub fn delete_model(path: &Path) -> Result<()> {
 /// Retrying with backoff lets that window close without requiring an app restart.
 fn remove_file_with_retry(path: &Path) -> Result<()> {
     match std::fs::remove_file(path) {
-        Ok(()) => return Ok(()),
+        Ok(()) => Ok(()),
         Err(e) => {
             // os error 32 = ERROR_SHARING_VIOLATION on Windows
             #[cfg(windows)]

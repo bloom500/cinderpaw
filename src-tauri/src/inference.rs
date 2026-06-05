@@ -298,7 +298,7 @@ mod backend {
         let model = LlamaModel::load_from_file(backend, path, &model_params)
             .map_err(|e| anyhow!("load {:?}: {}", path, e))?;
 
-        let ctx_len = (model.n_ctx_train() as u32).max(2048);
+        let ctx_len = model.n_ctx_train().max(2048);
         let name = path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
@@ -372,7 +372,7 @@ mod backend {
         }
 
         let ctx_size = NonZeroU32::new(
-            (n_prompt as u32 + params.max_tokens + 8).min(model.n_ctx_train() as u32),
+            (n_prompt as u32 + params.max_tokens + 8).min(model.n_ctx_train()),
         )
         .unwrap_or(NonZeroU32::new(4096).unwrap());
 
@@ -392,6 +392,9 @@ mod backend {
         while start < n_prompt {
             let end = (start + PREFILL_CHUNK).min(n_prompt);
             batch.clear();
+            // `i` is the absolute token position (used for both indexing and the
+            // logits flag), so a range loop is clearer than iterating the slice.
+            #[allow(clippy::needless_range_loop)]
             for i in start..end {
                 // Only the final token of the whole prompt needs logits.
                 let want_logits = i == n_prompt - 1;

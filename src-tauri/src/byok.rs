@@ -60,12 +60,16 @@ impl Provider {
         }
     }
 
-    /// Returns the chat completions endpoint path
+    /// Returns the chat completions endpoint path.
+    /// Kept for the in-progress per-provider endpoint routing; not wired yet.
+    #[allow(dead_code)]
     pub fn chat_endpoint(&self) -> &'static str {
         "/chat/completions"
     }
 
-    /// Returns whether this provider uses OpenAI-compatible format
+    /// Returns whether this provider uses OpenAI-compatible format.
+    /// Kept for the in-progress per-provider request shaping; not wired yet.
+    #[allow(dead_code)]
     pub fn is_openai_compatible(&self) -> bool {
         !matches!(self, Provider::Anthropic)
     }
@@ -91,6 +95,7 @@ impl std::fmt::Display for Provider {
 
 /// Per-provider API key and configuration
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Default)]
 pub struct ProviderConfig {
     pub enabled: bool,
     pub api_key: String,
@@ -98,16 +103,6 @@ pub struct ProviderConfig {
     pub default_model: Option<String>,
 }
 
-impl Default for ProviderConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            api_key: String::new(),
-            base_url: None,
-            default_model: None,
-        }
-    }
-}
 
 /// BYOK settings — stored in settings.json
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -172,7 +167,9 @@ pub struct ProviderInfo {
     pub default_model: Option<String>,
 }
 
-/// Request to test a provider connection
+/// Request to test a provider connection.
+/// Part of the in-progress "test connection" command; not wired to a handler yet.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct TestProviderRequest {
     pub provider_id: String,
@@ -189,7 +186,7 @@ pub struct TestProviderResponse {
 }
 
 /// Load BYOK settings from the settings file
-pub fn load(settings: &crate::settings::Settings) -> ByokSettings {
+pub fn load(_settings: &crate::settings::Settings) -> ByokSettings {
     // BYOK settings are embedded in the main settings file under "byok" key
     // For simplicity, we store them alongside settings in a separate file
     let path = crate::paths::feral_dir().join("byok.json");
