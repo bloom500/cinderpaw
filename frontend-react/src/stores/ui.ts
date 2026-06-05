@@ -7,6 +7,7 @@ export type ResolvedTheme = 'light' | 'dark';
 export type ReasoningMode = 'auto' | 'on' | 'off';
 export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' | 'code_execute';
 export type LangPref = 'en' | 'ro';
+export type InputMode = 'chat' | 'agent';
 
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
@@ -29,6 +30,8 @@ interface UIStore {
   skillsOpen:  boolean;
   openSkills:  () => void;
   closeSkills: () => void;
+  inputMode: InputMode;
+  setInputMode: (m: InputMode) => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -77,6 +80,8 @@ export const useUI = create<UIStore>()(
       skillsOpen:  false,
       openSkills:  () => set({ skillsOpen: true }),
       closeSkills: () => set({ skillsOpen: false }),
+      inputMode: 'chat',
+      setInputMode: (inputMode) => set({ inputMode }),
     }),
     {
       name: 'feral-ui',
@@ -86,6 +91,7 @@ export const useUI = create<UIStore>()(
         language: s.language,
         reasoningMode: s.reasoningMode,
         enabledTools: s.enabledTools,
+        inputMode: s.inputMode,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
