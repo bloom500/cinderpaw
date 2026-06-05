@@ -17,14 +17,13 @@ import {
 import { cn } from '@/lib/utils';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
-import { useAgent } from '@/stores/agent';
 import { useProjects, type Project } from '@/stores/projects';
 import { useDownload } from '@/stores/download';
 
 export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
 
-type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'agents';
+type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills';
 
 interface MenuItem {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
@@ -42,7 +41,6 @@ const MENU: MenuItem[] = [
   { icon: Box,          label: 'Models',       shortcut: null,  action: 'models',     disabled: false, route: '/models' },
   { icon: Settings,     label: 'Settings',     shortcut: null,  action: 'settings',   disabled: false, route: '/settings' },
   { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: false },
-  { icon: Bot,          label: 'Agents',       shortcut: null,  action: 'agents',     disabled: false, route: '/agents' },
 ];
 
 // ── Download status popover ───────────────────────────────────────────────────
@@ -435,7 +433,6 @@ function MenuRow({
 function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => void }) {
   const list         = useConversations((s) => s.list);
   const currentId    = useConversations((s) => s.currentId);
-  const open         = useConversations((s) => s.open);
   const streamingIds = useConversations((s) => s.streamingIds);
   const projects     = useProjects((s) => s.list);
 
@@ -462,7 +459,6 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
           project={project}
           allConvs={list ?? []}
           currentId={currentId}
-          onOpen={open}
           onRename={onRenameProject}
           projects={projects}
           isStreaming={isStreaming}
@@ -478,7 +474,6 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
             key={c.id}
             conv={c}
             currentId={currentId}
-            onOpen={open}
             projectId={null}
             projects={projects}
             isStreaming={isStreaming(c.id)}
@@ -492,12 +487,11 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
 // ── ProjectRow ─────────────────────────────────────────────────────────────────
 
 function ProjectRow({
-  project, allConvs, currentId, onOpen, onRename, projects, isStreaming,
+  project, allConvs, currentId, onRename, projects, isStreaming,
 }: {
   project: Project;
   allConvs: ConversationSummary[];
   currentId: string | null;
-  onOpen: (id: string) => Promise<void>;
   onRename: (p: Project) => void;
   projects: Project[];
   isStreaming: (id: string) => boolean;
@@ -563,7 +557,6 @@ function ProjectRow({
               key={c.id}
               conv={c}
               currentId={currentId}
-              onOpen={onOpen}
               projectId={project.id}
               projects={projects}
               isStreaming={isStreaming(c.id)}
@@ -578,34 +571,17 @@ function ProjectRow({
 // ── RecentRow ──────────────────────────────────────────────────────────────────
 
 function RecentRow({
-  conv, currentId, onOpen, projectId, projects, isStreaming = false,
+  conv, currentId, projectId, projects, isStreaming = false,
 }: {
   conv: ConversationSummary;
   currentId: string | null;
-  onOpen: (id: string) => Promise<void>;
   projectId: string | null;
   projects: Project[];
   isStreaming?: boolean;
 }) {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
   const isActive = conv.id === currentId;
   const isAgentConv = !!conv.agent_id;
-
-  // Agent conversations must reopen in the Agents tab with their agent selected;
-  // chat conversations open in the Chat tab. Without this, every Recents click
-  // landed in Chat — showing the wrong UI for agent chats.
-  const handleOpen = () => {
-    if (conv.agent_id) {
-      // Arm the reopen flag BEFORE switching agent so AgentChat keeps the loaded
-      // session instead of starting a fresh one on the agent change.
-      useAgent.getState().setReopenSessionId(conv.id);
-      useAgent.getState().setCurrent(conv.agent_id);
-      navigate('/agents');
-    } else {
-      navigate('/chat');
-    }
-    void onOpen(conv.id);
-  };
 
   const handleDelete = async () => {
     await useConversations.getState().delete(conv.id);
@@ -624,7 +600,7 @@ function RecentRow({
     <div className={cn('group flex items-center rounded transition-colors', isActive ? 'bg-bg-active' : 'hover:bg-bg-hover')}>
       <button
         type="button"
-        onClick={handleOpen}
+        onClick={() => navigate(`/chat/${conv.id}`)}
         className={cn(
           'flex-1 text-left px-2 py-1.5 text-sm truncate flex items-center gap-2 min-w-0',
           isActive ? 'text-text-primary' : 'text-text-secondary',
