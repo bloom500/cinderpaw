@@ -117,7 +117,7 @@ export interface ByokProvider {
   default_model?: string | null;
 }
 
-export interface PersistedMessage    { role: string; content: string }
+export interface PersistedMessage    { role: string; content: string; thinking?: string }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */

@@ -35,12 +35,14 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     id: `msg-${idx}-${Date.now()}`,
     role: p.role === 'user' ? 'user' : 'assistant',
     content: p.content,
+    thinking: p.thinking,
+    thinkingComplete: p.thinking != null ? true : undefined,
     createdAt: Date.now() - (1000 * (1000 - idx)),
   };
 }
 
 function toPersisted(m: ChatMessage): PersistedMessage {
-  return { role: m.role, content: m.content };
+  return { role: m.role, content: m.content, thinking: m.thinking || undefined };
 }
 
 export const useConversations = create<ConversationsStore>((set, get) => ({

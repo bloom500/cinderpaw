@@ -137,6 +137,7 @@ export function useSendMessage() {
         const persisted: PersistedMessage[] = snapshot.map((m) => ({
           role: m.role,
           content: m.id === asstId ? answer : m.content,
+          thinking: m.thinking || undefined,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);

@@ -14,7 +14,7 @@ import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useFeralStore } from '@/stores/feral';
 import { autoTitle } from '@/lib/autoTitle';
-import { splitThinking } from '@/lib/parseThink';
+import { splitThinking, looksLikeToolCall } from '@/lib/parseThink';
 import { tauri, type FeralAgentEvent, type PersistedMessage } from '@/lib/tauri';
 import { ensureFeralListener, registerFeralStream } from '@/lib/feralAgentStream';
 
@@ -135,6 +135,7 @@ export function useFeralSendMessage(chatSessionId: string) {
         const persisted: PersistedMessage[] = snapshot.map((m) => ({
           role: m.role,
           content: m.id === asstId ? state.answer : m.content,
+          thinking: m.thinking || undefined,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -149,12 +150,17 @@ export function useFeralSendMessage(chatSessionId: string) {
           // Buffer tokens, split <think>…</think> out of the visible answer.
           state.buffer += token;
           const split = splitThinking(state.buffer);
-          state.answer = split.answer;
+          // Suppress display of a (partial) tool call so its raw JSON never
+          // flashes in the chat before `tool_start` fires. If it turns out to be
+          // real prose, onDone reveals the authoritative final content.
+          const visibleAnswer = looksLikeToolCall(split.answer) ? '' : split.answer;
+          state.answer = visibleAnswer;
           // Only mutate the live chat view while this session is on screen,
           // otherwise tokens would leak into whatever conversation the user
           // opened after switching tabs.
           if (isActive()) {
-            const patch: Partial<ChatMessage> = { content: split.answer };
+            const chat = useChat.getState();
+            const patch: Partial<ChatMessage> = { content: visibleAnswer };
             if (split.thinking !== null) {
               // Start the thinking timer on first think token.
               if (state.thinkingStartMs === 0) state.thinkingStartMs = Date.now();
@@ -166,26 +172,39 @@ export function useFeralSendMessage(chatSessionId: string) {
                 state.thinkingDurationRecorded = true;
               }
             }
-            useChat.getState().updateLastAssistantMessage(patch);
+            // Batch message update + phase transition into a single render cycle.
+            chat.updateLastAssistantMessage(patch);
+            if (chat.agentPhase !== 'thinking') chat.setAgentPhase('thinking');
           }
         },
-        onToolStart: (_tool, _args) => {
+        onToolStart: (tool, _args) => {
           // Silently clear the raw tool-call text that was streamed and reset
           // the buffer — the next inference pass streams the final answer.
           state.buffer = '';
           state.answer = '';
           state.thinkingStartMs = 0;
           state.thinkingDurationRecorded = false;
-          if (isActive()) useChat.getState().clearStreamingContent();
+          if (isActive()) {
+            useChat.getState().clearStreamingContent();
+            useChat.getState().setAgentPhase('calling', tool);
+          }
+        },
+        onToolDone: (_tool) => {
+          if (isActive()) useChat.getState().setAgentPhase('processing');
         },
         onDone: async (finalContent?: string) => {
           // If streaming produced no visible answer (e.g. zombie/Q2 model that
           // emits no tokens or all-thinking output), fall back to the agent
-          // loop's authoritative final content from the done event.
+          // loop's authoritative final content from the done event. Run it
+          // through splitThinking first — the fallback must NOT bypass tag
+          // stripping, or a thinking-only completion leaks a raw <think> tag.
           if (state.answer.trim().length === 0 && finalContent?.trim()) {
-            state.answer = finalContent.trim();
-            if (isActive()) {
-              useChat.getState().updateLastAssistantMessage({ content: state.answer });
+            const cleaned = splitThinking(finalContent).answer.trim();
+            if (cleaned) {
+              state.answer = cleaned;
+              if (isActive()) {
+                useChat.getState().updateLastAssistantMessage({ content: state.answer });
+              }
             }
           }
           if (isActive()) useChat.getState().setStreamStatus('done');

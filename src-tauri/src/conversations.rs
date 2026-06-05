@@ -9,6 +9,10 @@ use crate::paths;
 pub struct PersistedMessage {
     pub role: String,
     pub content: String,
+    /// Chain-of-thought content shown as a collapsible "Thought for Xs" block.
+    /// Optional so existing on-disk conversations without this field load cleanly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
