@@ -156,8 +156,11 @@ export function useFeralSendMessage(chatSessionId: string) {
         },
         onDone: async () => {
           if (isActive()) useChat.getState().setStreamStatus('done');
-          useConversations.getState().unmarkStreaming(sessionId);
+          // Persist BEFORE unmarking so that if the user navigates away and
+          // back while the disk-write is in flight, open() still sees
+          // streamingIds[id]=true and won't load the incomplete disk snapshot.
           if (answer.trim().length > 0) await persistFinal();
+          useConversations.getState().unmarkStreaming(sessionId);
         },
         onError: (err) => {
           if (isActive()) useChat.getState().setStreamStatus('error', err);
@@ -165,7 +168,11 @@ export function useFeralSendMessage(chatSessionId: string) {
         },
         onStopped: () => {
           if (isActive()) useChat.getState().setStreamStatus('stopped');
-          useConversations.getState().unmarkStreaming(sessionId);
+          // Persist before unmark so navigating away and back during a stop
+          // doesn't show an empty response.
+          void persistFinal().finally(() => {
+            useConversations.getState().unmarkStreaming(sessionId);
+          });
         },
         onTruncated: (reason) => {
           if (isActive()) {

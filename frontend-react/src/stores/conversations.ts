@@ -61,6 +61,17 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   open: async (id) => {
+    // If this session is already resident in memory and still streaming,
+    // skip the disk load entirely — the in-memory buffer is more complete
+    // than the initial disk snapshot and overwriting it would cause a
+    // visible flash or loss of already-streamed tokens.
+    const alreadyLive =
+      useChat.getState().sessionId === id && Boolean(get().streamingIds[id]);
+    if (alreadyLive) {
+      set({ currentId: id });
+      return;
+    }
+
     set({ loadingConversation: true });
     try {
       const conv = await tauri.conversations.load(id);
