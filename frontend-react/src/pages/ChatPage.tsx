@@ -137,24 +137,23 @@ export function ChatPage() {
           <NewChatEmptyState isEmpty={isEmpty} onSuggestion={handleSuggestion} />
         )}
 
-        {/* Input — shown whenever canInput (model loaded OR agent mode) */}
-        {canInput && (
-          <div
-            ref={inputWrapperRef}
-            style={{
-              transform: `translateY(${translateY}px)`,
-              transition: 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-            className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
-          >
-            <ChatInput
-              ref={chatInputRef}
-              isEmpty={isEmpty}
-              sendFn={isAgentMode ? feralSend : undefined}
-              alwaysEnabled={isAgentMode}
-            />
-          </div>
-        )}
+        {/* Input — always visible so the toggle is accessible even without a
+            model. ChatInput handles the disabled state internally. */}
+        <div
+          ref={inputWrapperRef}
+          style={{
+            transform: `translateY(${translateY}px)`,
+            transition: 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+          className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
+        >
+          <ChatInput
+            ref={chatInputRef}
+            isEmpty={isEmpty}
+            sendFn={isAgentMode ? feralSend : undefined}
+            alwaysEnabled={isAgentMode}
+          />
+        </div>
       </div>
     </div>
   );
