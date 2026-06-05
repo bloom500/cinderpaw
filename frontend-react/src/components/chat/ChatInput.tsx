@@ -15,6 +15,7 @@ import {
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { ToolsPopover } from './ToolsPopover';
+import { ContextRing } from './ContextRing';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
@@ -195,6 +196,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
+              {/* Live context-usage ring, left of the mode toggle */}
+              <ContextRing />
               {/* Chat / Agent mode toggle */}
               <div className="flex rounded-lg border border-border-default bg-bg-elevated h-7 overflow-hidden shrink-0">
                 <button

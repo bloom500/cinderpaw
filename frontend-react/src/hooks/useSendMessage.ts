@@ -218,6 +218,12 @@ export function useSendMessage() {
           useConversations.getState().unmarkStreaming(sessionId);
           void persistFinal();
         },
+        onStart: (promptTokens) => {
+          if (isActive()) useChat.getState().setLiveTokens(promptTokens);
+        },
+        onUsage: (promptTokens, completionTokens) => {
+          if (isActive()) useChat.getState().setLiveTokens(promptTokens, completionTokens);
+        },
       });
     },
     [stream],

@@ -1,8 +1,52 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Info, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getRandomSuggestions } from '@/lib/suggestions';
+import { useUI } from '@/stores/ui';
 import { cn } from '@/lib/utils';
+
+const BYOK_DISCLAIMER_KEY = 'feral.agentByokDismissed';
+
+/** One-time note recommending BYOK for agent mode on low-compute machines. */
+function AgentByokNote() {
+  const navigate = useNavigate();
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(BYOK_DISCLAIMER_KEY) === 'true',
+  );
+  if (dismissed) return null;
+
+  const dismiss = () => {
+    localStorage.setItem(BYOK_DISCLAIMER_KEY, 'true');
+    setDismissed(true);
+  };
+
+  return (
+    <div className="mt-4 flex items-start gap-2 max-w-md px-3 py-2 rounded-lg border border-border-subtle bg-bg-surface/60 text-text-muted pointer-events-auto">
+      <Info size={14} className="shrink-0 mt-0.5 text-text-muted" />
+      <p className="text-xs leading-relaxed">
+        Local models need significant compute. For smoother performance we
+        recommend a cloud model —{' '}
+        <button
+          type="button"
+          onClick={() => navigate('/settings')}
+          className="text-brand hover:underline"
+        >
+          add a key (BYOK)
+        </button>
+        .
+      </p>
+      <button
+        type="button"
+        onClick={dismiss}
+        aria-label="Dismiss"
+        className="shrink-0 -mr-1 -mt-0.5 p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
 
 const GREETINGS = [
   'What can I help you with?',
@@ -36,6 +80,7 @@ interface NewChatEmptyStateProps {
 }
 
 export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStateProps) {
+  const isAgentMode = useUI((s) => s.inputMode) === 'agent';
   const [suggestions] = useState(() => getRandomSuggestions(3));
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [greetingVisible, setGreetingVisible] = useState(true);
@@ -80,6 +125,8 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
             </button>
           ))}
         </div>
+
+        {isAgentMode && <AgentByokNote />}
       </div>
     </div>
   );

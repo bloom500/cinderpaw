@@ -24,6 +24,10 @@ export interface DownloadErrorEvent    { repoId: string; filename: string; error
 export interface ModelLoadProgressEvent { percentage: number; statusText: string }
 /** One streamed agent event. `data` is a JSON-serialized AgentEvent. */
 export interface AgentStreamEvent { sessionId: string; data: string }
+/** Emitted right before generation starts with the real prompt token count (local models only). */
+export interface StreamStartEvent  { sessionId: string; promptTokens: number }
+/** Emitted at the end of a cloud stream when the provider returns usage stats. */
+export interface StreamUsageEvent  { sessionId: string; promptTokens: number; completionTokens: number }
 
 function wrap<T>(channel: string) {
   return {
@@ -36,6 +40,8 @@ export const events = {
   streamDoneEvent:        wrap<StreamDoneEvent>('feral://stream-done'),
   streamErrorEvent:       wrap<StreamErrorEvent>('feral://stream-error'),
   streamTruncatedEvent:   wrap<StreamTruncatedEvent>('feral://stream-truncated'),
+  streamStartEvent:       wrap<StreamStartEvent>('feral://stream-start'),
+  streamUsageEvent:       wrap<StreamUsageEvent>('feral://stream-usage'),
   downloadProgressEvent:  wrap<DownloadProgressEvent>('feral://download-progress'),
   downloadCompleteEvent:  wrap<DownloadCompleteEvent>('feral://download-complete'),
   downloadErrorEvent:     wrap<DownloadErrorEvent>('feral://download-error'),

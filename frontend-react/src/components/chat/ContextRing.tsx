@@ -11,15 +11,15 @@ const R = 8;
 const C = 2 * Math.PI * R;
 
 export function ContextRing() {
-  const messages    = useChat((s) => s.messages);
-  const isAgentMode = useUI((s) => s.inputMode) === 'agent';
-  const loaded      = useModel((s) => s.loaded);
-  const cloudModel  = useModel((s) => s.cloudModel);
-  const feralConfig = useFeralStore((s) => s.modelConfig);
+  const messages            = useChat((s) => s.messages);
+  const livePromptTokens    = useChat((s) => s.livePromptTokens);
+  const liveCompletionTokens = useChat((s) => s.liveCompletionTokens);
+  const isAgentMode         = useUI((s) => s.inputMode) === 'agent';
+  const loaded              = useModel((s) => s.loaded);
+  const cloudModel          = useModel((s) => s.cloudModel);
+  const feralConfig         = useFeralStore((s) => s.modelConfig);
 
-  const { used, ctxWindow, pct, modelName, remaining } = useMemo(() => {
-    const used = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
-
+  const { used, ctxWindow, pct, modelName, remaining, isLive } = useMemo(() => {
     let model: string | undefined;
     let isLocal: boolean;
     if (isAgentMode) {
@@ -33,11 +33,23 @@ export function ContextRing() {
       isLocal = true;
     }
 
-    const ctxWindow = contextWindowFor(model, isLocal);
+    // Real context window: prefer ctx_len from the loaded model file over heuristic.
+    const ctxWindow = (!isAgentMode && isLocal && loaded?.ctx_len)
+      ? loaded.ctx_len
+      : contextWindowFor(model, isLocal);
+
+    // Real token usage: use live counts from backend when available.
+    // For local models, livePromptTokens is the exact count from llama.cpp tokenization.
+    // For cloud, livePromptTokens + liveCompletionTokens comes from the API usage field.
+    const isLive = livePromptTokens !== null;
+    const used = isLive
+      ? (livePromptTokens! + (liveCompletionTokens ?? 0))
+      : messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+
     const pct = Math.min(1, used / ctxWindow);
     const remaining = estimateRemaining(ctxWindow, used, messages.length);
-    return { used, ctxWindow, pct, modelName: model ?? 'Unknown', remaining };
-  }, [messages, isAgentMode, feralConfig, cloudModel, loaded]);
+    return { used, ctxWindow, pct, modelName: model ?? 'Unknown', remaining, isLive };
+  }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, feralConfig, cloudModel, loaded]);
 
   if (messages.length === 0) return null;
 
@@ -96,10 +108,14 @@ export function ContextRing() {
           <span className="text-text-primary text-right">{ctxWindow.toLocaleString()} tokens</span>
 
           <span className="text-text-muted">Used</span>
-          <span className="text-text-primary text-right">~{used.toLocaleString()} tokens</span>
+          <span className="text-text-primary text-right">
+            {isLive ? '' : '~'}{used.toLocaleString()} tokens
+          </span>
 
           <span className="text-text-muted">Free</span>
-          <span className="text-text-primary text-right">~{remaining.freeTokens.toLocaleString()} tokens</span>
+          <span className="text-text-primary text-right">
+            {isLive ? '' : '~'}{remaining.freeTokens.toLocaleString()} tokens
+          </span>
 
           <span className="text-text-muted">Messages</span>
           <span className="text-text-primary text-right">{messages.length}</span>
@@ -108,6 +124,9 @@ export function ContextRing() {
         <Separator className="my-2" />
 
         <p className={statusColor}>{statusLabel}</p>
+        {!isLive && (
+          <p className="text-text-muted mt-1 opacity-60">~ estimated</p>
+        )}
       </HoverCardContent>
     </HoverCard>
   );

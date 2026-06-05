@@ -6,6 +6,8 @@ import { StreamingIndicator } from './StreamingIndicator';
 export function MessageList() {
   const messages = useChat((s) => s.messages);
   const status = useChat((s) => s.streamStatus);
+  const agentPhase = useChat((s) => s.agentPhase);
+  const agentTool = useChat((s) => s.agentTool);
   const containerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
 
@@ -31,11 +33,15 @@ export function MessageList() {
   return (
     <div ref={containerRef} className="h-full overflow-y-auto scroll-smooth scrollbar-hide">
       <div className="max-w-3xl mx-auto px-6 py-6 pb-48 space-y-6">
-        {messages.map((m) => (
-          <MessageItem key={m.id} message={m} />
+        {messages.map((m, i) => (
+          <MessageItem
+            key={m.id}
+            message={m}
+            streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
+          />
         ))}
         {status === 'streaming' && messages[messages.length - 1]?.content === '' && (
-          <StreamingIndicator />
+          <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />
         )}
       </div>
     </div>

@@ -175,7 +175,7 @@ pub fn run(
         for _step in 0..max_steps {
             let mut buffer = String::new();
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let mut stream = Box::pin(manager.stream_chat(messages.clone(), params.clone(), stop));
+            let mut stream = Box::pin(manager.stream_chat(messages.clone(), params.clone(), stop, None));
             use futures::StreamExt;
             while let Some(tok) = stream.next().await {
                 match tok {

@@ -190,3 +190,21 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { overflow: hidden; }
+
+/* Per-word streaming fade-in. Applied to <span class="word-fade"> wrappers
+   injected by rehypeWordFade on the live-streaming assistant message. The
+   animation is one-shot (fill: both); React reuses already-mounted word spans
+   across token re-renders, so only newly appended words animate. Mirrors the
+   translate + ease feel of the StringTune reference. */
+@keyframes fadeInWord {
+  from { opacity: 0; transform: translateY(0.18em); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.word-fade {
+  display: inline-block;
+  animation: fadeInWord 0.28s cubic-bezier(0.35, 0.35, 0, 1) both;
+  will-change: opacity, transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .word-fade { animation: none; }
+}

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
+export type AgentPhase = 'thinking' | 'calling' | 'processing' | null;
 
 export interface ChatMessage {
   id: string;
@@ -26,6 +27,12 @@ interface ChatStore {
   streamStatus: StreamStatus;
   streamError: string | null;
   expandedThinkingIds: Record<string, boolean>;
+  agentPhase: AgentPhase;
+  agentTool: string | null;
+  /** Real prompt token count from the last generation start (local: llama.cpp, cloud: API usage). */
+  livePromptTokens: number | null;
+  /** Real completion token count from the last cloud generation (undefined for local). */
+  liveCompletionTokens: number | null;
 
   newSession: () => void;
   /**
@@ -39,9 +46,11 @@ interface ChatStore {
   appendToStreamingAssistant: (text: string) => void;
   updateLastAssistantMessage: (patch: Partial<ChatMessage>) => void;
   setStreamStatus: (s: StreamStatus, err?: string | null) => void;
+  setAgentPhase: (phase: AgentPhase, tool?: string | null) => void;
   toggleThinking: (id: string) => void;
   /** Clear streamed content of the last assistant message (called when a tool call is detected). */
   clearStreamingContent: () => void;
+  setLiveTokens: (promptTokens: number, completionTokens?: number) => void;
 }
 
 export const useChat = create<ChatStore>((set) => ({
@@ -50,6 +59,10 @@ export const useChat = create<ChatStore>((set) => ({
   streamStatus: 'idle',
   streamError: null,
   expandedThinkingIds: {},
+  agentPhase: null,
+  agentTool: null,
+  livePromptTokens: null,
+  liveCompletionTokens: null,
 
   newSession: () =>
     set({
@@ -58,10 +71,14 @@ export const useChat = create<ChatStore>((set) => ({
       streamStatus: 'idle',
       streamError: null,
       expandedThinkingIds: {},
+      agentPhase: null,
+      agentTool: null,
+      livePromptTokens: null,
+      liveCompletionTokens: null,
     }),
 
   loadSession: (sessionId, messages, streamStatus = 'idle') =>
-    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {} }),
+    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null }),
 
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
 
@@ -82,7 +99,15 @@ export const useChat = create<ChatStore>((set) => ({
     }),
 
   setStreamStatus: (streamStatus, err = null) =>
-    set({ streamStatus, streamError: err ?? null }),
+    set((s) => ({
+      streamStatus,
+      streamError: err ?? null,
+      agentPhase: streamStatus === 'idle' || streamStatus === 'done' || streamStatus === 'error' || streamStatus === 'stopped' ? null : s.agentPhase,
+      agentTool: streamStatus === 'idle' || streamStatus === 'done' || streamStatus === 'error' || streamStatus === 'stopped' ? null : s.agentTool,
+    })),
+
+  setAgentPhase: (phase, tool = null) =>
+    set({ agentPhase: phase, agentTool: tool ?? null }),
 
   toggleThinking: (id) =>
     set((s) => ({
@@ -96,5 +121,8 @@ export const useChat = create<ChatStore>((set) => ({
       if (last.role !== 'assistant') return s;
       return { messages: [...s.messages.slice(0, -1), { ...last, content: '' }] };
     }),
+
+  setLiveTokens: (promptTokens, completionTokens) =>
+    set({ livePromptTokens: promptTokens, liveCompletionTokens: completionTokens ?? null }),
 
 }));

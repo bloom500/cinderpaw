@@ -281,7 +281,7 @@ async fn collect_chat(state: &ApiState, messages: Vec<Message>, params: InferPar
     use futures::StreamExt;
     let stop = Arc::new(AtomicBool::new(false));
     let mut out = String::new();
-    let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop));
+    let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop, None));
     while let Some(tok) = stream.next().await {
         match tok {
             Ok(t) => out.push_str(&t),
@@ -303,7 +303,7 @@ fn sse_from_chat(
 
     let s = stream! {
         let stop = Arc::new(AtomicBool::new(false));
-        let mut chat = Box::pin(state.manager.stream_chat(messages, params, stop));
+        let mut chat = Box::pin(state.manager.stream_chat(messages, params, stop, None));
         while let Some(tok) = chat.next().await {
             let t = match tok { Ok(t) => t, Err(e) => { tracing::warn!("sse token error: {}", e); break; } };
             let payload = if openai_format {

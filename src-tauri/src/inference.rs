@@ -209,11 +209,13 @@ impl ModelManager {
 
     /// Stream chat completion. Yields token strings.
     /// `stop` is checked between tokens — set it to `true` to interrupt generation.
+    /// `on_start` is called once with the real prompt token count right before generation begins.
     pub fn stream_chat(
         &self,
         messages: Vec<Message>,
         params: InferParams,
         stop: Arc<AtomicBool>,
+        on_start: Option<Box<dyn Fn(u32) + Send + 'static>>,
     ) -> impl Stream<Item = Result<String>> + Send + 'static {
         let _loaded = self.current.lock().clone();
         stream! {
@@ -223,7 +225,7 @@ impl ModelManager {
                     yield Err(anyhow::anyhow!("no model loaded"));
                     return;
                 }
-                let mut rx = backend::generate(messages, params, stop.clone());
+                let mut rx = backend::generate(messages, params, stop.clone(), on_start);
                 while let Some(tok) = rx.recv().await {
                     if stop.load(Ordering::Relaxed) { break; }
                     yield Ok(tok);
@@ -232,7 +234,7 @@ impl ModelManager {
             #[cfg(not(feature = "inference"))]
             {
                 let prompt = messages.last().map(|m| m.content.clone()).unwrap_or_default();
-                let _ = params;
+                let _ = (params, on_start);
                 let reply = format!(
                     "[feral stub — build with `--features inference` for real generation] You said: {}",
                     prompt.chars().take(200).collect::<String>()
@@ -314,10 +316,15 @@ mod backend {
     fn detect_template(name: &str) -> &'static str { super::detect_template(name) }
     fn build_prompt(messages: &[Message], model_name: &str) -> String { super::build_prompt(messages, model_name) }
 
-    pub fn generate(messages: Vec<Message>, params: InferParams, stop: Arc<AtomicBool>) -> mpsc::Receiver<String> {
+    pub fn generate(
+        messages: Vec<Message>,
+        params: InferParams,
+        stop: Arc<AtomicBool>,
+        on_start: Option<Box<dyn Fn(u32) + Send + 'static>>,
+    ) -> mpsc::Receiver<String> {
         let (tx, rx) = mpsc::channel(256);
         tokio::task::spawn_blocking(move || {
-            if let Err(e) = run_inference(&messages, &params, &tx, &stop) {
+            if let Err(e) = run_inference(&messages, &params, &tx, &stop, on_start.as_deref()) {
                 tracing::error!("inference: {}", e);
                 let _ = tx.blocking_send(format!("\n[Error: {}]", e));
             }
@@ -330,6 +337,7 @@ mod backend {
         params: &InferParams,
         tx: &mpsc::Sender<String>,
         stop: &Arc<AtomicBool>,
+        on_start: Option<&(dyn Fn(u32) + Send)>,
     ) -> Result<()> {
         let backend = BACKEND.get().ok_or_else(|| anyhow!("backend not initialized"))?;
 
@@ -358,6 +366,9 @@ mod backend {
         let n_prompt = tokens.len();
         if n_prompt == 0 {
             return Err(anyhow!("empty token list after tokenization"));
+        }
+        if let Some(cb) = on_start {
+            cb(n_prompt as u32);
         }
 
         let ctx_size = NonZeroU32::new(

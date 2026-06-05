@@ -77,6 +77,27 @@ pub struct ModelLoadProgressEvent {
     pub status_text: String,
 }
 
+/// Emitted right after the prompt is tokenized, before any new tokens are generated.
+/// Carries the exact prompt token count so the frontend can show real usage immediately.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamStartEvent {
+    pub session_id: String,
+    /// Real token count of the full prompt (all history + system prompt), from llama.cpp.
+    pub prompt_tokens: u32,
+}
+
+/// Emitted at the end of a cloud (OpenAI-compatible) stream when the provider
+/// returns usage stats in the final SSE chunk. Carries the real prompt and
+/// completion token counts so the frontend can show accurate usage.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamUsageEvent {
+    pub session_id: String,
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+}
+
 /// One raw JSON line emitted by the feral-agent sidecar on stdout.
 /// The React frontend parses `data` to get the typed event
 /// (`chunk`, `done`, `tool_start`, `tool_done`, `proactive`, `pong`, `error`).

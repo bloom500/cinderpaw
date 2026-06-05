@@ -112,13 +112,22 @@ export function ChatPage() {
       });
     }
 
+    // Sync the sidecar to the loaded local model — BUT never clobber an
+    // explicit cloud/BYOK choice. A BYOK selection sets modelConfig.provider to
+    // the provider id (e.g. "openai"); local uses "openai_compatible" and
+    // external Ollama uses "ollama". If the user already picked a cloud model
+    // via FeralModelSelector, leave it; only auto-sync when on a local target.
     if (loaded) {
-      void useFeralStore.getState().setModel({
-        source: 'openai_compatible',
-        model: loaded.name,
-        baseUrl: 'http://localhost:11435',
-        providerId: 'feral-local',
-      }).catch(console.error);
+      const cfg = useFeralStore.getState().modelConfig;
+      const onCloud = !!cfg && cfg.provider !== 'openai_compatible' && cfg.provider !== 'ollama';
+      if (!onCloud) {
+        void useFeralStore.getState().setModel({
+          source: 'openai_compatible',
+          model: loaded.name,
+          baseUrl: 'http://localhost:11435',
+          providerId: 'feral-local',
+        }).catch(console.error);
+      }
     }
   }, [inputMode, loaded]);
 

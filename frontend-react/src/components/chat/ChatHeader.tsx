@@ -7,7 +7,8 @@ export function ChatHeader() {
   const current   = list?.find((c) => c.id === currentId);
 
   return (
-    <div className="h-11 px-3 flex items-center gap-3 shrink-0 select-none">
+    // h-12 matches the sidebar's logo row so the pill + title align with it.
+    <div className="h-12 px-3 flex items-center gap-3 shrink-0 select-none">
       <ModelPill />
       <span
         data-tauri-drag-region

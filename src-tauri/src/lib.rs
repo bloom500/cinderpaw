@@ -433,7 +433,15 @@ async fn chat_stream(
     // immediately abort the next request.
     state.stop_signal.store(false, Ordering::SeqCst);
     let stop = state.stop_signal.clone();
-    let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop.clone()));
+    let app_start = app.clone();
+    let sid_start = session_id.clone();
+    let on_start = Box::new(move |prompt_tokens: u32| {
+        let _ = app_start.emit("feral://stream-start", events::StreamStartEvent {
+            session_id: sid_start.clone(),
+            prompt_tokens,
+        });
+    });
+    let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop.clone(), Some(on_start)));
     while let Some(tok) = stream.next().await {
         if stop.load(Ordering::SeqCst) {
             let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id: session_id.clone() });
@@ -1236,6 +1244,7 @@ async fn chat_cloud_stream(
             "model": model,
             "messages": ctx,
             "stream": true,
+            "stream_options": { "include_usage": true },
             "temperature": params.temperature,
             "top_p": params.top_p,
             "max_tokens": params.max_tokens,
@@ -1269,6 +1278,8 @@ async fn chat_cloud_stream(
         let mut pending_calls: std::collections::HashMap<usize, (String, String, String)> =
             std::collections::HashMap::new();
         let mut finish_reason = String::new();
+        let mut usage_prompt_tokens: u32 = 0;
+        let mut usage_completion_tokens: u32 = 0;
 
         'sse: while let Some(chunk) = byte_stream.next().await {
             if stop.load(Ordering::SeqCst) {
@@ -1287,6 +1298,15 @@ async fn chat_cloud_stream(
 
                     if let Some(json_str) = line.strip_prefix("data: ") {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            // Capture usage stats from the final SSE chunk (when stream_options.include_usage is set)
+                            if let Some(usage) = val.get("usage") {
+                                if let Some(pt) = usage.get("prompt_tokens").and_then(|v| v.as_u64()) {
+                                    usage_prompt_tokens = pt as u32;
+                                }
+                                if let Some(ct) = usage.get("completion_tokens").and_then(|v| v.as_u64()) {
+                                    usage_completion_tokens = ct as u32;
+                                }
+                            }
                             let choice = val.get("choices").and_then(|c| c.get(0));
                             if let Some(choice) = choice {
                                 if let Some(fr) = choice.get("finish_reason").and_then(|v| v.as_str()) {
@@ -1345,6 +1365,19 @@ async fn chat_cloud_stream(
                 },
             );
         }
+
+        // Emit real token usage if the provider sent it (stream_options.include_usage).
+        if usage_prompt_tokens > 0 || usage_completion_tokens > 0 {
+            let _ = app.emit("feral://stream-usage", events::StreamUsageEvent {
+                session_id: session_id.clone(),
+                prompt_tokens: usage_prompt_tokens,
+                completion_tokens: usage_completion_tokens,
+            });
+        }
+
+        // Reset usage accumulators for the next loop iteration (tool call round-trips)
+        usage_prompt_tokens = 0;
+        usage_completion_tokens = 0;
 
         // If no tool calls, we're done
         if finish_reason != "tool_calls" || pending_calls.is_empty() {

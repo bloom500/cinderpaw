@@ -5,7 +5,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import type { ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 
-export function MessageItem({ message }: { message: ChatMessage }) {
+export function MessageItem({ message, streaming = false }: { message: ChatMessage; streaming?: boolean }) {
   const isUser = message.role === 'user';
   const reasoningMode = useUI((s) => s.reasoningMode);
 
@@ -35,7 +35,7 @@ export function MessageItem({ message }: { message: ChatMessage }) {
         />
       )}
       <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
-        <Markdown>{message.content}</Markdown>
+        <Markdown animateWords={streaming}>{message.content}</Markdown>
       </div>
       {isTruncated && (
         <div

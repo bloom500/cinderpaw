@@ -9,7 +9,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useModel } from '@/stores/model';
+import { useUI } from '@/stores/ui';
+import { useFeralStore } from '@/stores/feral';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
+
+// Feral's own model engine exposes an OpenAI-compatible API here. In agent mode
+// a local pick must target THIS (not external Ollama on 11434) so the agent uses
+// the model loaded in the Models tab.
+const FERAL_API_BASE = 'http://localhost:11435';
+const LOCAL_PROVIDER_ID = 'feral-local';
 
 function formatBytes(n: number): string {
   if (n > 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
@@ -25,6 +33,15 @@ export function ModelPickerPopover() {
   const cloudModel    = useModel((s) => s.cloudModel);
   const setCloudModel = useModel((s) => s.setCloudModel);
 
+  // Agent mode targets the Feral sidecar (its own model config), not the
+  // in-process chat model. The pill stays visually identical; only the
+  // selection action + label source change.
+  const isAgentMode   = useUI((s) => s.inputMode) === 'agent';
+  const feralConfig   = useFeralStore((s) => s.modelConfig);
+  const feralSwitching = useFeralStore((s) => s.switching);
+  const feralSetModel = useFeralStore((s) => s.setModel);
+  const feralSetError = useFeralStore((s) => s.setModelError);
+
   const [localModels, setLocalModels]     = useState<ModelInfo[]>([]);
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
   const [open, setOpen] = useState(false);
@@ -37,8 +54,31 @@ export function ModelPickerPopover() {
       .catch(() => {});
   }, [open]);
 
+  // In agent mode, selecting a local model must LOAD it into Feral's engine
+  // (so /v1/chat/completions has it resident) then point the sidecar at it.
+  const selectLocalAgent = async (m: ModelInfo) => {
+    feralSetError(null);
+    try {
+      await tauri.models.startLoad(m.path);
+      await feralSetModel({
+        source: 'openai_compatible',
+        model: m.name,
+        baseUrl: FERAL_API_BASE,
+        providerId: LOCAL_PROVIDER_ID,
+      });
+    } catch (err) {
+      feralSetError(String(err));
+    }
+  };
+
   let label: string;
-  if (isLoading) {
+  if (isAgentMode) {
+    label = feralSwitching
+      ? 'Switching…'
+      : isLoading
+        ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
+        : feralConfig?.display_name ?? loaded?.name ?? 'No model selected';
+  } else if (isLoading) {
     label = `Loading ${progress?.percentage.toFixed(0) ?? 0}%`;
   } else if (cloudModel) {
     label = `${cloudModel.modelId} · ${cloudModel.providerName}`;
@@ -66,7 +106,11 @@ export function ModelPickerPopover() {
             {localModels.map((m) => (
               <DropdownMenuItem
                 key={m.path}
-                onClick={() => { setCloudModel(null); void load(m.path); }}
+                onClick={() =>
+                  isAgentMode
+                    ? void selectLocalAgent(m)
+                    : (setCloudModel(null), void load(m.path))
+                }
                 className="flex flex-col items-start gap-0.5"
               >
                 <span className="text-text-primary">{m.name}</span>
@@ -89,7 +133,12 @@ export function ModelPickerPopover() {
                   disabled={!modelId}
                   onClick={() => {
                     if (!modelId) return;
-                    setCloudModel({ providerId: p.id, providerName: p.name, modelId });
+                    if (isAgentMode) {
+                      feralSetError(null);
+                      void feralSetModel({ source: 'byok', providerId: p.id, model: modelId });
+                    } else {
+                      setCloudModel({ providerId: p.id, providerName: p.name, modelId });
+                    }
                   }}
                   className="flex flex-col items-start gap-0.5"
                 >

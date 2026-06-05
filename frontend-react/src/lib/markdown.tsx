@@ -3,6 +3,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { ExternalLink } from '@/components/chat/ExternalLink';
+import { rehypeWordFade } from '@/lib/rehypeWordFade';
 
 function InlineCode({ children }: { children?: React.ReactNode }) {
   return (
@@ -12,12 +13,16 @@ function InlineCode({ children }: { children?: React.ReactNode }) {
   );
 }
 
-export function Markdown({ children }: { children: string }) {
+export function Markdown({ children, animateWords }: { children: string; animateWords?: boolean }) {
+  // Word-fade runs after highlight so it can skip code/pre nodes it produced.
+  const rehypePlugins = animateWords
+    ? [rehypeHighlight, rehypeWordFade]
+    : [rehypeHighlight];
   return (
     <div className="prose dark:prose-invert max-w-none text-text-primary prose-headings:text-text-primary prose-strong:text-text-primary prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none prose-a:text-brand prose-li:text-text-primary prose-p:text-text-primary">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={rehypePlugins}
         components={{
           pre:  CodeBlock as React.ComponentType<React.HTMLAttributes<HTMLPreElement>>,
           a:    ExternalLink as React.ComponentType<React.AnchorHTMLAttributes<HTMLAnchorElement>>,

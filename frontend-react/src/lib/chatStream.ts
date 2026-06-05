@@ -28,6 +28,10 @@ export interface ChatStreamHandlers {
   onStopped:   () => void;
   /** Backend hit max_tokens before producing a natural stop. */
   onTruncated?: (reason: string) => void;
+  /** Fired once with the real prompt token count right before generation (local models). */
+  onStart?: (promptTokens: number) => void;
+  /** Fired once at the end of a cloud stream when real usage stats are available. */
+  onUsage?: (promptTokens: number, completionTokens: number) => void;
 }
 
 interface StreamEntry extends ChatStreamHandlers {
@@ -70,7 +74,15 @@ async function ensureListeners(): Promise<void> {
       entry.onTruncated?.(e.payload.reason);
       inflight.delete(e.payload.sessionId);
     });
-    unlistens = [tokenUn, doneUn, errUn, truncUn];
+    const startUn = await events.streamStartEvent.listen((e) => {
+      const entry = inflight.get(e.payload.sessionId);
+      if (entry && !entry.stopped) entry.onStart?.(e.payload.promptTokens);
+    });
+    const usageUn = await events.streamUsageEvent.listen((e) => {
+      const entry = inflight.get(e.payload.sessionId);
+      if (entry && !entry.stopped) entry.onUsage?.(e.payload.promptTokens, e.payload.completionTokens);
+    });
+    unlistens = [tokenUn, doneUn, errUn, truncUn, startUn, usageUn];
   })();
   return initPromise;
 }
