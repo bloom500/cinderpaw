@@ -14,6 +14,10 @@ export interface ChatMessage {
   completedAt?: number;
   tokenCount?: number;
   tokensPerSec?: number;
+  /** True if the model hit max_tokens before producing a natural stop. */
+  truncated?: boolean;
+  /** Why the response was truncated (e.g. "length"). */
+  truncatedReason?: string;
 }
 
 interface ChatStore {
@@ -24,7 +28,13 @@ interface ChatStore {
   expandedThinkingIds: Record<string, boolean>;
 
   newSession: () => void;
-  loadSession: (sessionId: string, messages: ChatMessage[]) => void;
+  /**
+   * Replace the in-memory session. If `streamStatus` is provided, it overrides
+   * the default 'idle' reset — used by `useConversations.open` when the target
+   * session is currently mid-generation, so the streaming indicator keeps
+   * showing after the user re-enters the in-flight chat from the sidebar.
+   */
+  loadSession: (sessionId: string, messages: ChatMessage[], streamStatus?: StreamStatus) => void;
   addMessage: (m: ChatMessage) => void;
   appendToStreamingAssistant: (text: string) => void;
   updateLastAssistantMessage: (patch: Partial<ChatMessage>) => void;
@@ -48,8 +58,8 @@ export const useChat = create<ChatStore>((set) => ({
       expandedThinkingIds: {},
     }),
 
-  loadSession: (sessionId, messages) =>
-    set({ sessionId, messages, streamStatus: 'idle', streamError: null, expandedThinkingIds: {} }),
+  loadSession: (sessionId, messages, streamStatus = 'idle') =>
+    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {} }),
 
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
 

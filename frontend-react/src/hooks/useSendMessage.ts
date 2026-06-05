@@ -9,6 +9,7 @@ import { toIpcMessage } from '@/lib/messageMapping';
 import { currentInferParams } from '@/lib/inferParams';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking } from '@/lib/parseThink';
+import { tauri, type PersistedMessage } from '@/lib/tauri';
 import type { AttachedFile } from '@/components/chat/AttachedFileChip';
 
 function buildUserContent(text: string, files: AttachedFile[]): string {
@@ -18,14 +19,6 @@ function buildUserContent(text: string, files: AttachedFile[]): string {
     .map((f) => `[File: ${f.name}]\n${f.content}`)
     .join('\n\n');
   return `${fileBlocks}\n\n${text}`;
-}
-
-function autoSaveIfEligible() {
-  const chat = useChat.getState();
-  const hasUser      = chat.messages.some((m) => m.role === 'user');
-  const hasCompleteA = chat.messages.some((m) => m.role === 'assistant' && m.content.trim().length > 0);
-  if (chat.streamStatus !== 'done' || !hasUser || !hasCompleteA) return;
-  void useConversations.getState().saveCurrent(autoTitle(chat.messages));
 }
 
 export function useSendMessage() {
@@ -57,6 +50,28 @@ export function useSendMessage() {
       chat.addMessage(asstMsg);
       chat.setStreamStatus('streaming');
 
+      // Capture everything we need to finish this turn even if the user
+      // navigates away mid-stream (which changes the active chat session
+      // out from under us). All completion work keys off these captured
+      // values, not "whatever session is current".
+      const sessionId   = useChat.getState().sessionId;
+      const asstId      = asstMsg.id;
+      const snapshot    = useChat.getState().messages.map((m) => ({ ...m }));
+      const isActive    = () => useChat.getState().sessionId === sessionId;
+
+      // Save immediately so the chat appears in the sidebar's Recent
+      // section while the model is still generating. The user can then
+      // switch tabs and still see (and rejoin) the in-flight chat.
+      // The store also marks this session as streaming so the sidebar
+      // renders a spinner next to it.
+      useConversations.getState().markStreaming(sessionId);
+      try {
+        await useConversations.getState().saveCurrent(autoTitle(useChat.getState().messages));
+      } catch (err) {
+        // Non-fatal — the final save in onDone will retry.
+        console.error('[chat] failed initial save to Recent:', err);
+      }
+
       const messages = useChat.getState().messages.slice(0, -1).map(toIpcMessage);
 
       // Agent mode override: when an active agent exists, its
@@ -74,7 +89,12 @@ export function useSendMessage() {
         systemPromptOverride: effectiveSystemPrompt,
       });
 
+      // `buffer` is for think-tag parsing; `answer` is the clean (think-stripped)
+      // text we persist when the turn completes. We accumulate both regardless
+      // of whether the user is still on this chat, so the response is
+      // recoverable from disk even if they navigated away.
       let buffer = '';
+      let answer = '';
       let thinkingStartAt: number | null = null;
       let thinkingDurationMsFixed = false;
       let streamStartAt: number | null = null;
@@ -88,7 +108,12 @@ export function useSendMessage() {
 
       const flushNow = () => {
         if (Object.keys(pendingPatch).length > 0) {
-          useChat.getState().updateLastAssistantMessage({ ...pendingPatch });
+          // Only patch the live chat view when this session is on screen —
+          // otherwise tokens would leak into whatever conversation the user
+          // opened after switching tabs.
+          if (isActive()) {
+            useChat.getState().updateLastAssistantMessage({ ...pendingPatch });
+          }
         }
         rafId = null;
       };
@@ -106,6 +131,21 @@ export function useSendMessage() {
         }
       };
 
+      // Persist the finished turn to THIS conversation by id — correct even
+      // when it is no longer the active session (user switched tabs).
+      const persistFinal = async () => {
+        const persisted: PersistedMessage[] = snapshot.map((m) => ({
+          role: m.role,
+          content: m.id === asstId ? answer : m.content,
+        }));
+        try {
+          await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
+          await useConversations.getState().refresh();
+        } catch (err) {
+          console.error('[chat] failed final save to Recent:', err);
+        }
+      };
+
       const streamMethod = cloudModel
         ? (cb: Parameters<typeof stream.start>[2]) => stream.startCloud(cloudModel, messages, params, cb)
         : (cb: Parameters<typeof stream.start>[2]) => stream.start(messages, params, cb);
@@ -116,6 +156,7 @@ export function useSendMessage() {
           charCount += chunk.length;
           buffer += chunk;
           const split = splitThinking(buffer);
+          answer = split.answer;
 
           pendingPatch.content = split.answer;
 
@@ -131,7 +172,7 @@ export function useSendMessage() {
 
           scheduleFlush();
         },
-        onDone: () => {
+        onDone: async () => {
           // Flush any remaining buffered patch before computing final stats
           cancelFlush();
           flushNow();
@@ -140,17 +181,41 @@ export function useSendMessage() {
           const elapsedSec = streamStartAt ? (completedAt - streamStartAt) / 1000 : 0;
           const tokenCount = Math.round(charCount / 4);
           const tokensPerSec = elapsedSec > 0 ? Math.round(tokenCount / elapsedSec) : 0;
-          useChat.getState().updateLastAssistantMessage({ completedAt, tokenCount, tokensPerSec });
-          useChat.getState().setStreamStatus('done');
-          autoSaveIfEligible();
+          if (isActive()) {
+            useChat.getState().updateLastAssistantMessage({ completedAt, tokenCount, tokensPerSec });
+            useChat.getState().setStreamStatus('done');
+          }
+          useConversations.getState().unmarkStreaming(sessionId);
+          await persistFinal();
         },
         onError: (err) => {
           cancelFlush();
-          useChat.getState().setStreamStatus('error', err);
+          if (isActive()) useChat.getState().setStreamStatus('error', err);
+          useConversations.getState().unmarkStreaming(sessionId);
         },
         onStopped: () => {
           cancelFlush();
-          useChat.getState().setStreamStatus('stopped');
+          if (isActive()) useChat.getState().setStreamStatus('stopped');
+          useConversations.getState().unmarkStreaming(sessionId);
+          // Persist the partial answer so the user doesn't lose the work
+          // they waited for.
+          void persistFinal();
+        },
+        onTruncated: (reason) => {
+          // Model hit max_tokens before producing a natural stop.
+          // Flush the pending patch, mark the message as truncated, and
+          // still try to save it to Recent.
+          cancelFlush();
+          flushNow();
+          if (isActive()) {
+            useChat.getState().updateLastAssistantMessage({
+              truncated: true,
+              truncatedReason: reason,
+            });
+            useChat.getState().setStreamStatus('done');
+          }
+          useConversations.getState().unmarkStreaming(sessionId);
+          void persistFinal();
         },
       });
     },

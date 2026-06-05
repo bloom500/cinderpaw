@@ -10,6 +10,14 @@ import { listen, type UnlistenFn, type EventCallback } from '@tauri-apps/api/eve
 export interface TokenEvent        { sessionId: string; text: string }
 export interface StreamDoneEvent   { sessionId: string }
 export interface StreamErrorEvent  { sessionId: string; error: string }
+/**
+ * Emitted when an OpenAI-compatible provider reports `finish_reason: "length"`
+ * — the model hit its server-side max_tokens cap before producing a natural
+ * stop. The frontend surfaces this as a small "truncated" hint on the message
+ * bubble so the user knows the response was cut off by the provider, not by
+ * Feral.
+ */
+export interface StreamTruncatedEvent { sessionId: string; reason: string }
 export interface DownloadProgressEvent { repoId: string; filename: string; progress: number }
 export interface DownloadCompleteEvent { repoId: string; filename: string; path: string }
 export interface DownloadErrorEvent    { repoId: string; filename: string; error: string; cancelled: boolean }
@@ -27,6 +35,7 @@ export const events = {
   tokenEvent:             wrap<TokenEvent>('feral://token'),
   streamDoneEvent:        wrap<StreamDoneEvent>('feral://stream-done'),
   streamErrorEvent:       wrap<StreamErrorEvent>('feral://stream-error'),
+  streamTruncatedEvent:   wrap<StreamTruncatedEvent>('feral://stream-truncated'),
   downloadProgressEvent:  wrap<DownloadProgressEvent>('feral://download-progress'),
   downloadCompleteEvent:  wrap<DownloadCompleteEvent>('feral://download-complete'),
   downloadErrorEvent:     wrap<DownloadErrorEvent>('feral://download-error'),

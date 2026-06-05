@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../frontend-react/dist",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeDevCommand": "cd ../frontend-react && npm run dev",
+    "beforeDevCommand": "npm --prefix D:/FeralLocalAI/frontend-react run dev",
     "beforeBuildCommand": "cd ../frontend-react && npm run build"
   },
   "app": {

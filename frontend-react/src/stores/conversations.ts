@@ -65,7 +65,13 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     try {
       const conv = await tauri.conversations.load(id);
       const msgs = conv.messages.map(toChatMessage);
-      useChat.getState().loadSession(conv.id, msgs);
+      // Preserve the streaming animation if the user re-enters the chat
+      // that's currently mid-generation. Without this, `loadSession` would
+      // reset `streamStatus` to 'idle' and the spinner / streaming indicator
+      // would vanish the moment the user clicked the in-flight conversation
+      // in the sidebar.
+      const isStreaming = Boolean(get().streamingIds[id]);
+      useChat.getState().loadSession(conv.id, msgs, isStreaming ? 'streaming' : 'idle');
       set({ currentId: id });
     } finally {
       set({ loadingConversation: false });

@@ -36,7 +36,10 @@ export const useModel = create<ModelStore>((set) => ({
   isLoading: false,
   loadProgress: null,
   cloudModel: null,
-  inferParams: { temperature: 0.8, top_p: 0.95, max_tokens: 2048 },
+  // Default max_tokens bumped to 4096 — Gemma and other openai_compatible
+  // providers can hit the 2048 cap mid-list and leave responses cut off
+  // mid-word. 4096 gives comfortable headroom for most chat replies.
+  inferParams: { temperature: 0.8, top_p: 0.95, max_tokens: 4096 },
 
   refresh: async () => {
     const loaded = await tauri.models.loaded();

@@ -29,6 +29,22 @@ pub struct StreamErrorEvent {
     pub error: String,
 }
 
+/// Emitted by `chat_cloud_stream` when the OpenAI-compatible provider reports
+/// `finish_reason: "length"` — the model hit its server-side token cap before
+/// producing a natural stop. The frontend keeps the partial response visible
+/// but marks the message as truncated so the user can see *why* it cut off.
+///
+/// For the local llama.cpp backend we still emit `stream-done` and
+/// `finish_reason` is unknown to the frontend; the truncation only applies
+/// to the cloud streaming path.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamTruncatedEvent {
+    pub session_id: String,
+    /// The raw `finish_reason` from the provider, typically "length".
+    pub reason: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadProgressEvent {

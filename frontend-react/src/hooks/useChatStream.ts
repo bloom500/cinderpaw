@@ -1,120 +1,44 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { UnlistenFn } from '@tauri-apps/api/event';
-import { tauri, events, type Message, type InferParams } from '@/lib/tauri';
+import { useMemo, useCallback } from 'react';
+import type { Message, InferParams } from '@/lib/tauri';
 import type { CloudModel } from '@/stores/model';
+import {
+  startChatStream,
+  requestStreamStop,
+  type ChatStreamHandlers,
+} from '@/lib/chatStream';
 
-type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
+type Callbacks = ChatStreamHandlers;
 
-type Callbacks = {
-  onToken:    (text: string) => void;
-  onDone:     () => void;
-  onError:    (err: string) => void;
-  onStopped?: () => void;
-};
-
+/**
+ * Thin React-flavoured wrapper around the global chat stream manager.
+ *
+ * All state and listeners live in `lib/chatStream`, so this hook has no
+ * lifecycle to manage — the stream keeps running when the component that
+ * called it (ChatInput) unmounts on tab switch. The previous implementation
+ * stopped the backend stream on unmount, which silently killed the
+ * generation whenever the user left `/chat` mid-response.
+ */
 export function useChatStream(externalSessionId?: string) {
   const internalId = useMemo(() => crypto.randomUUID(), []);
   const sessionId = externalSessionId ?? internalId;
 
-  const unlistensRef = useRef<UnlistenFn[]>([]);
-  const statusRef = useRef<StreamStatus>('idle');
-
-  const teardown = useCallback(() => {
-    unlistensRef.current.forEach((fn) => fn());
-    unlistensRef.current = [];
-  }, []);
-
-  const stop = useCallback(async () => {
-    if (statusRef.current === 'streaming') {
-      statusRef.current = 'stopped';
-      await tauri.chat.stop();
-    }
-  }, []);
-
   const start = useCallback(
     async (messages: Message[], params: InferParams, cb: Callbacks) => {
-      if (statusRef.current === 'streaming') {
-        console.warn('useChatStream: starting new stream while previous still streaming — auto-stopping');
-        await stop();
-        teardown();
-      }
-
-      statusRef.current = 'streaming';
-
-      // Register listeners BEFORE invoking — race-safe (spec §2.4)
-      const unlistens = await Promise.all([
-        events.tokenEvent.listen((e) => {
-          if (e.payload.sessionId !== sessionId) return;
-          cb.onToken(e.payload.text);
-        }),
-        events.streamDoneEvent.listen((e) => {
-          if (e.payload.sessionId !== sessionId) return;
-          if (statusRef.current === 'stopped') { cb.onStopped?.(); return; }
-          statusRef.current = 'done';
-          cb.onDone();
-        }),
-        events.streamErrorEvent.listen((e) => {
-          if (e.payload.sessionId !== sessionId) return;
-          statusRef.current = 'error';
-          cb.onError(e.payload.error);
-        }),
-      ]);
-      unlistensRef.current = unlistens;
-
-      try {
-        await tauri.chat.stream(messages, params, sessionId);
-      } finally {
-        teardown();
-      }
+      await startChatStream(sessionId, messages, params, null, cb);
     },
-    [sessionId, stop, teardown],
+    [sessionId],
   );
 
   const startCloud = useCallback(
     async (cloud: CloudModel, messages: Message[], params: InferParams, cb: Callbacks) => {
-      if (statusRef.current === 'streaming') {
-        statusRef.current = 'stopped';
-        await tauri.chat.stop();
-        teardown();
-      }
-      statusRef.current = 'streaming';
-      const unlistens = await Promise.all([
-        events.tokenEvent.listen((e) => {
-          if (e.payload.sessionId !== sessionId) return;
-          cb.onToken(e.payload.text);
-        }),
-        events.streamDoneEvent.listen((e) => {
-          if (e.payload.sessionId !== sessionId) return;
-          if (statusRef.current === 'stopped') { cb.onStopped?.(); return; }
-          statusRef.current = 'done';
-          cb.onDone();
-        }),
-        events.streamErrorEvent.listen((e) => {
-          if (e.payload.sessionId !== sessionId) return;
-          statusRef.current = 'error';
-          cb.onError(e.payload.error);
-        }),
-      ]);
-      unlistensRef.current = unlistens;
-      try {
-        await tauri.chat.cloudStream(cloud.providerId, cloud.modelId, messages, params, sessionId);
-      } finally {
-        teardown();
-      }
+      await startChatStream(sessionId, messages, params, cloud, cb);
     },
-    [sessionId, teardown],
+    [sessionId],
   );
 
-  // Unmount safety: stop in-flight stream and clean up listeners (spec §2 amendment)
-  useEffect(
-    () => () => {
-      if (statusRef.current === 'streaming') {
-        void tauri.chat.stop();
-      }
-      teardown();
-    },
-    [teardown],
-  );
+  const stop = useCallback(async () => {
+    await requestStreamStop(sessionId);
+  }, [sessionId]);
 
   return { start, startCloud, stop, sessionId };
 }
