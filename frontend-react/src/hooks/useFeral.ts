@@ -20,7 +20,7 @@ import { ensureFeralListener, registerFeralStream } from '@/lib/feralAgentStream
 
 interface StreamCallbacks {
   onToken:      (chunk: string) => void;
-  onDone:       () => void;
+  onDone:       (finalContent?: string) => void;
   onError:      (err: string) => void;
   onStopped:    () => void;
   /** Optional: backend hit max_tokens before natural stop (Gemma server cap, etc.) */
@@ -57,7 +57,7 @@ export function useFeralStream(chatSessionId: string) {
       // Hand the callbacks to the global registry; they outlive this component.
       registerFeralStream(messageId, {
         onChunk: (c) => callbacks.onToken(c),
-        onDone: () => callbacks.onDone(),
+        onDone: (fc) => callbacks.onDone(fc),
         onError: (m) => callbacks.onError(m),
         onToolStart: callbacks.onToolStart ? (t, a) => callbacks.onToolStart!(t, a) : undefined,
         onToolDone: callbacks.onToolDone ? (t) => callbacks.onToolDone!(t) : undefined,
@@ -178,11 +178,17 @@ export function useFeralSendMessage(chatSessionId: string) {
           state.thinkingDurationRecorded = false;
           if (isActive()) useChat.getState().clearStreamingContent();
         },
-        onDone: async () => {
+        onDone: async (finalContent?: string) => {
+          // If streaming produced no visible answer (e.g. zombie/Q2 model that
+          // emits no tokens or all-thinking output), fall back to the agent
+          // loop's authoritative final content from the done event.
+          if (state.answer.trim().length === 0 && finalContent?.trim()) {
+            state.answer = finalContent.trim();
+            if (isActive()) {
+              useChat.getState().updateLastAssistantMessage({ content: state.answer });
+            }
+          }
           if (isActive()) useChat.getState().setStreamStatus('done');
-          // Persist BEFORE unmarking so that if the user navigates away and
-          // back while the disk-write is in flight, open() still sees
-          // streamingIds[id]=true and won't load the incomplete disk snapshot.
           if (state.answer.trim().length > 0) await persistFinal();
           useConversations.getState().unmarkStreaming(sessionId);
         },

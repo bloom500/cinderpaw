@@ -146,7 +146,8 @@ export class AgentLoop {
       };
 
       const completion = await this.#complete(sessionId, memory, onToken);
-      const parsed = parseResponse(completion);
+      const knownTools = new Set(this.#registry.list().map((t) => t.manifest.name));
+      const parsed = parseResponse(completion, knownTools);
 
       if (parsed.toolCalls.length === 0) {
         // No tool calls → this is the final answer. Tokens already streamed.
@@ -287,13 +288,25 @@ function buildSystemPrompt(registry: ToolRegistry): string {
  * Malformed blocks are silently ignored; partial / extra text around a tool
  * call is preserved as the text portion.
  */
-export function parseResponse(raw: string): ParsedResponse {
+export function parseResponse(raw: string, knownTools?: Set<string>): ParsedResponse {
   const toolCalls: ParsedToolCall[] = [];
   let text = raw;
 
+  // Pass 0: <tool_call>...</tool_call> tags — Gemma4 and similar native formats.
+  const toolCallTag = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+  let match: RegExpExecArray | null;
+  while ((match = toolCallTag.exec(raw)) !== null) {
+    const call = tryParseCall(match[1]?.trim() ?? "");
+    if (call) {
+      toolCalls.push(call);
+      text = text.replace(match[0], "").trim();
+    }
+  }
+
+  if (toolCalls.length > 0) return { text: text.trim(), toolCalls };
+
   // Pass 1: fenced blocks (```tool, ```json, or unlabelled)
   const fence = /```(?:tool|json|[a-z]*)?\s*([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
   while ((match = fence.exec(raw)) !== null) {
     const call = tryParseCall(match[1] ?? "");
     if (call) {
@@ -322,11 +335,11 @@ export function parseResponse(raw: string): ParsedResponse {
   if (bare) return { text: "", toolCalls: [bare] };
 
   // Pass 4: bracket format [tool_name(key="value", key2=num)]
-  // Some models (e.g. LFM2.5) emit this Python-call syntax instead of JSON.
+  // Gated on knownTools to avoid false positives from degraded/zombie models.
   const bracketLine = /^\[([a-zA-Z_]\w*)\(([^)]*)\)\]$/;
   for (const line of raw.split("\n")) {
     const m = bracketLine.exec(line.trim());
-    if (m) {
+    if (m && (!knownTools || knownTools.has(m[1]!))) {
       const call = { name: m[1]!, args: parseBracketArgs(m[2]!) };
       toolCalls.push(call);
       text = text.replace(line, "").trim();

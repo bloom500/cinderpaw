@@ -19,7 +19,9 @@ import type { FeralAgentEvent } from '@/lib/tauri';
 
 export interface FeralStreamHandlers {
   onChunk: (content: string) => void;
-  onDone: () => void;
+  /** Called when the agent loop finishes. `finalContent` is the agent's
+   *  authoritative answer — use it as fallback if no chunks were streamed. */
+  onDone: (finalContent?: string) => void;
   onError: (message: string) => void;
   onToolStart?: (tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (tool: string) => void;
@@ -54,7 +56,7 @@ export function ensureFeralListener(): Promise<void> {
           const h = inflight.get(parsed.id);
           if (h) {
             inflight.delete(parsed.id);
-            h.onDone();
+            h.onDone(parsed.content);
           }
         }
         break;
