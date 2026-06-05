@@ -12,6 +12,7 @@ import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { NoModelEmptyState, NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { FeralGlobalMount } from '@/components/chat/FeralGlobalMount';
 import { useFeralSendMessage } from '@/hooks/useFeral';
+import { useFeralStore } from '@/stores/feral';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -94,15 +95,32 @@ export function ChatPage() {
     }
   }, [reopenSessionId, sessionId]);
 
-  // When the user manually switches to agent mode, ensure an agent is
-  // selected so feralSend can tag conversations with agent_id.
+  // When the user switches to agent mode:
+  // 1. Ensure an agent is selected so feralSend can tag conversations.
+  // 2. Hot-swap the Feral sidecar to the currently loaded local model.
+  //    The sidecar persists its own model config and may be pointing at
+  //    an Ollama model name that doesn't match what's loaded in the
+  //    Feral inference backend (port 11435). Without this sync, all
+  //    sidecar requests fail silently.
   useEffect(() => {
     if (inputMode !== 'agent') return;
-    if (useAgent.getState().current) return;
-    void useAgent.getState().refresh().then(() => {
-      const first = useAgent.getState().list[0];
-      if (first?.id) useAgent.getState().setCurrent(first.id);
-    });
+
+    if (!useAgent.getState().current) {
+      void useAgent.getState().refresh().then(() => {
+        const first = useAgent.getState().list[0];
+        if (first?.id) useAgent.getState().setCurrent(first.id);
+      });
+    }
+
+    const { loaded } = useModel.getState();
+    if (loaded) {
+      void useFeralStore.getState().setModel({
+        source: 'openai_compatible',
+        model: loaded.name,
+        baseUrl: 'http://localhost:11435',
+        providerId: 'feral-local',
+      }).catch(console.error);
+    }
   }, [inputMode]);
 
   // Listen for Ctrl+N / ⌘N from useGlobalHotkeys
