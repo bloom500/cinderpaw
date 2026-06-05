@@ -17,7 +17,7 @@ import { FileAttachButton } from './FileAttachButton';
 import { ToolsPopover } from './ToolsPopover';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
-import { useUI, type ReasoningMode, type InputMode } from '@/stores/ui';
+import { useUI, type ReasoningMode } from '@/stores/ui';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { requestStreamStop } from '@/lib/chatStream';
 import { cn } from '@/lib/utils';
@@ -200,6 +200,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 <button
                   type="button"
                   onClick={() => setInputMode('agent')}
+                  aria-label="Switch to Agent mode"
+                  aria-pressed={inputMode === 'agent'}
                   className={cn(
                     'px-2.5 text-[11px] font-medium transition-colors',
                     inputMode === 'agent'
@@ -212,6 +214,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 <button
                   type="button"
                   onClick={() => setInputMode('chat')}
+                  aria-label="Switch to Chat mode"
+                  aria-pressed={inputMode === 'chat'}
                   className={cn(
                     'px-2.5 text-[11px] font-medium transition-colors',
                     inputMode === 'chat'
