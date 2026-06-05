@@ -3,7 +3,6 @@ import { AppShell } from '@/components/layout/AppShell';
 import { ChatPage } from '@/pages/ChatPage';
 import { ModelsPage } from '@/pages/ModelsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
-import { AgentsPage } from '@/pages/AgentsPage';
 import { StubPage } from '@/pages/StubPage';
 
 export const router = createMemoryRouter([
@@ -15,9 +14,8 @@ export const router = createMemoryRouter([
       { path: 'chat',     element: <ChatPage /> },
       { path: 'chat/:id', element: <ChatPage /> },
       { path: 'models',   element: <ModelsPage /> },
-      { path: 'agents',   element: <AgentsPage /> },
       { path: 'settings', element: <SettingsPage /> },
-      { path: 'skills',   element: <StubPage title="Skills"   message="Coming in v0.2" /> },
+      { path: 'skills',   element: <StubPage title="Skills" message="Coming in v0.2" /> },
     ],
   },
 ]);
