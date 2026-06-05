@@ -579,7 +579,7 @@ function RecentRow({
   projects: Project[];
   isStreaming?: boolean;
 }) {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
   const isActive = conv.id === currentId;
   const isAgentConv = !!conv.agent_id;
 
