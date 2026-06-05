@@ -5,9 +5,18 @@ target/
 src-tauri/target/
 src-tauri/WixTools/
 
-# Frontend build
-frontend/dist/
-frontend/target/
+# Frontend build & deps
+frontend-react/dist/
+frontend-react/target/
+node_modules/
+
+# Feral agent sidecar build output (only .gitkeep is tracked)
+FeralAgent/dist/
+src-tauri/binaries/*.exe
+src-tauri/binaries/feral-agent
+
+# Git worktrees (paseo / git worktree add)
+.worktrees/
 
 # Graphify cache / output
 graphify-out/cache/

@@ -1,0 +1,31 @@
+# Normalize text files to LF in the repository; check out with native EOLs.
+# Keeps diffs clean across Windows/macOS/Linux without forcing a working-tree EOL.
+* text=auto
+
+# Source — always LF so tooling (rustfmt, eslint, bun) stays consistent.
+*.rs    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Binaries — never apply EOL conversion (would corrupt the file).
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.icns  binary
+*.gif   binary
+*.webp  binary
+*.exe   binary
+*.dll   binary
+*.gguf  binary
+*.bin   binary
+*.wasm  binary
