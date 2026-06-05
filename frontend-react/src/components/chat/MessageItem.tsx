@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Markdown } from '@/lib/markdown';
@@ -5,7 +6,10 @@ import { ThinkingBlock } from './ThinkingBlock';
 import type { ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 
-export function MessageItem({ message, streaming = false }: { message: ChatMessage; streaming?: boolean }) {
+// Memoized: the store rebuilds only the last (streaming) message object each
+// token, so completed messages keep their reference and skip the expensive
+// markdown re-parse + re-highlight on every streamed token.
+export const MessageItem = memo(function MessageItem({ message, streaming = false }: { message: ChatMessage; streaming?: boolean }) {
   const isUser = message.role === 'user';
   const reasoningMode = useUI((s) => s.reasoningMode);
 
@@ -53,4 +57,4 @@ export function MessageItem({ message, streaming = false }: { message: ChatMessa
       )}
     </div>
   );
-}
+});
