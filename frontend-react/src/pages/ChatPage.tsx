@@ -61,18 +61,23 @@ export function ChatPage() {
   // if the conversation was created under a Feral Agent.
   useEffect(() => {
     if (!id) return;
+    const targetId = id;
     // Arm reopen flag SYNCHRONOUSLY before any await so effects that
     // fire immediately see it set.
-    useAgent.getState().setReopenSessionId(id);
+    useAgent.getState().setReopenSessionId(targetId);
     void (async () => {
-      await useConversations.getState().open(id);
-      const meta = useConversations.getState().list.find((c) => c.id === id);
+      await useConversations.getState().open(targetId);
+      // Guard: bail if navigation moved on before this await resolved.
+      if (useAgent.getState().reopenSessionId !== targetId) return;
+      const meta = useConversations.getState().list.find((c) => c.id === targetId);
       if (!meta?.agent_id) {
         useAgent.getState().setReopenSessionId(null);
         return;
       }
       setInputMode('agent');
       await useAgent.getState().refresh();
+      // Guard again after second await.
+      if (useAgent.getState().reopenSessionId !== targetId) return;
       const agent = useAgent.getState().list.find((a) => a.id === meta.agent_id);
       if (agent?.id) useAgent.getState().setCurrent(agent.id);
     })();
