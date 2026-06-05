@@ -377,7 +377,7 @@ function tryParseCall(candidate: string): ParsedToolCall | null {
   const name = record.name ?? record.tool;
   if (typeof name !== "string" || !name.trim()) return null;
 
-  const rawArgs = record.args ?? record.parameters ?? record.input ?? {};
+  const rawArgs = record.args ?? record.arguments ?? record.parameters ?? record.input ?? {};
   const args =
     typeof rawArgs === "object" && rawArgs !== null && !Array.isArray(rawArgs)
       ? (rawArgs as Record<string, unknown>)
