@@ -157,8 +157,8 @@ export interface AgentConfig {
 export type FeralAgentEvent =
   | { type: 'chunk';       id: string; content: string }
   | { type: 'done';        id: string; content: string }
-  | { type: 'tool_start';  tool: string; args: Record<string, unknown> }
-  | { type: 'tool_done';   tool: string; result: unknown }
+  | { type: 'tool_start';  id: string; tool: string; args: Record<string, unknown> }
+  | { type: 'tool_done';   id: string; tool: string; result: unknown }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
   | { type: 'model_error'; message: string }

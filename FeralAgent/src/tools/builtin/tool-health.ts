@@ -32,7 +32,7 @@ export function createToolHealthTool(observations: ToolObservationLog): Tool {
         required: false,
       },
     },
-    async execute(args) {
+    async execute(_args) {
       const report = observations.buildHealthReport();
 
       if (report.tools.length === 0) {

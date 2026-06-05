@@ -44,7 +44,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2OUUxODBFQjdDOUFENjAKUldSZ3JjbTNEaGlldHM1VWF4d0tjM2NEK0hwdFVScExacTlmUXI4a1B2YVQ0TkZaZ1gyQ1ZlS0QK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMwMjY0Mzg1MkQ3MkFCNzMKUldSenEzSXRoVU1tTUplWmQ0SHNhMEw2WVd2ZmpHWjRTdTdZMnNXYkIrM0NmSkNRVVZBWmsvaDkK",
       "endpoints": [
         "https://github.com/bloom500/feral/releases/latest/download/latest.json"
       ]

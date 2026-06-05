@@ -40,6 +40,8 @@ interface ChatStore {
   updateLastAssistantMessage: (patch: Partial<ChatMessage>) => void;
   setStreamStatus: (s: StreamStatus, err?: string | null) => void;
   toggleThinking: (id: string) => void;
+  /** Clear streamed content of the last assistant message (called when a tool call is detected). */
+  clearStreamingContent: () => void;
 }
 
 export const useChat = create<ChatStore>((set) => ({
@@ -86,4 +88,13 @@ export const useChat = create<ChatStore>((set) => ({
     set((s) => ({
       expandedThinkingIds: { ...s.expandedThinkingIds, [id]: !s.expandedThinkingIds[id] },
     })),
+
+  clearStreamingContent: () =>
+    set((s) => {
+      if (s.messages.length === 0) return s;
+      const last = s.messages[s.messages.length - 1];
+      if (last.role !== 'assistant') return s;
+      return { messages: [...s.messages.slice(0, -1), { ...last, content: '' }] };
+    }),
+
 }));

@@ -158,9 +158,9 @@ export class AgentLoop {
       memory.addAssistant(completion);
 
       for (const call of parsed.toolCalls) {
-        emit({ type: "tool_start", tool: call.name, args: call.args });
+        emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args });
         const result = await this.#registry.call(call.name, call.args, sessionId);
-        emit({ type: "tool_done", tool: call.name, result });
+        emit({ type: "tool_done", id: messageId, tool: call.name, result });
 
         const rendered = result.ok
           ? result.content
@@ -321,6 +321,20 @@ export function parseResponse(raw: string): ParsedResponse {
   const bare = tryParseCall(raw.trim());
   if (bare) return { text: "", toolCalls: [bare] };
 
+  // Pass 4: bracket format [tool_name(key="value", key2=num)]
+  // Some models (e.g. LFM2.5) emit this Python-call syntax instead of JSON.
+  const bracketLine = /^\[([a-zA-Z_]\w*)\(([^)]*)\)\]$/;
+  for (const line of raw.split("\n")) {
+    const m = bracketLine.exec(line.trim());
+    if (m) {
+      const call = { name: m[1]!, args: parseBracketArgs(m[2]!) };
+      toolCalls.push(call);
+      text = text.replace(line, "").trim();
+    }
+  }
+
+  if (toolCalls.length > 0) return { text: text.trim(), toolCalls };
+
   return { text: raw.trim(), toolCalls: [] };
 }
 
@@ -357,6 +371,20 @@ function tryParseCall(candidate: string): ParsedToolCall | null {
       : {};
 
   return { name: name.trim(), args };
+}
+
+function parseBracketArgs(argsStr: string): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const pattern = /(\w+)\s*=\s*(?:"([^"\\]*)"|'([^'\\]*)'|(\d+(?:\.\d+)?)|(true|false))/g;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(argsStr)) !== null) {
+    const key = m[1]!;
+    if (m[2] !== undefined)      args[key] = m[2];
+    else if (m[3] !== undefined) args[key] = m[3];
+    else if (m[4] !== undefined) args[key] = Number(m[4]);
+    else if (m[5] !== undefined) args[key] = m[5] === "true";
+  }
+  return args;
 }
 
 /** Find the index of the closing brace of the first top-level JSON object. */

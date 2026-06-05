@@ -19,12 +19,14 @@ import { tauri, type FeralAgentEvent, type PersistedMessage } from '@/lib/tauri'
 import { ensureFeralListener, registerFeralStream } from '@/lib/feralAgentStream';
 
 interface StreamCallbacks {
-  onToken:     (chunk: string) => void;
-  onDone:      () => void;
-  onError:     (err: string) => void;
-  onStopped:   () => void;
+  onToken:      (chunk: string) => void;
+  onDone:       () => void;
+  onError:      (err: string) => void;
+  onStopped:    () => void;
   /** Optional: backend hit max_tokens before natural stop (Gemma server cap, etc.) */
   onTruncated?: (reason: string) => void;
+  onToolStart?: (tool: string, args: Record<string, unknown>) => void;
+  onToolDone?:  (tool: string) => void;
 }
 
 /**
@@ -57,6 +59,8 @@ export function useFeralStream(chatSessionId: string) {
         onChunk: (c) => callbacks.onToken(c),
         onDone: () => callbacks.onDone(),
         onError: (m) => callbacks.onError(m),
+        onToolStart: callbacks.onToolStart ? (t, a) => callbacks.onToolStart!(t, a) : undefined,
+        onToolDone: callbacks.onToolDone ? (t) => callbacks.onToolDone!(t) : undefined,
       });
     },
     [chatSessionId],
@@ -117,16 +121,20 @@ export function useFeralSendMessage(chatSessionId: string) {
         console.error('[feral] failed initial save to Recent:', err);
       }
 
-      // Local buffers — `answer` is the clean (think-stripped) text we persist.
-      let buffer = '';
-      let answer = '';
+      // Mutable state object — reset-able from onToolStart without stale closures.
+      const state = {
+        buffer: '',
+        answer: '',
+        thinkingStartMs: 0,
+        thinkingDurationRecorded: false,
+      };
 
       // Persist the finished turn to THIS conversation by id — correct even
       // when it is no longer the active session (user switched tabs).
       const persistFinal = async () => {
         const persisted: PersistedMessage[] = snapshot.map((m) => ({
           role: m.role,
-          content: m.id === asstId ? answer : m.content,
+          content: m.id === asstId ? state.answer : m.content,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -139,27 +147,43 @@ export function useFeralSendMessage(chatSessionId: string) {
       await send(content, {
         onToken: (token) => {
           // Buffer tokens, split <think>…</think> out of the visible answer.
-          buffer += token;
-          const split = splitThinking(buffer);
-          answer = split.answer;
+          state.buffer += token;
+          const split = splitThinking(state.buffer);
+          state.answer = split.answer;
           // Only mutate the live chat view while this session is on screen,
           // otherwise tokens would leak into whatever conversation the user
           // opened after switching tabs.
           if (isActive()) {
             const patch: Partial<ChatMessage> = { content: split.answer };
             if (split.thinking !== null) {
+              // Start the thinking timer on first think token.
+              if (state.thinkingStartMs === 0) state.thinkingStartMs = Date.now();
               patch.thinking = split.thinking;
               patch.thinkingComplete = split.thinkingComplete;
+              // Record duration exactly once when the last </think> closes.
+              if (split.thinkingComplete && !state.thinkingDurationRecorded && state.thinkingStartMs > 0) {
+                patch.thinkingDurationMs = Date.now() - state.thinkingStartMs;
+                state.thinkingDurationRecorded = true;
+              }
             }
             useChat.getState().updateLastAssistantMessage(patch);
           }
+        },
+        onToolStart: (_tool, _args) => {
+          // Silently clear the raw tool-call text that was streamed and reset
+          // the buffer — the next inference pass streams the final answer.
+          state.buffer = '';
+          state.answer = '';
+          state.thinkingStartMs = 0;
+          state.thinkingDurationRecorded = false;
+          if (isActive()) useChat.getState().clearStreamingContent();
         },
         onDone: async () => {
           if (isActive()) useChat.getState().setStreamStatus('done');
           // Persist BEFORE unmarking so that if the user navigates away and
           // back while the disk-write is in flight, open() still sees
           // streamingIds[id]=true and won't load the incomplete disk snapshot.
-          if (answer.trim().length > 0) await persistFinal();
+          if (state.answer.trim().length > 0) await persistFinal();
           useConversations.getState().unmarkStreaming(sessionId);
         },
         onError: (err) => {

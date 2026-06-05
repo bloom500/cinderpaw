@@ -105,7 +105,7 @@ export class ResearchLoop {
     return {
       report,
       sources: notes.map((n) => ({ url: n.url, title: n.title, excerpt: n.excerpt })),
-      iterations: notes.length > 0 ? notes[notes.length - 1].iteration : 0,
+      iterations: notes.length > 0 ? (notes[notes.length - 1]?.iteration ?? 0) : 0,
     };
   }
 
@@ -390,7 +390,7 @@ function parseMarkdownResults(text: string): SearchResult[] {
     const m = line.match(/\[([^\]]+)\]\((https?:[^)]+)\)/);
     if (m) {
       const rest = line.replace(m[0], "").replace(/^[:\s–-]+/, "").trim();
-      results.push({ title: m[1], url: m[2], snippet: rest });
+      results.push({ title: m[1]!, url: m[2]!, snippet: rest });
     }
   }
 

@@ -21,6 +21,8 @@ export interface FeralStreamHandlers {
   onChunk: (content: string) => void;
   onDone: () => void;
   onError: (message: string) => void;
+  onToolStart?: (tool: string, args: Record<string, unknown>) => void;
+  onToolDone?: (tool: string) => void;
 }
 
 const inflight = new Map<string, FeralStreamHandlers>();
@@ -70,8 +72,13 @@ export function ensureFeralListener(): Promise<void> {
           inflight.clear();
         }
         break;
-      // tool_start / tool_done / proactive / pong / model_set / model_error
-      // are handled elsewhere (useFeralGlobal) or not yet wired.
+      case 'tool_start':
+        if (parsed.id) inflight.get(parsed.id)?.onToolStart?.(parsed.tool, parsed.args ?? {});
+        break;
+      case 'tool_done':
+        if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.tool);
+        break;
+      // proactive / pong / model_set / model_error handled elsewhere (useFeralGlobal).
       default:
         break;
     }

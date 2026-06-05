@@ -27,6 +27,12 @@ desktop.ini
 .env
 .env.local
 
+# Tauri signing keys — NEVER commit these
+.tauri-key
+.tauri-key.pub
+*.tauri-key
+*.tauri-key.pub
+
 # Tauri dev / Vite dev logs (untracked build output)
 .feral-tauri.log
 .feral-tauri.log.err
