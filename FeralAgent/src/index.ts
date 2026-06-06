@@ -9,6 +9,7 @@
  */
 
 import { resolve } from "node:path";
+import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { AuditLog } from "./sandbox/audit-log.ts";
 import { EgressProxy } from "./sandbox/egress-proxy.ts";
@@ -27,6 +28,7 @@ import { createReadWebpageTool } from "./tools/builtin/read-webpage.ts";
 import { createDeepResearchTool } from "./tools/builtin/deep-research.ts";
 import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
+import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { MoodEngine } from "./core/mood.ts";
@@ -142,6 +144,10 @@ function main(): void {
   registry.register(createToolHealthTool(observations));
   // scan_workspace: ECC AgentShield — detect secrets + code security issues in workspace
   registry.register(createScanWorkspaceTool(config.workspace));
+  // read_skill: Claude Code-style on-demand body loader for locally-installed
+  // skills. The system prompt only carries a short menu; the LLM calls this
+  // tool to load the full SKILL.md body of any skill it wants to apply.
+  registry.register(createReadSkillTool(`${homedir()}/.feral/skills`));
 
   // --- Mood engine ---
   const mood = new MoodEngine();
@@ -218,9 +224,10 @@ function main(): void {
           return;
         }
         mood.applyEvent("message_received");
-        // skillsContext is built on the Rust side from currently-installed
-        // local skills and is injected into the system prompt on first
-        // session creation. See AgentLoop.#memoryFor.
+        // skillsContext is the per-turn roster of locally-installed skills
+        // (metadata only) sent by Rust. Rendered as a short "Available
+        // skills" menu in the system prompt; the LLM loads any skill's body
+        // on demand via the `read_skill` tool. See WorkingMemory.setSkillMenu.
         const skillsContext = msg.skillsContext;
         await agent.handle(sessionId, content, id, (event) => {
           transport.send(event);

@@ -56,10 +56,12 @@ export function ModelPickerPopover() {
 
   // In agent mode, selecting a local model must LOAD it into Feral's engine
   // (so /v1/chat/completions has it resident) then point the sidecar at it.
+  // Goes through the model store's load() so isLoading/loadProgress are
+  // populated — the ModelPill renders a progress bar off those.
   const selectLocalAgent = async (m: ModelInfo) => {
     feralSetError(null);
     try {
-      await tauri.models.startLoad(m.path);
+      await load(m.path);
       await feralSetModel({
         source: 'openai_compatible',
         model: m.name,

@@ -30,6 +30,7 @@ import type {
   OutboundEvent,
   ParsedResponse,
   ParsedToolCall,
+  SkillMeta,
 } from "../types.ts";
 
 export interface AgentLoopConfig {
@@ -91,20 +92,21 @@ export class AgentLoop {
    * Process one user message end-to-end. Emits chunk/tool/done/error events to
    * the sink and returns the final assistant text. Never throws.
    *
-   * `skillsContext`, when provided, is baked into the session's system prompt
-   * the first time the session is created. Subsequent turns in the same
-   * session keep the system prompt as it was at creation (skills installed or
-   * removed mid-conversation do not retroactively change the prompt for that
-   * session — the user sees the change reflected when they start a new chat).
+   * `skillsContext`, when provided, is rendered as a short "Available skills"
+   * menu in the system prompt for THIS turn only (Claude Code-style: metadata
+   * menu + on-demand `read_skill` tool body). It is refreshed every turn from
+   * Rust, so installing or removing a skill mid-conversation is reflected in
+   * the very next message without resetting the session.
    */
   async handle(
     sessionId: string,
     userText: string,
     messageId: string,
     emit: EventSink,
-    skillsContext?: string,
+    skillsContext?: SkillMeta[],
   ): Promise<string> {
-    const memory = this.#memoryFor(sessionId, skillsContext);
+    const memory = this.#memoryFor(sessionId);
+    memory.setSkillMenu(skillsContext ?? []);
 
     // Inject relevant past context before the user message lands in the prompt.
     // This runs synchronously (no I/O — pure DB reads) and never throws.
@@ -169,7 +171,17 @@ export class AgentLoop {
         // Strip reasoning tags so a thinking-only completion (degraded models
         // that emit `<think>` and stop) never leaks raw tags as the answer.
         const answer = stripThinking(parsed.text) || stripThinking(streamedSoFar);
-        return answer || "(no response)";
+        if (!answer) {
+          // Empty answer — distinguish "model only reasoned, no answer" from
+          // a true silence so the user knows whether to retry with a shorter
+          // prompt (cut-off) or a different model (degenerate).
+          const hadThinking = /<think>|<thinking>|<\|channel>thought/i.test(completion);
+          if (hadThinking) {
+            return "(The model used all available tokens on reasoning and produced no answer. This usually means the response was cut off. Try a shorter prompt, a larger model, or increase max_tokens.)";
+          }
+          return "(The model returned an empty response.)";
+        }
+        return answer;
       }
 
       // Record the assistant's tool-calling turn so the model sees its own
@@ -257,13 +269,10 @@ export class AgentLoop {
     return res.content.trim();
   }
 
-  #memoryFor(sessionId: string, skillsContext?: string): WorkingMemory {
+  #memoryFor(sessionId: string): WorkingMemory {
     let memory = this.#sessions.get(sessionId);
     if (!memory) {
-      const prompt = skillsContext
-        ? `${this.#systemPrompt}\n\n## Installed skills (from ~/.feral/skills)\n${skillsContext}`
-        : this.#systemPrompt;
-      memory = new WorkingMemory(prompt);
+      memory = new WorkingMemory(this.#systemPrompt);
       this.#sessions.set(sessionId, memory);
     }
     return memory;

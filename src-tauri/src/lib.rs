@@ -559,47 +559,20 @@ async fn feral_send_message(
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
 
-    // Build a per-message string of every locally-installed skill so the agent
-    // sees the user's active skill roster on first session creation. Built on
-    // every send: cheap (a directory scan + N small file reads), always
-    // reflects the current install state, avoids stale caches, and never blocks
-    // a chat — failures here are logged and the message is sent without
-    // skills context.
-    let skills_context: Option<String> = match skills::local_list() {
-        Ok(metas) if !metas.is_empty() => {
-            let mut s = String::from(
-                "The following skills are installed on this device. \
-                 Read each and follow its guidance when relevant to the user's request.\n\n",
-            );
-            for meta in &metas {
-                match skills::get_installed_content(&meta.id) {
-                    Ok(content) => {
-                        s.push_str(&format!(
-                            "## Skill: {} (id: `{}`, version: {})\n{}\n\n\
-                             ```skill-md\n{}\n```\n\n",
-                            meta.name, meta.id, meta.version, meta.description, content
-                        ));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            skill = %meta.id,
-                            error = %e,
-                            "skipping skill: failed to read content"
-                        );
-                    }
-                }
-            }
-            Some(s)
-        }
-        Ok(_) => None, // no skills installed — omit the field entirely
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "failed to list installed skills; sending without skills context"
-            );
-            None
-        }
-    };
+    // Send a metadata-only roster of installed skills (id, name, description,
+    // version, tags) on every message. The agent sidecar renders this as a
+    // short "skill menu" in the system prompt, then loads the full SKILL.md
+    // body on demand via the `read_skill` tool. Built per-send so the roster
+    // always reflects the current install state — failures here are logged
+    // and the message is sent without the roster.
+    let skills_context: Vec<skills::SkillMeta> = skills::local_list()
+        .unwrap_or_default()
+        .into_iter()
+        // Only ship local-installed skills to the agent — remote/community
+        // entries have no content on disk to load and would just bloat the
+        // menu. The frontend has its own UI for those.
+        .filter(|m| matches!(m.source_provider, skills::SourceProvider::Local))
+        .collect();
 
     let mut payload = serde_json::json!({
         "type": "message",
@@ -607,8 +580,9 @@ async fn feral_send_message(
         "content": content,
         "sessionId": session_id,
     });
-    if let Some(ctx) = skills_context {
-        payload["skillsContext"] = serde_json::Value::String(ctx);
+    if !skills_context.is_empty() {
+        payload["skillsContext"] = serde_json::to_value(&skills_context)
+            .map_err(|e| format!("failed to serialize skills context: {e}"))?;
     }
     let msg = payload.to_string();
 

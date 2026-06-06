@@ -217,6 +217,35 @@ export interface ParsedResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Skills (Claude Code-style: metadata menu + on-demand body load)
+// ---------------------------------------------------------------------------
+
+/**
+ * Metadata for a single skill, mirroring the Rust `skills::SkillMeta` struct
+ * (see `src-tauri/src/skills.rs`). Rust sends a roster of these on every
+ * `message`; the agent renders them as a "skill menu" in the system prompt
+ * and loads the full body on demand via the `read_skill` tool.
+ */
+export interface SkillMeta {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  version: string;
+  license: string;
+  tags: string[];
+  /** "local" | "github" | "clawhub" */
+  source_provider: string;
+  source_url: string | null;
+  content_url: string | null;
+  /** "installed" | "not_installed" */
+  install_status: string;
+  /** "bundled" | "local" | "verified" | "community" | "experimental" | "unknown" */
+  trust_label: string;
+  last_updated: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Transports
 // ---------------------------------------------------------------------------
 
@@ -227,12 +256,12 @@ export interface InboundMessage {
   content?: string;
   sessionId?: string;
   /**
-   * Pre-built context string for the user's currently-installed local skills.
-   * Injected into the system prompt on first session creation by the agent
-   * loop. Built on the Rust side from `skills::local_list()` + per-skill
-   * `get_installed_content()`.
+   * Roster of currently-installed LOCAL skills, rebuilt by Rust on every send.
+   * The agent loop renders this as a short "Available skills" menu inside the
+   * system prompt for the current turn; the LLM loads each skill's full body
+   * on demand via the `read_skill` tool. Empty/undefined → no menu rendered.
    */
-  skillsContext?: string;
+  skillsContext?: SkillMeta[];
   // set_model fields (all present when type === "set_model")
   provider?: string;
   model?: string;

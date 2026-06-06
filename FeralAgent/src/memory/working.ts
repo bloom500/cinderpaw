@@ -8,7 +8,7 @@
  * "compress_and_continue" budget policy.
  */
 
-import type { ChatMessage } from "../types.ts";
+import type { ChatMessage, SkillMeta } from "../types.ts";
 
 export interface WorkingMemoryConfig {
   /** Approximate token ceiling before compression kicks in. */
@@ -33,6 +33,14 @@ export class WorkingMemory {
    * past-memory surfacing ephemeral and turn-specific.
    */
   #memoryContext = "";
+  /**
+   * Claude Code-style skill menu. Updated each turn from `msg.skillsContext`
+   * (the fresh roster sent by Rust). Rendered as a system message so the LLM
+   * sees a short "Available skills" list and uses the `read_skill` tool to
+   * load the body of any skill it actually wants to apply. Updated per turn
+   * so newly installed skills show up without resetting the session.
+   */
+  #skillMenu = "";
 
   constructor(systemPrompt: string, config: Partial<WorkingMemoryConfig> = {}) {
     this.#system = systemPrompt;
@@ -63,7 +71,11 @@ export class WorkingMemory {
 
   /** Approximate token footprint of the full prompt (system + turns). */
   estimatedTokens(): number {
-    const all = this.#system + this.#messages.map((m) => m.content).join("");
+    const all =
+      this.#system +
+      this.#skillMenu +
+      this.#memoryContext +
+      this.#messages.map((m) => m.content).join("");
     return Math.ceil(all.length / 4);
   }
 
@@ -78,12 +90,35 @@ export class WorkingMemory {
   }
 
   /**
+   * Update the per-turn skill menu from the Rust-side roster. The menu is
+   * a short system message; the LLM reads it to discover what skills exist
+   * and calls the `read_skill` tool to load the body of any it wants to apply.
+   * Pass an empty array to clear the menu (e.g. user uninstalled everything).
+   */
+  setSkillMenu(skills: SkillMeta[]): void {
+    if (skills.length === 0) {
+      this.#skillMenu = "";
+      return;
+    }
+    const lines = skills.map(
+      (s) => `- \`${s.id}\` — ${s.name}: ${s.description || "(no description)"}`,
+    );
+    this.#skillMenu =
+      "## Available skills (locally installed)\n" +
+      "Use the `read_skill` tool to load the full body of any skill before applying it.\n\n" +
+      lines.join("\n");
+  }
+
+  /**
    * Build the full message array for an inference call: the system prompt,
-   * followed by the (optional) transient memory context, followed by the
-   * conversation transcript.
+   * followed by the (optional) skill menu, followed by the (optional)
+   * transient memory context, followed by the conversation transcript.
    */
   render(): ChatMessage[] {
     const base: ChatMessage[] = [{ role: "system", content: this.#system }];
+    if (this.#skillMenu) {
+      base.push({ role: "system", content: this.#skillMenu });
+    }
     if (this.#memoryContext) {
       base.push({ role: "system", content: this.#memoryContext });
     }
