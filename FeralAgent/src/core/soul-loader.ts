@@ -9,6 +9,11 @@
  * The watcher (`watchSoul`) is a hot-reload mechanism for the user override —
  * it does NOT watch the bundled file (changes there require a release). The
  * watcher is debounced because editors often emit multiple events per save.
+ *
+ * Build behaviour: the bundled SOUL.md is embedded into the binary as a
+ * compile-time string via Bun's `import ... with { type: "text" }` attribute.
+ * This avoids the runtime file-read issue (where the file does not exist in
+ * the temp directory Bun uses for compiled binaries).
  */
 
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
@@ -16,6 +21,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+// @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
+import bundledSoul from "../SOUL.md" with { type: "text" };
 
 /** Approximate token cost ceiling before we warn the user. */
 export const SOFT_CAP_TOKENS = 4_000;
@@ -50,10 +57,16 @@ export interface SoulPaths {
  * Resolve the bundled and user SOUL.md paths. Pure — no I/O — so callers can
  * use this to display "you can edit your soul here" messages.
  *
- * `import.meta.dir` resolves to the directory of this source file at runtime.
- * In a compiled Bun binary, the bundled SOUL.md sits next to the executable.
+ * The "bundled" path is informational only — at runtime the bundled content
+ * is the compile-time-embedded `bundledSoul` constant (see top of file).
+ * We still resolve a path for diagnostics and for the hot-reload message
+ * ("no user override at <path>"). The path points at a phantom location
+ * because the binary does not contain a separate SOUL.md file.
  */
 export function resolveSoulPaths(homeDir: string = homedir()): SoulPaths {
+  // The bundled SOUL.md is embedded at build time; the resolved path is
+  // for diagnostics only. Pointing at the source location is more honest
+  // than pretending there's a file on disk.
   const here = dirname(fileURLToPath(import.meta.url));
   const bundled = join(here, "..", "SOUL.md");
   const user = join(homeDir, ".feral", "SOUL.md");
@@ -61,10 +74,11 @@ export function resolveSoulPaths(homeDir: string = homedir()): SoulPaths {
 }
 
 /**
- * Load the SOUL.md, preferring the user override. Throws only if the bundled
- * file is missing (a programmer error — the binary should never ship without
- * it). User-file read errors are caught and logged so a corrupt override
- * never bricks the agent.
+ * Load the SOUL.md, preferring the user override. The bundled default is
+ * the compile-time-embedded `bundledSoul` string (set via Bun's text import).
+ * Throws only if the bundled content is missing (a programmer error — the
+ * binary should never ship without it). User-file read errors are caught
+ * and logged so a corrupt override never bricks the agent.
  */
 export function loadSoul(homeDir: string = homedir()): SoulConfig {
   const paths = resolveSoulPaths(homeDir);
@@ -74,13 +88,14 @@ export function loadSoul(homeDir: string = homedir()): SoulConfig {
   if (existsSync(paths.user)) {
     content = safeRead(paths.user);
     source = "user";
-  } else if (existsSync(paths.bundled)) {
-    content = safeRead(paths.bundled);
+  } else if (bundledSoul && typeof bundledSoul === "string" && bundledSoul.length > 0) {
+    content = bundledSoul;
     source = "bundled";
   } else {
     throw new Error(
-      `SOUL.md not found. Expected bundled at ${paths.bundled}. ` +
-        `This is a build/packaging error — the binary is missing its identity document.`,
+      `SOUL.md not found. No user override at ${paths.user} and the ` +
+        `embedded bundled content is empty. This is a build/packaging error — ` +
+        `the binary is missing its identity document.`,
     );
   }
 
