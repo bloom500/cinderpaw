@@ -91,7 +91,7 @@ export function OnboardingWizard() {
             disabled={step === 0}
             className="text-sm text-text-muted hover:text-text-primary px-3 py-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            <ArrowLeft size={14} className="inline -mt-0.5 mr-1" /> Înapoi
+            <ArrowLeft size={14} className="inline -mt-0.5 mr-1" /> Back
           </button>
           <StepNavigation step={step} totalSteps={totalSteps} />
         </footer>
@@ -131,7 +131,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
         onClick={() => void finish()}
         className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors"
       >
-        Deschide chat <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
+        Open chat <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
       </button>
     );
   }
@@ -143,7 +143,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
       disabled={!canProceed}
       className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >
-      Continuă <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
+      Continue <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
     </button>
   );
 }
@@ -163,11 +163,11 @@ function WelcomeStep() {
         👾
       </motion.div>
       <h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
-        Bine ai venit la Feral
+        Welcome to Feral
       </h1>
       <p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
-        Un agent AI local, care te ajută cu fișierele, proiectele și task-urile tale —
-        fără să trimiți datele în cloud.
+        A local AI agent that helps you with your files, projects, and tasks,
+        without sending your data to the cloud.
       </p>
     </div>
   );
@@ -185,23 +185,23 @@ function PersonalizeStep() {
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-semibold text-text-primary mb-2">
-          Hai să ne cunoaștem
+          Let's get to know each other
         </h2>
         <p className="text-sm text-text-muted">
-          Numele pe care le alegi aici le voi folosi când vorbim.
+          The names you pick here are the ones I'll use when we talk.
         </p>
       </div>
 
       <div className="space-y-5">
         <Field
-          label="Cum te cheamă?"
-          hint="Așa te voi striga când vorbim."
+          label="What should I call you?"
+          hint="I'll use this to address you in our conversation."
         >
           <input
             type="text"
             value={userName}
             onChange={(e) => setUserName(e.target.value)}
-            placeholder="ex: Darius"
+            placeholder="e.g. Darius"
             autoFocus
             maxLength={40}
             className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
@@ -210,8 +210,8 @@ function PersonalizeStep() {
         </Field>
 
         <Field
-          label="Cum vrei să mă numesc?"
-          hint={'Poți lăsa „Feral" sau alege altceva.'}
+          label="What should you call me?"
+          hint={'You can leave "Feral" or pick something else.'}
         >
           <input
             type="text"
@@ -249,20 +249,20 @@ function Field({
 }
 
 function Preview({ userName, agentName }: { userName: string; agentName: string }) {
-  const safeName = userName.trim() || 'tu';
+  const safeName = userName.trim() || 'you';
   const safeAgent = agentName.trim() || 'Feral';
   return (
     <div className="rounded-lg bg-bg-primary/50 border border-border-subtle p-4 text-sm space-y-2">
       <p className="text-text-muted text-xs uppercase tracking-wider font-medium">
-        Previzualizare
+        Preview
       </p>
       <p className="text-text-primary">
         <span className="text-text-muted">{safeName}:</span>{' '}
-        Salut, am o întrebare.
+        Hi, I have a question.
       </p>
       <p className="text-text-primary">
         <span className="text-brand">{safeAgent}:</span>{' '}
-        Zi, {safeName}! Cu ce te pot ajuta?
+        Sure, {safeName}! What can I help you with?
       </p>
     </div>
   );
@@ -275,28 +275,28 @@ function ShowcaseStep() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold text-text-primary mb-2">
-          Ce pot face pentru tine
+          What I can do for you
         </h2>
         <p className="text-sm text-text-muted">
-          Câteva exemple. Nu trebuie să reții nimic — doar vorbește normal.
+          A few examples. You don't have to remember anything, just talk to me normally.
         </p>
       </div>
 
       <div className="grid gap-3">
         <ShowcaseCard
           icon={<FileText size={20} />}
-          title="Citesc și scriu fișiere"
-          example={'„Rezumă-mi README.md" sau „Creează un fișier notes.md cu ideile de azi"'}
+          title="Read and write files"
+          example={'„Summarize README.md" or „Create a notes.md file with today\'s ideas"'}
         />
         <ShowcaseCard
           icon={<Search size={20} />}
-          title="Caut pe web"
-          example={'„Caută cele mai bune practici pentru Rust error handling"'}
+          title="Search the web"
+          example={'„Look up the best practices for Rust error handling"'}
         />
         <ShowcaseCard
           icon={<Terminal size={20} />}
-          title="Rulez comenzi, teste, build-uri"
-          example={'„Rulează testele și arată-mi ce a eșuat"'}
+          title="Run commands, tests, builds"
+          example={'„Run the tests and show me what failed"'}
         />
       </div>
     </div>
@@ -330,7 +330,7 @@ function ShowcaseCard({
 function DoneStep() {
   const userName = useOnboarding((s) => s.userName);
   const agentName = useOnboarding((s) => s.agentName);
-  const safeName = userName.trim() || 'tu';
+  const safeName = userName.trim() || 'you';
   const safeAgent = agentName.trim() || 'Feral';
 
   return (
@@ -345,15 +345,15 @@ function DoneStep() {
         🎉
       </motion.div>
       <h2 className="text-2xl font-semibold text-text-primary">
-        Gata, {safeName}!
+        You're all set, {safeName}!
       </h2>
       <p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
-        Sunt <span className="text-brand font-medium">{safeAgent}</span>, gata de treabă.
-        Pune-mi orice întrebare și vedem ce pot face.
+        I'm <span className="text-brand font-medium">{safeAgent}</span>, ready to go.
+        Ask me anything and we'll see what I can do.
       </p>
       <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
         <Sparkles size={12} />
-        <span>Poți schimba numele oricând din Settings</span>
+        <span>You can change names anytime in Settings</span>
       </div>
     </div>
   );
