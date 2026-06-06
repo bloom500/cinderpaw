@@ -19,6 +19,7 @@ import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
 import { useProjects, type Project } from '@/stores/projects';
 import { useDownload } from '@/stores/download';
+import { useAppVersion } from '@/hooks/useAppVersion';
 
 export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
@@ -163,6 +164,7 @@ export function Sidebar() {
   const collapsed     = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
   const openSearch    = useUI((s) => s.openSearch);
+  const appVersion    = useAppVersion();
 
   const [newProjectOpen, setNewProjectOpen]     = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
@@ -254,7 +256,7 @@ export function Sidebar() {
                 exit={{ opacity: 0 }}
                 className="text-[11px] text-text-muted select-none"
               >
-                v0.1.3
+                {appVersion ? `v${appVersion}` : ''}
               </motion.span>
             )}
           </AnimatePresence>
