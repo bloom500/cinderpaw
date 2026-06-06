@@ -16,6 +16,7 @@
  */
 
 import { isAbsolute, resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
 import type { Permission, ToolManifest } from "../types.ts";
 
 const ALL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
@@ -93,6 +94,22 @@ export function validateManifest(manifest: ToolManifest): void {
       }
     }
   }
+
+  // process:spawn requires a non-empty allowedExecutables allowlist.
+  // The ProcessSandbox refuses any executable not on the list, so an
+  // empty list would make the tool useless while still passing the
+  // registry gate — fail fast at registration instead.
+  if (manifest.permissions.includes("process:spawn")) {
+    if (
+      !manifest.allowedExecutables ||
+      manifest.allowedExecutables.length === 0
+    ) {
+      throw new ManifestError(
+        `tool "${manifest.name}" has process:spawn permission but no ` +
+          `allowedExecutables allowlist`,
+      );
+    }
+  }
 }
 
 /** Whether a manifest declares the given permission. */
@@ -108,8 +125,12 @@ export function hasPermission(
  * absolute, normalized path when allowed; throws PermissionDeniedError when the
  * requested permission is undeclared or the path escapes every allowed root.
  *
- * Guards against directory-traversal: the resolved path must be contained
- * within one of the declared roots.
+ * Guards against:
+ *   - directory-traversal: the resolved path must be contained within one of
+ *     the declared roots
+ *   - symlink escape: a symlink inside an allowed root that points OUTSIDE
+ *     the root must not be followed. We resolve the REAL path of the target
+ *     (following symlinks) and check containment against THAT.
  */
 export function resolveAllowedPath(
   manifest: ToolManifest,
@@ -123,10 +144,24 @@ export function resolveAllowedPath(
   }
 
   const roots = manifest.allowedPaths ?? [];
-  const target = resolve(requestedPath);
+  // realpathSync follows symlinks; resolve() does not. Using realpathSync is
+  // the only way to defend against a symlink inside an allowed root that
+  // points outside. If the path doesn't exist yet, fall back to resolve() so
+  // a write-tool can target a brand-new file inside the root.
+  let target: string;
+  try {
+    target = realpathSync(requestedPath);
+  } catch {
+    target = resolve(requestedPath);
+  }
 
   const contained = roots.some((root) => {
-    const normalizedRoot = resolve(root);
+    let normalizedRoot: string;
+    try {
+      normalizedRoot = realpathSync(root);
+    } catch {
+      normalizedRoot = resolve(root);
+    }
     return (
       target === normalizedRoot ||
       target.startsWith(normalizedRoot + sep)

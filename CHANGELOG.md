@@ -12,9 +12,19 @@
   - Hot-reload scope: only **new** sessions pick up SOUL changes mid-run. Active sessions keep their original system prompt so the conversation stays coherent.
   - Size guard: soft warning at >4K tokens, hard warning at >10K tokens. Catches accidentally-large edits that would inflate every LLM call.
 
+### Security (process sandbox)
+
+F0 hardening pass. Every tool that calls out to the host shell now has explicit regression tests for the most dangerous attack surfaces, and a latent escape was closed.
+
+- **Symlink escape closed.** `resolveAllowedPath()` in `sandbox/tool-permissions.ts` now uses `realpathSync()` to follow symlinks before checking containment. A symlink inside an allowed root that points outside (e.g. `/allowed/escape → /etc/passwd`) is now rejected with `PermissionDeniedError`. Previously only `path.resolve()` was used, which normalized `..`/`.` but did NOT follow symlinks — a symlink-based containment bypass was possible. The check falls back to `path.resolve()` for paths that don't exist yet, so write-tools can target brand-new files inside the root.
+- **`which()` helper unit tests.** Direct unit tests for the bare-name → absolute-path resolver. Confirms it finds real binaries, rejects names with path separators, and returns null for empty / unknown names.
+- **Environment blocklist verified by test.** `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`, `DYLD_INSERT_LIBRARIES`, `NODE_OPTIONS`, `PYTHONPATH` are all stripped from caller-supplied env before reaching the child. A new regression test passes each of these through `run()` and asserts they do not reach the spawned process. `PATH` overrides from the caller are silently ignored (test confirms the process still completes without error).
+- **Output truncation verified by test.** A regression test runs a runaway writer (`yes` on POSIX, `for /L` on Windows) and asserts the output cap kicks in, the result is marked `outputTruncated: true`, and the truncation marker is present. Runaway children can no longer fill the host's memory.
+- **PATH-hijack guidance documented.** A test confirms the recommended hardening: when `allowedExecutables` uses **absolute paths** (e.g. `["/bin/sh"]`), a malicious `sh` placed earlier in `safeBaseEnv.PATH` cannot shadow the real one — the sandbox matches by path (Case B), not by basename+PATH-walk (Case C). Current `shell_exec` and `git_*` manifests still use bare names (`["sh"]`, `["git"]`) for cross-platform flexibility; a future hardening pass should resolve bare names to absolute paths at manifest registration time to close the last PATH-hijack window.
+
 ### Sidecar
 
-- Rebuilt `feral-agent-x86_64-pc-windows-msvc.exe` to bundle the new SOUL loader and identity document. Size delta: ~1.5K tokens of system prompt per call (negligible cost with prompt caching; uncached, ~$0.0045 per call on Anthropic).
+- Rebuilt `feral-agent-x86_64-pc-windows-msvc.exe` to bundle the new SOUL loader, hardened `resolveAllowedPath`, and the new regression tests. Size delta: ~1.5K tokens of system prompt per call (negligible cost with prompt caching; uncached, ~$0.0045 per call on Anthropic).
 
 ## v0.1.6
 
