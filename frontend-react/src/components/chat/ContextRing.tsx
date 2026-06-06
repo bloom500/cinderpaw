@@ -14,6 +14,7 @@ export function ContextRing() {
   const messages            = useChat((s) => s.messages);
   const livePromptTokens    = useChat((s) => s.livePromptTokens);
   const liveCompletionTokens = useChat((s) => s.liveCompletionTokens);
+  const isStreaming         = useChat((s) => s.streamStatus) === 'streaming';
   const isAgentMode         = useUI((s) => s.inputMode) === 'agent';
   const loaded              = useModel((s) => s.loaded);
   const cloudModel          = useModel((s) => s.cloudModel);
@@ -41,7 +42,10 @@ export function ContextRing() {
     // Real token usage: use live counts from backend when available.
     // For local models, livePromptTokens is the exact count from llama.cpp tokenization.
     // For cloud, livePromptTokens + liveCompletionTokens comes from the API usage field.
-    const isLive = livePromptTokens !== null;
+    // Agent mode runs through the sidecar (a different engine) and never emits these
+    // counts — reading them there would freeze the ring on a stale chat-mode value, so
+    // we fall back to the message estimate, which grows live as the answer streams in.
+    const isLive = !isAgentMode && livePromptTokens !== null;
     const used = isLive
       ? (livePromptTokens! + (liveCompletionTokens ?? 0))
       : messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
@@ -93,6 +97,21 @@ export function ContextRing() {
               transform="rotate(-90 10 10)"
               style={{ transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease' }}
             />
+            {/* Live activity: a comet arc orbits the ring while the agent/model
+                generates, so context reads as actively loading even during
+                thinking/tool phases when no visible content is growing yet. */}
+            {isStreaming && (
+              <g className="animate-spin" style={{ transformOrigin: '10px 10px', animationDuration: '0.9s' }}>
+                <circle
+                  cx="10" cy="10" r={R}
+                  fill="none"
+                  stroke={ringColor}
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeDasharray={`${C * 0.22} ${C * 0.78}`}
+                />
+              </g>
+            )}
           </svg>
         </div>
       </HoverCardTrigger>
