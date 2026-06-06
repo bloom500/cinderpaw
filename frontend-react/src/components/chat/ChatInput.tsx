@@ -16,7 +16,7 @@ import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
-import { FeralMascot } from './mascot/FeralMascot';
+import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
@@ -130,9 +130,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           : 'px-4 py-3',
       )}>
         <div className="relative rounded-3xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
-          <div className="pointer-events-none absolute -top-7 left-5 z-10">
-            <FeralMascot state={mascotState} />
-          </div>
+          <MascotPerch baseState={mascotState} />
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
               {attachedFiles.map((f) => (

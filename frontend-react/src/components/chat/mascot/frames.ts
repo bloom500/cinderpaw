@@ -1,4 +1,4 @@
-export type MascotState = 'idle' | 'typing' | 'thinking' | 'calling' | 'done';
+export type MascotState = 'idle' | 'typing' | 'thinking' | 'calling' | 'done' | 'running';
 
 export const FRAME_W = 16;
 export const FRAME_H = 16;
@@ -27,14 +27,14 @@ const BASE: Frame = [
   '..ookkkkkkkkoo..', // 2  horns base + fur
   '.kkkkkkkkkkkkkk.', // 3  fur head
   '.kkooooooooookk.', // 4  face top
-  '.kkookkookkookk.', // 5  eyes (solid)
-  '.kkookwoowkookk.', // 6  eyes + white highlights
+  '.kkoowkookwookk.', // 5  eyes top + white sparkle (top-outer)
+  '.kkookkookkookk.', // 6  eyes (solid bottom)
   '.kkooowrrwoookk.', // 7  mouth (fangs + red)
   'kkkooooooooookkk', // 8  chin
   'kkkkkooooookkkkk', // 9  body + belly top
   'kkkkooooooookkkk', // 10 belly
-  'kkkkkooooookkkkk', // 11 belly
-  'kkkkkkooookkkkkk', // 12 belly bottom
+  'kkkkooooooookkkk', // 11 belly (fuller)
+  'kkkkkooooookkkkk', // 12 belly bottom (rounder)
   '.kkkkkkkkkkkkkk.', // 13 lower body
   '....kkk..kkk....', // 14 legs
   '....kk....kk....', // 15 feet
@@ -51,22 +51,19 @@ const IDLE_BLINK = withRows(BASE, {
   6: '.kkookkookkookk.',
 });
 
-// Typing: looks down at the cursor — highlights drop to the lower eye row.
+// Typing: looks down at the cursor — solid tops, sparkle drops to lower eye row.
 const TYPING = withRows(BASE, {
-  5: '.kkookwoowkookk.',
-  6: '.kkookkookkookk.',
+  5: '.kkookkookkookk.',
+  6: '.kkoowkookwookk.',
 });
 
-// Thinking: glances up — highlights rise to the upper eye row.
-const THINK_UP = withRows(BASE, {
-  5: '.kkookwoowkookk.',
-  6: '.kkookkookkookk.',
-});
-const THINK_FWD = BASE;
+// Thinking: eyes dart left then right (pondering glance).
+const THINK_L = withRows(BASE, { 5: '.kkoowkoowkookk.' });
+const THINK_R = withRows(BASE, { 5: '.kkookwookwookk.' });
 
-// Calling: scans left/right (eye highlights shift outward, then inward).
-const CALL_OUT = withRows(BASE, { 6: '.kkoowkookwookk.' });
-const CALL_IN = BASE;
+// Calling: eyes scan down, outer then inner (focused on work).
+const CALL_OUT = withRows(BASE, { 5: '.kkookkookkookk.', 6: '.kkoowkookwookk.' });
+const CALL_IN = withRows(BASE, { 5: '.kkookkookkookk.', 6: '.kkookwoowkookk.' });
 
 // Done: happy closed eyes + a wider open smile.
 const DONE = withRows(BASE, {
@@ -75,10 +72,41 @@ const DONE = withRows(BASE, {
   7: '.kkoowrrrrwookk.',
 });
 
+// Running: side-profile silhouette. One horn, one eye, body in silhouette.
+// `flip` prop on FeralMascot mirrors for the return trip (facing left).
+const PROFILE_BASE: Frame = [
+  '....o...........',  // 0  horn tip
+  '...oo...........',  // 1  horn
+  '..ookk..........',  // 2  horn base
+  '.kkkkkk.........',  // 3  head
+  '.kkooooooo......',  // 4  face (orange snout)
+  '.kkoowooo.......',  // 5  eye + sparkle
+  '.kkooooooo......',  // 6  face
+  '.kkooowroo......',  // 7  mouth (fang + red)
+  'kkooooooooo.....',  // 8  chin + belly start
+  'kkoooooooooo....',  // 9  belly
+  'kkoooooooooo....',  // 10 belly
+  'kkkooooookkkk...',  // 11 lower body
+  '..kkkkkkkkk.....',  // 12 legs base
+  '....kk.kk.......',  // 13 upper legs
+  '....kk....kk....',  // 14 lower legs
+  '....kk.....kk...',  // 15 feet
+];
+
+const RUN_A = withRows(PROFILE_BASE, {
+  14: '...kk...kk......',  // stride — front leg forward
+  15: '..kk.....k......',
+});
+const RUN_B = withRows(PROFILE_BASE, {
+  14: '...k....kk......',  // stride — back leg forward
+  15: '...k.....kk.....',
+});
+
 export const FRAMES: Record<MascotState, Frame[]> = {
   idle: [BASE, BASE, BASE, IDLE_BLINK], // blink ~1 in 4 frames
   typing: [TYPING],
-  thinking: [THINK_UP, THINK_FWD],
+  thinking: [THINK_L, THINK_R],
   calling: [CALL_OUT, CALL_IN],
   done: [DONE, DONE],
+  running: [RUN_A, RUN_B],
 };

@@ -3,7 +3,7 @@ import { FRAMES, PALETTE, FRAME_W, FRAME_H, type MascotState } from './frames';
 
 const FRAME_MS = 160;
 const CANVAS_H = FRAME_H + 2; // headroom so the 1px bob never clips
-const DISPLAY = 34;           // CSS px (logical 16 → ~2.1x, image-rendering: pixelated)
+const DISPLAY = 38;           // CSS px (logical 16 → ~2.4x, image-rendering: pixelated)
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -19,12 +19,11 @@ function usePrefersReducedMotion(): boolean {
 
 /** Vertical bob offset (px) for a given state + tick. Up is negative. */
 function bobOffset(state: MascotState, tick: number): number {
-  if (state === 'done') return tick % 2 === 0 ? -1 : 0; // quick hop
-  // idle/typing/thinking/calling: gentle 0↔1 sway every ~2 frames
+  if (state === 'done' || state === 'running') return tick % 2 === 0 ? -1 : 0;
   return tick % 4 < 2 ? 0 : 1;
 }
 
-export function FeralMascot({ state }: { state: MascotState }) {
+export function FeralMascot({ state, flip = false }: { state: MascotState; flip?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const reduced = usePrefersReducedMotion();
 
@@ -38,7 +37,13 @@ export function FeralMascot({ state }: { state: MascotState }) {
     const frames = FRAMES[state];
 
     const draw = (frameIdx: number, tick: number) => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, FRAME_W, CANVAS_H);
+      if (flip) {
+        // Mirror horizontally (facing left while running back).
+        ctx.translate(FRAME_W, 0);
+        ctx.scale(-1, 1);
+      }
       const frame = frames[frameIdx % frames.length];
       const y0 = 1 + (reduced ? 0 : bobOffset(state, tick));
       for (let r = 0; r < frame.length; r++) {
@@ -61,7 +66,7 @@ export function FeralMascot({ state }: { state: MascotState }) {
       draw(tick, tick);
     }, FRAME_MS);
     return () => window.clearInterval(id);
-  }, [state, reduced]);
+  }, [state, reduced, flip]);
 
   return (
     <canvas

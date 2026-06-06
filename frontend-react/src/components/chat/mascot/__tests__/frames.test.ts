@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FRAMES, FRAME_W, FRAME_H, PALETTE, type MascotState } from '../frames';
 
-const STATES: MascotState[] = ['idle', 'typing', 'thinking', 'calling', 'done'];
+const STATES: MascotState[] = ['idle', 'typing', 'thinking', 'calling', 'done', 'running'];
 
 describe('mascot frames', () => {
   it('defines at least one frame for every state', () => {
