@@ -1,0 +1,20 @@
+{
+  "enabledPlugins": {
+    "engineering-skills@claude-code-skills": true,
+    "engineering-advanced-skills@claude-code-skills": true,
+    "pw@claude-code-skills": true,
+    "self-improving-agent@claude-code-skills": true,
+    "product-skills@claude-code-skills": true,
+    "business-growth-skills@claude-code-skills": true,
+    "finance-skills@claude-code-skills": true,
+    "marketing-skills@claude-code-skills": true,
+    "ra-qm-skills@claude-code-skills": true,
+    "pm-skills@claude-code-skills": true,
+    "c-level-skills@claude-code-skills": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(bun test*)"
+    ]
+  }
+}

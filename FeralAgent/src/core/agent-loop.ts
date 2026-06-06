@@ -32,6 +32,7 @@ import type {
   ParsedToolCall,
   SkillMeta,
 } from "../types.ts";
+import type { SoulConfig } from "./soul-loader.ts";
 
 export interface AgentLoopConfig {
   /** Hard cap on tool-call/inference cycles for simple/chat tasks. */
@@ -68,6 +69,9 @@ export class AgentLoop {
   readonly #extractor: MemoryExtractor | null;
   readonly #config: AgentLoopConfig;
   readonly #systemPrompt: string;
+  /** Identity document (SOUL.md) used to build the system prompt. Kept for
+   *  future per-turn refresh; currently the system prompt is built once. */
+  readonly #soul: SoulConfig | null;
   /** One working-memory transcript per session, retained across messages. */
   readonly #sessions = new Map<string, WorkingMemory>();
 
@@ -78,6 +82,7 @@ export class AgentLoop {
     config: Partial<AgentLoopConfig> = {},
     recall: RecallEngine | null = null,
     extractor: MemoryExtractor | null = null,
+    soul: SoulConfig | null = null,
   ) {
     this.#router = router;
     this.#registry = registry;
@@ -85,7 +90,8 @@ export class AgentLoop {
     this.#recall = recall;
     this.#extractor = extractor;
     this.#config = { ...DEFAULT_CONFIG, ...config };
-    this.#systemPrompt = buildSystemPrompt(registry);
+    this.#soul = soul;
+    this.#systemPrompt = buildSystemPrompt(registry, soul);
   }
 
   /**
@@ -283,12 +289,41 @@ export class AgentLoop {
 // Prompt construction & response parsing
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(registry: ToolRegistry): string {
+/**
+ * Compose the system prompt. When a `soul` is provided, its content is the
+ * FIRST block — highest priority, defines identity, tone, and behavior.
+ * Mechanics (tool list, call format, tool-call rules) follow beneath it.
+ *
+ * Without a soul, the legacy opener is used as a backwards-compatible default
+ * so the agent still functions for callers (e.g. tests) that do not yet wire
+ * SOUL.md.
+ *
+ * Exported for testing — the production path is `new AgentLoop(..., soul)`.
+ */
+export function buildSystemPrompt(
+  registry: ToolRegistry,
+  soul: SoulConfig | null = null,
+): string {
   const tools = registry.describe();
+  const identity = soul
+    ? [
+        "## Identity & behavior (SOUL.md — highest priority)",
+        "The following identity document is the source of truth for how you",
+        "think, speak, and act. It overrides any vague or contradictory",
+        "instructions from other parts of this prompt.",
+        "",
+        soul.content,
+      ].join("\n")
+    : [
+        "You are Feral, a proactive and helpful AI assistant running locally on the user's device.",
+        "You have access to tools and use them when they help answer a question.",
+        "You never invent tool results — always call the tool and wait for the real output.",
+      ].join("\n");
+
   return [
-    "You are Feral, a proactive and helpful AI assistant running locally on the user's device.",
-    "You have access to tools and use them when they help answer a question.",
-    "You never invent tool results — always call the tool and wait for the real output.",
+    identity,
+    "",
+    "---",
     "",
     tools ? `## Available tools\n${tools}` : "No tools are available.",
     "",

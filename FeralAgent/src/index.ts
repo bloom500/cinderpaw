@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { AuditLog } from "./sandbox/audit-log.ts";
 import { EgressProxy } from "./sandbox/egress-proxy.ts";
+import { RealProcessSandbox } from "./sandbox/process-sandbox.ts";
 import { InferenceRouter } from "./sandbox/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { SemanticMemory } from "./memory/semantic.ts";
@@ -22,6 +23,14 @@ import { ToolRegistry } from "./tools/registry.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
 import { createWriteFileTool } from "./tools/builtin/write-file.ts";
 import { createListDirectoryTool } from "./tools/builtin/list-directory.ts";
+import { createEditFileTool } from "./tools/builtin/edit-file.ts";
+import { createFileSearchTool } from "./tools/builtin/file-search.ts";
+import { createGrepTool } from "./tools/builtin/grep.ts";
+import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
+import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
+import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
+import { createTimeDateTool } from "./tools/builtin/time-date.ts";
+import { createCalculatorTool } from "./tools/builtin/calculator.ts";
 import { createWebSearchTool } from "./tools/builtin/web-search.ts";
 import { createFetchUrlTool } from "./tools/builtin/fetch-url.ts";
 import { createReadWebpageTool } from "./tools/builtin/read-webpage.ts";
@@ -34,6 +43,7 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { MoodEngine } from "./core/mood.ts";
 import { InnerThoughtsLoop } from "./core/inner-thoughts.ts";
 import { TauriTransport } from "./transports/tauri.ts";
+import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import type { InferenceConfig, Transport } from "./types.ts";
 
 interface AppConfig {
@@ -109,9 +119,32 @@ function main(): void {
   const config = loadConfig();
   const db = openDatabase(config.dbPath);
 
+  // --- Identity: load SOUL.md (bundled default + user override). The loader
+  // is the source of truth for the agent's tone, identity, and behavior; it
+  // is wired in early so the system prompt is consistent on the first turn
+  // and the watcher is alive before any user request lands. ---
+  const soul = loadSoul();
+  log(`soul loaded — source=${soul.source} version=${soul.version} ` +
+    `~${soul.approxTokens.toLocaleString()} tokens`);
+  const stopSoulWatcher = watchSoul(homedir(), (fresh) => {
+    // Hot-reload: only NEW sessions pick up the change. Active sessions
+    // keep their original system prompt so the conversation stays coherent.
+    log(`soul hot-reload — source=${fresh.source} version=${fresh.version} ` +
+      `~${fresh.approxTokens.toLocaleString()} tokens (applies to new sessions)`);
+  });
+  if (stopSoulWatcher === (() => {})) {
+    // Watcher returned the no-op stub — only happens when there is no user
+    // override. Surface the bundled path so the user knows where to find it.
+    const paths = resolveSoulPaths();
+    log(`soul — using bundled default (no user override at ${paths.user})`);
+  }
+
   // --- Layer 3: Sandbox (built first) ---
   const audit = new AuditLog(db.raw);
   const egress = new EgressProxy(audit.logger);
+  // NB: deliberately NOT named `process` to avoid shadowing the global
+  // Node `process` object (which we still need below for process.env).
+  const processSandbox = new RealProcessSandbox(audit.logger);
   const router = new InferenceRouter(config.inference, audit.logger, db.raw);
 
   // --- Layer 2: Memory ---
@@ -124,10 +157,32 @@ function main(): void {
   const observations = new ToolObservationLog(dataDir);
 
   // --- Tools (each gated by the sandbox) ---
-  const registry = new ToolRegistry(egress, audit, observations);
+  const registry = new ToolRegistry(egress, audit, processSandbox, observations);
   registry.register(createReadFileTool([config.workspace]));
   registry.register(createWriteFileTool([config.workspace]));
   registry.register(createListDirectoryTool([config.workspace]));
+  // edit_file: in-place string replacement (safer than overwriting)
+  registry.register(createEditFileTool([config.workspace]));
+  // file_search: glob-style file finder under the workspace
+  registry.register(createFileSearchTool([config.workspace]));
+  // grep: regex content search under the workspace
+  registry.register(createGrepTool([config.workspace]));
+  // shell_exec + git_*: process-spawn tools for the workspace
+  registry.register(createShellExecTool([config.workspace]));
+  registry.register(createGitStatusTool([config.workspace]));
+  registry.register(createGitDiffTool([config.workspace]));
+  registry.register(createGitLogTool([config.workspace]));
+  registry.register(createGitCommitTool([config.workspace]));
+  registry.register(createGitBranchTool([config.workspace]));
+  // http_request: only registered when at least one domain is whitelisted
+  const httpDomains = (process.env.FERAL_HTTP_DOMAINS ?? "")
+    .split(",").map((d) => d.trim()).filter(Boolean);
+  if (httpDomains.length > 0) {
+    registry.register(createHttpRequestTool(httpDomains));
+  }
+  // time_date + calculator: pure utilities, no permissions
+  registry.register(createTimeDateTool());
+  registry.register(createCalculatorTool());
   registry.register(createWebSearchTool());
   // fetch_url: extend FERAL_FETCH_DOMAINS env (comma-separated) to whitelist domains
   const fetchDomains = (process.env.FERAL_FETCH_DOMAINS ?? "")
@@ -161,6 +216,7 @@ function main(): void {
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
     recall,
     extractor,
+    soul,
   );
 
   // --- Inner thoughts loop (proactive background) ---
@@ -259,6 +315,11 @@ function main(): void {
   // Persist final audit state on unexpected termination.
   const shutdown = () => {
     if (innerThoughtsEnabled) innerThoughts.stop();
+    try {
+      stopSoulWatcher();
+    } catch {
+      // watcher may already be closed; safe to ignore
+    }
     try {
       db.close();
     } finally {

@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.7
+
+### Agent
+
+- **SOUL.md identity document.** Feral Agent now ships with a bundled `SOUL.md` that defines its identity, tone, communication style, epistemic standards, and ethical boundaries. The document is the source of truth for how the agent thinks, speaks, and acts — it is injected verbatim as the **first block** of the system prompt (highest priority, overrides vague or contradictory instructions elsewhere in the prompt chain). Concretely:
+  - `FeralAgent/src/SOUL.md` — bundled default, version-controlled with the codebase, ships inside the sidecar binary.
+  - `~/.feral/SOUL.md` — user override. Create this file to customize the agent's identity without recompiling; the loader prefers the user file when present.
+  - `FeralAgent/src/core/soul-loader.ts` — `loadSoul()` (single read, returns `{ content, source, version, loadedAt, approxTokens }`), `watchSoul()` (debounced `fs.watch` on the user override, hot-reloads without restarting the agent), and `resolveSoulPaths()` for "edit your soul here" diagnostics.
+  - `AgentLoop.buildSystemPrompt(registry, soul)` — the soul content is the first system-prompt block, separated from the mechanics (tool list, call format) by a `---` divider. Legacy opener is used as a backwards-compatible fallback when no soul is provided.
+  - Hot-reload scope: only **new** sessions pick up SOUL changes mid-run. Active sessions keep their original system prompt so the conversation stays coherent.
+  - Size guard: soft warning at >4K tokens, hard warning at >10K tokens. Catches accidentally-large edits that would inflate every LLM call.
+
+### Sidecar
+
+- Rebuilt `feral-agent-x86_64-pc-windows-msvc.exe` to bundle the new SOUL loader and identity document. Size delta: ~1.5K tokens of system prompt per call (negligible cost with prompt caching; uncached, ~$0.0045 per call on Anthropic).
+
 ## v0.1.6
 
 ### Skills
