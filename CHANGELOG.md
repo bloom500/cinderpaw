@@ -3,11 +3,24 @@
 ## v0.1.6
 
 ### Skills
-- **Claude Code-style skill injection.** The system prompt now carries only a short "Available skills" menu (id, name, description) instead of dumping every installed skill's full body. The new `read_skill` tool lets the LLM load the full `SKILL.md` body of any installed skill on demand. Skills are refreshed every turn from Rust, so installing or removing a skill mid-conversation shows up in the next message without resetting the session.
+
+Feral's skill system was redesigned around the same "menu + on-demand body" pattern that powers Claude Code's tool guidance. The previous design dumped every installed skill's full `SKILL.md` into the agent's system prompt on the first turn of a session. That worked for 2–3 skills but degraded quickly — every additional skill added hundreds of tokens to the system prompt whether or not the user actually needed that skill's guidance for the current message.
+
+- **Skill menu in the system prompt.** Rust now ships a `Vec<SkillMeta>` roster with every locally-installed skill (id, name, description, version, tags) on each `message` envelope. The agent renders the roster as a short "Available skills" system message in `WorkingMemory`, with one line per skill. The LLM reads the menu and decides which skill (if any) is relevant before doing any work.
+- **`read_skill` tool loads skill bodies on demand.** New tool in `FeralAgent/src/tools/builtin/read-skill.ts`. The LLM calls it with a skill id; the tool reads `~/.feral/skills/<id>/SKILL.md` (validated id charset + path-traversal guard) and returns the raw markdown. Bodies are capped at 64 KB. After loading, the LLM follows the skill's instructions exactly.
+- **Per-turn roster refresh.** Because Rust rebuilds the roster on every `feral_send_message`, installing a new skill from the Skills tab is reflected in the agent's available-menu on the very next message — no need to start a new chat, no need to reset the session.
+- **Skills menu replaces first-session injection.** The previous "bake the skills into the system prompt on first session" hack in `AgentLoop.#memoryFor()` was removed. Skill install/remove mid-conversation now takes effect immediately.
 
 ### Agent
-- **Helpful message on empty thinking completions.** When a model is cut off mid-reasoning and produces no visible answer, the chat now shows a clear message (distinguishing "model used all tokens on reasoning" from a true empty response) instead of a silent empty bubble.
-- **`selectLocalAgent` routes through the model store.** In Agent mode, picking a local model from the chat header now goes through the store's `load()` method, so the ModelPill renders a real progress bar (with `role="progressbar"`) instead of bare text.
+
+Two real bugs that affected the local-model experience were fixed.
+
+- **Helpful message on empty thinking completions.** When a thinking model (Qwen 3, DeepSeek-R1, Gemma with thinking mode) is cut off mid-reasoning — most often because the model's `max_tokens` was exhausted during the chain-of-thought block — the previous code returned `"(no response)"` and the user saw a silent empty bubble. Worse, the dangling-`<think>` fallback in `stripThinking` discarded everything after the open tag, including the model's final answer if it followed the thinking. The agent loop now distinguishes two cases: if the raw completion contained any thinking tag, it returns a descriptive message explaining the cut-off and how to mitigate (shorter prompt, larger model, or increase `max_tokens`); otherwise it returns a generic "empty response" message. Either way the user gets an actionable explanation instead of silence.
+- **`selectLocalAgent` routes through the model store.** In Agent mode, picking a local model from the chat header used to call `tauri.models.startLoad` directly, bypassing the `useModel` Zustand store. The store's `isLoading` and `loadProgress` were never set, so the ModelPill had no progress to display. The flow now goes through `store.load()` which sets up the `model-load-progress` event listener, updates the store, and lets the UI render. The ModelPill now shows a thin `role="progressbar"` bar at the bottom of the trigger that fills as the model loads — the user always knows whether the load is in progress or done.
+
+### Deferred to v0.1.7
+
+- **ChatGPT Subscription OAuth.** The architecture is researched (issuer `https://auth.openai.com`, PKCE S256, redirect `http://localhost:1455/auth/callback`, scope `openid profile email offline_access api.connectors.read api.connectors.invoke`, token-exchange grant to derive an API key from the OAuth token). The Codex CLI's `CLIENT_ID` is still missing from the public research; the OAuth UI and Rust flow will land in v0.1.7 once the client id is sourced.
 
 ## v0.1.5
 
