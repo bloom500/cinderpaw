@@ -30,6 +30,14 @@ export interface ToolManifest {
   allowedDomains?: string[];
   /** Only meaningful when fs permissions are present. */
   allowedPaths?: string[];
+  /**
+   * Only meaningful when the `process:spawn` permission is present.
+   * Allowlist of executables the tool may invoke. Each entry is either an
+   * absolute path (e.g. "/usr/bin/git") or a bare command name resolved via
+   * PATH at registration time (e.g. "git"). The ProcessSandbox refuses
+   * any executable not in this list.
+   */
+  allowedExecutables?: string[];
 }
 
 /** JSON Schema-ish parameter description surfaced to the LLM. */
@@ -47,6 +55,47 @@ export interface ToolContext {
   /** Append an arbitrary audit entry from within a tool. */
   audit: AuditLogger;
   manifest: ToolManifest;
+  /**
+   * Validated process spawner — the only way tools may execute external
+   * programs. Present only when the tool's manifest declares `process:spawn`;
+   * tools without that permission receive `undefined` and must not call it.
+   * Throws if invoked without the permission or against an executable not in
+   * the tool's `allowedExecutables` list.
+   */
+  process?: ProcessSandbox;
+  /**
+   * Interactive-questions bridge. Present only when the transport supports
+   * ask_user (Tauri does). Tools that emit questions (currently just
+   * `ask_user`) call `ctx.askUser.ask(questions)` and await the user's
+   * selection; the bridge emits an `ask_user` event, waits for the matching
+   * `ask_user_response`, and resolves. Undefined for transports that do
+   * not support interactive questions.
+   */
+  askUser?: AskUserBridge;
+}
+
+/**
+ * The ask_user bridge — a Promise-based interface for asking the user
+ * interactive questions. Created once at agent startup and threaded into
+ * every ToolContext.
+ */
+export interface AskUserBridge {
+  /**
+   * Ask the user one or more questions (max 4, each with 2-4 options).
+   * Emits an `ask_user` event, then awaits a matching `ask_user_response`.
+   * Rejects with `AskUserTimeoutError` after 5 minutes.
+   */
+  ask(questions: AskUserQuestion[]): Promise<AskUserAnswer[]>;
+  /** Cancel a pending question (e.g. session shutdown). */
+  cancel(requestId: string, reason?: string): void;
+}
+
+/** Thrown when ask_user does not receive a response within the timeout. */
+export class AskUserTimeoutError extends Error {
+  constructor(public readonly requestId: string, public readonly timeoutMs: number) {
+    super(`ask_user request ${requestId} timed out after ${timeoutMs}ms`);
+    this.name = "AskUserTimeoutError";
+  }
 }
 
 /** A registered, executable tool. */
@@ -119,6 +168,82 @@ export interface AuditEntry {
 
 /** Records a single audit entry. Implementations must never throw to callers. */
 export type AuditLogger = (entry: AuditEntry) => void;
+
+/**
+ * Options accepted by `ProcessSandbox.run`. The sandbox enforces the tool's
+ * `allowedExecutables` allowlist, contains the working directory inside
+ * `allowedPaths`, and applies a hard timeout with an output cap.
+ */
+export interface ProcessRunOptions {
+  /**
+   * The executable to run. Either an absolute path declared in
+   * `allowedExecutables`, or a bare command name whose resolved path must
+   * match an `allowedExecutables` entry.
+   */
+  executable: string;
+  /** Arguments. Each entry is passed as a separate argv slot (no shell). */
+  args?: string[];
+  /**
+   * Working directory. Must be inside one of the tool's `allowedPaths`
+   * (when the tool declares fs permissions). Omit to inherit the parent
+   * process's cwd.
+   */
+  cwd?: string;
+  /**
+   * Extra environment variables. Combined with a minimal safe base (PATH,
+   * HOME, LANG) — the parent process environment is NEVER inherited wholesale.
+   * Blocked: any name starting with LD_, DYLD_, NODE_, PYTHONPATH, PATH
+   * overrides are ignored.
+   */
+  env?: Record<string, string>;
+  /** Hard timeout in milliseconds. Default 30_000, max 300_000. */
+  timeoutMs?: number;
+  /** Optional stdin payload (e.g. piped to `git commit -F -`). */
+  stdin?: string;
+  /**
+   * When true, the process must complete successfully (exit 0). Any non-zero
+   * exit is converted to a thrown `ProcessSpawnError`. Default: false (caller
+   * inspects `exitCode`).
+   */
+  throwOnNonZero?: boolean;
+}
+
+export interface ProcessRunResult {
+  /** Process exit code. -1 if killed by signal, -2 if timed out. */
+  exitCode: number;
+  /** Captured stdout, UTF-8 decoded, capped at the sandbox output limit. */
+  stdout: string;
+  /** Captured stderr, UTF-8 decoded, capped at the sandbox output limit. */
+  stderr: string;
+  /** Wall-clock duration in milliseconds. */
+  durationMs: number;
+  /** True when the process was killed because it exceeded `timeoutMs`. */
+  timedOut: boolean;
+  /** True when the process was killed because stdout/stderr exceeded the cap. */
+  outputTruncated: boolean;
+}
+
+/**
+ * The process spawner contract surfaced to tools. Concrete implementation
+ * lives in `sandbox/process-sandbox.ts`. `run` validates the executable
+ * against the calling tool's `allowedExecutables` allowlist before spawning
+ * and audits every attempt (success or blocked) via the audit logger.
+ */
+export interface ProcessSandbox {
+  run(
+    manifest: ToolManifest,
+    sessionId: string,
+    options: ProcessRunOptions,
+  ): Promise<ProcessRunResult>;
+}
+
+/** Raised when the sandbox refuses a spawn (unknown executable, bad cwd, …). */
+export class ProcessSpawnError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProcessSpawnError";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Sandbox: inference router
@@ -251,7 +376,7 @@ export interface SkillMeta {
 
 /** Inbound message envelope from any transport. */
 export interface InboundMessage {
-  type: "message" | "ping" | "shutdown" | "set_model";
+  type: "message" | "ping" | "shutdown" | "set_model" | "ask_user_response";
   id?: string;
   content?: string;
   sessionId?: string;
@@ -268,6 +393,48 @@ export interface InboundMessage {
   baseUrl?: string;
   /** API key injected by Rust from the BYOK store — never touches React. */
   apiKey?: string;
+  // ask_user_response fields (all present when type === "ask_user_response")
+  /** Matches the id of the original "ask_user" outbound event. */
+  requestId?: string;
+  answers?: AskUserAnswer[];
+}
+
+// ---------------------------------------------------------------------------
+// Ask user (Claude.ai-style interactive questions)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single option the user can pick for an ask_user question.
+ * The "Other" option is implicitly added by the UI; the tool author does
+ * NOT include it in the array.
+ */
+export interface AskUserOption {
+  /** Short label, e.g. "PostgreSQL". 1-5 words. */
+  label: string;
+  /** Optional 1-2 sentence explanation. */
+  description?: string;
+  /** Mark the recommended option. At most one per question. */
+  recommended?: boolean;
+}
+
+export interface AskUserQuestion {
+  /** The main question text, e.g. "What database would you like to use?" */
+  question: string;
+  /** Short header (max 12 chars) for compact UI. e.g. "Database". */
+  header?: string;
+  /** 2-4 options. The UI implicitly appends an "Other" option. */
+  options: AskUserOption[];
+  /** Allow multiple selections. */
+  multiSelect: boolean;
+}
+
+export interface AskUserAnswer {
+  /** Echo of the question text for robust matching. */
+  question: string;
+  /** Selected option labels (1 for !multiSelect, N for multiSelect). */
+  selected: string[];
+  /** User-typed "Other" answer, if applicable. */
+  customText?: string;
 }
 
 /** Outbound event envelope to any transport. */
@@ -280,7 +447,9 @@ export type OutboundEvent =
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string }
   | { type: "pong" }
-  | { type: "error"; id?: string; message: string };
+  | { type: "error"; id?: string; message: string }
+  | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[] }
+  | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string };
 
 export interface Transport {
   /** Emit an event to the host/user. */

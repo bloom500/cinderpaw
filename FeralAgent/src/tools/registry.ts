@@ -15,6 +15,8 @@ import type { EgressProxy } from "../sandbox/egress-proxy.ts";
 import type { AuditLog } from "../sandbox/audit-log.ts";
 import { validateManifest } from "../sandbox/tool-permissions.ts";
 import type {
+  AskUserBridge,
+  ProcessSandbox,
   Tool,
   ToolContext,
   ToolParameter,
@@ -26,12 +28,22 @@ export class ToolRegistry {
   readonly #tools = new Map<string, Tool>();
   readonly #egress: EgressProxy;
   readonly #audit: AuditLog;
+  readonly #process: ProcessSandbox;
   readonly #observations: ToolObservationLog | null;
+  readonly #askUser: AskUserBridge | null;
 
-  constructor(egress: EgressProxy, audit: AuditLog, observations?: ToolObservationLog) {
+  constructor(
+    egress: EgressProxy,
+    audit: AuditLog,
+    process: ProcessSandbox,
+    observations?: ToolObservationLog,
+    askUser?: AskUserBridge,
+  ) {
     this.#egress = egress;
     this.#audit = audit;
+    this.#process = process;
     this.#observations = observations ?? null;
+    this.#askUser = askUser ?? null;
   }
 
   /** Register a tool after validating its manifest. Throws on bad manifests. */
@@ -86,6 +98,17 @@ export class ToolRegistry {
       manifest: tool.manifest,
       fetch: this.#egress.forTool(tool.manifest, sessionId),
       audit: this.#audit.logger,
+      // Only expose the process sandbox to tools that declared
+      // `process:spawn`. Other tools receive `undefined` so a typo or
+      // a misconfigured call site fails loudly at the property access,
+      // not silently.
+      process: tool.manifest.permissions.includes("process:spawn")
+        ? this.#process
+        : undefined,
+      // askUser is always available when the registry was constructed
+      // with a bridge; the ask_user tool checks ctx.askUser is defined
+      // and refuses to run otherwise.
+      askUser: this.#askUser ?? undefined,
     };
 
     try {

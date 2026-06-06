@@ -45,6 +45,8 @@ import { MoodEngine } from "./core/mood.ts";
 import { InnerThoughtsLoop } from "./core/inner-thoughts.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
+import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
+import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import type { InferenceConfig, Transport } from "./types.ts";
 
 interface AppConfig {
@@ -158,7 +160,17 @@ function main(): void {
   const observations = new ToolObservationLog(dataDir);
 
   // --- Tools (each gated by the sandbox) ---
-  const registry = new ToolRegistry(egress, audit, processSandbox, observations);
+  // ask_user bridge is created up front so the registry can hand it to
+  // every tool's context. The bridge emits `ask_user` events through a
+  // mutable holder — we wire the holder's target to `transport.send` once
+  // the transport is built (a few lines below). Before that, events are
+  // silently dropped, which is fine because no tool can run before the
+  // transport is started.
+  const sendHolder: { current: (e: import("./types.ts").OutboundEvent) => void } = {
+    current: () => {},
+  };
+  const askUser = new AskUserBridgeImpl((e) => sendHolder.current(e));
+  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser);
   registry.register(createReadFileTool([config.workspace]));
   registry.register(createWriteFileTool([config.workspace]));
   registry.register(createListDirectoryTool([config.workspace]));
@@ -215,6 +227,10 @@ function main(): void {
   registry.register(createCodeQualityTool("install_deps", [config.workspace]));
   registry.register(createCodeQualityTool("build_project", [config.workspace]));
 
+  // ask_user — interactive questions (Claude.ai-style). No permissions;
+  // pure event emission through the AskUserBridge in the tool context.
+  registry.register(createAskUserTool());
+
   // --- Mood engine ---
   const mood = new MoodEngine();
 
@@ -241,6 +257,11 @@ function main(): void {
 
   // --- Layer 4: Transport ---
   const transport = buildTransport(config.transport);
+  // Now that the transport exists, wire the ask_user bridge's emit target.
+  // Every `ask_user` event from now on flows through the transport to the
+  // React UI, and `ask_user_response` messages from the UI are routed back
+  // to the bridge inside the `onMessage` handler below.
+  sendHolder.current = (e) => transport.send(e);
 
   transport.onMessage(async (msg) => {
     switch (msg.type) {
@@ -250,9 +271,22 @@ function main(): void {
 
       case "shutdown":
         log(`shutdown requested`);
+        askUser.cancelAll("shutdown");
         db.close();
         process.exit(0);
         break;
+
+      case "ask_user_response": {
+        // Route the user's selection back to the matching pending request.
+        // requestId/answers are present when type === "ask_user_response"
+        // (the transport validates the shape; see isInbound).
+        if (msg.requestId && msg.answers) {
+          askUser.resolve(msg.requestId, msg.answers);
+        } else {
+          log(`ask_user_response: missing requestId or answers — ignored`);
+        }
+        break;
+      }
 
       case "set_model": {
         const provider = msg.provider;
@@ -330,6 +364,11 @@ function main(): void {
       stopSoulWatcher();
     } catch {
       // watcher may already be closed; safe to ignore
+    }
+    try {
+      askUser.cancelAll("shutdown");
+    } catch {
+      // ignore — bridge may already be empty
     }
     try {
       db.close();

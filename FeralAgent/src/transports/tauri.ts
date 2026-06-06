@@ -108,6 +108,10 @@ function isInbound(value: unknown): value is InboundMessage {
   if (typeof value !== "object" || value === null) return false;
   const t = (value as { type?: unknown }).type;
   return (
-    t === "message" || t === "ping" || t === "shutdown" || t === "set_model"
+    t === "message" ||
+    t === "ping" ||
+    t === "shutdown" ||
+    t === "set_model" ||
+    t === "ask_user_response"
   );
 }
