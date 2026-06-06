@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.6
+
+### Skills
+- **Claude Code-style skill injection.** The system prompt now carries only a short "Available skills" menu (id, name, description) instead of dumping every installed skill's full body. The new `read_skill` tool lets the LLM load the full `SKILL.md` body of any installed skill on demand. Skills are refreshed every turn from Rust, so installing or removing a skill mid-conversation shows up in the next message without resetting the session.
+
+### Agent
+- **Helpful message on empty thinking completions.** When a model is cut off mid-reasoning and produces no visible answer, the chat now shows a clear message (distinguishing "model used all tokens on reasoning" from a true empty response) instead of a silent empty bubble.
+- **`selectLocalAgent` routes through the model store.** In Agent mode, picking a local model from the chat header now goes through the store's `load()` method, so the ModelPill renders a real progress bar (with `role="progressbar"`) instead of bare text.
+
 ## v0.1.5
 
 ### Mascot
