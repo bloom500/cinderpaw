@@ -45,6 +45,7 @@ import { MoodEngine } from "./core/mood.ts";
 import { InnerThoughtsLoop } from "./core/inner-thoughts.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
+import { loadUserConfig } from "./core/user-loader.ts";
 import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import type { InferenceConfig, Transport } from "./types.ts";
@@ -129,6 +130,18 @@ function main(): void {
   const soul = loadSoul();
   log(`soul loaded — source=${soul.source} version=${soul.version} ` +
     `~${soul.approxTokens.toLocaleString()} tokens`);
+
+  // --- Personalization: read ~/.feral/onboarding.json (written by the React
+  // onboarding wizard). The userName and agentName are injected as a USER
+  // block in the system prompt so the model uses them in replies. If no
+  // record exists yet (user skipped onboarding), the block is omitted and
+  // the agent uses generic defaults. ---
+  const user = loadUserConfig();
+  if (user.hasOnboarded) {
+    log(`user onboarded — userName="${user.userName}" agentName="${user.agentName}"`);
+  } else {
+    log(`user not onboarded — using generic defaults (no USER block)`);
+  }
   const stopSoulWatcher = watchSoul(homedir(), (fresh) => {
     // Hot-reload: only NEW sessions pick up the change. Active sessions
     // keep their original system prompt so the conversation stays coherent.
@@ -244,6 +257,7 @@ function main(): void {
     recall,
     extractor,
     soul,
+    user,
   );
 
   // --- Inner thoughts loop (proactive background) ---

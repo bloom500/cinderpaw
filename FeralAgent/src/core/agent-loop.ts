@@ -33,6 +33,8 @@ import type {
   SkillMeta,
 } from "../types.ts";
 import type { SoulConfig } from "./soul-loader.ts";
+import type { UserConfig } from "./user-loader.ts";
+import { buildUserPromptBlock } from "./user-loader.ts";
 
 export interface AgentLoopConfig {
   /** Hard cap on tool-call/inference cycles for simple/chat tasks. */
@@ -72,6 +74,9 @@ export class AgentLoop {
   /** Identity document (SOUL.md) used to build the system prompt. Kept for
    *  future per-turn refresh; currently the system prompt is built once. */
   readonly #soul: SoulConfig | null;
+  /** Per-user personalization (USER block). Injected into the system prompt
+   *  after SOUL. Null = user has not onboarded; no USER block rendered. */
+  readonly #user: UserConfig | null;
   /** One working-memory transcript per session, retained across messages. */
   readonly #sessions = new Map<string, WorkingMemory>();
 
@@ -83,6 +88,7 @@ export class AgentLoop {
     recall: RecallEngine | null = null,
     extractor: MemoryExtractor | null = null,
     soul: SoulConfig | null = null,
+    user: UserConfig | null = null,
   ) {
     this.#router = router;
     this.#registry = registry;
@@ -91,7 +97,8 @@ export class AgentLoop {
     this.#extractor = extractor;
     this.#config = { ...DEFAULT_CONFIG, ...config };
     this.#soul = soul;
-    this.#systemPrompt = buildSystemPrompt(registry, soul);
+    this.#user = user;
+    this.#systemPrompt = buildSystemPrompt(registry, soul, user);
   }
 
   /**
@@ -292,17 +299,20 @@ export class AgentLoop {
 /**
  * Compose the system prompt. When a `soul` is provided, its content is the
  * FIRST block — highest priority, defines identity, tone, and behavior.
- * Mechanics (tool list, call format, tool-call rules) follow beneath it.
+ * A `user` block is added when the user has onboarded (per-user
+ * personalization: their name + their chosen name for the agent).
+ * Mechanics (tool list, call format, tool-call rules) follow beneath.
  *
  * Without a soul, the legacy opener is used as a backwards-compatible default
  * so the agent still functions for callers (e.g. tests) that do not yet wire
  * SOUL.md.
  *
- * Exported for testing — the production path is `new AgentLoop(..., soul)`.
+ * Exported for testing — the production path is `new AgentLoop(..., soul, user)`.
  */
 export function buildSystemPrompt(
   registry: ToolRegistry,
   soul: SoulConfig | null = null,
+  user: UserConfig | null = null,
 ): string {
   const tools = registry.describe();
   const identity = soul
@@ -320,9 +330,11 @@ export function buildSystemPrompt(
         "You never invent tool results — always call the tool and wait for the real output.",
       ].join("\n");
 
+  const userBlock = user ? buildUserPromptBlock(user) : "";
+
   return [
     identity,
-    "",
+    userBlock,
     "---",
     "",
     tools ? `## Available tools\n${tools}` : "No tools are available.",
@@ -341,7 +353,7 @@ export function buildSystemPrompt(
     "- If you cannot help or a tool fails, say so clearly.",
     "- Never output raw JSON outside a tool block as your final answer.",
     "- Respond in the same language the user writes in.",
-  ].join("\n");
+  ].filter((s) => s.length > 0).join("\n");
 }
 
 /**

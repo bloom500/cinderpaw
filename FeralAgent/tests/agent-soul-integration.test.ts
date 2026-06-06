@@ -13,6 +13,7 @@ import { describe, expect, it } from "bun:test";
 import { buildSystemPrompt } from "../src/core/agent-loop.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { SoulConfig } from "../src/core/soul-loader.ts";
+import type { UserConfig } from "../src/core/user-loader.ts";
 
 /** Minimal ToolRegistry stub: only the methods buildSystemPrompt actually calls. */
 function fakeRegistry(toolsList: string = "read_file, time_date"): Pick<ToolRegistry, "describe"> {
@@ -72,5 +73,52 @@ describe("buildSystemPrompt — soul integration", () => {
     // block, and the legacy sentence is dropped when a soul is provided.
     const prompt = buildSystemPrompt(fakeRegistry() as ToolRegistry, sampleSoul);
     expect(prompt).not.toContain("You are Feral, a proactive and helpful AI assistant");
+  });
+});
+
+describe("buildSystemPrompt — USER block integration", () => {
+  const sampleUser: UserConfig = {
+    userName: "Darius",
+    agentName: "Bob",
+    hasOnboarded: true,
+  };
+
+  it("injects the USER block when the user has onboarded", () => {
+    const prompt = buildSystemPrompt(fakeRegistry() as ToolRegistry, sampleSoul, sampleUser);
+    expect(prompt).toContain("Darius");
+    expect(prompt).toContain("Bob");
+  });
+
+  it("places the USER block after SOUL but before the tool mechanics", () => {
+    const prompt = buildSystemPrompt(fakeRegistry() as ToolRegistry, sampleSoul, sampleUser);
+    const soulIdx = prompt.indexOf("# Custom Soul");
+    const userIdx = prompt.indexOf("Darius");
+    const toolsIdx = prompt.indexOf("## Available tools");
+    expect(soulIdx).toBeGreaterThanOrEqual(0);
+    expect(userIdx).toBeGreaterThan(soulIdx);
+    expect(toolsIdx).toBeGreaterThan(userIdx);
+  });
+
+  it("omits the USER block when the user has not onboarded", () => {
+    const prompt = buildSystemPrompt(
+      fakeRegistry() as ToolRegistry,
+      sampleSoul,
+      { userName: "", agentName: "Feral", hasOnboarded: false },
+    );
+    expect(prompt).not.toContain("Darius");
+    expect(prompt).not.toContain("Personalization");
+  });
+
+  it("omits the USER block when user is null", () => {
+    const prompt = buildSystemPrompt(fakeRegistry() as ToolRegistry, sampleSoul, null);
+    expect(prompt).not.toContain("Personalization");
+  });
+
+  it("works without a soul — just the USER block + tool mechanics", () => {
+    const prompt = buildSystemPrompt(fakeRegistry() as ToolRegistry, null, sampleUser);
+    expect(prompt).toContain("Darius");
+    expect(prompt).toContain("Bob");
+    // Falls back to the legacy opener when no soul is present.
+    expect(prompt).toContain("You are Feral, a proactive and helpful AI assistant");
   });
 });
