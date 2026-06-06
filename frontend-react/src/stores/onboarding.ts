@@ -77,7 +77,12 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     })),
 
   setUserName: (name) => set({ userName: name.trim() }),
-  setAgentName: (name) => set({ agentName: name.trim() || 'Feral' }),
+  // Note: we do NOT fall back to "Feral" on empty input here — the user
+  // must be able to fully clear the field to retype. The "Feral" default
+  // is applied at the use sites (Preview, DoneStep, agent prompt) via
+  // `agentName.trim() || "Feral"`. Storing the raw value also means a
+  // half-typed name ("F") doesn't get clobbered to "Feral".
+  setAgentName: (name) => set({ agentName: name.trim() }),
 
   skip: () =>
     set({

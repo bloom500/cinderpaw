@@ -56,13 +56,22 @@ describe('useOnboarding', () => {
     expect(useOnboarding.getState().userName).toBe('Darius');
   });
 
-  it('setAgentName falls back to "Feral" on empty input', () => {
+  it('setAgentName trims whitespace and allows empty input', () => {
     useOnboarding.getState().setAgentName('  Bob  ');
     expect(useOnboarding.getState().agentName).toBe('Bob');
+    // Empty input is allowed — the user must be able to fully clear the
+    // field to retype. The "Feral" default is applied at use sites, not here.
     useOnboarding.getState().setAgentName('');
-    expect(useOnboarding.getState().agentName).toBe('Feral');
+    expect(useOnboarding.getState().agentName).toBe('');
     useOnboarding.getState().setAgentName('   ');
-    expect(useOnboarding.getState().agentName).toBe('Feral');
+    expect(useOnboarding.getState().agentName).toBe('');
+  });
+
+  it('setAgentName does not snap partial input back to "Feral"', () => {
+    // Regression: a half-typed name like "F" used to be replaced by
+    // "Feral" because the old implementation fell back on falsy.
+    useOnboarding.getState().setAgentName('F');
+    expect(useOnboarding.getState().agentName).toBe('F');
   });
 
   it('skip() deactivates and records the dismissal', () => {
