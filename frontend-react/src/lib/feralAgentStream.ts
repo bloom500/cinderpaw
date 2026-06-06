@@ -15,7 +15,9 @@
  */
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import type { FeralAgentEvent } from '@/lib/tauri';
+import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 
 export interface FeralStreamHandlers {
   onChunk: (content: string) => void;
@@ -25,6 +27,15 @@ export interface FeralStreamHandlers {
   onError: (message: string) => void;
   onToolStart?: (tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (tool: string) => void;
+  /** Called when the agent asks the user an interactive question. Returns
+   *  a Promise that resolves with the user's answers (or rejects on cancel).
+   *  The handler is responsible for sending the response back to the sidecar
+   *  via the `feralAskUserResponse` invoke command. */
+  onAskUser?: (
+    requestId: string,
+    sessionId: string,
+    questions: AskUserQuestion[],
+  ) => Promise<AskUserAnswer[]>;
 }
 
 const inflight = new Map<string, FeralStreamHandlers>();
@@ -80,6 +91,18 @@ export function ensureFeralListener(): Promise<void> {
       case 'tool_done':
         if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.tool);
         break;
+      case 'ask_user':
+        // Route the ask_user event to the matching in-flight stream's handler
+        // (if any). Falls back to the global useAskUser store when no
+        // per-stream handler is registered — this keeps the UI working even
+        // when ask_user events arrive outside an active generation (e.g. a
+        // proactive ask from the inner-thoughts loop).
+        routeAskUser(parsed.id, parsed.sessionId, parsed.questions);
+        break;
+      case 'ask_user_cancelled':
+        // Sidecar reports a cancel/timeout. Tear down any matching pending UI.
+        useAskUser.getState().cancel(parsed.reason ?? 'sidecar cancelled');
+        break;
       // proactive / pong / model_set / model_error handled elsewhere (useFeralGlobal).
       default:
         break;
@@ -88,6 +111,44 @@ export function ensureFeralListener(): Promise<void> {
     unlisten = fn;
   });
   return initPromise;
+}
+
+/**
+ * Route an ask_user event to a per-stream handler (preferred) or the
+ * global useAskUser store. After the user answers, send the response
+ * back to the sidecar via Rust.
+ */
+function routeAskUser(
+  requestId: string,
+  sessionId: string,
+  questions: AskUserQuestion[],
+): void {
+  // The promise returned by useAskUser.request() resolves when the user
+  // clicks Submit. We then forward the answers to the sidecar.
+  const promise = useAskUser.getState().request(requestId, sessionId, questions);
+
+  // Best-effort: also notify per-stream handlers (e.g. so the chat can
+  // attach a "thinking" indicator on the streaming message). This is a
+  // fire-and-forget; the actual user response is handled by the store.
+  for (const [, h] of inflight) {
+    try {
+      h.onAskUser?.(requestId, sessionId, questions);
+    } catch {
+      // ignore — handler is optional and may throw on missing UI
+    }
+  }
+
+  promise
+    .then((answers) => {
+      // Forward the user's selection back to Rust → sidecar.
+      return invoke('feral_ask_user_response', { requestId, answers });
+    })
+    .catch((err) => {
+      // User cancelled or timed out. Tell the sidecar so it can stop waiting.
+      return invoke('feral_ask_user_cancel', { requestId }).catch(() => {
+        console.warn('[askUser] cancel invoke also failed:', err);
+      });
+    });
 }
 
 /** Register handlers for an in-flight sidecar message. */

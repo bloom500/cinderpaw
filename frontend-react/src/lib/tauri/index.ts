@@ -163,7 +163,9 @@ export type FeralAgentEvent =
   | { type: 'model_set';   provider: string; model: string }
   | { type: 'model_error'; message: string }
   | { type: 'pong' }
-  | { type: 'error';       id?: string; message: string };
+  | { type: 'error';       id?: string; message: string }
+  | { type: 'ask_user';    id: string; sessionId: string; questions: import('@/stores/askUser').AskUserQuestion[] }
+  | { type: 'ask_user_cancelled'; id: string; sessionId: string; reason: string };
 
 /** Display-safe snapshot of the Feral Agent's active LLM — no API keys. */
 export interface FeralModelConfigView {

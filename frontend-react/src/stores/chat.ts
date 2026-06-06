@@ -19,6 +19,17 @@ export interface ChatMessage {
   truncated?: boolean;
   /** Why the response was truncated (e.g. "length"). */
   truncatedReason?: string;
+  /**
+   * Ask-user prompt attached to this message. Set when the Feral Agent
+   * called the `ask_user` tool on this turn. `answers` is undefined while
+   * the user is choosing and populated once they submit (or on cancel).
+   */
+  askUser?: {
+    requestId: string;
+    sessionId: string;
+    questions: import('./askUser').AskUserQuestion[];
+    answers?: import('./askUser').AskUserAnswer[];
+  };
 }
 
 interface ChatStore {

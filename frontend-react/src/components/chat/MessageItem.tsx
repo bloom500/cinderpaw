@@ -3,8 +3,11 @@ import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Markdown } from '@/lib/markdown';
 import { ThinkingBlock } from './ThinkingBlock';
+import { AskUserCard } from './AskUserCard';
 import type { ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
+import { useAskUser } from '@/stores/askUser';
+import { tauri } from '@/lib/tauri';
 
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
@@ -27,6 +30,9 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
 
   const showThinking = message.thinking != null && reasoningMode !== 'off';
   const isTruncated = message.truncated === true;
+  const askUser = message.askUser;
+  const submitAskUser = useAskUser((s) => s.submit);
+  const cancelAskUser = useAskUser((s) => s.cancel);
 
   return (
     <div className="flex flex-col gap-2">
@@ -41,6 +47,27 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
       <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
         <Markdown animateWords={streaming}>{message.content}</Markdown>
       </div>
+      {askUser && (
+        <AskUserCard
+          requestId={askUser.requestId}
+          questions={askUser.questions}
+          answered={askUser.answers}
+          onSubmit={(answers) => {
+            submitAskUser(answers);
+            // Route the user's selection back to the sidecar via Rust.
+            // The sidecar's AskUserBridge.resolve() unblocks the agent loop.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (tauri.feralAgent as any)?.askUserResponse?.(askUser.requestId, answers)
+              .catch((err: unknown) => console.error('[askUser] invoke failed:', err));
+          }}
+          onCancel={() => {
+            cancelAskUser('user dismissed');
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (tauri.feralAgent as any)?.askUserCancel?.(askUser.requestId)
+              .catch((err: unknown) => console.error('[askUser] cancel invoke failed:', err));
+          }}
+        />
+      )}
       {isTruncated && (
         <div
           className="flex items-start gap-2 mt-1 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400"
