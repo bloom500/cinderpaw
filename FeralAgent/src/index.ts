@@ -69,14 +69,14 @@ function loadConfig(): AppConfig {
           }
         : {}),
       tokenBudget: {
-        // Headroom for deep research / complex tasks: a single large-context
-        // completion (e.g. MiniMax) can cost ~18k tokens, and a multi-round
-        // agentic turn stacks several of those. The old 50k/500k caps bricked a
-        // conversation after one deep turn. These are runaway guards, not cost
-        // controls — on BYOK the user pays their own provider, so default high
-        // and let FERAL_BUDGET_* env vars tighten them where desired.
-        perConversation: Number(env.FERAL_BUDGET_CONVERSATION ?? 1_000_000),
-        perDay: Number(env.FERAL_BUDGET_DAY ?? 10_000_000),
+        // No token caps by default. On BYOK the user pays their own provider, so
+        // a daily/per-conversation ceiling has no cost rationale — it only bricks
+        // long sessions (the old 50k/500k caps did exactly that after one deep
+        // research turn). Conversations stay bounded by working-memory context
+        // compression, not by a hard token wall. Power users can still opt into a
+        // runaway guard via FERAL_BUDGET_* env vars; left unset means unlimited.
+        perConversation: Number(env.FERAL_BUDGET_CONVERSATION ?? Infinity),
+        perDay: Number(env.FERAL_BUDGET_DAY ?? Infinity),
         onExhausted:
           env.FERAL_BUDGET_POLICY === "stop" ? "stop" : "compress_and_continue",
       },

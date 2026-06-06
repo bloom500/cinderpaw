@@ -43,22 +43,20 @@ jobs:
       - name: Build Feral Agent sidecar binary
         shell: pwsh
         run: |
-          # Feral Agent is a separate repo (github.com/bloom500/feral-agent).
-          # We clone it next to the FeralLocalAI checkout, build a single
-          # executable with `bun build --compile`, and copy it into the
-          # Tauri externalBin location expected by src-tauri/tauri.conf.json
+          # Feral Agent is vendored in this monorepo at FeralAgent/ — it is the
+          # single source of truth. (The old standalone github.com/bloom500/feral-agent
+          # repo is deprecated; building from it caused release fixes to diverge
+          # from the in-repo copy.) Build a single executable with
+          # `bun build --compile` and copy it into the Tauri externalBin location
+          # expected by src-tauri/tauri.conf.json
           # (`binaries/feral-agent-x86_64-pc-windows-msvc.exe`).
-          $agentRepo = "$env:GITHUB_WORKSPACE\..\feral-agent"
-          if (-not (Test-Path $agentRepo)) {
-            New-Item -ItemType Directory -Force -Path (Split-Path $agentRepo) | Out-Null
-            git clone https://github.com/bloom500/feral-agent.git $agentRepo
-          }
-          Push-Location $agentRepo
+          $agentDir = Join-Path $env:GITHUB_WORKSPACE "FeralAgent"
+          Push-Location $agentDir
           bun install
           bun run build
           Pop-Location
 
-          $built = Join-Path $agentRepo "dist\feral-agent.exe"
+          $built = Join-Path $agentDir "dist\feral-agent.exe"
           if (-not (Test-Path $built)) {
             Write-Error "Feral Agent binary not produced — bun build step failed"
             exit 1
