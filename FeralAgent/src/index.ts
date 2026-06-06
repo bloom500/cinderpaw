@@ -38,6 +38,7 @@ import { createDeepResearchTool } from "./tools/builtin/deep-research.ts";
 import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
+import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { MoodEngine } from "./core/mood.ts";
@@ -203,6 +204,16 @@ function main(): void {
   // skills. The system prompt only carries a short menu; the LLM calls this
   // tool to load the full SKILL.md body of any skill it wants to apply.
   registry.register(createReadSkillTool(`${homedir()}/.feral/skills`));
+
+  // F7 — code-quality tools. Auto-detect project type and run the
+  // appropriate command (npm test, cargo test, pytest, go test, make test,
+  // etc.). All five share the same factory and the same exec allowlist
+  // (resolved at module load time per F0.5 hardening).
+  registry.register(createCodeQualityTool("run_tests", [config.workspace]));
+  registry.register(createCodeQualityTool("format_code", [config.workspace]));
+  registry.register(createCodeQualityTool("lint_code", [config.workspace]));
+  registry.register(createCodeQualityTool("install_deps", [config.workspace]));
+  registry.register(createCodeQualityTool("build_project", [config.workspace]));
 
   // --- Mood engine ---
   const mood = new MoodEngine();
