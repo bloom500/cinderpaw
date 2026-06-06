@@ -1,10 +1,11 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
-import { RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import { RefreshCw, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
 import { useSettings } from '@/stores/settings';
 import { useUI, type LangPref } from '@/stores/ui';
 import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
+import { useOnboarding } from '@/stores/onboarding';
 import { cn } from '@/lib/utils';
 
 export function GeneralTab() {
@@ -14,6 +15,7 @@ export function GeneralTab() {
   const saved       = useSettings((s) => s.saved);
   const language    = useUI((s) => s.language);
   const setLanguage = useUI((s) => s.setLanguage);
+  const reopenOnboarding = useOnboarding((s) => s.reopen);
 
   const handleChangeFolder = async () => {
     const selected = await openDialog({ directory: true, multiple: false });
@@ -121,6 +123,26 @@ export function GeneralTab() {
         </div>
         <button type="button" onClick={() => void handleOpenLogs()} className={btnCls}>
           Open logs
+        </button>
+      </div>
+
+      {/* Re-run onboarding — useful for renaming yourself or the agent,
+          or for seeing a fresh welcome after major UI changes. The wizard
+          re-opens immediately (no confirm) — the user is in Settings and
+          knows what they're doing. */}
+      <div className={rowCls}>
+        <div>
+          <p className="text-sm font-medium text-text-primary">Welcome tour</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            Re-run the first-time setup. Useful for renaming yourself or the agent.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={reopenOnboarding}
+          className={btnCls}
+        >
+          <Sparkles size={12} className="inline -mt-0.5 mr-1" /> Re-run welcome
         </button>
       </div>
 
