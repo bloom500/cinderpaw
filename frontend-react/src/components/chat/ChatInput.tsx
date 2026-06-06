@@ -16,6 +16,8 @@ import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
+import { FeralMascot } from './mascot/FeralMascot';
+import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
@@ -87,6 +89,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   }, [text]);
 
   const isStreaming = status === 'streaming';
+  const agentPhase = useChat((s) => s.agentPhase);
+  const mascotState = useMascotState({
+    streamStatus: status,
+    agentPhase,
+    isUserTyping: text.trim().length > 0,
+  });
   const disabled = alwaysEnabled ? false : (!loaded && !cloudModel);
 
   const trySend = async () => {
@@ -121,7 +129,10 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           ? 'px-4 py-3 max-w-2xl mx-auto w-full'
           : 'px-4 py-3',
       )}>
-        <div className="rounded-3xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
+        <div className="relative rounded-3xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
+          <div className="pointer-events-none absolute -top-7 left-5 z-10">
+            <FeralMascot state={mascotState} />
+          </div>
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
               {attachedFiles.map((f) => (
