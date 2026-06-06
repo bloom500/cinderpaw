@@ -226,6 +226,13 @@ export interface InboundMessage {
   id?: string;
   content?: string;
   sessionId?: string;
+  /**
+   * Pre-built context string for the user's currently-installed local skills.
+   * Injected into the system prompt on first session creation by the agent
+   * loop. Built on the Rust side from `skills::local_list()` + per-skill
+   * `get_installed_content()`.
+   */
+  skillsContext?: string;
   // set_model fields (all present when type === "set_model")
   provider?: string;
   model?: string;

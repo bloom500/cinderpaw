@@ -218,6 +218,10 @@ function main(): void {
           return;
         }
         mood.applyEvent("message_received");
+        // skillsContext is built on the Rust side from currently-installed
+        // local skills and is injected into the system prompt on first
+        // session creation. See AgentLoop.#memoryFor.
+        const skillsContext = msg.skillsContext;
         await agent.handle(sessionId, content, id, (event) => {
           transport.send(event);
           // Update mood based on what the agent loop emits.
@@ -227,7 +231,7 @@ function main(): void {
             mood.applyEvent(r?.ok === false ? "tool_error" : "tool_success");
           }
           if (event.type === "error")      mood.applyEvent("inference_error");
-        });
+        }, skillsContext);
         break;
       }
     }
