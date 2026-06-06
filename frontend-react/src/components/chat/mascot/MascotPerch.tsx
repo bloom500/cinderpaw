@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FeralMascot } from './FeralMascot';
+import { ThinkingBubble } from './ThinkingBubble';
 import type { MascotState } from './frames';
 
 const BORED_MS = 18000;   // idle this long → go for a run
@@ -151,6 +152,7 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
         }}
       >
         <FeralMascot state={renderState} flip={flip} />
+        <ThinkingBubble active={renderState === 'thinking'} />
       </div>
     </>
   );

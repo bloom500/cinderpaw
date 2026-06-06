@@ -1,4 +1,6 @@
-export type MascotState = 'idle' | 'typing' | 'thinking' | 'calling' | 'done' | 'running';
+export type MascotState =
+  | 'idle' | 'typing' | 'thinking' | 'calling' | 'done' | 'running'
+  | 'wave' | 'sleep' | 'surprised' | 'curious' | 'celebrate';
 
 export const FRAME_W = 16;
 export const FRAME_H = 16;
@@ -102,11 +104,57 @@ const RUN_B = withRows(PROFILE_BASE, {
   15: '...k.....kk.....',
 });
 
+// Wave: one horn raised, mouth open smile. Used after onboarding finish.
+const WAVE = withRows(BASE, {
+  0: '..o.........o...',
+  1: '..oo..kkkk..oo..',
+  2: '..ookkkkkkkkoo..',
+  7: '.kkooowwwwwookk.',  // wider smile
+});
+
+// Sleep: closed eyes (flat line) + slight Z offset on body (slumped).
+const SLEEP = withRows(BASE, {
+  4: '.kkooooooooookk.',
+  5: '.kkooooooooookk.',
+  6: '.kkooooooooookk.',
+  7: '.kkoowwrrwwookk.',  // soft mouth, no fangs
+  8: 'kkkooooooooookkk',
+  9: 'kkkk.ooooookkkkk',  // subtle slump: gap on the left
+});
+
+// Surprised: wide circular eyes, O-shaped mouth. Used on tool errors.
+const SURPRISED = withRows(BASE, {
+  5: '.kkooowkwoowokk.',  // big round eyes (white with k pupils)
+  6: '.kkooowkwoowokk.',
+  7: '.kkooowrrwoookk.',  // round O mouth
+});
+
+// Curious: head tilt suggested by shifting the top of the body 1px right.
+const CURIOUS = withRows(BASE, {
+  3: '..kkkkkkkkkkkkkk',  // head shifts right
+  4: '..kkooooooooookk',
+  5: '..kkoowkookwookk',
+  6: '..kkookkookkookk',
+});
+
+// Celebrate: arms/horns up, star pixels on either side. Used on long messages.
+const CELEBRATE = withRows(BASE, {
+  0: 'o..o........o..o',  // wider horn spread
+  1: 'oo..oo..oo..oo..',
+  5: '.kkoowkookwookk.',
+  7: '.kkooowrrrwoookk',  // big smile
+});
+
 export const FRAMES: Record<MascotState, Frame[]> = {
-  idle: [BASE, BASE, BASE, IDLE_BLINK], // blink ~1 in 4 frames
+  idle: [BASE, BASE, BASE, IDLE_BLINK],
   typing: [TYPING],
   thinking: [THINK_L, THINK_R],
   calling: [CALL_OUT, CALL_IN],
   done: [DONE, DONE],
   running: [RUN_A, RUN_B],
+  wave: [WAVE, WAVE],
+  sleep: [SLEEP, SLEEP],
+  surprised: [SURPRISED, SURPRISED],
+  curious: [CURIOUS, CURIOUS],
+  celebrate: [CELEBRATE, CELEBRATE],
 };
