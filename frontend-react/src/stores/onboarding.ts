@@ -94,27 +94,53 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
 
   finish: async () => {
     const s = get();
+    const record: PersistedOnboarding = {
+      completed: true,
+      completedAt: Date.now(),
+      userName: s.userName,
+      agentName: s.agentName || 'Feral',
+    };
+    // Update in-memory state FIRST so the UI closes the wizard immediately,
+    // regardless of how long the disk write takes (or whether it succeeds).
     set({
       active: false,
       skipped: false,
-      completedAt: Date.now(),
+      completedAt: record.completedAt,
       hasOnboardedBefore: true,
     });
-    // Persist to disk so the next launch knows to skip the wizard.
+    // Persist to localStorage synchronously — this is the source of truth
+    // for the next launch. If this fails, the in-memory state is correct
+    // for the current session but a WebView reload would re-show the wizard.
+    writeLocal(record);
+    // Best-effort: also write to the on-disk file for cross-platform
+    // inspectability. Failure here is non-fatal (the wizard is closed and
+    // localStorage already has the record).
     try {
-      await persistOnboarding({
-        completed: true,
-        completedAt: Date.now(),
-        userName: s.userName,
-        agentName: s.agentName || 'Feral',
-      });
+      await persistOnboarding(record);
     } catch (err) {
-      // Non-fatal: the in-memory state is already updated.
-      console.error('[onboarding] failed to persist:', err);
+      console.warn('[onboarding] file write skipped (localStorage has it):', err);
     }
   },
 
   loadPersisted: async () => {
+    // Step 1: localStorage (sync, always works, no permissions). If the
+    // user has completed onboarding in this WebView before, this returns
+    // the record and we never even need to touch the file system.
+    const local = readLocal();
+    if (local?.completed) {
+      set({
+        hasOnboardedBefore: true,
+        userName: local.userName ?? '',
+        agentName: local.agentName ?? 'Feral',
+        completedAt: local.completedAt ?? null,
+      });
+      return true;
+    }
+
+    // Step 2: try the on-disk file (best-effort). This is for users who
+    // either cleared localStorage or want the record visible to other
+    // apps. The fs plugin requires a Tauri capability; if it's missing
+    // this call throws and we fall through to the "not onboarded" state.
     try {
       const record = await loadPersistedOnboarding();
       if (record?.completed) {
@@ -124,10 +150,15 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
           agentName: record.agentName ?? 'Feral',
           completedAt: record.completedAt ?? null,
         });
+        // Backfill localStorage so the next launch doesn't have to touch
+        // the fs again.
+        writeLocal(record);
         return true;
       }
     } catch (err) {
-      console.warn('[onboarding] loadPersisted failed:', err);
+      // File read failed (no capability, missing dir, malformed JSON).
+      // The wizard will show — that's the safe default.
+      console.warn('[onboarding] file load failed (will show wizard):', err);
     }
     set({ hasOnboardedBefore: false });
     return false;
@@ -140,6 +171,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
 
 import { writeTextFile, readTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { homeDir } from '@tauri-apps/api/path';
+import { readLocal as readLocalRec, writeLocal as writeLocalRec } from './onboardingPersistence';
 
 export interface PersistedOnboarding {
   completed: boolean;
@@ -163,6 +195,11 @@ async function ensureFeralDir(): Promise<string> {
   }
   return feralDir;
 }
+
+// Convenience wrappers around the localStorage helpers. Inlined here so
+// the store file is the single source of truth for the persistence flow.
+function readLocal(): PersistedOnboarding | null { return readLocalRec(); }
+function writeLocal(record: PersistedOnboarding): void { writeLocalRec(record); }
 
 async function persistOnboarding(record: PersistedOnboarding): Promise<void> {
   const dir = await ensureFeralDir();
