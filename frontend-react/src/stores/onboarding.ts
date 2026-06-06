@@ -92,6 +92,9 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       hasOnboardedBefore: true,
     }),
 
+  // (no helper functions below — the persistence layer lives in
+  // onboardingPersistence.ts and is invoked through the actions above.)
+
   finish: async () => {
     const s = get();
     const record: PersistedOnboarding = {
@@ -108,57 +111,25 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       completedAt: record.completedAt,
       hasOnboardedBefore: true,
     });
-    // Persist to localStorage synchronously — this is the source of truth
-    // for the next launch. If this fails, the in-memory state is correct
-    // for the current session but a WebView reload would re-show the wizard.
-    writeLocal(record);
-    // Best-effort: also write to the on-disk file for cross-platform
-    // inspectability. Failure here is non-fatal (the wizard is closed and
-    // localStorage already has the record).
-    try {
-      await persistOnboarding(record);
-    } catch (err) {
-      console.warn('[onboarding] file write skipped (localStorage has it):', err);
-    }
+    // Persist to BOTH localStorage (sync) and the Tauri command
+    // (async, survives uninstall + auto-updates). The function is
+    // idempotent — calling it twice writes the same record.
+    void persistAsync(record);
   },
 
   loadPersisted: async () => {
-    // Step 1: localStorage (sync, always works, no permissions). If the
-    // user has completed onboarding in this WebView before, this returns
-    // the record and we never even need to touch the file system.
-    const local = readLocal();
-    if (local?.completed) {
+    // Try the layered persistence: localStorage first (sync, no I/O,
+    // always available), then the Tauri command (async, survives
+    // uninstall + auto-updates because the record lives in ~/).
+    const record = await loadPersistedAsync();
+    if (record?.completed) {
       set({
         hasOnboardedBefore: true,
-        userName: local.userName ?? '',
-        agentName: local.agentName ?? 'Feral',
-        completedAt: local.completedAt ?? null,
+        userName: record.userName ?? '',
+        agentName: record.agentName ?? 'Feral',
+        completedAt: record.completedAt ?? null,
       });
       return true;
-    }
-
-    // Step 2: try the on-disk file (best-effort). This is for users who
-    // either cleared localStorage or want the record visible to other
-    // apps. The fs plugin requires a Tauri capability; if it's missing
-    // this call throws and we fall through to the "not onboarded" state.
-    try {
-      const record = await loadPersistedOnboarding();
-      if (record?.completed) {
-        set({
-          hasOnboardedBefore: true,
-          userName: record.userName ?? '',
-          agentName: record.agentName ?? 'Feral',
-          completedAt: record.completedAt ?? null,
-        });
-        // Backfill localStorage so the next launch doesn't have to touch
-        // the fs again.
-        writeLocal(record);
-        return true;
-      }
-    } catch (err) {
-      // File read failed (no capability, missing dir, malformed JSON).
-      // The wizard will show — that's the safe default.
-      console.warn('[onboarding] file load failed (will show wizard):', err);
     }
     set({ hasOnboardedBefore: false });
     return false;
@@ -166,12 +137,10 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Persistence — Tauri fs API
+// Persistence — localStorage + Tauri command (see onboardingPersistence.ts)
 // ---------------------------------------------------------------------------
 
-import { writeTextFile, readTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
-import { homeDir } from '@tauri-apps/api/path';
-import { readLocal as readLocalRec, writeLocal as writeLocalRec } from './onboardingPersistence';
+import { loadPersistedAsync, persistAsync } from './onboardingPersistence';
 
 export interface PersistedOnboarding {
   completed: boolean;
@@ -180,43 +149,5 @@ export interface PersistedOnboarding {
   agentName: string;
 }
 
-async function ensureFeralDir(): Promise<string> {
-  // Resolve the user's home dir then ensure ~/.feral/ exists.
-  const home = await homeDir();
-  const sep = home.includes('\\') ? '\\' : '/';
-  const feralDir = home.endsWith(sep) ? `${home}.feral` : `${home}${sep}.feral`;
-  if (!(await exists(feralDir))) {
-    try {
-      await mkdir(feralDir, { recursive: true });
-    } catch (err) {
-      // mkdir may fail if the dir already exists (race) — that's fine.
-      if (!(await exists(feralDir))) throw err;
-    }
-  }
-  return feralDir;
-}
-
-// Convenience wrappers around the localStorage helpers. Inlined here so
-// the store file is the single source of truth for the persistence flow.
-function readLocal(): PersistedOnboarding | null { return readLocalRec(); }
-function writeLocal(record: PersistedOnboarding): void { writeLocalRec(record); }
-
-async function persistOnboarding(record: PersistedOnboarding): Promise<void> {
-  const dir = await ensureFeralDir();
-  const sep = dir.includes('\\') ? '\\' : '/';
-  const path = `${dir}${sep}onboarding.json`;
-  await writeTextFile(path, JSON.stringify(record, null, 2));
-}
-
-async function loadPersistedOnboarding(): Promise<PersistedOnboarding | null> {
-  const home = await homeDir();
-  const sep = home.includes('\\') ? '\\' : '/';
-  const path = `${home}${sep}.feral${sep}onboarding.json`;
-  if (!(await exists(path))) return null;
-  try {
-    const raw = await readTextFile(path);
-    return JSON.parse(raw) as PersistedOnboarding;
-  } catch {
-    return null;
-  }
-}
+// (All persistence I/O lives in ./onboardingPersistence.ts. This file
+// only declares the store actions.)
