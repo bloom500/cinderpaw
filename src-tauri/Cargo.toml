@@ -1,6 +1,6 @@
 [package]
 name = "feral"
-version = "0.1.5"
+version = "0.1.6"
 description = "Feral — local AI desktop runtime"
 authors = ["Feral Contributors"]
 license = "MIT"
