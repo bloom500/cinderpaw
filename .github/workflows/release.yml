@@ -66,6 +66,28 @@ jobs:
           Copy-Item $built src-tauri/binaries/feral-agent-x86_64-pc-windows-msvc.exe -Force
           Write-Host "Feral Agent sidecar binary built successfully"
 
+      - name: Extract release notes from CHANGELOG
+        id: changelog
+        shell: pwsh
+        run: |
+          $content = Get-Content CHANGELOG.md -Raw
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $escaped = [regex]::Escape($version)
+          $pattern = "(?m)^## v$escaped\s*\r?\n([\s\S]*?)(?=\r?\n^## v|\Z)"
+          $match = [regex]::Match($content, $pattern)
+          if ($match.Success) {
+            $notes = $match.Groups[1].Value.Trim()
+            $delimiter = "CHANGELOG_EOF_$(Get-Random)"
+            "NOTES<<$delimiter" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+            $notes          | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "$delimiter"    | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host "Release notes extracted for v$version"
+          } else {
+            Write-Warning "No CHANGELOG entry for v$version — release body will be empty"
+            "NOTES=" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
       - name: Build, sign and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -77,6 +99,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Feral ${{ github.ref_name }}"
+          releaseBody: ${{ steps.changelog.outputs.NOTES }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           # Uploads the bundles AND latest.json (updater manifest) to the release.
