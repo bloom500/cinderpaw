@@ -5,12 +5,13 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Build, sign & publish
     runs-on: windows-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout FeralLocalAI
