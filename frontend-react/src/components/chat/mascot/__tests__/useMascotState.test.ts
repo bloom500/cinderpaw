@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useMascotState, DONE_HOLD_MS } from '../useMascotState';
+import { useMascotState, DONE_HOLD_MS, COOL_HOLD_MS, EXCITED_HOLD_MS } from '../useMascotState';
 import type { StreamStatus } from '@/stores/chat';
 import type { AgentPhase } from '@/stores/chat';
 
@@ -36,6 +36,28 @@ describe('useMascotState', () => {
     expect(result.current).toBe('thinking');
   });
 
+  describe('new agent phases', () => {
+    it('reading while streaming with reading phase', () => {
+      const { result } = run({ streamStatus: 'streaming', agentPhase: 'reading', isUserTyping: false });
+      expect(result.current).toBe('reading');
+    });
+
+    it('searching while streaming with searching phase', () => {
+      const { result } = run({ streamStatus: 'streaming', agentPhase: 'searching', isUserTyping: false });
+      expect(result.current).toBe('searching');
+    });
+
+    it('building while streaming with building phase', () => {
+      const { result } = run({ streamStatus: 'streaming', agentPhase: 'building', isUserTyping: false });
+      expect(result.current).toBe('building');
+    });
+
+    it('writing while streaming with writing phase', () => {
+      const { result } = run({ streamStatus: 'streaming', agentPhase: 'writing', isUserTyping: false });
+      expect(result.current).toBe('writing');
+    });
+  });
+
   describe('transient done', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
@@ -50,6 +72,40 @@ describe('useMascotState', () => {
         vi.advanceTimersByTime(DONE_HOLD_MS + 50);
       });
       expect(result.current).toBe('idle');
+    });
+  });
+
+  describe('excited on idle→streaming transition', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('returns excited after idle→streaming transition', () => {
+      const { result, rerender } = run({ streamStatus: 'idle', agentPhase: null, isUserTyping: false });
+      expect(result.current).toBe('idle');
+
+      act(() => {
+        rerender({ streamStatus: 'streaming', agentPhase: null, isUserTyping: false });
+      });
+      expect(result.current).toBe('excited');
+    });
+
+    it('does not trigger excited on first streaming (no prior idle)', () => {
+      const { result } = run({ streamStatus: 'streaming', agentPhase: null, isUserTyping: false });
+      expect(result.current).toBe('thinking');
+    });
+  });
+
+  describe('constants', () => {
+    it('DONE_HOLD_MS is 1200', () => {
+      expect(DONE_HOLD_MS).toBe(1200);
+    });
+
+    it('COOL_HOLD_MS is 2400', () => {
+      expect(COOL_HOLD_MS).toBe(2400);
+    });
+
+    it('EXCITED_HOLD_MS is 800', () => {
+      expect(EXCITED_HOLD_MS).toBe(800);
     });
   });
 });

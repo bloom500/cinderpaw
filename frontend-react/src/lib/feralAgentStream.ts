@@ -17,28 +17,30 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import type { FeralAgentEvent } from '@/lib/tauri';
+import { tauri } from '@/lib/tauri';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 
 export interface FeralStreamHandlers {
   onChunk: (content: string) => void;
-  /** Called when the agent loop finishes. `finalContent` is the agent's
-   *  authoritative answer — use it as fallback if no chunks were streamed. */
   onDone: (finalContent?: string) => void;
   onError: (message: string) => void;
+  onStopped?: () => void;
   onToolStart?: (tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (tool: string) => void;
-  /** Called when the agent asks the user an interactive question. Returns
-   *  a Promise that resolves with the user's answers (or rejects on cancel).
-   *  The handler is responsible for sending the response back to the sidecar
-   *  via the `feralAskUserResponse` invoke command. */
   onAskUser?: (
     requestId: string,
     sessionId: string,
     questions: AskUserQuestion[],
   ) => Promise<AskUserAnswer[]>;
+  onSpawning?: (count: number) => void;
+  getToolCallCount?: () => number;
 }
 
-const inflight = new Map<string, FeralStreamHandlers>();
+interface InflightEntry extends FeralStreamHandlers {
+  stopped: boolean;
+}
+
+const inflight = new Map<string, InflightEntry>();
 let unlisten: UnlistenFn | null = null;
 let initPromise: Promise<void> | null = null;
 
@@ -60,14 +62,22 @@ export function ensureFeralListener(): Promise<void> {
 
     switch (parsed.type) {
       case 'chunk':
-        if (parsed.id) inflight.get(parsed.id)?.onChunk(parsed.content);
+        if (parsed.id) {
+          const entry = inflight.get(parsed.id);
+          if (entry && !entry.stopped) entry.onChunk(parsed.content);
+        }
         break;
       case 'done':
         if (parsed.id) {
           const h = inflight.get(parsed.id);
           if (h) {
             inflight.delete(parsed.id);
-            h.onDone(parsed.content);
+            if (h.stopped) {
+              if (h.onStopped) h.onStopped();
+              else h.onDone(parsed.content);
+            } else {
+              h.onDone(parsed.content);
+            }
           }
         }
         break;
@@ -78,7 +88,10 @@ export function ensureFeralListener(): Promise<void> {
           const h = inflight.get(parsed.id);
           if (h) {
             inflight.delete(parsed.id);
-            h.onError(parsed.message);
+            // An abort-triggered error is surfaced as onStopped (if registered)
+            // so the UI shows "stopped" rather than "error".
+            if (h.stopped && h.onStopped) h.onStopped();
+            else h.onError(parsed.message);
           }
         } else {
           for (const [, h] of inflight) h.onError(parsed.message);
@@ -90,6 +103,11 @@ export function ensureFeralListener(): Promise<void> {
         break;
       case 'tool_done':
         if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.tool);
+        break;
+      case 'spawning':
+        if (parsed.id) {
+          inflight.get(parsed.id)?.onSpawning?.(parsed.count ?? 1);
+        }
         break;
       case 'ask_user':
         // Route the ask_user event to the matching in-flight stream's handler
@@ -153,5 +171,21 @@ function routeAskUser(
 
 /** Register handlers for an in-flight sidecar message. */
 export function registerFeralStream(messageId: string, handlers: FeralStreamHandlers): void {
-  inflight.set(messageId, handlers);
+  inflight.set(messageId, { ...handlers, stopped: false });
+}
+
+/**
+ * Mark all in-flight feral streams as stopped and send a stop signal to the
+ * sidecar. The next done/error event for each message will route to `onStopped`
+ * instead of `onDone`/`onError` so the UI shows the partial response cleanly.
+ */
+export async function requestFeralStop(sessionId?: string): Promise<void> {
+  for (const entry of inflight.values()) {
+    entry.stopped = true;
+  }
+  try {
+    await tauri.feralAgent.stop(sessionId);
+  } catch (err) {
+    console.warn('[feralAgentStream] stop signal failed:', err);
+  }
 }

@@ -3,12 +3,19 @@ import { FeralMascot } from './FeralMascot';
 import { ThinkingBubble } from './ThinkingBubble';
 import type { MascotState } from './frames';
 
-const BORED_MS = 18000;   // idle this long → go for a run
-const LEG_MS = 1800;      // ms to cross the bar one way
-const LEFT_OFFSET = 20;   // px; matches wrapper's `left-5` (1.25rem)
-const MASCOT_W = 38;      // px; matches FeralMascot DISPLAY
-const PUFF_EVERY_MS = 380;
-const PUFF_FADE_MS = 600;
+// Idle sequence: idle →(8s)→ curious →(10s)→ run →(3.6s)→ sleep →(15s)→ stretching →(2s)→ idle
+// After 2 complete idle cycles: gaming →(10s)→ back to curious
+const CURIOUS_DELAY_MS       = 8_000;
+const RUN_AFTER_CURIOUS_MS   = 10_000;
+const LEG_MS                 = 1_800;
+const SLEEP_AFTER_RUN_MS     = 15_000;
+const STRETCHING_MS          = 2_000;
+const GAMING_MS              = 10_000;
+const GAMING_TRIGGER_CYCLES  = 2;
+const LEFT_OFFSET            = 20;
+const MASCOT_W               = 38;
+const PUFF_EVERY_MS          = 380;
+const PUFF_FADE_MS           = 600;
 
 interface Puff { id: number; x: number; born: number; }
 
@@ -49,6 +56,7 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
   const [puffs, setPuffs] = useState<Puff[]>([]);
   const puffId = useRef(0);
   const travelRef = useRef<{ startX: number; targetX: number; startTime: number } | null>(null);
+  const idleCycleCount = useRef(0);
 
   useEffect(() => {
     const clearTimers = () => {
@@ -74,43 +82,77 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
     setPuffs([]);
     travelRef.current = null;
 
-    const runLap = () => {
-      const parent = wrapRef.current?.offsetParent as HTMLElement | null;
-      const maxX = parent
-        ? Math.max(0, parent.clientWidth - MASCOT_W - LEFT_OFFSET * 2)
-        : 120;
+    const startIdleSequence = () => {
+      // After 2 full cycles, insert gaming before curious
+      if (idleCycleCount.current >= GAMING_TRIGGER_CYCLES) {
+        idleCycleCount.current = 0;
+        setRenderState('gaming');
+        timers.current.push(window.setTimeout(() => {
+          setRenderState('idle');
+          startGamingSequence();
+        }, GAMING_MS));
+        return;
+      }
 
-      setRenderState('running');
-      setTraveling(true);
-      setFlip(false);
-      setX(maxX);
-      travelRef.current = { startX: 0, targetX: maxX, startTime: Date.now() };
+      // Step 1: curious after 8 s idle
+      timers.current.push(window.setTimeout(() => {
+        setRenderState('curious');
 
-      timers.current.push(
-        window.setTimeout(() => {
-          setFlip(true);
-          setX(0);
-          travelRef.current = { startX: maxX, targetX: 0, startTime: Date.now() };
+        // Step 2: run after 10 s more
+        timers.current.push(window.setTimeout(() => {
+          const parent = wrapRef.current?.offsetParent as HTMLElement | null;
+          const maxX = parent
+            ? Math.max(0, parent.clientWidth - MASCOT_W - LEFT_OFFSET * 2)
+            : 120;
 
-          timers.current.push(
-            window.setTimeout(() => {
+          setRenderState('running');
+          setTraveling(true);
+          setFlip(false);
+          setX(maxX);
+          travelRef.current = { startX: 0, targetX: maxX, startTime: Date.now() };
+
+          // Step 3: run back left
+          timers.current.push(window.setTimeout(() => {
+            setFlip(true);
+            setX(0);
+            travelRef.current = { startX: maxX, targetX: 0, startTime: Date.now() };
+
+            // Step 4: collapse into sleep
+            timers.current.push(window.setTimeout(() => {
               setTraveling(false);
               setFlip(false);
-              setRenderState('idle');
               setPuffs([]);
               travelRef.current = null;
-              timers.current.push(window.setTimeout(runLap, BORED_MS));
-            }, LEG_MS),
-          );
-        }, LEG_MS),
-      );
+              setRenderState('sleep');
+
+              // Step 5: stretching after sleep
+              timers.current.push(window.setTimeout(() => {
+                setRenderState('stretching');
+
+                // Step 6: back to idle, loop
+                timers.current.push(window.setTimeout(() => {
+                  idleCycleCount.current += 1;
+                  setRenderState('idle');
+                  startIdleSequence();
+                }, STRETCHING_MS));
+              }, SLEEP_AFTER_RUN_MS));
+            }, LEG_MS));
+          }, LEG_MS));
+        }, RUN_AFTER_CURIOUS_MS));
+      }, CURIOUS_DELAY_MS));
     };
 
-    timers.current.push(window.setTimeout(runLap, BORED_MS));
+    const startGamingSequence = () => {
+      timers.current.push(window.setTimeout(() => {
+        setRenderState('idle');
+        startIdleSequence();
+      }, CURIOUS_DELAY_MS));
+    };
+
+    startIdleSequence();
     return clearTimers;
   }, [baseState]);
 
-  // Spawn dust puffs at the trailing foot while running
   useEffect(() => {
     if (!traveling) return;
     const id = window.setInterval(() => {
@@ -128,7 +170,6 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
     return () => window.clearInterval(id);
   }, [traveling]);
 
-  // Remove puffs after they've fully faded
   useEffect(() => {
     if (puffs.length === 0) return;
     const t = window.setTimeout(() => {

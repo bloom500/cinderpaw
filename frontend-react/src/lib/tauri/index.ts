@@ -165,7 +165,8 @@ export type FeralAgentEvent =
   | { type: 'pong' }
   | { type: 'error';       id?: string; message: string }
   | { type: 'ask_user';    id: string; sessionId: string; questions: import('@/stores/askUser').AskUserQuestion[] }
-  | { type: 'ask_user_cancelled'; id: string; sessionId: string; reason: string };
+  | { type: 'ask_user_cancelled'; id: string; sessionId: string; reason: string }
+  | { type: 'spawning'; id: string; count: number };
 
 /** Display-safe snapshot of the Feral Agent's active LLM — no API keys. */
 export interface FeralModelConfigView {
@@ -244,6 +245,8 @@ const raw = {
   feralSendMessage:         (content: string, sessionId: string) =>
     invoke<string>('feral_send_message', { content, sessionId }),
   feralAgentStatus:         () => invoke<boolean>('feral_agent_status'),
+  feralStopGeneration:      (sessionId?: string | null) =>
+    invoke<void>('feral_stop_generation', { sessionId: sessionId ?? null }),
   feralSetModel: (
     source: string,
     model: string,
@@ -337,6 +340,7 @@ export const tauri = {
     sendMessage: async (content: string, sessionId: string) =>
       raw.feralSendMessage(content, sessionId),
     status:      async () => raw.feralAgentStatus(),
+    stop:        async (sessionId?: string) => raw.feralStopGeneration(sessionId ?? null),
   },
 
   agents: {

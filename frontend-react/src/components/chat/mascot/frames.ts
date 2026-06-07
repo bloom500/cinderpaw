@@ -1,160 +1,2468 @@
 export type MascotState =
   | 'idle' | 'typing' | 'thinking' | 'calling' | 'done' | 'running'
-  | 'wave' | 'sleep' | 'surprised' | 'curious' | 'celebrate';
+  | 'wave' | 'sleep' | 'surprised' | 'curious' | 'celebrate'
+  | 'reading' | 'searching' | 'building' | 'writing'
+  | 'stretching' | 'gaming' | 'love' | 'cool' | 'error' | 'excited'
+  | 'spawning';
 
 export const FRAME_W = 16;
 export const FRAME_H = 16;
 
-/**
- * Mascot palette. Orange is a vivid toy-orange (matches the reference figure),
- * intentionally brighter than the muted brand `--brand` (#C4843A) so it reads at
- * 16px. Swap MASCOT_ORANGE to '#C4843A' if strict brand alignment is preferred.
- * `null` = transparent (pixel skipped when drawing).
- */
 const MASCOT_ORANGE = '#F57A1F';
 export const PALETTE: Record<string, string | null> = {
   '.': null,
-  k: '#1c1c1e', // fur (near-black)
-  o: MASCOT_ORANGE,
-  w: '#ffffff', // eye highlights, fangs
-  r: '#c0392b', // mouth interior
+  k: '#1c1c1e', o: MASCOT_ORANGE, w: '#ffffff', r: '#c0392b',
+  y: '#f1c40f', g: '#27ae60', b: '#2980b9', p: '#8e44ad',
+  c: '#16a085', s: '#7f8c8d', n: '#e67e22', m: '#e91e63',
 };
 
-export type Frame = string[]; // FRAME_H strings, each FRAME_W chars
+export type Frame = string[];
 
-/** Idle, eyes-open, mouth smiling. The canonical silhouette all states derive from. */
-const BASE: Frame = [
-  '...o........o...', // 0  horn tips
-  '..oo..kkkk..oo..', // 1  horns + fur crown
-  '..ookkkkkkkkoo..', // 2  horns base + fur
-  '.kkkkkkkkkkkkkk.', // 3  fur head
-  '.kkooooooooookk.', // 4  face top
-  '.kkoowkookwookk.', // 5  eyes top + white sparkle (top-outer)
-  '.kkookkookkookk.', // 6  eyes (solid bottom)
-  '.kkooowrrwoookk.', // 7  mouth (fangs + red)
-  'kkkooooooooookkk', // 8  chin
-  'kkkkkooooookkkkk', // 9  body + belly top
-  'kkkkooooooookkkk', // 10 belly
-  'kkkkooooooookkkk', // 11 belly (fuller)
-  'kkkkkooooookkkkk', // 12 belly bottom (rounder)
-  '.kkkkkkkkkkkkkk.', // 13 lower body
-  '....kkk..kkk....', // 14 legs
-  '....kk....kk....', // 15 feet
+const IDLE_BLINK: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
 ];
 
-/** Return a copy of `base` with specific row indices replaced. */
-function withRows(base: Frame, overrides: Record<number, string>): Frame {
-  return base.map((row, i) => overrides[i] ?? row);
-}
-
-// Idle blink: eyes become a flat line, highlights gone.
-const IDLE_BLINK = withRows(BASE, {
-  5: '.kkooooooooookk.',
-  6: '.kkookkookkookk.',
-});
-
-// Typing: looks down at the cursor — solid tops, sparkle drops to lower eye row.
-const TYPING = withRows(BASE, {
-  5: '.kkookkookkookk.',
-  6: '.kkoowkookwookk.',
-});
-
-// Thinking: eyes dart left then right (pondering glance).
-const THINK_L = withRows(BASE, { 5: '.kkoowkoowkookk.' });
-const THINK_R = withRows(BASE, { 5: '.kkookwookwookk.' });
-
-// Calling: eyes scan down, outer then inner (focused on work).
-const CALL_OUT = withRows(BASE, { 5: '.kkookkookkookk.', 6: '.kkoowkookwookk.' });
-const CALL_IN = withRows(BASE, { 5: '.kkookkookkookk.', 6: '.kkookwoowkookk.' });
-
-// Done: happy closed eyes + a wider open smile.
-const DONE = withRows(BASE, {
-  5: '.kkooooooooookk.',
-  6: '.kkookkookkookk.',
-  7: '.kkoowrrrrwookk.',
-});
-
-// Running: side-profile silhouette. One horn, one eye, body in silhouette.
-// `flip` prop on FeralMascot mirrors for the return trip (facing left).
-const PROFILE_BASE: Frame = [
-  '....o...........',  // 0  horn tip
-  '...oo...........',  // 1  horn
-  '..ookk..........',  // 2  horn base
-  '.kkkkkk.........',  // 3  head
-  '.kkooooooo......',  // 4  face (orange snout)
-  '.kkoowooo.......',  // 5  eye + sparkle
-  '.kkooooooo......',  // 6  face
-  '.kkooowroo......',  // 7  mouth (fang + red)
-  'kkooooooooo.....',  // 8  chin + belly start
-  'kkoooooooooo....',  // 9  belly
-  'kkoooooooooo....',  // 10 belly
-  'kkkooooookkkk...',  // 11 lower body
-  '..kkkkkkkkk.....',  // 12 legs base
-  '....kk.kk.......',  // 13 upper legs
-  '....kk....kk....',  // 14 lower legs
-  '....kk.....kk...',  // 15 feet
+const TYPING: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoowkookwookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
 ];
 
-const RUN_A = withRows(PROFILE_BASE, {
-  14: '...kk...kk......',  // stride — front leg forward
-  15: '..kk.....k......',
-});
-const RUN_B = withRows(PROFILE_BASE, {
-  14: '...k....kk......',  // stride — back leg forward
-  15: '...k.....kk.....',
-});
+const THINK_L: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkowkoowkwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
 
-// Wave: one horn raised, mouth open smile. Used after onboarding finish.
-const WAVE = withRows(BASE, {
-  0: '..o.........o...',
-  1: '..oo..kkkk..oo..',
-  2: '..ookkkkkkkkoo..',
-  7: '.kkooowwwwwookk.',  // wider smile
-});
+const THINK_R: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookwoowwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
 
-// Sleep: closed eyes (flat line) + slight Z offset on body (slumped).
-const SLEEP = withRows(BASE, {
-  4: '.kkooooooooookk.',
-  5: '.kkooooooooookk.',
-  6: '.kkooooooooookk.',
-  7: '.kkoowwrrwwookk.',  // soft mouth, no fangs
-  8: 'kkkooooooooookkk',
-  9: 'kkkk.ooooookkkkk',  // subtle slump: gap on the left
-});
+const CALL_OUT: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoowkookwookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
 
-// Surprised: wide circular eyes, O-shaped mouth. Used on tool errors.
-const SURPRISED = withRows(BASE, {
-  5: '.kkooowkwoowokk.',  // big round eyes (white with k pupils)
-  6: '.kkooowkwoowokk.',
-  7: '.kkooowrrwoookk.',  // round O mouth
-});
+const CALL_IN: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
 
-// Curious: head tilt suggested by shifting the top of the body 1px right.
-const CURIOUS = withRows(BASE, {
-  3: '..kkkkkkkkkkkkkk',  // head shifts right
-  4: '..kkooooooooookk',
-  5: '..kkoowkookwookk',
-  6: '..kkookkookkookk',
-});
+const DONE: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
 
-// Celebrate: arms/horns up, star pixels on either side. Used on long messages.
-const CELEBRATE = withRows(BASE, {
-  0: 'o..o........o..o',  // wider horn spread
-  1: 'oo..oo..oo..oo..',
-  5: '.kkoowkookwookk.',
-  7: '.kkooowrrrwoookk',  // big smile
-});
+const RUN_A: Frame = [
+  '....o...........',
+  '...oo...........',
+  '..ookk..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '...kk...kk......',
+  '..kk.....k......'
+];
+
+const RUN_B: Frame = [
+  '....o...........',
+  '...oo...........',
+  '..ookk..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '...k....kk......',
+  '...k.....kk.....'
+];
+
+const WAVE: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowwwwwookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SLEEP: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooowwwwoookk.',
+  'kkkooooooooookkk',
+  'kkkk.ooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SLEEP_B: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooowwwwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SURPRISED: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkkwkwookk.',
+  '.kkookkkwkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CURIOUS: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkk..',
+  '.kooooooooook.k.',
+  '.koowkookwook.k.',
+  '.kookkookkook.k.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CURIOUS_L: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CELEBRATE: Frame = [
+  'o..o........o..o',
+  'oo..oo..oo..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const IMA: Frame = [
+  '...o.y......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const IMB: Frame = [
+  '...o.y......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooo.rrr.ookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const IBA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkoooooooogkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const IBB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookgkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const IBC: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkoooooooogkkkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const IBRA: Frame = [
+  '..go........o...',
+  '..go..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const IBRB: Frame = [
+  '..go........o...',
+  '.ooo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const ISA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const ISB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const ICORA: Frame = [
+  '...o.g......o...',
+  '..oobgkkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const ICORB: Frame = [
+  '...o.g......o...',
+  '..oobgkkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const ISIT1: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk.kkk.....',
+  '....kk..kk......'
+];
+
+const ISIT2: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk.kk......',
+  '....kk..kkk.....'
+];
+
+const TPE: Frame = [
+  '.y.o........o...',
+  '.yoo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoowkookwookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TCA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoowkookwookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooobkkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TCB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoowkookwookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkoooooobwkkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TCC: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoowkookwookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookssk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkks...',
+  '....kk....kk....'
+];
+
+const TSA: Frame = [
+  '...o.c......o...',
+  '..oo.ccc....oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TSB: Frame = [
+  '...o.c......o...',
+  '..oo..cc....oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TRA: Frame = [
+  '...o.c......o...',
+  '..ooc..ckk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TRB: Frame = [
+  '...o.c......o...',
+  '..oo.c...k..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TMG: Frame = [
+  '...o.w......o...',
+  '..ooww..kk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TQA: Frame = [
+  '.y.o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TQB: Frame = [
+  '..yo........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const TDF: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkowooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CFA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooob..kkk',
+  'kkkkkoooob...kkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CFB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooobb.kkk',
+  'kkkkkoooobb..kkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CDBA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookbskk',
+  'kkkkooooooobskkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CDBB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooobs.kkk',
+  'kkkkooooooobskkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CBRA: Frame = [
+  '...o.b......o...',
+  '..oobb..kk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooob..kkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CBRB: Frame = [
+  '...o.b......o...',
+  '..oobb..kk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooob..kkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CAPIa: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkpwpoooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CAPIb: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkpwpoooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CLOa: Frame = [
+  '...oyk......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CLOb: Frame = [
+  '...oky......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CHAa: Frame = [
+  '...yyy......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CHAb: Frame = [
+  '...oyyy.....o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CCPA: Frame = [
+  '....o...........',
+  '...pp...........',
+  '..oopp..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '....kk....kk....',
+  '....kk.....kk...'
+];
+
+const CCPB: Frame = [
+  '....o...........',
+  '...opp..........',
+  '..oopp..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '....kk....kk....',
+  '....kk.....kk...'
+];
+
+const CBLKa: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkbgboooookkkk',
+  'kkkkbgboooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CBLKb: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkbyboooookkkk',
+  'kkkkbgboooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CTWA: Frame = [
+  '....o...........',
+  '...oo...........',
+  '..ookk..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '...s......kk....',
+  '...s.......kk...'
+];
+
+const CTWB: Frame = [
+  '....o...........',
+  '...oo...........',
+  '..ookk..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '....s.....kk....',
+  '....s......kk...'
+];
+
+const DCKa: Frame = [
+  '...o.g......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DCKb: Frame = [
+  '...o.g......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DCO: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkskkookkkskkk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DSPa: Frame = [
+  '.y.o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DSPb: Frame = [
+  '..yo........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DCNa: Frame = [
+  '...o.y......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DCNb: Frame = [
+  '...oyy......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DGRa: Frame = [
+  '.g.o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const DGRb: Frame = [
+  '..go........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CFa: Frame = [
+  'y.ry........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CFb: Frame = [
+  'ry.y........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CCFa: Frame = [
+  'y..o...p...o..y.',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CCFb: Frame = [
+  'p..o...y...o..g.',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CSPa: Frame = [
+  'o..o...y....o..o',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CSPb: Frame = [
+  'o..o..y.....o..o',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CFWa: Frame = [
+  'y..o...p...o..y.',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CFWb: Frame = [
+  'p..o...y...o..p.',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrroookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SXA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkrrkwookk.',
+  '.kkookkrrkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SAA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkkwkwookk.',
+  '.kkookkkwkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkpp..ppoookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SAB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkkwkwookk.',
+  '.kkookkkwkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkpp..ppoookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const STA: Frame = [
+  'r.o.......o.r...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkkwkwookk.',
+  '.kkookkkwkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const STB: Frame = [
+  '.r..o.......o..r',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkkwkwookk.',
+  '.kkookkkwkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WFA: Frame = [
+  '..o.g.......b.o.',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowwwwwookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WFB: Frame = [
+  '..o.b.......g.o.',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowwwwwookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WSA: Frame = [
+  '...o.yy.....o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowwwwwookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WSB: Frame = [
+  '...o..yy....o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowwwwwookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WBA: Frame = [
+  '...om.......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowwwwwookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WBB: Frame = [
+  '...om.......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowwwwwookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SZA: Frame = [
+  '...os.......o...',
+  '..ooss.kkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooowwwwoookk.',
+  'kkkooooooooookkk',
+  'kkkk.ooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SZB: Frame = [
+  '...o.s......o...',
+  '..oo.ss.kk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooowwwwoookk.',
+  'kkkooooooooookkk',
+  'kkkk.ooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SZC: Frame = [
+  '...o..s.....o...',
+  '..oo..ss.k..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooowwwwoookk.',
+  'kkkooooooooookkk',
+  'kkkk.ooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SMO: Frame = [
+  '...oy.......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkooowwwwoookk.',
+  'kkkooooooooookkk',
+  'kkkk.ooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CUA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkoowkooooookk.',
+  '.kkokkkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CUB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkokwoooooookk.',
+  '.kkokkkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CGA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkoooooobgkkk',
+  'kkkkooooooobgkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CGB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooobg.kkk',
+  'kkkkooooooobgkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const RCA: Frame = [
+  '....o...........',
+  '...p............',
+  '..oop...........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '....kk....kk....',
+  '....kk.....kk...'
+];
+
+const RCB: Frame = [
+  '....o...........',
+  '...op...........',
+  '..oop...........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '....kk....kk....',
+  '....kk.....kk...'
+];
+
+const RWA: Frame = [
+  '....o...........',
+  '...oo...........',
+  '..ookk..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '...s......kk....',
+  '...s.......kk...'
+];
+
+const RWB: Frame = [
+  '....o...........',
+  '...oo...........',
+  '..ookk..........',
+  '.kkkkkk.........',
+  '.kkooooooo......',
+  '.kkoowooo.......',
+  '.kkooooooo......',
+  '.kkooowroo......',
+  'kkooooooooo.....',
+  'kkoooooooooo....',
+  'kkoooooooooo....',
+  'kkkooooookkkk...',
+  '..kkkkkkkkk.....',
+  '....kk.kk.......',
+  '....s.....kk....',
+  '....s......kk...'
+];
+
+const RDA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkowkoowkwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const RDB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkowkoowkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const RDC: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkookkowoowokk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SRA: Frame = [
+  '...o.w......o...',
+  '..ooww..kk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SRB: Frame = [
+  '...o.......wo...',
+  '..oo..kkww..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const BDA: Frame = [
+  '...yyy......o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const BDB: Frame = [
+  '...oyyy.....o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WRA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookk.k',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const WRB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooook..k',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const STA1: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  '.kkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const STA2: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  '..kooooooooookkk',
+  '..kkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const STA3: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  '...koooooooookkk',
+  '....kooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const GMA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkbbbbboookkkk',
+  'kkkkbbbbboookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const GMB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkbbbbboookkkk',
+  'kkkkobbbb.ookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const GRA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkbbbbboookkkk',
+  'kkkkbbbbboookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk.kkk.....',
+  '....kk..kk......'
+];
+
+const GRB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkobbbb.ookkkk',
+  'kkkkbbbbboookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk.kkk.....',
+  '....kk..kk......'
+];
+
+const LOA: Frame = [
+  '...o........o...',
+  '..oom..kkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const LOB: Frame = [
+  '...omm......o...',
+  '..oommmkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const COA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkskkookkkskkk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const CGA2: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkskkookkkskkk.',
+  '.kkoorrrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkoooooobgkkk',
+  'kkkkooooooobgkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const EXA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkrrkwookk.',
+  '.kkookkrrkkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const EDA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooo.rrr.ookk.',
+  'kkkooooooooookkk',
+  'kkkk.ooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const ESA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const EXC1: Frame = [
+  '.y.o........o...',
+  '.yyo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const EXC2: Frame = [
+  '..y.........o...',
+  '..yy..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const SPB: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkkk...',
+  '....kk....kkk...'
+];
+
+const SPC: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkkk...',
+  '....kk....kkk...'
+];
+
+const SPA: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkoowkookwookk.',
+  '.kkookkookkookk.',
+  '.kkooowrrwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kkkkooooooookkkk',
+  'kkkkooooooookkkk',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+export const VARIANTS: Record<MascotState, Frame[][]> = {
+  idle:      [[SPA,SPA,SPA,IDLE_BLINK],[IMA,IMB],[IBA,IBB,IBC],[IBRA,IBRB],[ISA,ISB],[ICORA,ICORB],[ISIT1,ISIT2]],
+  typing:    [[TYPING],[TPE],[TCA,TCB],[TCC]],
+  thinking:  [[THINK_L,THINK_R],[TSA,TSB],[TRA,TRB],[TMG],[TQA,TQB],[TDF]],
+  calling:   [[CALL_OUT,CALL_IN],[CFA,CFB],[CDBA,CDBB],[CBRA,CBRB],[CAPIa,CAPIb],[CLOa,CLOb],[CHAa,CHAb],[CCPA,CCPB],[CBLKa,CBLKb],[CTWA,CTWB]],
+  done:      [[DONE,DONE],[DCKa,DCKb],[DCO,DCO],[DSPa,DSPb],[DCNa,DCNb],[DGRa,DGRb]],
+  running:   [[RUN_A,RUN_B],[RCA,RCB],[RWA,RWB]],
+  wave:      [[WAVE,WAVE],[WFA,WFB],[WSA,WSB],[WBA,WBB]],
+  sleep:     [[SLEEP,SLEEP,SLEEP,SLEEP_B,SLEEP_B,SLEEP],[SLEEP,SZA,SZB,SZC,SZB,SZA],[SMO,SMO,SMO,SLEEP_B,SLEEP_B,SMO]],
+  surprised: [[SURPRISED,SURPRISED],[SXA,SXA],[SAA,SAB],[STA,STB]],
+  curious:   [[SPA,CURIOUS,SPA,CURIOUS_L],[CUA,CUB],[CGA,CGB]],
+  celebrate: [[CELEBRATE,CELEBRATE],[CFa,CFb],[CCFa,CCFb],[CSPa,CSPb],[CFWa,CFWb]],
+  reading:   [[RDA,RDB,RDC]],
+  searching: [[SRA,SRB]],
+  building:  [[BDA,BDB]],
+  writing:   [[WRA,WRB]],
+  stretching:[[STA1,STA2,STA3]],
+  gaming:    [[GMA,GMB],[GRA,GRB]],
+  love:      [[LOA,LOB]],
+  cool:      [[COA,COA],[CGA2,CGA2]],
+  error:     [[EXA,EXA],[EDA,EDA],[ESA,ESA]],
+  excited:   [[EXC1,EXC2]],
+  spawning:  [[SPA,SPB,SPC]],
+};
 
 export const FRAMES: Record<MascotState, Frame[]> = {
-  idle: [BASE, BASE, BASE, IDLE_BLINK],
-  typing: [TYPING],
-  thinking: [THINK_L, THINK_R],
-  calling: [CALL_OUT, CALL_IN],
-  done: [DONE, DONE],
-  running: [RUN_A, RUN_B],
-  wave: [WAVE, WAVE],
-  sleep: [SLEEP, SLEEP],
-  surprised: [SURPRISED, SURPRISED],
-  curious: [CURIOUS, CURIOUS],
-  celebrate: [CELEBRATE, CELEBRATE],
+  idle:VARIANTS.idle[0],typing:VARIANTS.typing[0],thinking:VARIANTS.thinking[0],
+  calling:VARIANTS.calling[0],done:VARIANTS.done[0],running:VARIANTS.running[0],
+  wave:VARIANTS.wave[0],sleep:VARIANTS.sleep[0],surprised:VARIANTS.surprised[0],
+  curious:VARIANTS.curious[0],celebrate:VARIANTS.celebrate[0],
+  reading:VARIANTS.reading[0],searching:VARIANTS.searching[0],building:VARIANTS.building[0],
+  writing:VARIANTS.writing[0],stretching:VARIANTS.stretching[0],gaming:VARIANTS.gaming[0],
+  love:VARIANTS.love[0],cool:VARIANTS.cool[0],error:VARIANTS.error[0],
+  excited:VARIANTS.excited[0],spawning:VARIANTS.spawning[0],
 };

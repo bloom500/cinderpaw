@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
-export type AgentPhase = 'thinking' | 'calling' | 'processing' | null;
+export type AgentPhase = 'thinking' | 'calling' | 'processing'
+  | 'reading' | 'searching' | 'building' | 'writing' | null;
 
 export interface ChatMessage {
   id: string;
