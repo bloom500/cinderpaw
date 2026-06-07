@@ -440,7 +440,7 @@ export interface AskUserAnswer {
 /** Outbound event envelope to any transport. */
 export type OutboundEvent =
   | { type: "chunk"; id: string; content: string }
-  | { type: "done"; id: string; content: string }
+  | { type: "done"; id: string; content: string; stopped: boolean }
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown> }
   | { type: "tool_done"; id: string; tool: string; result: unknown }
   | { type: "proactive"; content: string }

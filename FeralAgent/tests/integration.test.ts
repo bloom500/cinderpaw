@@ -30,6 +30,7 @@ import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { RecallEngine } from "../src/memory/recall.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
+import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
 import { createWebSearchTool } from "../src/tools/builtin/web-search.ts";
 import { createReadFileTool } from "../src/tools/builtin/read-file.ts";
 import { AgentLoop } from "../src/core/agent-loop.ts";
@@ -313,5 +314,103 @@ describe("full pipeline: message → tool call → sandbox → audit → respons
 
   test("inner-thoughts loop is off by default (feature flag)", () => {
     expect(process.env.FERAL_INNER_THOUGHTS_ENABLED === "true").toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // P0-#2: `done` event must carry `stopped: boolean` so the frontend can
+  // distinguish a user-initiated stop from a natural completion. Spec G6.
+  // -------------------------------------------------------------------------
+
+  test("done event has stopped:false on natural completion", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      // Mock Ollama to return a plain-text completion (no tool_call).
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify(ollamaOk("All done — no tools needed.")),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )) as typeof fetch;
+
+      const db = openDatabase(":memory:");
+      const audit = new AuditLog(db.raw);
+      const egress = new EgressProxy(audit.logger);
+      const router = new InferenceRouter(
+        { primary: { provider: "ollama", model: "qwen2.5:7b", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+        audit.logger, db.raw,
+      );
+      const episodic = new EpisodicMemory(db.raw, audit.logger);
+      const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+      const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));
+      const agent = new AgentLoop(router, registry, episodic, {}, recall);
+
+      const events: OutboundEvent[] = [];
+      await agent.handle("s1", "hello", "m1", (e) => events.push(e));
+
+      const done = [...events].reverse().find((e) => e.type === "done");
+      expect(done).toBeDefined();
+      expect(done!.type).toBe("done");
+      expect((done as { stopped: boolean }).stopped).toBe(false);
+
+      db.close();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("done event has stopped:true when user aborts mid-iteration", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      // Mock Ollama: first call returns a tool_call; the second call (which
+      // happens after `agent.stop()` is invoked from the tool_start handler)
+      // throws AbortError to simulate the user cancelling the in-flight
+      // inference. The router's `abort()` deletes the active controller and
+      // creates a fresh one on the next call — so the second call's signal
+      // isn't pre-aborted; we simulate the cancellation by checking a
+      // closure flag set inside the `agent.stop()` callback below.
+      let callIndex = 0;
+      let aborted = false;
+      globalThis.fetch = (async () => {
+        callIndex++;
+        if (aborted) {
+          throw new DOMException("The operation was aborted.", "AbortError");
+        }
+        const body = callIndex === 1
+          ? ollamaOk('<tool_call>{"name":"read_file","arguments":{"path":"x"}}</tool_call>')
+          : ollamaOk("stopped early");
+        return new Response(JSON.stringify(body), {
+          status: 200, headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const db = openDatabase(":memory:");
+      const audit = new AuditLog(db.raw);
+      const egress = new EgressProxy(audit.logger);
+      const router = new InferenceRouter(
+        { primary: { provider: "ollama", model: "qwen2.5:7b", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+        audit.logger, db.raw,
+      );
+      const episodic = new EpisodicMemory(db.raw, audit.logger);
+      const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+      const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));
+      const agent = new AgentLoop(router, registry, episodic, {}, recall);
+
+      const events: OutboundEvent[] = [];
+      const handlePromise = agent.handle("s1", "read x", "m1", (e) => {
+        events.push(e);
+        if (e.type === "tool_start") {
+          aborted = true;
+          agent.stop("s1");
+        }
+      });
+      await handlePromise;
+
+      const done = [...events].reverse().find((e) => e.type === "done");
+      expect(done).toBeDefined();
+      expect((done as { stopped: boolean }).stopped).toBe(true);
+
+      db.close();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

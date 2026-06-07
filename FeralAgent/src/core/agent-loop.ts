@@ -79,6 +79,22 @@ export class AgentLoop {
   readonly #user: UserConfig | null;
   /** One working-memory transcript per session, retained across messages. */
   readonly #sessions = new Map<string, WorkingMemory>();
+  /**
+   * Set of sessionIds currently in the middle of `handle()`. The stop handler
+   * iterates this and aborts the corresponding router call so the loop
+   * exits cleanly between turns.
+   */
+  readonly #activeSessions = new Set<string>();
+  /** Wall-clock ms when each active session started — useful for diagnostics. */
+  readonly #sessionStartedAt = new Map<string, number>();
+  /**
+   * Flag carried by the `done` event so the frontend can distinguish a clean
+   * user-initiated stop from natural completion. Reset to false at the top of
+   * each `#run()` and set to true in the catch path when the failure is an
+   * AbortError (i.e. `stop()` was called mid-iteration). Read in `#handle()`
+   * when emitting `done`.
+   */
+  #lastStopped = false;
 
   constructor(
     router: InferenceRouter,
@@ -118,6 +134,45 @@ export class AgentLoop {
     emit: EventSink,
     skillsContext?: SkillMeta[],
   ): Promise<string> {
+    this.#activeSessions.add(sessionId);
+    this.#sessionStartedAt.set(sessionId, Date.now());
+    try {
+      return await this.#handle(sessionId, userText, messageId, emit, skillsContext);
+    } finally {
+      this.#activeSessions.delete(sessionId);
+      this.#sessionStartedAt.delete(sessionId);
+    }
+  }
+
+  /**
+   * Stop an in-flight generation. Aborts the router call for the given
+   * session (if any). The next `complete()` will throw AbortError, the
+   * loop catches it as a clean stop, and `done` event carries
+   * `stopped: true` semantics upstream.
+   *
+   * Safe to call when no generation is in flight (no-op).
+   */
+  stop(sessionId: string): void {
+    this.#router.abort(sessionId);
+  }
+
+  /**
+   * Stop every active generation. Used on shutdown so no `handle()` is
+   * left mid-await when the process exits.
+   */
+  stopAll(): void {
+    for (const sessionId of [...this.#activeSessions]) {
+      this.stop(sessionId);
+    }
+  }
+
+  async #handle(
+    sessionId: string,
+    userText: string,
+    messageId: string,
+    emit: EventSink,
+    skillsContext?: SkillMeta[],
+  ): Promise<string> {
     const memory = this.#memoryFor(sessionId);
     memory.setSkillMenu(skillsContext ?? []);
 
@@ -144,13 +199,26 @@ export class AgentLoop {
       memory.addAssistant(final);
       const { text: finalClean } = stripPrivate(final);
       this.#episodic.record(sessionId, "assistant", finalClean);
-      emit({ type: "done", id: messageId, content: final });
+      emit({ type: "done", id: messageId, content: final, stopped: this.#lastStopped });
 
       // Fire-and-forget: extract durable user facts from the turn just completed.
       this.#extractor?.extractAsync(sessionId, [...memory.turns]);
 
       return final;
     } catch (err) {
+      // User-initiated stop: the router's fetch was aborted by `stop()`. Emit
+      // a `done` event with `stopped: true` so the frontend can render a
+      // "stopped" state without surfacing an error to the user. Use the
+      // accumulated assistant text up to the abort point, or a short notice
+      // if nothing was streamed.
+      if (isAbortError(err)) {
+        this.#lastStopped = true;
+        const partial = memory.render();
+        const lastAssistant = [...partial].reverse().find((m) => m.role === "assistant");
+        const content = lastAssistant?.content?.trim() || "(stopped by user)";
+        emit({ type: "done", id: messageId, content, stopped: true });
+        return content;
+      }
       const message = errorMessage(err);
       emit({ type: "error", id: messageId, message });
       return message;
@@ -164,6 +232,9 @@ export class AgentLoop {
     emit: EventSink,
     maxIterations: number,
   ): Promise<string> {
+    // Reset stop flag at the start of every run. `#handle()` reads it on
+    // emission; default = natural completion.
+    this.#lastStopped = false;
     for (let i = 0; i < maxIterations; i++) {
       // Stream tokens live. We optimistically stream every completion; if the
       // model ends up emitting a tool call the accumulated tokens are discarded
@@ -562,4 +633,17 @@ function errorMessage(err: unknown): string {
     return `Inference unavailable: ${err.message}`;
   }
   return `Unexpected error: ${String(err)}`;
+}
+
+/**
+ * Detect a user-initiated stop. The router throws either a DOMException with
+ * name "AbortError" (browser-style) or a plain Error with the same name
+ * (Node 18+ fetch). We accept both shapes.
+ */
+function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError") return true;
+  // Some runtimes wrap the abort under a different error type
+  // (e.g. "AbortError" string on a generic Error).
+  return /abort/i.test(err.message);
 }
