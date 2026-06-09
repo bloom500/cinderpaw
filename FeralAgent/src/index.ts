@@ -457,13 +457,23 @@ function main(): void {
         break;
 
       case "ask_user_response": {
-        // Route the user's selection back to the matching pending request.
-        // requestId/answers are present when type === "ask_user_response"
-        // (the transport validates the shape; see isInbound).
+        // Forward the user's selection back to the matching pending request.
+        // Both `requestId` and `answers` are required — the transport's
+        // `isInbound` validator only checks the `type` field, so we still
+        // re-validate the payload here before calling the bridge.
         if (msg.requestId && msg.answers) {
           askUser.resolve(msg.requestId, msg.answers);
         } else {
           log(`ask_user_response: missing requestId or answers — ignored`);
+        }
+        break;
+      }
+      case "ask_user_cancel": {
+        // The user clicked Skip (or the UI is tearing down) — reject the
+        // pending Promise so the agent loop can continue with whatever
+        // fallback the model chose for the missing input.
+        if (msg.requestId) {
+          askUser.cancel(msg.requestId, msg.reason ?? "user cancelled");
         }
         break;
       }

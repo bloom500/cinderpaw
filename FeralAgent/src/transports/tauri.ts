@@ -104,7 +104,13 @@ export class TauriTransport implements Transport {
   }
 }
 
-function isInbound(value: unknown): value is InboundMessage {
+/**
+ * Validate an inbound JSON object as an `InboundMessage`. Exported so the
+ * type drift that caused the ask_user response bug (a new type added in
+ * React, sidecar's `onMessage`, and the validator) can be caught with a
+ * one-line test.
+ */
+export function isInbound(value: unknown): value is InboundMessage {
   if (typeof value !== "object" || value === null) return false;
   const t = (value as { type?: unknown }).type;
   return (
@@ -113,6 +119,7 @@ function isInbound(value: unknown): value is InboundMessage {
     t === "shutdown" ||
     t === "set_model" ||
     t === "ask_user_response" ||
+    t === "ask_user_cancel" ||
     t === "cron_add" ||
     t === "cron_remove" ||
     t === "cron_toggle" ||

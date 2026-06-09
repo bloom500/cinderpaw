@@ -605,6 +605,60 @@ fn feral_agent_status(state: State<'_, AppState>) -> bool {
     state.feral_agent_tx.lock().is_some()
 }
 
+/// Forward the user's `ask_user` selection back to the Feral Agent sidecar.
+///
+/// The React side calls this after the user picks an option in the
+/// `AskUserCard`. Without this command the sidecar never receives the
+/// user's response, the pending `AskUserBridge.ask()` Promise hangs, and
+/// the agent eventually times out (regression test for the v0.1.x bug
+/// where the user reported "I picked an answer and the agent
+/// immediately said it timed out").
+///
+/// `request_id` matches the `id` of the original outbound `ask_user`
+/// event. `answers` is the user's selection (1 answer per question).
+#[tauri::command]
+#[specta::specta]
+async fn feral_ask_user_response(
+    state: State<'_, AppState>,
+    request_id: String,
+    answers: Vec<feral_agent::AskUserAnswer>,
+) -> Result<(), String> {
+    let line = feral_agent::build_ask_user_response_line(&request_id, &answers)?;
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(line).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Cancel a pending `ask_user` request (user clicked Skip, or the UI is
+/// tearing down). The sidecar calls `AskUserBridge.cancel(id, reason)`
+/// which rejects the tool's `await ctx.askUser.ask(...)` with the
+/// supplied reason. The agent loop sees the rejection and continues
+/// with whatever fallback the model chose for the missing input.
+#[tauri::command]
+#[specta::specta]
+async fn feral_ask_user_cancel(
+    state: State<'_, AppState>,
+    request_id: String,
+    reason: Option<String>,
+) -> Result<(), String> {
+    let line = feral_agent::build_ask_user_cancel_line(&request_id, reason.as_deref())?;
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(line).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Hot-swap the Feral Agent's LLM backend without restarting the sidecar.
 ///
 /// React passes `source` + optional fields — Rust injects the API key from
@@ -1598,6 +1652,8 @@ pub fn run() {
             feral_agent_status,
             feral_set_model,
             feral_get_model_config,
+            feral_ask_user_response,
+            feral_ask_user_cancel,
             get_onboarding_record,
             set_onboarding_record,
             list_ollama_models,

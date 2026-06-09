@@ -12,12 +12,71 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 use crate::events::FeralAgentOutputEvent;
 use crate::paths;
+
+/// A single user answer to a single `ask_user` question.
+///
+/// Mirrors the TS `AskUserAnswer` shape on the React side so the JSON
+/// payload we write to the sidecar's stdin is round-trippable:
+/// `{ question, selected[], customText? }`. Used by the
+/// `feral_ask_user_response` Tauri command (and the corresponding
+/// `build_ask_user_response_line` helper).
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct AskUserAnswer {
+    pub question: String,
+    pub selected: Vec<String>,
+    #[serde(rename = "customText", skip_serializing_if = "Option::is_none", default)]
+    pub custom_text: Option<String>,
+}
+
+/// Default cancel reason when the UI doesn't supply one.
+const DEFAULT_CANCEL_REASON: &str = "user cancelled";
+
+/// Build the JSON line the sidecar expects for an `ask_user_response`.
+///
+/// Returns an `Err` when `request_id` is empty/whitespace — the sidecar
+/// would silently ignore the message anyway, so failing fast at the
+/// Tauri boundary surfaces the bug to the UI instead.
+pub fn build_ask_user_response_line(
+    request_id: &str,
+    answers: &[AskUserAnswer],
+) -> Result<String, String> {
+    if request_id.trim().is_empty() {
+        return Err("ask_user_response: requestId is required".to_string());
+    }
+    Ok(serde_json::json!({
+        "type": "ask_user_response",
+        "requestId": request_id,
+        "answers": answers,
+    })
+    .to_string())
+}
+
+/// Build the JSON line the sidecar expects for an `ask_user_cancel`.
+///
+/// `reason` is optional; the helper substitutes `DEFAULT_CANCEL_REASON`
+/// when `None` so the sidecar's `AskUserBridge.cancel(id, reason)` is
+/// always called with a non-empty reason.
+pub fn build_ask_user_cancel_line(
+    request_id: &str,
+    reason: Option<&str>,
+) -> Result<String, String> {
+    if request_id.trim().is_empty() {
+        return Err("ask_user_cancel: requestId is required".to_string());
+    }
+    Ok(serde_json::json!({
+        "type": "ask_user_cancel",
+        "requestId": request_id,
+        "reason": reason.unwrap_or(DEFAULT_CANCEL_REASON),
+    })
+    .to_string())
+}
 
 /// Resolve the feral-agent binary, checking the Tauri resource directory
 /// (production bundle) and the `src-tauri/binaries/` directory (dev mode).
@@ -185,5 +244,79 @@ mod tests {
         let name = binary_filename();
         assert!(name.contains('-'), "binary name must contain a target triple");
         assert!(name.starts_with("feral-agent-"));
+    }
+
+    // --- ask_user message builders (regression test for missing Tauri command) ---
+
+    #[test]
+    fn build_ask_user_response_line_emits_correct_json() {
+        let answers = vec![
+            AskUserAnswer {
+                question: "Pick a database".to_string(),
+                selected: vec!["Postgres".to_string()],
+                custom_text: None,
+            },
+        ];
+        let line = build_ask_user_response_line("req-1", &answers).expect("ok");
+        // Parse back to assert on shape (string match is too brittle).
+        let v: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+        assert_eq!(v["type"], "ask_user_response");
+        assert_eq!(v["requestId"], "req-1");
+        assert_eq!(v["answers"][0]["question"], "Pick a database");
+        assert_eq!(v["answers"][0]["selected"][0], "Postgres");
+        // customText is omitted when None (skip_serializing_if), not serialized as null.
+        assert!(v["answers"][0].get("customText").is_none(), "customText must be omitted when None");
+    }
+
+    #[test]
+    fn build_ask_user_response_line_rejects_empty_request_id() {
+        let line = build_ask_user_response_line("", &[]);
+        assert!(line.is_err(), "empty requestId must be rejected");
+        let err = line.unwrap_err();
+        assert!(err.contains("requestId") || err.contains("request_id"), "error should mention requestId: {err}");
+    }
+
+    #[test]
+    fn build_ask_user_response_line_rejects_whitespace_request_id() {
+        let line = build_ask_user_response_line("   ", &[]);
+        assert!(line.is_err(), "whitespace-only requestId must be rejected");
+    }
+
+    #[test]
+    fn build_ask_user_cancel_line_emits_correct_json_with_explicit_reason() {
+        let line = build_ask_user_cancel_line("req-2", Some("user clicked Skip"))
+            .expect("ok");
+        let v: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+        assert_eq!(v["type"], "ask_user_cancel");
+        assert_eq!(v["requestId"], "req-2");
+        assert_eq!(v["reason"], "user clicked Skip");
+    }
+
+    #[test]
+    fn build_ask_user_cancel_line_uses_default_reason_when_none_provided() {
+        let line = build_ask_user_cancel_line("req-3", None).expect("ok");
+        let v: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+        assert_eq!(v["type"], "ask_user_cancel");
+        assert_eq!(v["requestId"], "req-3");
+        assert!(v["reason"].is_string(), "reason must be a string");
+        assert!(!v["reason"].as_str().unwrap().is_empty(), "default reason must not be empty");
+    }
+
+    #[test]
+    fn build_ask_user_cancel_line_rejects_empty_request_id() {
+        let line = build_ask_user_cancel_line("", None);
+        assert!(line.is_err(), "empty requestId must be rejected");
+    }
+
+    #[test]
+    fn ask_user_response_and_cancel_messages_are_distinct() {
+        // Regression guard: the bug was that "ask_user_response" was the
+        // only supported inbound type — adding "ask_user_cancel" must not
+        // accidentally fall through to the same code path.
+        let r = build_ask_user_response_line("req", &[]).unwrap();
+        let c = build_ask_user_cancel_line("req", None).unwrap();
+        assert_ne!(r, c, "response and cancel must produce distinct JSON");
+        assert!(r.contains("\"type\":\"ask_user_response\""));
+        assert!(c.contains("\"type\":\"ask_user_cancel\""));
     }
 }

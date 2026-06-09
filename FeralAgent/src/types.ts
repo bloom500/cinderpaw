@@ -666,7 +666,8 @@ export interface SkillMeta {
 
 /** Inbound message envelope from any transport. */
 export interface InboundMessage {
-  type: "message" | "ping" | "shutdown" | "set_model" | "ask_user_response"
+  type: "message" | "ping" | "shutdown" | "set_model"
+    | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list";
   id?: string;
   content?: string;
@@ -688,6 +689,11 @@ export interface InboundMessage {
   /** Matches the id of the original "ask_user" outbound event. */
   requestId?: string;
   answers?: AskUserAnswer[];
+  // ask_user_cancel fields (all present when type === "ask_user_cancel")
+  /** Matches the id of the original "ask_user" outbound event being cancelled. */
+  // (requestId above is shared between response and cancel)
+  /** Why the request was cancelled (free-form string; default "user cancelled"). */
+  reason?: string;
 }
 
 // ---------------------------------------------------------------------------
