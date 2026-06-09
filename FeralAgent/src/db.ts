@@ -135,4 +135,47 @@ function migrate(db: Database): void {
       mood_snapshot TEXT
     );
   `);
+
+  // Cron jobs (P0-3). One row per user-schedulable job. Schedule + delivery
+  // are JSON-serialised blobs so the schedule/delivery unions can evolve
+  // without an ALTER TABLE.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cron_jobs (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      task TEXT NOT NULL,
+      schedule_json TEXT NOT NULL,
+      delivery_json TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_ms INTEGER,
+      next_run_ms INTEGER,
+      history_json TEXT NOT NULL DEFAULT '[]',
+      max_retries INTEGER NOT NULL DEFAULT 3,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cron_jobs_next_run
+      ON cron_jobs (enabled, next_run_ms);
+  `);
+
+  // Skill log (P0-2). Append-only record of skill create/refine events.
+  // Drives the "self-improving" loop and gives the user a single place
+  // to see why a skill was created or refined.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      skill_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reason TEXT,
+      version INTEGER
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_skill_log_skill
+      ON skill_log (skill_id, timestamp);
+  `);
 }

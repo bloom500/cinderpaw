@@ -32,9 +32,14 @@ import type {
   ParsedToolCall,
   SkillMeta,
 } from "../types.ts";
+import type { HookRegistry } from "./hook-registry.ts";
 import type { SoulConfig } from "./soul-loader.ts";
 import type { UserConfig } from "./user-loader.ts";
 import { buildUserPromptBlock } from "./user-loader.ts";
+import {
+  FERAL_AGENT_BASE_PROMPT,
+  buildToolContinuation,
+} from "./feral-prompt.ts";
 
 export interface AgentLoopConfig {
   /** Hard cap on tool-call/inference cycles for simple/chat tasks. */
@@ -73,7 +78,11 @@ export class AgentLoop {
   readonly #systemPrompt: string;
   /** Identity document (SOUL.md) used to build the system prompt. Kept for
    *  future per-turn refresh; currently the system prompt is built once. */
-  readonly #soul: SoulConfig | null;
+  readonly #soul: SoulConfig | null | undefined;
+  /** P0-4: optional hook registry. `agent_start` / `agent_end` /
+   *  `before_prompt_build` / `before_compaction` events fire into it.
+   *  Null in unit tests; in production index.ts wires the shared registry. */
+  readonly #hooks: HookRegistry | null;
   /** Per-user personalization (USER block). Injected into the system prompt
    *  after SOUL. Null = user has not onboarded; no USER block rendered. */
   readonly #user: UserConfig | null;
@@ -88,6 +97,25 @@ export class AgentLoop {
   /** Wall-clock ms when each active session started — useful for diagnostics. */
   readonly #sessionStartedAt = new Map<string, number>();
   /**
+   * Per-session AbortController threaded into every `registry.call()` for
+   * this session (P0-#3). `stop()` aborts this controller, which makes
+   * the in-flight tool's `ctx.signal` aborted AND causes the registry's
+   * race to fire, so a hung tool can no longer block a user-initiated stop.
+   * Created in `#handle()` and cleared in `finally` (or when the session
+   * has no in-flight tool call — the controller is still safe to abort).
+   */
+  readonly #sessionToolSignals = new Map<string, AbortController>();
+  /**
+   * Per-session mutex chain (P0-#4). Each `handle(sessionId, …)` awaits
+   * the previous handle's promise for the same sessionId before starting,
+   * so two messages dispatched back-to-back don't race on the same
+   * `WorkingMemory.messages` array. Different sessionIds run in parallel.
+   * The chain is a Map<sessionId, Promise<void>> where the value is the
+   * tail of the chain — appending a new handle creates a fresh promise
+   * and links it to the previous one. Empty when no session is active.
+   */
+  readonly #sessionLocks = new Map<string, Promise<void>>();
+  /**
    * Flag carried by the `done` event so the frontend can distinguish a clean
    * user-initiated stop from natural completion. Reset to false at the top of
    * each `#run()` and set to true in the catch path when the failure is an
@@ -95,6 +123,13 @@ export class AgentLoop {
    * when emitting `done`.
    */
   #lastStopped = false;
+  /**
+   * Last `emit` sink passed to `handle()`. The router's budget warning
+   * listener (P1-#1) doesn't get the per-handle sink so it uses this
+   * cached reference. Set at the top of each `handle()` call. Null
+   * before the first handle().
+   */
+  #lastEmitSink: EventSink | null = null;
 
   constructor(
     router: InferenceRouter,
@@ -105,6 +140,7 @@ export class AgentLoop {
     extractor: MemoryExtractor | null = null,
     soul: SoulConfig | null = null,
     user: UserConfig | null = null,
+    hooks: HookRegistry | null = null,
   ) {
     this.#router = router;
     this.#registry = registry;
@@ -114,7 +150,26 @@ export class AgentLoop {
     this.#config = { ...DEFAULT_CONFIG, ...config };
     this.#soul = soul;
     this.#user = user;
+    this.#hooks = hooks;
     this.#systemPrompt = buildSystemPrompt(registry, soul, user);
+
+    // P1-#1: wire the router's soft-warning listener to the agent loop's
+    // default emit sink. The loop's per-handle `emit` is the only sink
+    // that knows the messageId / sessionId, but the warning doesn't need
+    // a messageId (it's session-scoped, not turn-scoped), so we emit
+    // directly to the last-known sink or fall back to a no-op.
+    this.#router.setBudgetWarningListener((info) => {
+      const payload = {
+        type: "budget_warning" as const,
+        sessionId: info.sessionId,
+        kind: info.kind,
+        usage: info.usage,
+        limit: info.limit,
+        percent: info.percent,
+      };
+      const sink = this.#lastEmitSink;
+      if (sink) sink(payload);
+    });
   }
 
   /**
@@ -136,24 +191,68 @@ export class AgentLoop {
   ): Promise<string> {
     this.#activeSessions.add(sessionId);
     this.#sessionStartedAt.set(sessionId, Date.now());
+    // P0-#3: per-session tool AbortController so stop() can reach in-flight
+    // tools, not just the router. Created fresh for every handle() so a
+    // previous stop() doesn't leave a stale aborted controller in place.
+    this.#sessionToolSignals.set(sessionId, new AbortController());
+    // P1-#1: cache the sink so the router's budget-warning listener
+    // (set in the constructor) can forward session-scoped warnings.
+    this.#lastEmitSink = emit;
+
+    // P0-#4: per-session mutex. Two `handle()` calls dispatched for the
+    // same sessionId in quick succession (e.g. user sends two messages
+    // back-to-back) used to share a single `WorkingMemory` instance and
+    // race on `messages.push()`. Now each handle awaits the previous
+    // handle's tail before starting. Different sessionIds are independent
+    // and run in parallel.
+    const prev = this.#sessionLocks.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((resolve) => { release = resolve; });
+    // Chain: if `prev` rejects, we still proceed (the next handle should
+    // not be blocked by a previous failure), but we swallow the rejection
+    // so the chain itself never stays rejected.
+    const safePrev = prev.catch(() => undefined);
+    this.#sessionLocks.set(sessionId, safePrev.then(() => next));
+
     try {
+      await safePrev;
       return await this.#handle(sessionId, userText, messageId, emit, skillsContext);
     } finally {
+      release();
       this.#activeSessions.delete(sessionId);
       this.#sessionStartedAt.delete(sessionId);
+      this.#sessionToolSignals.delete(sessionId);
+      // If this handle is still the tail, drop the entry so the map
+      // doesn't grow with one-off sessionIds. The check is reference-
+      // based: we only delete when the map's tail is OUR `next` promise.
+      // (If a newer handle has already chained, we leave it alone.)
+      if (this.#sessionLocks.get(sessionId) === safePrev.then(() => next)) {
+        this.#sessionLocks.delete(sessionId);
+      }
     }
   }
 
   /**
-   * Stop an in-flight generation. Aborts the router call for the given
-   * session (if any). The next `complete()` will throw AbortError, the
-   * loop catches it as a clean stop, and `done` event carries
-   * `stopped: true` semantics upstream.
+   * Stop an in-flight generation. Aborts the router call AND the in-flight
+   * tool (P0-#3) for the given session, if any. The router throws
+   * AbortError on the next token; the tool registry returns a structured
+   * `{ok:false, error:"cancelled"}` to the loop. Both paths converge into
+   * a `done` event with `stopped: true` semantics upstream.
    *
    * Safe to call when no generation is in flight (no-op).
    */
   stop(sessionId: string): void {
     this.#router.abort(sessionId);
+    this.#sessionToolSignals.get(sessionId)?.abort("user stop");
+  }
+
+  /**
+   * Count of currently active sessions (P2-#1, exposed for heartbeat).
+   * Public so the HeartbeatLoop can read it without breaking the
+   * private-field encapsulation. Cheap (Set.size).
+   */
+  get activeSessionCount(): number {
+    return this.#activeSessions.size;
   }
 
   /**
@@ -173,8 +272,29 @@ export class AgentLoop {
     emit: EventSink,
     skillsContext?: SkillMeta[],
   ): Promise<string> {
+    // P0-4: agent_start hook. Informational — fires once at the top
+    // of every turn. Errors are swallowed inside the hook registry.
+    if (this.#hooks) {
+      try {
+        await this.#hooks.fire("agent_start", { sessionId, userText });
+      } catch (err) {
+        process.stderr.write(
+          `[agent-loop] agent_start hook fire failed: ${String(err)}\n`,
+        );
+      }
+    }
+
     const memory = this.#memoryFor(sessionId);
     memory.setSkillMenu(skillsContext ?? []);
+
+    // P2-#3: traceId — a unique identifier for this handle() invocation.
+    // Threaded into every OutboundEvent the agent emits during the turn
+    // (chunk, tool_start, tool_done, done, budget_warning, error) so the
+    // UI can correlate the entire timeline of one user request. Also
+    // used by the sidecar's audit log so a row can be cross-referenced
+    // with what the user saw. Cryptographically random — collision
+    // probability is negligible at the scale of a single user session.
+    const traceId = crypto.randomUUID();
 
     // Inject relevant past context before the user message lands in the prompt.
     // This runs synchronously (no I/O — pure DB reads) and never throws.
@@ -191,18 +311,43 @@ export class AgentLoop {
     memory.addUser(userText);
     this.#episodic.record(sessionId, "user", userTextClean);
 
+    const turnStartedAt = Date.now();
+    let toolCallCount = 0;
+    let tokensUsed = 0;
+
     try {
       const limit = isComplexTask(userText)
         ? this.#config.maxIterationsDeep
         : this.#config.maxIterations;
-      const final = await this.#run(sessionId, memory, messageId, emit, limit);
+      const final = await this.#run(sessionId, memory, messageId, emit, limit, traceId);
       memory.addAssistant(final);
       const { text: finalClean } = stripPrivate(final);
       this.#episodic.record(sessionId, "assistant", finalClean);
-      emit({ type: "done", id: messageId, content: final, stopped: this.#lastStopped });
+      emit({ type: "done", id: messageId, content: final, stopped: this.#lastStopped, traceId });
 
       // Fire-and-forget: extract durable user facts from the turn just completed.
       this.#extractor?.extractAsync(sessionId, [...memory.turns]);
+
+      // P0-4: agent_end hook. Informational. Carries the final answer,
+      // the tool-call count, the duration, and the token total so a
+      // hook can write to a log, send a notification, or trigger a
+      // background job. Errors are swallowed.
+      if (this.#hooks) {
+        try {
+          await this.#hooks.fire("agent_end", {
+            sessionId,
+            userText,
+            answer: final,
+            toolCalls: toolCallCount,
+            tokensUsed,
+            durationMs: Date.now() - turnStartedAt,
+          });
+        } catch (err) {
+          process.stderr.write(
+            `[agent-loop] agent_end hook fire failed: ${String(err)}\n`,
+          );
+        }
+      }
 
       return final;
     } catch (err) {
@@ -216,11 +361,43 @@ export class AgentLoop {
         const partial = memory.render();
         const lastAssistant = [...partial].reverse().find((m) => m.role === "assistant");
         const content = lastAssistant?.content?.trim() || "(stopped by user)";
-        emit({ type: "done", id: messageId, content, stopped: true });
+        emit({ type: "done", id: messageId, content, stopped: true, traceId });
+        if (this.#hooks) {
+          try {
+            await this.#hooks.fire("agent_end", {
+              sessionId,
+              userText,
+              answer: content,
+              toolCalls: toolCallCount,
+              tokensUsed,
+              durationMs: Date.now() - turnStartedAt,
+            });
+          } catch (hookErr) {
+            process.stderr.write(
+              `[agent-loop] agent_end hook fire failed: ${String(hookErr)}\n`,
+            );
+          }
+        }
         return content;
       }
       const message = errorMessage(err);
-      emit({ type: "error", id: messageId, message });
+      emit({ type: "error", id: messageId, message, traceId });
+      if (this.#hooks) {
+        try {
+          await this.#hooks.fire("agent_end", {
+            sessionId,
+            userText,
+            answer: message,
+            toolCalls: toolCallCount,
+            tokensUsed,
+            durationMs: Date.now() - turnStartedAt,
+          });
+        } catch (hookErr) {
+          process.stderr.write(
+            `[agent-loop] agent_end hook fire failed: ${String(hookErr)}\n`,
+          );
+        }
+      }
       return message;
     }
   }
@@ -231,6 +408,7 @@ export class AgentLoop {
     messageId: string,
     emit: EventSink,
     maxIterations: number,
+    traceId: string,
   ): Promise<string> {
     // Reset stop flag at the start of every run. `#handle()` reads it on
     // emission; default = natural completion.
@@ -243,7 +421,7 @@ export class AgentLoop {
       let streamedSoFar = "";
       const onToken = (token: string) => {
         streamedSoFar += token;
-        emit({ type: "chunk", id: messageId, content: token });
+        emit({ type: "chunk", id: messageId, content: token, traceId });
       };
 
       const completion = await this.#complete(sessionId, memory, onToken);
@@ -273,15 +451,40 @@ export class AgentLoop {
       memory.addAssistant(completion);
 
       for (const call of parsed.toolCalls) {
-        emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args });
-        const result = await this.#registry.call(call.name, call.args, sessionId);
-        emit({ type: "tool_done", id: messageId, tool: call.name, result });
+        emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
+        // P0-#3: thread the per-session tool signal so AgentLoop.stop()
+        // aborts the in-flight tool (in addition to the router).
+        const toolSignal = this.#sessionToolSignals.get(sessionId)?.signal;
+        const result = await this.#registry.call(call.name, call.args, sessionId, {
+          ...(toolSignal ? { signal: toolSignal } : {}),
+        });
+        emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId });
+
+        // P0-#3: a `cancelled` result means the user invoked stop() during
+        // this tool. We must exit the iteration loop cleanly — otherwise
+        // the model would re-issue tool calls (or even worse, complete
+        // naturally) and the user's intent to stop would be ignored.
+        // We distinguish `cancelled` (user-initiated) from `timeout`
+        // (tool hung) so the model can recover from timeouts by trying
+        // a different approach.
+        if (result.error === "cancelled") {
+          this.#lastStopped = true;
+          break;
+        }
 
         const rendered = result.ok
           ? result.content
           : `ERROR: ${result.content}`;
         memory.addToolResult(call.name, rendered);
         this.#episodic.record(sessionId, "tool", `${call.name}: ${rendered}`);
+
+        // Re-engagement nudge: the model often drifts or stalls after a
+        // tool result (especially multi-step or error cases). The full
+        // tool result is already in the transcript as a `tool` role
+        // message; this user-side reminder explicitly tells the model to
+        // re-read the result and continue driving the original goal
+        // rather than waiting for the next user message.
+        memory.addUser(buildToolContinuation(rendered));
       }
     }
 
@@ -368,15 +571,27 @@ export class AgentLoop {
 // ---------------------------------------------------------------------------
 
 /**
- * Compose the system prompt. When a `soul` is provided, its content is the
- * FIRST block — highest priority, defines identity, tone, and behavior.
- * A `user` block is added when the user has onboarded (per-user
- * personalization: their name + their chosen name for the agent).
- * Mechanics (tool list, call format, tool-call rules) follow beneath.
+ * Compose the system prompt.
  *
- * Without a soul, the legacy opener is used as a backwards-compatible default
- * so the agent still functions for callers (e.g. tests) that do not yet wire
- * SOUL.md.
+ * The system prompt is composed of layered blocks, in this strict order:
+ *
+ *   1. `FERAL_AGENT_BASE_PROMPT` — the universal FeralAgent operating manual.
+ *      Always present, always the HIGHEST priority layer. Encodes the
+ *      reliability contract (task-completion-first, chain-of-thought
+ *      reasoning, structured tool calls, self-correction). It cannot be
+ *      diluted away by user customizations.
+ *   2. SOUL.md (when provided) — the user-customizable personality/identity
+ *      layer. Refines tone and behavior within the FeralAgent base. When
+ *      no soul is provided, the legacy Feral opener fills this slot so
+ *      callers (e.g. tests) that haven't wired SOUL.md yet still work.
+ *   3. USER block (when the user has onboarded) — per-user personalization
+ *      (userName + agentName). Injected after SOUL so personalization
+ *      follows identity.
+ *   4. Tool mechanics — the registry's `describe()` output, the tool-call
+ *      format, and the always-on Rules.
+ *
+ * The docstring intentionally says "highest priority" for the FeralAgent
+ * base, NOT the SOUL block. SOUL refines; it does not override.
  *
  * Exported for testing — the production path is `new AgentLoop(..., soul, user)`.
  */
@@ -388,10 +603,10 @@ export function buildSystemPrompt(
   const tools = registry.describe();
   const identity = soul
     ? [
-        "## Identity & behavior (SOUL.md — highest priority)",
-        "The following identity document is the source of truth for how you",
-        "think, speak, and act. It overrides any vague or contradictory",
-        "instructions from other parts of this prompt.",
+        "## Identity & behavior (SOUL.md — user-customizable layer)",
+        "The following identity document refines the FeralAgent base above",
+        "with user-chosen tone, voice, and personality. It must not contradict",
+        "the reliability contract defined in the FeralAgent base.",
         "",
         soul.content,
       ].join("\n")
@@ -404,6 +619,9 @@ export function buildSystemPrompt(
   const userBlock = user ? buildUserPromptBlock(user) : "";
 
   return [
+    "## FeralAgent base (highest priority — always on)",
+    FERAL_AGENT_BASE_PROMPT,
+    "",
     identity,
     userBlock,
     "---",

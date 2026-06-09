@@ -17,7 +17,7 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
-import type { Permission, ToolManifest } from "../types.ts";
+import type { PathAccess, PathMode, Permission, ToolManifest } from "../types.ts";
 
 const ALL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   "fs:read",
@@ -81,15 +81,19 @@ export function validateManifest(manifest: ToolManifest): void {
     manifest.permissions.includes("fs:read") ||
     manifest.permissions.includes("fs:write");
   if (declaresFs) {
-    if (!manifest.allowedPaths || manifest.allowedPaths.length === 0) {
+    const raw = manifest.allowedPaths ?? [];
+    if (raw.length === 0) {
       throw new ManifestError(
         `tool "${manifest.name}" has fs permissions but no allowedPaths`,
       );
     }
-    for (const p of manifest.allowedPaths) {
-      if (!isAbsolute(p)) {
+    // Normalise once so we can validate the path string AND the mode
+    // without branching at every check site. Bare strings → read+write
+    // (backward compat with V1 manifests).
+    for (const entry of normalizeAllowedPaths(raw)) {
+      if (!isAbsolute(entry.path)) {
         throw new ManifestError(
-          `tool "${manifest.name}" allowedPaths must be absolute: "${p}"`,
+          `tool "${manifest.name}" allowedPaths must be absolute: "${entry.path}"`,
         );
       }
     }
@@ -121,6 +125,57 @@ export function hasPermission(
 }
 
 /**
+ * Flatten a manifest's `allowedPaths` (which can mix bare strings and
+ * {@link PathAccess} entries) into a uniform `PathAccess[]`. Bare strings
+ * are treated as `"read+write"` so the V1 manifest shape keeps working.
+ *
+ * Pure, exported for use by tools that want to render their own permission
+ * summary (e.g. the `tool_health` self-diagnosis).
+ */
+export function normalizeAllowedPaths(
+  allowedPaths: ReadonlyArray<string | PathAccess> | undefined,
+): PathAccess[] {
+  if (!allowedPaths) return [];
+  const out: PathAccess[] = [];
+  for (const entry of allowedPaths) {
+    if (typeof entry === "string") {
+      out.push({ path: entry, mode: "read+write" });
+    } else {
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+/**
+ * Convenience for tools that want to fall back to "the first allowed root"
+ * when the caller didn't pass a path. Returns the path string, or
+ * `undefined` when the manifest has no fs roots declared.
+ *
+ * Kept tiny on purpose: tools that need the per-path mode should call
+ * {@link normalizeAllowedPaths} directly.
+ */
+export function firstAllowedPath(manifest: ToolManifest): string | undefined {
+  const first = manifest.allowedPaths?.[0];
+  if (first === undefined) return undefined;
+  return typeof first === "string" ? first : first.path;
+}
+
+/**
+ * True when a path with the given mode may be used to satisfy the requested
+ * permission. `read+write` permits both; a path declared as `"read"` cannot
+ * be used to satisfy an `fs:write` request and vice versa.
+ */
+function modePermits(
+  mode: PathMode,
+  permission: Extract<Permission, "fs:read" | "fs:write">,
+): boolean {
+  if (mode === "read+write") return true;
+  if (permission === "fs:read") return mode === "read";
+  return mode === "write";
+}
+
+/**
  * Resolve and validate a filesystem path against a tool's manifest. Returns the
  * absolute, normalized path when allowed; throws PermissionDeniedError when the
  * requested permission is undeclared or the path escapes every allowed root.
@@ -143,7 +198,7 @@ export function resolveAllowedPath(
     );
   }
 
-  const roots = manifest.allowedPaths ?? [];
+  const roots = normalizeAllowedPaths(manifest.allowedPaths);
   // realpathSync follows symlinks; resolve() does not. Using realpathSync is
   // the only way to defend against a symlink inside an allowed root that
   // points outside. If the path doesn't exist yet, fall back to resolve() so
@@ -155,12 +210,18 @@ export function resolveAllowedPath(
     target = resolve(requestedPath);
   }
 
-  const contained = roots.some((root) => {
+  // Two checks, in order:
+  //   1. Path containment (with symlink-safe realpath)
+  //   2. Per-path mode (P0-5) — the new bit. A path declared as
+  //      `mode: "read"` cannot be used to satisfy an fs:write call and
+  //      vice versa, even if the target IS inside the root. This is the
+  //      whole point of the gap.
+  const match = roots.find((root) => {
     let normalizedRoot: string;
     try {
-      normalizedRoot = realpathSync(root);
+      normalizedRoot = realpathSync(root.path);
     } catch {
-      normalizedRoot = resolve(root);
+      normalizedRoot = resolve(root.path);
     }
     return (
       target === normalizedRoot ||
@@ -168,9 +229,16 @@ export function resolveAllowedPath(
     );
   });
 
-  if (!contained) {
+  if (!match) {
     throw new PermissionDeniedError(
       `path "${target}" is outside allowedPaths for "${manifest.name}"`,
+    );
+  }
+
+  if (!modePermits(match.mode, permission)) {
+    throw new PermissionDeniedError(
+      `path "${target}" is declared as "${match.mode}" for "${manifest.name}", ` +
+        `which does not permit ${permission}`,
     );
   }
 

@@ -28,6 +28,7 @@ import type { InferenceRouter } from "../sandbox/inference-router.ts";
 import type { SemanticMemory } from "./semantic.ts";
 import type { EpisodicMemory } from "./episodic.ts";
 import type { ChatMessage } from "../types.ts";
+import type { SkillAutoCreator } from "../skills/auto-create.ts";
 
 export type ObservationType =
   | "discovery"
@@ -46,16 +47,19 @@ export class MemoryExtractor {
   readonly #router: InferenceRouter;
   readonly #semantic: SemanticMemory;
   readonly #episodic: EpisodicMemory | null;
+  readonly #skillCreator: SkillAutoCreator | null;
   readonly #running = new Set<string>();
 
   constructor(
     router: InferenceRouter,
     semantic: SemanticMemory,
     episodic?: EpisodicMemory,
+    skillCreator?: SkillAutoCreator | null,
   ) {
     this.#router = router;
     this.#semantic = semantic;
     this.#episodic = episodic ?? null;
+    this.#skillCreator = skillCreator ?? null;
   }
 
   extractAsync(sessionId: string, recentTurns: ChatMessage[]): void {
@@ -79,6 +83,13 @@ export class MemoryExtractor {
     await Promise.all([
       this.#extractFacts(sessionId, transcript),
       this.#extractObservation(sessionId, transcript),
+      // P0-2: third pass — skill auto-creation. Runs in parallel
+      // and is gated on `enabled` inside the auto-creator. The
+      // LLM call is hermetic (separate sessionId) and never
+      // crashes the extractor.
+      this.#skillCreator
+        ? this.#skillCreator.maybeCreate(transcript, sessionId).then(() => undefined)
+        : Promise.resolve(),
     ]);
   }
 

@@ -15,9 +15,11 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { countTokens } from "../core/tokenizer.ts";
 import type {
   AuditLogger,
   BudgetExhaustedReason,
+  BudgetWarning,
   ChatMessage,
   InferenceConfig,
   InferenceRequest,
@@ -53,6 +55,28 @@ export class InferenceRouter {
   readonly #db: Database;
   /** In-memory per-conversation token totals (reset when process restarts). */
   readonly #conversationTokens = new Map<string, number>();
+  /**
+   * Per-session AbortController map. `complete()` installs the controller's
+   * signal into its fetch requests; `abort(sessionId)` aborts it, which
+   * surfaces as a DOMException("AbortError") from the in-flight fetch.
+   * The agent loop catches AbortError and emits `done` with `stopped:true`
+   * (P0-#3 — paired with the tool-side abort wired in ToolRegistry).
+   */
+  readonly #sessionControllers = new Map<string, AbortController>();
+  /**
+   * Optional callback fired ONCE per session+kind when usage crosses the
+   * soft warning threshold (default 80% of the budget — see
+   * SOFT_WARN_RATIO). Used by the agent loop to emit a `budget_warning`
+   * event so the UI can show "approaching limit" BEFORE the hard stop.
+   * Set after construction via `setBudgetWarningListener`. P1-#1.
+   */
+  #budgetWarningListener: ((info: BudgetWarning) => void) | null = null;
+  /**
+   * Tracks which (sessionId, kind) tuples have already fired the warning
+   * so the listener is called at most once per session per dimension.
+   * Reset when the conversation counter resets (process restart).
+   */
+  readonly #budgetWarningFired = new Set<string>();
 
   constructor(config: InferenceConfig, audit: AuditLogger, db: Database) {
     this.#primary = config.primary;
@@ -114,6 +138,19 @@ export class InferenceRouter {
     };
   }
 
+  /**
+   * Abort an in-flight completion for the given session. The next `complete()`
+   * call's underlying fetch receives an AbortError. Safe to call when no
+   * completion is in flight (no-op). Used by `AgentLoop.stop()` to honor
+   * user-initiated stops (P0-#3).
+   */
+  abort(sessionId: string): void {
+    const ac = this.#sessionControllers.get(sessionId);
+    if (ac && !ac.signal.aborted) {
+      ac.abort("user stop");
+    }
+  }
+
   /** Current per-conversation token total for a session. */
   conversationTokens(sessionId: string): number {
     return this.#conversationTokens.get(sessionId) ?? 0;
@@ -137,50 +174,78 @@ export class InferenceRouter {
   async complete(req: InferenceRequest): Promise<InferenceResponse> {
     if (!req.skipBudgetCheck) this.#enforceBudget(req.sessionId);
 
+    // Install a per-session AbortController (P0-#3) so `abort(sessionId)` can
+    // actually reach an in-flight fetch. The signal is read by the streaming
+    // / non-streaming call paths and combined with their internal timeouts.
+    const ac = new AbortController();
+    const existing = this.#sessionControllers.get(req.sessionId);
+    if (existing && !existing.signal.aborted) {
+      existing.signal.addEventListener(
+        "abort",
+        () => ac.abort(existing.signal.reason),
+        { once: true },
+      );
+    }
+    this.#sessionControllers.set(req.sessionId, ac);
+
     const start = Date.now();
     // Snapshot at call time so an in-flight reconfigure() doesn't affect us.
     const primary = this.#primary;
     const fallback = this.#fallback;
+    // Thread the abort signal into the request so call paths can compose
+    // it with their own per-call controllers. The signal is optional in
+    // InferenceRequest; if absent (e.g. tests), the existing call paths
+    // work unchanged.
+    const reqWithSignal = { ...req, signal: ac.signal };
 
-    let response: InferenceResponse;
     try {
-      response = await this.#callTarget(primary, req, false);
-    } catch (primaryErr) {
-      if (!fallback) {
-        this.#auditFailure(req.sessionId, start, String(primaryErr));
-        throw new InferenceError(
-          `primary inference failed and no fallback configured: ${String(
-            primaryErr,
-          )}`,
-        );
-      }
+      let response: InferenceResponse;
       try {
-        response = await this.#callTarget(fallback, req, true);
-      } catch (fallbackErr) {
-        this.#auditFailure(
-          req.sessionId,
-          start,
-          `primary: ${String(primaryErr)}; fallback: ${String(fallbackErr)}`,
-        );
-        throw new InferenceError(
-          `both primary and fallback inference failed: ${String(fallbackErr)}`,
-        );
+        response = await this.#callTarget(primary, reqWithSignal, false);
+      } catch (primaryErr) {
+        if (!fallback) {
+          this.#auditFailure(req.sessionId, start, String(primaryErr));
+          throw new InferenceError(
+            `primary inference failed and no fallback configured: ${String(
+              primaryErr,
+            )}`,
+          );
+        }
+        try {
+          response = await this.#callTarget(fallback, reqWithSignal, true);
+        } catch (fallbackErr) {
+          this.#auditFailure(
+            req.sessionId,
+            start,
+            `primary: ${String(primaryErr)}; fallback: ${String(fallbackErr)}`,
+          );
+          throw new InferenceError(
+            `both primary and fallback inference failed: ${String(fallbackErr)}`,
+          );
+        }
+      }
+
+      this.#recordUsage(req.sessionId, response.totalTokens);
+
+      this.#audit({
+        timestamp: Date.now(),
+        sessionId: req.sessionId,
+        actionType: "inference",
+        toolName: response.model,
+        result: "success",
+        tokenCost: response.totalTokens,
+        durationMs: Date.now() - start,
+      });
+
+      return response;
+    } finally {
+      // P0-#3: clear the per-session controller on every path so the next
+      // call gets a fresh one. Without this, an aborted controller would
+      // linger in the map and a later abort() would target a stale signal.
+      if (this.#sessionControllers.get(req.sessionId) === ac) {
+        this.#sessionControllers.delete(req.sessionId);
       }
     }
-
-    this.#recordUsage(req.sessionId, response.totalTokens);
-
-    this.#audit({
-      timestamp: Date.now(),
-      sessionId: req.sessionId,
-      actionType: "inference",
-      toolName: response.model,
-      result: "success",
-      tokenCost: response.totalTokens,
-      durationMs: Date.now() - start,
-    });
-
-    return response;
   }
 
   #buildTrusted(
@@ -193,6 +258,25 @@ export class InferenceRouter {
         ? trustedBaseUrls
         : [primary.baseUrl, ...(fallback ? [fallback.baseUrl] : [])];
     return new Set(sources.map(normalizeBaseUrl));
+  }
+
+  /**
+   * Thresholds for the soft warning event (P1-#1). The warning fires
+   * when conversation tokens exceed the configured % of the budget so
+   * the UI can show "approaching limit" BEFORE the hard stop kicks in.
+   * Default 80% — high enough that a normal user almost never sees it
+   * in passing, low enough to surface before a runaway agent burns
+   * through the rest.
+   */
+  static readonly SOFT_WARN_RATIO = 0.8;
+
+  /**
+   * Install a callback fired when a session crosses the soft warning
+   * threshold. The callback receives structured info the agent loop
+   * forwards to the UI as a `budget_warning` event. P1-#1.
+   */
+  setBudgetWarningListener(listener: (info: BudgetWarning) => void): void {
+    this.#budgetWarningListener = listener;
   }
 
   #enforceBudget(sessionId: string): void {
@@ -225,6 +309,46 @@ export class InferenceRouter {
          ON CONFLICT(day) DO UPDATE SET tokens = tokens + $tokens`,
       )
       .run({ $day: today(), $tokens: tokens });
+    // P1-#1: soft warning. After the increment, check if we just crossed
+    // the threshold for either dimension. The fired-set ensures the
+    // listener is called at most once per (session, kind).
+    this.#maybeFireBudgetWarning(sessionId);
+  }
+
+  #maybeFireBudgetWarning(sessionId: string): void {
+    const listener = this.#budgetWarningListener;
+    if (!listener) return;
+    const { perConversation, perDay } = this.#tokenBudget;
+    const conv = this.conversationTokens(sessionId);
+    const day = this.dayTokens();
+    const threshold = InferenceRouter.SOFT_WARN_RATIO;
+
+    if (Number.isFinite(perConversation) && conv >= perConversation * threshold) {
+      const key = `${sessionId}:conversation`;
+      if (!this.#budgetWarningFired.has(key)) {
+        this.#budgetWarningFired.add(key);
+        listener({
+          sessionId,
+          kind: "conversation",
+          usage: conv,
+          limit: perConversation,
+          percent: Math.round((conv / perConversation) * 100),
+        });
+      }
+    }
+    if (Number.isFinite(perDay) && day >= perDay * threshold) {
+      const key = `${sessionId}:day`;
+      if (!this.#budgetWarningFired.has(key)) {
+        this.#budgetWarningFired.add(key);
+        listener({
+          sessionId,
+          kind: "day",
+          usage: day,
+          limit: perDay,
+          percent: Math.round((day / perDay) * 100),
+        });
+      }
+    }
   }
 
   #auditBlocked(sessionId: string, reason: string): void {
@@ -301,7 +425,7 @@ export class InferenceRouter {
       },
     };
 
-    const raw = await this.#postJson(url, body);
+    const raw = await this.#postJson(url, body, undefined, req.signal);
     const content: string =
       (raw as { message?: { content?: string } }).message?.content ?? "";
     const promptTokens =
@@ -352,6 +476,17 @@ export class InferenceRouter {
       () => controller.abort(),
       IDLE_TIMEOUT_MS,
     );
+    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
+    // the in-flight fetch. The existing resetIdle() on each chunk keeps
+    // the wall-clock cap from killing slow-but-progressing streams.
+    if (req.signal) {
+      const onSessionAbort = () => {
+        clearTimeout(timer);
+        controller.abort(req.signal!.reason);
+      };
+      if (req.signal.aborted) onSessionAbort();
+      else req.signal.addEventListener("abort", onSessionAbort, { once: true });
+    }
     const resetIdle = () => {
       clearTimeout(timer);
       timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
@@ -461,7 +596,7 @@ export class InferenceRouter {
       stream: false,
     };
 
-    const raw = (await this.#postJson(url, body, authHeaders)) as {
+    const raw = (await this.#postJson(url, body, authHeaders, req.signal)) as {
       choices?: { message?: { content?: string } }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
@@ -504,6 +639,17 @@ export class InferenceRouter {
       () => controller.abort(),
       IDLE_TIMEOUT_MS,
     );
+    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
+    // the in-flight fetch. The existing resetIdle() on each chunk keeps
+    // the wall-clock cap from killing slow-but-progressing streams.
+    if (req.signal) {
+      const onSessionAbort = () => {
+        clearTimeout(timer);
+        controller.abort(req.signal!.reason);
+      };
+      if (req.signal.aborted) onSessionAbort();
+      else req.signal.addEventListener("abort", onSessionAbort, { once: true });
+    }
     const resetIdle = () => {
       clearTimeout(timer);
       timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
@@ -603,7 +749,7 @@ export class InferenceRouter {
     };
     if (target.apiKey) authHeaders["x-api-key"] = target.apiKey;
 
-    const raw = (await this.#postJson(url, body, authHeaders)) as {
+    const raw = (await this.#postJson(url, body, authHeaders, req.signal)) as {
       content?: { type: string; text: string }[];
       usage?: { input_tokens?: number; output_tokens?: number };
     };
@@ -653,6 +799,17 @@ export class InferenceRouter {
       () => controller.abort(),
       IDLE_TIMEOUT_MS,
     );
+    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
+    // the in-flight fetch. The existing resetIdle() on each chunk keeps
+    // the wall-clock cap from killing slow-but-progressing streams.
+    if (req.signal) {
+      const onSessionAbort = () => {
+        clearTimeout(timer);
+        controller.abort(req.signal!.reason);
+      };
+      if (req.signal.aborted) onSessionAbort();
+      else req.signal.addEventListener("abort", onSessionAbort, { once: true });
+    }
     const resetIdle = () => {
       clearTimeout(timer);
       timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
@@ -758,11 +915,22 @@ export class InferenceRouter {
     url: string,
     body: unknown,
     extraHeaders?: Record<string, string>,
+    externalSignal?: AbortSignal,
   ): Promise<unknown> {
     // Non-streaming single-shot: can't idle-reset (the whole body resolves at
     // once), so use a generous absolute cap. 120s truncated slow CPU runs.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 300_000);
+    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
+    // the in-flight fetch.
+    if (externalSignal) {
+      const onSessionAbort = () => {
+        clearTimeout(timer);
+        controller.abort(externalSignal.reason);
+      };
+      if (externalSignal.aborted) onSessionAbort();
+      else externalSignal.addEventListener("abort", onSessionAbort, { once: true });
+    }
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -811,23 +979,21 @@ function splitAnthropicMessages(messages: ChatMessage[]): {
 }
 
 function estimateTokens(messages: ChatMessage[]): number {
-  return messages.reduce((sum, m) => sum + estimateText(m.content), 0);
+  let total = 0;
+  for (const m of messages) total += countTokens(m.content);
+  return total;
 }
 
 /**
  * Rough token estimate used ONLY as a fallback when a provider omits usage
- * counts. The `length / 4` heuristic is tuned for English ASCII; it
- * underestimates by ~33-50% for text with multi-byte or symbol-dense content —
- * Romanian and other diacritics, source code, and especially CJK scripts —
- * because those pack more tokens per character than the 4-chars/token average.
- *
- * KNOWN V1 LIMITATION. This is cosmetic for V1: local Ollama returns real
- * `prompt_eval_count` / `eval_count`, so this path is rarely taken. V2 cloud
- * inference (where accurate budgeting affects cost) should swap this for a real
- * tokenizer (e.g. tiktoken / the provider's tokenizer).
+ * counts. P0-#5: now uses real BPE (gpt-tokenizer) instead of the
+ * `length / 4` heuristic, which underestimated by 2-3× for code and CJK
+ * content — causing late compression and silent context overflow. The
+ * V1 limitation ("local Ollama returns real counts, so this is rare")
+ * is unchanged; the new accuracy is just safer for the rare case.
  */
 function estimateText(text: string): number {
-  return Math.ceil(text.length / 4);
+  return countTokens(text);
 }
 
 function trimSlash(url: string): string {

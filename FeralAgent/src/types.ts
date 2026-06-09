@@ -10,6 +10,26 @@
 // Sandbox: permissions & tool manifests
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-path access mode (P0-5). Pairs with {@link PathAccess} to declare
+ * whether a tool may read, write, or both at a given filesystem root.
+ *
+ *   - "read"        → tool may call readFile, stat, etc. on this root
+ *   - "write"       → tool may call writeFile, editFile, etc. on this root
+ *   - "read+write"  → both (the default for bare-string allowedPaths entries)
+ */
+export type PathMode = "read" | "write" | "read+write";
+
+/**
+ * A single entry in `ToolManifest.allowedPaths` carrying an explicit
+ * per-root access mode. Bare strings are accepted everywhere a PathAccess
+ * is expected and are normalised to `{ path, mode: "read+write" }`.
+ */
+export interface PathAccess {
+  path: string;
+  mode: PathMode;
+}
+
 /** The discrete capabilities a tool may request. */
 export type Permission =
   | "fs:read"
@@ -28,8 +48,17 @@ export interface ToolManifest {
   networkAccess: boolean;
   /** Only meaningful when networkAccess is true. */
   allowedDomains?: string[];
-  /** Only meaningful when fs permissions are present. */
-  allowedPaths?: string[];
+  /**
+   * Only meaningful when fs permissions are present.
+   *
+   * Each entry is either a bare absolute path (treated as read+write,
+   * backward-compatible with V1 manifests) or a {@link PathAccess} entry
+   * that declares an explicit mode. Use the explicit form when a tool
+   * should only be able to read or only write a given root — e.g. a
+   * scanner tool that must never modify files, or a logger that must
+   * never read them.
+   */
+  allowedPaths?: Array<string | PathAccess>;
   /**
    * Only meaningful when the `process:spawn` permission is present.
    * Allowlist of executables the tool may invoke. Each entry is either an
@@ -38,6 +67,27 @@ export interface ToolManifest {
    * any executable not in this list.
    */
   allowedExecutables?: string[];
+  /**
+   * Optional retry policy for transient failures. The registry retries the
+   * tool up to `attempts` times after the initial call (so total calls =
+   * 1 + attempts). Retries happen with linear backoff (250ms × attempt).
+   * A retry is only triggered when the failure matches one of the
+   * `on` categories:
+   *   - "http"    → tool returned { ok: false, error: "http_error" | "network_error" }
+   *   - "process" → tool.execute threw (e.g. spawn failure, crash)
+   *   - "any"     → retry on any failure (http OR process)
+   * Default (policy absent): no retry, behaviour unchanged.
+   */
+  retry?: ToolRetryPolicy;
+}
+
+export type ToolRetryCategory = "http" | "process" | "any";
+
+export interface ToolRetryPolicy {
+  /** Number of retries after the initial attempt. 0 (default) = no retry. */
+  attempts: number;
+  /** Which error categories are eligible for retry. */
+  on: ToolRetryCategory[];
 }
 
 /** JSON Schema-ish parameter description surfaced to the LLM. */
@@ -50,6 +100,19 @@ export interface ToolParameter {
 /** Context handed to a tool when it executes. */
 export interface ToolContext {
   sessionId: string;
+  /**
+   * AbortSignal that fires when the call should be cancelled. The registry
+   * combines two triggers into a single signal:
+   *   1. the per-call timeout (default 60s, overridable per call)
+   *   2. the caller's `opts.signal` (e.g. AgentLoop.stop())
+   * Tools SHOULD check `ctx.signal.aborted` before long operations and pass
+   * the signal to their own `fetch` / `spawn` so cancellation is prompt.
+   * Tools that ignore the signal will still be unwrapped at timeout — the
+   * registry returns a `{ok:false, error:"timeout"}` to the LLM so the
+   * agent loop can continue, even if the tool's promise itself hangs in
+   * the background.
+   */
+  signal?: AbortSignal;
   /** Validated network fetch — the only network entry point for tools. */
   fetch: FeralFetch;
   /** Append an arbitrary audit entry from within a tool. */
@@ -103,6 +166,27 @@ export interface Tool {
   manifest: ToolManifest;
   parameters: Record<string, ToolParameter>;
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
+}
+
+/**
+ * Per-call options accepted by `ToolRegistry.call`. The agent loop passes
+ * its session-level AbortSignal so `stop()` actually reaches in-flight tools.
+ * Other callers (tests, ad-hoc scripts) can override the timeout or pass
+ * their own signal.
+ */
+export interface ToolCallOptions {
+  /**
+   * Caller-level abort signal. When this aborts, the registry propagates
+   * the abort into the tool's `ctx.signal` AND returns a structured
+   * `{ok:false, error:"cancelled"}` so the agent loop sees a clean stop.
+   */
+  signal?: AbortSignal;
+  /**
+   * Per-call wall-clock timeout in milliseconds. Default `DEFAULT_TOOL_TIMEOUT_MS`
+   * (60s). When the timeout fires, the registry aborts `ctx.signal` and
+   * returns `{ok:false, error:"timeout"}`.
+   */
+  timeoutMs?: number;
 }
 
 /** Structured result of a tool invocation. Never throws across this boundary. */
@@ -291,6 +375,14 @@ export interface InferenceRequest {
   maxTokens?: number;
   temperature?: number;
   /**
+   * Optional abort signal. When aborted, the in-flight fetch / streaming
+   * read is cancelled. Set by the router's per-session AbortController so
+   * `AgentLoop.stop()` (and `router.abort(sessionId)`) can interrupt a
+   * long-running completion (P0-#3). Defaults to no signal — the call
+   * uses its own timeout-only AbortController.
+   */
+  signal?: AbortSignal;
+  /**
    * When provided, the router streams tokens from the provider and calls this
    * callback for each partial token as it arrives. The full assembled content
    * is still returned in InferenceResponse at the end.
@@ -318,6 +410,22 @@ export interface InferenceResponse {
 
 export type BudgetExhaustedReason = "conversation" | "day";
 
+/**
+ * Soft budget warning info (P1-#1). Surfaced to the UI as a
+ * `budget_warning` OutboundEvent when usage crosses the soft threshold
+ * (default 80% of the configured limit) so the user can see
+ * "approaching limit" BEFORE the hard stop kicks in. Fired at most
+ * once per (sessionId, kind) pair so the UI doesn't get spammed.
+ */
+export interface BudgetWarning {
+  sessionId: string;
+  kind: BudgetExhaustedReason;
+  usage: number;
+  limit: number;
+  /** 0-100 integer. Useful for the UI to render a progress bar. */
+  percent: number;
+}
+
 /** Raised internally by the router; surfaced to the agent as a structured error. */
 export interface BudgetState {
   conversationTokens: number;
@@ -339,6 +447,188 @@ export interface ParsedResponse {
   /** Free-text the model emitted alongside (or instead of) tool calls. */
   text: string;
   toolCalls: ParsedToolCall[];
+}
+
+// ---------------------------------------------------------------------------
+// Subagent (P0-1) — child agent runs for delegated tasks.
+// ---------------------------------------------------------------------------
+
+/** A parent's request to spin up a subagent. */
+export interface SubagentConfig {
+  /** The task description — becomes the subagent's first user message. */
+  task: string;
+  /** Subset of the parent's tool names the subagent is allowed to call. */
+  allowedTools: string[];
+  /** Per-subagent budget. */
+  budget: { maxTokens: number; maxIterations: number };
+  /** The session id of the parent that spawned this subagent. */
+  parentSessionId: string;
+}
+
+/** The subagent's outcome. Returned to the parent agent for context. */
+export interface SubagentResult {
+  /** Terminal status of the subagent run. */
+  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  /** The subagent's final answer, truncated to fit the parent's context. */
+  answer: string;
+  /** How many tool calls the subagent made (observability). */
+  toolCalls: number;
+  /** Tokens consumed (0 if the runtime doesn't surface per-run totals). */
+  tokensUsed: number;
+  /** Wall-clock duration of the run in ms. */
+  durationMs: number;
+  /** Stable id for this subagent run (used in audit + event trace). */
+  subagentId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Hooks (P0-4) — plugin-style extension points.
+//
+// Pattern from OpenClaw. Each event has a typed payload; `before_*` events
+// can be blocked by returning `{ block: true, reason }`. `after_*` and
+// lifecycle events are informational. The registry never throws to the
+// caller — a misbehaving handler is logged and skipped.
+// ---------------------------------------------------------------------------
+
+/** All hook event names the registry understands. */
+export type HookEvent =
+  | "before_tool_call"
+  | "after_tool_call"
+  | "before_prompt_build"
+  | "before_compaction"
+  | "agent_start"
+  | "agent_end"
+  | "subagent_spawn"
+  | "subagent_complete";
+
+/** Per-event payload shape. Each hook handler gets the matching one. */
+export interface BeforeToolCallPayload {
+  tool: string;
+  args: Record<string, unknown>;
+  sessionId: string;
+}
+
+export interface AfterToolCallPayload {
+  tool: string;
+  args: Record<string, unknown>;
+  result: { ok: boolean; content: string; error?: string };
+  sessionId: string;
+  durationMs: number;
+}
+
+export interface BeforePromptBuildPayload {
+  sessionId: string;
+  systemPrompt: string;
+}
+
+export interface BeforeCompactionPayload {
+  sessionId: string;
+  /** Number of older messages about to be summarised. */
+  olderMessageCount: number;
+  /** Number of recent messages kept verbatim. */
+  recentKept: number;
+}
+
+export interface AgentStartPayload {
+  sessionId: string;
+  userText: string;
+}
+
+export interface AgentEndPayload {
+  sessionId: string;
+  userText: string;
+  answer: string;
+  toolCalls: number;
+  tokensUsed: number;
+  durationMs: number;
+}
+
+export interface SubagentSpawnPayload {
+  parentSessionId: string;
+  subagentId: string;
+  task: string;
+  allowedTools: string[];
+}
+
+export interface SubagentCompletePayload {
+  parentSessionId: string;
+  subagentId: string;
+  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  durationMs: number;
+}
+
+/** Result a hook returns. `block: true` aborts `before_*` operations. */
+export type HookResult = { block: false } | { block: true; reason: string };
+
+/** Cleanup callback returned by `on()`. Idempotent. */
+export type Unsubscribe = () => void;
+
+// ---------------------------------------------------------------------------
+// Cron scheduler (P0-3) — user-schedulable tasks that run in the background.
+// Pattern from Hermes `cron/jobs.py`: persistent jobs, multi-format schedule,
+// delivery to any output target.
+// ---------------------------------------------------------------------------
+
+/**
+ * When a job should fire. Three shapes:
+ *   - "cron"  → standard 5-field cron expression (`* * * * *`), UTC
+ *   - "every" → fixed interval in ms, repeats forever
+ *   - "at"    → one-shot at a specific ISO timestamp
+ */
+export type Schedule =
+  | { kind: "cron"; expression: string }
+  | { kind: "every"; intervalMs: number }
+  | { kind: "at"; isoTimestamp: string };
+
+/**
+ * Where a job's result is delivered. V1 supports `chat` (emit a `cron_fired`
+ * event into a Tauri session) and `webhook` (POST JSON to a URL). `tool`
+ * lands in P0-1 once subagent delegation is wired.
+ */
+export type DeliveryTarget =
+  | { kind: "chat"; sessionId: string }
+  | { kind: "webhook"; url: string }
+  | { kind: "tool"; toolName: string; args: Record<string, unknown> };
+
+/** One row in a job's run history. Capped to the most recent 50 entries. */
+export interface CronRunRecord {
+  runAt: number;
+  status: "success" | "failed" | "timeout" | "budget_exceeded" | "skipped";
+  durationMs: number;
+  result?: string;
+  error?: string;
+}
+
+/** A persisted cron job. Managed by `CronJobsRepo` (cron/jobs.ts). */
+export interface CronJob {
+  id: string;
+  name: string;
+  task: string;
+  schedule: Schedule;
+  delivery: DeliveryTarget;
+  enabled: boolean;
+  lastRunMs?: number;
+  nextRunMs?: number;
+  /** Last 50 runs, newest at the end. */
+  history: CronRunRecord[];
+  /** Max retries per failure before being marked as stuck. */
+  maxRetries: number;
+  /** Current consecutive failure count; reset to 0 on success. */
+  retryCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Caller-supplied fields for `upsert`. The repo fills in id/timestamps. */
+export interface CronJobInput {
+  /** Optional explicit id; auto-generated when omitted. */
+  id?: string;
+  name: string;
+  task: string;
+  schedule: Schedule;
+  delivery: DeliveryTarget;
+  enabled?: boolean;
+  maxRetries?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -376,7 +666,8 @@ export interface SkillMeta {
 
 /** Inbound message envelope from any transport. */
 export interface InboundMessage {
-  type: "message" | "ping" | "shutdown" | "set_model" | "ask_user_response";
+  type: "message" | "ping" | "shutdown" | "set_model" | "ask_user_response"
+    | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list";
   id?: string;
   content?: string;
   sessionId?: string;
@@ -439,17 +730,23 @@ export interface AskUserAnswer {
 
 /** Outbound event envelope to any transport. */
 export type OutboundEvent =
-  | { type: "chunk"; id: string; content: string }
-  | { type: "done"; id: string; content: string; stopped: boolean }
-  | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown> }
-  | { type: "tool_done"; id: string; tool: string; result: unknown }
-  | { type: "proactive"; content: string }
+  | { type: "chunk"; id: string; content: string; traceId?: string }
+  | { type: "done"; id: string; content: string; stopped: boolean; traceId: string }
+  | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string }
+  | { type: "tool_done"; id: string; tool: string; result: unknown; traceId: string }
+  | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
-  | { type: "model_error"; message: string }
+  | { type: "model_error"; message: string; traceId?: string }
   | { type: "pong" }
-  | { type: "error"; id?: string; message: string }
-  | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[] }
-  | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string };
+  | { type: "error"; id?: string; message: string; traceId?: string }
+  | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
+  | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
+  | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
+  | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
+  | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
+  | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }
+  | { type: "skill_created"; skillId: string; name: string; path: string; version: number; traceId?: string }
+  | { type: "skill_refined"; skillId: string; version: number; traceId?: string };
 
 export interface Transport {
   /** Emit an event to the host/user. */

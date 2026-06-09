@@ -112,6 +112,10 @@ function isInbound(value: unknown): value is InboundMessage {
     t === "ping" ||
     t === "shutdown" ||
     t === "set_model" ||
-    t === "ask_user_response"
+    t === "ask_user_response" ||
+    t === "cron_add" ||
+    t === "cron_remove" ||
+    t === "cron_toggle" ||
+    t === "cron_list"
   );
 }

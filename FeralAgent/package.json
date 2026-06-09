@@ -16,5 +16,9 @@
   },
   "peerDependencies": {
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "cron-parser": "^5.5.0",
+    "gpt-tokenizer": "^3.4.0"
   }
 }

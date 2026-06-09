@@ -8,6 +8,7 @@
  * "compress_and_continue" budget policy.
  */
 
+import { countTokens } from "../core/tokenizer.ts";
 import type { ChatMessage, SkillMeta } from "../types.ts";
 
 export interface WorkingMemoryConfig {
@@ -69,14 +70,23 @@ export class WorkingMemory {
     return this.#messages;
   }
 
-  /** Approximate token footprint of the full prompt (system + turns). */
+  /**
+   * Approximate token footprint of the full prompt (system + turns).
+   *
+   * Uses real BPE tokenization (P0-#5) instead of the old `length/4`
+   * heuristic. Critical for code-heavy and CJK content where the old
+   * estimate was 2-3× too low, causing late compression and silent
+   * context overflow.
+   */
   estimatedTokens(): number {
-    const all =
-      this.#system +
-      this.#skillMenu +
-      this.#memoryContext +
-      this.#messages.map((m) => m.content).join("");
-    return Math.ceil(all.length / 4);
+    let total = 0;
+    total += countTokens(this.#system);
+    total += countTokens(this.#skillMenu);
+    total += countTokens(this.#memoryContext);
+    for (const m of this.#messages) {
+      total += countTokens(m.content);
+    }
+    return total;
   }
 
   /**

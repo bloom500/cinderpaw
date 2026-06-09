@@ -1,22 +1,36 @@
 /**
  * Inner Thoughts — the proactive background loop.
  *
- * V1 STATUS: disabled by default. Enabled only when FERAL_INNER_THOUGHTS_ENABLED=true.
- * This is intentional — the V1 dental-pilot deliverable does not require it, and
- * the feature contends for inference budget with real user requests.
+ * Runs independently of the request/response cycle. On each tick:
+ *   1. Checks the mood + activity gates. If both are below threshold,
+ *      the tick is suppressed without calling the model.
+ *   2. If gates pass, queries episodic memory for recent context.
+ *   3. Sends a prompt asking "Is there something worth surfacing?"
+ *   4. If the model produces a non-suppressed thought, emits a
+ *      `proactive` event.
+ *   5. Records the thought (and suppression decision) to inner_thoughts.
  *
- * When enabled, runs independently of the request/response cycle. On each tick:
- *   1. Queries episodic memory for recent context.
- *   2. Sends a prompt asking "Is there something worth surfacing to the user?"
- *   3. If the model produces a non-suppressed thought, emits a `proactive` event.
- *   4. Records the thought (and suppression decision) to inner_thoughts table.
+ * The loop never crashes the process. All errors are caught and the
+ * loop reschedules itself. The inference call goes through the same
+ * router (budgets, allowlist) as every other LLM call.
  *
- * The loop never crashes the process. All errors are caught and the loop
- * reschedules itself. The inference call goes through the same router (budgets,
- * allowlist) as every other LLM call.
+ * PROACTIVE-AGENT DESIGN (P-#12)
+ * The agent must feel "human" — come to the user with messages, not
+ * only respond. Three gates decide whether a tick actually fires the
+ * model:
+ *   - Mood gate: at least one dimension (energy, curiosity, concern,
+ *     satisfaction) must be above `moodGateThreshold`. A "flat" mood
+ *     (everything < 0.4) means the agent has nothing meaningful to
+ *     contribute — SUPPRESS.
+ *   - Idle gate: skip the tick if the user sent a message in the last
+ *     `minIdleMs` milliseconds. Don't interrupt active conversations;
+ *     fire on quiet moments.
+ *   - Cooldown: even if gates pass, suppress if a thought was
+ *     surfaced less than `cooldownMs` ago. Prevents ping-pong spam.
  *
- * V2 additions deferred: mood-gated suppression, minimum-idle guard,
- * cross-session activity tracking, smarter surfacing heuristics.
+ * The user can disable the loop entirely with
+ * `FERAL_INNER_THOUGHTS_ENABLED=false` if they want a strictly
+ * reactive agent.
  */
 
 import type { Database } from "bun:sqlite";
@@ -32,12 +46,65 @@ export interface InnerThoughtsConfig {
   sessionId: string;
   /** Max tokens for the thought-generation completion. */
   maxTokens: number;
+  /**
+   * Minimum mood dimension (0..1) required for a tick to fire the model.
+   * Default 0.5 — a fully flat mood skips the LLM call entirely.
+   */
+  moodGateThreshold: number;
+  /**
+   * Skip the tick if the user sent a message in the last N ms.
+   * Default 60_000 (1 min) — the agent surfaces thoughts when the user
+   * pauses, not while they're actively chatting.
+   */
+  minIdleMs: number;
+  /**
+   * Minimum gap between two surfaced thoughts. Default 4 hours — at
+   * most 1 message per ~4h of idle, so an 8h work day = max 2-3
+   * proactive messages, regardless of how chatty the mood is.
+   */
+  cooldownMs: number;
+  /**
+   * Hard daily cap on surfaced thoughts. Default 3 per UTC day. After
+   * the cap is hit, the loop won't emit until the next day even if all
+   * other gates pass. This is the user-facing guarantee that the
+   * agent will not "spam" — backed by an in-memory counter, reset at
+   * midnight UTC.
+   */
+  dailyCap: number;
+  /**
+   * Timestamp of the user's most recent message, in ms since epoch.
+   * Updated by the transport via `noteUserActivity()`. The agent loop
+   * calls this on every `handle()` so the inner-thoughts loop can
+   * measure idle time.
+   */
+  lastUserActivityMs: number;
+  /**
+   * Timestamp of the last SURFACED thought (not the last tick). Used
+   * for the cooldown gate. Updated after a successful emit.
+   */
+  lastSurfacedMs: number;
+  /**
+   * Mutable counter: how many thoughts have been surfaced today (UTC).
+   * Reset to 0 when the UTC day rolls over. Read by the daily-cap
+   * gate; written after every successful emit.
+   */
+  surfacedToday: number;
+  /** UTC day-of-year at the time of the last reset. */
+  surfacedTodayUtcDay: number;
 }
 
 const DEFAULT_CONFIG: InnerThoughtsConfig = {
-  intervalMs: 5 * 60 * 1000,
+  intervalMs: 2 * 60 * 1000, // 2 min — fires often enough to feel alive
   sessionId: "inner-thoughts",
   maxTokens: 256,
+  moodGateThreshold: 0.5,
+  minIdleMs: 10 * 60 * 1000,  // 10 min idle (definitely a real break, not just looking away)
+  cooldownMs: 4 * 60 * 60_000, // 4 hours between surfaced messages
+  dailyCap: 3,                  // hard daily limit: 2-3 proactive messages per day
+  lastUserActivityMs: 0,
+  lastSurfacedMs: 0,
+  surfacedToday: 0,
+  surfacedTodayUtcDay: 0,
 };
 
 export class InnerThoughtsLoop {
@@ -64,6 +131,15 @@ export class InnerThoughtsLoop {
     this.#config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  /**
+   * Record that the user just sent a message. Called by the agent loop
+   * on every `handle()` so the idle gate can measure time since last
+   * user activity. Cheap (single assignment).
+   */
+  noteUserActivity(): void {
+    this.#config.lastUserActivityMs = Date.now();
+  }
+
   /** Attach the transport sink that receives proactive events. */
   setEmit(emit: EventSink): void {
     this.#emit = emit;
@@ -85,6 +161,15 @@ export class InnerThoughtsLoop {
     }
   }
 
+  /**
+   * Run ONE tick of the loop synchronously (well, awaits the tick
+   * itself). Public for testing — production code uses start()/stop()
+   * with the timer. Does NOT require the loop to be running.
+   */
+  async tickNow(): Promise<void> {
+    await this.#tick();
+  }
+
   #schedule(): void {
     if (!this.#running) return;
     this.#timer = setTimeout(() => {
@@ -95,6 +180,13 @@ export class InnerThoughtsLoop {
   }
 
   async #tick(): Promise<void> {
+    // PROACTIVE-AGENT gates (P-#12). Run BEFORE the expensive LLM call
+    // so quiet hours don't burn budget. Each gate is documented inline.
+    if (!this.#gatesPass()) {
+      this.#persistThought("[gated: idle or low mood]", false);
+      return;
+    }
+
     let thought: string;
     try {
       thought = await this.#generateThought();
@@ -109,6 +201,76 @@ export class InnerThoughtsLoop {
     if (!suppressed && this.#emit) {
       this.#emit({ type: "proactive", content: thought.trim() });
       this.#mood.applyEvent("message_answered");
+      this.#config.lastSurfacedMs = Date.now();
+      this.#config.surfacedToday++;
+    }
+  }
+
+  /**
+   * Check the four gates. All must pass for the LLM call to fire.
+   * Returns false (and the reason implicitly, via #persistThought) when
+   * a gate blocks the tick.
+   *
+   * Gates are intentionally cheap (no I/O) so a quiet loop costs ~zero.
+   */
+  #gatesPass(): boolean {
+    const now = Date.now();
+    const cfg = this.#config;
+
+    // Daily cap gate: hard guarantee that the agent surfaces at most
+    // `dailyCap` thoughts per UTC day. This is the user-facing promise
+    // that the agent won't spam, regardless of mood, idle time, or
+    // cooldown state. Counter resets at midnight UTC.
+    this.#maybeResetDailyCounter();
+    if (cfg.surfacedToday >= cfg.dailyCap) {
+      return false;
+    }
+
+    // Idle gate: skip if user is actively chatting. The 10-min default
+    // means: user types → wait 10 min of silence → agent can speak.
+    if (cfg.lastUserActivityMs > 0 && now - cfg.lastUserActivityMs < cfg.minIdleMs) {
+      return false;
+    }
+
+    // Cooldown gate: even after the user goes quiet, don't ping-pong.
+    if (cfg.lastSurfacedMs > 0 && now - cfg.lastSurfacedMs < cfg.cooldownMs) {
+      return false;
+    }
+
+    // Mood gate: at least one dimension above threshold. A flat mood
+    // (all < threshold) means the agent is in "I have nothing to say"
+    // mode and SUPPRESS is the right answer. The LLM is the final
+    // filter on what to say; this gate only filters "is it worth
+    // asking the LLM at all?".
+    const mood = this.#mood.snapshot();
+    const maxDimension = Math.max(
+      mood.energy,
+      mood.curiosity,
+      mood.concern,
+      mood.satisfaction,
+    );
+    if (maxDimension < cfg.moodGateThreshold) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Reset the daily counter if the UTC day has rolled over since the
+   * last emit. Uses Date.UTC day-of-year (1..366) — same day → no reset.
+   * The cap is per UTC day, not per rolling 24h window, so the user
+   * gets a predictable "fresh start" at midnight UTC.
+   */
+  #maybeResetDailyCounter(): void {
+    const now = new Date();
+    const utcDay = Math.floor(
+      (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
+        Date.UTC(now.getUTCFullYear(), 0, 0)) / 86_400_000,
+    );
+    if (utcDay !== this.#config.surfacedTodayUtcDay) {
+      this.#config.surfacedToday = 0;
+      this.#config.surfacedTodayUtcDay = utcDay;
     }
   }
 
