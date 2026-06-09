@@ -46,6 +46,21 @@ interface ChatStore {
   /** Real completion token count from the last cloud generation (undefined for local). */
   liveCompletionTokens: number | null;
 
+  /**
+   * Rolling list of tool calls + skill context bubbles displayed on the
+   * mascot. Capped at 4 entries (oldest first out). Tool entries are
+   * pushed on `tool_start` and flipped to `done`/`error` on `tool_done`;
+   * context entries are pushed when the host pre-loads skills via
+   * `skillsContext`. Cleared 5s after the `done` event.
+   */
+  toolCallStream: ToolCallEvent[];
+  /**
+   * Whether the most recent completion ended via user-initiated stop
+   * (true) or natural completion (false). Lets the UI distinguish the
+   * two in the post-done footer without re-parsing the last event.
+   */
+  lastCompletionStopped: boolean;
+
   newSession: () => void;
   /**
    * Replace the in-memory session. If `streamStatus` is provided, it overrides
@@ -57,13 +72,59 @@ interface ChatStore {
   addMessage: (m: ChatMessage) => void;
   appendToStreamingAssistant: (text: string) => void;
   updateLastAssistantMessage: (patch: Partial<ChatMessage>) => void;
+  /**
+   * Patch a specific message (looked up by id) with a partial update. Used
+   * by the ask_user flow to attach the question card to the exact assistant
+   * message that triggered it — `updateLastAssistantMessage` would race
+   * against concurrent streams and tab switches.
+   */
+  patchMessage: (id: string, patch: Partial<ChatMessage>) => void;
   setStreamStatus: (s: StreamStatus, err?: string | null) => void;
   setAgentPhase: (phase: AgentPhase, tool?: string | null) => void;
   toggleThinking: (id: string) => void;
   /** Clear streamed content of the last assistant message (called when a tool call is detected). */
   clearStreamingContent: () => void;
   setLiveTokens: (promptTokens: number, completionTokens?: number) => void;
+  // ----- toolCallStream actions (Phase 4 — mascot tool-call strip) -----
+  pushToolCall: (
+    event: Omit<Extract<ToolCallEvent, { kind: 'tool' }>, 'id' | 'startedAt' | 'endedAt'>
+      & { startedAt?: number },
+  ) => string;
+  completeToolCall: (id: string, result: { ok: boolean; error?: string }) => void;
+  pushSkillsContext: (names: string[]) => void;
+  clearToolCallStream: () => void;
 }
+
+/**
+ * One entry in the mascot's tool-call strip.
+ *
+ *  - "tool" entries are produced by `tool_start` / `tool_done` events.
+ *  - "context" entries are produced by the host pre-loading skills via
+ *    `skillsContext`; they have no running/done lifecycle and exist only
+ *    to tell the user "the agent knows about these skills".
+ */
+export type ToolCallEvent =
+  | {
+      id: string;
+      kind: 'tool';
+      name: string;
+      emoji: string;
+      mainArg: string | null;
+      status: 'running' | 'done' | 'error';
+      startedAt: number;
+      endedAt: number | null;
+    }
+  | {
+      id: string;
+      kind: 'context';
+      label: string;
+      startedAt: number;
+      endedAt: number;
+      status: 'done';
+    };
+
+/** Hard cap on the number of bubbles the mascot renders at once. */
+export const TOOL_CALL_STREAM_MAX = 4;
 
 export const useChat = create<ChatStore>((set) => ({
   sessionId: crypto.randomUUID(),
@@ -75,6 +136,8 @@ export const useChat = create<ChatStore>((set) => ({
   agentTool: null,
   livePromptTokens: null,
   liveCompletionTokens: null,
+  toolCallStream: [],
+  lastCompletionStopped: false,
 
   newSession: () =>
     set({
@@ -87,10 +150,12 @@ export const useChat = create<ChatStore>((set) => ({
       agentTool: null,
       livePromptTokens: null,
       liveCompletionTokens: null,
+      toolCallStream: [],
+      lastCompletionStopped: false,
     }),
 
   loadSession: (sessionId, messages, streamStatus = 'idle') =>
-    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null }),
+    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false }),
 
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
 
@@ -108,6 +173,19 @@ export const useChat = create<ChatStore>((set) => ({
       const last = s.messages[s.messages.length - 1];
       if (last.role !== 'assistant') return s;
       return { messages: [...s.messages.slice(0, -1), { ...last, ...patch }] };
+    }),
+
+  patchMessage: (id, patch) =>
+    set((s) => {
+      // No-op when the target message is not in the current session's
+      // message list — happens when the user switched to a different chat
+      // mid-stream. The ask_user state lives in the original session's
+      // message (in the conversations store / reloaded on next visit),
+      // so dropping the patch here is safe.
+      if (!s.messages.some((m) => m.id === id)) return s;
+      return {
+        messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      };
     }),
 
   setStreamStatus: (streamStatus, err = null) =>
@@ -136,5 +214,53 @@ export const useChat = create<ChatStore>((set) => ({
 
   setLiveTokens: (promptTokens, completionTokens) =>
     set({ livePromptTokens: promptTokens, liveCompletionTokens: completionTokens ?? null }),
+
+  // ----- toolCallStream actions -----
+
+  pushToolCall: (event) => {
+    const id = crypto.randomUUID();
+    const startedAt = event.startedAt ?? Date.now();
+    const full: ToolCallEvent = {
+      ...event,
+      id,
+      startedAt,
+      endedAt: null,
+    } as ToolCallEvent;
+    set((s) => {
+      const next = [...s.toolCallStream, full];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+    return id;
+  },
+
+  completeToolCall: (id, result) => {
+    set((s) => ({
+      toolCallStream: s.toolCallStream.map((e) =>
+        e.id === id && e.kind === 'tool'
+          ? { ...e, status: result.ok ? 'done' : 'error', endedAt: Date.now() }
+          : e,
+      ),
+    }));
+  },
+
+  pushSkillsContext: (names) => {
+    if (names.length === 0) return;
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const event: ToolCallEvent = {
+      id,
+      kind: 'context',
+      label: `Skills: ${names.join(', ')}`,
+      startedAt: now,
+      endedAt: now,
+      status: 'done',
+    };
+    set((s) => {
+      const next = [...s.toolCallStream, event];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+  },
+
+  clearToolCallStream: () => set({ toolCallStream: [] }),
 
 }));
