@@ -16,6 +16,9 @@ const PROVIDER_DEFS = [
   { id: 'groq',       name: 'Groq',            hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
   { id: 'mistral',    name: 'Mistral',         hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
   { id: 'openrouter', name: 'OpenRouter',      hasBaseUrl: true,  baseUrlHint: 'https://openrouter.ai/api/v1', availableModels: undefined,                                                                                      keyPrefix: undefined  },
+  // NVIDIA NIM — hosted OpenAI-compatible chat completions (Llama, Mistral,
+  // DeepSeek, etc.). Base URL is editable in case NVIDIA rotates the host.
+  { id: 'nvidia',     name: 'NVIDIA NIM',      hasBaseUrl: true,  baseUrlHint: 'https://integrate.api.nvidia.com/v1', availableModels: undefined,                                                                                keyPrefix: undefined  },
   { id: 'custom',     name: 'Custom Endpoint', hasBaseUrl: true,  baseUrlHint: 'https://your-endpoint/v1',      availableModels: undefined,                                                                                      keyPrefix: undefined  },
 ] as const;
 

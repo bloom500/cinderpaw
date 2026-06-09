@@ -18,6 +18,7 @@ pub enum Provider {
     Mistral,
     Deepseek,
     Openrouter,
+    Nvidia,
     Custom,
 }
 
@@ -35,6 +36,9 @@ impl Provider {
             Provider::Mistral => "https://api.mistral.ai/v1",
             Provider::Deepseek => "https://api.deepseek.com/v1",
             Provider::Openrouter => "https://openrouter.ai/api/v1",
+            // NVIDIA NIM — OpenAI-compatible chat completions API.
+            // Trailing /v1 because the API path is /v1/chat/completions.
+            Provider::Nvidia => "https://integrate.api.nvidia.com/v1",
             Provider::Custom => "https://api.custom.com/v1",
         }
     }
@@ -43,7 +47,8 @@ impl Provider {
     pub fn api_key_header(&self) -> &'static str {
         match self {
             Provider::Openai | Provider::Groq | Provider::Mistral | Provider::Deepseek |
-            Provider::Openrouter | Provider::Kimi | Provider::Glm | Provider::Minimax => "Authorization",
+            Provider::Openrouter | Provider::Kimi | Provider::Glm | Provider::Minimax |
+            Provider::Nvidia => "Authorization",
             Provider::Anthropic => "x-api-key",
             Provider::Google => "Authorization",
             Provider::Custom => "Authorization",
@@ -88,6 +93,7 @@ impl std::fmt::Display for Provider {
             Provider::Mistral => write!(f, "Mistral"),
             Provider::Deepseek => write!(f, "DeepSeek"),
             Provider::Openrouter => write!(f, "OpenRouter"),
+            Provider::Nvidia => write!(f, "NVIDIA NIM"),
             Provider::Custom => write!(f, "Custom"),
         }
     }
@@ -141,6 +147,8 @@ impl ByokSettings {
             ("mistral".to_string(), "Mistral".to_string(), Provider::Mistral),
             ("deepseek".to_string(), "DeepSeek".to_string(), Provider::Deepseek),
             ("openrouter".to_string(), "OpenRouter".to_string(), Provider::Openrouter),
+            // NVIDIA NIM — OpenAI-compatible hosted models (Llama, Mistral, etc.).
+            ("nvidia".to_string(), "NVIDIA NIM".to_string(), Provider::Nvidia),
         ]
     }
 

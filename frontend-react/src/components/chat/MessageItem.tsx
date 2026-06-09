@@ -7,7 +7,6 @@ import { AskUserCard } from './AskUserCard';
 import type { ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
-import { tauri } from '@/lib/tauri';
 
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
@@ -53,18 +52,17 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
           questions={askUser.questions}
           answered={askUser.answers}
           onSubmit={(answers) => {
+            // The store's submit() resolves the promise that the
+            // feralAgentStream manager is awaiting, which is what
+            // actually dispatches `feral_ask_user_response` to Rust.
+            // Keep it as the single source of truth for the dispatch.
             submitAskUser(answers);
-            // Route the user's selection back to the sidecar via Rust.
-            // The sidecar's AskUserBridge.resolve() unblocks the agent loop.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (tauri.feralAgent as any)?.askUserResponse?.(askUser.requestId, answers)
-              .catch((err: unknown) => console.error('[askUser] invoke failed:', err));
           }}
           onCancel={() => {
+            // Same single-source-of-truth pattern: the store's cancel()
+            // rejects the promise; the stream manager catches it and
+            // invokes `feral_ask_user_cancel` for us.
             cancelAskUser('user dismissed');
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (tauri.feralAgent as any)?.askUserCancel?.(askUser.requestId)
-              .catch((err: unknown) => console.error('[askUser] cancel invoke failed:', err));
           }}
         />
       )}
