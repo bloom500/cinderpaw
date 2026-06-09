@@ -34,7 +34,7 @@ import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
 import { createWebSearchTool } from "../src/tools/builtin/web-search.ts";
 import { createReadFileTool } from "../src/tools/builtin/read-file.ts";
 import { AgentLoop } from "../src/core/agent-loop.ts";
-import type { OutboundEvent } from "../src/types.ts";
+import type { OutboundEvent, Tool, ToolManifest } from "../src/types.ts";
 
 // ---------------------------------------------------------------------------
 // Fetch sequencer
