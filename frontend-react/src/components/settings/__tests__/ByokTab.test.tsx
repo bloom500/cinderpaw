@@ -19,7 +19,7 @@ function setupStore(byok: object[] = []) {
 describe('ByokTab', () => {
   beforeEach(() => { vi.clearAllMocks(); setupStore(); });
 
-  it('renders all 11 provider rows', () => {
+  it('renders all 12 provider rows', () => {
     render(<ByokTab />);
     expect(screen.getByText('OpenAI')).toBeInTheDocument();
     expect(screen.getByText('Anthropic')).toBeInTheDocument();
@@ -31,12 +31,13 @@ describe('ByokTab', () => {
     expect(screen.getByText('Groq')).toBeInTheDocument();
     expect(screen.getByText('Mistral')).toBeInTheDocument();
     expect(screen.getByText('OpenRouter')).toBeInTheDocument();
+    expect(screen.getByText('NVIDIA NIM')).toBeInTheDocument();
     expect(screen.getByText('Custom Endpoint')).toBeInTheDocument();
   });
 
   it('unconfigured providers show "Not configured" badge', () => {
     render(<ByokTab />);
-    expect(screen.getAllByText('Not configured')).toHaveLength(11);
+    expect(screen.getAllByText('Not configured')).toHaveLength(12);
   });
 
   it('enabled provider with has_api_key=true shows "Active" badge', () => {
