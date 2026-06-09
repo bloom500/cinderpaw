@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FeralMascot } from './FeralMascot';
-import { ThinkingBubble } from './ThinkingBubble';
+import { ToolCallStack } from './ToolCallStack';
+import { useChat } from '@/stores/chat';
 import type { MascotState } from './frames';
 
 // Idle sequence: idle →(8s)→ curious →(10s)→ run →(3.6s)→ sleep →(15s)→ stretching →(2s)→ idle
@@ -193,7 +194,10 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
         }}
       >
         <FeralMascot state={renderState} flip={flip} />
-        <ThinkingBubble active={renderState === 'thinking'} />
+        <ToolCallStack
+          events={useChat((s) => s.toolCallStream)}
+          active={renderState !== 'idle'}
+        />
       </div>
     </>
   );
