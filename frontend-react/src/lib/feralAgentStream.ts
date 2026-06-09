@@ -18,15 +18,16 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import type { FeralAgentEvent } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
+import { useChat } from '@/stores/chat';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 
 export interface FeralStreamHandlers {
   onChunk: (content: string) => void;
-  onDone: (finalContent?: string) => void;
+  onDone: (finalContent?: string, stopped?: boolean) => void;
   onError: (message: string) => void;
   onStopped?: () => void;
-  onToolStart?: (tool: string, args: Record<string, unknown>) => void;
-  onToolDone?: (tool: string) => void;
+  onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
+  onToolDone?: (callId: string, tool: string, result: unknown) => void;
   onAskUser?: (
     requestId: string,
     sessionId: string,
@@ -34,6 +35,14 @@ export interface FeralStreamHandlers {
   ) => Promise<AskUserAnswer[]>;
   onSpawning?: (count: number) => void;
   getToolCallCount?: () => number;
+  /**
+   * React-side id of the assistant message that this stream is producing.
+   * Used by the ask_user flow to attach the question card to the correct
+   * message even when the user has switched tabs / chats since the stream
+   * started. The card is rendered off `message.askUser` (see MessageItem),
+   * so we need to know which message to patch.
+   */
+  chatMessageId?: string;
 }
 
 interface InflightEntry extends FeralStreamHandlers {
@@ -74,9 +83,9 @@ export function ensureFeralListener(): Promise<void> {
             inflight.delete(parsed.id);
             if (h.stopped) {
               if (h.onStopped) h.onStopped();
-              else h.onDone(parsed.content);
+              else h.onDone(parsed.content, true);
             } else {
-              h.onDone(parsed.content);
+              h.onDone(parsed.content, false);
             }
           }
         }
@@ -99,10 +108,10 @@ export function ensureFeralListener(): Promise<void> {
         }
         break;
       case 'tool_start':
-        if (parsed.id) inflight.get(parsed.id)?.onToolStart?.(parsed.tool, parsed.args ?? {});
+        if (parsed.id) inflight.get(parsed.id)?.onToolStart?.(parsed.callId, parsed.tool, parsed.args ?? {});
         break;
       case 'tool_done':
-        if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.tool);
+        if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.callId, parsed.tool, parsed.result);
         break;
       case 'spawning':
         if (parsed.id) {
@@ -118,8 +127,9 @@ export function ensureFeralListener(): Promise<void> {
         routeAskUser(parsed.id, parsed.sessionId, parsed.questions);
         break;
       case 'ask_user_cancelled':
-        // Sidecar reports a cancel/timeout. Tear down any matching pending UI.
-        useAskUser.getState().cancel(parsed.reason ?? 'sidecar cancelled');
+        // Sidecar reports a cancel/timeout. Tear down any matching pending UI
+        // (store + the message-level askUser field, so the card disappears).
+        cancelAskUserOnAllInflight(parsed.reason ?? 'sidecar cancelled');
         break;
       // proactive / pong / model_set / model_error handled elsewhere (useFeralGlobal).
       default:
@@ -132,18 +142,52 @@ export function ensureFeralListener(): Promise<void> {
 }
 
 /**
+ * Find the chat-message id of the active in-flight Feral stream. Returns
+ * undefined when no stream is active (e.g. a proactive ask from the
+ * inner-thoughts loop) or when the consumer didn't pass `chatMessageId`.
+ *
+ * We pick the first non-stopped entry — at the moment an ask_user fires
+ * the agent loop is blocked on the user's answer, so there is exactly one
+ * active stream in the typical case.
+ */
+function activeChatMessageId(): string | undefined {
+  for (const h of inflight.values()) {
+    if (!h.stopped && h.chatMessageId) return h.chatMessageId;
+  }
+  return undefined;
+}
+
+/**
  * Route an ask_user event to a per-stream handler (preferred) or the
  * global useAskUser store. After the user answers, send the response
  * back to the sidecar via Rust.
+ *
+ * Also patches the assistant message that triggered the question with
+ * `message.askUser = { requestId, sessionId, questions }` so the
+ * `AskUserCard` (rendered in `MessageItem`) shows up. Without this patch
+ * the card never appears, because the component reads off the message
+ * prop — see the "ui/ux missing for ask_user" bug fixed in this commit.
  */
 function routeAskUser(
   requestId: string,
   sessionId: string,
   questions: AskUserQuestion[],
 ): void {
+  const targetMessageId = activeChatMessageId();
+
   // The promise returned by useAskUser.request() resolves when the user
   // clicks Submit. We then forward the answers to the sidecar.
   const promise = useAskUser.getState().request(requestId, sessionId, questions);
+
+  // Attach the question card to the right assistant message. When the
+  // message isn't in the current session (the user switched tabs), this
+  // is a no-op — the card is rendered off the message, so if it's not
+  // visible there's nothing to update.
+  if (targetMessageId) {
+    useChat.getState().patchMessage(targetMessageId, {
+      askUser: { requestId, sessionId, questions },
+    });
+  }
 
   // Best-effort: also notify per-stream handlers (e.g. so the chat can
   // attach a "thinking" indicator on the streaming message). This is a
@@ -158,15 +202,43 @@ function routeAskUser(
 
   promise
     .then((answers) => {
+      // Card collapses to "answered" once the answers are known. Done
+      // before the invoke so the UI updates even if Rust is unreachable.
+      if (targetMessageId) {
+        useChat.getState().patchMessage(targetMessageId, {
+          askUser: { requestId, sessionId, questions, answers },
+        });
+      }
       // Forward the user's selection back to Rust → sidecar.
       return invoke('feral_ask_user_response', { requestId, answers });
     })
     .catch((err) => {
-      // User cancelled or timed out. Tell the sidecar so it can stop waiting.
+      // User cancelled, sidecar cancelled, or timeout. Clear the card
+      // so the chat doesn't keep a stale "ask me" UI around. Tell the
+      // sidecar so it can stop waiting (silently no-op when the sidecar
+      // was the one who initiated the cancel).
+      if (targetMessageId) {
+        useChat.getState().patchMessage(targetMessageId, { askUser: undefined });
+      }
       return invoke('feral_ask_user_cancel', { requestId }).catch(() => {
         console.warn('[askUser] cancel invoke also failed:', err);
       });
     });
+}
+
+/**
+ * Clear the ask_user UI state for every in-flight stream. Used when the
+ * sidecar reports a cancel/timeout — we don't know which request the
+ * sidecar was cancelling (the event doesn't carry a sidecar messageId),
+ * so we clear all entries whose React message is currently being asked.
+ */
+function cancelAskUserOnAllInflight(reason: string): void {
+  useAskUser.getState().cancel(reason);
+  for (const h of inflight.values()) {
+    if (h.chatMessageId) {
+      useChat.getState().patchMessage(h.chatMessageId, { askUser: undefined });
+    }
+  }
 }
 
 /** Register handlers for an in-flight sidecar message. */
