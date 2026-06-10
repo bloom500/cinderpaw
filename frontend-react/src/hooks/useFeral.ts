@@ -16,7 +16,12 @@ import { useFeralStore } from '@/stores/feral';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking, looksLikeToolCall } from '@/lib/parseThink';
 import { tauri, type FeralAgentEvent, type PersistedMessage } from '@/lib/tauri';
-import { ensureFeralListener, registerFeralStream } from '@/lib/feralAgentStream';
+import {
+  ensureFeralListener,
+  registerFeralStream,
+  requestFeralStop,
+  isFeralStreaming,
+} from '@/lib/feralAgentStream';
 import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
@@ -64,6 +69,14 @@ export function useFeralStream(chatSessionId: string) {
     async (content: string, callbacks: StreamCallbacks) => {
       await ensureFeralListener();
 
+      // Parity with `startChatStream`: a fresh send is an implicit interrupt
+      // of any stream still in flight for this session. Without this, the
+      // previous generation's chunks keep racing the new one into the same
+      // chat (stop/retry semantics must match across both paths — audit A2).
+      if (isFeralStreaming(chatSessionId)) {
+        await requestFeralStop(chatSessionId);
+      }
+
       let messageId: string;
       try {
         messageId = await invoke<string>('feral_send_message', {
@@ -88,6 +101,8 @@ export function useFeralStream(chatSessionId: string) {
         // ask_user flow can patch the right message with `askUser` (which
         // is what makes AskUserCard actually appear in the chat list).
         chatMessageId: callbacks.chatMessageId,
+        // Lets requestFeralStop(sessionId) stop only this session's streams.
+        sessionId: chatSessionId,
       });
     },
     [chatSessionId],

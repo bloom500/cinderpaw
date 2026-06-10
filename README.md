@@ -1,18 +1,62 @@
 # Feral
 
-**Your local AI workspace. No cloud. No subscription. No compromise.**
+**Your local-first AI workspace. No subscription. No telemetry. No middleman.**
 
-[Download for Windows](https://github.com/bloom500/feral/releases/latest) · [Report an issue](https://github.com/bloom500/feral/issues)
-
----
-
-## TL;DR
-
-Feral is a desktop app that runs AI entirely on your machine — no internet required, no API bills, no data leaving your computer, and absolutely zero VC-funded "alignment" teams reading your conversations at 3am. Chat with local GGUF models, deploy a full agentic runtime with memory and tool-use, do deep multi-step web research, or plug in your own cloud API keys and pretend you're rich. It's your computer. Do whatever you want.
+[Download](https://github.com/bloom500/feral/releases/latest) · [Report an issue](https://github.com/bloom500/feral/issues) · [Discussions](https://github.com/bloom500/feral/discussions)
 
 ---
 
-![Chat](.github/screenshots/chat.png)
+Feral is a desktop app that runs AI on your machine. With local GGUF models, everything happens offline — no API bills, no data leaving your computer, and absolutely zero VC-funded "alignment" teams reading your conversations at 3am. Prefer frontier models? Plug in your own API keys (BYOK) and talk to OpenAI, Anthropic, Gemini and friends directly — your key, your bill, no proxy in between. Either way: chat, deploy a full agentic runtime with memory and tool-use, and run deep multi-step web research. It's your computer. Do whatever you want.
+
+![Chat](frontend-react/public/READMEdemo1.png)
+
+---
+
+## Install
+
+Grab the latest installer from [Releases](https://github.com/bloom500/feral/releases/latest). No admin rights required. The built-in updater keeps you current after that.
+
+| Platform | Installer | Status |
+|---|---|---|
+| **Windows 10/11** (x64) | `.msi` / `.exe` | 🟢 Stable — primary target |
+| **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/feral/issues). |
+| **Linux** (Ubuntu/Debian) | `.AppImage` / `.deb` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/feral/issues). |
+
+### Hardware requirements
+
+Feral itself is lightweight — the models are what need muscle. You can skip local models entirely and run on cloud keys (BYOK) on any machine.
+
+| | Minimum | Recommended |
+|---|---|---|
+| **RAM** | 8 GB (3–4B models at Q4) | 16 GB+ (7–8B models comfortably) |
+| **GPU** | None — CPU inference works | Any Vulkan-capable GPU; 6 GB+ VRAM keeps 7–8B models fully on-GPU |
+| **Disk** | ~500 MB app + 2–5 GB per model | SSD, 20 GB+ free if you like collecting models |
+
+Every model card shows a **0–100 fitness score** for *your* hardware before you download — Feral tells you up front if a model will make your machine cry.
+
+## Quick start
+
+1. **Install and open Feral.** A short welcome wizard introduces the app — pick a name for yourself and your agent.
+2. **Get a model** (either path works):
+   - **Local:** open **Models → Browse**, pick a model, and click download — Feral pre-selects the quantization that best fits your hardware. Already have GGUF files? Drop them in via **Models → Local**.
+   - **Cloud (BYOK):** open **Settings → Cloud Keys** and paste an API key — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom OpenAI-compatible endpoint. Keys are stored locally and never proxied through anyone's server.
+3. **Chat.** Or flip the composer toggle to **Agent mode** to unleash the sidecar: tool-use, persistent memory, file access, and web research.
+
+For deep research, ask the agent something like *"Research the current state of open-source LLMs"* — it calls `deep_research` on its own and comes back with a cited Markdown report.
+
+| Local models, scored for your hardware | Browse HuggingFace in-app | Bring your own keys |
+|---|---|---|
+| ![Local models](frontend-react/public/READMEdemo2.png) | ![Browse HuggingFace](frontend-react/public/READMEdemo3.png) | ![Cloud keys](frontend-react/public/READMEdemo5.png) |
+
+## Privacy, honestly
+
+- **Local models:** inference, conversations, and memory never leave your machine. No background network requests, no telemetry, no analytics — by design.
+- **Cloud models (BYOK):** your messages go to the provider you configured (OpenAI, Anthropic, …) when — and only when — you hit send. Feral talks to their API directly with your key; nothing is routed through our servers, because we don't have any. Their privacy policy applies to what you send them.
+- **Web tools:** agent tools like `web_search` and `deep_research` make outbound requests (DuckDuckGo, Jina) when the agent uses them — through an egress proxy with domain allowlists and an audit log.
+
+| | |
+|---|---|
+| ![Privacy settings](frontend-react/public/READMEdemo7.png) | ![General settings](frontend-react/public/READMEdemo4.png) |
 
 ---
 
@@ -21,7 +65,7 @@ Feral is a desktop app that runs AI entirely on your machine — no internet req
 | Feature | Description |
 |---|---|
 | **Chat** | Persistent conversations with any local or cloud model. Projects keep related chats grouped and sane. |
-| **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, mood engine, and agentic loop. It thinks. Sometimes too much. |
+| **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, and an agentic loop. It thinks. Sometimes too much. |
 | **Deep Research** | Multi-step autonomous web research: searches, reads pages, extracts findings, synthesizes a cited Markdown report. Like having a very caffeinated research assistant who never sleeps. |
 | **Local Models** | Load GGUF models from disk. One-click load/unload with live Active status and hardware fitness scoring. |
 | **Model Fitness Scoring** | Every local model gets a 0–100 score across memory fit, quality, speed, and context window — so you stop loading models that make your CPU cry. |
@@ -69,6 +113,8 @@ Feral has two runtime layers that talk to each other:
 
 When you flip the toggle to **Agent mode**, your messages go to a Bun/TypeScript sidecar process instead of the Rust backend directly. This sidecar is where all the interesting stuff happens.
 
+![Agent settings](frontend-react/public/READMEdemo6.png)
+
 ### Agent loop
 
 ```
@@ -84,7 +130,7 @@ user message
     └── no tool call?       → final answer, persist to memory, done
 ```
 
-Max 6 iterations per message. Each LLM call is gated by per-conversation and per-day token budgets.
+Up to 10 iterations per message (50 for complex multi-step tasks like deep research). Failed web/network tools retry with linear backoff and fall back through the `web_search → deep_research → read_webpage` chain. Token budgets are off by default — re-enable with `FERAL_BUDGET_DAY` / `FERAL_BUDGET_CONVERSATION`.
 
 ### Memory layers
 
@@ -202,28 +248,21 @@ Hover the score bar on any model card to see the 4-component breakdown, memory u
 
 ---
 
-## Getting started
-
-1. Download the latest installer from [Releases](https://github.com/bloom500/feral/releases/latest)
-2. Run the setup — no admin rights required
-3. Open Feral, go to **Models** and either load a local GGUF file or browse HuggingFace to download one
-4. Start chatting — or flip the toggle to **Agent mode** to unleash the sidecar
-
-For cloud models: go to **Settings → Cloud Keys** and paste in your API key.
-
-For deep research: in Agent mode, ask something like *"Research the current state of open-source LLMs in 2025"* — the agent will call `deep_research` automatically.
-
----
-
 ## Environment variables (Agent sidecar)
+
+When launched by the desktop app, the sidecar is pointed at Feral's **own bundled llama.cpp engine** (the loopback API on port 11435, with the per-launch bearer token injected automatically) — **no Ollama required**. The `FERAL_PROVIDER` / `FERAL_BASE_URL` defaults below apply only when running the sidecar standalone.
 
 | Variable | Default | Description |
 |---|---|---|
 | `FERAL_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
 | `FERAL_WORKSPACE` | cwd | Root for filesystem tools |
-| `FERAL_MODEL` | `qwen2.5:7b` | Model name |
-| `FERAL_BASE_URL` | `http://localhost:11434` | Inference endpoint |
-| `FERAL_PROVIDER` | `ollama` | Provider (`ollama` or `openai_compatible`) |
+| `FERAL_MODEL` | `qwen2.5:7b` | Model name (overridden to `feral-local` by the app) |
+| `FERAL_BASE_URL` | `http://localhost:11434` | Inference endpoint (app injects `http://127.0.0.1:11435`) |
+| `FERAL_PROVIDER` | `ollama` | Provider (`ollama` or `openai_compatible`; app injects `openai_compatible`) |
+| `FERAL_API_KEY` | — | Bearer token for the inference endpoint (app injects the local API token) |
+| `FERAL_ENABLE_SHELL_EXEC` | `false` | Register the generic `shell_exec` tool (argv-only, no shell). Off by default. |
+| `FERAL_SHELL_WHITELIST` | `git,node,python,…` | Comma-separated binaries `shell_exec` may run |
+| `FERAL_TOOL_GRAMMAR` | `false` | Grammar-constrain tool calls on the bundled engine (lazy GBNF) |
 | `FERAL_JINA_API_KEY` | — | Jina API key for higher rate limits on search + reader |
 | `FERAL_FETCH_DOMAINS` | — | Comma-separated domain allowlist for `fetch_url` tool |
 | `FERAL_BUDGET_CONVERSATION` | `50000` | Max tokens per conversation |

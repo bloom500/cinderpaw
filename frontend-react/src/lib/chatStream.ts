@@ -159,6 +159,12 @@ export async function startChatStream(
 export async function requestStreamStop(sessionId: string): Promise<void> {
   const entry = inflight.get(sessionId);
   if (entry) entry.stopped = true;
+  // The backend runs one generation at a time. If `sessionId` has no
+  // in-flight entry but ANOTHER session does, a stale stop click (e.g. from
+  // a tab whose stream already finished) must not kill that other session's
+  // generation. Only forward the stop when it targets the active stream —
+  // or when nothing is in flight at all (harmless no-op on the backend).
+  if (!entry && inflight.size > 0) return;
   await tauri.chat.stop();
 }
 

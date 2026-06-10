@@ -22,7 +22,7 @@ import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
 import { useSendMessage } from '@/hooks/useSendMessage';
-import { requestStreamStop } from '@/lib/chatStream';
+import { stopActiveStream } from '@/lib/streamControl';
 import { cn } from '@/lib/utils';
 
 const REASONING_CONFIG: Record<ReasoningMode, {
@@ -242,7 +242,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 <Button
                   size="icon"
                   variant="destructive"
-                  onClick={() => void requestStreamStop(useChat.getState().sessionId)}
+                  onClick={() => void stopActiveStream(useChat.getState().sessionId)}
                   aria-label="Stop"
                   className="h-7 w-7"
                 >

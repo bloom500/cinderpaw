@@ -43,6 +43,12 @@ export interface FeralStreamHandlers {
    * so we need to know which message to patch.
    */
   chatMessageId?: string;
+  /**
+   * Chat session this stream belongs to. Lets `requestFeralStop(sessionId)`
+   * stop only that session's streams instead of every in-flight stream —
+   * the same per-session stop semantics `lib/chatStream` has (audit A2).
+   */
+  sessionId?: string;
 }
 
 interface InflightEntry extends FeralStreamHandlers {
@@ -247,17 +253,36 @@ export function registerFeralStream(messageId: string, handlers: FeralStreamHand
 }
 
 /**
- * Mark all in-flight feral streams as stopped and send a stop signal to the
+ * Mark in-flight feral streams as stopped and send a stop signal to the
  * sidecar. The next done/error event for each message will route to `onStopped`
  * instead of `onDone`/`onError` so the UI shows the partial response cleanly.
+ *
+ * With a `sessionId`, only that session's streams are marked (entries that
+ * didn't declare a session are also marked, conservatively — they may belong
+ * to it). Without one, everything stops.
  */
 export async function requestFeralStop(sessionId?: string): Promise<void> {
   for (const entry of inflight.values()) {
-    entry.stopped = true;
+    if (!sessionId || !entry.sessionId || entry.sessionId === sessionId) {
+      entry.stopped = true;
+    }
   }
   try {
     await tauri.feralAgent.stop(sessionId);
   } catch (err) {
     console.warn('[feralAgentStream] stop signal failed:', err);
   }
+}
+
+/**
+ * True if a feral stream is in flight — for `sessionId` when given (entries
+ * without a declared session count as a match), otherwise for any session.
+ * Mirrors `isChatStreaming` so callers can route stop/interrupt uniformly.
+ */
+export function isFeralStreaming(sessionId?: string): boolean {
+  if (!sessionId) return inflight.size > 0;
+  for (const entry of inflight.values()) {
+    if (!entry.sessionId || entry.sessionId === sessionId) return true;
+  }
+  return false;
 }
