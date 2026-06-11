@@ -159,6 +159,25 @@ export interface Conversation {
 }
 export interface Project { id: string; name: string; conversation_ids: string[] }
 
+// ── Memory Graph ─────────────────────────────────────────────────────────────
+export interface MemoryGraphNodeView {
+  id: string;
+  label: string;
+  type: string;
+  touched_at: number;
+}
+
+export interface MemoryGraphEdgeView {
+  from: string;
+  to: string;
+  relation: string;
+}
+
+export interface MemoryGraphSnapshot {
+  nodes: MemoryGraphNodeView[];
+  edges: MemoryGraphEdgeView[];
+}
+
 // ── Agents ───────────────────────────────────────────────────────────────────
 /** Mirrors Rust AgentEvent — `#[serde(tag = "kind", rename_all = "snake_case")]` */
 export type AgentEvent =
@@ -302,6 +321,7 @@ const raw = {
     invoke<string>('mcp_call_tool', { id, tool, argsJson }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
+  getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -407,6 +427,10 @@ export const tauri = {
     delete:     async (id: string) => raw.deleteAgent(id),
     run:        async (agentId: string, prompt: string, sessionId: string) =>
       raw.runAgent(agentId, prompt, sessionId),
+  },
+
+  memory: {
+    getGraph: (): Promise<MemoryGraphSnapshot> => raw.getMemoryGraph(),
   },
 };
 

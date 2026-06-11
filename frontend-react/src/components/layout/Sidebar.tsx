@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot,
+  MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot, Puzzle,
   Download, PanelLeftClose, PanelLeftOpen, Lock, Folder,
   ChevronDown, ChevronRight, MoreHorizontal, Trash2, FolderInput, FolderMinus,
-  X, CheckCircle, AlertCircle, Loader2,
+  X, CheckCircle, AlertCircle, Loader2, Brain,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -24,7 +24,7 @@ import { useAppVersion } from '@/hooks/useAppVersion';
 export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
 
-type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills';
+type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'extensions' | 'memoryGraph';
 
 interface MenuItem {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
@@ -42,6 +42,8 @@ const MENU: MenuItem[] = [
   { icon: Box,          label: 'Models',       shortcut: null,  action: 'models',     disabled: false, route: '/models' },
   { icon: Settings,     label: 'Settings',     shortcut: null,  action: 'settings',   disabled: false, route: '/settings' },
   { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: false },
+  { icon: Puzzle,       label: 'Extensions',   shortcut: null,  action: 'extensions', disabled: false, route: '/extensions' },
+  { icon: Brain,        label: 'Memory Graph', shortcut: null,  action: 'memoryGraph', disabled: false, route: '/memory-graph' },
 ];
 
 // ── Download status popover ───────────────────────────────────────────────────
