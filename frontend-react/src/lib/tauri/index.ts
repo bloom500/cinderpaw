@@ -47,6 +47,34 @@ export interface SystemInfo {
   supports_vulkan: boolean;
 }
 
+// MCP "Extensions" — display-safe views only (no transports, paths, or keys)
+export interface McpConfigField {
+  key: string;
+  label: string;
+  secret: boolean;
+  optional: boolean;
+}
+export interface McpCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  logo_url?: string;
+  fields: McpConfigField[];
+}
+export interface McpServerView {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  logo_url?: string;
+  enabled: boolean;
+  running: boolean;
+}
+export interface McpToolView { name: string; description: string }
+
 // HF types — field names match Rust snake_case serialization exactly
 export interface HfModelSummary {
   id: string;
@@ -159,6 +187,9 @@ export type FeralAgentEvent =
   | { type: 'done';        id: string; content: string; stopped: boolean }
   | { type: 'tool_start';  id: string; callId: string; tool: string; args: Record<string, unknown> }
   | { type: 'tool_done';   id: string; callId: string; tool: string; result: unknown }
+  // #18: live progress/retry notes from long-running tools (sidecar emits
+  // these with a sessionId, not a message id).
+  | { type: 'tool_progress'; sessionId: string; tool: string; stage: string; progress: number | null; message: string }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
   | { type: 'model_error'; message: string }
@@ -166,7 +197,10 @@ export type FeralAgentEvent =
   | { type: 'error';       id?: string; message: string }
   | { type: 'ask_user';    id: string; sessionId: string; questions: import('@/stores/askUser').AskUserQuestion[] }
   | { type: 'ask_user_cancelled'; id: string; sessionId: string; reason: string }
-  | { type: 'spawning'; id: string; count: number };
+  | { type: 'spawning'; id: string; count: number }
+  // X3: scheduled-job results and failures, surfaced as toasts.
+  | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
+  | { type: 'cron_error'; jobId: string; jobName: string; message: string };
 
 /** Display-safe snapshot of the Feral Agent's active LLM — no API keys. */
 export interface FeralModelConfigView {
@@ -227,6 +261,8 @@ const raw = {
   getByokSettings:       ()    => invoke<ByokProvider[]>('get_byok_settings'),
   saveByokProvider:      (providerId: string, enabled: boolean, apiKey: string, baseUrl?: string | null, defaultModel?: string | null) =>
     invoke<void>('save_byok_provider', { providerId, enabled, apiKey, baseUrl, defaultModel }),
+  removeByokProvider:    (providerId: string) =>
+    invoke<void>('remove_byok_provider', { providerId }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
   chatCloudStream:       (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
@@ -254,6 +290,17 @@ const raw = {
     baseUrl?: string | null,
   ) => invoke<void>('feral_set_model', { source, model, providerId, baseUrl }),
   feralGetModelConfig:      () => invoke<FeralModelConfigView | null>('feral_get_model_config'),
+  mcpCatalog:               () => invoke<McpCatalogEntry[]>('mcp_catalog'),
+  mcpList:                  () => invoke<McpServerView[]>('mcp_list'),
+  mcpInstall:               (id: string, values: Record<string, string>) =>
+    invoke<McpServerView>('mcp_install', { id, values }),
+  mcpSetEnabled:            (id: string, enabled: boolean) =>
+    invoke<McpServerView>('mcp_set_enabled', { id, enabled }),
+  mcpRemove:                (id: string) => invoke<void>('mcp_remove', { id }),
+  mcpListTools:             (id: string) => invoke<McpToolView[]>('mcp_list_tools', { id }),
+  mcpCallTool:              (id: string, tool: string, argsJson: string) =>
+    invoke<string>('mcp_call_tool', { id, tool, argsJson }),
+  getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
 };
 
@@ -334,6 +381,16 @@ export const tauri = {
     install:            async (meta: SkillMeta, content: string, overwrite: boolean) =>
       raw.installSkill(meta, content, overwrite),
     remove:             async (id: string) => raw.removeSkill(id),
+  },
+
+  mcp: {
+    catalog:    async () => raw.mcpCatalog(),
+    list:       async () => raw.mcpList(),
+    install:    async (id: string, values: Record<string, string>) => raw.mcpInstall(id, values),
+    setEnabled: async (id: string, enabled: boolean) => raw.mcpSetEnabled(id, enabled),
+    remove:     async (id: string) => raw.mcpRemove(id),
+    listTools:  async (id: string) => raw.mcpListTools(id),
+    callTool:   async (id: string, tool: string, argsJson: string) => raw.mcpCallTool(id, tool, argsJson),
   },
 
   feralAgent: {
