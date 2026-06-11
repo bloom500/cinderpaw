@@ -31,7 +31,10 @@ export function MessageList() {
   // Virtualization deferred. Add react-virtuoso if profiling shows scroll jank
   // or messages.length > 500 routinely. See spec §4.5.
   return (
-    <div ref={containerRef} className="h-full overflow-y-auto scroll-smooth scrollbar-hide">
+    // No `scroll-smooth` on the container: the autoscroll effect sets
+    // scrollTop on every streamed frame, and CSS smooth scrolling turns each
+    // of those into an overlapping animation — visible jank on long chats.
+    <div ref={containerRef} className="h-full overflow-y-auto scrollbar-hide">
       <div className="max-w-3xl mx-auto px-6 py-6 pb-48 space-y-6">
         {messages.map((m, i) => (
           <MessageItem

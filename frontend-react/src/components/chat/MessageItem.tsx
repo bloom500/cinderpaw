@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Markdown } from '@/lib/markdown';
@@ -7,6 +7,72 @@ import { AskUserCard } from './AskUserCard';
 import type { ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
+import { useT } from '@/lib/i18n';
+
+/**
+ * Attached-image thumbnail with click-to-zoom. First click expands the image
+ * into a fullscreen lightbox (smooth fade + scale), second click (anywhere)
+ * shrinks it back. Escape closes too.
+ */
+function ZoomableImage({ src, alt }: { src: string; alt: string }) {
+  const [open, setOpen] = useState(false);
+  // Two-phase mount so the CSS transition actually plays: render the overlay
+  // in its "from" state first, then flip to "to" on the next frame.
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => setShown(true));
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setShown(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // Unmount the overlay only after the shrink transition finishes.
+  const onTransitionEnd = () => {
+    if (!shown) setOpen(false);
+  };
+
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onClick={() => setOpen(true)}
+        className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain cursor-zoom-in transition-transform duration-200 hover:scale-[1.02]"
+      />
+      {open && (
+        <div
+          role="button"
+          aria-label="Close image preview"
+          onClick={() => setShown(false)}
+          className={cn(
+            'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm cursor-zoom-out',
+            'transition-opacity duration-300 ease-out',
+            shown ? 'opacity-100' : 'opacity-0',
+          )}
+        >
+          <img
+            src={src}
+            alt={alt}
+            onTransitionEnd={onTransitionEnd}
+            className={cn(
+              'max-h-[90vh] max-w-[92vw] rounded-xl object-contain shadow-2xl',
+              'transition-transform duration-300 ease-out',
+              shown ? 'scale-100' : 'scale-75',
+            )}
+          />
+        </div>
+      )}
+    </>
+  );
+}
 
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
@@ -14,14 +80,33 @@ import { useAskUser } from '@/stores/askUser';
 export const MessageItem = memo(function MessageItem({ message, streaming = false }: { message: ChatMessage; streaming?: boolean }) {
   const isUser = message.role === 'user';
   const reasoningMode = useUI((s) => s.reasoningMode);
+  const t = useT();
 
   if (isUser) {
+    const images = message.images ?? [];
+    // The "[Image attached: name]" note exists for the MODEL's benefit (and
+    // as a fallback after reload, when data URLs are no longer in memory).
+    // While the pixels are available we show real thumbnails instead, so the
+    // note lines are stripped from the visible text.
+    const visibleText =
+      images.length > 0
+        ? message.content.replace(/^\[Image attached: [^\]]*\]\s*$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
+        : message.content;
     return (
       <div className="flex justify-end">
         <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-bg-elevated border border-border-default">
-          <p className="text-sm text-text-primary whitespace-pre-wrap break-words leading-relaxed">
-            {message.content}
-          </p>
+          {images.length > 0 && (
+            <div className={cn('flex flex-wrap gap-2', visibleText && 'mb-2')}>
+              {images.map((src, i) => (
+                <ZoomableImage key={i} src={src} alt={`Attached image ${i + 1}`} />
+              ))}
+            </div>
+          )}
+          {visibleText && (
+            <p className="text-sm text-text-primary whitespace-pre-wrap break-words leading-relaxed">
+              {visibleText}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -73,10 +158,10 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
         >
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
           <div className="text-xs leading-relaxed">
-            <span className="font-medium">Răspuns trunchiat.</span>{' '}
-            Modelul a atins limita de tokeni înainte să termine ({message.truncatedReason ?? 'length'}).
-            Mărește <code className="px-1 py-0.5 rounded bg-amber-500/15 font-mono text-[11px]">max_tokens</code>{' '}
-            în Settings pentru răspunsuri mai lungi.
+            <span className="font-medium">{t('chat.truncated.title')}</span>{' '}
+            {t('chat.truncated.body')} ({message.truncatedReason ?? 'length'}).{' '}
+            {t('chat.truncated.hint.pre')} <code className="px-1 py-0.5 rounded bg-amber-500/15 font-mono text-[11px]">max_tokens</code>{' '}
+            {t('chat.truncated.hint.post')}
           </div>
         </div>
       )}

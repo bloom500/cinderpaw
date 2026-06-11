@@ -10,15 +10,20 @@ import { currentInferParams } from '@/lib/inferParams';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking } from '@/lib/parseThink';
 import { tauri, type PersistedMessage } from '@/lib/tauri';
+import { buildMemoryContext, extractChatMemory } from '@/lib/chatMemory';
 import type { AttachedFile } from '@/components/chat/AttachedFileChip';
 
-function buildUserContent(text: string, files: AttachedFile[]): string {
-  const validFiles = files.filter((f) => f.content !== null);
-  if (validFiles.length === 0) return text;
-  const fileBlocks = validFiles
-    .map((f) => `[File: ${f.name}]\n${f.content}`)
-    .join('\n\n');
-  return `${fileBlocks}\n\n${text}`;
+export function buildUserContent(text: string, files: AttachedFile[]): string {
+  const textFiles = files.filter((f) => f.content !== null);
+  const imageFiles = files.filter((f) => f.kind === 'image' && f.dataUrl);
+  if (textFiles.length === 0 && imageFiles.length === 0) return text;
+  const blocks = [
+    ...textFiles.map((f) => `[File: ${f.name}]\n${f.content}`),
+    // Text-only models can't see pixels — note the attachment so the model
+    // can at least acknowledge it instead of silently ignoring the upload.
+    ...imageFiles.map((f) => `[Image attached: ${f.name}]`),
+  ];
+  return `${blocks.join('\n\n')}\n\n${text}`;
 }
 
 export function useSendMessage() {
@@ -32,11 +37,15 @@ export function useSendMessage() {
       const modelName = cloudModel?.modelId ?? loaded?.name ?? '';
 
       const content = buildUserContent(text, files);
+      const images = files
+        .filter((f) => f.kind === 'image' && f.dataUrl)
+        .map((f) => f.dataUrl!);
 
       const userMsg = {
         id: crypto.randomUUID(),
         role: 'user' as const,
         content,
+        ...(images.length > 0 ? { images } : {}),
         createdAt: Date.now(),
       };
       const asstMsg = {
@@ -88,6 +97,18 @@ export function useSendMessage() {
         enabledTools: effectiveEnabledTools,
         systemPromptOverride: effectiveSystemPrompt,
       });
+
+      // Memory recall (chat mode only — agents carry their own prompt):
+      // append what past conversations taught us about the user, so a fresh
+      // chat doesn't open completely cold.
+      if (!agent) {
+        const memoryContext = await buildMemoryContext(sessionId);
+        if (memoryContext) {
+          params.system_prompt = params.system_prompt
+            ? `${params.system_prompt}\n\n${memoryContext}`
+            : memoryContext;
+        }
+      }
 
       // `buffer` is for think-tag parsing; `answer` is the clean (think-stripped)
       // text we persist when the turn completes. We accumulate both regardless
@@ -188,6 +209,15 @@ export function useSendMessage() {
           }
           useConversations.getState().unmarkStreaming(sessionId);
           await persistFinal();
+          // Learning pass: extract durable user facts from the completed
+          // turn into the shared knowledge graph. Fire-and-forget.
+          if (!agent) {
+            const turn = snapshot.map((m) => ({
+              role: m.role,
+              content: m.id === asstId ? answer : m.content,
+            }));
+            void extractChatMemory(turn, cloudModel);
+          }
         },
         onError: (err) => {
           cancelFlush();

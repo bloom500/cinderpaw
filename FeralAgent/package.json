@@ -1,6 +1,6 @@
 {
   "name": "feral-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Feral Agent — proactive, portable AI agent with a native security sandbox",
   "type": "module",
   "module": "src/index.ts",

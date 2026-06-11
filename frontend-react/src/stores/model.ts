@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { tauri, events, type LoadedModel } from '@/lib/tauri';
 
 type UnlistenFn = () => void;
@@ -31,7 +32,11 @@ interface ModelStore {
 
 let progressUnlisten: UnlistenFn | null = null;
 
-export const useModel = create<ModelStore>((set) => ({
+// Persisted: cloudModel + inferParams survive app restarts, so a returning
+// user lands straight back on their chosen cloud model instead of an empty
+// state. `loaded` (the local llama.cpp model) is process state and cannot be
+// persisted — restoring it needs an actual load, handled separately.
+export const useModel = create<ModelStore>()(persist((set) => ({
   loaded: null,
   isLoading: false,
   loadProgress: null,
@@ -70,4 +75,7 @@ export const useModel = create<ModelStore>((set) => ({
 
   setCloudModel: (cloudModel) => set({ cloudModel }),
   setInferParams: (patch) => set((s) => ({ inferParams: { ...s.inferParams, ...patch } })),
+}), {
+  name: 'feral-model',
+  partialize: (s) => ({ cloudModel: s.cloudModel, inferParams: s.inferParams }),
 }));
