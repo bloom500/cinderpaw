@@ -42,10 +42,26 @@ desktop.ini
 *.tauri-key
 *.tauri-key.pub
 
-# Tauri dev / Vite dev logs (untracked build output)
-.feral-tauri.log
-.feral-tauri.log.err
+# Tauri dev / Vite dev logs (untracked build output).
+# D3 fix: the real filenames are `.tauri-dev.log` / `.tauri-dev.err`;
+# the previous entries (`.feral-tauri.log`, `.feral-dev.log`) were stale
+# and never matched what Tauri actually wrote.
+.tauri-dev.log
+.tauri-dev.err
 .vite-dev.log
 .vite-dev.log.err
-.feral-dev.log
-.feral-dev.log.err
+
+# Released installers — never commit the bundle artifacts.
+# Build with `cargo tauri build`; upload via the GitHub release workflow.
+Feral_*.msi
+Feral_*-setup.exe
+Feral_*.exe
+
+# Internal handoff / diagnostic scripts that have lived at the repo root.
+# They are session-scoped and should not be tracked.
+HANDOFF.md
+fix-retry-*.py
+remove-diagnostic.py
+
+# Tauri signing keys
+.tauri/
