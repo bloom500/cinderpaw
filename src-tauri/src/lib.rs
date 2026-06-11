@@ -6,6 +6,8 @@ mod events;
 mod feral_agent;
 mod gpu_detect;
 mod inference;
+mod mcp;
+mod memory_graph;
 mod models;
 mod paths;
 mod projects;
@@ -60,6 +62,14 @@ pub struct AppState {
     /// Cached display-safe view of the model the sidecar is currently using.
     /// Updated optimistically by feral_set_model; None until first set_model call.
     pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
+    /// Per-launch bearer token for the local HTTP API (V4). Generated at
+    /// startup, handed to the API server and injected as the api key whenever
+    /// the sidecar is pointed at the local engine, so the loopback API can
+    /// require auth without breaking the in-app path.
+    pub local_api_token: Arc<str>,
+    /// MCP "Extensions" client manager (rmcp). Holds live connections to
+    /// installed servers; configs persist at ~/.feral/mcp.json.
+    pub mcp: Arc<mcp::McpManager>,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -449,6 +459,22 @@ async fn chat_stream(
         }
         match tok {
             Ok(t) => {
+                // #10: the local engine's generate() reports failures as a
+                // literal "\n[Error: …]" token (its mpsc channel carries
+                // plain strings). Route it to the stream-error event so the
+                // UI can show a humanized error instead of raw error text
+                // landing in the chat transcript.
+                if let Some(msg) = t
+                    .trim_start()
+                    .strip_prefix("[Error: ")
+                    .and_then(|s| s.strip_suffix(']'))
+                {
+                    let _ = app.emit("feral://stream-error", events::StreamErrorEvent {
+                        session_id: session_id.clone(),
+                        error: msg.to_string(),
+                    });
+                    return Err(msg.to_string());
+                }
                 let _ = app.emit("feral://token", events::TokenEvent { session_id: session_id.clone(), text: t });
             }
             Err(e) => {
@@ -605,6 +631,32 @@ fn feral_agent_status(state: State<'_, AppState>) -> bool {
     state.feral_agent_tx.lock().is_some()
 }
 
+/// Abort the Feral Agent's in-flight generation for `session_id` (or all
+/// sessions when None). Forwards a `stop` message to the sidecar, whose
+/// AgentLoop aborts the inference fetch and any running tool, then emits a
+/// `done` event with `stopped: true` for each interrupted message.
+#[tauri::command]
+#[specta::specta]
+async fn feral_stop_generation(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    let mut payload = serde_json::json!({ "type": "stop" });
+    if let Some(sid) = session_id {
+        payload["sessionId"] = serde_json::Value::String(sid);
+    }
+    let msg = payload.to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Forward the user's `ask_user` selection back to the Feral Agent sidecar.
 ///
 /// The React side calls this after the user picks an option in the
@@ -657,6 +709,25 @@ async fn feral_ask_user_cancel(
     };
     tx.send(line).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// True when `url` addresses the local Feral API (loopback host on the
+/// configured api port). Used to decide whether to inject the bearer token as
+/// the sidecar's api key. Conservative: any parse failure returns false, so a
+/// non-loopback target never gets the token.
+fn is_local_api_url(url: &str, api_port: u16) -> bool {
+    // Tolerate a missing scheme — the resolved url has been stripped of /v1
+    // and trailing slashes but always carries http(s)://.
+    let parsed = match reqwest::Url::parse(url) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    let host_is_loopback = matches!(parsed.host_str(), Some("localhost") | Some("127.0.0.1") | Some("[::1]") | Some("::1"));
+    let port = parsed.port().unwrap_or(match parsed.scheme() {
+        "https" => 443,
+        _ => 80,
+    });
+    host_is_loopback && port == api_port
 }
 
 /// Hot-swap the Feral Agent's LLM backend without restarting the sidecar.
@@ -716,6 +787,17 @@ async fn feral_set_model(
     // Strip trailing /v1 — the sidecar's InferenceRouter appends endpoint paths itself.
     resolved_url = resolved_url.trim_end_matches("/v1").trim_end_matches('/').to_string();
 
+    // V4: when the sidecar is pointed at our own loopback API, it must present
+    // the bearer token or the now-gated server rejects it. The token rides in
+    // as the OpenAI-style api key (the InferenceRouter sends it as
+    // `Authorization: Bearer <key>`), so no sidecar change is needed. Only
+    // override an otherwise-empty key — a real cloud BYOK key must win.
+    let api_key = if api_key.is_empty() && is_local_api_url(&resolved_url, state.settings.api_port) {
+        state.local_api_token.to_string()
+    } else {
+        api_key
+    };
+
     let msg = serde_json::json!({
         "type": "set_model",
         "provider": provider,
@@ -756,6 +838,16 @@ async fn feral_set_model(
 #[specta::specta]
 fn feral_get_model_config(state: State<'_, AppState>) -> Option<FeralModelConfigView> {
     state.feral_model_config.lock().clone()
+}
+
+/// Returns the per-launch bearer token external apps must send as
+/// `Authorization: Bearer <token>` to use the local HTTP API (V4). The in-app
+/// agent path receives it automatically; this command exists so the user can
+/// copy it for their own integrations. The token rotates every launch.
+#[tauri::command]
+#[specta::specta]
+fn get_local_api_token(state: State<'_, AppState>) -> String {
+    state.local_api_token.to_string()
 }
 
 // ---------- Onboarding record (persisted in ~/.feral/) ----------
@@ -1175,6 +1267,15 @@ fn save_byok_provider(
     Ok(())
 }
 
+/// Remove a BYOK provider's API key from the OS keychain and disable it.
+/// The provider stays listed in the UI (so it can be re-enabled) but its
+/// secret is purged.
+#[tauri::command]
+#[specta::specta]
+fn remove_byok_provider(provider_id: String) -> Result<(), String> {
+    byok::remove_provider(&provider_id).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 async fn test_byok_provider(provider_id: String, api_key: String, base_url: Option<String>) -> Result<byok::TestProviderResponse, String> {
@@ -1566,6 +1667,42 @@ async fn read_file_as_text(path: String) -> Result<String, String> {
     std::fs::read_to_string(&canonical).map_err(|e| format!("Read failed: {}", e))
 }
 
+/// Read an image file and return it as a `data:<mime>;base64,...` URL.
+/// Used by the chat input's drag&drop path — dropped files arrive as OS
+/// paths via the Tauri drag-drop event, so the webview can't read them
+/// with the DOM File API the way pasted screenshots are read.
+#[tauri::command]
+#[specta::specta]
+async fn read_file_as_data_url(path: String) -> Result<String, String> {
+    use base64::Engine as _;
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    let meta = std::fs::metadata(&canonical)
+        .map_err(|e| format!("Stat failed: {}", e))?;
+    if meta.len() > 10 * 1024 * 1024 {
+        return Err("File too large (max 10 MB)".into());
+    }
+    let ext = canonical
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        _ => return Err(format!("Not a supported image format: .{ext}")),
+    };
+    let bytes = std::fs::read(&canonical).map_err(|e| format!("Read failed: {}", e))?;
+    Ok(format!(
+        "data:{};base64,{}",
+        mime,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
 // ---------- Entry ----------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1579,6 +1716,24 @@ pub fn run() {
 
     let settings = settings::load();
     let manager = Arc::new(ModelManager::new());
+
+    // V4: per-launch bearer token for the loopback HTTP API. Two uuids give
+    // ~244 bits of randomness — far past brute-force for a token that also
+    // rotates every launch. Persisted to `~/.feral/api-token` (inside the
+    // already user-private profile dir) so external apps that want to consume
+    // the local endpoint can read it; the in-app sidecar receives it directly.
+    let local_api_token: Arc<str> = Arc::from(
+        format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        )
+        .as_str(),
+    );
+    if let Err(e) = std::fs::write(paths::feral_dir().join("api-token"), local_api_token.as_bytes())
+    {
+        tracing::warn!(?e, "failed to persist api-token (external API consumers won't have it)");
+    }
 
     // Pre-compute system info in a background thread so the first IPC call
     // returns instantly instead of waiting 2-3 s for PowerShell + sysinfo.
@@ -1600,6 +1755,8 @@ pub fn run() {
         feral_agent_process: Arc::new(Mutex::new(None)),
         feral_agent_tx: Arc::new(Mutex::new(None)),
         feral_model_config: Arc::new(Mutex::new(None)),
+        local_api_token: local_api_token.clone(),
+        mcp: Arc::new(mcp::McpManager::new()),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -1636,9 +1793,11 @@ pub fn run() {
             get_hf_model_size,
             get_byok_settings,
             save_byok_provider,
+            remove_byok_provider,
             test_byok_provider,
             chat_cloud_stream,
             read_file_as_text,
+            read_file_as_data_url,
             skills::list_installed_skills,
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
@@ -1650,13 +1809,23 @@ pub fn run() {
             skills::remove_skill,
             feral_send_message,
             feral_agent_status,
+            feral_stop_generation,
             feral_set_model,
             feral_get_model_config,
+            get_local_api_token,
             feral_ask_user_response,
             feral_ask_user_cancel,
             get_onboarding_record,
             set_onboarding_record,
             list_ollama_models,
+            mcp::mcp_catalog,
+            mcp::mcp_list,
+            mcp::mcp_install,
+            mcp::mcp_set_enabled,
+            mcp::mcp_remove,
+            mcp::mcp_list_tools,
+            mcp::mcp_call_tool,
+            memory_graph::get_memory_graph,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
@@ -1692,29 +1861,47 @@ pub fn run() {
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
-            // Start API server in background if enabled.
-            let cfg = settings::load();
+            // Start API server in background.
+            //
+            // R4 fix: the Feral Agent sidecar is hardcoded to point at
+            // 127.0.0.1:{api_port} (see feral_agent::spawn — FERAL_BASE_URL is
+            // set unconditionally to `http://127.0.0.1:{api_port}`). Without the
+            // local API server up, every agent inference fails with
+            // "connection refused". The bearer token (api_token below) already
+            // gates the only exposure the `api_server_enabled` opt-in was
+            // guarding, so we force it on for the sidecar codepath. Users who
+            // truly want the API off can remove the sidecar's externalBin entry
+            // in tauri.conf.json.
+            let mut cfg = settings::load();
+            cfg.api_server_enabled = true;
+            let api_port = cfg.api_port;
             if cfg.api_server_enabled {
-                let api_state = api::ApiState { manager: manager.clone() };
+                let api_state = api::ApiState {
+                    manager: manager.clone(),
+                    token: local_api_token.clone(),
+                };
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = api::serve(api_state, cfg.api_port).await {
+                    if let Err(e) = api::serve(api_state, api_port).await {
                         tracing::error!(?e, "api server stopped");
                     }
                 });
             }
-            // Spawn Feral Agent sidecar.
+            // Spawn Feral Agent sidecar, pointed at the bundled engine (A1).
             let fa_handle = app.handle().clone();
             let fa_tx_slot = app.handle().state::<AppState>().feral_agent_tx.clone();
             let fa_process_slot = app.handle().state::<AppState>().feral_agent_process.clone();
+            let fa_port = api_port;
+            let fa_token = local_api_token.to_string();
+            // #11: supervised spawn — watches for sidecar crashes, restarts
+            // with backoff, and emits `feral://agent-exit` so the UI can show
+            // an "agent offline" banner instead of going silently mute.
+            feral_agent::supervise(fa_handle, fa_tx_slot, fa_process_slot, fa_port, fa_token);
+
+            // Reconnect enabled MCP extensions in the background. Failures
+            // are logged per-server — a broken extension never blocks launch.
+            let mcp_manager = app.handle().state::<AppState>().mcp.clone();
             tauri::async_runtime::spawn(async move {
-                match feral_agent::spawn(fa_handle, fa_tx_slot).await {
-                    Ok(child) => {
-                        *fa_process_slot.lock() = Some(child);
-                    }
-                    Err(e) => {
-                        tracing::warn!("Feral Agent sidecar failed to start: {e}");
-                    }
-                }
+                mcp_manager.start_enabled().await;
             });
 
             Ok(())

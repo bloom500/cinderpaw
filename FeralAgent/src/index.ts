@@ -19,6 +19,8 @@ import { EpisodicMemory } from "./memory/episodic.ts";
 import { SemanticMemory } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor } from "./memory/extractor.ts";
+import { MemoryGraph } from "./memory/graph.ts";
+import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
 import { createWriteFileTool } from "./tools/builtin/write-file.ts";
@@ -43,8 +45,6 @@ import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createFeedbackSkillTool } from "./tools/builtin/feedback-skill.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
-import { MoodEngine } from "./core/mood.ts";
-import { InnerThoughtsLoop } from "./core/inner-thoughts.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
@@ -78,9 +78,12 @@ function loadConfig(): AppConfig {
     workspace,
     inference: {
       primary: {
-        provider: env.FERAL_PROVIDER ?? "ollama",
+        // Default to the bundled Rust/llama.cpp engine (OpenAI-compatible API on
+        // 11435). Override with FERAL_PROVIDER/FERAL_BASE_URL to target external
+        // Ollama (11434) or any other OpenAI-compatible server.
+        provider: env.FERAL_PROVIDER ?? "openai_compatible",
         model: env.FERAL_MODEL ?? "qwen2.5:7b",
-        baseUrl: env.FERAL_BASE_URL ?? "http://localhost:11434",
+        baseUrl: env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
         // Optional API key for cloud providers (OpenAI-compatible
         // / Anthropic / Nvidia NIM). Ignored for `ollama`. The
         // trustedBaseUrls check below is what prevents this from
@@ -149,7 +152,7 @@ function buildTransport(kind: AppConfig["transport"]): Transport {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const config = loadConfig();
   const db = openDatabase(config.dbPath);
 
@@ -230,8 +233,14 @@ function main(): void {
   registry.register(createFileSearchTool([config.workspace]));
   // grep: regex content search under the workspace
   registry.register(createGrepTool([config.workspace]));
-  // shell_exec + git_*: process-spawn tools for the workspace
-  registry.register(createShellExecTool([config.workspace]));
+  // shell_exec: generic program runner (argv-only, no shell). Opt-in — a
+  // host program runner is too broad to register by default. Enable with
+  // FERAL_ENABLE_SHELL_EXEC=true. git_* / run_tests / format_code below are
+  // always available and cover the common cases without it.
+  if (process.env.FERAL_ENABLE_SHELL_EXEC === "true") {
+    registry.register(createShellExecTool([config.workspace]));
+  }
+  // git_*: process-spawn tools for the workspace
   registry.register(createGitStatusTool([config.workspace]));
   registry.register(createGitDiffTool([config.workspace]));
   registry.register(createGitLogTool([config.workspace]));
@@ -310,8 +319,50 @@ function main(): void {
         : ctxSessionId,
   }));
 
-  // --- Mood engine ---
-  const mood = new MoodEngine();
+  // --- Proactive subsystem (X1) ---
+  // MoodEngine + InnerThoughtsLoop used to be wired into core by default
+  // (FERAL_INNER_THOUGHTS_ENABLED !== "false"). That burned inference on
+  // every idle cycle, contended with the global MODEL mutex (P6), and
+  // contradicted the "no-compromise privacy" pitch. They are now an
+  // explicit, opt-in subsystem:
+  //
+  //   FERAL_PROACTIVE_ENABLED=true  → load + wire mood + inner-thoughts
+  //   default (unset / =false)        → neither module is loaded or run
+  //
+  // The modules themselves are kept on disk (mood.ts, inner-thoughts.ts)
+  // for power users / future revival. They are loaded via dynamic import
+  // so a sidecar that never opts in pays zero cost — no eager class
+  // definitions, no startup work, no `setInterval` ticking, no router
+  // contention, no audit-log writes from `#persistThought`.
+  const proactiveEnabled = process.env.FERAL_PROACTIVE_ENABLED === "true";
+  let mood: import("./core/mood.ts").MoodEngine | null = null;
+  let innerThoughts: import("./core/inner-thoughts.ts").InnerThoughtsLoop | null = null;
+  if (proactiveEnabled) {
+    const { MoodEngine } = await import("./core/mood.ts");
+    const { InnerThoughtsLoop } = await import("./core/inner-thoughts.ts");
+    mood = new MoodEngine();
+    log("mood engine enabled (FERAL_PROACTIVE_ENABLED=true)");
+
+    // Inner thoughts loop — heavily gated so it surfaces at most 2-3
+    // messages per day, NEVER interrupts active conversations, and only
+    // fires when there's genuine signal in mood + recent activity.
+    // See InnerThoughtsLoop for gate details.
+    innerThoughts = new InnerThoughtsLoop(router, episodic, mood, db.raw, {
+      intervalMs: Number(process.env.FERAL_THOUGHTS_INTERVAL_MS ?? 2 * 60 * 1000),
+      // 10 min idle — definitely a real break, not just the user looking
+      // away from the screen for a second.
+      minIdleMs: Number(process.env.FERAL_THOUGHTS_MIN_IDLE_MS ?? 10 * 60_000),
+      // 4 hours between messages — caps cadence at ~1 per idle period.
+      cooldownMs: Number(process.env.FERAL_THOUGHTS_COOLDOWN_MS ?? 4 * 60 * 60_000),
+      // Hard daily cap: 2-3 proactive messages per UTC day. The user
+      // can override higher (FERAL_THOUGHTS_DAILY_CAP=10) or lower (=0
+      // to effectively disable emits). The four gates together produce
+      // a maximally non-spammy agent when the user opts in.
+      dailyCap: Number(process.env.FERAL_THOUGHTS_DAILY_CAP ?? 3),
+      moodGateThreshold: Number(process.env.FERAL_THOUGHTS_MOOD_THRESHOLD ?? 0.5),
+    });
+    log("inner-thoughts loop enabled (opt-in via FERAL_PROACTIVE_ENABLED)");
+  }
 
   // --- Skills subsystem (P0-2) ---
   const skillsStorage = new SkillsStorage();
@@ -342,8 +393,14 @@ function main(): void {
     },
   });
 
+  // --- Memory graph (T4) ---
+  const memoryGraph = new MemoryGraph();
+  const graphCleaner = new MemoryGraphCleaner();
+  graphCleaner.startSchedule();
+
   // --- Memory extractor (async, fire-and-forget after each turn) ---
   const extractor = new MemoryExtractor(router, semantic, episodic, skillCreator);
+  extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---
   const agent = new AgentLoop(
@@ -356,30 +413,6 @@ function main(): void {
     hooks,
   );
 
-  // --- Inner thoughts loop (proactive background) ---
-  // P-#12: enabled by default — the agent must feel autonomous, coming to
-  // the user with messages on its own. The loop is heavily gated so it
-  // surfaces at most 2-3 messages per day, NEVER interrupts active
-  // conversations, and only fires when there's genuine signal in mood
-  // + recent activity. See InnerThoughtsLoop for gate details.
-  // Disable with FERAL_INNER_THOUGHTS_ENABLED=false for a strictly
-  // reactive agent.
-  const innerThoughtsEnabled = process.env.FERAL_INNER_THOUGHTS_ENABLED !== "false";
-  const innerThoughts = new InnerThoughtsLoop(router, episodic, mood, db.raw, {
-    intervalMs: Number(process.env.FERAL_THOUGHTS_INTERVAL_MS ?? 2 * 60 * 1000),
-    // 10 min idle — definitely a real break, not just the user looking
-    // away from the screen for a second.
-    minIdleMs: Number(process.env.FERAL_THOUGHTS_MIN_IDLE_MS ?? 10 * 60_000),
-    // 4 hours between messages — caps cadence at ~1 per idle period.
-    cooldownMs: Number(process.env.FERAL_THOUGHTS_COOLDOWN_MS ?? 4 * 60 * 60_000),
-    // Hard daily cap: 2-3 proactive messages per UTC day. The user
-    // can override higher (FERAL_THOUGHTS_DAILY_CAP=10) or lower (=0
-    // to effectively disable emits). The four gates together produce
-    // a maximally non-spammy agent by default.
-    dailyCap: Number(process.env.FERAL_THOUGHTS_DAILY_CAP ?? 3),
-    moodGateThreshold: Number(process.env.FERAL_THOUGHTS_MOOD_THRESHOLD ?? 0.5),
-  });
-
   // --- Heartbeat loop (P2-#1) ---
   // Periodic OutboundEvent so the Tauri shell knows the sidecar is
   // alive. The transport's onMessage handler should treat absence of
@@ -390,29 +423,60 @@ function main(): void {
   });
 
   // --- Cron scheduler (P0-3) ---
-  // User-schedulable jobs that run in the background. V1 runs each job
-  // as a single LLM completion through the same router used for chat —
-  // P0-1 (subagent delegation) will replace this with a proper tool-
-  // using subagent run.
+  // User-schedulable jobs that run in the background.
+  //
+  // X3 fix (cron-as-agent): each job now runs through the full `AgentLoop`
+  // — the same tool registry (read_file / web_search / delegate_task all
+  // resolve), the same budget gates, episodic memory, and audit trail as a
+  // user-driven session. The `cron:${job.id}` sessionId gives every job its
+  // own WorkingMemory, so cron runs never pollute a real user's transcript,
+  // and the per-session mutex in `handle()` serializes overlapping runs of
+  // the same job. Streaming events from the run are swallowed (there is no
+  // live chat to render them); only the final answer is delivered, and
+  // failures surface via `onJobError` below.
   const cronRepo = new CronJobsRepo(db.raw);
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
     runJob: async (job) => {
-      const res = await router.complete({
-        sessionId: `cron:${job.id}`,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a scheduled task. Complete the user's task concisely. " +
-              "Do not ask for clarification; produce the final answer.",
+      const sessionId = `cron:${job.id}`;
+      try {
+        // `handle()` never throws — on failure it emits an `error` event to
+        // the sink and returns the error text. Capture that event and throw
+        // so the scheduler records the run as failed (and onJobError fires)
+        // instead of delivering the error string as a "result".
+        let runError: string | null = null;
+        const content = await agent.handle(
+          sessionId,
+          "You are running as a scheduled background task. Complete the task " +
+            "without asking for clarification; produce the final answer.\n\n" +
+            `Task: ${job.task}`,
+          `cron-${job.id}-${Date.now()}`,
+          (event) => {
+            // No live chat is attached to a cron run — chunk/tool events
+            // have nowhere to render; only failures matter here.
+            if (event.type === "error") runError = event.message;
           },
-          { role: "user", content: job.task },
-        ],
-        maxTokens: 2048,
-        temperature: 0.3,
+        );
+        if (runError) throw new Error(runError);
+        return content.trim();
+      } finally {
+        // N2 fix: the synthetic `cron:${job.id}` sessionId would otherwise
+        // grow the router's per-conversation-token map forever (one entry
+        // per scheduled job for the life of the sidecar). Evict it after
+        // each run so a long-running Tauri session doesn't accumulate
+        // thousands of stale cron entries.
+        router.evictSession(sessionId);
+      }
+    },
+    // X3: failed/timed-out runs become a visible `cron_error` event in the
+    // UI instead of dying silently in the run-history table.
+    onJobError: (job, message) => {
+      transport.send({
+        type: "cron_error",
+        jobId: job.id,
+        jobName: job.name,
+        message,
       });
-      return res.content.trim();
     },
     deliver: (target, content, job, ctx) => {
       // Replace the default emit with transport.send for chat targets
@@ -502,6 +566,22 @@ function main(): void {
         break;
       }
 
+      case "stop": {
+        // User pressed the Stop button. Abort the in-flight generation for
+        // that session (or everything when no sessionId is given). The loop
+        // aborts the router fetch + per-session tool signal and emits a
+        // `done` event with `stopped: true`, which the frontend renders as
+        // a clean "stopped" state.
+        if (msg.sessionId) {
+          log(`stop requested for session ${msg.sessionId}`);
+          agent.stop(msg.sessionId);
+        } else {
+          log(`stop requested for all sessions`);
+          agent.stopAll();
+        }
+        break;
+      }
+
       case "message": {
         const id = msg.id ?? crypto.randomUUID();
         const sessionId = msg.sessionId ?? "default";
@@ -514,12 +594,16 @@ function main(): void {
           });
           return;
         }
-        mood.applyEvent("message_received");
-        // P-#12: the inner-thoughts loop watches idle time. Reset the
-        // timer on every user message so the loop knows the user is
-        // actively chatting and waits for a quiet moment before
-        // surfacing its own thoughts. Cheap (single Date.now() write).
-        if (innerThoughtsEnabled) innerThoughts.noteUserActivity();
+        // X1 fix: mood updates are only emitted when the proactive
+        // subsystem is enabled. Default = off, so the hot message path
+        // does no MoodEngine work.
+        mood?.applyEvent("message_received");
+        // Inner-thoughts loop watches idle time. Reset the timer on every
+        // user message so the loop knows the user is actively chatting
+        // and waits for a quiet moment before surfacing its own thoughts.
+        // Cheap (single Date.now() write). Only meaningful when the
+        // proactive subsystem is on.
+        innerThoughts?.noteUserActivity();
         // skillsContext is the per-turn roster of locally-installed skills
         // (metadata only) sent by Rust. Rendered as a short "Available
         // skills" menu in the system prompt; the LLM loads any skill's body
@@ -527,13 +611,13 @@ function main(): void {
         const skillsContext = msg.skillsContext;
         await agent.handle(sessionId, content, id, (event) => {
           transport.send(event);
-          // Update mood based on what the agent loop emits.
-          if (event.type === "done")       mood.applyEvent("message_answered");
+          // X1 fix: same gating as the message-received update above.
+          if (event.type === "done")       mood?.applyEvent("message_answered");
           if (event.type === "tool_done") {
             const r = event.result as { ok?: boolean } | null;
-            mood.applyEvent(r?.ok === false ? "tool_error" : "tool_success");
+            mood?.applyEvent(r?.ok === false ? "tool_error" : "tool_success");
           }
-          if (event.type === "error")      mood.applyEvent("inference_error");
+          if (event.type === "error")      mood?.applyEvent("inference_error");
         }, skillsContext);
         break;
       }
@@ -611,10 +695,10 @@ function main(): void {
       `ready — transport=${config.transport} model=${config.inference.primary.model} ` +
         `workspace=${config.workspace}`,
     );
-    if (innerThoughtsEnabled) {
+    // X1 fix: inner-thoughts is opt-in via FERAL_PROACTIVE_ENABLED.
+    if (innerThoughts) {
       innerThoughts.setEmit((event) => transport.send(event));
       innerThoughts.start();
-      log("inner-thoughts loop enabled");
     }
     // P2-#1: heartbeat always on — even when the proactive loop is off.
     // The transport's onMessage handler should treat absence of
@@ -630,9 +714,12 @@ function main(): void {
 
   // Persist final audit state on unexpected termination.
   const shutdown = () => {
-    if (innerThoughtsEnabled) innerThoughts.stop();
+    // X1 fix: only stop the inner-thoughts loop if it was actually
+    // started (i.e. the proactive subsystem is on).
+    innerThoughts?.stop();
     heartbeat.stop();
     cronScheduler.stop();
+    graphCleaner.stop();
     try {
       stopSoulWatcher();
     } catch {
@@ -660,11 +747,9 @@ function log(message: string): void {
   process.stderr.write(`[feral] ${message}\n`);
 }
 
-try {
-  main();
-} catch (err) {
+main().catch((err) => {
   // Startup misconfiguration (e.g. a target outside trustedBaseUrls) should
   // fail fast with a clear, single-line reason rather than a raw stack trace.
   log(`fatal: failed to start — ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
-}
+});
