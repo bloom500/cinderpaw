@@ -84,13 +84,22 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   // half-typed name ("F") doesn't get clobbered to "Feral".
   setAgentName: (name) => set({ agentName: name.trim() }),
 
-  skip: () =>
+  skip: () => {
+    const completedAt = Date.now();
     set({
       active: false,
       skipped: true,
-      completedAt: Date.now(),
+      completedAt,
       hasOnboardedBefore: true,
-    }),
+    });
+    const s = get();
+    void persistAsync({
+      completed: true,
+      completedAt,
+      userName: s.userName,
+      agentName: s.agentName || 'Feral',
+    });
+  },
 
   // (no helper functions below — the persistence layer lives in
   // onboardingPersistence.ts and is invoked through the actions above.)
