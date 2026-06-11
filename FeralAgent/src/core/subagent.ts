@@ -54,9 +54,25 @@ import type {
   Tool,
 } from "../types.ts";
 
-/** Cap on the answer returned to the parent so a chatty subagent
- *  doesn't blow the parent's context budget. */
-const MAX_SUMMARY_CHARS = 500;
+/**
+ * Cap on the answer returned to the parent so a chatty subagent doesn't
+ * blow the parent's context budget.
+ *
+ * X4 fix: the previous 500-char cap truncated deep-research delegations
+ * to two sentences, making `delegate_task` useless for anything but the
+ * shallowest questions. Raised the default to 4,000 chars (≈1,000 tokens)
+ * and made it configurable via env so power users / test setups can tune
+ * it without a code change.
+ *
+ *   FERAL_SUBAGENT_MAX_SUMMARY_CHARS=<int>   default 4000
+ *
+ * Set to a negative number to disable truncation entirely (use with
+ * caution — a 50k-char subagent answer will land in the parent's next
+ * prompt verbatim).
+ */
+const MAX_SUMMARY_CHARS = Number(
+  process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS ?? 4000,
+);
 
 export interface SubagentDeps {
   router: InferenceRouter;
@@ -170,12 +186,12 @@ export class Subagent {
     // sessionId gives the subagent its own budget slice). The other
     // collaborators (recall, extractor, soul, user) are deliberately
     // null — a subagent starts with a clean slate.
+    //
     const childAgent = new AgentLoop(
       this.#router,
       childRegistry,
       this.#episodic,
       {
-        maxIterations: config.budget.maxIterations,
         maxTokensPerCall: config.budget.maxTokens,
         onBudgetExhausted: "stop",
       },
@@ -214,7 +230,10 @@ export class Subagent {
       // failure — the subagent ran out of iterations.
       let status: SubagentResult["status"] = "completed";
       if (errorMessage) status = "failed";
-      else if (/reached the maximum number of reasoning steps/i.test(rawAnswer)) {
+      else if (
+        /reached the maximum number of reasoning steps/i.test(rawAnswer) ||
+        /completed \d+ actions but haven't been able to produce a final answer/i.test(rawAnswer)
+      ) {
         status = "failed";
       }
       return this.#wrap(

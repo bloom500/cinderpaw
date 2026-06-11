@@ -25,7 +25,9 @@ import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { stripPrivate } from "../memory/privacy.ts";
 import type {
+  AnthropicToolDef,
   ChatMessage,
+  OpenAIToolDef,
   InferenceConfig,
   OutboundEvent,
   ParsedResponse,
@@ -38,24 +40,47 @@ import type { UserConfig } from "./user-loader.ts";
 import { buildUserPromptBlock } from "./user-loader.ts";
 import {
   FERAL_AGENT_BASE_PROMPT,
-  buildToolContinuation,
 } from "./feral-prompt.ts";
+import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 
 export interface AgentLoopConfig {
-  /** Hard cap on tool-call/inference cycles for simple/chat tasks. */
-  maxIterations: number;
-  /** Cap for deep-research and complex multi-step tasks. Model stops when it
-   *  has no more tool calls to make; this is just the safety ceiling. */
-  maxIterationsDeep: number;
   /** Soft token cap passed to each completion. */
   maxTokensPerCall: number;
   /** Behavior when a budget is exhausted (mirrors InferenceConfig). */
   onBudgetExhausted: InferenceConfig["tokenBudget"]["onExhausted"];
+  /**
+   * Grammar-constrained tool calls. When true, every main-loop completion
+   * carries a GBNF grammar (lazy, triggered on a tool-call fence) so the local
+   * engine can only emit a valid tool-call JSON once the model opens one —
+   * prose answers stay unconstrained. Off by default: it requires the bundled
+   * llama.cpp engine (the grammar field is a no-op on other backends) and the
+   * text parser remains the proven fallback. Enable with FERAL_TOOL_GRAMMAR=true.
+   */
+  useToolGrammar: boolean;
+  /**
+   * P2 (memory leaks): cap on simultaneously-retained session states.
+   * When the cap is reached, the LRU session is evicted on the next
+   * access. Default 64 — generous for normal use (most users have <5
+   * active sessions), strict enough that a runaway or abusive client
+   * cannot exhaust RAM by creating millions of unique sessionIds.
+   * Tunable via constructor; tests and high-fanout deployments can
+   * raise it, low-memory deployments can lower it.
+   */
+  maxRetainedSessions: number;
+  /**
+   * P2 (memory leaks): session WorkingMemory entries that haven't been
+   * accessed in this many ms are evicted on the next access to the
+   * session map. Default 30 minutes — long enough that a user who
+   * walks away and comes back doesn't lose their conversation, short
+   * enough that forgotten sessions don't accumulate. Combined with the
+   * LRU cap, this is belt-and-suspenders: LRU bounds the worst case
+   * (always at most `maxRetainedSessions`), TTL bounds the typical
+   * case (idle sessions cleared within `sessionIdleEvictMs`).
+   */
+  sessionIdleEvictMs: number;
 }
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
-  maxIterations: 6,
-  maxIterationsDeep: 50,
   // Raised from 4096 → 16384: Qwen3 and other thinking models (DeepSeek, QwQ)
   // consume a large share of the budget on chain-of-thought tokens before the
   // visible answer starts. 4096 left too little room for the actual reply,
@@ -64,9 +89,45 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   // The router's per-conversation and per-day budgets still cap total usage.
   maxTokensPerCall: 16384,
   onBudgetExhausted: "compress_and_continue",
+  // Grammar-constrained decoding is on by default. The grammar fields are
+  // Feral extension fields honored by the bundled llama.cpp engine; standard
+  // OpenAI-compatible servers and Anthropic silently ignore unknown body fields.
+  // Set FERAL_TOOL_GRAMMAR=false to disable (e.g. when targeting a strict
+  // server that rejects unknown JSON fields).
+  useToolGrammar: process.env.FERAL_TOOL_GRAMMAR !== "false",
+  // P2: see the docstrings above for the rationale. 64 sessions × ~8KB
+  // compressed transcript each ≈ 500KB worst case — trivial, but the
+  // cap is a hard backstop against pathological clients. 30 min idle
+  // matches a "user walked away" mental model without losing short
+  // breaks (user closes laptop, opens 5 min later).
+  maxRetainedSessions: 64,
+  sessionIdleEvictMs: 30 * 60 * 1000,
 };
 
 export type EventSink = (event: OutboundEvent) => void;
+
+/**
+ * P3: per-session mutable flags for one handle() invocation. Isolating these
+ * from the class prevents concurrent sessions from overwriting each other's
+ * stopped state or emit sink — the two bugs that existed when #lastStopped and
+ * #lastEmitSink were class-level fields shared across all sessions.
+ */
+interface SessionRunContext {
+  stopped: boolean;
+  readonly emit: EventSink;
+}
+
+/**
+ * P2: per-session entry held in the LRU/TTL-retained session map. Bundles
+ * the WorkingMemory with the last-access timestamp so the eviction policy
+ * can make its decision from a single map lookup. Mutating `lastAccess`
+ * is allowed (we touch it on every access to keep the LRU order correct);
+ * the field is read-only through the public surface.
+ */
+interface SessionEntry {
+  memory: WorkingMemory;
+  lastAccess: number;
+}
 
 export class AgentLoop {
   readonly #router: InferenceRouter;
@@ -76,18 +137,22 @@ export class AgentLoop {
   readonly #extractor: MemoryExtractor | null;
   readonly #config: AgentLoopConfig;
   readonly #systemPrompt: string;
-  /** Identity document (SOUL.md) used to build the system prompt. Kept for
-   *  future per-turn refresh; currently the system prompt is built once. */
-  readonly #soul: SoulConfig | null | undefined;
+  // Note: SOUL.md and USER configs are consumed by buildSystemPrompt() at
+  // construction; they are not retained as fields (re-add if per-turn
+  // system-prompt refresh ever lands).
   /** P0-4: optional hook registry. `agent_start` / `agent_end` /
    *  `before_prompt_build` / `before_compaction` events fire into it.
    *  Null in unit tests; in production index.ts wires the shared registry. */
   readonly #hooks: HookRegistry | null;
-  /** Per-user personalization (USER block). Injected into the system prompt
-   *  after SOUL. Null = user has not onboarded; no USER block rendered. */
-  readonly #user: UserConfig | null;
-  /** One working-memory transcript per session, retained across messages. */
-  readonly #sessions = new Map<string, WorkingMemory>();
+  /**
+   * P2: one working-memory transcript per retained session, keyed by
+   * sessionId. Bounded by `#maxRetainedSessions` (LRU eviction) and
+   * `#sessionIdleEvictMs` (TTL eviction on access). Without these bounds
+   * the map grew unboundedly for any long-running sidecar — every
+   * distinct sessionId ever used kept a WorkingMemory alive in RAM
+   * forever. See `#memoryFor` for the eviction logic.
+   */
+  readonly #sessions = new Map<string, SessionEntry>();
   /**
    * Set of sessionIds currently in the middle of `handle()`. The stop handler
    * iterates this and aborts the corresponding router call so the loop
@@ -110,26 +175,51 @@ export class AgentLoop {
    * the previous handle's promise for the same sessionId before starting,
    * so two messages dispatched back-to-back don't race on the same
    * `WorkingMemory.messages` array. Different sessionIds run in parallel.
-   * The chain is a Map<sessionId, Promise<void>> where the value is the
-   * tail of the chain — appending a new handle creates a fresh promise
-   * and links it to the previous one. Empty when no session is active.
+   * The chain is a `Map<sessionId, Promise<void>>` where the value is THIS
+   * handle's `next` promise — it resolves when this handle's `finally`
+   * block runs, so the next handle's `prev` resolves after this one
+   * completes. Appending a new handle overwrites the entry with the new
+   * handle's own `next`; the previous handle's finally block is the one
+   * that owns the cleanup decision for its own entry.
+   *
+   * P2 fix: the old code stored `safePrev.then(() => next)` in the map
+   * and compared against the same `.then()` call in the cleanup branch.
+   * Because `.then()` allocates a fresh Promise every time it runs, the
+   * comparison was always against a different object identity, the
+   * cleanup never fired, and the map grew unboundedly with every new
+   * sessionId. Storing `next` directly and comparing against the local
+   * `next` variable gives us a stable identity check; the entry is
+   * actually evicted when the tail handle finishes.
    */
   readonly #sessionLocks = new Map<string, Promise<void>>();
   /**
-   * Flag carried by the `done` event so the frontend can distinguish a clean
-   * user-initiated stop from natural completion. Reset to false at the top of
-   * each `#run()` and set to true in the catch path when the failure is an
-   * AbortError (i.e. `stop()` was called mid-iteration). Read in `#handle()`
-   * when emitting `done`.
+   * P3: per-session run contexts keyed by sessionId. Created at the top of
+   * handle() and cleared in its finally block. Replaces the old class-level
+   * #lastStopped and #lastEmitSink fields so concurrent sessions never share
+   * mutable state. The budget warning listener routes via this map so warnings
+   * go to the correct session's emit sink rather than the last-registered one.
    */
-  #lastStopped = false;
+  readonly #sessionContexts = new Map<string, SessionRunContext>();
   /**
-   * Last `emit` sink passed to `handle()`. The router's budget warning
-   * listener (P1-#1) doesn't get the per-handle sink so it uses this
-   * cached reference. Set at the top of each `handle()` call. Null
-   * before the first handle().
+   * Cached GBNF tool-call grammar, built once from the registry's tool names.
+   * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
    */
-  #lastEmitSink: EventSink | null = null;
+  readonly #toolGrammar: string | null;
+  /**
+   * A3: Cached Anthropic native tool definitions. Built once at construction,
+   * same lifetime as `#toolGrammar`. Passed to every main-loop `router.complete()`
+   * call so `AnthropicProvider` can send them as the API `tools` field instead
+   * of relying on text-injected schema. Empty array = no tools registered.
+   */
+  readonly #nativeTools: AnthropicToolDef[];
+  /**
+   * A3 regression fix: Cached OpenAI-compatible native tool definitions. Built
+   * once at construction alongside `#nativeTools`. Passed to every main-loop
+   * `router.complete()` call so `OpenAICompatibleProvider` and `OllamaProvider`
+   * can send them as the API `tools` field instead of relying on the
+   * text-injected schema in the system prompt.
+   */
+  readonly #openAITools: OpenAIToolDef[];
 
   constructor(
     router: InferenceRouter,
@@ -147,11 +237,23 @@ export class AgentLoop {
     this.#episodic = episodic;
     this.#recall = recall;
     this.#extractor = extractor;
+    if (this.#extractor) {
+      this.#extractor.setIdleChecker(() => this.activeSessionCount === 0);
+    }
     this.#config = { ...DEFAULT_CONFIG, ...config };
-    this.#soul = soul;
-    this.#user = user;
     this.#hooks = hooks;
     this.#systemPrompt = buildSystemPrompt(registry, soul, user);
+    // Build the tool-call grammar once. Tool registration is complete before
+    // the loop runs, so the tool-name set is stable for the process lifetime.
+    const toolNames = registry.list().map((t) => t.manifest.name);
+    this.#toolGrammar =
+      this.#config.useToolGrammar && toolNames.length > 0
+        ? buildToolCallGrammar(toolNames)
+        : null;
+    // A3: build native Anthropic tool definitions from the same registry snapshot.
+    this.#nativeTools = buildNativeTools(registry);
+    // A3 regression fix: build OpenAI-compatible tool definitions from the same snapshot.
+    this.#openAITools = buildOpenAITools(registry);
 
     // P1-#1: wire the router's soft-warning listener to the agent loop's
     // default emit sink. The loop's per-handle `emit` is the only sink
@@ -167,7 +269,7 @@ export class AgentLoop {
         limit: info.limit,
         percent: info.percent,
       };
-      const sink = this.#lastEmitSink;
+      const sink = this.#sessionContexts.get(info.sessionId)?.emit;
       if (sink) sink(payload);
     });
   }
@@ -189,46 +291,36 @@ export class AgentLoop {
     emit: EventSink,
     skillsContext?: SkillMeta[],
   ): Promise<string> {
-    this.#activeSessions.add(sessionId);
-    this.#sessionStartedAt.set(sessionId, Date.now());
-    // P0-#3: per-session tool AbortController so stop() can reach in-flight
-    // tools, not just the router. Created fresh for every handle() so a
-    // previous stop() doesn't leave a stale aborted controller in place.
-    this.#sessionToolSignals.set(sessionId, new AbortController());
-    // P1-#1: cache the sink so the router's budget-warning listener
-    // (set in the constructor) can forward session-scoped warnings.
-    this.#lastEmitSink = emit;
-
-    // P0-#4: per-session mutex. Two `handle()` calls dispatched for the
-    // same sessionId in quick succession (e.g. user sends two messages
-    // back-to-back) used to share a single `WorkingMemory` instance and
-    // race on `messages.push()`. Now each handle awaits the previous
-    // handle's tail before starting. Different sessionIds are independent
-    // and run in parallel.
     const prev = this.#sessionLocks.get(sessionId) ?? Promise.resolve();
     let release!: () => void;
     const next = new Promise<void>((resolve) => { release = resolve; });
-    // Chain: if `prev` rejects, we still proceed (the next handle should
-    // not be blocked by a previous failure), but we swallow the rejection
-    // so the chain itself never stays rejected.
     const safePrev = prev.catch(() => undefined);
-    this.#sessionLocks.set(sessionId, safePrev.then(() => next));
+    this.#sessionLocks.set(sessionId, next);
+
+    const abortController = new AbortController();
+    const ctx: SessionRunContext = { stopped: false, emit };
 
     try {
       await safePrev;
-      return await this.#handle(sessionId, userText, messageId, emit, skillsContext);
+      this.#activeSessions.add(sessionId);
+      this.#sessionStartedAt.set(sessionId, Date.now());
+      this.#sessionToolSignals.set(sessionId, abortController);
+      this.#sessionContexts.set(sessionId, ctx);
+      return await this.#handle(sessionId, userText, messageId, ctx, skillsContext);
     } finally {
       release();
       this.#activeSessions.delete(sessionId);
       this.#sessionStartedAt.delete(sessionId);
-      this.#sessionToolSignals.delete(sessionId);
-      // If this handle is still the tail, drop the entry so the map
-      // doesn't grow with one-off sessionIds. The check is reference-
-      // based: we only delete when the map's tail is OUR `next` promise.
-      // (If a newer handle has already chained, we leave it alone.)
-      if (this.#sessionLocks.get(sessionId) === safePrev.then(() => next)) {
+      if (this.#sessionToolSignals.get(sessionId) === abortController) {
+        this.#sessionToolSignals.delete(sessionId);
+      }
+      if (this.#sessionContexts.get(sessionId) === ctx) {
+        this.#sessionContexts.delete(sessionId);
+      }
+      if (this.#sessionLocks.get(sessionId) === next) {
         this.#sessionLocks.delete(sessionId);
       }
+      this.#extractor?.runPending();
     }
   }
 
@@ -256,6 +348,26 @@ export class AgentLoop {
   }
 
   /**
+   * P2: number of session WorkingMemory instances currently retained
+   * in the LRU cache (sum of active + idle). Exposed for tests and
+   * ops dashboards. Bounded by `maxRetainedSessions` and by the
+   * TTL eviction on access.
+   */
+  get retainedSessionCount(): number {
+    return this.#sessions.size;
+  }
+
+  /**
+   * P2: number of session mutex chains currently held in `#sessionLocks`.
+   * Exposed for tests so they can verify the cleanup path actually fires
+   * (was always non-zero after the bug fix landed; should be 0 in a
+   * quiescent state when no handle() is in flight). Cheap (Map.size).
+   */
+  get activeLockCount(): number {
+    return this.#sessionLocks.size;
+  }
+
+  /**
    * Stop every active generation. Used on shutdown so no `handle()` is
    * left mid-await when the process exits.
    */
@@ -269,7 +381,7 @@ export class AgentLoop {
     sessionId: string,
     userText: string,
     messageId: string,
-    emit: EventSink,
+    ctx: SessionRunContext,
     skillsContext?: SkillMeta[],
   ): Promise<string> {
     // P0-4: agent_start hook. Informational — fires once at the top
@@ -316,14 +428,21 @@ export class AgentLoop {
     let tokensUsed = 0;
 
     try {
-      const limit = isComplexTask(userText)
-        ? this.#config.maxIterationsDeep
-        : this.#config.maxIterations;
-      const final = await this.#run(sessionId, memory, messageId, emit, limit, traceId);
+      // Self-terminating loop: no limit computation needed. #run() returns
+      // naturally when the model produces a text-only turn (no tool calls).
+      // The 500-ceiling inside #run() is an emergency backstop only.
+      const { text: final, toolCallCount: runToolCount } = await this.#run(
+        sessionId,
+        memory,
+        messageId,
+        ctx,
+        traceId,
+      );
+      toolCallCount = runToolCount;
       memory.addAssistant(final);
       const { text: finalClean } = stripPrivate(final);
       this.#episodic.record(sessionId, "assistant", finalClean);
-      emit({ type: "done", id: messageId, content: final, stopped: this.#lastStopped, traceId });
+      ctx.emit({ type: "done", id: messageId, content: final, stopped: ctx.stopped, traceId });
 
       // Fire-and-forget: extract durable user facts from the turn just completed.
       this.#extractor?.extractAsync(sessionId, [...memory.turns]);
@@ -356,12 +475,24 @@ export class AgentLoop {
       // "stopped" state without surfacing an error to the user. Use the
       // accumulated assistant text up to the abort point, or a short notice
       // if nothing was streamed.
+      // #13: an idle-timeout abort is NOT a user stop — the engine went
+      // silent for the whole idle window (model wedged, provider hung,
+      // network dropped). Surface it as a real, explained error instead of
+      // a mute "stopped" state.
+      if (isIdleTimeout(err)) {
+        const message =
+          "The model stopped responding (no output for several minutes), so the " +
+          "request was cancelled. The model or provider may be overloaded — try " +
+          "again, or switch to a smaller/faster model.";
+        ctx.emit({ type: "error", id: messageId, message, traceId });
+        return message;
+      }
       if (isAbortError(err)) {
-        this.#lastStopped = true;
+        ctx.stopped = true;
         const partial = memory.render();
         const lastAssistant = [...partial].reverse().find((m) => m.role === "assistant");
         const content = lastAssistant?.content?.trim() || "(stopped by user)";
-        emit({ type: "done", id: messageId, content, stopped: true, traceId });
+        ctx.emit({ type: "done", id: messageId, content, stopped: true, traceId });
         if (this.#hooks) {
           try {
             await this.#hooks.fire("agent_end", {
@@ -381,7 +512,7 @@ export class AgentLoop {
         return content;
       }
       const message = errorMessage(err);
-      emit({ type: "error", id: messageId, message, traceId });
+      ctx.emit({ type: "error", id: messageId, message, traceId });
       if (this.#hooks) {
         try {
           await this.#hooks.fire("agent_end", {
@@ -406,14 +537,19 @@ export class AgentLoop {
     sessionId: string,
     memory: WorkingMemory,
     messageId: string,
-    emit: EventSink,
-    maxIterations: number,
+    ctx: SessionRunContext,
     traceId: string,
-  ): Promise<string> {
-    // Reset stop flag at the start of every run. `#handle()` reads it on
-    // emission; default = natural completion.
-    this.#lastStopped = false;
-    for (let i = 0; i < maxIterations; i++) {
+  ): Promise<{ text: string; toolCallCount: number }> {
+    // Reset stop flag at the start of every run (ctx is per-handle, so this
+    // only affects this session — the P3 fix for shared #lastStopped).
+    ctx.stopped = false;
+    let toolCallCount = 0;
+    // Emergency backstop — prevents infinite loops from runaway tool calls.
+    // Normal usage never approaches this ceiling; the loop self-terminates
+    // whenever the model produces a text-only turn (no tool calls).
+    const ABSOLUTE_CEILING = 500;
+
+    for (let i = 0; i < ABSOLUTE_CEILING; i++) {
       // Stream tokens live. We optimistically stream every completion; if the
       // model ends up emitting a tool call the accumulated tokens are discarded
       // from the UI perspective (the tool events replace them), but the model
@@ -421,17 +557,16 @@ export class AgentLoop {
       let streamedSoFar = "";
       const onToken = (token: string) => {
         streamedSoFar += token;
-        emit({ type: "chunk", id: messageId, content: token, traceId });
+        ctx.emit({ type: "chunk", id: messageId, content: token, traceId });
       };
 
       const completion = await this.#complete(sessionId, memory, onToken);
-      const knownTools = new Set(this.#registry.list().map((t) => t.manifest.name));
-      const parsed = parseResponse(completion, knownTools);
+      const parsed = parseResponse(completion);
 
       if (parsed.toolCalls.length === 0) {
-        // No tool calls → this is the final answer. Tokens already streamed.
-        // Strip reasoning tags so a thinking-only completion (degraded models
-        // that emit `<think>` and stop) never leaks raw tags as the answer.
+        // No tool calls → natural termination. The model chose to answer
+        // rather than call another tool. Strip reasoning tags so a
+        // thinking-only completion never leaks raw tags as the answer.
         const answer = stripThinking(parsed.text) || stripThinking(streamedSoFar);
         if (!answer) {
           // Empty answer — distinguish "model only reasoned, no answer" from
@@ -439,60 +574,64 @@ export class AgentLoop {
           // prompt (cut-off) or a different model (degenerate).
           const hadThinking = /<think>|<thinking>|<\|channel>thought/i.test(completion);
           if (hadThinking) {
-            return "(The model used all available tokens on reasoning and produced no answer. This usually means the response was cut off. Try a shorter prompt, a larger model, or increase max_tokens.)";
+            return {
+              text: "(The model used all available tokens on reasoning and produced no answer. This usually means the response was cut off. Try a shorter prompt, a larger model, or increase max_tokens.)",
+              toolCallCount,
+            };
           }
-          return "(The model returned an empty response.)";
+          return { text: "(The model returned an empty response.)", toolCallCount };
         }
-        return answer;
+        // Natural termination — model chose to answer rather than call a tool.
+        return { text: answer, toolCallCount };
       }
 
-      // Record the assistant's tool-calling turn so the model sees its own
-      // decisions on the next pass.
+      // Model called tools → process them, then loop for the next turn.
       memory.addAssistant(completion);
 
       for (const call of parsed.toolCalls) {
-        emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
+        toolCallCount++;
+        ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
         // P0-#3: thread the per-session tool signal so AgentLoop.stop()
         // aborts the in-flight tool (in addition to the router).
         const toolSignal = this.#sessionToolSignals.get(sessionId)?.signal;
         const result = await this.#registry.call(call.name, call.args, sessionId, {
           ...(toolSignal ? { signal: toolSignal } : {}),
+          onProgress: ctx.emit,
         });
-        emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId });
+        ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId });
 
         // P0-#3: a `cancelled` result means the user invoked stop() during
-        // this tool. We must exit the iteration loop cleanly — otherwise
-        // the model would re-issue tool calls (or even worse, complete
-        // naturally) and the user's intent to stop would be ignored.
-        // We distinguish `cancelled` (user-initiated) from `timeout`
-        // (tool hung) so the model can recover from timeouts by trying
-        // a different approach.
+        // this tool. Exit the iteration loop cleanly so the user's intent
+        // to stop is respected.
         if (result.error === "cancelled") {
-          this.#lastStopped = true;
+          ctx.stopped = true;
           break;
         }
 
-        const rendered = result.ok
-          ? result.content
-          : `ERROR: ${result.content}`;
+        const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
         memory.addToolResult(call.name, rendered);
         this.#episodic.record(sessionId, "tool", `${call.name}: ${rendered}`);
-
-        // Re-engagement nudge: the model often drifts or stalls after a
-        // tool result (especially multi-step or error cases). The full
-        // tool result is already in the transcript as a `tool` role
-        // message; this user-side reminder explicitly tells the model to
-        // re-read the result and continue driving the original goal
-        // rather than waiting for the next user message.
-        memory.addUser(buildToolContinuation(rendered));
       }
+
+      if (ctx.stopped) break;
     }
 
-    // Exhausted the iteration budget without a final answer.
-    return (
-      "I reached the maximum number of reasoning steps before finishing. " +
-      "Please narrow the request or try again."
-    );
+    // User-initiated stop via tool-cancel path: the break above exited the main
+    // loop, not the ceiling. Return a clean "(stopped by user)" instead of the
+    // ceiling-hit message, which is misleading when the user meant to stop.
+    if (ctx.stopped) {
+      return {
+        text: "(stopped by user)",
+        toolCallCount,
+      };
+    }
+
+    // Only reached if the ABSOLUTE_CEILING was hit — an emergency backstop
+    // for runaway tool-call loops, not a normal termination path.
+    return {
+      text: `I completed ${toolCallCount} actions but haven't been able to produce a final answer. The task may be too open-ended — try narrowing the scope or asking for a specific output format.`,
+      toolCallCount,
+    };
   }
 
   /** One completion with budget handling (compress-and-retry or stop). */
@@ -501,12 +640,32 @@ export class AgentLoop {
     memory: WorkingMemory,
     onToken?: (token: string) => void,
   ): Promise<string> {
+    // Grammar-constrained tool calls (opt-in). Applied only to the main agent
+    // loop — the summarizer and memory extractor have their own router calls
+    // and must stay unconstrained.
+    const grammarFields = this.#toolGrammar
+      ? { grammar: this.#toolGrammar, grammarTriggers: [...TOOL_CALL_TRIGGERS] }
+      : {};
+    // P1 (prompt caching): the main agent loop asks the local engine to
+    // reuse the persistent LlamaContext's KV cache. Combined with the
+    // cache-friendly layout in WorkingMemory.render() (dynamic context
+    // appended to the last user message, system prompt kept static), this
+    // makes the static prefix tokenize identically turn-over-turn so the
+    // engine reuses the cached KV and only recomputes the new tail.
+    // The summarize() and extractor() paths leave this off — they are
+    // one-shot calls with no stable prefix to cache.
     try {
       const res = await this.#router.complete({
         sessionId,
         messages: memory.render(),
         maxTokens: this.#config.maxTokensPerCall,
         onToken,
+        cachePrompt: true,
+        // A3: native tool definitions for Anthropic.
+        nativeTools: this.#nativeTools,
+        // A3 regression fix: native tool definitions for OpenAI-compatible providers.
+        openAITools: this.#openAITools,
+        ...grammarFields,
       });
       return res.content;
     } catch (err) {
@@ -523,6 +682,12 @@ export class AgentLoop {
             messages: memory.render(),
             maxTokens: this.#config.maxTokensPerCall,
             onToken,
+            cachePrompt: true,
+            // A3: native tool definitions for Anthropic.
+            nativeTools: this.#nativeTools,
+            // A3 regression fix: native tool definitions for OpenAI-compatible providers.
+            openAITools: this.#openAITools,
+            ...grammarFields,
           });
           return res.content;
         }
@@ -556,13 +721,71 @@ export class AgentLoop {
     return res.content.trim();
   }
 
+  /**
+   * Look up (or create) the WorkingMemory for a session, applying the
+   * P2 eviction policy along the way.
+   *
+   * Two layers of protection against unbounded growth:
+   *   1. TTL: every call sweeps the map and drops any session that
+   *      hasn't been accessed in `#sessionIdleEvictMs` ms. Lazy
+   *      (no background timer), bounded cost (at most `#sessions.size`
+   *      checks, itself bounded by the LRU cap). A user who walks
+   *      away and comes back within `sessionIdleEvictMs` keeps their
+   *      transcript; one who returns after the window pays a one-time
+   *      re-hydration cost (a fresh WorkingMemory, the prior
+   *      conversation gone from RAM but not from episodic memory).
+   *   2. LRU: when adding a new session would push the map past
+   *      `#maxRetainedSessions`, the oldest entry (Map preserves
+   *      insertion order, and we re-insert on every access) is
+   *      evicted first. Worst-case bound: `#maxRetainedSessions`
+   *      entries × WorkingMemory footprint, regardless of how many
+   *      distinct sessionIds the caller churns through.
+   */
   #memoryFor(sessionId: string): WorkingMemory {
-    let memory = this.#sessions.get(sessionId);
-    if (!memory) {
-      memory = new WorkingMemory(this.#systemPrompt);
-      this.#sessions.set(sessionId, memory);
+    // Cheap when there's nothing to evict (the common case for an
+    // active session). The for-of loop is the only allocation.
+    this.#evictIdleSessions();
+
+    let entry = this.#sessions.get(sessionId);
+    if (!entry) {
+      // Make room: evict the oldest until we're under the cap. The
+      // re-checked `while` (vs `if`) handles the rare case where the
+      // caller's `maxRetainedSessions` was lowered between config
+      // updates; in steady state the loop runs at most once.
+      while (this.#sessions.size >= this.#config.maxRetainedSessions) {
+        const oldest = this.#sessions.keys().next().value;
+        if (oldest === undefined) break; // defensive: empty map
+        this.#sessions.delete(oldest);
+      }
+      entry = {
+        memory: new WorkingMemory(this.#systemPrompt),
+        lastAccess: Date.now(),
+      };
+      this.#sessions.set(sessionId, entry);
+    } else {
+      // Touch: delete + re-insert moves the entry to the tail of the
+      // Map's iteration order, so it becomes "newest" for LRU. We
+      // could use a doubly-linked list for O(1) LRU, but at 64 entries
+      // the Map ops are cheaper than the bookkeeping.
+      this.#sessions.delete(sessionId);
+      entry.lastAccess = Date.now();
+      this.#sessions.set(sessionId, entry);
     }
-    return memory;
+    return entry.memory;
+  }
+
+  /**
+   * Drop sessions that have been idle longer than `#sessionIdleEvictMs`.
+   * Called from `#memoryFor` on every access — no background timer, no
+   * observable latency cost (at most 64 cheap timestamp comparisons).
+   */
+  #evictIdleSessions(): void {
+    const cutoff = Date.now() - this.#config.sessionIdleEvictMs;
+    for (const [sessionId, entry] of this.#sessions) {
+      if (entry.lastAccess < cutoff) {
+        this.#sessions.delete(sessionId);
+      }
+    }
   }
 }
 
@@ -646,17 +869,54 @@ export function buildSystemPrompt(
 }
 
 /**
- * Parse a model response into free text plus any tool calls.
+ * A3: Convert the tool registry's manifest list into Anthropic native tool
+ * definitions. Called once at AgentLoop construction; the result is cached in
+ * `#nativeTools` and threaded into every main-loop `router.complete()` call.
  *
- * Accepted formats (tried in order):
- *   1. Fenced block tagged `tool` or `json` — the canonical format
- *   2. Any fenced block containing a valid tool-call JSON object
- *   3. A bare JSON object on its own line containing `name`/`args`
- *   4. A bare JSON object that is the entire response
- *
- * Malformed blocks are silently ignored; partial / extra text around a tool
- * call is preserved as the text portion.
+ * Only `AnthropicProvider` reads this field; all other providers ignore it.
  */
+export function buildNativeTools(registry: ToolRegistry): AnthropicToolDef[] {
+  return registry.list().map((tool) => {
+    const properties: Record<string, { type: string; description: string }> = {};
+    const required: string[] = [];
+    for (const [key, param] of Object.entries(tool.parameters)) {
+      properties[key] = { type: param.type, description: param.description };
+      if (param.required !== false) required.push(key);
+    }
+    return {
+      name: tool.manifest.name,
+      description: tool.manifest.description,
+      input_schema: { type: "object" as const, properties, required },
+    };
+  });
+}
+
+/**
+ * A3 regression fix: Convert the tool registry's manifest list into
+ * OpenAI-compatible native tool definitions. Called once at AgentLoop
+ * construction; cached in `#openAITools` and threaded into every main-loop
+ * `router.complete()` call. Read by `OpenAICompatibleProvider` and
+ * `OllamaProvider`; all other providers ignore it.
+ */
+export function buildOpenAITools(registry: ToolRegistry): OpenAIToolDef[] {
+  return registry.list().map((tool) => {
+    const properties: Record<string, { type: string; description: string }> = {};
+    const required: string[] = [];
+    for (const [key, param] of Object.entries(tool.parameters)) {
+      properties[key] = { type: param.type, description: param.description };
+      if (param.required !== false) required.push(key);
+    }
+    return {
+      type: "function" as const,
+      function: {
+        name: tool.manifest.name,
+        description: tool.manifest.description,
+        parameters: { type: "object" as const, properties, required },
+      },
+    };
+  });
+}
+
 /**
  * Strip reasoning/thinking blocks from a model's final answer.
  *
@@ -699,12 +959,36 @@ export function stripThinking(raw: string): string {
   return out.trim();
 }
 
-export function parseResponse(raw: string, knownTools?: Set<string>): ParsedResponse {
+/**
+ * Parse a model response into free text plus any tool calls.
+ *
+ * Accepted formats (tried in order):
+ *   1. Fenced block tagged `tool` or `json` — the canonical format
+ *   2. Any fenced block containing a valid tool-call JSON object
+ *   3. A bare JSON object on its own line containing `name`/`args`
+ *   4. A bare JSON object that is the entire response
+ *
+ * Malformed blocks are silently ignored; partial / extra text around a tool
+ * call is preserved as the text portion.
+ */
+export function parseResponse(raw: string): ParsedResponse {
   const toolCalls: ParsedToolCall[] = [];
   let text = raw;
 
-  // Pass 0: <tool_call>...</tool_call> tags — Gemma4 and similar native formats.
-  const toolCallTag = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+  // Pass 0: <tool_call>...</tool_call> tags — the canonical format: local
+  // grammar-constrained decoding emits it, and the providers re-encode
+  // cloud-native tool calls into it.
+  //
+  // The inner pattern forbids a nested "<tool_call>", anchoring each match
+  // at the INNERMOST opening tag. Models sometimes emit a dangling
+  // "<tool_call>" as prose right before the server switches to native
+  // tool-call deltas (observed with MiniMax M3 on an OpenAI-compatible
+  // API); the provider then appends its canonical tag, producing
+  // "… <tool_call>\n<tool_call>{json}</tool_call>". A naive non-greedy
+  // match anchors at the dangling tag, captures "\n<tool_call>{json}" as
+  // the body, fails to parse, and the call surfaces as raw text in the
+  // chat instead of executing.
+  const toolCallTag = /<tool_call>((?:(?!<tool_call>)[\s\S])*?)<\/tool_call>/g;
   let match: RegExpExecArray | null;
   while ((match = toolCallTag.exec(raw)) !== null) {
     const call = tryParseCall(match[1]?.trim() ?? "");
@@ -714,52 +998,22 @@ export function parseResponse(raw: string, knownTools?: Set<string>): ParsedResp
     }
   }
 
-  if (toolCalls.length > 0) return { text: text.trim(), toolCalls };
-
-  // Pass 1: fenced blocks (```tool, ```json, or unlabelled)
-  const fence = /```(?:tool|json|[a-z]*)?\s*([\s\S]*?)```/g;
-  while ((match = fence.exec(raw)) !== null) {
-    const call = tryParseCall(match[1] ?? "");
-    if (call) {
-      toolCalls.push(call);
-      text = text.replace(match[0], "").trim();
-    }
+  if (toolCalls.length > 0) {
+    // Sweep orphan tags (the dangling "<tool_call>" prose case above, or a
+    // stray closer) so they never reach the UI or the stored transcript.
+    text = text.replace(/<\/?tool_call>/g, "").trim();
+    return { text, toolCalls };
   }
 
-  if (toolCalls.length > 0) return { text: text.trim(), toolCalls };
-
-  // Pass 2: bare JSON object on its own line (models sometimes skip fences)
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
-    const call = tryParseCall(trimmed);
-    if (call) {
-      toolCalls.push(call);
-      text = text.replace(line, "").trim();
-    }
-  }
-
-  if (toolCalls.length > 0) return { text: text.trim(), toolCalls };
-
-  // Pass 3: entire response is a bare JSON tool call
-  const bare = tryParseCall(raw.trim());
-  if (bare) return { text: "", toolCalls: [bare] };
-
-  // Pass 4: bracket format [tool_name(key="value", key2=num)]
-  // Gated on knownTools to avoid false positives from degraded/zombie models.
-  const bracketLine = /^\[([a-zA-Z_]\w*)\(([^)]*)\)\]$/;
-  for (const line of raw.split("\n")) {
-    const m = bracketLine.exec(line.trim());
-    if (m && (!knownTools || knownTools.has(m[1]!))) {
-      const call = { name: m[1]!, args: parseBracketArgs(m[2]!) };
-      toolCalls.push(call);
-      text = text.replace(line, "").trim();
-    }
-  }
-
-  if (toolCalls.length > 0) return { text: text.trim(), toolCalls };
-
-  return { text: raw.trim(), toolCalls: [] };
+  // A3: passes 1-4 (fenced blocks, bare JSON, bracket format) removed.
+  // Grammar-constrained inference guarantees tool calls arrive in the
+  // <tool_call>…</tool_call> format handled by Pass 0 above. The legacy
+  // text-parsing passes are no longer needed and are a source of false
+  // positives when models produce JSON in prose answers.
+  //
+  // Even with no parsable call, never let stray tool_call tags leak into
+  // the visible answer.
+  return { text: raw.replace(/<\/?tool_call>/g, "").trim(), toolCalls: [] };
 }
 
 function tryParseCall(candidate: string): ParsedToolCall | null {
@@ -797,19 +1051,6 @@ function tryParseCall(candidate: string): ParsedToolCall | null {
   return { name: name.trim(), args };
 }
 
-function parseBracketArgs(argsStr: string): Record<string, unknown> {
-  const args: Record<string, unknown> = {};
-  const pattern = /(\w+)\s*=\s*(?:"([^"\\]*)"|'([^'\\]*)'|(\d+(?:\.\d+)?)|(true|false))/g;
-  let m: RegExpExecArray | null;
-  while ((m = pattern.exec(argsStr)) !== null) {
-    const key = m[1]!;
-    if (m[2] !== undefined)      args[key] = m[2];
-    else if (m[3] !== undefined) args[key] = m[3];
-    else if (m[4] !== undefined) args[key] = Number(m[4]);
-    else if (m[5] !== undefined) args[key] = m[5] === "true";
-  }
-  return args;
-}
 
 /** Find the index of the closing brace of the first top-level JSON object. */
 function findJsonEnd(s: string): number {
@@ -829,18 +1070,25 @@ function findJsonEnd(s: string): number {
 }
 
 /**
- * Heuristic: true when the user message signals deep research or a complex
- * multi-step task that may need many tool-call rounds to answer well.
+ * Heuristic: true when the user message is long enough that a single-pass
+ * answer is unlikely to suffice.
  *
- * Signals checked (any one is enough):
- *   - message is long (> 60 words) — implies multi-part or detailed request
- *   - contains explicit research/analysis keywords
- *   - asks for comparisons, lists, or comprehensive coverage
+ * P7 fix: the previous implementation keyword-matched on "research",
+ * "analyze", "compare", "audit", "report", "overview", "every", "multiple",
+ * and ~20 more common English words. That flipped routine user messages
+ * ("can you audit this report?") into long-iteration deep mode and burned
+ * the local model's context for no reason. Keyword matching is gone.
+ *
+ * Signals that DO still count:
+ *   - message is long (> 60 words) — implies a multi-part or detailed request
+ *     the model is unlikely to satisfy in one round.
+ *
+ * For explicit "I want deep mode" opt-in, callers should use a prefix or
+ * flag (e.g. `/deep <task>`) — not a heuristic on the natural language.
  */
 export function isComplexTask(text: string): boolean {
   const wordCount = text.trim().split(/\s+/).length;
-  if (wordCount > 60) return true;
-  return /\b(research|analyze|analyse|investigate|compare|summarize|summarise|find all|deep|comprehensive|thorough|in[\s-]depth|step[\s-]by[\s-]step|multiple|several sources?|every|all the|overview|survey|audit|report)\b/i.test(text);
+  return wordCount > 60;
 }
 
 function errorMessage(err: unknown): string {
@@ -851,6 +1099,18 @@ function errorMessage(err: unknown): string {
     return `Inference unavailable: ${err.message}`;
   }
   return `Unexpected error: ${String(err)}`;
+}
+
+/**
+ * #13: detect the inference stream's idle-timeout abort (see
+ * `idleAbortController` in sandbox/inference-providers.ts — it aborts with a
+ * named `IdleTimeoutError`). Matched by name to avoid a core→sandbox import.
+ * Some runtimes propagate `signal.reason` wrapped, so the message is checked
+ * as a fallback.
+ */
+function isIdleTimeout(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === "IdleTimeoutError" || /stream stalled/i.test(err.message);
 }
 
 /**
@@ -865,3 +1125,4 @@ function isAbortError(err: unknown): boolean {
   // (e.g. "AbortError" string on a generic Error).
   return /abort/i.test(err.message);
 }
+
