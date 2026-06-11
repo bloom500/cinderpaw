@@ -122,7 +122,7 @@ export function MemoryGraphPage() {
       <div
         ref={canvasRef}
         className="flex-1 w-full"
-        style={{ display: loading || nodeCount === 0 ? 'none' : 'block' }}
+        style={{ display: loading || nodeCount === 0 ? 'none' : 'block', minHeight: '400px' }}
       />
 
       {/* Legend */}
