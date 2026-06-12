@@ -101,6 +101,11 @@ jobs:
           # macOS 10.15+ deployment target — Tauri's default of 10.13 makes
           # clang reject std::filesystem::path during the CMake build.
           MACOSX_DEPLOYMENT_TARGET: "10.15"
+          # linuxdeploy's strip pass chokes on the already-stripped release
+          # binary (panic=abort + lto + strip in Cargo.toml) and kills the
+          # AppImage bundling with an opaque "failed to run linuxdeploy".
+          # Stripping is redundant here anyway.
+          NO_STRIP: "true"
           # Secrets required for updater artifacts (latest.json + .sig).
           # Add them in Settings → Secrets and variables → Actions.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
