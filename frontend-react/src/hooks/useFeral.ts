@@ -16,7 +16,7 @@ import { useModel } from '@/stores/model';
 import { useFeralStore } from '@/stores/feral';
 import { useNotifications } from '@/stores/notifications';
 import { autoTitle } from '@/lib/autoTitle';
-import { splitThinking, looksLikeToolCall } from '@/lib/parseThink';
+import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
 import { tauri, type FeralAgentEvent, type PersistedMessage } from '@/lib/tauri';
 import {
   ensureFeralListener,
@@ -205,7 +205,9 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
         onToken: (token) => {
           state.buffer += token;
           const split = splitThinking(state.buffer);
-          const visibleAnswer = looksLikeToolCall(split.answer) ? '' : split.answer;
+          // Suppress tool-call text anywhere in the stream (prose before a
+          // mid-message <tool_call> stays visible; the call itself never does).
+          const visibleAnswer = stripStreamingToolCalls(split.answer);
           state.answer = visibleAnswer;
           updateLiveSession(sessionId, {
             content: visibleAnswer,

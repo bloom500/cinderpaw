@@ -242,12 +242,12 @@ describe("OpenAICompatibleProvider native function calling", () => {
         false
       );
 
-      // Verify that "Thinking..." token is streamed, but raw JSON parts are not.
-      // Instead, a complete <tool_call> tag is emitted at the end.
+      // Verify that "Thinking..." token is streamed, but the tool call never
+      // reaches the token stream — chunk events go to the chat UI verbatim,
+      // so a raw <tool_call> tag after prose would leak into the visible
+      // answer. The tag lives in `content` only, where parseResponse reads it.
       expect(tokensEmitted).toContain("Thinking...");
-      expect(tokensEmitted.join("")).toContain("<tool_call>");
-      expect(tokensEmitted.join("")).toContain('{"name":"web_search","args":{"query":"antigravity"}}');
-      expect(tokensEmitted.join("")).toContain("</tool_call>");
+      expect(tokensEmitted.join("")).not.toContain("<tool_call>");
 
       expect(res.content).toContain("Thinking...");
       expect(res.content).toContain("<tool_call>");
@@ -369,10 +369,10 @@ describe("OllamaProvider native function calling", () => {
         false
       );
 
+      // Tool calls must never reach the token stream (they'd leak into the
+      // chat UI after prose); they are appended to `content` only.
       expect(tokensEmitted).toContain("Thinking...");
-      expect(tokensEmitted.join("")).toContain("<tool_call>");
-      expect(tokensEmitted.join("")).toContain('{"name":"web_search","args":{"query":"antigravity"}}');
-      expect(tokensEmitted.join("")).toContain("</tool_call>");
+      expect(tokensEmitted.join("")).not.toContain("<tool_call>");
 
       expect(res.content).toContain("Thinking...");
       expect(res.content).toContain("<tool_call>");
@@ -380,6 +380,103 @@ describe("OllamaProvider native function calling", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("parallel native tool calls", () => {
+  it("re-encodes ALL non-streaming tool calls, not just the first", async () => {
+    const provider = new OpenAICompatibleProvider();
+    const mockRequest = {
+      sessionId: "test-sess",
+      messages: [{ role: "user" as const, content: "hello" }],
+      openAITools: [
+        {
+          type: "function" as const,
+          function: {
+            name: "web_search",
+            description: "Search",
+            parameters: { type: "object" as const, properties: {}, required: [] },
+          },
+        },
+      ],
+    };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "",
+                tool_calls: [
+                  { id: "c1", type: "function", function: { name: "web_search", arguments: '{"query": "a"}' } },
+                  { id: "c2", type: "function", function: { name: "web_search", arguments: '{"query": "b"}' } },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      const res = await provider.complete(
+        { provider: "openai-compatible", model: "gpt-4o", baseUrl: "https://api.openai.com" },
+        mockRequest,
+        false,
+      );
+      expect(res.content).toContain('{"name":"web_search","args":{"query":"a"}}');
+      expect(res.content).toContain('{"name":"web_search","args":{"query":"b"}}');
+      // Both calls must survive a round-trip through the loop's parser.
+      const parsed = parseResponse(res.content);
+      expect(parsed.toolCalls).toHaveLength(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("buildOpenAITools schema pass-through", () => {
+  it("uses the full JSON Schema when a parameter declares one", () => {
+    const itemsSchema = {
+      type: "array",
+      items: { type: "object", properties: { question: { type: "string" } }, required: ["question"] },
+    };
+    const mockTools: Tool[] = [
+      {
+        manifest: { name: "ask_user", description: "Ask", permissions: [], networkAccess: false },
+        parameters: {
+          questions: { type: "array", description: "questions", required: true, schema: itemsSchema },
+        },
+        execute: async () => ({ ok: true, content: "" }),
+      } as unknown as Tool,
+    ];
+    const mockRegistry = { list: () => mockTools } as unknown as ToolRegistry;
+    const defs = buildOpenAITools(mockRegistry);
+    expect(defs[0]!.function.parameters.properties.questions).toEqual(itemsSchema);
+  });
+});
+
+describe("parseResponse malformed tool-call detection", () => {
+  it("flags a corrupted bare tool-call object and scrubs it from text", () => {
+    const parsed = parseResponse('Let me check.\n{"name="memory_graph">');
+    expect(parsed.toolCalls).toHaveLength(0);
+    expect(parsed.malformedToolCall).toBe(true);
+    expect(parsed.text).not.toContain("memory_graph");
+  });
+
+  it("flags a dangling <tool_call> opener with no valid JSON", () => {
+    const parsed = parseResponse("Working on it.\n<tool_call>");
+    expect(parsed.toolCalls).toHaveLength(0);
+    expect(parsed.malformedToolCall).toBe(true);
+  });
+
+  it("does not flag plain prose or valid calls", () => {
+    expect(parseResponse("All done, here is the answer.").malformedToolCall).toBe(false);
+    const valid = parseResponse('<tool_call>{"name":"web_search","args":{}}</tool_call>');
+    expect(valid.toolCalls).toHaveLength(1);
+    expect(valid.malformedToolCall).toBe(false);
   });
 });
 

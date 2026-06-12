@@ -160,3 +160,60 @@ describe("adaptive loop: no hard-cap message when tool calls exceed old maxItera
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Malformed tool-call recovery: corrupted JSON must not end the turn
+// ---------------------------------------------------------------------------
+
+describe("malformed tool-call recovery", () => {
+  it("nudges the model to retry instead of terminating mid-task", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      // Turn 1: corrupted tool call (the `{"name="…">` shape observed in the
+      // wild). Turn 2: the model retries with a valid call. Turn 3: answer.
+      let callIdx = 0;
+      globalThis.fetch = (async () => {
+        callIdx++;
+        const content =
+          callIdx === 1
+            ? 'Let me use my tool.\n<tool_call>{"name="noop">'
+            : callIdx === 2
+              ? toolBlock("noop", {})
+              : "Task complete.";
+        return new Response(
+          JSON.stringify({
+            message: { content },
+            prompt_eval_count: 10,
+            eval_count: 5,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+
+      const db = openDatabase(":memory:");
+      const audit = new AuditLog(db.raw);
+      const egress = new EgressProxy(audit.logger);
+      const router = new InferenceRouter(
+        { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+        audit.logger,
+        db.raw,
+      );
+      const episodic = new EpisodicMemory(db.raw, audit.logger);
+      const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+      const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));
+      registry.register(noopTool);
+
+      const agent = new AgentLoop(router, registry, episodic, {}, recall);
+      const result = await agent.handle("s1", "use the noop tool then report", "m1", () => {});
+
+      // Without the recovery path the loop ended on turn 1 with the scrubbed
+      // prose ("Let me use my tool.") as the final answer — mid-task.
+      expect(result).toBe("Task complete.");
+      expect(callIdx).toBe(3);
+
+      db.close();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

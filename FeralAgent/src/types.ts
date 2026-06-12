@@ -110,6 +110,16 @@ export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array";
   description: string;
   required?: boolean;
+  /**
+   * Full JSON Schema for this parameter, used verbatim by the native
+   * tool-definition builders (`buildNativeTools` / `buildOpenAITools`)
+   * instead of the flat `{type, description}` pair. Required for tools
+   * with nested shapes (e.g. ask_user's `questions` array of objects):
+   * in native-tools mode the text docs are stripped from the system
+   * prompt, so without this the model only sees `type: "array"` and has
+   * to guess the item structure — the main source of bad_args failures.
+   */
+  schema?: Record<string, unknown>;
 }
 
 export interface ToolProgressPayload {
@@ -428,7 +438,9 @@ export interface AnthropicToolDef {
   description: string;
   input_schema: {
     type: "object";
-    properties: Record<string, { type: string; description: string }>;
+    // Values are flat {type, description} pairs or, for tools that declare a
+    // ToolParameter.schema, a full JSON Schema (nested items/properties).
+    properties: Record<string, Record<string, unknown>>;
     required: string[];
   };
 }
@@ -448,7 +460,9 @@ export interface OpenAIToolDef {
     description: string;
     parameters: {
       type: "object";
-      properties: Record<string, { type: string; description: string }>;
+      // Values are flat {type, description} pairs or, for tools that declare a
+      // ToolParameter.schema, a full JSON Schema (nested items/properties).
+      properties: Record<string, Record<string, unknown>>;
       required: string[];
     };
   };
@@ -569,6 +583,14 @@ export interface ParsedResponse {
   /** Free-text the model emitted alongside (or instead of) tool calls. */
   text: string;
   toolCalls: ParsedToolCall[];
+  /**
+   * True when the response contained a tool-call attempt that could not be
+   * parsed (corrupted JSON, e.g. `{"name="memory_graph">`). The fragment is
+   * scrubbed from `text`, but the loop must NOT treat the turn as a final
+   * answer — the model meant to act. The loop feeds back a corrective nudge
+   * so the model re-emits a valid call instead of silently stopping mid-task.
+   */
+  malformedToolCall: boolean;
 }
 
 // ---------------------------------------------------------------------------

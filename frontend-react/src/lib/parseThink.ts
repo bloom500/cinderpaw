@@ -51,6 +51,35 @@ export function looksLikeToolCall(text: string): boolean {
   return false;
 }
 
+/**
+ * Cut a streaming answer at the first tool-call opener appearing ANYWHERE in
+ * the text — not just at the start. Models often write prose ("Let me check
+ * my memory graph.") and then open a tool call mid-message; `looksLikeToolCall`
+ * (start-anchored) missed that, so the raw `<tool_call>{"name":…` streamed
+ * into the chat. The prose before the opener stays visible; everything from
+ * the opener on is suppressed. If the turn really was prose, the `onDone`
+ * authoritative content restores it.
+ *
+ * Openers matched mid-text (conservative, to never eat real answers):
+ *   - `<tool_call`               — the canonical tag, even partial
+ *   - a LINE starting with `{"name"` / `{"tool"` / `{'name'` — bare JSON call
+ *   - a LINE starting with ```tool or ```json — fenced call formats
+ */
+export function stripStreamingToolCalls(text: string): string {
+  if (looksLikeToolCall(text)) return '';
+  const m = /<tool_call|^\s*\{\s*["']?(?:name|tool)["']?\s*[:=]|^\s*```(?:tool|json)\s*$/im.exec(text);
+  if (m) return text.slice(0, m.index).trimEnd();
+  // Trailing partial opener: streaming arrives token-by-token, so the buffer
+  // can end mid-tag ("… <tool_c"). Cut it so the tag never flashes; if it
+  // wasn't a tool call after all, the next token reveals that and the full
+  // text re-renders.
+  const tail = /<[^<>]*$/.exec(text);
+  if (tail && '<tool_call>'.startsWith(tail[0])) {
+    return text.slice(0, tail.index).trimEnd();
+  }
+  return text;
+}
+
 export function splitThinking(raw: string): SplitResult {
   const thinkingParts: string[] = [];
   let answer = raw;

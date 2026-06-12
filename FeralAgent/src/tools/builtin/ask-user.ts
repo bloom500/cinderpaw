@@ -57,6 +57,57 @@ export function createAskUserTool(): Tool {
           "(1-2 sentences). Mark at most one option per question as " +
           "'recommended: true' to highlight the default.",
         required: true,
+        // Full JSON Schema for native function calling. In native-tools mode
+        // the text docs are stripped from the system prompt, so this is the
+        // model's ONLY source for the nested shape — without it, models
+        // guessed the structure and most calls failed validation.
+        schema: {
+          type: "array",
+          minItems: 1,
+          maxItems: 4,
+          description:
+            "1-4 multiple-choice questions to show the user. The UI adds an " +
+            "'Other' free-text option automatically.",
+          items: {
+            type: "object",
+            properties: {
+              question: {
+                type: "string",
+                description: "The full question text, ending with a question mark.",
+              },
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: 4,
+                description: "2-4 mutually exclusive choices.",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: {
+                      type: "string",
+                      description: "Short display text for this choice (1-5 words).",
+                    },
+                    description: {
+                      type: "string",
+                      description: "Optional 1-2 sentence explanation of the choice.",
+                    },
+                    recommended: {
+                      type: "boolean",
+                      description:
+                        "Mark at most one option per question as the recommended default.",
+                    },
+                  },
+                  required: ["label"],
+                },
+              },
+              multiSelect: {
+                type: "boolean",
+                description: "Allow selecting multiple options (default false).",
+              },
+            },
+            required: ["question", "options"],
+          },
+        },
       },
     },
     async execute(args, ctx): Promise<ToolResult> {

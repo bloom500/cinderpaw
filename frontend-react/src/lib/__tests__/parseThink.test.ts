@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitThinking, looksLikeToolCall } from '@/lib/parseThink';
+import { splitThinking, looksLikeToolCall, stripStreamingToolCalls } from '@/lib/parseThink';
 
 describe('splitThinking', () => {
   it('no tag → all content is answer, thinkingComplete true', () => {
@@ -91,5 +91,44 @@ describe('looksLikeToolCall', () => {
 
   it('markdown link starting with [ → false', () => {
     expect(looksLikeToolCall('[see here](http://x)')).toBe(false);
+  });
+});
+
+describe('stripStreamingToolCalls', () => {
+  it('text that is entirely a tool call → empty', () => {
+    expect(stripStreamingToolCalls('<tool_call>{"name"')).toBe('');
+    expect(stripStreamingToolCalls('{"name": "memory_graph"')).toBe('');
+  });
+
+  it('prose followed by mid-text <tool_call> → keeps prose, cuts the call', () => {
+    expect(
+      stripStreamingToolCalls('Let me check my memory.\n<tool_call>{"name="memory_graph">'),
+    ).toBe('Let me check my memory.');
+    // Partial opener while streaming token-by-token is cut too.
+    expect(stripStreamingToolCalls('Checking now. <tool_c')).toBe('Checking now.');
+  });
+
+  it('prose followed by a bare JSON call on its own line → cuts at the call', () => {
+    expect(
+      stripStreamingToolCalls('I will search.\n{"name": "web_search", "args": {"query": "x"}}'),
+    ).toBe('I will search.');
+    // Corrupted variant with = instead of :
+    expect(stripStreamingToolCalls('I will search.\n{"name="web_search">')).toBe('I will search.');
+  });
+
+  it('prose followed by a ```tool fence → cuts at the fence', () => {
+    expect(stripStreamingToolCalls('On it.\n```tool\n{"name"')).toBe('On it.');
+  });
+
+  it('plain prose and real answers pass through untouched', () => {
+    expect(stripStreamingToolCalls('Bupropion is an antidepressant.')).toBe(
+      'Bupropion is an antidepressant.',
+    );
+    const code = 'Here is the config:\n```python\nprint({"port": 8080})\n```';
+    expect(stripStreamingToolCalls(code)).toBe(code);
+    // JSON inline in prose (not at line start) is not a tool call.
+    expect(stripStreamingToolCalls('Use {"name": value} syntax carefully')).toBe(
+      'Use {"name": value} syntax carefully',
+    );
   });
 });

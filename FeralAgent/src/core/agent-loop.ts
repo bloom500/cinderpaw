@@ -575,6 +575,13 @@ export class AgentLoop {
     // ever reasons can't loop forever.
     const MAX_CONTINUATIONS = 4;
     let continuations = 0;
+    // Malformed tool-call recovery: when a turn contains a tool-call attempt
+    // that failed to parse (corrupted JSON like `{"name="memory_graph">`),
+    // the model meant to act — ending the turn there strands the task. Feed
+    // back a corrective nudge and let it re-emit a valid call. Bounded so a
+    // model that can never produce valid JSON doesn't loop forever.
+    const MAX_MALFORMED_RETRIES = 3;
+    let malformedRetries = 0;
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
       // Stream tokens live. We optimistically stream every completion; if the
@@ -589,6 +596,23 @@ export class AgentLoop {
 
       const completion = await this.#complete(sessionId, memory, onToken);
       const parsed = parseResponse(completion);
+
+      if (parsed.toolCalls.length === 0 && parsed.malformedToolCall) {
+        if (malformedRetries < MAX_MALFORMED_RETRIES) {
+          malformedRetries++;
+          memory.addAssistant(completion);
+          memory.addUser(
+            "(system: your previous message contained a tool call with invalid " +
+              "JSON, so it was NOT executed. Re-emit the call as a single valid " +
+              'JSON object — {"name": "tool_name", "args": {…}} inside ' +
+              "<tool_call></tool_call> tags — or answer in plain text if you no " +
+              "longer need the tool.)",
+          );
+          continue;
+        }
+        // Retries exhausted: fall through to natural termination with whatever
+        // prose survived the scrub, rather than looping forever.
+      }
 
       if (parsed.toolCalls.length === 0) {
         // No tool calls → natural termination. The model chose to answer
@@ -921,10 +945,12 @@ export function buildSystemPrompt(
  */
 export function buildNativeTools(registry: ToolRegistry): AnthropicToolDef[] {
   return registry.list().map((tool) => {
-    const properties: Record<string, { type: string; description: string }> = {};
+    const properties: Record<string, Record<string, unknown>> = {};
     const required: string[] = [];
     for (const [key, param] of Object.entries(tool.parameters)) {
-      properties[key] = { type: param.type, description: param.description };
+      // Prefer the full JSON Schema when the tool provides one (nested shapes
+      // like ask_user's questions array); fall back to the flat pair.
+      properties[key] = param.schema ?? { type: param.type, description: param.description };
       if (param.required !== false) required.push(key);
     }
     return {
@@ -944,10 +970,12 @@ export function buildNativeTools(registry: ToolRegistry): AnthropicToolDef[] {
  */
 export function buildOpenAITools(registry: ToolRegistry): OpenAIToolDef[] {
   return registry.list().map((tool) => {
-    const properties: Record<string, { type: string; description: string }> = {};
+    const properties: Record<string, Record<string, unknown>> = {};
     const required: string[] = [];
     for (const [key, param] of Object.entries(tool.parameters)) {
-      properties[key] = { type: param.type, description: param.description };
+      // Prefer the full JSON Schema when the tool provides one (nested shapes
+      // like ask_user's questions array); fall back to the flat pair.
+      properties[key] = param.schema ?? { type: param.type, description: param.description };
       if (param.required !== false) required.push(key);
     }
     return {
@@ -1055,7 +1083,7 @@ export function parseResponse(raw: string): ParsedResponse {
     // Sweep orphan tags (the dangling "<tool_call>" prose case above, or a
     // stray closer) so they never reach the UI or the stored transcript.
     text = text.replace(/<\/?tool_call>/g, "").trim();
-    return { text, toolCalls };
+    return { text, toolCalls, malformedToolCall: false };
   }
 
   // Pass 1 (narrow): bare tool-call JSON in the content. Grammar-constrained
@@ -1069,7 +1097,14 @@ export function parseResponse(raw: string): ParsedResponse {
   // FIRST key is name/tool (the tool-call signature), and never inside code
   // fences — JSON in prose ({"port": 8080, …}) is untouched.
   const scrubbed = extractBareToolCalls(raw.replace(/<\/?tool_call>/g, ""));
-  return { text: scrubbed.text.trim(), toolCalls: scrubbed.calls };
+  // A <tool_call> opener with no parseable call inside also counts as a
+  // malformed attempt — the model opened a call and never produced valid JSON.
+  const danglingTag = scrubbed.calls.length === 0 && /<tool_call>/.test(raw);
+  return {
+    text: scrubbed.text.trim(),
+    toolCalls: scrubbed.calls,
+    malformedToolCall: scrubbed.malformed || danglingTag,
+  };
 }
 
 /**
@@ -1078,8 +1113,13 @@ export function parseResponse(raw: string): ParsedResponse {
  * still unmistakably a tool-call attempt) are removed from the visible text
  * so raw JSON never reaches the user.
  */
-function extractBareToolCalls(input: string): { text: string; calls: ParsedToolCall[] } {
+function extractBareToolCalls(input: string): {
+  text: string;
+  calls: ParsedToolCall[];
+  malformed: boolean;
+} {
   const calls: ParsedToolCall[] = [];
+  let malformed = false;
   // Split on fence markers; even segments are outside fences and get
   // scanned, odd segments (fenced code) pass through untouched.
   const segments = input.split(/(```[\s\S]*?(?:```|$))/);
@@ -1114,6 +1154,7 @@ function extractBareToolCalls(input: string): { text: string; calls: ParsedToolC
       } else {
         // Corrupted tool-call fragment: hide it. Drop through the end of the
         // JSON-ish run — the matched object if one closed, else end of line.
+        malformed = true;
         const lineEnd = seg.indexOf("\n", m.index);
         cursor =
           end >= 0
@@ -1126,7 +1167,7 @@ function extractBareToolCalls(input: string): { text: string; calls: ParsedToolC
     out.push(kept);
   }
 
-  return { text: out.join(""), calls };
+  return { text: out.join(""), calls, malformed };
 }
 
 function tryParseCall(candidate: string): ParsedToolCall | null {

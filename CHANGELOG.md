@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.2.1
+
+*Released 2026-06-12 — Windows, macOS (Apple Silicon + Intel), and Linux.*
+
+### Fixed
+
+- **Raw tool calls no longer leak into the chat.** Two holes closed: the
+  inference providers streamed the re-encoded `<tool_call>{json}</tool_call>`
+  tag to the UI as visible tokens, and the frontend only suppressed tool-call
+  text at the *start* of a streamed answer — prose followed by a mid-message
+  tool call (e.g. `<tool_call>{"name="memory_graph">`) was displayed verbatim.
+  Tool calls now travel only through the parsed content channel, and the
+  streaming view cuts tool-call text anywhere it appears (including a partial
+  opener at the end of the buffer), keeping the prose before it visible.
+- **The agent no longer stops mid-task on a malformed tool call.** When a
+  model emitted a tool call with corrupted JSON, the parser scrubbed it but
+  executed nothing, and the loop treated the turn as a final answer — the
+  task silently died. The loop now detects the malformed attempt and feeds a
+  corrective nudge back to the model so it can re-emit a valid call (bounded
+  at 3 retries).
+- **Parallel tool calls are no longer dropped.** All providers (OpenAI-
+  compatible, Ollama, Anthropic) re-encoded only the *first* native tool call
+  of a turn; any additional calls were silently discarded, leaving the model
+  waiting on results that never arrived. Every call in the turn is now
+  executed.
+- **`ask_user` works reliably with native function calling.** The native tool
+  schema declared `questions` as a bare array with no item structure, so
+  models had to guess the nested `{question, options:[{label}]}` shape and
+  most calls failed validation. Tools can now publish a full JSON Schema per
+  parameter, and `ask_user` ships one — including option labels, descriptions,
+  the `recommended` flag, and multi-select.
+
 ## v0.2.0
 
 *Released 2026-06-12 — Windows, macOS (Apple Silicon + Intel), and Linux.*

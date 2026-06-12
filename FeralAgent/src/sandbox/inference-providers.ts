@@ -106,17 +106,18 @@ export class OllamaProvider implements InferenceProvider {
 
     const toolCalls = (raw as { message?: { tool_calls?: any[] } }).message?.tool_calls;
     if (toolCalls && toolCalls.length > 0) {
-      const firstCall = toolCalls[0];
-      if (firstCall.function) {
-        const fn = firstCall.function;
+      // Re-encode EVERY tool call (previously only [0], dropping parallel calls).
+      content = trimDanglingToolCallTag(content);
+      for (const call of toolCalls) {
+        const fn = call?.function;
+        if (!fn?.name) continue;
         let args = {};
         if (typeof fn.arguments === "string") {
           try { args = JSON.parse(fn.arguments); } catch {}
         } else if (fn.arguments && typeof fn.arguments === "object") {
           args = fn.arguments;
         }
-        const tag = `\n<tool_call>\n${JSON.stringify({ name: fn.name, args })}\n</tool_call>`;
-        content = trimDanglingToolCallTag(content) + tag;
+        content += `\n<tool_call>\n${JSON.stringify({ name: fn.name, args })}\n</tool_call>`;
       }
     }
 
@@ -225,17 +226,22 @@ export class OllamaProvider implements InferenceProvider {
       }
       if (buf.trim()) processLine(buf);
 
-      if (ollamaToolCallsAccumulator[0] && ollamaToolCallsAccumulator[0].name) {
-        const first = ollamaToolCallsAccumulator[0];
-        let args = {};
-        if (first.argumentsObject) {
-          args = first.argumentsObject;
-        } else if (first.argumentsString) {
-          try { args = JSON.parse(first.argumentsString); } catch {}
+      // Re-encode EVERY accumulated tool call (previously only [0], dropping
+      // parallel calls). Appended to `content` only, NOT emitted via onToken —
+      // chunk events reach the chat UI verbatim and the raw tag leaked into
+      // the visible answer after prose. parseResponse reads it from content.
+      const completedCalls = ollamaToolCallsAccumulator.filter((tc) => tc?.name);
+      if (completedCalls.length > 0) {
+        content = trimDanglingToolCallTag(content);
+        for (const tc of completedCalls) {
+          let args = {};
+          if (tc.argumentsObject) {
+            args = tc.argumentsObject;
+          } else if (tc.argumentsString) {
+            try { args = JSON.parse(tc.argumentsString); } catch {}
+          }
+          content += `\n<tool_call>\n${JSON.stringify({ name: tc.name, args })}\n</tool_call>`;
         }
-        const tag = `\n<tool_call>\n${JSON.stringify({ name: first.name, args })}\n</tool_call>`;
-        content = trimDanglingToolCallTag(content) + tag;
-        req.onToken!(tag);
       }
     } finally {
       cleanup();
@@ -318,17 +324,18 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     }
     const toolCalls = raw.choices?.[0]?.message?.tool_calls;
     if (toolCalls && toolCalls.length > 0) {
-      const firstCall = toolCalls[0];
-      if (firstCall.function) {
-        const fn = firstCall.function;
+      // Re-encode EVERY tool call (previously only [0], dropping parallel calls).
+      content = trimDanglingToolCallTag(content);
+      for (const call of toolCalls) {
+        const fn = call?.function;
+        if (!fn?.name) continue;
         let args = {};
         if (typeof fn.arguments === "string") {
           try { args = JSON.parse(fn.arguments); } catch {}
         } else if (fn.arguments && typeof fn.arguments === "object") {
           args = fn.arguments;
         }
-        const tag = `\n<tool_call>\n${JSON.stringify({ name: fn.name, args })}\n</tool_call>`;
-        content = trimDanglingToolCallTag(content) + tag;
+        content += `\n<tool_call>\n${JSON.stringify({ name: fn.name, args })}\n</tool_call>`;
       }
     }
     const promptTokens = raw.usage?.prompt_tokens ?? estimateTokens(req.messages);
@@ -467,13 +474,20 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // <think> block is well-formed for stripThinking()/the frontend.
       closeReasoning();
 
-      if (toolCallsAccumulator[0] && toolCallsAccumulator[0].name) {
-        const first = toolCallsAccumulator[0];
-        let args = {};
-        try { args = JSON.parse(first.arguments || "{}"); } catch {}
-        const tag = `\n<tool_call>\n${JSON.stringify({ name: first.name, args })}\n</tool_call>`;
-        content = trimDanglingToolCallTag(content) + tag;
-        req.onToken!(tag);
+      // Re-encode EVERY accumulated tool call (previously only [0], which
+      // silently dropped parallel calls — the model then waited on results
+      // that never came and the turn stalled). The tag is appended to
+      // `content` only, NOT emitted via onToken: chunk events reach the chat
+      // UI verbatim, and a raw `<tool_call>{json}` after prose leaked into
+      // the visible answer. Pass 0 of parseResponse reads it from content.
+      const completedCalls = toolCallsAccumulator.filter((tc) => tc?.name);
+      if (completedCalls.length > 0) {
+        content = trimDanglingToolCallTag(content);
+        for (const tc of completedCalls) {
+          let args = {};
+          try { args = JSON.parse(tc.arguments || "{}"); } catch {}
+          content += `\n<tool_call>\n${JSON.stringify({ name: tc.name, args })}\n</tool_call>`;
+        }
       }
     } finally {
       cleanup();
@@ -619,10 +633,10 @@ export class AnthropicProvider implements InferenceProvider {
             if (block) {
               let args: unknown = {};
               try { args = JSON.parse(block.json || "{}"); } catch { args = {}; }
-              const tag = `\n<tool_call>\n${JSON.stringify({ name: block.name, args })}\n</tool_call>`;
-              content += tag;
-              // Emit synthetic tokens so streaming UI sees the tool call.
-              req.onToken!(tag);
+              // Appended to `content` only, NOT emitted via onToken — chunk
+              // events reach the chat UI verbatim and the raw tag leaked into
+              // the visible answer after prose. parseResponse reads content.
+              content += `\n<tool_call>\n${JSON.stringify({ name: block.name, args })}\n</tool_call>`;
             }
           }
           activeBlockIndex = -1;
