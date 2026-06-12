@@ -78,6 +78,15 @@
 
 ### Stability
 
+- **macOS/Linux: cloud model selection works in agent mode.** The agent
+  sidecar binary is now resolved next to the main executable
+  (`Contents/MacOS/feral-agent` in the .app bundle, `/usr/bin/feral-agent`
+  on deb/rpm installs) where Tauri actually places it — previously only the
+  resource directory was checked, so the sidecar was silently dead on
+  macOS/Linux production installs and picking a cloud (BYOK) model from the
+  model selector did nothing. Model-switch failures (sidecar offline,
+  provider disabled, missing key) now surface as error notifications
+  instead of vanishing silently.
 - **Agent stop actually stops (this release).** The Stop button's signal now
   travels the whole chain: new `feral_stop_generation` Tauri command → `stop`
   message over sidecar stdin → `AgentLoop.stop(sessionId)` aborts the
