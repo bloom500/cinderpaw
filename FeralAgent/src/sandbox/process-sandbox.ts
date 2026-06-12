@@ -326,11 +326,21 @@ export class RealProcessSandbox implements ProcessSandbox {
     let stdoutTimedOut = false;
     let stderrTimedOut = false;
 
+    // Readers currently blocked in read(); the kill timer cancels them so a
+    // timeout actually unblocks us. Killing the direct child alone is not
+    // enough on POSIX: a grandchild (e.g. `sleep` under `sh -c`) inherits
+    // the stdout pipe and keeps it open, so read() would block until the
+    // entire process tree exits — long past the timeout.
+    const activeReaders: Array<ReadableStreamDefaultReader<Uint8Array>> = [];
+
     // Timer that aborts the process if the overall timeout is reached.
     const killTimer = setTimeout(() => {
       stdoutTimedOut = true;
       stderrTimedOut = true;
-      try { proc.kill(); } catch { /* already dead */ }
+      try { proc.kill("SIGKILL"); } catch { /* already dead */ }
+      for (const r of activeReaders) {
+        void r.cancel().catch(() => { /* stream already closed */ });
+      }
     }, timeoutMs);
 
     const readStream = async (
@@ -348,6 +358,7 @@ export class RealProcessSandbox implements ProcessSandbox {
       }
       const safeStream = stream as ReadableStream<Uint8Array>;
       const reader = safeStream.getReader();
+      activeReaders.push(reader);
       const decoder = new TextDecoder("utf-8");
       const chunks: string[] = [];
       let total = 0;

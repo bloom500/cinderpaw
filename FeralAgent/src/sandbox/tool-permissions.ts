@@ -15,8 +15,36 @@
  * never exercise a permission it did not declare.
  */
 
-import { isAbsolute, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
+
+/**
+ * Canonicalize a path even when it does not exist yet: realpath the deepest
+ * existing ancestor (following symlinks) and re-attach the not-yet-created
+ * tail. Falls back to a plain resolve() when nothing on the path exists.
+ */
+export function realpathBestEffort(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    // walk up until an ancestor exists, keeping the tail
+  }
+  const abs = resolve(p);
+  let cur = abs;
+  const tail: string[] = [];
+  while (true) {
+    const parent = dirname(cur);
+    if (parent === cur) break; // reached filesystem root
+    tail.unshift(basename(cur));
+    cur = parent;
+    try {
+      return join(realpathSync(cur), ...tail);
+    } catch {
+      // ancestor doesn't exist either — keep walking up
+    }
+  }
+  return abs;
+}
 import type { PathAccess, PathMode, Permission, ToolManifest } from "../types.ts";
 
 const ALL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
@@ -201,14 +229,12 @@ export function resolveAllowedPath(
   const roots = normalizeAllowedPaths(manifest.allowedPaths);
   // realpathSync follows symlinks; resolve() does not. Using realpathSync is
   // the only way to defend against a symlink inside an allowed root that
-  // points outside. If the path doesn't exist yet, fall back to resolve() so
-  // a write-tool can target a brand-new file inside the root.
-  let target: string;
-  try {
-    target = realpathSync(requestedPath);
-  } catch {
-    target = resolve(requestedPath);
-  }
+  // points outside. If the path doesn't exist yet, canonicalize the deepest
+  // existing ancestor and re-attach the new tail, so a write-tool can target
+  // a brand-new file inside the root — critical on macOS, where tmp dirs
+  // live behind the /var → /private/var symlink and a plain resolve() of a
+  // not-yet-created file never matches the realpath'd root.
+  const target = realpathBestEffort(requestedPath);
 
   // Two checks, in order:
   //   1. Path containment (with symlink-safe realpath)
@@ -217,12 +243,7 @@ export function resolveAllowedPath(
   //      vice versa, even if the target IS inside the root. This is the
   //      whole point of the gap.
   const match = roots.find((root) => {
-    let normalizedRoot: string;
-    try {
-      normalizedRoot = realpathSync(root.path);
-    } catch {
-      normalizedRoot = resolve(root.path);
-    }
+    const normalizedRoot = realpathBestEffort(root.path);
     return (
       target === normalizedRoot ||
       target.startsWith(normalizedRoot + sep)

@@ -137,7 +137,7 @@ describe("resolveAllowedPath — mode enforcement", () => {
     const target = join(dir, "x.txt");
     writeFileSync(target, "hello");
     const got = resolveAllowedPath(m, "fs:write", target);
-    expect(got).toBe(target);
+    expect(got).toBe(realpathSync(target));
   });
 
   test("read-only PathAccess allows read", () => {
@@ -174,7 +174,7 @@ describe("resolveAllowedPath — mode enforcement", () => {
     });
     const target = join(dir, "scratch.txt");
     const got = resolveAllowedPath(m, "fs:write", target);
-    expect(got).toBe(target);
+    expect(got).toBe(join(realpathSync(dir), "scratch.txt"));
   });
 
   test("write-only PathAccess denies read", () => {
@@ -198,8 +198,8 @@ describe("resolveAllowedPath — mode enforcement", () => {
       permissions: ["fs:read", "fs:write"],
       allowedPaths: [{ path: dir, mode: "read+write" }],
     });
-    expect(resolveAllowedPath(m, "fs:read", target)).toBe(target);
-    expect(resolveAllowedPath(m, "fs:write", target)).toBe(target);
+    expect(resolveAllowedPath(m, "fs:read", target)).toBe(realpathSync(target));
+    expect(resolveAllowedPath(m, "fs:write", target)).toBe(realpathSync(target));
   });
 
   test("path outside every allowed root is rejected even if mode matches", () => {

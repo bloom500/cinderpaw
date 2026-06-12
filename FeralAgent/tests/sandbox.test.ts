@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
 import { Database } from "bun:sqlite";
 
 import { openDatabase } from "../src/db.ts";
@@ -101,7 +101,9 @@ describe("path permission enforcement", () => {
 
   test("allows a path inside the root", () => {
     const p = resolveAllowedPath(manifest, "fs:read", join(root, "a.txt"));
-    expect(p.startsWith(root)).toBe(true);
+    // compare against the canonical root: macOS tmpdirs live behind the
+    // /var -> /private/var symlink, so the resolver returns the realpath.
+    expect(p.startsWith(realpathSync(root))).toBe(true);
   });
 
   test("blocks directory traversal out of the root", () => {

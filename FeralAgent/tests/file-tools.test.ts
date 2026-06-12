@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { tmpdir } from "node:os";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createEditFileTool } from "../src/tools/builtin/edit-file.ts";
 import { createFileSearchTool } from "../src/tools/builtin/file-search.ts";
@@ -68,7 +68,11 @@ describe("resolveAllowedPath", () => {
       allowedPaths: [tmp],
     };
     const inner = join(tmp, "sub", "file.txt");
-    expect(resolveAllowedPath(m, "fs:read", inner)).toBe(inner);
+    // realpath the root: on macOS tmpdir() lives behind the /var ->
+    // /private/var symlink, so the resolver returns the canonical form.
+    expect(resolveAllowedPath(m, "fs:read", inner)).toBe(
+      join(realpathSync(tmp), "sub", "file.txt"),
+    );
   });
 
   it("rejects a path that escapes the allowed root", () => {
