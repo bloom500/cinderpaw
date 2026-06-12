@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.2.2
+
+*Released 2026-06-13 — Windows, macOS (Apple Silicon + Intel), and Linux.*
+
+### Fixed
+
+- **The agent no longer stops mid-reply when it runs out of tokens.** Long
+  writing sessions (reports, theses, articles) were cut off mid-sentence at
+  the per-call token limit and silently presented as the final answer, forcing
+  the user to type "continue" by hand. All inference providers now report why
+  generation ended (`finish_reason` / `done_reason` / `stop_reason`), and on a
+  mid-answer cutoff the agent automatically resumes exactly where it stopped —
+  the reply streams on in the same bubble, up to 4 automatic continuations.
+- **More malformed tool-call shapes are caught and retried.** The v0.2.1
+  detector matched `name`/`tool` keys only; real-world transcripts showed
+  models emitting `{"invoke name="write_file">` (a JSON/XML hybrid) and
+  XML-style `<invoke name=...>`, which escaped detection — ending the turn
+  mid-task with the garbage visible in chat. Both shapes are now scrubbed and
+  trigger the corrective retry nudge.
+- **`ask_user` validation errors teach the model the right shape.** Every
+  rejection now includes a complete valid example call, so a model that got
+  the structure wrong can self-correct on retry instead of failing the same
+  way twice and giving up.
+
 ## v0.2.1
 
 *Released 2026-06-12 — Windows, macOS (Apple Silicon + Intel), and Linux.*
