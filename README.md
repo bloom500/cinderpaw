@@ -60,6 +60,8 @@ Grab the latest installer from [Releases](https://github.com/bloom500/feral/rele
 > ```
 > Then open Feral normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
 
+> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.feral.byok`. That's your saved API keys in the macOS Keychain — enter your Mac login password and click **Always Allow** (or just re-enter the key in Settings → Cloud Keys). This happens because Feral isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Feral ships with an Apple Developer certificate.
+
 ### Hardware requirements
 
 Feral itself is lightweight — the models are what need muscle. You can skip local models entirely and run on cloud keys (BYOK) on any machine.
