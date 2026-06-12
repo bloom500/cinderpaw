@@ -582,6 +582,12 @@ export class AgentLoop {
     // model that can never produce valid JSON doesn't loop forever.
     const MAX_MALFORMED_RETRIES = 3;
     let malformedRetries = 0;
+    // Accumulated answer fragments from length-cutoff continuations: each
+    // entry is the visible text of one completion that ran out of max_tokens
+    // mid-answer. The final answer is the concatenation of all fragments
+    // plus the terminating completion's text — mirroring what the user saw
+    // stream into the chat bubble.
+    const answerParts: string[] = [];
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
       // Stream tokens live. We optimistically stream every completion; if the
@@ -594,7 +600,11 @@ export class AgentLoop {
         ctx.emit({ type: "chunk", id: messageId, content: token, traceId });
       };
 
-      const completion = await this.#complete(sessionId, memory, onToken);
+      const { content: completion, finishReason } = await this.#complete(
+        sessionId,
+        memory,
+        onToken,
+      );
       const parsed = parseResponse(completion);
 
       if (parsed.toolCalls.length === 0 && parsed.malformedToolCall) {
@@ -619,6 +629,28 @@ export class AgentLoop {
         // rather than call another tool. Strip reasoning tags so a
         // thinking-only completion never leaks raw tags as the answer.
         const answer = stripThinking(parsed.text) || stripThinking(streamedSoFar);
+
+        // Mid-answer token cutoff: the model was still WRITING when it ran
+        // out of max_tokens (finish_reason "length" with visible text). The
+        // old behavior silently presented the truncated text as the final
+        // answer — the "agent randomly stops writing" report. Feed the
+        // partial back and ask it to resume exactly where it stopped; the
+        // streamed chunks keep flowing into the same UI bubble, so the user
+        // sees one continuous reply. Shares the MAX_CONTINUATIONS bound with
+        // the reasoning-cutoff path below.
+        if (answer && finishReason === "length" && continuations < MAX_CONTINUATIONS) {
+          continuations++;
+          answerParts.push(answer);
+          memory.addAssistant(completion);
+          memory.addUser(
+            "(system: your previous reply was cut off by the per-call token " +
+              "limit mid-answer. Continue EXACTLY from where you stopped — do " +
+              "not repeat anything you already wrote, no preamble, no summary; " +
+              "resume mid-sentence if needed.)",
+          );
+          continue;
+        }
+
         if (!answer) {
           // Empty answer — distinguish "model only reasoned, no answer" from
           // a true silence so the user knows whether to retry with a shorter
@@ -636,15 +668,25 @@ export class AgentLoop {
               );
               continue;
             }
+            // If earlier length-cutoff fragments exist, they ARE the answer
+            // the user watched stream in — return them rather than an apology.
+            if (answerParts.length > 0) {
+              return { text: answerParts.join(""), toolCallCount };
+            }
             return {
               text: "(The model used all available tokens on reasoning and produced no answer, even after several automatic continuations. Try a shorter prompt or a larger model.)",
               toolCallCount,
             };
           }
+          if (answerParts.length > 0) {
+            return { text: answerParts.join(""), toolCallCount };
+          }
           return { text: "(The model returned an empty response.)", toolCallCount };
         }
         // Natural termination — model chose to answer rather than call a tool.
-        return { text: answer, toolCallCount };
+        // Prepend any length-cutoff fragments so the persisted answer matches
+        // the full text the user watched stream into the bubble.
+        return { text: [...answerParts, answer].join(""), toolCallCount };
       }
 
       // Model called tools → process them, then loop for the next turn.
@@ -701,7 +743,7 @@ export class AgentLoop {
     sessionId: string,
     memory: WorkingMemory,
     onToken?: (token: string) => void,
-  ): Promise<string> {
+  ): Promise<{ content: string; finishReason?: string }> {
     // Grammar-constrained tool calls (opt-in). Applied only to the main agent
     // loop — the summarizer and memory extractor have their own router calls
     // and must stay unconstrained.
@@ -733,7 +775,7 @@ export class AgentLoop {
         openAITools: this.#openAITools,
         ...grammarFields,
       });
-      return res.content;
+      return { content: res.content, ...(res.finishReason ? { finishReason: res.finishReason } : {}) };
     } catch (err) {
       if (
         err instanceof BudgetExhaustedError &&
@@ -757,7 +799,7 @@ export class AgentLoop {
             openAITools: this.#openAITools,
             ...grammarFields,
           });
-          return res.content;
+          return { content: res.content, ...(res.finishReason ? { finishReason: res.finishReason } : {}) };
         }
       }
       throw err;
@@ -1096,14 +1138,25 @@ export function parseResponse(raw: string): ParsedResponse {
   // Unlike the removed legacy passes, this one only fires on objects whose
   // FIRST key is name/tool (the tool-call signature), and never inside code
   // fences — JSON in prose ({"port": 8080, …}) is untouched.
-  const scrubbed = extractBareToolCalls(raw.replace(/<\/?tool_call>/g, ""));
+  // XML-style invoke openers (`<invoke name="write_file">`) are another
+  // observed malformed-call shape: some models fall back to Anthropic-style
+  // function-call XML the loop never taught them. Scrub and flag so the turn
+  // is retried instead of ending mid-task with the tag in the visible text.
+  let preScrubbed = raw.replace(/<\/?tool_call>/g, "");
+  const hadInvokeXml = /<\/?invoke\b/.test(preScrubbed);
+  if (hadInvokeXml) {
+    preScrubbed = preScrubbed.replace(/<\/?invoke\b[^>\n]*>?/g, "");
+  }
+
+  const scrubbed = extractBareToolCalls(preScrubbed);
   // A <tool_call> opener with no parseable call inside also counts as a
   // malformed attempt — the model opened a call and never produced valid JSON.
   const danglingTag = scrubbed.calls.length === 0 && /<tool_call>/.test(raw);
   return {
     text: scrubbed.text.trim(),
     toolCalls: scrubbed.calls,
-    malformedToolCall: scrubbed.malformed || danglingTag,
+    malformedToolCall:
+      scrubbed.malformed || danglingTag || (scrubbed.calls.length === 0 && hadInvokeXml),
   };
 }
 
@@ -1126,8 +1179,10 @@ function extractBareToolCalls(input: string): {
   const out: string[] = [];
 
   // `"?` and `[:=]` tolerate the observed corruption {"name="tool"> where
-  // the colon was emitted as `=`.
-  const startRe = /\{\s*"?(?:name|tool)"?\s*[:=]/g;
+  // the colon was emitted as `=`. The `invoke` branch catches the JSON/XML
+  // hybrid {"invoke name="write_file"> (model imitating Anthropic-style
+  // invoke XML with a brace) — unparseable, but unmistakably a call attempt.
+  const startRe = /\{\s*"?(?:(?:name|tool)"?\s*[:=]|invoke\b)/g;
 
   for (let s = 0; s < segments.length; s++) {
     const seg = segments[s]!;

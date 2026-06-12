@@ -34,6 +34,16 @@ const MAX_QUESTIONS = 4;
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 4;
 
+/**
+ * Appended to every validation error so a model that got the shape wrong can
+ * self-correct on retry. Observed failure: models call ask_user with
+ * questions lacking the 'options' array, get a terse error, retry with the
+ * same shape, and give up — a concrete example breaks that loop.
+ */
+const VALID_EXAMPLE =
+  ' Valid example: {"questions": [{"question": "Which database?", ' +
+  '"options": [{"label": "Postgres", "recommended": true}, {"label": "SQLite"}]}]}';
+
 export function createAskUserTool(): Tool {
   return {
     manifest: {
@@ -115,7 +125,7 @@ export function createAskUserTool(): Tool {
       if (!Array.isArray(questions)) {
         return {
           ok: false,
-          content: "ask_user: 'questions' must be an array.",
+          content: "ask_user: 'questions' must be an array." + VALID_EXAMPLE,
           error: "bad_args",
         };
       }
@@ -148,14 +158,14 @@ export function createAskUserTool(): Tool {
         if (typeof q.question !== "string" || !q.question.trim()) {
           return {
             ok: false,
-            content: `ask_user: question #${i + 1} is missing 'question' text.`,
+            content: `ask_user: question #${i + 1} is missing 'question' text.` + VALID_EXAMPLE,
             error: "bad_args",
           };
         }
         if (!Array.isArray(q.options)) {
           return {
             ok: false,
-            content: `ask_user: question #${i + 1} has no 'options' array.`,
+            content: `ask_user: question #${i + 1} has no 'options' array.` + VALID_EXAMPLE,
             error: "bad_args",
           };
         }
@@ -173,7 +183,7 @@ export function createAskUserTool(): Tool {
           if (typeof o?.label !== "string" || !o.label.trim()) {
             return {
               ok: false,
-              content: `ask_user: question #${i + 1}, option #${j + 1} is missing 'label'.`,
+              content: `ask_user: question #${i + 1}, option #${j + 1} is missing 'label'.` + VALID_EXAMPLE,
               error: "bad_args",
             };
           }

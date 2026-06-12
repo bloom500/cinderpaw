@@ -217,3 +217,63 @@ describe("malformed tool-call recovery", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Length-cutoff continuation: max_tokens mid-answer must auto-continue
+// ---------------------------------------------------------------------------
+
+describe("length-cutoff continuation", () => {
+  it("auto-continues when the model runs out of tokens mid-answer", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      // Turn 1 ends with done_reason "length" mid-sentence; turn 2 finishes
+      // the reply with done_reason "stop". The old behavior returned the
+      // truncated turn-1 text as the final answer — the "agent randomly
+      // stops writing" report from long thesis-writing sessions.
+      let callIdx = 0;
+      globalThis.fetch = (async () => {
+        callIdx++;
+        const isFirst = callIdx === 1;
+        return new Response(
+          JSON.stringify({
+            message: {
+              content: isFirst
+                ? "Chapter 5 begins with the strategic recommendations that"
+                : " follow directly from the H1-H4 findings. Done.",
+            },
+            done: true,
+            done_reason: isFirst ? "length" : "stop",
+            prompt_eval_count: 10,
+            eval_count: 5,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+
+      const db = openDatabase(":memory:");
+      const audit = new AuditLog(db.raw);
+      const egress = new EgressProxy(audit.logger);
+      const router = new InferenceRouter(
+        { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+        audit.logger,
+        db.raw,
+      );
+      const episodic = new EpisodicMemory(db.raw, audit.logger);
+      const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+      const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));
+      registry.register(noopTool);
+
+      const agent = new AgentLoop(router, registry, episodic, {}, recall);
+      const result = await agent.handle("s1", "write chapter 5", "m1", () => {});
+
+      // Both fragments concatenated — not just the truncated first turn.
+      expect(result).toContain("Chapter 5 begins");
+      expect(result).toContain("Done.");
+      expect(callIdx).toBe(2);
+
+      db.close();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

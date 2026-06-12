@@ -542,6 +542,14 @@ export interface InferenceResponse {
   model: string;
   /** True when the primary target failed and the fallback served the request. */
   usedFallback: boolean;
+  /**
+   * Why generation ended, normalized across providers:
+   * "stop" (natural end), "length" (max_tokens cutoff), "tool_calls".
+   * Undefined when the provider didn't report one. The agent loop uses
+   * "length" to auto-continue a reply that was cut off mid-answer instead
+   * of silently presenting the truncated text as the final answer.
+   */
+  finishReason?: "stop" | "length" | "tool_calls" | string;
 }
 
 export type BudgetExhaustedReason = "conversation" | "day";

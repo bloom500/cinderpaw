@@ -126,8 +126,17 @@ export class OllamaProvider implements InferenceProvider {
       estimateTokens(req.messages);
     const completionTokens =
       (raw as { eval_count?: number }).eval_count ?? estimateText(content);
+    const doneReason = (raw as { done_reason?: string }).done_reason;
 
-    return { content, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, model: target.model, usedFallback: isFallback };
+    return {
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      model: target.model,
+      usedFallback: isFallback,
+      ...(doneReason ? { finishReason: doneReason } : {}),
+    };
   }
 
   async #stream(
@@ -172,6 +181,7 @@ export class OllamaProvider implements InferenceProvider {
       argumentsString: string;
       argumentsObject?: Record<string, any>;
     }[] = [];
+    let ollamaFinishReason: string | undefined;
 
     try {
       const res = await fetchStream(url, body, {}, controller.signal);
@@ -212,6 +222,8 @@ export class OllamaProvider implements InferenceProvider {
         if ((chunk as { done?: boolean }).done === true) {
           promptTokens = (chunk as { prompt_eval_count?: number }).prompt_eval_count ?? estimateTokens(req.messages);
           completionTokens = (chunk as { eval_count?: number }).eval_count ?? estimateText(content);
+          const doneReason = (chunk as { done_reason?: string }).done_reason;
+          if (doneReason) ollamaFinishReason = doneReason;
         }
       };
 
@@ -249,7 +261,15 @@ export class OllamaProvider implements InferenceProvider {
 
     if (!promptTokens) promptTokens = estimateTokens(req.messages);
     if (!completionTokens) completionTokens = estimateText(content);
-    return { content, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, model: target.model, usedFallback: isFallback };
+    return {
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      model: target.model,
+      usedFallback: isFallback,
+      ...(ollamaFinishReason ? { finishReason: ollamaFinishReason } : {}),
+    };
   }
 }
 
@@ -307,6 +327,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
           reasoning_content?: string;
           tool_calls?: any[];
         };
+        finish_reason?: string;
       }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
@@ -340,7 +361,17 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     }
     const promptTokens = raw.usage?.prompt_tokens ?? estimateTokens(req.messages);
     const completionTokens = raw.usage?.completion_tokens ?? estimateText(content);
-    return { content, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, model: target.model, usedFallback: isFallback };
+    return {
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      model: target.model,
+      usedFallback: isFallback,
+      ...(raw.choices?.[0]?.finish_reason
+        ? { finishReason: raw.choices[0].finish_reason }
+        : {}),
+    };
   }
 
   async #stream(
@@ -383,6 +414,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       name?: string;
       arguments: string;
     }[] = [];
+    let finishReason: string | undefined;
 
     // Reasoning models on OpenAI-compatible servers (NVIDIA NIM, DeepSeek,
     // stepfun, QwQ, …) stream chain-of-thought as `delta.reasoning_content`,
@@ -436,6 +468,10 @@ export class OpenAICompatibleProvider implements InferenceProvider {
           closeReasoning();
           emitPiece(token);
         }
+
+        const chunkFinish = (chunk as { choices?: { finish_reason?: string | null }[] })
+          .choices?.[0]?.finish_reason;
+        if (chunkFinish) finishReason = chunkFinish;
 
         const toolCalls = (chunk as { choices?: { delta?: { tool_calls?: any[] } }[] }).choices?.[0]?.delta?.tool_calls;
         if (toolCalls) {
@@ -495,7 +531,15 @@ export class OpenAICompatibleProvider implements InferenceProvider {
 
     if (!promptTokens) promptTokens = estimateTokens(req.messages);
     if (!completionTokens) completionTokens = estimateText(content);
-    return { content, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, model: target.model, usedFallback: isFallback };
+    return {
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      model: target.model,
+      usedFallback: isFallback,
+      ...(finishReason ? { finishReason } : {}),
+    };
   }
 }
 
@@ -538,6 +582,7 @@ export class AnthropicProvider implements InferenceProvider {
     const raw = (await postJson(url, body, authHeaders, req.signal)) as {
       content?: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
       usage?: { input_tokens?: number; output_tokens?: number };
+      stop_reason?: string;
     };
 
     // A3: collect both text and tool_use blocks.
@@ -551,7 +596,17 @@ export class AnthropicProvider implements InferenceProvider {
     }
     const promptTokens = raw.usage?.input_tokens ?? estimateTokens(req.messages);
     const completionTokens = raw.usage?.output_tokens ?? estimateText(content);
-    return { content, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, model: target.model, usedFallback: isFallback };
+    return {
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      model: target.model,
+      usedFallback: isFallback,
+      ...(raw.stop_reason
+        ? { finishReason: mapAnthropicStopReason(raw.stop_reason) }
+        : {}),
+    };
   }
 
   async #stream(
@@ -581,6 +636,7 @@ export class AnthropicProvider implements InferenceProvider {
     let content = "";
     let inputTokens = 0;
     let outputTokens = 0;
+    let anthropicStopReason: string | undefined;
 
     // A3: per-block accumulator for tool_use streaming.
     // Anthropic streams tool_use blocks as:
@@ -645,6 +701,8 @@ export class AnthropicProvider implements InferenceProvider {
           inputTokens = (chunk as { message?: { usage?: { input_tokens?: number } } }).message?.usage?.input_tokens ?? 0;
         } else if (type === "message_delta") {
           outputTokens = (chunk as { usage?: { output_tokens?: number } }).usage?.output_tokens ?? 0;
+          const stopReason = (chunk as { delta?: { stop_reason?: string } }).delta?.stop_reason;
+          if (stopReason) anthropicStopReason = stopReason;
         }
       };
 
@@ -664,7 +722,35 @@ export class AnthropicProvider implements InferenceProvider {
 
     const promptTokens = inputTokens || estimateTokens(req.messages);
     const completionTokens = outputTokens || estimateText(content);
-    return { content, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, model: target.model, usedFallback: isFallback };
+    return {
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      model: target.model,
+      usedFallback: isFallback,
+      ...(anthropicStopReason
+        ? { finishReason: mapAnthropicStopReason(anthropicStopReason) }
+        : {}),
+    };
+  }
+}
+
+/**
+ * Normalize Anthropic stop_reason values to the cross-provider finishReason
+ * vocabulary the agent loop understands ("stop" | "length" | "tool_calls").
+ */
+function mapAnthropicStopReason(stopReason: string): string {
+  switch (stopReason) {
+    case "max_tokens":
+      return "length";
+    case "end_turn":
+    case "stop_sequence":
+      return "stop";
+    case "tool_use":
+      return "tool_calls";
+    default:
+      return stopReason;
   }
 }
 

@@ -478,6 +478,26 @@ describe("parseResponse malformed tool-call detection", () => {
     expect(valid.toolCalls).toHaveLength(1);
     expect(valid.malformedToolCall).toBe(false);
   });
+
+  it('flags the JSON/XML hybrid {"invoke name="tool"> and scrubs it', () => {
+    // Observed in the wild (2026-06-13 session): the model imitated
+    // Anthropic-style invoke XML with a brace. Previously escaped detection
+    // (first key is "invoke", not name/tool) and ended the turn mid-task.
+    const parsed = parseResponse(
+      'Să vedem ce spațiu am la dispoziție. {"invoke name="write_file">',
+    );
+    expect(parsed.toolCalls).toHaveLength(0);
+    expect(parsed.malformedToolCall).toBe(true);
+    expect(parsed.text).not.toContain("invoke");
+    expect(parsed.text).toContain("Să vedem ce spațiu am la dispoziție.");
+  });
+
+  it('flags XML-style <invoke name="tool"> and scrubs it', () => {
+    const parsed = parseResponse('Trying another way.\n<invoke name="write_file">');
+    expect(parsed.toolCalls).toHaveLength(0);
+    expect(parsed.malformedToolCall).toBe(true);
+    expect(parsed.text).not.toContain("<invoke");
+  });
 });
 
 describe("parseResponse tool_call tag robustness", () => {
