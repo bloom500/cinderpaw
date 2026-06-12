@@ -95,6 +95,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # llama.cpp (llama-cpp-sys-2) uses std::filesystem, which needs a
+          # macOS 10.15+ deployment target — Tauri's default of 10.13 makes
+          # clang reject std::filesystem::path during the CMake build.
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
           # Secrets required for updater artifacts (latest.json + .sig).
           # Add them in Settings → Secrets and variables → Actions.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
