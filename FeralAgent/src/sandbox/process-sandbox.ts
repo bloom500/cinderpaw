@@ -331,7 +331,9 @@ export class RealProcessSandbox implements ProcessSandbox {
     // enough on POSIX: a grandchild (e.g. `sleep` under `sh -c`) inherits
     // the stdout pipe and keeps it open, so read() would block until the
     // entire process tree exits — long past the timeout.
-    const activeReaders: Array<ReadableStreamDefaultReader<Uint8Array>> = [];
+    // Structural type: Bun/DOM/node:stream-web reader types disagree across
+    // platforms' lib definitions, but all expose cancel().
+    const activeReaders: Array<{ cancel(reason?: unknown): Promise<void> }> = [];
 
     // Timer that aborts the process if the overall timeout is reached.
     const killTimer = setTimeout(() => {
