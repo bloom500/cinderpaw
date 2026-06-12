@@ -55,7 +55,7 @@
   couldn't be extracted were silently dropped and never reached the model.
 - **macOS and Linux releases.** The release pipeline now builds and signs
   installers for Windows (.msi/.exe), macOS Apple Silicon + Intel (.dmg),
-  and Linux (.AppImage/.deb) from a single tag, updater manifest included.
+  and Linux (.deb/.rpm) from a single tag, updater manifest included.
   The agent sidecar resolves its per-platform binary on all five targets.
 - **Mascot redesign — the real Feral monster.** The pixel companion is now
   the brand mascot itself: charcoal-black fluffy monster with orange horns,

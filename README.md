@@ -38,7 +38,7 @@ Feral is a desktop app that runs AI on your machine. With local GGUF models, eve
 - 👹 **The real Feral mascot** — the pixel companion is now the brand monster itself (black fur, orange horns, orange belly): 50+ animated variants across 22 states, plus per-state particle effects, at a bigger, crisper size
 - 🗣️ **Friendlier agent voice** — rewritten SOUL.md, user-overridable identity files
 - 📎 **Attach any file** — drag & drop or paste anything into the chat: PDFs and Office docs are parsed natively, text files of any extension just work, and binaries reach the agent as a path it can open with its tools
-- 🍎🐧 **macOS & Linux** — installers for macOS (Apple Silicon + Intel) and Linux (.AppImage/.deb) now ship alongside Windows, faster startup, stop button that actually stops, and a pile of stability fixes
+- 🍎🐧 **macOS & Linux** — installers for macOS (Apple Silicon + Intel) and Linux (.deb/.rpm) now ship alongside Windows, faster startup, stop button that actually stops, and a pile of stability fixes
 
 Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
 
@@ -52,7 +52,7 @@ Grab the latest installer from [Releases](https://github.com/bloom500/feral/rele
 |---|---|---|
 | **Windows 10/11** (x64) | `.msi` / `.exe` | 🟢 Stable — primary target |
 | **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/feral/issues). |
-| **Linux** (Ubuntu/Debian) | `.AppImage` / `.deb` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/feral/issues). |
+| **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/feral/issues). |
 
 ### Hardware requirements
 
