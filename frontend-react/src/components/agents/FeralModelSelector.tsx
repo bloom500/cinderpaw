@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFeralStore } from '@/stores/feral';
+import { useNotifications } from '@/stores/notifications';
 import { tauri, type ByokProvider, type ModelInfo } from '@/lib/tauri';
 
 // Feral's own model engine exposes an Ollama/OpenAI-compatible API here. The
@@ -60,8 +61,22 @@ export function FeralModelSelector() {
       });
     } catch (err) {
       setModelError(String(err));
+      useNotifications.getState().push('error', 'Could not switch model', String(err));
     } finally {
       setLoadingModel(null);
+    }
+  };
+
+  // Cloud selection failures (sidecar offline, provider disabled, missing
+  // key…) previously vanished into a discarded promise — the picker closed
+  // and nothing happened, with no explanation. Surface them.
+  const selectCloud = async (providerId: string, modelId: string) => {
+    setModelError(null);
+    try {
+      await setModel({ source: 'byok', providerId, model: modelId });
+    } catch (err) {
+      setModelError(String(err));
+      useNotifications.getState().push('error', 'Could not switch model', String(err));
     }
   };
 
@@ -135,9 +150,7 @@ export function FeralModelSelector() {
               return (
                 <DropdownMenuItem
                   key={p.id}
-                  onClick={() =>
-                    void setModel({ source: 'byok', providerId: p.id, model: modelId })
-                  }
+                  onClick={() => void selectCloud(p.id, modelId)}
                   className="flex flex-col items-start gap-0.5"
                 >
                   <div className="flex w-full items-center">

@@ -11,6 +11,7 @@ import {
 import { useModel } from '@/stores/model';
 import { useUI } from '@/stores/ui';
 import { useFeralStore } from '@/stores/feral';
+import { useNotifications } from '@/stores/notifications';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 
 // Feral's own model engine exposes an OpenAI-compatible API here. In agent mode
@@ -70,6 +71,20 @@ export function ModelPickerPopover() {
       });
     } catch (err) {
       feralSetError(String(err));
+      useNotifications.getState().push('error', 'Could not switch model', String(err));
+    }
+  };
+
+  // Agent-mode cloud switches go through the sidecar and can fail (sidecar
+  // offline, provider disabled, missing key…). A discarded promise meant the
+  // user clicked a model and nothing visibly happened — surface the error.
+  const selectCloudAgent = async (providerId: string, modelId: string) => {
+    feralSetError(null);
+    try {
+      await feralSetModel({ source: 'byok', providerId, model: modelId });
+    } catch (err) {
+      feralSetError(String(err));
+      useNotifications.getState().push('error', 'Could not switch model', String(err));
     }
   };
 
@@ -136,8 +151,7 @@ export function ModelPickerPopover() {
                   onClick={() => {
                     if (!modelId) return;
                     if (isAgentMode) {
-                      feralSetError(null);
-                      void feralSetModel({ source: 'byok', providerId: p.id, model: modelId });
+                      void selectCloudAgent(p.id, modelId);
                     } else {
                       setCloudModel({ providerId: p.id, providerName: p.name, modelId });
                     }

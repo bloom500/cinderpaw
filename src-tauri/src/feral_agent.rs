@@ -78,16 +78,43 @@ pub fn build_ask_user_cancel_line(
     .to_string())
 }
 
-/// Resolve the feral-agent binary, checking the Tauri resource directory
-/// (production bundle) and the `src-tauri/binaries/` directory (dev mode).
+/// Resolve the feral-agent binary across every install layout.
+///
+/// At bundle time Tauri strips the target-triple suffix from externalBin
+/// entries and places the binary NEXT TO the main executable — that means
+/// `Contents/MacOS/feral-agent` inside a macOS .app, `/usr/bin/feral-agent`
+/// for Linux deb/rpm, and `feral-agent.exe` beside `feral.exe` on Windows.
+/// The triple-suffixed name only exists in dev (`src-tauri/binaries/`) and,
+/// historically, in the Windows installer. Check all of them — the previous
+/// resource-dir-only lookup made the agent silently dead on macOS and Linux
+/// production installs.
 pub fn find_binary(app: &AppHandle) -> Option<PathBuf> {
-    let name = binary_filename();
+    let triple_name = binary_filename();
+    let plain_name = if cfg!(target_os = "windows") {
+        "feral-agent.exe".to_string()
+    } else {
+        "feral-agent".to_string()
+    };
 
-    // Production: Tauri copies externalBin entries into the resource directory.
+    // Production: next to the main executable (all platforms), either name.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for name in [&plain_name, &triple_name] {
+                let p = dir.join(name);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+
+    // Some layouts (and older bundlers) use the resource directory.
     if let Ok(dir) = app.path().resource_dir() {
-        let p = dir.join(&name);
-        if p.exists() {
-            return Some(p);
+        for name in [&plain_name, &triple_name] {
+            let p = dir.join(name);
+            if p.exists() {
+                return Some(p);
+            }
         }
     }
 
@@ -97,7 +124,7 @@ pub fn find_binary(app: &AppHandle) -> Option<PathBuf> {
         let mut cursor = exe.as_path();
         for _ in 0..10 {
             for sub in &["binaries", "src-tauri/binaries"] {
-                let candidate = cursor.join(sub).join(&name);
+                let candidate = cursor.join(sub).join(&triple_name);
                 if candidate.exists() {
                     return Some(candidate);
                 }
