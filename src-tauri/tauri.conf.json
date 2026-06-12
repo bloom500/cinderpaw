@@ -37,7 +37,8 @@
     "active": true,
     "targets": ["nsis", "msi", "app", "dmg", "deb", "rpm"],
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
     },
     "externalBin": [
       "binaries/feral-agent"

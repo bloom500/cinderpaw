@@ -54,6 +54,12 @@ Grab the latest installer from [Releases](https://github.com/bloom500/feral/rele
 | **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/feral/issues). |
 | **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/feral/issues). |
 
+> **macOS first launch:** Feral isn't notarized by Apple (yet), so macOS will warn you on first open. If you see *"Feral.app is damaged"* or *"can't be opened"*, run this once in Terminal and you're set:
+> ```bash
+> xattr -cr /Applications/Feral.app
+> ```
+> Then open Feral normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
+
 ### Hardware requirements
 
 Feral itself is lightweight — the models are what need muscle. You can skip local models entirely and run on cloud keys (BYOK) on any machine.
