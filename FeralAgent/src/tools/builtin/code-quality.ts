@@ -76,12 +76,6 @@ function commandFor(kind: CodeQualityKind, projectType: ProjectType): string[] |
   if (projectType === "node") {
     const npm = NODE_EXECS[0] ?? "npm";
     const npx = NODE_EXECS[1] ?? "npx";
-    // For Node we try to read a custom script from package.json when possible.
-    const scriptFor = (k: CodeQualityKind): string | null => {
-      // Lazy-load the manifest; fall back to defaults.
-      // (The actual read happens in execute(); here we just return the default.)
-      return null;
-    };
     switch (kind) {
       case "run_tests":     return [npm, "test", "--"];
       case "format_code":   return [npx, "prettier", "--write", "."];
@@ -103,7 +97,8 @@ function commandFor(kind: CodeQualityKind, projectType: ProjectType): string[] |
   if (projectType === "python") {
     const py = PYTHON_EXECS[0] ?? "python";
     const pytest = PYTHON_EXECS[1] ?? "pytest";
-    const black = PYTHON_EXECS[2] ?? "black";
+    // PYTHON_EXECS[2] is black — kept in the exec list for env detection,
+    // but formatting goes through ruff.
     const ruff = PYTHON_EXECS[3] ?? "ruff";
     const pip = PYTHON_EXECS[4] ?? "pip";
     switch (kind) {

@@ -574,6 +574,15 @@ async fn run_agent(
 
 // ---------- Feral Agent ----------
 
+/// Controls-panel inference overrides forwarded verbatim to the sidecar,
+/// which validates and clamps them. Both fields optional so the frontend can
+/// send only what the user changed.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct FeralInferParams {
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<u32>,
+}
+
 /// Send a message to the Feral Agent sidecar. Returns the message ID that
 /// will appear in the corresponding `feral://agent-output` chunk/done events.
 #[tauri::command]
@@ -582,6 +591,8 @@ async fn feral_send_message(
     state: State<'_, AppState>,
     content: String,
     session_id: String,
+    images: Option<Vec<String>>,
+    infer_params: Option<FeralInferParams>,
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -606,9 +617,22 @@ async fn feral_send_message(
         "content": content,
         "sessionId": session_id,
     });
+    // Image attachments (data URLs) ride along so the sidecar can hand
+    // real pixels to vision-capable models.
+    if let Some(imgs) = images.filter(|v| !v.is_empty()) {
+        payload["images"] = serde_json::json!(imgs);
+    }
     if !skills_context.is_empty() {
         payload["skillsContext"] = serde_json::to_value(&skills_context)
             .map_err(|e| format!("failed to serialize skills context: {e}"))?;
+    }
+    // Controls-panel overrides (temperature / max tokens). The sidecar's
+    // agent loop validates and clamps them; here they just ride along.
+    if let Some(p) = infer_params {
+        payload["inferParams"] = serde_json::json!({
+            "temperature": p.temperature,
+            "max_tokens": p.max_tokens,
+        });
     }
     let msg = payload.to_string();
 
@@ -1382,6 +1406,115 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
     }
 }
 
+/// One-shot, non-streaming completion against the LOCAL loaded model.
+///
+/// Used by the chat tab's background memory extractor — runs with its OWN
+/// stop flag (not the shared `stop_signal`) so a user stopping the visible
+/// stream never kills an extraction pass, and vice versa.
+#[tauri::command]
+#[specta::specta]
+async fn chat_complete_local(
+    state: State<'_, AppState>,
+    messages: Vec<Message>,
+    params: InferParams,
+) -> Result<String, String> {
+    use futures::StreamExt;
+    if state.manager.current().is_none() {
+        return Err("no model loaded".to_string());
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop, None));
+    let mut out = String::new();
+    while let Some(tok) = stream.next().await {
+        match tok {
+            Ok(t) => out.push_str(&t),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok(out)
+}
+
+/// One-shot, non-streaming completion from an OpenAI-compatible cloud
+/// provider via BYOK. Used by the chat tab's background memory extractor.
+#[tauri::command]
+#[specta::specta]
+async fn chat_cloud_complete(
+    provider_id: String,
+    model: String,
+    messages: Vec<Message>,
+    params: InferParams,
+) -> Result<String, String> {
+    let byok = byok::load(&settings::load());
+    let cfg = byok.get_provider(&provider_id).cloned().unwrap_or_default();
+    if !cfg.enabled {
+        return Err(format!("Provider '{}' is not enabled", provider_id));
+    }
+    if cfg.api_key.is_empty() {
+        return Err(format!("No API key configured for provider '{}'", provider_id));
+    }
+
+    let provider = match provider_id.as_str() {
+        "openai"     => byok::Provider::Openai,
+        "anthropic"  => byok::Provider::Anthropic,
+        "google"     => byok::Provider::Google,
+        "kimi"       => byok::Provider::Kimi,
+        "glm"        => byok::Provider::Glm,
+        "minimax"    => byok::Provider::Minimax,
+        "groq"       => byok::Provider::Groq,
+        "mistral"    => byok::Provider::Mistral,
+        "deepseek"   => byok::Provider::Deepseek,
+        "openrouter" => byok::Provider::Openrouter,
+        _            => byok::Provider::Custom,
+    };
+    let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
+    let endpoint = url_join(&base_url, "chat/completions");
+    let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
+
+    let client = reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut ctx: Vec<serde_json::Value> = Vec::new();
+    if let Some(sys) = &params.system_prompt {
+        if !sys.is_empty() {
+            ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+        }
+    }
+    for m in &messages {
+        ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+    }
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": ctx,
+        "stream": false,
+        "temperature": params.temperature,
+        "max_tokens": params.max_tokens,
+    });
+
+    let resp = client
+        .post(&endpoint)
+        .header(provider.api_key_header(), &auth_value)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(format!("HTTP {}: {}", status, body_text));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(v["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string())
+}
+
 /// Stream a chat completion from an OpenAI-compatible cloud provider via BYOK.
 /// Supports the full agentic tool-use loop: if the model responds with tool_calls,
 /// the tools are executed and the results are fed back until the model returns a
@@ -1457,7 +1590,25 @@ async fn chat_cloud_stream(
         }
     }
     for m in &messages {
-        ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+        // Vision: messages carrying image data URLs use the OpenAI
+        // content-parts array so multimodal models receive real pixels.
+        // Plain messages keep the string shape for maximum compatibility.
+        match m.images.as_ref().filter(|imgs| !imgs.is_empty()) {
+            Some(imgs) => {
+                let mut parts: Vec<serde_json::Value> = Vec::new();
+                if !m.content.is_empty() {
+                    parts.push(serde_json::json!({ "type": "text", "text": m.content }));
+                }
+                for url in imgs {
+                    parts.push(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": { "url": url },
+                    }));
+                }
+                ctx.push(serde_json::json!({ "role": m.role, "content": parts }));
+            }
+            None => ctx.push(serde_json::json!({ "role": m.role, "content": m.content })),
+        }
     }
 
     state.stop_signal.store(false, Ordering::SeqCst);
@@ -1654,11 +1805,28 @@ async fn chat_cloud_stream(
     Ok(())
 }
 
+/// Reject a path that resolves inside the Feral private dir (`~/.feral`) where
+/// the api-token, byok metadata and the agent DB live. The webview-facing file
+/// readers below use this so they can't be turned into a secret-exfiltration
+/// primitive (e.g. by an injected script): there is no legitimate reason to
+/// drag those files into chat, and it denies a would-be XSS its highest-value
+/// local targets. `canonical` must already be canonicalized (symlinks resolved)
+/// so a symlink can't point out of an allowed dir into the private one.
+fn deny_feral_private(canonical: &std::path::Path) -> Result<(), String> {
+    if let Ok(feral) = paths::feral_dir().canonicalize() {
+        if canonical.starts_with(&feral) {
+            return Err("Access denied: path is inside the Feral private directory".into());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 async fn read_file_as_text(path: String) -> Result<String, String> {
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
+    deny_feral_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 10 * 1024 * 1024 {
@@ -1671,12 +1839,22 @@ async fn read_file_as_text(path: String) -> Result<String, String> {
 /// Used by the chat input's drag&drop path — dropped files arrive as OS
 /// paths via the Tauri drag-drop event, so the webview can't read them
 /// with the DOM File API the way pasted screenshots are read.
+///
+/// Security: this command is reachable from the webview, so it must not become
+/// an arbitrary-file-read primitive. Two guards on top of the size cap:
+///   - the resolved (canonical, symlink-followed) path may NOT be inside the
+///     Feral private dir (`~/.feral`) where the api-token, byok metadata and
+///     the agent DB live — there is no legitimate reason to drag those in, and
+///     it denies a would-be XSS its highest-value local targets.
+///   - the extension allowlist below keeps it to images, so it can never
+///     return the *text* of a secret file even outside `~/.feral`.
 #[tauri::command]
 #[specta::specta]
 async fn read_file_as_data_url(path: String) -> Result<String, String> {
     use base64::Engine as _;
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
+    deny_feral_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 10 * 1024 * 1024 {
@@ -1701,6 +1879,147 @@ async fn read_file_as_data_url(path: String) -> Result<String, String> {
         mime,
         base64::engine::general_purpose::STANDARD.encode(bytes)
     ))
+}
+
+/// Best-effort text extraction for chat attachments: PDF, OOXML/ODF documents
+/// (docx/pptx/xlsx/odt) and any UTF-8 text file. This is what lets "drop any
+/// file into the chat" actually reach the model — previously only plain text
+/// survived and everything else became an "Unsupported format" dead chip.
+///
+/// Errors with the literal prefix "binary:" when the file has no extractable
+/// text, so the frontend can fall back to attaching a path reference instead
+/// of an error chip.
+#[tauri::command]
+#[specta::specta]
+async fn extract_file_text(path: String) -> Result<String, String> {
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    deny_feral_private(&canonical)?;
+    let meta = std::fs::metadata(&canonical)
+        .map_err(|e| format!("Stat failed: {}", e))?;
+    if meta.len() > 25 * 1024 * 1024 {
+        return Err("File too large (max 25 MB)".into());
+    }
+    let ext = canonical
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // PDF/zip parsing is CPU-bound — keep it off the async runtime.
+    let text = tokio::task::spawn_blocking(move || extract_text_blocking(&canonical, &ext))
+        .await
+        .map_err(|e| format!("Extraction task failed: {}", e))??;
+    const MAX_CHARS: usize = 200_000;
+    if text.chars().count() > MAX_CHARS {
+        let truncated: String = text.chars().take(MAX_CHARS).collect();
+        return Ok(format!("{}\n\n[content truncated — file is longer]", truncated));
+    }
+    Ok(text)
+}
+
+fn extract_text_blocking(path: &std::path::Path, ext: &str) -> Result<String, String> {
+    match ext {
+        "pdf" => pdf_extract::extract_text(path)
+            .map_err(|e| format!("PDF extraction failed: {}", e)),
+        "docx" | "odt" | "pptx" | "xlsx" => extract_zip_xml_text(path, ext),
+        _ => {
+            let bytes = std::fs::read(path).map_err(|e| format!("Read failed: {}", e))?;
+            String::from_utf8(bytes).map_err(|_| "binary: no extractable text".to_string())
+        }
+    }
+}
+
+/// Pull visible text out of an OOXML/ODF container (they are all zip files
+/// holding XML). Paragraph-level tags become newlines; everything else is
+/// stripped. Not a full XML parse — good enough for "let the model read the
+/// document" and zero extra dependencies beyond `zip`.
+fn extract_zip_xml_text(path: &std::path::Path, ext: &str) -> Result<String, String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("Open failed: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Not a valid .{} file: {}", ext, e))?;
+
+    let mut wanted: Vec<String> = Vec::new();
+    for i in 0..archive.len() {
+        let name = match archive.by_index(i) {
+            Ok(f) => f.name().to_string(),
+            Err(_) => continue,
+        };
+        let keep = match ext {
+            "docx" => name == "word/document.xml",
+            "odt" => name == "content.xml",
+            "pptx" => name.starts_with("ppt/slides/slide") && name.ends_with(".xml"),
+            "xlsx" => name == "xl/sharedStrings.xml",
+            _ => false,
+        };
+        if keep {
+            wanted.push(name);
+        }
+    }
+    if wanted.is_empty() {
+        return Err(format!("binary: no text part found in .{} file", ext));
+    }
+    wanted.sort();
+
+    let mut out = String::new();
+    for name in &wanted {
+        use std::io::Read as _;
+        let mut entry = archive
+            .by_name(name)
+            .map_err(|e| format!("Zip entry failed: {}", e))?;
+        let mut xml = String::new();
+        entry
+            .read_to_string(&mut xml)
+            .map_err(|e| format!("Zip read failed: {}", e))?;
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(&strip_xml_to_text(&xml));
+    }
+    let trimmed = out.trim();
+    if trimmed.is_empty() {
+        return Err(format!("binary: .{} file contains no text", ext));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Strip XML tags, turning paragraph/row boundaries into newlines and
+/// decoding the five standard entities.
+fn strip_xml_to_text(xml: &str) -> String {
+    const PARAGRAPH_CLOSERS: &[&str] = &[
+        "/w:p", "/text:p", "/text:h", "/a:p", "/si", "/w:tr", "/table:table-row",
+    ];
+    let mut out = String::with_capacity(xml.len() / 8);
+    let mut tag = String::new();
+    let mut in_tag = false;
+    for ch in xml.chars() {
+        match ch {
+            '<' => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                in_tag = false;
+                let t = tag.split_whitespace().next().unwrap_or("");
+                if PARAGRAPH_CLOSERS.contains(&t) || t == "w:br" || t == "w:br/" {
+                    if !out.ends_with('\n') {
+                        out.push('\n');
+                    }
+                }
+            }
+            _ => {
+                if in_tag {
+                    tag.push(ch);
+                } else {
+                    out.push(ch);
+                }
+            }
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
 }
 
 // ---------- Entry ----------
@@ -1730,9 +2049,21 @@ pub fn run() {
         )
         .as_str(),
     );
-    if let Err(e) = std::fs::write(paths::feral_dir().join("api-token"), local_api_token.as_bytes())
     {
-        tracing::warn!(?e, "failed to persist api-token (external API consumers won't have it)");
+        let token_path = paths::feral_dir().join("api-token");
+        if let Err(e) = std::fs::write(&token_path, local_api_token.as_bytes()) {
+            tracing::warn!(?e, "failed to persist api-token (external API consumers won't have it)");
+        } else {
+            // Restrict to owner-only so other local users can't read the
+            // bearer token. (Same-user processes still can — that is the
+            // documented contract for external API consumers.) On Windows the
+            // file already sits in the user-private profile dir.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
     }
 
     // Pre-compute system info in a background thread so the first IPC call
@@ -1796,8 +2127,11 @@ pub fn run() {
             remove_byok_provider,
             test_byok_provider,
             chat_cloud_stream,
+            chat_complete_local,
+            chat_cloud_complete,
             read_file_as_text,
             read_file_as_data_url,
+            extract_file_text,
             skills::list_installed_skills,
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
@@ -1826,6 +2160,7 @@ pub fn run() {
             mcp::mcp_list_tools,
             mcp::mcp_call_tool,
             memory_graph::get_memory_graph,
+            memory_graph::add_memory_facts,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,

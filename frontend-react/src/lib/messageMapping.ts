@@ -6,5 +6,9 @@ import type { Message } from '@/lib/tauri';
 // Note: we send the assistant's *answer* only — thinking content is NOT
 // part of the conversation history passed to the model.
 export function toIpcMessage(m: ChatMessage): Message {
-  return { role: m.role, content: m.content };
+  return {
+    role: m.role,
+    content: m.content,
+    ...(m.images && m.images.length > 0 ? { images: m.images } : {}),
+  };
 }

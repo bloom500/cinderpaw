@@ -99,11 +99,18 @@ impl std::fmt::Display for Provider {
     }
 }
 
-/// Per-provider API key and configuration
+/// Per-provider API key and configuration.
+///
+/// V6: `api_key` is NEVER serialized to disk. It lives only in memory (loaded
+/// from the OS keychain on `load`, supplied by the UI on `save`). The
+/// `skip_serializing` attribute keeps it out of `byok.json`; `default` lets it
+/// still deserialize from a legacy plaintext file so existing keys can be
+/// migrated into the keychain on first load.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[derive(Default)]
 pub struct ProviderConfig {
     pub enabled: bool,
+    #[serde(default, skip_serializing)]
     pub api_key: String,
     pub base_url: Option<String>,
     pub default_model: Option<String>,
@@ -193,22 +200,127 @@ pub struct TestProviderResponse {
     pub models: Vec<String>,
 }
 
-/// Load BYOK settings from the settings file
-pub fn load(_settings: &crate::settings::Settings) -> ByokSettings {
-    // BYOK settings are embedded in the main settings file under "byok" key
-    // For simplicity, we store them alongside settings in a separate file
-    let path = crate::paths::feral_dir().join("byok.json");
-    if let Ok(bytes) = std::fs::read(&path) {
-        if let Ok(s) = serde_json::from_slice::<ByokSettings>(&bytes) {
-            return s;
-        }
-    }
-    ByokSettings::default()
+// ── OS keychain storage for API keys (V6) ───────────────────────────────────
+//
+// API keys are stored in the platform secret store (Windows Credential
+// Manager / macOS Keychain / Linux Secret Service) under one service name,
+// keyed by provider id. byok.json keeps only non-secret metadata. This means
+// a copy of the config file — backed up, synced, or leaked — never carries
+// the keys.
+
+/// Keychain service name. Stable across launches so keys persist; namespaced
+/// to Feral so it never collides with other apps' credentials.
+const KEYCHAIN_SERVICE: &str = "ai.bloom.feral.byok";
+
+/// Create a keyring entry for the given provider id.
+fn key_entry(provider_id: &str) -> Result<keyring::Entry, keyring::Error> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, provider_id)
 }
 
-/// Save BYOK settings to disk
+/// Store a provider's API key in the keychain.
+/// Public API: byok_set(provider_id, api_key)
+pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
+    key_entry(provider_id)?.set_password(key)?;
+    Ok(())
+}
+
+/// Remove a provider's API key from the keychain. A missing entry is success.
+fn clear_key(provider_id: &str) -> anyhow::Result<()> {
+    match key_entry(provider_id)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Read a provider's API key from the keychain, or `None` if absent.
+/// Public API: byok_get(provider_id)
+pub fn byok_get(provider_id: &str) -> Option<String> {
+    match key_entry(provider_id).ok()?.get_password() {
+        Ok(k) => Some(k),
+        Err(_) => None,
+    }
+}
+
+/// Load BYOK settings: non-secret metadata from `byok.json`, API keys from the
+/// OS keychain. Migrates any plaintext keys found in a legacy `byok.json` into
+/// the keychain, then deletes the legacy file.
+pub fn load(_settings: &crate::settings::Settings) -> ByokSettings {
+    let path = crate::paths::feral_dir().join("byok.json");
+    let mut s = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice::<ByokSettings>(&bytes).unwrap_or_default(),
+        Err(_) => ByokSettings::default(),
+    };
+
+    let mut migrated_any = false;
+    for (id, cfg) in s.providers.iter_mut() {
+        if !cfg.api_key.is_empty() {
+            // Legacy plaintext key present in the file → migrate to keychain.
+            if let Err(e) = byok_set(id, &cfg.api_key) {
+                tracing::warn!(provider = %id, ?e, "byok: failed to migrate key to keychain");
+            } else {
+                migrated_any = true;
+            }
+            // Keep it in memory for this load; the rewrite below drops it from disk.
+        } else if let Some(k) = byok_get(id) {
+            cfg.api_key = k;
+        }
+    }
+
+    if migrated_any {
+        // After migration, remove the legacy plaintext file entirely.
+        // The metadata is regenerated on-demand when save() is called.
+        if let Err(e) = std::fs::remove_file(&path) {
+            tracing::warn!(?e, "byok: failed to delete legacy byok.json after migration");
+        } else {
+            tracing::info!("byok: migrated plaintext API key(s) into the OS keychain and removed byok.json");
+        }
+    }
+
+    s
+}
+
+/// Persist BYOK settings: API keys to the keychain, metadata to `byok.json`.
+///
+/// An empty `api_key` means "leave the stored key untouched" — the UI sends a
+/// blank field to mean "unchanged" (its placeholder reads "Key saved — enter a
+/// new key to update"). `save` therefore never deletes on empty; explicit
+/// removal goes through [`remove_provider`]. This makes routine edits (toggling
+/// `enabled`, changing the default model) safe without re-typing the key.
 pub fn save(settings: &ByokSettings) -> anyhow::Result<()> {
     crate::paths::ensure_dirs()?;
+    for (id, cfg) in &settings.providers {
+        if !cfg.api_key.is_empty() {
+            byok_set(id, &cfg.api_key)?;
+        }
+    }
+    write_metadata(settings)
+}
+
+/// Explicitly remove a provider's API key and disable it. The metadata row is
+/// kept (so the provider still appears in the UI) but its key is purged from
+/// the keychain.
+pub fn remove_provider(id: &str) -> anyhow::Result<()> {
+    clear_key(id)?;
+    let mut settings = load_metadata();
+    if let Some(cfg) = settings.providers.get_mut(id) {
+        cfg.enabled = false;
+        cfg.api_key = String::new();
+    }
+    write_metadata(&settings)
+}
+
+/// Read only the on-disk metadata (no keychain access). Used by mutation paths
+/// that must not re-trigger migration or key population.
+fn load_metadata() -> ByokSettings {
+    let path = crate::paths::feral_dir().join("byok.json");
+    match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice::<ByokSettings>(&bytes).unwrap_or_default(),
+        Err(_) => ByokSettings::default(),
+    }
+}
+
+/// Write only the non-secret metadata to disk (api_key is skip_serializing).
+fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
     let path = crate::paths::feral_dir().join("byok.json");
     std::fs::write(path, serde_json::to_vec_pretty(settings)?)?;
     Ok(())

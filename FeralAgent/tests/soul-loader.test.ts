@@ -44,7 +44,7 @@ describe("loadSoul", () => {
 
   it("returns bundled SOUL when no user override exists", () => {
     const soul = loadSoul(home);
-    expect(soul.content).toContain("Feral Agent");
+    expect(soul.content).toContain("Feral");
     expect(soul.content).toContain("Identity");
     expect(soul.source).toBe("bundled");
   });
@@ -55,8 +55,29 @@ describe("loadSoul", () => {
     writeFileSync(join(feralDir, "SOUL.md"), "# My Custom Feral\n\nI am the user's version.");
 
     const soul = loadSoul(home);
-    expect(soul.content).toBe("# My Custom Feral\n\nI am the user's version.");
+    // The user's SOUL replaces the bundled one; the bundled IDENTITY.md and
+    // AGENTS.md companions are still appended after it.
+    expect(soul.content).toStartWith("# My Custom Feral\n\nI am the user's version.");
+    expect(soul.content).toContain("Feral — Identity");
     expect(soul.source).toBe("user");
+  });
+
+  it("appends bundled IDENTITY.md and AGENTS.md companions", () => {
+    const soul = loadSoul(home);
+    expect(soul.content).toContain("Feral — Identity");
+    expect(soul.content).toContain("Working Habits");
+  });
+
+  it("prefers per-file user overrides for companions", () => {
+    const feralDir = join(home, ".feral");
+    mkdirSync(feralDir, { recursive: true });
+    writeFileSync(join(feralDir, "IDENTITY.md"), "# Custom Identity Override");
+
+    const soul = loadSoul(home);
+    expect(soul.content).toContain("# Custom Identity Override");
+    expect(soul.content).not.toContain("Feral — Identity");
+    // AGENTS.md still falls back to the bundled copy.
+    expect(soul.content).toContain("Working Habits");
   });
 
   it("computes a stable version hash for unchanged content", () => {

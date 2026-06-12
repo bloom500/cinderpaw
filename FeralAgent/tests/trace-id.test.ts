@@ -55,7 +55,8 @@ describe("TraceId per handle() (P2-#3)", () => {
     globalThis.fetch = (async () => {
       idx++;
       const body = idx === 1
-        ? ollamaOk('```tool\n{"name":"ping","args":{}}\n```')
+        // A3: Pass 1 (fenced blocks) removed. Use the only remaining format: <tool_call> XML.
+        ? ollamaOk('<tool_call>\n{"name":"ping","args":{}}\n</tool_call>')
         : ollamaOk("done");
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     }) as typeof fetch;

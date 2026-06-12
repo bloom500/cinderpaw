@@ -24,8 +24,11 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, Sparkles, X, FileText, Search, Terminal } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Sparkles, X, FileText, Search, Terminal, Cpu } from 'lucide-react';
 import { useOnboarding } from '@/stores/onboarding';
+import { useSystemInfo } from '@/stores/systemInfo';
+import { recommendModel } from '@/lib/hardwareRecommendation';
+import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
 import { cn } from '@/lib/utils';
 
 const stepVariants = {
@@ -153,14 +156,16 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
 function WelcomeStep() {
   return (
     <div className="text-center space-y-6">
+      {/* #25: the mascot that lives on the chat input greets the user here
+          first — same pixel-art component, brand continuity from minute one. */}
       <motion.div
         initial={{ scale: 0.8, rotate: -10 }}
         animate={{ scale: 1, rotate: 0 }}
         transition={{ type: 'spring', duration: 0.5 }}
-        className="text-7xl"
+        className="flex justify-center [&_canvas]:w-24 [&_canvas]:h-24 [&_canvas]:[image-rendering:pixelated]"
         aria-hidden
       >
-        👾
+        <FeralMascot state="wave" />
       </motion.div>
       <h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
         Welcome to Feral
@@ -332,6 +337,13 @@ function DoneStep() {
   const agentName = useOnboarding((s) => s.agentName);
   const safeName = userName.trim() || 'you';
   const safeAgent = agentName.trim() || 'Feral';
+  // #15: turn the hardware detection (SystemBar already has it) into a
+  // concrete "what model should I download" hint at the exact moment the
+  // user is about to face an empty Models page.
+  const sysInfo = useSystemInfo((s) => s.info);
+  const fetchSysInfo = useSystemInfo((s) => s.fetch);
+  useEffect(() => { void fetchSysInfo(); }, [fetchSysInfo]);
+  const rec = recommendModel(sysInfo);
 
   return (
     <div className="text-center space-y-6">
@@ -351,6 +363,20 @@ function DoneStep() {
         I'm <span className="text-brand font-medium">{safeAgent}</span>, ready to go.
         Ask me anything and we'll see what I can do.
       </p>
+      {rec && (
+        <div className="mx-auto max-w-md text-left rounded-lg border border-border-subtle bg-bg-primary/50 p-4 space-y-1.5">
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider font-medium text-text-muted">
+            <Cpu size={12} /> For your hardware
+          </p>
+          <p className="text-sm text-text-primary leading-relaxed">{rec.rationale}</p>
+          <p className="text-xs text-text-muted">
+            In <span className="text-text-secondary">Models → Browse</span>, look for{' '}
+            <span className="text-brand font-medium">{rec.sizeClass}</span> models with a{' '}
+            <span className="text-brand font-medium">{rec.quant}</span> file ({rec.approxFileSize}) —
+            the download button preselects the best-fitting variant automatically.
+          </p>
+        </div>
+      )}
       <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
         <Sparkles size={12} />
         <span>You can change names anytime in Settings</span>
@@ -371,6 +397,7 @@ export function OnboardingOrchestrator() {
   const loadPersisted = useOnboarding((s) => s.loadPersisted);
   const start = useOnboarding((s) => s.start);
   const hasOnboardedBefore = useOnboarding((s) => s.hasOnboardedBefore);
+  const active = useOnboarding((s) => s.active);
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
@@ -388,7 +415,9 @@ export function OnboardingOrchestrator() {
   // Don't render the wizard until the persisted check is done — otherwise
   // a returning user briefly sees the wizard while loadPersisted is in flight.
   if (!checked) return null;
-  if (hasOnboardedBefore) return null;
+  // Hide for returning users UNLESS the wizard was explicitly reopened (e.g.
+  // "Re-run welcome" button in Settings → General calls reopen()).
+  if (hasOnboardedBefore && !active) return null;
 
   return <OnboardingWizard />;
 }

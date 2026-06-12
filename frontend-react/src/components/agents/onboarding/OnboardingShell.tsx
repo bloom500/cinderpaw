@@ -19,33 +19,35 @@ export function OnboardingShell({
   continueDisabled = false,
   continueBusy = false,
 }: ShellProps) {
-  const pct = Math.round((step / totalSteps) * 100);
-  const showStepLabel = step > 1 && step < totalSteps;
+  // The welcome and done screens don't count as "steps" in the dots.
+  const dotCount = totalSteps - 2;
+  const activeDot = step - 1; // 0 on welcome (no dot active), 1..n during steps
 
   return (
     <div className="flex flex-col h-full">
-      {/* Progress line */}
-      <div className="h-0.5 w-full bg-bg-hover shrink-0">
-        <div
-          className="h-full bg-brand transition-all duration-300 ease-out"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
       {/* Content — vertically + horizontally centered */}
       <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-6 py-6">
-        <div className="w-full max-w-sm">
-          {showStepLabel && (
-            <p className="text-xs font-semibold text-brand uppercase tracking-widest text-center mb-6">
-              Step {step - 1} of {totalSteps - 2}
-            </p>
+        <div className="w-full max-w-md">
+          {/* Friendly step dots instead of a raw progress line */}
+          {activeDot >= 1 && activeDot <= dotCount && (
+            <div className="flex items-center justify-center gap-2 mb-8" aria-label={`Step ${activeDot} of ${dotCount}`}>
+              {Array.from({ length: dotCount }, (_, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'h-1.5 rounded-full transition-all duration-300',
+                    i + 1 === activeDot ? 'w-6 bg-brand' : i + 1 < activeDot ? 'w-1.5 bg-brand/60' : 'w-1.5 bg-bg-hover',
+                  )}
+                />
+              ))}
+            </div>
           )}
           {children}
         </div>
       </div>
 
       {/* CTA — no border, part of flow */}
-      <div className="px-6 pb-8 flex flex-col items-center gap-3 shrink-0 w-full max-w-sm mx-auto">
+      <div className="px-6 pb-8 flex flex-col items-center gap-3 shrink-0 w-full max-w-md mx-auto">
         {onContinue && (
           <button
             type="button"

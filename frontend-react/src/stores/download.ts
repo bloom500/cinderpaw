@@ -64,9 +64,23 @@ void listen<DownloadProgressEvent>('feral://download-progress', (e) => {
   useDownload.setState({ active: { ...active, progress: e.payload.progress } });
 });
 
-void listen<DownloadCompleteEvent>('feral://download-complete', () => {
+void listen<DownloadCompleteEvent>('feral://download-complete', (e) => {
   useDownload.setState({ active: null, done: true, error: null });
-  void useModel.getState().refresh();
+  void (async () => {
+    await useModel.getState().refresh();
+    // #14: zero-models first run — when nothing is loaded yet, load the model
+    // the user just downloaded instead of leaving them on a disabled chat
+    // input with no hint that one more click is needed. A model that's
+    // already loaded (or loading) is never displaced.
+    const { loaded, isLoading, cloudModel } = useModel.getState();
+    if (loaded || isLoading || cloudModel) return;
+    try {
+      await useModel.getState().load(e.payload.path);
+    } catch (err) {
+      // Auto-load is best-effort — the model card's Load button still works.
+      console.error('[download] auto-load after download failed:', err);
+    }
+  })();
 });
 
 void listen<DownloadErrorEvent>('feral://download-error', (e) => {

@@ -201,6 +201,15 @@ export class AgentLoop {
    */
   readonly #sessionContexts = new Map<string, SessionRunContext>();
   /**
+   * Per-session inference overrides (temperature / max_tokens) from the host
+   * UI's Controls panel, refreshed on every inbound message. Read by
+   * `#complete` for the MAIN loop completions only.
+   */
+  readonly #sessionInferParams = new Map<
+    string,
+    { temperature?: number; maxTokens?: number }
+  >();
+  /**
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
    */
@@ -290,7 +299,17 @@ export class AgentLoop {
     messageId: string,
     emit: EventSink,
     skillsContext?: SkillMeta[],
+    images?: string[],
+    inferParams?: { temperature?: number; max_tokens?: number },
   ): Promise<string> {
+    // Per-session inference overrides from the host UI's Controls panel.
+    // Refreshed on every message so a Controls change applies from the very
+    // next turn; cleared when the host stops sending them.
+    if (inferParams) {
+      this.#sessionInferParams.set(sessionId, sanitizeInferParams(inferParams));
+    } else {
+      this.#sessionInferParams.delete(sessionId);
+    }
     const prev = this.#sessionLocks.get(sessionId) ?? Promise.resolve();
     let release!: () => void;
     const next = new Promise<void>((resolve) => { release = resolve; });
@@ -306,7 +325,7 @@ export class AgentLoop {
       this.#sessionStartedAt.set(sessionId, Date.now());
       this.#sessionToolSignals.set(sessionId, abortController);
       this.#sessionContexts.set(sessionId, ctx);
-      return await this.#handle(sessionId, userText, messageId, ctx, skillsContext);
+      return await this.#handle(sessionId, userText, messageId, ctx, skillsContext, images);
     } finally {
       release();
       this.#activeSessions.delete(sessionId);
@@ -383,6 +402,7 @@ export class AgentLoop {
     messageId: string,
     ctx: SessionRunContext,
     skillsContext?: SkillMeta[],
+    images?: string[],
   ): Promise<string> {
     // P0-4: agent_start hook. Informational — fires once at the top
     // of every turn. Errors are swallowed inside the hook registry.
@@ -420,7 +440,7 @@ export class AgentLoop {
     // is affected, preserving user privacy across sessions.
     const { text: userTextClean } = stripPrivate(userText);
 
-    memory.addUser(userText);
+    memory.addUser(userText, images);
     this.#episodic.record(sessionId, "user", userTextClean);
 
     const turnStartedAt = Date.now();
@@ -548,6 +568,13 @@ export class AgentLoop {
     // Normal usage never approaches this ceiling; the loop self-terminates
     // whenever the model produces a text-only turn (no tool calls).
     const ABSOLUTE_CEILING = 500;
+    // Token-cutoff recovery: when a completion exhausts max_tokens while the
+    // model is still reasoning (thinking present, answer empty), feed the
+    // partial back and ask it to finish instead of surfacing a dead-end
+    // "increase max_tokens" message. Bounded so a degenerate model that only
+    // ever reasons can't loop forever.
+    const MAX_CONTINUATIONS = 4;
+    let continuations = 0;
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
       // Stream tokens live. We optimistically stream every completion; if the
@@ -574,8 +601,19 @@ export class AgentLoop {
           // prompt (cut-off) or a different model (degenerate).
           const hadThinking = /<think>|<thinking>|<\|channel>thought/i.test(completion);
           if (hadThinking) {
+            if (continuations < MAX_CONTINUATIONS) {
+              continuations++;
+              memory.addAssistant(completion);
+              memory.addUser(
+                "(system: your previous reply hit the per-call token limit while you " +
+                  "were still reasoning. Do NOT restart your reasoning from scratch — " +
+                  "pick up where you left off and produce the final answer directly " +
+                  "and concisely.)",
+              );
+              continue;
+            }
             return {
-              text: "(The model used all available tokens on reasoning and produced no answer. This usually means the response was cut off. Try a shorter prompt, a larger model, or increase max_tokens.)",
+              text: "(The model used all available tokens on reasoning and produced no answer, even after several automatic continuations. Try a shorter prompt or a larger model.)",
               toolCallCount,
             };
           }
@@ -655,10 +693,14 @@ export class AgentLoop {
     // The summarize() and extractor() paths leave this off — they are
     // one-shot calls with no stable prefix to cache.
     try {
+      // Controls-panel overrides for this session (UX: the user's Max Tokens
+      // / Temperature sliders were previously silently ignored by the agent).
+      const overrides = this.#sessionInferParams.get(sessionId);
       const res = await this.#router.complete({
         sessionId,
         messages: memory.render(),
-        maxTokens: this.#config.maxTokensPerCall,
+        maxTokens: overrides?.maxTokens ?? this.#config.maxTokensPerCall,
+        temperature: overrides?.temperature,
         onToken,
         cachePrompt: true,
         // A3: native tool definitions for Anthropic.
@@ -677,10 +719,12 @@ export class AgentLoop {
           this.#summarize(sessionId, msgs),
         );
         if (compressed) {
+          const overrides = this.#sessionInferParams.get(sessionId);
           const res = await this.#router.complete({
             sessionId,
             messages: memory.render(),
-            maxTokens: this.#config.maxTokensPerCall,
+            maxTokens: overrides?.maxTokens ?? this.#config.maxTokensPerCall,
+            temperature: overrides?.temperature,
             onToken,
             cachePrompt: true,
             // A3: native tool definitions for Anthropic.
@@ -949,6 +993,15 @@ export function stripThinking(raw: string): string {
   out = out.replace(/<\|channel>thought[\s\S]*?(?=<\|channel>|$)/gi, "");
   out = out.replace(/<\|channel>[a-z]+/gi, "");
 
+  // Orphan close tag with no open: MiniMax-M2 / DeepSeek-R1-style chat
+  // templates bake the opening <think> into the prompt, so the completion
+  // arrives as "reasoning…</think>answer". Everything before the first
+  // remaining close tag (pairs were already removed above) is reasoning.
+  const orphanClose = /<\/think(?:ing)?>/i.exec(out);
+  if (orphanClose) {
+    out = out.slice(orphanClose.index + orphanClose[0].length);
+  }
+
   // Dangling open tag (model started reasoning and never closed / produced an
   // answer): drop the tag and everything after it.
   out = out.replace(/<think(?:ing)?>[\s\S]*$/gi, "");
@@ -1005,15 +1058,75 @@ export function parseResponse(raw: string): ParsedResponse {
     return { text, toolCalls };
   }
 
-  // A3: passes 1-4 (fenced blocks, bare JSON, bracket format) removed.
-  // Grammar-constrained inference guarantees tool calls arrive in the
-  // <tool_call>…</tool_call> format handled by Pass 0 above. The legacy
-  // text-parsing passes are no longer needed and are a source of false
-  // positives when models produce JSON in prose answers.
+  // Pass 1 (narrow): bare tool-call JSON in the content. Grammar-constrained
+  // local inference normally guarantees <tool_call> tags, but models on
+  // plain OpenAI-compatible APIs (observed: MiniMax M3) still emit
+  // `{"name":"memory_ops","args":{…}}` — sometimes several in a row, and
+  // sometimes corrupted (`{"name="memory_ops">`). Without this pass the raw
+  // JSON was displayed verbatim in the chat instead of executing.
   //
-  // Even with no parsable call, never let stray tool_call tags leak into
-  // the visible answer.
-  return { text: raw.replace(/<\/?tool_call>/g, "").trim(), toolCalls: [] };
+  // Unlike the removed legacy passes, this one only fires on objects whose
+  // FIRST key is name/tool (the tool-call signature), and never inside code
+  // fences — JSON in prose ({"port": 8080, …}) is untouched.
+  const scrubbed = extractBareToolCalls(raw.replace(/<\/?tool_call>/g, ""));
+  return { text: scrubbed.text.trim(), toolCalls: scrubbed.calls };
+}
+
+/**
+ * Scan text outside code fences for objects starting with a name/tool key.
+ * Valid objects become tool calls; corrupted ones (malformed JSON that is
+ * still unmistakably a tool-call attempt) are removed from the visible text
+ * so raw JSON never reaches the user.
+ */
+function extractBareToolCalls(input: string): { text: string; calls: ParsedToolCall[] } {
+  const calls: ParsedToolCall[] = [];
+  // Split on fence markers; even segments are outside fences and get
+  // scanned, odd segments (fenced code) pass through untouched.
+  const segments = input.split(/(```[\s\S]*?(?:```|$))/);
+  const out: string[] = [];
+
+  // `"?` and `[:=]` tolerate the observed corruption {"name="tool"> where
+  // the colon was emitted as `=`.
+  const startRe = /\{\s*"?(?:name|tool)"?\s*[:=]/g;
+
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s]!;
+    if (s % 2 === 1) {
+      out.push(seg);
+      continue;
+    }
+    let cursor = 0;
+    let kept = "";
+    while (cursor < seg.length) {
+      startRe.lastIndex = cursor;
+      const m = startRe.exec(seg);
+      if (!m) {
+        kept += seg.slice(cursor);
+        break;
+      }
+      kept += seg.slice(cursor, m.index);
+      const rest = seg.slice(m.index);
+      const end = findJsonEnd(rest);
+      const call = end >= 0 ? tryParseCall(rest.slice(0, end + 1)) : null;
+      if (call) {
+        calls.push(call);
+        cursor = m.index + end + 1;
+      } else {
+        // Corrupted tool-call fragment: hide it. Drop through the end of the
+        // JSON-ish run — the matched object if one closed, else end of line.
+        const lineEnd = seg.indexOf("\n", m.index);
+        cursor =
+          end >= 0
+            ? m.index + end + 1
+            : lineEnd >= 0
+              ? lineEnd
+              : seg.length;
+      }
+    }
+    out.push(kept);
+  }
+
+  return { text: out.join(""), calls };
 }
 
 function tryParseCall(candidate: string): ParsedToolCall | null {
@@ -1089,6 +1202,26 @@ function findJsonEnd(s: string): number {
 export function isComplexTask(text: string): boolean {
   const wordCount = text.trim().split(/\s+/).length;
   return wordCount > 60;
+}
+
+/**
+ * Validate and clamp Controls-panel inference overrides coming from the host.
+ * Non-numeric values are dropped; numbers are clamped to safe ranges so a
+ * buggy or malicious host message can't request a 10M-token completion or a
+ * NaN temperature.
+ */
+export function sanitizeInferParams(raw: {
+  temperature?: unknown;
+  max_tokens?: unknown;
+}): { temperature?: number; maxTokens?: number } {
+  const out: { temperature?: number; maxTokens?: number } = {};
+  if (typeof raw.temperature === "number" && Number.isFinite(raw.temperature)) {
+    out.temperature = Math.min(2, Math.max(0, raw.temperature));
+  }
+  if (typeof raw.max_tokens === "number" && Number.isFinite(raw.max_tokens)) {
+    out.maxTokens = Math.min(32_768, Math.max(128, Math.floor(raw.max_tokens)));
+  }
+  return out;
 }
 
 function errorMessage(err: unknown): string {

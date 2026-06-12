@@ -53,7 +53,8 @@ function installTurnMock(turnCount: number) {
     const turn = Math.floor(idx / 2) + 1;
     const isToolCall = idx % 2 === 0;
     const body = isToolCall
-      ? ollamaOk(`\`\`\`tool\n{"name": "ping", "args": {"turn": ${turn}}}\n\`\`\``)
+      // A3: Pass 1 (fenced blocks) removed. Use the only remaining format: <tool_call> XML.
+      ? ollamaOk(`<tool_call>\n{"name": "ping", "args": {"turn": ${turn}}}\n</tool_call>`)
       : ollamaOk(`final-answer turn=${turn}`);
     idx++;
     return new Response(JSON.stringify(body), {

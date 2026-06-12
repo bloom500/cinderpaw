@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useModel, type InferParamsUI } from '@/stores/model';
@@ -19,20 +20,32 @@ function ParamRow({
   decimals: number;
   onChange: (v: number) => void;
 }) {
+  // Free-typing draft: the field accepts any intermediate text ("", "0.",
+  // "20") and commits the clamped value on blur or Enter. The previous
+  // per-keystroke validation re-formatted the controlled value mid-edit,
+  // which made the field effectively impossible to type into.
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const v = decimals === 0 ? parseInt(draft, 10) : parseFloat(draft);
+    if (!isNaN(v)) onChange(Math.min(max, Math.max(min, v)));
+    setDraft(null);
+  };
   return (
     <div className="mb-4 last:mb-0">
       <div className="flex justify-between items-center mb-1.5">
         <span className="text-xs text-text-secondary">{label}</span>
         <input
           type="number"
-          value={decimals === 0 ? String(value) : value.toFixed(decimals)}
+          value={draft ?? (decimals === 0 ? String(value) : value.toFixed(decimals))}
           min={min}
           max={max}
           step={step}
           className="w-16 text-right text-xs bg-transparent border-none outline-none text-text-primary [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          onChange={(e) => {
-            const v = decimals === 0 ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
-            if (!isNaN(v) && v >= min && v <= max) onChange(v);
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
           }}
         />
       </div>

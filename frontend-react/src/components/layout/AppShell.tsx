@@ -9,6 +9,7 @@ import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
 import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
+import { Toasts } from '@/components/Toasts';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
 import { cn } from '@/lib/utils';
@@ -59,12 +60,12 @@ export function AppShell() {
   useEffect(() => { void checkForUpdate(); }, [checkForUpdate]);
 
   return (
-    <div className="h-screen w-screen flex bg-bg-primary text-text-primary overflow-hidden">
+    <div className="h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <Sidebar />
       <motion.main
-        animate={{ marginLeft: (collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W) + 16 }}
+        animate={{ paddingLeft: (collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W) + 16 }}
         transition={{ duration: 0.22, ease: 'easeInOut' }}
-        className="flex-1 flex flex-col min-w-0"
+        className="absolute inset-0 flex flex-col overflow-hidden"
       >
         <Outlet />
       </motion.main>
@@ -74,6 +75,7 @@ export function AppShell() {
       </div>
       {searchOpen && <SearchOverlay />}
       <UpdateToast />
+      <Toasts />
       <SkillHubDrawer />
       <OnboardingOrchestrator />
     </div>

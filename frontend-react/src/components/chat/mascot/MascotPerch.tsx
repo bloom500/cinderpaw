@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FeralMascot } from './FeralMascot';
 import { ToolCallStack } from './ToolCallStack';
 import { useChat } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
 
 // Idle sequence: idle →(8s)→ curious →(10s)→ run →(3.6s)→ sleep →(15s)→ stretching →(2s)→ idle
@@ -14,7 +15,7 @@ const STRETCHING_MS          = 2_000;
 const GAMING_MS              = 10_000;
 const GAMING_TRIGGER_CYCLES  = 2;
 const LEFT_OFFSET            = 20;
-const MASCOT_W               = 38;
+const MASCOT_W               = 48; // keep in sync with DISPLAY in FeralMascot
 const PUFF_EVERY_MS          = 380;
 const PUFF_FADE_MS           = 600;
 
@@ -48,6 +49,14 @@ function DustPuff({ x }: { x: number }) {
 }
 
 export function MascotPerch({ baseState }: { baseState: MascotState }) {
+  // #24: user-facing kill switch (Settings → Appearance). Early-return keeps
+  // all the idle timers below from even starting.
+  const mascotEnabled = useUI((s) => s.mascotEnabled);
+  if (!mascotEnabled) return null;
+  return <MascotPerchInner baseState={baseState} />;
+}
+
+function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const timers = useRef<number[]>([]);
   const [renderState, setRenderState] = useState<MascotState>(baseState);
@@ -187,7 +196,7 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
       ))}
       <div
         ref={wrapRef}
-        className="pointer-events-none absolute -top-8 left-5 z-10"
+        className="pointer-events-none absolute -top-[43px] left-5 z-10"
         style={{
           transform: `translateX(${x}px)`,
           transition: traveling ? `transform ${LEG_MS}ms linear` : 'none',

@@ -65,3 +65,9 @@ remove-diagnostic.py
 
 # Tauri signing keys
 .tauri/
+
+# Local runtime data (agent DB)
+data/
+
+# Sidecar binary backups
+src-tauri/binaries/*.old*

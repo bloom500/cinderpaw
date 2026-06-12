@@ -10,8 +10,20 @@ permissions:
 
 jobs:
   release:
-    name: Build, sign & publish
-    runs-on: windows-latest
+    name: Build, sign & publish (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+          - name: macOS Apple Silicon
+            os: macos-latest
+          - name: macOS Intel
+            os: macos-13
+          - name: Linux x64
+            os: ubuntu-22.04
 
     steps:
       - name: Checkout FeralLocalAI
@@ -27,45 +39,35 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
+            wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev cmake
+
       - name: Install frontend dependencies
         working-directory: frontend-react
         run: npm ci
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      - name: Build Feral Agent sidecar binary
-        shell: pwsh
-        run: |
-          # Feral Agent is vendored in this monorepo at FeralAgent/ — it is the
-          # single source of truth. (The old standalone github.com/bloom500/feral-agent
-          # repo is deprecated; building from it caused release fixes to diverge
-          # from the in-repo copy.) Build a single executable with
-          # `bun build --compile` and copy it into the Tauri externalBin location
-          # expected by src-tauri/tauri.conf.json
-          # (`binaries/feral-agent-x86_64-pc-windows-msvc.exe`).
-          $agentDir = Join-Path $env:GITHUB_WORKSPACE "FeralAgent"
-          Push-Location $agentDir
-          bun install
-          bun run build
-          Pop-Location
-
-          $built = Join-Path $agentDir "dist\feral-agent.exe"
-          if (-not (Test-Path $built)) {
-            Write-Error "Feral Agent binary not produced — bun build step failed"
-            exit 1
-          }
-
-          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
-          Copy-Item $built src-tauri/binaries/feral-agent-x86_64-pc-windows-msvc.exe -Force
-          Write-Host "Feral Agent sidecar binary built successfully"
+      # Feral Agent is vendored in this monorepo at FeralAgent/ — the single
+      # source of truth. The actual compile + copy into src-tauri/binaries/
+      # happens in tauri.conf.json's beforeBuildCommand
+      # (scripts/build-sidecar.mjs), which derives the correct
+      # feral-agent-<target-triple> name for the host platform. We only need
+      # the dependencies installed first.
+      - name: Install Feral Agent sidecar dependencies
+        working-directory: FeralAgent
+        run: bun install
 
       - name: Extract release notes from CHANGELOG
         id: changelog
@@ -103,5 +105,7 @@ jobs:
           releaseBody: ${{ steps.changelog.outputs.NOTES }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          # Uploads the bundles AND latest.json (updater manifest) to the release.
+          # Uploads the bundles AND latest.json (updater manifest) to the
+          # release. With a matrix, tauri-action merges each platform into
+          # the same latest.json on the shared release.
           includeUpdaterJson: true

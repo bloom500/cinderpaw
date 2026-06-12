@@ -116,7 +116,11 @@ export class MemoryExtractor {
     const assistantTurns = turns.filter((m) => m.role === "assistant").length;
     if (assistantTurns === 0) return;
 
-    const shouldExtract = assistantTurns % 3 === 0;
+    // Extract on the FIRST assistant turn too — most conversations are short,
+    // and the old %3-only cadence meant a 1-2 turn chat never produced any
+    // memory at all ("the agent never learns"). After the first turn, the
+    // every-3rd cadence keeps token cost bounded.
+    const shouldExtract = assistantTurns === 1 || assistantTurns % 3 === 0;
     const shouldSkill = this.#skillCreator && (assistantTurns % 5 === 0);
 
     if (!shouldExtract && !shouldSkill) return;
@@ -188,11 +192,13 @@ export class MemoryExtractor {
         for (const line of factsText.split("\n")) {
           const colon = line.indexOf(":");
           if (colon < 1) continue;
-          const key = line.slice(0, colon).trim().toLowerCase();
-          const value = line.slice(colon + 1).trim();
-          if (key && value && key.length <= 60 && value.length <= 300) {
-            this.#semantic.upsert(key, value);
-            graphFacts.push({ key, value });
+          const fact = sanitizeFact(
+            line.slice(0, colon),
+            line.slice(colon + 1),
+          );
+          if (fact) {
+            this.#semantic.upsert(fact.key, fact.value);
+            graphFacts.push(fact);
           }
         }
         if (this.#graph && graphFacts.length > 0) {
@@ -205,17 +211,34 @@ export class MemoryExtractor {
 
       // 2. Process OBSERVATION
       const obsText = sections.observation;
-      if (obsText && obsText.toUpperCase() !== "SKIP" && this.#episodic) {
+      if (obsText && obsText.toUpperCase() !== "SKIP") {
         const obs = parseObservation(obsText);
         if (obs) {
-          const entry = [
-            `[obs:${obs.type}] ${obs.title}`,
-            obs.facts.map((f) => `  • ${f}`).join("\n"),
-            obs.concepts.length > 0 ? `  concepts: ${obs.concepts.join(", ")}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n");
-          this.#episodic.record(sessionId, "assistant", entry);
+          if (this.#episodic) {
+            const entry = [
+              `[obs:${obs.type}] ${obs.title}`,
+              obs.facts.map((f) => `  • ${f}`).join("\n"),
+              obs.concepts.length > 0 ? `  concepts: ${obs.concepts.join(", ")}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+            this.#episodic.record(sessionId, "assistant", entry);
+          }
+          // Mirror observation concepts to the knowledge graph so recall
+          // can surface them in future sessions alongside semantic facts.
+          if (this.#graph && obs.concepts.length > 0) {
+            const slug = obs.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 50);
+            const eventId = `event_${slug}`;
+            this.#graph.upsertNode(eventId, obs.title, "event");
+            for (const concept of obs.concepts.slice(0, 8)) {
+              if (concept.length > 0 && concept.length <= 60) {
+                const cId = concept.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+                this.#graph.upsertNode(cId, concept, "concept");
+                this.#graph.addEdge(eventId, cId, obs.type);
+              }
+            }
+            this.#graph.persist();
+          }
         }
       }
     } catch {
@@ -263,6 +286,67 @@ function parseObservation(raw: string): ParsedObservation | null {
 
   if (!type || !title) return null;
   return { type, title, facts, concepts };
+}
+
+/** Keys that are conversation roles / prompt scaffolding, never user facts. */
+const FACT_KEY_BLOCKLIST = new Set([
+  "user", "assistant", "model", "bot", "system", "nick", "observation",
+  "facts", "type", "title", "concepts", "none", "skip",
+]);
+
+/**
+ * Is this (already-lowercased, trimmed) key unusable as a fact name?
+ * Shared by the extraction-time sanitizer and the boot-time hygiene sweep
+ * so junk that ever reached the store gets removed by the same rules that
+ * prevent new junk from being written.
+ */
+export function isJunkFactKey(key: string): boolean {
+  if (!key) return true;
+  if (FACT_KEY_BLOCKLIST.has(key)) return true;
+  if (key.length > 40) return true;
+  // List markers / numbering leaked from the model's bullet output.
+  if (/^[-*•]/.test(key) || /^\d+[.)]/.test(key)) return true;
+  // Sentence-shaped keys are reasoning leakage, not fact names.
+  if (key.split(/\s+/).length > 4) return true;
+  // Quotes, markup, or JSON fragments in the key mean a malformed line.
+  if (/["'<>{}()`\\]/.test(key)) return true;
+  return false;
+}
+
+/**
+ * Validate and normalize one extracted `key: value` fact line.
+ *
+ * Local models leak reasoning text, markdown bullets, and Windows paths into
+ * the facts output; the old colon-split stored keys like "- language",
+ * "1. user shared a link", "we need to produce final answer", and
+ * "the user has a project at `d" (path split at the drive-letter colon).
+ * Those keys are unguessable, so `memory_ops forget` could never target
+ * them and the graph filled with junk nodes.
+ *
+ * Returns the cleaned fact, or null when the line is not a usable fact.
+ */
+export function sanitizeFact(
+  rawKey: string,
+  rawValue: string,
+): { key: string; value: string } | null {
+  // Strip markdown list markers and numbering from the key.
+  const key = rawKey
+    .trim()
+    .replace(/^[-*•]\s*/, "")
+    .replace(/^\d+[.)]\s*/, "")
+    .trim()
+    .toLowerCase();
+  const value = rawValue.trim();
+
+  if (!value || isJunkFactKey(key)) return null;
+  if (value.length > 300) return null;
+  // A value starting with a path separator means the colon we split on was
+  // a Windows drive letter ("...at c:\Users\...") — the line is not a fact.
+  if (/^[\\/]/.test(value)) return null;
+  // Thinking markup in the value is model leakage.
+  if (/<\/?think/i.test(value)) return null;
+
+  return { key, value };
 }
 
 export function parseCombined(raw: string): { facts: string; observation: string } {

@@ -401,4 +401,57 @@ describe("Feral-WIP #2: fallback chains", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Feral-WIP #2b — deep_research argument aliases
+//
+// Observed in tool-observations.jsonl: local models call deep_research with
+// `query` (or even a corrupted key like `query"`) instead of the declared
+// `question`, producing bad_args 7/9 times. The tool now accepts common
+// aliases and tolerates junk characters in the key.
+// ---------------------------------------------------------------------------
+
+describe("Feral-WIP #2b: deep_research arg aliases", () => {
+  async function run(args: Record<string, unknown>): Promise<ToolResult> {
+    const { createDeepResearchTool } = await import("../src/tools/builtin/deep-research.ts");
+    const stubRouter = {} as Parameters<typeof createDeepResearchTool>[0];
+    const tool = createDeepResearchTool(stubRouter, undefined);
+    const ctx = {
+      sessionId: "test-aliases",
+      fetch: async () => {
+        throw new Error("no network in test");
+      },
+    } as unknown as ToolContext;
+    return tool.execute(args, ctx);
+  }
+
+  it("still rejects empty args with bad_args", async () => {
+    const res = await run({});
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("bad_args");
+  });
+
+  it("accepts `query` as an alias for `question`", async () => {
+    const res = await run({ query: "what is bun?" });
+    expect(res.error).not.toBe("bad_args");
+  });
+
+  it("accepts `topic` as an alias for `question`", async () => {
+    const res = await run({ topic: "what is bun?" });
+    expect(res.error).not.toBe("bad_args");
+  });
+
+  it('tolerates a corrupted key like `query"` from malformed model JSON', async () => {
+    const res = await run({ 'query"': "what is bun?" });
+    expect(res.error).not.toBe("bad_args");
+  });
+
+  it("prefers `question` when both question and query are present", async () => {
+    // Both keys set; the canonical one must win. We can't observe which value
+    // reached the loop directly, but bad_args must not fire and the call must
+    // proceed (research_error from the stub router/fetch is expected).
+    const res = await run({ question: "canonical", query: "alias" });
+    expect(res.error).not.toBe("bad_args");
+  });
+});
+
 

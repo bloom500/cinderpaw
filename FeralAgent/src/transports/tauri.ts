@@ -118,6 +118,7 @@ export function isInbound(value: unknown): value is InboundMessage {
     t === "ping" ||
     t === "shutdown" ||
     t === "set_model" ||
+    t === "stop" ||
     t === "ask_user_response" ||
     t === "ask_user_cancel" ||
     t === "cron_add" ||

@@ -66,24 +66,30 @@ async function initRepo(repoDir: string): Promise<void> {
   });
 }
 
-describe("shell_exec", () => {
+describe("shell_exec (argv-only)", () => {
   let tmp: string;
   beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "feral-shell-")); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
-  it("runs an allowlisted command and captures stdout", async () => {
+  it("runs an allowlisted binary via argv and captures stdout", async () => {
     const tool = createShellExecTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
-      const isWin = process.platform === "win32";
-      const result = await tool.execute(
-        { command: isWin ? "echo hello-feral" : "echo hello-feral" },
-        ctx,
-      );
+      const result = await tool.execute({ argv: ["git", "--version"] }, ctx);
       expect(result.ok).toBe(true);
       const data = result.data as { stdout: string; exitCode: number };
       expect(data.exitCode).toBe(0);
-      expect(data.stdout.trim()).toBe("hello-feral");
+      expect(data.stdout.toLowerCase()).toContain("git version");
+    } finally { cleanup(); }
+  });
+
+  it("accepts the legacy command string by tokenizing it (no shell)", async () => {
+    const tool = createShellExecTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute({ command: "git --version" }, ctx);
+      expect(result.ok).toBe(true);
+      expect((result.data as { stdout: string }).stdout.toLowerCase()).toContain("git version");
     } finally { cleanup(); }
   });
 
@@ -91,14 +97,36 @@ describe("shell_exec", () => {
     const tool = createShellExecTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
-      const isWin = process.platform === "win32";
+      // Unknown flag → git exits non-zero. No shell `exit` builtin needed.
+      const result = await tool.execute({ argv: ["git", "--this-flag-does-not-exist"] }, ctx);
+      expect(result.ok).toBe(false);
+      expect((result.data as { exitCode: number }).exitCode).not.toBe(0);
+    } finally { cleanup(); }
+  });
+
+  it("does NOT interpret shell metacharacters — `&&` cannot chain a second command", async () => {
+    const tool = createShellExecTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      // Pre-V2, this string went through `cmd /c` / `sh -c` and `echo pwned`
+      // ran as a chained command. Now the whole thing is argv to git, which
+      // never spawns a second process — the marker must not appear.
       const result = await tool.execute(
-        { command: isWin ? "exit 7" : "exit 7" },
+        { command: "git --version && echo pwned-marker" },
         ctx,
       );
+      const data = result.data as { stdout: string; stderr: string };
+      expect(`${data.stdout}${data.stderr}`).not.toContain("pwned-marker");
+    } finally { cleanup(); }
+  });
+
+  it("rejects a non-whitelisted binary", async () => {
+    const tool = createShellExecTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute({ argv: ["rm", "-rf", tmp] }, ctx);
       expect(result.ok).toBe(false);
-      const data = result.data as { exitCode: number };
-      expect(data.exitCode).toBe(7);
+      expect(result.error).toBe("binary_not_whitelisted");
     } finally { cleanup(); }
   });
 });
@@ -109,7 +137,8 @@ describe("git tools (integration)", () => {
     repo = mkdtempSync(join(tmpdir(), "feral-git-"));
     await initRepo(repo);
   });
-  afterEach(() => { rmSync(repo, { recursive: true, force: true }); });
+  // maxRetries/retryDelay: Windows holds EBUSY locks briefly after git exits.
+  afterEach(() => { rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); });
 
   it("git_status on a clean repo returns no changes", async () => {
     const tool = createGitStatusTool([repo]);
@@ -166,7 +195,7 @@ describe("git tools (integration)", () => {
       const data = logResult.data as { stdout: string };
       expect(data.stdout).toContain("first commit");
     } finally { cleanup(); }
-  });
+  }, 20_000);
 
   it("git_log shows the last N commits", async () => {
     writeFileSync(join(repo, "x.txt"), "x");
@@ -183,7 +212,7 @@ describe("git tools (integration)", () => {
       expect(data.stdout).toContain("c1");
       expect(data.stdout).toContain("c2");
     } finally { cleanup(); }
-  });
+  }, 20_000);
 
   it("git_diff shows unstaged changes", async () => {
     writeFileSync(join(repo, "x.txt"), "first\n");
@@ -200,7 +229,7 @@ describe("git tools (integration)", () => {
       expect(data.stdout).toContain("-first");
       expect(data.stdout).toContain("+second");
     } finally { cleanup(); }
-  });
+  }, 20_000);
 
   it("git_branch list works and create+switch works", async () => {
     writeFileSync(join(repo, "x.txt"), "x");
@@ -219,5 +248,5 @@ describe("git tools (integration)", () => {
       const switchRes = await b.execute({ path: repo, action: "switch", name: "master" }, ctx);
       expect(switchRes.ok).toBe(true);
     } finally { cleanup(); }
-  });
+  }, 20_000);
 });

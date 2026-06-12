@@ -37,4 +37,16 @@ describe("stripThinking", () => {
   it("orphan closing tag is stripped", () => {
     expect(stripThinking("</think>answer")).toBe("answer");
   });
+
+  // Regression: MiniMax-M2 / DeepSeek-R1-style chat templates bake the opening
+  // <think> into the prompt, so the completion arrives as
+  // "reasoning…</think>answer" with no opening tag. Everything before the
+  // orphan close is reasoning and must never reach the chat.
+  it("reasoning before orphan </think> is dropped (template bakes open tag into prompt)", () => {
+    expect(stripThinking("Let me reason about this.\nDraft: …</think>Hello!")).toBe("Hello!");
+  });
+
+  it("orphan close followed by a later dangling open → only the answer survives", () => {
+    expect(stripThinking("reasoning</think>answer<think>more reasoning")).toBe("answer");
+  });
 });

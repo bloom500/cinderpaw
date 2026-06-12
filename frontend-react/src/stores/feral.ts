@@ -11,10 +11,18 @@ interface FeralStore {
   modelError: string | null;
   /** Whether a setModel call is in flight. */
   switching: boolean;
+  /**
+   * #11: true after `feral://agent-exit` (sidecar crashed), false again when
+   * `feral://agent-ready` fires post-restart. Drives the offline banner.
+   */
+  offline: boolean;
+  /** True while the Rust supervisor is attempting an automatic restart. */
+  restarting: boolean;
 
   setModelConfig(cfg: FeralModelConfigView): void;
   setReady(v: boolean): void;
   setModelError(err: string | null): void;
+  setOffline(offline: boolean, restarting: boolean): void;
 
   /** Fetch and cache the current sidecar model config (display-safe, no key). */
   fetchModelConfig(): Promise<void>;
@@ -31,13 +39,20 @@ export const useFeralStore = create<FeralStore>((set) => ({
   isReady: false,
   modelError: null,
   switching: false,
+  offline: false,
+  restarting: false,
 
   setModelConfig(cfg) {
     set({ modelConfig: cfg, modelError: null });
   },
 
   setReady(v) {
-    set({ isReady: v });
+    // Coming (back) online clears the offline banner.
+    set(v ? { isReady: true, offline: false, restarting: false } : { isReady: false });
+  },
+
+  setOffline(offline, restarting) {
+    set({ offline, restarting, ...(offline ? { isReady: false } : {}) });
   },
 
   setModelError(err) {

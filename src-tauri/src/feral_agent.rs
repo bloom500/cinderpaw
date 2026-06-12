@@ -115,10 +115,16 @@ pub fn find_binary(app: &AppHandle) -> Option<PathBuf> {
 fn binary_filename() -> String {
     if cfg!(target_os = "windows") {
         "feral-agent-x86_64-pc-windows-msvc.exe".to_string()
+    } else if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "feral-agent-aarch64-apple-darwin".to_string()
+        } else {
+            "feral-agent-x86_64-apple-darwin".to_string()
+        }
     } else if cfg!(target_arch = "aarch64") {
-        "feral-agent-aarch64-apple-darwin".to_string()
+        "feral-agent-aarch64-unknown-linux-gnu".to_string()
     } else {
-        "feral-agent-x86_64-apple-darwin".to_string()
+        "feral-agent-x86_64-unknown-linux-gnu".to_string()
     }
 }
 
@@ -133,13 +139,23 @@ fn binary_filename() -> String {
 pub async fn spawn(
     app: AppHandle,
     tx_slot: Arc<Mutex<Option<mpsc::Sender<String>>>>,
+    api_port: u16,
+    api_token: &str,
 ) -> Result<tokio::process::Child, String> {
     let binary = find_binary(&app).ok_or_else(|| {
+        // D1 fix: the `beforeDevCommand` / `beforeBuildCommand` in
+        // tauri.conf.json invoke `scripts/build-sidecar.mjs` which
+        // builds the sidecar and copies it to `binaries/`. If you see
+        // this error it almost always means the script failed silently
+        // or the FeralAgent/ directory is missing on disk. Re-run with
+        // `FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev` to force a
+        // rebuild, or invoke the script directly:
+        //   node src-tauri/scripts/build-sidecar.mjs
         concat!(
             "feral-agent binary not found. ",
-            "Run `bun run build` in the feral-agent repo and copy ",
-            "dist/feral-agent.exe to ",
-            "src-tauri/binaries/feral-agent-x86_64-pc-windows-msvc.exe"
+            "The sidecar build script (src-tauri/scripts/build-sidecar.mjs) ",
+            "should have run as part of `cargo tauri dev/build`. ",
+            "Run it manually with: node src-tauri/scripts/build-sidecar.mjs"
         )
         .to_string()
     })?;
@@ -149,9 +165,22 @@ pub async fn spawn(
     let db_path = paths::feral_agent_db_path();
     let workspace = paths::feral_agent_workspace_path();
 
+    // A1: point the sidecar at Feral's own bundled llama.cpp engine by default
+    // (the loopback OpenAI-compatible API on `api_port`), not at an external
+    // Ollama install. This makes "fully local" work out of the box with no
+    // third-party runtime. The V4 bearer token rides in as FERAL_API_KEY so
+    // the now-gated API accepts the sidecar's requests. The frontend may still
+    // hot-swap to a cloud BYOK model later via `set_model`; this is only the
+    // boot default.
+    let base_url = format!("http://127.0.0.1:{api_port}");
+
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.env("FERAL_DB", &db_path)
         .env("FERAL_WORKSPACE", &workspace)
+        .env("FERAL_PROVIDER", "openai_compatible")
+        .env("FERAL_BASE_URL", &base_url)
+        .env("FERAL_API_KEY", api_token)
+        .env("FERAL_MODEL", "feral-local")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -182,6 +211,98 @@ pub async fn spawn(
 
     tracing::info!("feral-agent: started (pid {:?})", child.id());
     Ok(child)
+}
+
+/// Supervise the sidecar: spawn it, watch for unexpected exits, and restart
+/// with backoff (#11). Before this, a sidecar crash left Agent mode silently
+/// mute — messages went into a dead stdin pipe, no banner, no recovery short
+/// of restarting the whole app.
+///
+/// Behaviour:
+///   * On every exit, emits `feral://agent-exit` with `{ code, restarting }`
+///     so the frontend can show an "agent offline / restarting" banner.
+///   * Restarts with linear backoff (2s, 4s, … capped at 10s), at most
+///     `MAX_QUICK_FAILURES` times in a row. A process that stays up for
+///     `STABLE_UPTIME_SECS` resets the failure streak (a crash after hours
+///     of uptime shouldn't count against the boot-loop budget).
+///   * After the budget is exhausted, gives up and emits a final
+///     `feral://agent-exit` with `restarting: false`.
+///
+/// The `Child` stays in `process_slot` (AppState) so app-exit kill-on-drop
+/// semantics are unchanged; the supervisor polls `try_wait()` through the
+/// same mutex instead of taking ownership.
+pub fn supervise(
+    app: AppHandle,
+    tx_slot: Arc<Mutex<Option<mpsc::Sender<String>>>>,
+    process_slot: Arc<Mutex<Option<tokio::process::Child>>>,
+    api_port: u16,
+    api_token: String,
+) {
+    const MAX_QUICK_FAILURES: u32 = 5;
+    const STABLE_UPTIME_SECS: u64 = 60;
+
+    tauri::async_runtime::spawn(async move {
+        let mut quick_failures: u32 = 0;
+        loop {
+            let started = std::time::Instant::now();
+            match spawn(app.clone(), tx_slot.clone(), api_port, &api_token).await {
+                Ok(child) => {
+                    *process_slot.lock() = Some(child);
+                }
+                Err(e) => {
+                    tracing::warn!("feral-agent: spawn failed: {e}");
+                    let _ = app.emit(
+                        "feral://agent-exit",
+                        serde_json::json!({ "code": null, "restarting": false, "error": e }),
+                    );
+                    return;
+                }
+            }
+
+            // Poll for exit. try_wait() through the mutex keeps ownership in
+            // AppState so kill_on_drop still fires on app shutdown.
+            let status = loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let exited = {
+                    let mut guard = process_slot.lock();
+                    match guard.as_mut() {
+                        Some(c) => c.try_wait().ok().flatten(),
+                        // Slot cleared externally — stop supervising.
+                        None => break None,
+                    }
+                };
+                if exited.is_some() {
+                    break exited;
+                }
+            };
+            let Some(status) = status else { return };
+
+            if started.elapsed().as_secs() >= STABLE_UPTIME_SECS {
+                quick_failures = 0;
+            }
+            quick_failures += 1;
+            let restarting = quick_failures <= MAX_QUICK_FAILURES;
+            tracing::warn!(
+                code = ?status.code(),
+                attempt = quick_failures,
+                restarting,
+                "feral-agent: sidecar exited unexpectedly"
+            );
+            // Invalidate the stale stdin sender so feral_send_message fails
+            // fast instead of writing into a dead pipe.
+            *tx_slot.lock() = None;
+            let _ = app.emit(
+                "feral://agent-exit",
+                serde_json::json!({ "code": status.code(), "restarting": restarting }),
+            );
+            if !restarting {
+                tracing::error!("feral-agent: giving up after {MAX_QUICK_FAILURES} rapid failures");
+                return;
+            }
+            let backoff = std::time::Duration::from_secs((2 * quick_failures as u64).min(10));
+            tokio::time::sleep(backoff).await;
+        }
+    });
 }
 
 /// Drain the mpsc channel into the child's stdin, one JSON line at a time.

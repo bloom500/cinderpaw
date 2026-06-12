@@ -18,6 +18,28 @@ import type { Tool, ToolManifest } from "../../types.ts";
 import type { InferenceRouter } from "../../sandbox/inference-router.ts";
 import { ResearchLoop } from "../../research/research-loop.ts";
 
+/**
+ * Pull the research question out of the args, accepting aliases in priority
+ * order. Keys are normalized (lowercased, non-alphanumerics stripped) before
+ * matching because local models sometimes emit corrupted keys like `query"`.
+ * Returns the trimmed question, or null if no usable string was found.
+ */
+const QUESTION_ALIASES = ["question", "query", "topic", "q", "prompt"];
+
+export function extractQuestion(args: Record<string, unknown>): string | null {
+  const normalized = new Map<string, string>();
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    const norm = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (!normalized.has(norm)) normalized.set(norm, value.trim());
+  }
+  for (const alias of QUESTION_ALIASES) {
+    const hit = normalized.get(alias);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 export function createDeepResearchTool(
   router: InferenceRouter,
   jinaApiKey?: string,
@@ -32,11 +54,19 @@ export function createDeepResearchTool(
     permissions: ["network:outbound"],
     networkAccess: true,
     allowedDomains: ["s.jina.ai", "r.jina.ai"],
+    // Feral-WIP #2: if Jina search fails (network / quota), fall back
+    // to read_webpage which can be invoked with a URL. The agent may
+    // also chain web_search -> deep_research via web_search's own
+    // fallback, so the chain is web_search -> deep_research -> read_webpage.
+    fallback: ["read_webpage"],
   };
 
   return {
     manifest,
     parameters: {
+      // Canonical parameter is `question`; execute() also accepts the
+      // aliases query/topic/q/prompt because local models frequently use
+      // them despite the declared schema (7/9 bad_args in observations).
       question: {
         type: "string",
         description:
@@ -52,11 +82,13 @@ export function createDeepResearchTool(
       },
     },
     async execute(args, ctx) {
-      const question = args.question;
-      if (typeof question !== "string" || !question.trim()) {
+      const question = extractQuestion(args);
+      if (question === null) {
         return {
           ok: false,
-          content: "deep_research requires a non-empty 'question' string.",
+          content:
+            "deep_research requires a non-empty 'question' string " +
+            "(aliases accepted: query, topic, q, prompt).",
           error: "bad_args",
         };
       }
@@ -74,8 +106,23 @@ export function createDeepResearchTool(
           ctx.fetch,
           ctx.sessionId,
           jinaApiKey,
+          ctx.signal,
+          ctx.progress,
         );
         const result = await loop.run(question.trim(), maxIter);
+        if (result.stopped) {
+          return {
+            ok: false,
+            content: "Research stopped before completion.",
+            error: "cancelled",
+            data: {
+              stopped: true,
+              report: result.report,
+              sources: result.sources,
+              iterations: result.iterations,
+            },
+          };
+        }
 
         return {
           ok: true,
@@ -87,6 +134,13 @@ export function createDeepResearchTool(
           },
         };
       } catch (err) {
+        if (err instanceof Error && err.name === "ResearchStoppedError") {
+          return {
+            ok: false,
+            content: "Research stopped before completion.",
+            error: "cancelled",
+          };
+        }
         return {
           ok: false,
           content: `Research failed: ${err instanceof Error ? err.message : String(err)}`,

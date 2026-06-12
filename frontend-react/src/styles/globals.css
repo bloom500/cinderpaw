@@ -1,9 +1,17 @@
 /* highlight.js themes must come before @tailwind to satisfy CSS @import order */
 @import 'highlight.js/styles/atom-one-dark.css';
+/* Inter — the app typeface, bundled locally (no CDN requests). */
+@import '@fontsource-variable/inter';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter Variable', Inter, system-ui, sans-serif;
+  }
+}
 
 @layer utilities {
   .scrollbar-hide {

@@ -85,6 +85,19 @@ export function splitThinking(raw: string): SplitResult {
     }
   }
 
+  // Orphan close tag with no open: MiniMax-M2 / DeepSeek-R1-style chat
+  // templates bake the opening <think> into the prompt, so the completion
+  // arrives as "reasoning…</think>answer". Everything before the first
+  // remaining close tag (paired blocks were consumed above) is reasoning.
+  const orphanClose = /<\/think(?:ing)?>/i.exec(answer);
+  if (orphanClose) {
+    const pre = answer.slice(0, orphanClose.index).trim();
+    if (pre) {
+      thinkingParts.unshift(pre);
+      answer = answer.slice(orphanClose.index + orphanClose[0].length);
+    }
+  }
+
   // Strip any remaining <|channel>response or <|channel>end markers from answer
   answer = answer.replace(/<\|channel>[a-z]+/g, '').trimStart();
 

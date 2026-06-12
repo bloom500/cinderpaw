@@ -12,7 +12,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
+import { useModel } from '@/stores/model';
 import { useFeralStore } from '@/stores/feral';
+import { useNotifications } from '@/stores/notifications';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking, looksLikeToolCall } from '@/lib/parseThink';
 import { tauri, type FeralAgentEvent, type PersistedMessage } from '@/lib/tauri';
@@ -22,6 +24,15 @@ import {
   requestFeralStop,
   isFeralStreaming,
 } from '@/lib/feralAgentStream';
+import {
+  beginLiveSession,
+  updateLiveSession,
+  pushLiveToolCall,
+  completeLiveToolCall,
+  endLiveSession,
+  getLiveSession,
+  getLiveToolStrip,
+} from '@/lib/feralLiveSession';
 import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
@@ -66,7 +77,7 @@ export { type MascotStateSink };
 
 export function useFeralStream(chatSessionId: string) {
   const send = useCallback(
-    async (content: string, callbacks: StreamCallbacks) => {
+    async (content: string, callbacks: StreamCallbacks, images?: string[]) => {
       await ensureFeralListener();
 
       // Parity with `startChatStream`: a fresh send is an implicit interrupt
@@ -79,9 +90,14 @@ export function useFeralStream(chatSessionId: string) {
 
       let messageId: string;
       try {
+        // Controls-panel params (temperature / max tokens) now reach the
+        // agent too — previously they only applied to the plain chat tab.
+        const { temperature, max_tokens } = useModel.getState().inferParams;
         messageId = await invoke<string>('feral_send_message', {
           content,
           sessionId: chatSessionId,
+          images: images && images.length > 0 ? images : null,
+          inferParams: { temperature, max_tokens: max_tokens },
         });
       } catch (err) {
         callbacks.onError(String(err));
@@ -115,13 +131,14 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
   const { send } = useFeralStream(chatSessionId);
 
   return useCallback(
-    async (content: string) => {
+    async (content: string, images?: string[]) => {
       const chat = useChat.getState();
 
       const userMsg = {
         id: crypto.randomUUID(),
         role: 'user' as const,
         content,
+        ...(images && images.length > 0 ? { images } : {}),
         createdAt: Date.now(),
       };
       const asstMsg = {
@@ -140,6 +157,16 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
       const asstId    = asstMsg.id;
       const agentId   = useAgent.getState().current?.id ?? null;
       const isActive  = () => useChat.getState().sessionId === sessionId;
+
+      // Mirror every streaming update keyed by sessionId — even while the
+      // user is on another chat/tab — so re-entering this conversation can
+      // rehydrate the live state instead of the stale disk snapshot.
+      beginLiveSession(sessionId);
+      const syncToolStrip = () => {
+        if (!isActive()) return;
+        const strip = getLiveToolStrip(sessionId);
+        if (strip) useChat.setState({ toolCallStream: strip });
+      };
 
       useConversations.getState().markStreaming(sessionId);
       try {
@@ -180,6 +207,13 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           const split = splitThinking(state.buffer);
           const visibleAnswer = looksLikeToolCall(split.answer) ? '' : split.answer;
           state.answer = visibleAnswer;
+          updateLiveSession(sessionId, {
+            content: visibleAnswer,
+            ...(split.thinking !== null
+              ? { thinking: split.thinking, thinkingComplete: split.thinkingComplete }
+              : {}),
+            agentPhase: 'thinking',
+          });
           if (isActive()) {
             const chat = useChat.getState();
             const patch: Partial<ChatMessage> = { content: visibleAnswer };
@@ -202,35 +236,67 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           state.answer = '';
           state.thinkingStartMs = 0;
           state.thinkingDurationRecorded = false;
+          // The mirror is authoritative for the tool strip — it accumulates
+          // even while the user is on another chat, and `syncToolStrip`
+          // copies it into the store only when this session is on screen.
+          pushLiveToolCall(sessionId, {
+            id: crypto.randomUUID(),
+            kind: 'tool',
+            name: tool,
+            emoji: emojiForTool(tool),
+            mainArg: extractMainArg(tool, args),
+            status: 'running',
+            startedAt: Date.now(),
+            endedAt: null,
+          });
+          updateLiveSession(sessionId, {
+            content: '',
+            thinking: null,
+            agentPhase: 'calling',
+            agentTool: tool,
+          });
           if (isActive()) {
             useChat.getState().clearStreamingContent();
             useChat.getState().setAgentPhase('calling', tool);
-            useChat.getState().pushToolCall({
-              kind: 'tool',
-              name: tool,
-              emoji: emojiForTool(tool),
-              mainArg: extractMainArg(tool, args),
-              status: 'running',
-            });
+            syncToolStrip();
           }
         },
         onToolDone: (_callId, tool, result) => {
+          // Find the most recent running entry with this tool name and
+          // flip it to done/error. The mirror keys by id but we pair by
+          // (name, status) so out-of-order events still resolve.
+          const live = getLiveSession(sessionId);
+          const lastRunning = live
+            ? [...live.toolCallStream].reverse().find(
+                (e) => e.kind === 'tool' && e.name === tool && e.status === 'running',
+              )
+            : undefined;
+          if (lastRunning) {
+            const ok = isOkResult(result);
+            // #18: carry a capped output preview (and the error text on
+            // failure) into the bubble so the user can expand what the
+            // tool actually returned.
+            const r = result as { content?: unknown; error?: unknown } | null | undefined;
+            const rawPreview =
+              typeof r?.content === 'string'
+                ? r.content
+                : result !== undefined && result !== null
+                  ? JSON.stringify(result, null, 2)
+                  : '';
+            completeLiveToolCall(sessionId, lastRunning.id, {
+              ok,
+              preview: rawPreview ? rawPreview.slice(0, 1500) : undefined,
+              error: !ok && typeof r?.error === 'string' ? r.error : undefined,
+            });
+          }
+          updateLiveSession(sessionId, { agentPhase: 'processing', agentTool: null });
           if (isActive()) {
             useChat.getState().setAgentPhase('processing');
-            // Find the most recent running entry with this tool name and
-            // flip it to done/error. The store keys by id but we pair by
-            // (name, status) so out-of-order events still resolve.
-            const stream = useChat.getState().toolCallStream;
-            const lastRunning = [...stream].reverse().find(
-              (e) => e.kind === 'tool' && e.name === tool && e.status === 'running',
-            );
-            if (lastRunning && lastRunning.kind === 'tool') {
-              const ok = isOkResult(result);
-              useChat.getState().completeToolCall(lastRunning.id, { ok });
-            }
+            syncToolStrip();
           }
         },
         onDone: async (finalContent?: string, stopped = false) => {
+          endLiveSession(sessionId);
           if (state.answer.trim().length === 0 && finalContent?.trim()) {
             const cleaned = splitThinking(finalContent).answer.trim();
             if (cleaned) {
@@ -253,6 +319,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           useConversations.getState().unmarkStreaming(sessionId);
         },
         onError: (err) => {
+          endLiveSession(sessionId);
           if (isActive()) useChat.getState().setStreamStatus('error', err);
           if (mascotSink) mascotSink.setMascotState('error');
           void persistFinal().finally(() => {
@@ -260,12 +327,14 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           });
         },
         onStopped: () => {
+          endLiveSession(sessionId);
           if (isActive()) useChat.getState().setStreamStatus('stopped');
           void persistFinal().finally(() => {
             useConversations.getState().unmarkStreaming(sessionId);
           });
         },
         onTruncated: (reason) => {
+          endLiveSession(sessionId);
           if (isActive()) {
             useChat.getState().updateLastAssistantMessage({ truncated: true, truncatedReason: reason });
             useChat.getState().setStreamStatus('done');
@@ -274,7 +343,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
             useConversations.getState().unmarkStreaming(sessionId);
           });
         },
-      });
+      }, images);
     },
     [send, mascotSink],
   );
@@ -291,10 +360,12 @@ export async function checkFeralAgentReady(): Promise<boolean> {
 export function useFeralGlobal() {
   const setReady      = useFeralStore((s) => s.setReady);
   const setModelError = useFeralStore((s) => s.setModelError);
+  const setOffline    = useFeralStore((s) => s.setOffline);
   const fetchConfig   = useFeralStore((s) => s.fetchModelConfig);
 
   useEffect(() => {
     let unlistenReady:  (() => void) | null = null;
+    let unlistenExit:   (() => void) | null = null;
     let unlistenOutput: (() => void) | null = null;
 
     const setup = async () => {
@@ -302,6 +373,24 @@ export function useFeralGlobal() {
         setReady(true);
         void fetchConfig();
       });
+
+      // #11: the Rust supervisor emits this when the sidecar dies. While
+      // `restarting` is true it will respawn with backoff and agent-ready
+      // will clear the banner; when false, the supervisor gave up.
+      unlistenExit = await listen<{ code: number | null; restarting: boolean }>(
+        'feral://agent-exit',
+        (event) => {
+          setOffline(true, event.payload.restarting);
+          if (!event.payload.restarting) {
+            useNotifications.getState().push(
+              'error',
+              'Feral Agent stopped',
+              'The agent process crashed repeatedly and automatic restarts were ' +
+                'suspended. Restart the app to bring Agent mode back.',
+            );
+          }
+        },
+      );
 
       unlistenOutput = await listen<{ data: string }>('feral://agent-output', (event) => {
         let parsed: FeralAgentEvent;
@@ -315,6 +404,11 @@ export function useFeralGlobal() {
           void fetchConfig();
         } else if (parsed.type === 'model_error') {
           setModelError(parsed.message);
+        } else if (parsed.type === 'cron_fired') {
+          // X3: scheduled-job results were previously dropped on the floor.
+          useNotifications.getState().push('success', `Scheduled task: ${parsed.jobName}`, parsed.content);
+        } else if (parsed.type === 'cron_error') {
+          useNotifications.getState().push('error', `Scheduled task failed: ${parsed.jobName}`, parsed.message);
         }
       });
 
@@ -325,6 +419,7 @@ export function useFeralGlobal() {
 
     return () => {
       unlistenReady?.();
+      unlistenExit?.();
       unlistenOutput?.();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

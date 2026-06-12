@@ -23,6 +23,10 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 // @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
 import bundledSoul from "../SOUL.md" with { type: "text" };
+// @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
+import bundledIdentity from "../IDENTITY.md" with { type: "text" };
+// @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
+import bundledAgents from "../AGENTS.md" with { type: "text" };
 
 /** Approximate token cost ceiling before we warn the user. */
 export const SOFT_CAP_TOKENS = 4_000;
@@ -74,6 +78,35 @@ export function resolveSoulPaths(homeDir: string = homedir()): SoulPaths {
 }
 
 /**
+ * Companion identity documents, each bundled at build time and individually
+ * overridable by the user at `~/.feral/<NAME>.md`:
+ *
+ *   - IDENTITY.md — who the agent is (name, nature, audience)
+ *   - AGENTS.md   — working habits (tools, memory, skills, judgment)
+ *
+ * Returns the composed text of all companions, user override winning per
+ * file. Pure aside from the existsSync/readFileSync probes; any read error
+ * falls back to the bundled copy so a corrupt override never bricks startup.
+ */
+function loadCompanions(homeDir: string): string {
+  const companions: Array<{ file: string; bundled: string }> = [
+    { file: "IDENTITY.md", bundled: bundledIdentity as string },
+    { file: "AGENTS.md", bundled: bundledAgents as string },
+  ];
+  const parts: string[] = [];
+  for (const { file, bundled } of companions) {
+    const userPath = join(homeDir, ".feral", file);
+    let content = bundled ?? "";
+    if (existsSync(userPath)) {
+      const userContent = safeRead(userPath);
+      if (userContent.length > 0) content = userContent;
+    }
+    if (content && content.trim().length > 0) parts.push(content.trim());
+  }
+  return parts.join("\n\n---\n\n");
+}
+
+/**
  * Load the SOUL.md, preferring the user override. The bundled default is
  * the compile-time-embedded `bundledSoul` string (set via Bun's text import).
  * Throws only if the bundled content is missing (a programmer error — the
@@ -97,6 +130,14 @@ export function loadSoul(homeDir: string = homedir()): SoulConfig {
         `embedded bundled content is empty. This is a build/packaging error — ` +
         `the binary is missing its identity document.`,
     );
+  }
+
+  // Append IDENTITY.md + AGENTS.md (bundled defaults, per-file user
+  // overrides). They ride inside the same SOUL block of the system prompt,
+  // so the version hash and size warnings cover the composed document.
+  const companions = loadCompanions(homeDir);
+  if (companions.length > 0) {
+    content = `${content.trim()}\n\n---\n\n${companions}`;
   }
 
   const version = createHash("sha256").update(content).digest("hex").slice(0, 8);

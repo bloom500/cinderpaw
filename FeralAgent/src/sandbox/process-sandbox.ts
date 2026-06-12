@@ -175,6 +175,13 @@ export class RealProcessSandbox implements ProcessSandbox {
       stderr: "pipe",
     });
 
+    // Deliver the stdin payload and close the pipe — a child reading stdin
+    // to EOF (e.g. `git commit -F -`) blocks forever otherwise.
+    if (options.stdin != null && proc.stdin) {
+      proc.stdin.write(options.stdin);
+      await proc.stdin.end();
+    }
+
     // 7. Capture stdout/stderr with an output cap. We start a reader for
     //    each stream and abort the proc when the cap is reached so a
     //    runaway child cannot fill the host's memory.
@@ -264,10 +271,14 @@ export class RealProcessSandbox implements ProcessSandbox {
         continue;
       }
       // Case B: absolute allowlist entry, bare request → match basename.
+      // Compare by stem (extension-insensitive) so a bare `git` request
+      // matches an allowlisted absolute `…\git.exe` on Windows, where
+      // resolveExecutables() stores the resolved `.exe` path. Without this,
+      // every Windows manifest built from bare names was unmatchable.
       if (isAbsolute(entry) && !isAbsolute(requested)) {
         const entryParts = entry.split(/[\\/]/);
         const entryBase: string = entryParts[entryParts.length - 1] ?? entry;
-        if (entryBase === reqBase) {
+        if (entryBase === reqBase || execStem(entryBase) === execStem(reqBase)) {
           // Resolve the allowlisted path and use IT as the spawn target
           // (not the model's bare name) — this prevents PATH hijacking
           // where /usr/bin/git is allowlisted but a malicious /tmp/git
@@ -391,6 +402,16 @@ export class RealProcessSandbox implements ProcessSandbox {
  * against the safe base PATH so the allowlist check can be performed
  * against an absolute path.
  */
+/**
+ * Lowercased basename with a Windows executable extension stripped, used for
+ * extension-insensitive allowlist matching (`git` ↔ `git.exe`). On POSIX
+ * there is normally no extension so this is just a lowercase basename.
+ */
+function execStem(nameOrPath: string): string {
+  const base = (nameOrPath.split(/[\\/]/).pop() ?? nameOrPath).toLowerCase();
+  return base.replace(/\.(exe|cmd|bat|com)$/i, "");
+}
+
 export function which(name: string, pathEnv: string): string | null {
   if (!name) return null;
   // Reject anything that contains a path separator — that's a sign the

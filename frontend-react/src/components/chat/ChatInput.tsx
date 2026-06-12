@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { Brain, ArrowUp, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,8 +22,10 @@ import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
-import { useSendMessage } from '@/hooks/useSendMessage';
+import { useSendMessage, buildUserContent } from '@/hooks/useSendMessage';
+import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { stopActiveStream } from '@/lib/streamControl';
+import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 const REASONING_CONFIG: Record<ReasoningMode, {
@@ -47,8 +50,9 @@ export interface ChatInputProps {
   /**
    * When provided, overrides the default useSendMessage routing.
    * Used by the Agents tab to route through the Feral Agent sidecar.
+   * `images` carries attachment data URLs for vision-capable models.
    */
-  sendFn?: (text: string) => Promise<void>;
+  sendFn?: (text: string, images?: string[]) => Promise<void>;
   /**
    * When true, the input is always enabled regardless of whether a local
    * model or cloud key is active. Used by the Agents tab (Feral Agent
@@ -62,6 +66,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
   const status = useChat((s) => s.streamStatus);
@@ -71,6 +76,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const setInputMode = useUI((s) => s.setInputMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const send = useSendMessage();
+  const t = useT();
 
   useImperativeHandle(ref, () => ({
     setText: (t: string) => {
@@ -88,6 +94,40 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [text]);
 
+  const addFiles = (files: AttachedFile[]) =>
+    setAttachedFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.path));
+      return [...prev, ...files.filter((f) => !existing.has(f.path))];
+    });
+
+  // Drag & drop: Tauri intercepts native file drops (the webview never sees
+  // HTML5 drop events for OS files) and emits drag-drop events with paths.
+  useEffect(() => {
+    const webview = getCurrentWebview();
+    const unlistenPromise = webview.onDragDropEvent((event) => {
+      if (event.payload.type === 'over') {
+        setDragOver(true);
+      } else if (event.payload.type === 'drop') {
+        setDragOver(false);
+        void Promise.all(event.payload.paths.map(attachmentFromPath)).then(addFiles);
+      } else {
+        setDragOver(false);
+      }
+    });
+    return () => {
+      void unlistenPromise.then((un) => un());
+    };
+  }, []);
+
+  // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Plain text
+  // pastes fall through to the textarea untouched.
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items || !Array.from(items).some((i) => i.kind === 'file')) return;
+    e.preventDefault();
+    void attachmentsFromClipboard(e.clipboardData).then(addFiles);
+  };
+
   const isStreaming = status === 'streaming';
   const agentPhase = useChat((s) => s.agentPhase);
   const mascotState = useMascotState({
@@ -98,13 +138,19 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const disabled = alwaysEnabled ? false : (!loaded && !cloudModel);
 
   const trySend = async () => {
-    if (!text.trim() || isStreaming || disabled) return;
+    if ((!text.trim() && attachedFiles.length === 0) || isStreaming || disabled) return;
     const content = text;
     const files = attachedFiles;
     setText('');
     setAttachedFiles([]);
     if (sendFn) {
-      await sendFn(content);
+      // Agent path: inline text attachments into the content (same as the
+      // chat path) and hand image data URLs over separately so the sidecar
+      // can pass real pixels to vision-capable models.
+      const images = files
+        .filter((f) => f.kind === 'image' && f.dataUrl)
+        .map((f) => f.dataUrl!);
+      await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
     } else {
       await send(content, files);
     }
@@ -129,7 +175,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           ? 'px-4 py-3 max-w-2xl mx-auto w-full'
           : 'px-4 py-3',
       )}>
-        <div className="relative rounded-3xl border border-border-default bg-bg-surface focus-within:border-brand transition-colors">
+        <div
+          className={cn(
+            'relative rounded-3xl border bg-bg-surface focus-within:border-brand transition-colors',
+            dragOver ? 'border-brand border-dashed bg-bg-hover' : 'border-border-default',
+          )}
+        >
           <MascotPerch baseState={mascotState} />
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
@@ -147,12 +198,13 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             placeholder={
               alwaysEnabled
-                ? 'Ask Feral…'
+                ? t('chat.placeholder.agent')
                 : disabled
-                  ? 'Load a model or add a cloud key to start chatting'
-                  : 'Ask anything…'
+                  ? t('chat.placeholder.noModel')
+                  : t('chat.placeholder')
             }
             disabled={disabled}
             rows={1}
@@ -160,14 +212,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           />
           <div className="flex items-center justify-between px-4 pb-3">
             <div className="flex gap-1">
-              <FileAttachButton
-                onFilesSelected={(files) =>
-                  setAttachedFiles((prev) => {
-                    const existing = new Set(prev.map((f) => f.path));
-                    return [...prev, ...files.filter((f) => !existing.has(f.path))];
-                  })
-                }
-              />
+              <FileAttachButton onFilesSelected={addFiles} />
               <ToolsPopover />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -252,7 +297,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 <Button
                   size="icon"
                   onClick={() => void trySend()}
-                  disabled={!text.trim() || disabled}
+                  disabled={(!text.trim() && attachedFiles.length === 0) || disabled}
                   aria-label="Send"
                   className="h-7 w-7"
                 >
@@ -263,9 +308,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           </div>
         </div>
         {disabled && !isEmpty && !alwaysEnabled && (
-          <p className="text-xs text-text-muted mt-2">
-            No model loaded. Open Models to download one, or add a cloud key in Settings.
-          </p>
+          <p className="text-xs text-text-muted mt-2">{t('chat.noModelHint')}</p>
         )}
       </div>
     </TooltipProvider>

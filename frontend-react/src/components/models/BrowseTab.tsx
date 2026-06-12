@@ -117,6 +117,18 @@ export function BrowseTab() {
             <div className="flex justify-center py-8 text-text-muted text-sm">Searching...</div>
           )}
 
+          {/* #19: empty state — a silent blank list after a search read as a bug */}
+          {!loading && !error && results.length === 0 && (
+            <div className="flex flex-col items-center gap-1 py-10 text-center">
+              <p className="text-sm text-text-secondary">
+                {query.trim() ? `No GGUF models found for “${query.trim()}”` : 'No models to show right now'}
+              </p>
+              <p className="text-xs text-text-muted">
+                Try another search term — e.g. a model family like “qwen”, “llama” or “gemma”.
+              </p>
+            </div>
+          )}
+
           {results.map((m) => (
             <HfModelCard
               key={m.id}

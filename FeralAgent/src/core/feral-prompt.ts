@@ -15,9 +15,6 @@
  *     into the live transcript so the model re-engages the original goal
  *     after every tool call or after a long pause.
  *
- *      - `buildToolContinuation(result)` — the short "Previous tool result: …
- *        Continue towards completing the original goal." nudge the agent
- *        loop appends after every tool result.
  *      - `buildMidConversationReminder({summary, goal, lastResult, lastError})`
  *        — the longer SUMMARY / GOAL / LAST-RESULT payload the agent loop
  *        injects when resuming a session after a stop, restart, or
@@ -25,6 +22,13 @@
  *
  * The helpers are pure functions, side-effect free, and exported so they
  * can be unit-tested without standing up the full agent loop.
+ *
+ * P4 fix: the previous `buildToolContinuation` helper has been removed. The
+ * synthetic user nudge it produced was a duplicate of the tool result the
+ * transcript already carries as a `tool`-role message, doubling context
+ * burn and transcript growth. The agent loop now feeds the raw tool result
+ * into WorkingMemory and lets the model re-engage without an extra user
+ * turn in between.
  */
 
 /**
@@ -72,26 +76,7 @@ Before any action:
 - Use professional, confident, and helpful tone.
 - In final responses: Be direct, show evidence of completion.`;
 
-const TOOL_RESULT_TRUNCATE_AT = 2_000;
 const MID_CONVERSATION_TRUNCATE_AT = 1_500;
-
-/**
- * Build the short continuation nudge injected after every tool result.
- *
- * The full tool result is also preserved verbatim in the transcript (as a
- * \`tool\` role message), so this nudge is a re-engagement, not a substitute
- * — we just need to remind the model "look at that result and keep driving
- * the goal" without bloating the prompt further.
- *
- * Huge results are truncated with a marker so the nudge itself stays small
- * even when the tool returned 50k chars.
- */
-export function buildToolContinuation(toolResult: string): string {
-  const trimmed = toolResult.length > TOOL_RESULT_TRUNCATE_AT
-    ? toolResult.slice(0, TOOL_RESULT_TRUNCATE_AT) + "\n…(truncated for brevity)"
-    : toolResult;
-  return `Previous tool result: ${trimmed}. Continue towards completing the original goal.`;
-}
 
 /**
  * Mid-conversation reminder payload — used when resuming a session after a

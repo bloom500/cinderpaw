@@ -16,12 +16,21 @@ import type { AttachedFile } from '@/components/chat/AttachedFileChip';
 export function buildUserContent(text: string, files: AttachedFile[]): string {
   const textFiles = files.filter((f) => f.content !== null);
   const imageFiles = files.filter((f) => f.kind === 'image' && f.dataUrl);
-  if (textFiles.length === 0 && imageFiles.length === 0) return text;
+  // Binary files with no extractable text still reach the model as a path
+  // reference (the agent can read them with its file tools). Previously these
+  // were silently dropped — "I uploaded a file but it never reached you".
+  const binaryFiles = files.filter((f) => f.content === null && f.kind !== 'image');
+  if (textFiles.length === 0 && imageFiles.length === 0 && binaryFiles.length === 0) return text;
   const blocks = [
     ...textFiles.map((f) => `[File: ${f.name}]\n${f.content}`),
     // Text-only models can't see pixels — note the attachment so the model
     // can at least acknowledge it instead of silently ignoring the upload.
     ...imageFiles.map((f) => `[Image attached: ${f.name}]`),
+    ...binaryFiles.map((f) =>
+      f.path.startsWith('clipboard://')
+        ? `[File attached: ${f.name} — binary, no extractable text]`
+        : `[File attached: ${f.name} — binary file at path: ${f.path}. If you have file tools, you can read it from that path.]`,
+    ),
   ];
   return `${blocks.join('\n\n')}\n\n${text}`;
 }

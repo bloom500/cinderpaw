@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { StreamStatus, AgentPhase } from '@/stores/chat';
+import { useAskUser } from '@/stores/askUser';
+import { useFeralStore } from '@/stores/feral';
 import type { MascotState } from './frames';
 
 export const DONE_HOLD_MS = 1200;
@@ -17,6 +19,11 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
   const [excitedActive, setExcitedActive] = useState(false);
   const prevStatus = useRef<StreamStatus>(streamStatus);
   const idleTier = useRef<number>(0);
+  // #23: the two moments the mascot previously had nothing to say about —
+  // "I asked YOU a question" (ask_user pending → curious, looking at the
+  // user) and "my agent process is down" (sidecar offline → asleep).
+  const askPending = useAskUser((s) => s.pending !== null);
+  const agentOffline = useFeralStore((s) => s.offline);
 
   const isExcitedTransition = streamStatus === 'streaming' && prevStatus.current !== 'streaming' && idleTier.current > 0;
 
@@ -42,8 +49,10 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
     else idleTier.current = 0;
   }, [streamStatus, isExcitedTransition]);
 
+  if (agentOffline) return 'sleep';
   if (doneActive) return 'done';
   if (excitedActive) return 'excited';
+  if (askPending) return 'curious';
   if (streamStatus === 'streaming') {
     switch (agentPhase) {
       case 'calling':   return 'calling';

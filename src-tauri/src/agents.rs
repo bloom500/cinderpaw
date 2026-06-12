@@ -165,8 +165,8 @@ pub fn run(
         };
 
         let mut messages = vec![
-            Message { role: "system".into(), content: tool_calling_system_prompt(&cfg) },
-            Message { role: "user".into(), content: user_prompt },
+            Message { role: "system".into(), content: tool_calling_system_prompt(&cfg), images: None },
+            Message { role: "user".into(), content: user_prompt, images: None },
         ];
 
         let params = cfg.params.clone().unwrap_or_default();
@@ -209,10 +209,11 @@ pub fn run(
                             ok: result.ok,
                             output: result.output.clone(),
                         }).await;
-                        messages.push(Message { role: "assistant".into(), content: buffer });
+                        messages.push(Message { role: "assistant".into(), content: buffer, images: None });
                         messages.push(Message {
                             role: "user".into(),
                             content: format!("[tool:{}] {}", result.name, result.output),
+                            images: None,
                         });
                         continue;
                     }

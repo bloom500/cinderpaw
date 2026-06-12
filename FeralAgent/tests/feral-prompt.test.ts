@@ -3,11 +3,11 @@
  *
  * Covers:
  *   1. `FERAL_AGENT_BASE_PROMPT` — universal prompt content + key phrases
- *   2. `buildToolContinuation` — the short re-engagement nudge
- *   3. `buildMidConversationReminder` — the longer SUMMARY/GOAL/LAST-RESULT payload
- *   4. Integration with `buildSystemPrompt` — base is FIRST, never replaced by SOUL
- *   5. Integration with `AgentLoop` — the continuation is appended to the live
- *      transcript after every tool result, so the next completion sees it
+ *   2. `buildMidConversationReminder` — the longer SUMMARY/GOAL/LAST-RESULT payload
+ *   3. Integration with `buildSystemPrompt` — base is FIRST, never replaced by SOUL
+ *   4. Integration with `AgentLoop` — the tool result lives in the transcript
+ *      exactly once, as a `tool`-role message (P4 fix removed the
+ *      duplicate user-nudge)
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
@@ -19,7 +19,6 @@ import { AgentLoop, buildSystemPrompt } from "../src/core/agent-loop.ts";
 import {
   FERAL_AGENT_BASE_PROMPT,
   buildMidConversationReminder,
-  buildToolContinuation,
 } from "../src/core/feral-prompt.ts";
 import { AuditLog } from "../src/sandbox/audit-log.ts";
 import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
@@ -96,53 +95,7 @@ describe("FERAL_AGENT_BASE_PROMPT", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. buildToolContinuation — short re-engagement nudge
-// ---------------------------------------------------------------------------
-
-describe("buildToolContinuation", () => {
-  it("returns the canonical nudge format", () => {
-    const out = buildToolContinuation("tool said 42");
-    expect(out).toBe("Previous tool result: tool said 42. Continue towards completing the original goal.");
-  });
-
-  it("preserves the full result when under the truncation threshold", () => {
-    const result = "x".repeat(1_500);
-    const out = buildToolContinuation(result);
-    expect(out).toContain(result);
-    expect(out).not.toContain("truncated for brevity");
-  });
-
-  it("truncates results over the threshold and includes a marker", () => {
-    const result = "y".repeat(5_000);
-    const out = buildToolContinuation(result);
-    expect(out).toContain("…(truncated for brevity)");
-    expect(out.length).toBeLessThan(result.length); // strictly shorter than the raw result
-    // Truncation should keep the first chunk of the result.
-    expect(out).toContain("y".repeat(2_000));
-  });
-
-  it("handles an empty result without crashing", () => {
-    const out = buildToolContinuation("");
-    expect(out).toBe(
-      "Previous tool result: . Continue towards completing the original goal.",
-    );
-  });
-
-  it("preserves newlines and special characters in the result", () => {
-    const out = buildToolContinuation('{"a": 1}\nline2\n  spaced');
-    expect(out).toContain('{"a": 1}\nline2\n  spaced');
-  });
-
-  it("does not mutate the input string", () => {
-    const input = "hello world";
-    const snapshot = input;
-    buildToolContinuation(input);
-    expect(input).toBe(snapshot);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 3. buildMidConversationReminder — long resumption payload
+// 2. buildMidConversationReminder — long resumption payload
 // ---------------------------------------------------------------------------
 
 describe("buildMidConversationReminder", () => {
@@ -294,7 +247,10 @@ describe("buildSystemPrompt — FeralAgent base layer", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. Integration with AgentLoop — continuation appended after every tool result
+// 4. Integration with AgentLoop — tool result lives in the transcript
+//    exactly once, as a `tool`-role message (P4 fix removed the duplicate
+//    "Previous tool result: …" user-nudge that buildToolContinuation used
+//    to append).
 // ---------------------------------------------------------------------------
 
 type MockStep = { url: RegExp; status: number; body: unknown };
@@ -339,8 +295,9 @@ function installSequencedFetch(steps: MockStep[]): {
   };
 }
 
+// A3: Pass 1 (fenced blocks) removed. Use the only remaining format: <tool_call> XML.
 function toolBlock(name: string, args: Record<string, unknown>): string {
-  return "```tool\n" + JSON.stringify({ name, args }) + "\n```";
+  return "<tool_call>\n" + JSON.stringify({ name, args }) + "\n</tool_call>";
 }
 
 function ollamaOk(content: string, promptTokens = 10, evalTokens = 5) {
@@ -354,8 +311,8 @@ function ollamaOk(content: string, promptTokens = 10, evalTokens = 5) {
 let restoreFetch: (() => void) | null = null;
 afterEach(() => { restoreFetch?.(); restoreFetch = null; });
 
-describe("AgentLoop — tool-result continuation prompt", () => {
-  it("appends a 'Continue towards completing the original goal' user message after a tool result", async () => {
+describe("AgentLoop — tool result stored exactly once (P4)", () => {
+  it("tool result lives as a `tool`-role message; no synthetic user-nudge follows", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "feral-cont-"));
     writeFileSync(join(workspace, "notes.txt"), "hello world");
 
@@ -378,7 +335,7 @@ describe("AgentLoop — tool-result continuation prompt", () => {
 
     // Sequence:
     //   1. LLM → read_file tool call
-    //   2. LLM → final answer (sees the continuation nudge on this call)
+    //   2. LLM → final answer (must NOT receive a synthetic user-nudge)
     const mock = installSequencedFetch([
       {
         url: /localhost:11434/,
@@ -393,25 +350,32 @@ describe("AgentLoop — tool-result continuation prompt", () => {
     ]);
     restoreFetch = mock.restore;
 
-    const events: OutboundEvent[] = [];
-    await agent.handle("sess-cont-1", "read the notes", "msg-1", (e) => events.push(e));
+    await agent.handle("sess-cont-1", "read the notes", "msg-1", () => {});
 
-    // The second LLM call (after the tool result) must have received the
-    // continuation prompt as a user-role message in its messages array.
     const payloads = mock.callPayloads();
     expect(payloads.length).toBeGreaterThanOrEqual(2);
     const secondCall = payloads[1] as { messages?: Array<{ role: string; content: string }> };
-    const continuationMsg = secondCall.messages?.find(
+    const messages = secondCall.messages ?? [];
+
+    // The tool result must be present exactly once, as a `tool`-role message
+    // (the toProviderMessage helper rewrites it to `user` for the Ollama
+    // wire format — see inference-providers.ts:488 — but the transcript
+    // entry on the LLM side is still one row).
+    const toolRows = messages.filter((m) => m.content.includes("hello world"));
+    expect(toolRows.length).toBe(1);
+
+    // P4 fix: there must NOT be a "Continue towards completing the original goal"
+    // user-nudge in the messages array. The model re-engages the `tool` role
+    // message directly.
+    const continuation = messages.find(
       (m) => m.role === "user" && m.content.includes("Continue towards completing the original goal"),
     );
-    expect(continuationMsg).toBeDefined();
-    // The continuation should reference the actual tool result content.
-    expect(continuationMsg?.content).toContain("hello world");
+    expect(continuation).toBeUndefined();
 
     db.close();
   });
 
-  it("appends one continuation per tool call in multi-tool turns", async () => {
+  it("multi-tool turns still produce exactly one `tool` row per call (no nudge duplicates)", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "feral-cont-"));
     writeFileSync(join(workspace, "a.txt"), "alpha");
     writeFileSync(join(workspace, "b.txt"), "beta");
@@ -443,21 +407,24 @@ describe("AgentLoop — tool-result continuation prompt", () => {
     ]);
     restoreFetch = mock.restore;
 
-    const events: OutboundEvent[] = [];
-    await agent.handle("sess-cont-2", "read both", "msg-2", (e) => events.push(e));
+    await agent.handle("sess-cont-2", "read both", "msg-2", () => {});
 
     const payloads = mock.callPayloads();
     const secondCall = payloads[1] as { messages?: Array<{ role: string; content: string }> };
-    const continuations = secondCall.messages?.filter(
+    const messages = secondCall.messages ?? [];
+
+    // Each tool result appears exactly once in the transcript.
+    const alphaRows = messages.filter((m) => m.content.includes("alpha"));
+    const betaRows = messages.filter((m) => m.content.includes("beta"));
+    expect(alphaRows.length).toBe(1);
+    expect(betaRows.length).toBe(1);
+
+    // No continuation nudges — the LLM should not see a "Continue towards…"
+    // user message after either tool result.
+    const continuations = messages.filter(
       (m) => m.role === "user" && m.content.includes("Continue towards completing the original goal"),
-    ) ?? [];
-    // Two tool results → two continuation nudges. (A third would only appear
-    // if the model fired a tool call on the second LLM round, which it did not.)
-    expect(continuations.length).toBeGreaterThanOrEqual(2);
-    // Each continuation should reference one of the actual tool results.
-    const joined = continuations.map((c) => c.content).join("\n");
-    expect(joined).toContain("alpha");
-    expect(joined).toContain("beta");
+    );
+    expect(continuations.length).toBe(0);
 
     db.close();
   });

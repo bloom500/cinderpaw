@@ -53,6 +53,13 @@ export interface CronSchedulerConfig {
   jobTimeoutMs?: number;
   /** Override the clock (for tests). */
   now?: () => Date;
+  /**
+   * X3: called when a job run fails or times out, AFTER the run record is
+   * persisted. The production wiring forwards this to the UI as a
+   * `cron_error` event — without it, failures were only visible by querying
+   * the run-history table.
+   */
+  onJobError?: (job: CronJob, message: string) => void;
 }
 
 const DEFAULT_TICK_MS = 30_000;
@@ -65,6 +72,7 @@ export class CronScheduler {
   readonly #tickMs: number;
   readonly #jobTimeoutMs: number;
   readonly #now: () => Date;
+  readonly #onJobError: ((job: CronJob, message: string) => void) | undefined;
 
   #timer: ReturnType<typeof setTimeout> | null = null;
   #running = false;
@@ -77,6 +85,7 @@ export class CronScheduler {
     this.#tickMs = config.tickIntervalMs ?? DEFAULT_TICK_MS;
     this.#jobTimeoutMs = config.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
     this.#now = config.now ?? (() => new Date());
+    this.#onJobError = config.onJobError;
   }
 
   /** Start the timer. Idempotent. */
@@ -172,6 +181,12 @@ export class CronScheduler {
         record,
         newRetry,
       );
+      // X3: surface the failure beyond the run-history table.
+      try {
+        this.#onJobError?.(job, record.error ?? String(err));
+      } catch {
+        // An error reporter must never take down the scheduler.
+      }
     }
 
     // Deliver the content on success only — failed runs have no

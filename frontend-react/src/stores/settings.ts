@@ -31,6 +31,7 @@ interface SettingsStore {
   updateSettings: (patch: Partial<Settings>) => void;
   save: () => Promise<void>;
   saveByokProvider: (p: ByokProviderUpdate) => Promise<void>;
+  removeByokProvider: (providerId: string) => Promise<void>;
   testByokProvider: (p: ByokTestPayload) => Promise<ByokTestResult>;
 }
 
@@ -81,6 +82,11 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
 
   saveByokProvider: async (p) => {
     await tauri.raw.saveByokProvider(p.providerId, p.enabled, p.apiKey, p.baseUrl, p.defaultModel);
+    await get().fetchByok();
+  },
+
+  removeByokProvider: async (providerId) => {
+    await tauri.raw.removeByokProvider(providerId);
     await get().fetchByok();
   },
 

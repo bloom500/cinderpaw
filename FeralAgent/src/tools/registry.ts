@@ -40,6 +40,7 @@ import type {
   ToolResult,
   ToolRetryCategory,
   ToolRetryPolicy,
+  ToolProgressEvent,
 } from "../types.ts";
 import type { ToolObservationLog } from "../telemetry/tool-observations.ts";
 import { CircuitBreaker } from "../sandbox/circuit-breaker.ts";
@@ -82,6 +83,53 @@ export class ToolRegistry {
     this.#askUser = askUser ?? null;
     this.#breaker = breaker ?? new CircuitBreaker();
     this.#hooks = hooks ?? null;
+  }
+
+
+  /**
+   * Feral-WIP #2: try the fallback chain declared in `tool.manifest.fallback`.
+   *
+   * Returns a new ToolResult if a fallback succeeded, or null if the chain
+   * either had no fallbacks, all fallbacks failed, or the primary result
+   * was already a success. When all fallbacks fail, the original `result`
+   * is returned with an "(fallbacks ... also failed)" suffix.
+   *
+   * Re-enters `this.call()` for each fallback so the same sandbox / retry
+   * / circuit-breaker pipeline is applied.
+   */
+  async #tryFallbackChain(
+    name: string,
+    tool: Tool,
+    result: ToolResult,
+    args: Record<string, unknown>,
+    sessionId: string,
+    opts: ToolCallOptions,
+  ): Promise<ToolResult> {
+    if (result.ok) return result;
+    const fallbacks = tool.manifest.fallback;
+    if (!fallbacks || fallbacks.length === 0) return result;
+    for (const fb of fallbacks) {
+      const fbName = typeof fb === "string" ? fb : fb.name;
+      const fbTool = this.#tools.get(fbName);
+      if (!fbTool) continue;
+      const fbArgs = typeof fb === "object" && fb.argMap ? fb.argMap(args) : args;
+      const fbResult = await this.call(fbName, fbArgs, sessionId, opts);
+      if (fbResult.ok) {
+        return {
+          ok: true,
+          content: fbResult.content,
+          data: {
+            ...(fbResult.data ?? {}),
+            fallbackFrom: name,
+            fallbackChain: [name, ...fallbacks.map((f) => (typeof f === "string" ? f : f.name))],
+          },
+        };
+      }
+    }
+    return {
+      ...result,
+      content: result.content + " (fallbacks " + fallbacks.map((f) => (typeof f === "string" ? f : f.name)).join(",") + " also failed)",
+    };
   }
 
   /** Register a tool after validating its manifest. Throws on bad manifests. */
@@ -233,6 +281,17 @@ export class ToolRegistry {
       // with a bridge; the ask_user tool checks ctx.askUser is defined
       // and refuses to run otherwise.
       askUser: this.#askUser ?? undefined,
+      progress: opts.onProgress
+        ? (event) => {
+            const full: ToolProgressEvent = {
+              type: "tool_progress",
+              sessionId,
+              tool: name,
+              ...event,
+            };
+            opts.onProgress?.(full);
+          }
+        : undefined,
     };
 
     const policy = tool.manifest.retry;
@@ -285,7 +344,8 @@ export class ToolRegistry {
           process.stderr.write(`[tools] after_tool_call hook fire failed: ${String(err)}\n`);
         }
       }
-      return ok;
+      const withFb = await this.#tryFallbackChain(name, tool, ok, args, sessionId, opts);
+      return withFb;
     }
 
     // Retry path: try up to attempts+1 times, sleeping backoffMs * attempt
@@ -385,7 +445,8 @@ export class ToolRegistry {
       }
     }
 
-    return result;
+    const withFb = await this.#tryFallbackChain(name, tool, result, args, sessionId, opts);
+    return withFb;
   }
 
   /**

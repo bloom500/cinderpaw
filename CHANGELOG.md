@@ -1,5 +1,180 @@
 # Changelog
 
+## v0.2.0
+
+*Released 2026-06-12 — Windows, macOS (Apple Silicon + Intel), and Linux.*
+
+### ⚠️ Migration notes from 0.1.x
+
+- **Updater key rotation.** The original update-signing key was exposed in the
+  public git history and has been rotated. Upgrading from **0.1.7 or older**
+  requires either installing the transitional **0.1.8** release first (it
+  carries the new verification key) or downloading the 0.2.0 installer
+  manually one time. Full plan: `docs/UPDATER_KEY_MIGRATION.md`.
+- Onboarding, conversations, models, and BYOK keys carry over unchanged.
+
+### New
+
+- **Vision — the agent can finally see your images.** Pasted screenshots
+  (Ctrl+V) and uploaded image files now reach the model as real pixel data
+  (base64 data URLs), not just a `[Image attached: …]` filename note. Works on
+  both inference paths: direct chat (BYOK cloud via OpenAI `image_url` content
+  parts) and the Feral Agent sidecar (OpenAI-compatible, Ollama `images`, and
+  Anthropic base64 blocks). Local llama.cpp GGUF models remain text-only and
+  keep the filename note.
+- **Memory that actually carries over.** New conversations no longer start
+  cold: the chat tab now injects a "[Memory context]" block (facts from the
+  shared knowledge graph) into the system prompt on every send, and runs a
+  background extraction pass after each completed turn that writes
+  subject–predicate–object triples back into `~/.feral/memory-graph.json` —
+  the same graph the agent sidecar maintains. The sidecar side recalls graph
+  facts at every turn too, extracts from the very first assistant turn
+  (previously only every 3rd — short chats never learned anything), and the
+  previously-unregistered `memory_ops` / `memory_graph` tools are now live so
+  "remember X" / "forget Y" take effect immediately.
+- **Memory Graph page redesign.** Cognee-inspired dark visualization: glowing
+  neon nodes on a near-black canvas, degree-scaled node sizes, a filter rail
+  with per-type counts, relation chips, free-text node search, a labels
+  toggle, and a click-to-inspect detail card showing a node's connections.
+- **MCP Extensions (native connector).** Feral now consumes Model Context
+  Protocol servers through the official `rmcp` Rust SDK, managed entirely in
+  the Tauri host. New "Extensions" entry in the sidebar (under Skills) with an
+  app-store style UI: curated catalog (File Access, Long-term Memory, GitHub,
+  Web Search, Browser Automation, Deep Reasoning), one-click install, on/off
+  toggle, "What can it do?" tool listing, and humanized errors. No transports,
+  JSON-RPC, raw values, internal paths, or API keys ever reach the frontend;
+  configs (including keys) live backend-side in `~/.feral/mcp.json`.
+- **Drag & drop + paste attachments — any file type.** Files and images can
+  be dropped onto the chat input, and screenshots paste straight from the
+  clipboard (Ctrl+V). PDFs and Office documents (.docx, .pptx, .xlsx, .odt)
+  are now parsed natively (new Rust `extract_file_text` command) so their
+  text reaches the model; plain-text files of any extension work as before;
+  and true binaries are attached as a path reference the agent can open with
+  its file tools instead of becoming a dead "Unsupported format" chip. The
+  agent path now receives every attachment too — previously files whose text
+  couldn't be extracted were silently dropped and never reached the model.
+- **macOS and Linux releases.** The release pipeline now builds and signs
+  installers for Windows (.msi/.exe), macOS Apple Silicon + Intel (.dmg),
+  and Linux (.AppImage/.deb) from a single tag, updater manifest included.
+  The agent sidecar resolves its per-platform binary on all five targets.
+- **Mascot redesign — the real Feral monster.** The pixel companion is now
+  the brand mascot itself: charcoal-black fluffy monster with orange horns,
+  an orange face plate with big black eyes, tiny white fangs, and a round
+  orange belly. 55 animated variants across all 22 states, composed from a
+  single base sprite so the cast stays consistent (laptop typing, thought
+  clouds and lightbulbs, magnifier searches, party hats, heart eyes, a real
+  side-run cycle, dissolve-in spawning, and more). It also renders 26%
+  larger at a crisp integer 3× pixel scale, so every state, variant, and
+  effect is clearly readable without crowding the chat input. A procedural
+  pixel-effects layer plays around it per state: confetti on celebrate,
+  rising hearts, drifting Z's while sleeping, thought dots, an orbiting
+  search ring, a drawn-in green check on done, flashing error cross, work
+  sparks during tool calls.
+- **Sonnet-style agent voice.** SOUL.md rewritten (super friendly + ultra
+  useful), plus new bundled IDENTITY.md and AGENTS.md companions — each
+  user-overridable at `~/.feral/<NAME>.md` — composed into the system prompt.
+- **Contributor guide.** `docs/CONTRIBUTOR_GUIDE.md`: three-runtime
+  architecture, IPC protocols, test matrix, build & release flow.
+
+### Stability
+
+- **Agent stop actually stops (this release).** The Stop button's signal now
+  travels the whole chain: new `feral_stop_generation` Tauri command → `stop`
+  message over sidecar stdin → `AgentLoop.stop(sessionId)` aborts the
+  in-flight inference fetch and any running tool. Previously the frontend
+  called a Rust command that didn't exist, so agent generations were
+  unstoppable.
+- **Agent tasks survive chat/tab switches.** A live per-session mirror
+  (`lib/feralLiveSession.ts`) accumulates streamed content, tool bubbles, and
+  agent phase even while another chat is on screen; re-opening the in-flight
+  conversation rehydrates all of it instead of showing the stale disk
+  snapshot (which made tasks look reset during long tool runs).
+- **Tool-call bubbles behave.** The mascot's tool-call stack now grows upward
+  from above the mascot (it could previously extend down over the typing
+  bar), and each finished bubble fades out on its own after 4s instead of
+  piling up until the turn ended.
+
+- **Unified stream stop (A2).** One stop entry point (`lib/streamControl.ts`)
+  routes Stop to whichever path (chat backend / agent sidecar) actually owns
+  the in-flight generation. Previously the Stop button in Agent mode told the
+  idle chat backend to stop while the sidecar kept generating. Feral streams
+  are stoppable per-session, and a new send interrupts the previous in-flight
+  stream on both paths.
+- **Sidecar supervision (#11).** The Tauri shell now watches the agent sidecar
+  process, restarts it with backoff on crashes, and shows an "agent offline /
+  restarting" banner. Before: a sidecar crash made Agent mode silently mute.
+- **GGUF chat template (A4).** The prompt format is now read from the model's
+  own GGUF metadata (`tokenizer.chat_template`) via llama.cpp's template
+  engine; the filename-based guess is only a fallback. A renamed GGUF no
+  longer gets a wrong template and corrupted output.
+- **Real tokenizer endpoint (P3).** New `/tokenize` route on the local API
+  backed by the loaded model's actual vocabulary; the agent's context
+  accounting no longer relies on GPT-2 BPE guesses, and token counts are
+  cached per message text.
+- **Idle-timeout transparency (#13).** A stream that stalls for 300s is now
+  reported as an explained error ("model stopped responding…") instead of
+  silently ending in a fake "stopped by user" state.
+- **No more mid-reasoning dead ends.** When a completion exhausts its
+  per-call token limit while the model is still thinking, the agent loop now
+  feeds the partial reasoning back and asks the model to finish — up to 4
+  automatic continuations — instead of surfacing "(The model used all
+  available tokens on reasoning and produced no answer)". Tasks complete
+  end-to-end regardless of the Max Tokens slider.
+
+### Error handling
+
+- **Root React ErrorBoundary (#9).** A render exception now shows a recovery
+  screen (try again / reload) instead of a blank window.
+- **Humanized inference errors (#10).** Raw provider errors (401/429/network/
+  context overflow…) are mapped to plain-English messages with a fix-it
+  action (e.g. "key rejected → Open Cloud Keys"); the raw error stays
+  available under "Technical details". Local-engine failures no longer leak
+  `[Error: …]` text into the chat transcript.
+- **Cron visibility (X3).** Scheduled jobs now run through the full agent
+  loop (tools, memory, budgets) instead of a bare LLM call, and their results
+  and failures surface as toasts. Failed runs emit a `cron_error` event.
+
+### First-run experience
+
+- **Zero-models flow (#14).** After the first model download finishes, it is
+  loaded automatically (when nothing else is loaded), taking a fresh install
+  from "empty app" to "ready to chat" without a manual Load click.
+- **Hardware-aware recommendation (#15).** The onboarding wizard's final step
+  now reads your RAM/VRAM/Vulkan detection and recommends a concrete model
+  size + quantization to download.
+- **Slow-start indicator (#16).** While a model loads (with %) or a long
+  prompt prefills, the chat shows an explanatory status instead of silent
+  dots.
+- **Onboarding sequencing (#17).** The agent-creation flow now actually
+  mounts (it was unreachable) and never stacks on top of the first-run
+  wizard.
+
+### UI
+
+- **Tool-call bubbles (#18)** are interactive: finished calls expand to show
+  the tool's output (or error), and long-running tools show live
+  retry/progress notes.
+- **Empty states (#19)**: HuggingFace browse now explains "no results" instead
+  of rendering a blank list.
+- **i18n groundwork (#20)**: typed EN/RO dictionary wired to the existing
+  language setting; chat surface migrated first, the rest moves incrementally.
+- **Accessibility (#21)**: the search overlay is a proper dialog (focus
+  restore, Escape from anywhere, arrow-key navigation, combobox semantics).
+- **Window dragging (#22)**: Models and Settings pages gained drag regions —
+  the frameless window is now movable from every page, not just Chat.
+- **Mascot (#23–26)**: reacts to ask_user prompts (curious) and sidecar
+  downtime (asleep); can be disabled in Settings → Appearance; greets you in
+  the onboarding wizard; single-animation states gained cadence variants so
+  long sessions don't loop one identical animation.
+
+### Docs
+
+- README rewritten for 0.2.0 (install matrix, hardware requirements, BYOK
+  quick start, honest privacy section, current screenshots).
+- New: `SECURITY.md` (threat model + reporting), `docs/UPDATER_KEY_MIGRATION.md`,
+  `docs/USER_GUIDE.md` (Agent vs Chat, tools, skills), `docs/CONTRIBUTING.md`
+  (architecture, tests, builds).
+
 ## v0.1.7
 
 ### Agent

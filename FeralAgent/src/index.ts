@@ -18,7 +18,7 @@ import { InferenceRouter } from "./sandbox/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { SemanticMemory } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
-import { MemoryExtractor } from "./memory/extractor.ts";
+import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { ToolRegistry } from "./tools/registry.ts";
@@ -44,6 +44,8 @@ import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createFeedbackSkillTool } from "./tools/builtin/feedback-skill.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
+import { createMemoryOpsTool } from "./tools/builtin/memory-ops.ts";
+import { createMemoryGraphOpsTool } from "./tools/builtin/memory-graph-ops.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
@@ -201,6 +203,33 @@ async function main(): Promise<void> {
   const semantic = new SemanticMemory(db.raw, audit.logger);
   const recall = new RecallEngine(episodic, semantic);
 
+  // --- Memory graph (moved up so tools can reference it at registry build time) ---
+  const memoryGraph = new MemoryGraph();
+  const graphCleaner = new MemoryGraphCleaner();
+  graphCleaner.startSchedule();
+  // Boot-time hygiene sweep: purge junk facts/nodes written by the old
+  // colon-split extractor (keys like "- language", "1. user shared a link",
+  // reasoning leakage). Runs every start so junk can never survive a restart
+  // even if an older binary wrote it — deletions stay deleted.
+  {
+    let sweptFacts = 0;
+    for (const fact of semantic.all()) {
+      if (isJunkFactKey(fact.key)) {
+        semantic.delete(fact.key);
+        sweptFacts++;
+      }
+    }
+    const sweptNodes = memoryGraph.sweepJunk((idText, label) =>
+      isJunkFactKey(idText) || isJunkFactKey(label.toLowerCase()),
+    );
+    if (sweptFacts > 0 || sweptNodes > 0) {
+      log(`memory hygiene: removed ${sweptFacts} junk fact(s), ${sweptNodes} junk graph node(s)`);
+    }
+  }
+  // Surface accumulated graph facts in every recall so a brand-new session
+  // starts with what the agent already knows about the user.
+  recall.setGraph(memoryGraph);
+
   // --- ECC tool observation telemetry ---
   const dataDir = config.dbPath === ":memory:" ? "data" : require("node:path").dirname(config.dbPath);
   const observations = new ToolObservationLog(dataDir);
@@ -289,6 +318,13 @@ async function main(): Promise<void> {
   // ask_user — interactive questions (Claude.ai-style). No permissions;
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
+
+  // memory_ops / memory_graph — explicit CRUD over semantic memory and the
+  // knowledge graph. The extractor feeds both automatically in the
+  // background; these tools let the agent act on "remember X" / "forget Y"
+  // immediately and query what it already knows.
+  registry.register(createMemoryOpsTool(semantic));
+  registry.register(createMemoryGraphOpsTool(memoryGraph));
 
   // P0-2: feedback_skill — refine a skill's body given user feedback.
   // Default OFF (auto-creation is gated separately by
@@ -392,11 +428,6 @@ async function main(): Promise<void> {
       }
     },
   });
-
-  // --- Memory graph (T4) ---
-  const memoryGraph = new MemoryGraph();
-  const graphCleaner = new MemoryGraphCleaner();
-  graphCleaner.startSchedule();
 
   // --- Memory extractor (async, fire-and-forget after each turn) ---
   const extractor = new MemoryExtractor(router, semantic, episodic, skillCreator);
@@ -609,6 +640,17 @@ async function main(): Promise<void> {
         // skills" menu in the system prompt; the LLM loads any skill's body
         // on demand via the `read_skill` tool. See WorkingMemory.setSkillMenu.
         const skillsContext = msg.skillsContext;
+        // Image attachments (data URLs) forwarded by the host. Passed through
+        // to the agent loop so vision-capable models receive real pixels.
+        const images = Array.isArray(msg.images)
+          ? msg.images.filter((i): i is string => typeof i === "string" && i.startsWith("data:image/"))
+          : undefined;
+        // Controls-panel overrides (temperature / max_tokens) ride along on
+        // every send; the loop validates and clamps them per session.
+        const inferParams =
+          msg.inferParams && typeof msg.inferParams === "object"
+            ? msg.inferParams
+            : undefined;
         await agent.handle(sessionId, content, id, (event) => {
           transport.send(event);
           // X1 fix: same gating as the message-received update above.
@@ -618,7 +660,7 @@ async function main(): Promise<void> {
             mood?.applyEvent(r?.ok === false ? "tool_error" : "tool_success");
           }
           if (event.type === "error")      mood?.applyEvent("inference_error");
-        }, skillsContext);
+        }, skillsContext, images, inferParams);
         break;
       }
 

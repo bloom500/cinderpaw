@@ -26,6 +26,7 @@ type ProviderDef = typeof PROVIDER_DEFS[number];
 
 function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider }) {
   const saveByokProvider = useSettings((s) => s.saveByokProvider);
+  const removeByokProvider = useSettings((s) => s.removeByokProvider);
   const testByokProvider = useSettings((s) => s.testByokProvider);
 
   const [open, setOpen]             = useState(false);
@@ -182,6 +183,17 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
             <button type="button" onClick={() => void handleSave()} disabled={saving} className="px-3 py-1.5 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium disabled:opacity-50 transition-colors">
               {saving ? 'Saving…' : 'Save'}
             </button>
+            {state?.has_api_key && (
+              <button
+                type="button"
+                onClick={() => { setApiKey(''); setEnabled(false); void removeByokProvider(def.id); }}
+                disabled={saving}
+                className={btnSecCls}
+                title="Delete this key from the OS keychain"
+              >
+                Remove key
+              </button>
+            )}
             {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{testMsg}</span>}
             {saveMsg && <span className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-red-400')}>{saveMsg}</span>}
           </div>

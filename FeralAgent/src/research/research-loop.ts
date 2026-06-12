@@ -17,7 +17,24 @@
  */
 
 import type { InferenceRouter } from "../sandbox/inference-router.ts";
-import type { FeralFetch } from "../types.ts";
+import type { FeralFetch, ToolProgressPayload } from "../types.ts";
+
+export type ResearchProgressStage =
+  | "start"
+  | "plan"
+  | "search"
+  | "select"
+  | "read"
+  | "extract"
+  | "synthesize"
+  | "complete"
+  | "stopped";
+
+export interface ResearchProgressPayload extends ToolProgressPayload {
+  stage: ResearchProgressStage;
+}
+
+type ResearchProgressHandler = (event: ResearchProgressPayload) => void;
 
 export interface ResearchSource {
   url: string;
@@ -29,6 +46,7 @@ export interface ResearchResult {
   report: string;
   sources: ResearchSource[];
   iterations: number;
+  stopped?: boolean;
 }
 
 interface SearchResult {
@@ -45,68 +63,164 @@ interface Note {
   excerpt: string;
 }
 
+export class ResearchStoppedError extends Error {
+  constructor() {
+    super("research stopped");
+    this.name = "ResearchStoppedError";
+  }
+}
+
 export class ResearchLoop {
   readonly #router: InferenceRouter;
   readonly #fetch: FeralFetch;
   readonly #sessionId: string;
   readonly #jinaApiKey: string | undefined;
+  readonly #signal: AbortSignal | undefined;
+  readonly #progress: ResearchProgressHandler | undefined;
 
   constructor(
     router: InferenceRouter,
     fetch: FeralFetch,
     sessionId: string,
     jinaApiKey?: string,
+    signal?: AbortSignal,
+    progress?: ResearchProgressHandler,
   ) {
     this.#router = router;
     this.#fetch = fetch;
     this.#sessionId = sessionId;
     this.#jinaApiKey = jinaApiKey;
+    this.#signal = signal;
+    this.#progress = progress;
   }
 
   async run(question: string, maxIterations = 4): Promise<ResearchResult> {
     const notes: Note[] = [];
+    this.#emit("start", 0, "Deep research started", {
+      question,
+      maxIterations,
+    });
 
-    for (let i = 0; i < maxIterations; i++) {
-      // Plan: what to search for (or stop if enough info)
-      const plan = await this.#plan(question, notes, i);
-      if (plan.action === "synthesize") break;
-      if (!plan.query) break;
+    try {
+      for (let i = 0; i < maxIterations; i++) {
+        this.#throwIfStopped();
 
-      // Search
-      const results = await this.#search(plan.query);
-      if (results.length === 0) continue;
+        // Plan: what to search for (or stop if enough info)
+        this.#emit("plan", this.#progressPercent(i, maxIterations), "Planning the next research step", {
+          iteration: i + 1,
+        });
+        const plan = await this.#plan(question, notes, i);
+        if (plan.action === "synthesize") break;
+        if (!plan.query) break;
 
-      // Select top URLs to read
-      const selected = await this.#selectUrls(question, plan.query, results, notes);
+        // Search
+        this.#emit("search", this.#progressPercent(i, maxIterations), "Searching the web", {
+          query: plan.query,
+        });
+        const results = await this.#search(plan.query);
+        if (results.length === 0) continue;
 
-      // Read + Extract
-      for (const url of selected.slice(0, 3)) {
-        // Skip URLs we already read
-        if (notes.some((n) => n.url === url)) continue;
+        // Select top URLs to read
+        this.#emit("select", this.#progressPercent(i, maxIterations), "Selecting sources to read", {
+          resultCount: results.length,
+        });
+        const selected = await this.#selectUrls(question, plan.query, results, notes);
 
-        const content = await this.#readPage(url);
-        if (!content) continue;
+        // Read + Extract
+        for (const url of selected.slice(0, 3)) {
+          this.#throwIfStopped();
+          // Skip URLs we already read
+          if (notes.some((n) => n.url === url)) continue;
 
-        const srcResult = results.find((r) => r.url === url);
-        const excerpt = await this.#extractFindings(question, url, content);
-        if (excerpt.trim()) {
-          notes.push({
-            iteration: i + 1,
-            query: plan.query,
+          this.#emit("read", this.#progressPercent(i, maxIterations), "Reading source", {
             url,
-            title: srcResult?.title ?? url,
-            excerpt,
           });
+          const content = await this.#readPage(url);
+          if (!content) continue;
+
+          this.#emit("extract", this.#progressPercent(i, maxIterations), "Extracting findings", {
+            url,
+          });
+          const srcResult = results.find((r) => r.url === url);
+          const excerpt = await this.#extractFindings(question, url, content);
+          if (excerpt.trim()) {
+            notes.push({
+              iteration: i + 1,
+              query: plan.query,
+              url,
+              title: srcResult?.title ?? url,
+              excerpt,
+            });
+          }
         }
       }
+
+      this.#emit("synthesize", 95, "Synthesizing final report");
+      const report = await this.#synthesize(question, notes);
+      this.#emit("complete", 100, "Deep research complete", {
+        sources: notes.length,
+        iterations: notes.length > 0 ? (notes[notes.length - 1]?.iteration ?? 0) : 0,
+      });
+      return {
+        report,
+        sources: notes.map((n) => ({ url: n.url, title: n.title, excerpt: n.excerpt })),
+        iterations: notes.length > 0 ? (notes[notes.length - 1]?.iteration ?? 0) : 0,
+      };
+    } catch (err) {
+      if (err instanceof ResearchStoppedError) {
+        this.#emit("stopped", this.#progressPercent(0, maxIterations), "Deep research stopped", {
+          sources: notes.length,
+          iterations: notes.length > 0 ? (notes[notes.length - 1]?.iteration ?? 0) : 0,
+        });
+        return {
+          report: this.#stoppedReport(question, notes),
+          sources: notes.map((n) => ({ url: n.url, title: n.title, excerpt: n.excerpt })),
+          iterations: notes.length > 0 ? (notes[notes.length - 1]?.iteration ?? 0) : 0,
+          stopped: true,
+        };
+      }
+      throw err;
+    }
+  }
+
+  #emit(
+    stage: ResearchProgressStage,
+    progress: number | null,
+    message: string,
+    data?: unknown,
+  ): void {
+    this.#progress?.({ stage, progress, message, data });
+  }
+
+  #throwIfStopped(): void {
+    if (this.#signal?.aborted) throw new ResearchStoppedError();
+  }
+
+  #progressPercent(iteration: number, maxIterations: number): number {
+    if (maxIterations <= 0) return 0;
+    return Math.min(90, Math.round(((iteration + 0.25) / maxIterations) * 90));
+  }
+
+  #stoppedReport(question: string, notes: Note[]): string {
+    if (notes.length === 0) {
+      return `Research stopped before any sources were gathered for: **${question}**`;
     }
 
-    const report = await this.#synthesize(question, notes);
-    return {
-      report,
-      sources: notes.map((n) => ({ url: n.url, title: n.title, excerpt: n.excerpt })),
-      iterations: notes.length > 0 ? (notes[notes.length - 1]?.iteration ?? 0) : 0,
-    };
+    const notesText = notes
+      .map(
+        (n, i) =>
+          `## Source [${i + 1}]: ${n.title}\nURL: ${n.url}\n\n${n.excerpt}`,
+      )
+      .join("\n\n---\n\n");
+
+    const sourceList = notes
+      .map((n, i) => `[${i + 1}] ${n.title} — ${n.url}`)
+      .join("\n");
+
+    return (
+      `Research stopped before synthesis completed for: **${question}**\n\n` +
+      `Collected notes:\n${notesText}\n\nSources:\n${sourceList}`
+    );
   }
 
   /** Decide: search (with a new query) or synthesize (enough info). */
@@ -160,6 +274,7 @@ export class ResearchLoop {
       ],
       maxTokens: 150,
       temperature: 0.1,
+      signal: this.#signal,
     });
 
     try {
@@ -189,7 +304,7 @@ export class ResearchLoop {
       if (this.#jinaApiKey)
         headers["Authorization"] = `Bearer ${this.#jinaApiKey}`;
 
-      const res = await this.#fetch(url, { timeoutMs: 20_000, headers });
+      const res = await this.#fetch(url, { timeoutMs: 20_000, headers, signal: this.#signal });
       if (!res.ok) return [];
 
       const raw = await res.text();
@@ -218,7 +333,8 @@ export class ResearchLoop {
       }
 
       return parseMarkdownResults(raw);
-    } catch {
+    } catch (err) {
+      if (err instanceof ResearchStoppedError) throw err;
       return [];
     }
   }
@@ -261,6 +377,7 @@ export class ResearchLoop {
       ],
       maxTokens: 256,
       temperature: 0.1,
+      signal: this.#signal,
     });
 
     try {
@@ -287,12 +404,13 @@ export class ResearchLoop {
       if (this.#jinaApiKey)
         headers["Authorization"] = `Bearer ${this.#jinaApiKey}`;
 
-      const res = await this.#fetch(jinaUrl, { timeoutMs: 30_000, headers });
+      const res = await this.#fetch(jinaUrl, { timeoutMs: 30_000, headers, signal: this.#signal });
       if (!res.ok) return null;
 
       const text = await res.text();
       return text.slice(0, 40_000);
-    } catch {
+    } catch (err) {
+      if (err instanceof ResearchStoppedError) throw err;
       return null;
     }
   }
@@ -325,6 +443,7 @@ export class ResearchLoop {
       ],
       maxTokens: 512,
       temperature: 0.2,
+      signal: this.#signal,
     });
 
     const text = res.content.trim();
@@ -375,6 +494,7 @@ export class ResearchLoop {
       ],
       maxTokens: 4096,
       temperature: 0.3,
+      signal: this.#signal,
     });
 
     return res.content.trim();

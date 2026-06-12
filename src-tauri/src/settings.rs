@@ -17,7 +17,7 @@ impl Default for Settings {
         Self {
             models_dir: paths::models_dir(),
             default_gpu_layers: -1,
-            api_server_enabled: true,
+            api_server_enabled: false,
             api_port: 11435,
             version: env!("CARGO_PKG_VERSION").to_string(),
         }

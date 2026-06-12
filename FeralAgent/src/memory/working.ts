@@ -6,6 +6,14 @@
  * into a single system note so the recent context stays intact while total size
  * stays bounded. Compression here is the counterpart to the inference router's
  * "compress_and_continue" budget policy.
+ *
+ * P1 (prompt caching): the render() output is shaped so the static system
+ * prompt sits alone in the system role and per-turn dynamic context (skill
+ * menu, memory recall) is appended to the last user message. This keeps
+ * the tokenized prefix `[system, msg_0, ..., user_{n-1}]` byte-stable
+ * turn-over-turn so the local engine (llama.cpp) can reuse the KV cache
+ * for the static prefix and only recompute the new tail. See the docstring
+ * on `render()` for the full rationale.
  */
 
 import { countTokens } from "../core/tokenizer.ts";
@@ -40,6 +48,10 @@ export class WorkingMemory {
    * sees a short "Available skills" list and uses the `read_skill` tool to
    * load the body of any skill it actually wants to apply. Updated per turn
    * so newly installed skills show up without resetting the session.
+   *
+   * P1: even though it changes every turn, the menu is APPENDED to the last
+   * user message (via `render()`) instead of being injected as its own system
+   * message. See the docstring on `render()` for why.
    */
   #skillMenu = "";
 
@@ -53,8 +65,8 @@ export class WorkingMemory {
     this.#messages.push(message);
   }
 
-  addUser(content: string): void {
-    this.add({ role: "user", content });
+  addUser(content: string, images?: string[]): void {
+    this.add({ role: "user", content, ...(images && images.length > 0 ? { images } : {}) });
   }
 
   addAssistant(content: string): void {
@@ -90,10 +102,10 @@ export class WorkingMemory {
   }
 
   /**
-   * Replace the transient memory context for this turn. The context is injected
-   * as a system message between the base system prompt and the conversation
-   * transcript so the model sees it without it polluting the turn history.
-   * Pass an empty string to clear it.
+   * Replace the transient memory context for this turn. The context is
+   * appended to the LAST user message in `render()` (P1) so the static
+   * system prompt above it stays byte-stable across turns. Pass an empty
+   * string to clear it.
    */
   setMemoryContext(context: string): void {
     this.#memoryContext = context;
@@ -101,9 +113,9 @@ export class WorkingMemory {
 
   /**
    * Update the per-turn skill menu from the Rust-side roster. The menu is
-   * a short system message; the LLM reads it to discover what skills exist
-   * and calls the `read_skill` tool to load the body of any it wants to apply.
-   * Pass an empty array to clear the menu (e.g. user uninstalled everything).
+   * appended to the last user message in `render()` (P1) so the system
+   * prompt above it stays stable. Pass an empty array to clear the menu
+   * (e.g. user uninstalled everything).
    */
   setSkillMenu(skills: SkillMeta[]): void {
     if (skills.length === 0) {
@@ -120,19 +132,78 @@ export class WorkingMemory {
   }
 
   /**
-   * Build the full message array for an inference call: the system prompt,
-   * followed by the (optional) skill menu, followed by the (optional)
-   * transient memory context, followed by the conversation transcript.
+   * Build the full message array for an inference call.
+   *
+   * P1 (prompt caching): the layout is reshaped so llama.cpp's KV cache
+   * can be reused across turns. The base system prompt is rendered
+   * EXACTLY once and never changes mid-session, so the tokenized prefix
+   * that begins with it stays byte-stable.
+   *
+   * Per-turn dynamic context (skill menu, memory recall) is appended to
+   * the LAST user-role message instead of being injected as separate
+   * system messages between the static system prompt and the transcript.
+   * The reason is purely positional: any message inserted between the
+   * system prompt and the transcript (or added at the head) shifts the
+   * token index of every subsequent message, which invalidates the cache
+   * just as effectively as changing the system prompt. Appending to the
+   * last user message keeps the message COUNT and POSITIONS stable, so
+   * only the tail content changes per turn — the engine reuses the KV
+   * for everything up to the start of that user message and recomputes
+   * only the appended dynamic block (and any new turn content).
+   *
+   * First completion of a session: no cache to reuse, full prefill.
+   * Subsequent completions: cache hits for `[system, msg_0, …, user_{n-1}]`
+   * (everything up to and including the original tail of user_n), recompute
+   * for the appended dynamic block + any new tool/user content past it.
+   *
+   * No model template rejects this layout — all four (llama3, chatml,
+   * gemma, mistral) accept long user messages. Skill menus and recall
+   * blocks are already self-delimited (`[Memory context]…[End memory
+   * context]`, `## Available skills (locally installed)…`) so the model
+   * parses them unambiguously.
    */
   render(): ChatMessage[] {
-    const base: ChatMessage[] = [{ role: "system", content: this.#system }];
-    if (this.#skillMenu) {
-      base.push({ role: "system", content: this.#skillMenu });
+    const dynamicBlocks: string[] = [];
+    if (this.#skillMenu) dynamicBlocks.push(this.#skillMenu);
+    if (this.#memoryContext) dynamicBlocks.push(this.#memoryContext);
+
+    if (dynamicBlocks.length === 0) {
+      return [{ role: "system", content: this.#system }, ...this.#messages];
     }
-    if (this.#memoryContext) {
-      base.push({ role: "system", content: this.#memoryContext });
+
+    const dynamic = dynamicBlocks.join("\n\n");
+    // Copy-on-write: avoid mutating the caller's transcript slice.
+    const messages = this.#messages.slice();
+
+    // Reverse-iterate to find the LAST user-role message. Manual loop
+    // rather than Array.prototype.findLastIndex for Bun runtime
+    // portability (ES2023 may not be available in every build target).
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]!.role === "user") {
+        lastUserIdx = i;
+        break;
+      }
     }
-    return [...base, ...this.#messages];
+
+    if (lastUserIdx >= 0) {
+      const prev = messages[lastUserIdx]!;
+      messages[lastUserIdx] = {
+        ...prev,
+        content: prev.content
+          ? `${prev.content}\n\n---\n\n${dynamic}`
+          : dynamic,
+      };
+    } else {
+      // Degenerate: no user message in the transcript. The agent loop
+      // always calls addUser() before render(), so this branch is only
+      // reachable from unit tests that exercise the helper in isolation.
+      // We surface a synthetic user message at the tail — the cache miss
+      // here is unavoidable, but it's a fallback, not the common path.
+      messages.push({ role: "user", content: dynamic });
+    }
+
+    return [{ role: "system", content: this.#system }, ...messages];
   }
 
   /**
@@ -140,6 +211,12 @@ export class WorkingMemory {
    * via the provided summarizer, replacing it with one system note. Returns true
    * if compression occurred. The summarizer is injected so working memory has no
    * dependency on the inference layer.
+   *
+   * P1: compression mutates `this.#messages` (replaces the older portion with
+   * a single summary system message). The next render() will produce a
+   * DIFFERENT prefix than the cached one, so the KV cache will be invalidated.
+   * This is acceptable — compression is rare (once every ~8K tokens), and
+   * the cost is amortized over many subsequent turns that all hit the cache.
    */
   async maybeCompress(
     summarize: (messages: ChatMessage[]) => Promise<string>,

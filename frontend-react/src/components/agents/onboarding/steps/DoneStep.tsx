@@ -60,11 +60,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
 
   return (
     <div className="space-y-8 text-center">
-      <div className="flex justify-center">
-        <div className="w-14 h-14 rounded-full bg-green-400/10 flex items-center justify-center">
-          <CheckCircle size={28} className="text-green-400" />
-        </div>
-      </div>
+      <div className="text-5xl leading-none" aria-hidden="true">🎉</div>
 
       <div className="space-y-2">
         <h2 className="text-2xl font-bold text-text-primary tracking-tight">

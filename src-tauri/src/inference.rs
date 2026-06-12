@@ -11,6 +11,12 @@ use std::sync::Arc;
 pub struct Message {
     pub role: String,
     pub content: String,
+    /// Image attachments as data URLs (`data:image/png;base64,...`).
+    /// Consumed by the cloud path (serialized as OpenAI `image_url` content
+    /// parts); the local llama.cpp path is text-only and ignores them — the
+    /// "[Image attached: name]" note in `content` still describes the upload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -22,6 +28,27 @@ pub struct InferParams {
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub tools: Option<Vec<String>>,
+    /// Optional GBNF grammar that constrains sampling (tool-call decoding).
+    /// When set, a grammar sampler is prepended to the chain so the model can
+    /// only emit tokens the grammar allows. `None` = unconstrained (default).
+    #[serde(default)]
+    pub grammar: Option<String>,
+    /// Optional trigger strings for *lazy* grammar enforcement. When present,
+    /// the grammar stays dormant until one of these appears in the output
+    /// (e.g. the opening of a tool-call fence), so free-text answers are never
+    /// constrained — only the structured tool call that follows a trigger is.
+    /// Empty/None with a `grammar` set means the grammar applies from the
+    /// first token (hard constraint).
+    #[serde(default)]
+    pub grammar_triggers: Option<Vec<String>>,
+    /// P1 (prompt caching): session id from the caller. Currently used for
+    /// audit/logging only — contexts are drawn from a small pool (P6) and
+    /// each keeps its own KV prefix-diff record, but there is no session →
+    /// context affinity yet. The field is plumbed here so a future
+    /// session-affinity strategy (route a session back to the context that
+    /// holds its prefix) can be added without another breaking schema change.
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 impl Default for InferParams {
@@ -33,6 +60,9 @@ impl Default for InferParams {
             max_tokens: 1024,
             system_prompt: None,
             tools: None,
+            grammar: None,
+            grammar_triggers: None,
+            session_id: None,
         }
     }
 }
@@ -80,37 +110,42 @@ Use standard syntax for headings, bold, italic, and lists. \
 For source code, always use fenced code blocks with the language specified (e.g. ```rust, ```python, ```bash). \
 Never return raw HTML tags in your answer.";
 
-pub(crate) fn build_prompt(messages: &[Message], model_name: &str) -> String {
-    // Strip any trailing empty assistant placeholder the UI may have left in the list.
-    // An empty assistant turn confuses models: they see a completed (empty) turn and
-    // immediately sample an EOG token, producing no output.
-    let messages: Vec<&Message> = messages.iter()
+/// Shared message pre-processing for BOTH prompt-building paths (the GGUF
+/// chat template and the filename-heuristic fallback):
+///   1. Strip any trailing empty assistant placeholder the UI may have left
+///      in the list. An empty assistant turn confuses models: they see a
+///      completed (empty) turn and immediately sample an EOG token.
+///   2. Inject/prepend the Markdown formatting directive into the system
+///      message (or create one) so all models respond in valid Markdown.
+pub(crate) fn augment_messages(messages: &[Message]) -> Vec<Message> {
+    let filtered: Vec<&Message> = messages.iter()
         .filter(|m| !(m.role == "assistant" && m.content.trim().is_empty()))
         .collect();
 
-    // Build an augmented message list: inject/prepend the Markdown formatting directive
-    // into the system message (or create one) so all models respond in valid Markdown.
-    let has_system = messages.iter().any(|m| m.role == "system");
-    let augmented: Vec<Message>;
-    let messages: Vec<&Message> = if has_system {
-        augmented = messages.iter().map(|m| {
+    let has_system = filtered.iter().any(|m| m.role == "system");
+    if has_system {
+        filtered.iter().map(|m| {
             if m.role == "system" {
                 Message {
                     role: "system".into(),
                     content: format!("{}\n\n{}", MARKDOWN_DIRECTIVE, m.content),
+                    images: None,
                 }
             } else {
                 (*m).clone()
             }
-        }).collect();
-        augmented.iter().collect()
+        }).collect()
     } else {
-        let synthetic = Message { role: "system".into(), content: MARKDOWN_DIRECTIVE.into() };
-        augmented = std::iter::once(synthetic)
-            .chain(messages.iter().map(|m| (*m).clone()))
-            .collect();
-        augmented.iter().collect()
-    };
+        let synthetic = Message { role: "system".into(), content: MARKDOWN_DIRECTIVE.into(), images: None };
+        std::iter::once(synthetic)
+            .chain(filtered.iter().map(|m| (*m).clone()))
+            .collect()
+    }
+}
+
+pub(crate) fn build_prompt(messages: &[Message], model_name: &str) -> String {
+    let augmented = augment_messages(messages);
+    let messages: Vec<&Message> = augmented.iter().collect();
 
     match detect_template(model_name) {
         "llama3" => {
@@ -207,6 +242,22 @@ impl ModelManager {
         self.current.lock().clone()
     }
 
+    /// Count tokens for `text` with the loaded model's real tokenizer (P3).
+    /// Backs the `/tokenize` HTTP endpoint the agent sidecar calls for
+    /// accurate context accounting — its GPT-2 BPE fallback miscounts other
+    /// vocabularies. Errors when no model is loaded.
+    pub fn count_tokens(&self, text: &str) -> Result<usize> {
+        #[cfg(feature = "inference")]
+        {
+            backend::count_tokens(text)
+        }
+        #[cfg(not(feature = "inference"))]
+        {
+            // Stub build: the chars/4 heuristic the frontend already uses.
+            Ok(text.chars().count().div_ceil(4))
+        }
+    }
+
     /// Stream chat completion. Yields token strings.
     /// `stop` is checked between tokens — set it to `true` to interrupt generation.
     /// `on_start` is called once with the real prompt token count right before generation begins.
@@ -242,7 +293,7 @@ impl ModelManager {
                 for word in reply.split_inclusive(' ') {
                     if stop.load(Ordering::Relaxed) { break; }
                     tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-                    yield Ok(word.to_string());
+                    yield Ok(word);
                 }
             }
         }
@@ -255,14 +306,15 @@ mod backend {
     use anyhow::{anyhow, Result};
     use encoding_rs::UTF_8;
     use llama_cpp_2::{
-        context::params::LlamaContextParams,
+        context::{params::LlamaContextParams, LlamaContext},
         llama_backend::LlamaBackend,
         llama_batch::LlamaBatch,
-        model::{params::LlamaModelParams, AddBos, LlamaModel},
+        model::{params::LlamaModelParams, AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel},
         sampling::LlamaSampler,
+        token::LlamaToken,
     };
     use once_cell::sync::{Lazy, OnceCell};
-    use parking_lot::Mutex;
+    use parking_lot::{Condvar, Mutex};
     use std::num::NonZeroU32;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -272,17 +324,180 @@ mod backend {
     // LlamaBackend lives for the app lifetime — initialized once.
     static BACKEND: OnceCell<LlamaBackend> = OnceCell::new();
 
-    // Wrap LlamaModel in a newtype so we can assert Send+Sync.
-    // llama_model* is safe to use from multiple threads as long as we
-    // don't run concurrent inference (enforced by the Mutex below).
-    struct ModelHandle {
-        model: LlamaModel,
-        name: String,
+    // ── P6: context pool — concurrent local inference ─────────────────────
+    //
+    // The old design held one global mutex around a single ModelHandle for
+    // the ENTIRE generation, serializing the UI, the HTTP API server, and
+    // the agent sidecar behind one another. The fixed design splits the
+    // state in two:
+    //
+    //   * `LlamaModel` — loaded once, shared via `Arc`. The crate marks it
+    //     Send + Sync (model.rs in llama_cpp_2); model weights are read-only
+    //     during inference, so concurrent decodes against the same model
+    //     from DIFFERENT contexts are safe (the standard llama.cpp
+    //     multi-context pattern).
+    //   * `LlamaContext` — one per in-flight generation, drawn from a pool.
+    //     Each context owns its own KV cache and its own `cached_tokens`
+    //     prefix-diff record (R1). Contexts are created lazily, up to
+    //     `FERAL_MAX_LOCAL_CONTEXTS` (default 2): a single-user workload
+    //     pays for one context's KV memory; the second is allocated only
+    //     the first time two generations actually overlap. When the pool
+    //     is exhausted, `acquire` blocks on a condvar until a context is
+    //     returned — that is the only remaining serialization point.
+    //
+    // CPU note: two parallel decodes each use llama.cpp's default thread
+    // count and will oversubscribe cores — throughput per request drops,
+    // but neither request is blocked behind the other's full generation.
+    //
+    // KV-cache reuse (R1) is per-context and EXPLICIT, not automatic: raw
+    // `llama_decode` performs no prefix matching (that is llama-server
+    // logic), so `run_inference` diffs each new prompt against the
+    // context's `cached_tokens`, evicts the divergent suffix with
+    // `clear_kv_cache_seq`, and prefills only the new tail. Without that
+    // eviction, re-decoding positions that already hold KV cells would
+    // corrupt attention and leak cache slots.
+    //
+    // Self-referential layout (R2). `LlamaContext<'a>` holds a
+    // `&'a LlamaModel`. Each pooled context stores that borrow as
+    // `'static` (one `unsafe` transmute in `create_context`), made sound
+    // by two invariants:
+    //   1. The referent lives on the heap behind an `Arc<LlamaModel>`,
+    //      whose address is stable across every move of the pool entry,
+    //      and `_model` keeps the allocation alive for at least as long
+    //      as this entry exists.
+    //   2. Field drop order: `context` is declared FIRST → dropped FIRST;
+    //      `_model` LAST → dropped LAST. The reference can never outlive
+    //      the referent.
+    struct PooledContext {
+        // SAFETY: see the block comment above — morally a
+        // `LlamaContext<'self>` borrowing the Arc heap data below.
+        context: LlamaContext<'static>,
+        /// R1: tokens currently materialized in THIS context's KV cache —
+        /// the previous call's prompt plus everything it generated. Empty
+        /// when the cache state is unknown (fresh context, or an error
+        /// mid-call), which forces the next call to clear + fully
+        /// re-prefill.
+        cached_tokens: Vec<LlamaToken>,
+        /// Keeps the model allocation alive for this context's lifetime.
+        _model: Arc<LlamaModel>,
     }
-    unsafe impl Send for ModelHandle {}
-    unsafe impl Sync for ModelHandle {}
+    // SAFETY: a PooledContext is only ever used by one thread at a time —
+    // it is moved out of the pool, used exclusively by that generation's
+    // blocking task, and moved back. (Same assertion the old ModelHandle
+    // made; `LlamaContext` itself is not auto-Send because it wraps a raw
+    // pointer.)
+    unsafe impl Send for PooledContext {}
 
-    static MODEL: Lazy<Mutex<Option<ModelHandle>>> = Lazy::new(|| Mutex::new(None));
+    struct PoolInner {
+        idle: Vec<PooledContext>,
+        /// Total contexts in existence (idle + checked out). Never exceeds
+        /// `ContextPool::max`.
+        created: usize,
+    }
+
+    struct ContextPool {
+        inner: Mutex<PoolInner>,
+        /// Signaled whenever a context is returned (or a creation slot is
+        /// given back after a failed allocation) so blocked `acquire`s
+        /// can re-check.
+        available: Condvar,
+        max: usize,
+    }
+
+    impl ContextPool {
+        /// Check out a context, creating one lazily if under the cap, or
+        /// blocking until another generation returns one. Called from
+        /// `spawn_blocking` threads only — blocking here is fine.
+        fn acquire(&self, model: &Arc<LlamaModel>, ctx_len: u32) -> Result<PooledContext> {
+            let mut inner = self.inner.lock();
+            loop {
+                if let Some(ctx) = inner.idle.pop() {
+                    return Ok(ctx);
+                }
+                if inner.created < self.max {
+                    // Reserve the slot, then build the context OUTSIDE the
+                    // lock (KV allocation is slow). On failure, give the
+                    // slot back and wake a waiter so it can retry/create.
+                    inner.created += 1;
+                    drop(inner);
+                    match create_context(model, ctx_len) {
+                        Ok(ctx) => return Ok(ctx),
+                        Err(e) => {
+                            let mut inner = self.inner.lock();
+                            inner.created -= 1;
+                            drop(inner);
+                            self.available.notify_one();
+                            return Err(e);
+                        }
+                    }
+                }
+                self.available.wait(&mut inner);
+            }
+        }
+
+        /// Return a context to the pool and wake one waiter.
+        fn release(&self, ctx: PooledContext) {
+            self.inner.lock().idle.push(ctx);
+            self.available.notify_one();
+        }
+    }
+
+    /// Everything tied to the currently loaded model. `generate` snapshots
+    /// an `Arc` of this and releases the global STATE lock immediately, so
+    /// load/unload never block behind a running generation and generations
+    /// never block behind each other (except in the pool, by design).
+    /// In-flight generations on an unloaded model finish on their own Arc;
+    /// the model and its contexts are freed when the last Arc drops.
+    struct LoadedState {
+        name: String,
+        ctx_len: u32,
+        model: Arc<LlamaModel>,
+        pool: ContextPool,
+        /// A4: the chat template baked into the GGUF metadata
+        /// (`tokenizer.chat_template`), read once at load. When present it is
+        /// the authoritative prompt format — a renamed file no longer gets a
+        /// wrong template guessed from its filename. `None` for GGUFs without
+        /// one; those fall back to the filename heuristic.
+        chat_template: Option<LlamaChatTemplate>,
+    }
+
+    static STATE: Lazy<Mutex<Option<Arc<LoadedState>>>> = Lazy::new(|| Mutex::new(None));
+
+    /// P6: pool cap. Each context allocates a full `n_ctx`-sized KV cache
+    /// (potentially gigabytes for large-context models), so the default
+    /// stays small; contexts beyond the first are only created when
+    /// generations actually overlap. Override with FERAL_MAX_LOCAL_CONTEXTS.
+    fn max_contexts() -> usize {
+        std::env::var("FERAL_MAX_LOCAL_CONTEXTS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n >= 1)
+            .unwrap_or(2)
+    }
+
+    /// Allocate one pooled context for `model`, sized to `ctx_len`.
+    fn create_context(model: &Arc<LlamaModel>, ctx_len: u32) -> Result<PooledContext> {
+        let backend = BACKEND
+            .get()
+            .ok_or_else(|| anyhow!("llama backend not initialized"))?;
+        let ctx_size = NonZeroU32::new(ctx_len)
+            .ok_or_else(|| anyhow!("invalid ctx_len: {}", ctx_len))?;
+        let ctx_params = LlamaContextParams::default().with_n_ctx(Some(ctx_size));
+        let context = model
+            .new_context(backend, ctx_params)
+            .map_err(|e| anyhow!("create context: {}", e))?;
+        // SAFETY: the context borrows the `LlamaModel` on the heap behind
+        // the Arc — an address stable across moves — and the `_model`
+        // clone stored below keeps that allocation alive for at least as
+        // long as the context (field drop order: context first). See the
+        // PooledContext block comment for the full invariant.
+        let context: LlamaContext<'static> = unsafe { std::mem::transmute(context) };
+        Ok(PooledContext {
+            context,
+            cached_tokens: Vec::new(),
+            _model: Arc::clone(model),
+        })
+    }
 
     pub fn load(path: &Path, n_gpu_layers: i32) -> Result<u32> {
         let backend = BACKEND.get_or_try_init(|| {
@@ -295,26 +510,120 @@ mod backend {
         } else {
             LlamaModelParams::default()
         };
-        let model = LlamaModel::load_from_file(backend, path, &model_params)
-            .map_err(|e| anyhow!("load {:?}: {}", path, e))?;
+        // The model is shared via Arc: read-only during inference, so every
+        // pooled context (and every concurrent generation) borrows the same
+        // weights. See the PooledContext block comment for the safety story.
+        let model = Arc::new(
+            LlamaModel::load_from_file(backend, path, &model_params)
+                .map_err(|e| anyhow!("load {:?}: {}", path, e))?,
+        );
 
+        // P1: contexts are sized to the model's training context — the
+        // largest the model can use; for typical chat workloads (8K
+        // compressed transcript + 1K user message + ≤16K output) the actual
+        // KV usage is well under n_ctx_train.
+        //
+        // VRAM cost: ~512KB per token for a 7B model (Qwen3 8B: n_embd=4096,
+        // n_layers=36 → 2 * 36 * 4096 * 2 bytes = ~590 KB/token). A 32K
+        // context = ~19 GB. For VRAM-constrained systems the model itself
+        // must be smaller (or a smaller n_ctx_train via a different quant).
+        // We do NOT dynamically resize — the whole point of the persistent
+        // pooled contexts is to keep their KV caches alive across calls. If
+        // a request would overflow n_ctx, llama.cpp's own decode will fail
+        // and the error propagates up to the agent loop, which will trigger
+        // compression on the next turn.
+        //
+        // P6: the first context is created eagerly — it validates that the
+        // KV allocation fits before load() reports success, and warms the
+        // pool for the first generation. Additional contexts (up to
+        // `max_contexts()`) are created lazily by `ContextPool::acquire`
+        // only when generations actually overlap.
         let ctx_len = model.n_ctx_train().max(2048);
+        let first = create_context(&model, ctx_len)?;
+
         let name = path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
-        tracing::info!(path=?path, ctx_len, template=%detect_template(&name), "model loaded");
-        *MODEL.lock() = Some(ModelHandle { model, name });
+        // A4: prefer the template the model itself declares over anything
+        // guessed from the filename.
+        let chat_template = model.chat_template(None).ok();
+        let max = max_contexts();
+        tracing::info!(
+            path = ?path,
+            ctx_len,
+            max_contexts = max,
+            gguf_template = chat_template.is_some(),
+            fallback_template = %detect_template(&name),
+            "model loaded (context pool ready, per-context KV prefix reuse)"
+        );
+        *STATE.lock() = Some(Arc::new(LoadedState {
+            name,
+            ctx_len,
+            model,
+            pool: ContextPool {
+                inner: Mutex::new(PoolInner { idle: vec![first], created: 1 }),
+                available: Condvar::new(),
+                max,
+            },
+            chat_template,
+        }));
         Ok(ctx_len)
     }
 
     pub fn unload() {
-        *MODEL.lock() = None;
-        tracing::info!("model unloaded");
+        // Drop our reference to the loaded state. Generations already in
+        // flight hold their own Arc and finish undisturbed; the model and
+        // every pooled context are freed when the last Arc drops (within
+        // each PooledContext, the context drops before the model Arc by
+        // field order).
+        *STATE.lock() = None;
+        tracing::info!("model unloaded (pool + KV caches released with last reference)");
     }
 
     fn detect_template(name: &str) -> &'static str { super::detect_template(name) }
     fn build_prompt(messages: &[Message], model_name: &str) -> String { super::build_prompt(messages, model_name) }
+
+    /// A4: render the prompt through the model's own GGUF chat template via
+    /// llama.cpp's template engine. Returns `None` (→ caller falls back to
+    /// the filename heuristic) when the model has no template, the engine
+    /// doesn't support it, or rendering produces nothing usable.
+    fn build_prompt_gguf(state: &LoadedState, messages: &[Message]) -> Option<String> {
+        let tmpl = state.chat_template.as_ref()?;
+        let augmented = super::augment_messages(messages);
+        let chat: Vec<LlamaChatMessage> = augmented
+            .into_iter()
+            .filter_map(|m| LlamaChatMessage::new(m.role, m.content).ok())
+            .collect();
+        if chat.is_empty() {
+            return None;
+        }
+        match state.model.apply_chat_template(tmpl, &chat, true) {
+            Ok(p) if !p.trim().is_empty() => Some(p),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "gguf chat template failed to render; falling back to filename heuristic"
+                );
+                None
+            }
+        }
+    }
+
+    /// P3: token count with the loaded model's real tokenizer. Serves the
+    /// `/tokenize` endpoint in api.rs.
+    pub fn count_tokens(text: &str) -> Result<usize> {
+        let state: Arc<LoadedState> = STATE
+            .lock()
+            .clone()
+            .ok_or_else(|| anyhow!("no model loaded"))?;
+        let tokens = state
+            .model
+            .str_to_token(text, AddBos::Never)
+            .map_err(|e| anyhow!("tokenize: {}", e))?;
+        Ok(tokens.len())
+    }
 
     pub fn generate(
         messages: Vec<Message>,
@@ -324,7 +633,38 @@ mod backend {
     ) -> mpsc::Receiver<String> {
         let (tx, rx) = mpsc::channel(256);
         tokio::task::spawn_blocking(move || {
-            if let Err(e) = run_inference(&messages, &params, &tx, &stop, on_start.as_deref()) {
+            // P6: the global STATE lock is held only long enough to clone
+            // the Arc — never across the generation. Each call then checks
+            // a context out of the pool (creating one lazily up to the cap)
+            // and decodes in parallel with any other in-flight call.
+            // `run_inference` performs the R1 explicit prefix reuse against
+            // that context's own cached tokens — raw llama_decode has no
+            // automatic prefix matching.
+            let result: Result<()> = (|| -> Result<()> {
+                let state: Arc<LoadedState> = STATE
+                    .lock()
+                    .clone()
+                    .ok_or_else(|| anyhow!("no model loaded"))?;
+                // Blocks only when `max_contexts()` generations are already
+                // running — the one serialization point left by design.
+                let mut pctx = state.pool.acquire(&state.model, state.ctx_len)?;
+                let result = run_inference(
+                    &state,
+                    &mut pctx,
+                    &messages,
+                    &params,
+                    &tx,
+                    &stop,
+                    on_start.as_deref(),
+                );
+                // Return the context even on error: run_inference empties
+                // `cached_tokens` up front and only restores it on success,
+                // so an errored context re-enters the pool in the safe
+                // "cache unknown → clear + full re-prefill" state.
+                state.pool.release(pctx);
+                result
+            })();
+            if let Err(e) = result {
                 tracing::error!("inference: {}", e);
                 let _ = tx.blocking_send(format!("\n[Error: {}]", e));
             }
@@ -332,138 +672,226 @@ mod backend {
         rx
     }
 
-    fn run_inference(
-        messages: &[Message],
-        params: &InferParams,
-        tx: &mpsc::Sender<String>,
-        stop: &Arc<AtomicBool>,
-        on_start: Option<&(dyn Fn(u32) + Send)>,
-    ) -> Result<()> {
-        let backend = BACKEND.get().ok_or_else(|| anyhow!("backend not initialized"))?;
-
-        let guard = MODEL.lock();
-        let handle = guard.as_ref().ok_or_else(|| anyhow!("no model loaded"))?;
-        let model = &handle.model;
-        let template = detect_template(&handle.name);
-        let prompt = build_prompt(messages, &handle.name);
-        // Tokenize template-specific stop strings as a fallback for models whose GGUF
-        // metadata doesn't mark them as EOG tokens (common in finetunes/merges).
-        let extra_stop_tokens: Vec<llama_cpp_2::token::LlamaToken> = {
-            let stop_strs: &[&str] = match template {
-                "llama3"  => &["<|eot_id|>", "<|end_of_text|>"],
-                "mistral" => &["</s>"],
-                "gemma"   => &["<end_of_turn>"],
-                _         => &["<|im_end|>", "<|endoftext|>"],
+        /// Run one inference call against a pooled context.
+        ///
+        /// P1: KV-cache reuse is explicit and per-context: the new prompt's
+        /// tokens are diffed against `pctx.cached_tokens` (what THIS
+        /// context's cache actually holds from its previous call), the
+        /// divergent suffix is evicted via `clear_kv_cache_seq`, and
+        /// prefill starts at the first divergent position instead of 0.
+        /// When the agent loop's cache-friendly prompt assembly keeps the
+        /// static prefix stable — and the pool routes the session back to
+        /// the same context — only the new tail is recomputed; when prompts
+        /// diverge early (a different session, or a different context), the
+        /// cache is cleared and fully re-prefilled — slower, but always
+        /// correct.
+        fn run_inference(
+            state: &LoadedState,
+            pctx: &mut PooledContext,
+            messages: &[Message],
+            params: &InferParams,
+            tx: &mpsc::Sender<String>,
+            stop: &Arc<AtomicBool>,
+            on_start: Option<&(dyn Fn(u32) + Send)>,
+        ) -> Result<()> {
+            // ── Phase 1: tokenize + build sampler (model only) ──
+            let model: &LlamaModel = &state.model;
+            // A4: the GGUF-declared template wins; the filename heuristic is
+            // only a fallback for models that don't ship one (or whose
+            // template the llama.cpp engine can't render).
+            let gguf_prompt = build_prompt_gguf(state, messages);
+            let used_gguf = gguf_prompt.is_some();
+            let prompt = gguf_prompt.unwrap_or_else(|| build_prompt(messages, &state.name));
+            let extra_stop_tokens: Vec<LlamaToken> = if used_gguf {
+                // Template family is unknown here, so take the union of the
+                // common end-of-turn markers — but only those this model's
+                // vocab encodes as a SINGLE (special) token. A marker that
+                // splits into several ordinary tokens would make each piece
+                // a stop token and truncate normal prose.
+                ["<|eot_id|>", "<|end_of_text|>", "</s>", "<end_of_turn>", "<|im_end|>", "<|endoftext|>"]
+                    .iter()
+                    .filter_map(|s| {
+                        match model.str_to_token(s, AddBos::Never) {
+                            Ok(toks) if toks.len() == 1 => Some(toks[0]),
+                            _ => None,
+                        }
+                    })
+                    .collect()
+            } else {
+                let stop_strs: &[&str] = match detect_template(&state.name) {
+                    "llama3"  => &["<|eot_id|>", "<|end_of_text|>"],
+                    "mistral" => &["</s>"],
+                    "gemma"   => &["<end_of_turn>"],
+                    _         => &["<|im_end|>", "<|endoftext|>"],
+                };
+                stop_strs.iter()
+                    .flat_map(|s| model.str_to_token(s, AddBos::Never).unwrap_or_default())
+                    .collect()
             };
-            stop_strs.iter()
-                .flat_map(|s| model.str_to_token(s, AddBos::Never).unwrap_or_default())
-                .collect()
-        };
-        let tokens = model
-            .str_to_token(&prompt, AddBos::Always)
-            .map_err(|e| anyhow!("tokenize: {}", e))?;
+            let tokens = model
+                .str_to_token(&prompt, AddBos::Always)
+                .map_err(|e| anyhow!("tokenize: {}", e))?;
+            let n_prompt = tokens.len();
+            if n_prompt == 0 {
+                return Err(anyhow!("empty token list after tokenization"));
+            }
+            if let Some(cb) = on_start {
+                cb(n_prompt as u32);
+            }
 
-        let n_prompt = tokens.len();
-        if n_prompt == 0 {
-            return Err(anyhow!("empty token list after tokenization"));
-        }
-        if let Some(cb) = on_start {
-            cb(n_prompt as u32);
-        }
+            // Build the sampler chain. Grammar sampling needs the model
+            // (for vocabulary-aware trigger matching). The chain is then
+            // consumed entirely inside the sample loop (phase 3).
+            let mut samplers: Vec<LlamaSampler> = Vec::with_capacity(6);
+            if let Some(g) = params.grammar.as_deref() {
+                let built = match params.grammar_triggers.as_deref() {
+                    Some(trigs) if !trigs.is_empty() => LlamaSampler::grammar_lazy(
+                        model,
+                        g,
+                        "root",
+                        trigs.iter().map(String::as_str),
+                        &[],
+                    ),
+                    _ => LlamaSampler::grammar(model, g, "root"),
+                };
+                match built {
+                    Ok(s) => samplers.push(s),
+                    Err(e) => tracing::warn!(?e, "grammar sampler init failed; sampling unconstrained"),
+                }
+            }
+            let seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(1234);
+            samplers.push(LlamaSampler::penalties(64, params.repeat_penalty, 0.0, 0.0));
+            samplers.push(LlamaSampler::top_k(40));
+            samplers.push(LlamaSampler::top_p(params.top_p, 1));
+            samplers.push(LlamaSampler::temp(params.temperature));
+            samplers.push(LlamaSampler::dist(seed));
+            let mut sampler = LlamaSampler::chain_simple(samplers);
 
-        let ctx_size = NonZeroU32::new(
-            (n_prompt as u32 + params.max_tokens + 8).min(model.n_ctx_train()),
-        )
-        .unwrap_or(NonZeroU32::new(4096).unwrap());
+            // ── Phase 2: KV-cache prefix reuse + prefill (this context only) ──
+            //
+            // R1 fix: raw `llama_decode` does NOT prefix-match against the
+            // cache (that is llama-server logic). Re-decoding positions that
+            // already hold KV cells for seq 0 would add duplicate cells —
+            // attention would see stale and new entries simultaneously
+            // (corrupted output) and the cache would leak slots until decode
+            // fails. So we manage the cache explicitly:
+            //
+            //   1. Diff the new prompt against `cached_tokens` (what the
+            //      cache holds from this context's previous call: its
+            //      prompt + its generated tokens).
+            //   2. Evict everything from the first divergent position on.
+            //   3. Prefill only the divergent tail.
+            //
+            // `cached_tokens` is taken (emptied) up front so any error path
+            // (`?`) leaves the context in the safe "cache unknown → clear
+            // and fully re-prefill next call" state; it is repopulated only
+            // at the successful end of this call.
+            let prev_tokens = std::mem::take(&mut pctx.cached_tokens);
+            let mut reuse = prev_tokens
+                .iter()
+                .zip(tokens.iter())
+                .take_while(|(a, b)| a == b)
+                .count();
+            // The sampler needs fresh logits, which only a decode produces —
+            // always re-decode at least the final prompt token.
+            if reuse >= n_prompt {
+                reuse = n_prompt - 1;
+            }
+            let ctx = &mut pctx.context;
+            if reuse == 0 {
+                ctx.clear_kv_cache();
+            } else {
+                // Drop cells at positions [reuse, ∞) for seq 0. On any
+                // failure fall back to a full clear + full re-prefill —
+                // never decode into an uncertain cache.
+                match ctx.clear_kv_cache_seq(Some(0), Some(reuse as u32), None) {
+                    Ok(true) => {
+                        tracing::debug!(reuse, n_prompt, "kv cache: reusing prefix");
+                    }
+                    _ => {
+                        ctx.clear_kv_cache();
+                        reuse = 0;
+                    }
+                }
+            }
 
-        let ctx_params = LlamaContextParams::default().with_n_ctx(Some(ctx_size));
-        let mut ctx = model
-            .new_context(backend, ctx_params)
-            .map_err(|e| anyhow!("create context: {}", e))?;
+            // Prefill in chunks. A single decode of all prompt tokens trips
+            // `GGML_ASSERT(n_tokens_all <= cparams.n_batch)` (default n_batch = 2048)
+            // for long prompts — notably agent runs whose tool-calling system prompt
+            // can exceed 2048 tokens. Chunking keeps every decode within n_batch and
+            // bounds the compute buffer regardless of prompt length.
+            const PREFILL_CHUNK: usize = 512;
+            let mut batch = LlamaBatch::new(PREFILL_CHUNK, 1);
+            let mut start = reuse;
+            while start < n_prompt {
+                let end = (start + PREFILL_CHUNK).min(n_prompt);
+                batch.clear();
+                #[allow(clippy::needless_range_loop)]
+                for i in start..end {
+                    let want_logits = i == n_prompt - 1;
+                    batch
+                        .add(tokens[i], i as i32, &[0], want_logits)
+                        .map_err(|e| anyhow!("batch add (prefill): {}", e))?;
+                }
+                ctx.decode(&mut batch)
+                    .map_err(|e| anyhow!("decode prefill: {}", e))?;
+                start = end;
+            }
 
-        // Prefill in chunks. A single decode of all prompt tokens trips
-        // `GGML_ASSERT(n_tokens_all <= cparams.n_batch)` (default n_batch = 2048)
-        // for long prompts — notably agent runs whose tool-calling system prompt
-        // can exceed 2048 tokens. Chunking keeps every decode within n_batch and
-        // bounds the compute buffer regardless of prompt length.
-        const PREFILL_CHUNK: usize = 512;
-        let mut batch = LlamaBatch::new(PREFILL_CHUNK, 1);
-        let mut start = 0usize;
-        while start < n_prompt {
-            let end = (start + PREFILL_CHUNK).min(n_prompt);
-            batch.clear();
-            // `i` is the absolute token position (used for both indexing and the
-            // logits flag), so a range loop is clearer than iterating the slice.
-            #[allow(clippy::needless_range_loop)]
-            for i in start..end {
-                // Only the final token of the whole prompt needs logits.
-                let want_logits = i == n_prompt - 1;
+            // ── Phase 3: sample loop ──
+            // `model` (shared, read-only) and `ctx` (exclusive to this
+            // generation) are separate objects now — no borrow gymnastics.
+            let mut n_cur = n_prompt as i32;
+            let max_new = params.max_tokens as i32;
+            let mut piece_decoder = UTF_8.new_decoder();
+            // R1: running record of every token materialized in the KV cache
+            // by this call — the full prompt plus each generated token we
+            // decode below. Saved back to `self.cached_tokens` on success so
+            // the next call can diff against the true cache contents.
+            let mut session_tokens = tokens.clone();
+
+            loop {
+                if stop.load(Ordering::Relaxed) { break; }
+
+                let token = sampler.sample(ctx, -1);
+                sampler.accept(token);
+
+                if model.is_eog_token(token)
+                    || extra_stop_tokens.contains(&token)
+                    || (n_cur - n_prompt as i32) >= max_new
+                {
+                    break;
+                }
+
+                let s = model
+                    .token_to_piece(token, &mut piece_decoder, false, None)
+                    .unwrap_or_default();
+
+                if tx.blocking_send(s).is_err() {
+                    break; // frontend disconnected / cancelled
+                }
+
+                batch.clear();
                 batch
-                    .add(tokens[i], i as i32, &[0], want_logits)
-                    .map_err(|e| anyhow!("batch add (prefill): {}", e))?;
+                    .add(token, n_cur, &[0], true)
+                    .map_err(|e| anyhow!("batch add (gen): {}", e))?;
+                ctx.decode(&mut batch)
+                    .map_err(|e| anyhow!("decode gen: {}", e))?;
+                // Only tokens that were actually decoded live in the cache;
+                // the break-triggering EOG/stop token above never gets here.
+                session_tokens.push(token);
+                n_cur += 1;
             }
-            ctx.decode(&mut batch)
-                .map_err(|e| anyhow!("decode prefill: {}", e))?;
-            start = end;
+
+            // R1: record this context's cache contents for the next call's
+            // prefix diff.
+            pctx.cached_tokens = session_tokens;
+
+            Ok(())
         }
-
-        // Sampler chain: penalties → top-k → top-p → temperature → random dist.
-        // Order matters: penalties first (reshape logits), then truncation samplers
-        // (top_k/top_p), then temperature shaping, then final sampling.
-        //
-        // `params.repeat_penalty` was previously unused — leaving it disconnected
-        // caused small models (e.g. Llama-3.2-1B) to spiral into word-salad after
-        // ~100 tokens at temp >= 0.7.
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(1234);
-        let mut sampler = LlamaSampler::chain_simple([
-            LlamaSampler::penalties(64, params.repeat_penalty, 0.0, 0.0),
-            LlamaSampler::top_k(40),
-            LlamaSampler::top_p(params.top_p, 1),
-            LlamaSampler::temp(params.temperature),
-            LlamaSampler::dist(seed),
-        ]);
-
-        let mut n_cur = n_prompt as i32;
-        let max_new = params.max_tokens as i32;
-        // Reuse a single decoder across tokens so multi-byte UTF-8 sequences
-        // that span token boundaries are assembled correctly.
-        let mut piece_decoder = UTF_8.new_decoder();
-
-        loop {
-            if stop.load(Ordering::Relaxed) { break; }
-
-            let token = sampler.sample(&ctx, -1);
-            sampler.accept(token);
-
-            if model.is_eog_token(token)
-                || extra_stop_tokens.contains(&token)
-                || (n_cur - n_prompt as i32) >= max_new
-            {
-                break;
-            }
-
-            let s = model
-                .token_to_piece(token, &mut piece_decoder, false, None)
-                .unwrap_or_default();
-
-            if tx.blocking_send(s).is_err() {
-                break; // frontend disconnected / cancelled
-            }
-
-            batch.clear();
-            batch
-                .add(token, n_cur, &[0], true)
-                .map_err(|e| anyhow!("batch add (gen): {}", e))?;
-            ctx.decode(&mut batch)
-                .map_err(|e| anyhow!("decode gen: {}", e))?;
-            n_cur += 1;
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -532,7 +960,7 @@ mod tests {
     // ── build_prompt ──────────────────────────────────────────────────────────
 
     fn msg(role: &str, content: &str) -> Message {
-        Message { role: role.into(), content: content.into() }
+        Message { role: role.into(), content: content.into(), images: None }
     }
 
     #[test]
@@ -567,7 +995,6 @@ mod tests {
         let p = build_prompt(&msgs, "Mistral-7B.gguf");
         assert!(p.contains("Be concise."));
         assert!(p.contains("Hi"));
-        // System content should appear before [/INST], not as a separate turn
         let inst_pos = p.find("[INST]").unwrap();
         let sys_pos = p.find("Be concise.").unwrap();
         assert!(sys_pos > inst_pos, "system content should be inside [INST] block");
@@ -601,6 +1028,8 @@ mod tests {
         assert!(p.repeat_penalty >= 1.0);
         assert!(p.max_tokens >= 128);
         assert!(p.system_prompt.is_none());
+        // P1: session_id defaults to None (one-shot callers don't need it).
+        assert!(p.session_id.is_none());
     }
 
     // ── ModelManager state ────────────────────────────────────────────────────
@@ -613,7 +1042,6 @@ mod tests {
 
     #[test]
     fn model_manager_name_extraction() {
-        // Verify the PathBuf→name logic used in load()
         let path = std::path::PathBuf::from("/models/Ministral-3-3B.Q6_K.gguf");
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("model").to_string();
         assert_eq!(name, "Ministral-3-3B.Q6_K.gguf");

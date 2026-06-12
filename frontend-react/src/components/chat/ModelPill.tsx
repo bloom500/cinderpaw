@@ -7,7 +7,7 @@ export function ModelPill() {
   const progress  = useModel((s) => s.loadProgress);
 
   return (
-    <div className="relative flex items-center h-9 rounded-full bg-zinc-800/80 border border-white/15 overflow-hidden shrink-0 shadow-sm">
+    <div className="relative flex items-center h-9 rounded-full bg-bg-elevated border border-border-default overflow-hidden shrink-0 shadow-sm">
       <ModelPickerPopover />
       <div className="w-px h-4 bg-white/10 shrink-0" />
       <ControlsPopover />

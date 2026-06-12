@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  check:
+    name: ${{ matrix.os }} / ${{ matrix.step.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        step:
+          - name: feral-agent
+            workdir: FeralAgent
+            install: bun install
+            typecheck: bun run typecheck
+            test: bun test
+          - name: frontend-react
+            workdir: frontend-react
+            install: npm ci
+            typecheck: npm run typecheck
+            test: npm test -- --run
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.step.workdir }}
+        run: ${{ matrix.step.install }}
+
+      - name: Typecheck
+        working-directory: ${{ matrix.step.workdir }}
+        run: ${{ matrix.step.typecheck }}
+
+      - name: Test
+        working-directory: ${{ matrix.step.workdir }}
+        run: ${{ matrix.step.test }}

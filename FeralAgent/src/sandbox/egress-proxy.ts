@@ -11,6 +11,7 @@
  * Every attempt — allowed or blocked — is written to the audit log.
  */
 
+import { lookup } from "node:dns/promises";
 import type {
   AuditLogger,
   FeralFetch,
@@ -81,31 +82,47 @@ export class EgressProxy {
       block(`tool "${manifest.name}" has no network access`);
     }
 
-    // 2. URL must parse and use an allowed scheme.
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return block(`malformed URL: ${url}`);
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      block(`disallowed scheme: ${parsed.protocol}`);
-    }
-
-    const host = parsed.hostname.toLowerCase();
-
-    // 3. Block loopback / private / link-local destinations (SSRF guard).
-    if (isBlockedHost(host)) {
-      block(`destination is loopback/private/link-local: ${host}`);
-    }
-
-    // 4. Domain whitelist enforcement.
     const allowed = manifest.allowedDomains ?? [];
-    if (!hostMatchesWhitelist(host, allowed)) {
-      block(`host "${host}" not in allowedDomains for "${manifest.name}"`);
-    }
 
-    // 5. Rate limit (rolling window, global across all tools).
+    // Validate a single URL hop: scheme, SSRF host guard (by hostname string
+    // AND by every resolved IP), and the tool's domain whitelist. Run on the
+    // initial URL *and* on every redirect target — `fetch(redirect:"follow")`
+    // would chase a 3xx to an internal address without re-checking anything,
+    // turning any whitelisted (or compromised) host into an SSRF pivot.
+    const validateHop = async (raw: string): Promise<URL> => {
+      let parsed: URL;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        return block(`malformed URL: ${raw}`);
+      }
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        block(`disallowed scheme: ${parsed.protocol}`);
+      }
+      const host = parsed.hostname.toLowerCase();
+      // SSRF guard by hostname string (literal IPs, localhost, ULA/link-local).
+      if (isBlockedHost(host)) {
+        block(`destination is loopback/private/link-local: ${host}`);
+      }
+      // SSRF guard by resolved IP — defeats DNS rebinding and any hostname
+      // that points into a private range. Every A/AAAA answer must be public.
+      for (const ip of await resolveHostIps(host)) {
+        if (isBlockedHost(ip.toLowerCase())) {
+          block(`host "${host}" resolves to a blocked address: ${ip}`);
+        }
+      }
+      // Domain whitelist enforcement.
+      if (!hostMatchesWhitelist(host, allowed)) {
+        block(`host "${host}" not in allowedDomains for "${manifest.name}"`);
+      }
+      return parsed;
+    };
+
+    // 2-4. Validate the first hop before anything touches the network.
+    let parsed = await validateHop(url);
+
+    // 5. Rate limit (rolling window, global across all tools). Counts the
+    //    request once regardless of how many redirects it follows.
     this.#pruneWindow(start);
     if (this.#recent.length >= this.#config.maxRequests) {
       block(
@@ -115,43 +132,104 @@ export class EgressProxy {
     }
     this.#recent.push(start);
 
-    // 6. Perform the request with an enforced timeout.
+    // 6. Perform the request with an enforced timeout, following redirects
+    //    MANUALLY so every hop is re-validated by `validateHop`.
     const controller = new AbortController();
     const timeoutMs = init?.timeoutMs ?? this.#config.defaultTimeoutMs;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let onCallerAbort: (() => void) | undefined;
+    if (init?.signal) {
+      onCallerAbort = () => controller.abort(init.signal?.reason);
+      if (init.signal.aborted) {
+        onCallerAbort();
+      } else {
+        init.signal.addEventListener("abort", onCallerAbort, { once: true });
+      }
+    }
+
+    const MAX_REDIRECTS = 5;
 
     try {
-      const res = await fetch(parsed.toString(), {
-        method: init?.method ?? "GET",
-        headers: init?.headers,
-        body: init?.body,
-        signal: controller.signal,
-        redirect: "follow",
-      });
+      let method = init?.method ?? "GET";
+      let body = init?.body;
+      // Copy caller headers so we can strip credentials on a cross-origin hop
+      // without mutating the caller's object.
+      let headers: Record<string, string> = { ...(init?.headers ?? {}) };
+      let currentHost = parsed.hostname.toLowerCase();
 
-      const headers: Record<string, string> = {};
-      res.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
+      for (let hop = 0; ; hop++) {
+        const res = await fetch(parsed.toString(), {
+          method,
+          headers,
+          body,
+          signal: controller.signal,
+          redirect: "manual",
+        });
 
-      this.#audit({
-        timestamp: Date.now(),
-        sessionId,
-        actionType: "network",
-        toolName: manifest.name,
-        argsJson: JSON.stringify({ url, method: init?.method ?? "GET" }),
-        result: "success",
-        durationMs: Date.now() - start,
-      });
+        // 3xx with a Location → re-validate the target and continue.
+        const isRedirect =
+          res.status >= 300 && res.status < 400 && res.headers.has("location");
+        if (isRedirect) {
+          if (hop >= MAX_REDIRECTS) {
+            block(`too many redirects (> ${MAX_REDIRECTS}) starting at ${url}`);
+          }
+          const loc = res.headers.get("location")!;
+          const next = new URL(loc, parsed); // resolve relative Location
+          // Per fetch semantics: 303 (and 301/302 on an unsafe method)
+          // downgrades the follow-up to GET and drops the body.
+          if (
+            res.status === 303 ||
+            ((res.status === 301 || res.status === 302) &&
+              method !== "GET" &&
+              method !== "HEAD")
+          ) {
+            method = "GET";
+            body = undefined;
+          }
+          // Drop credentials when the origin changes so a redirect can't
+          // leak an Authorization/Cookie header to a different host.
+          const nextHost = next.hostname.toLowerCase();
+          if (nextHost !== currentHost) {
+            for (const k of Object.keys(headers)) {
+              const lk = k.toLowerCase();
+              if (lk === "authorization" || lk === "cookie" || lk === "proxy-authorization") {
+                delete headers[k];
+              }
+            }
+            currentHost = nextHost;
+          }
+          parsed = await validateHop(next.toString());
+          continue;
+        }
 
-      return {
-        status: res.status,
-        ok: res.ok,
-        headers,
-        text: () => res.text(),
-        json: () => res.json() as Promise<unknown>,
-      };
+        // Final (non-redirect) response.
+        const respHeaders: Record<string, string> = {};
+        res.headers.forEach((value, key) => {
+          respHeaders[key] = value;
+        });
+
+        this.#audit({
+          timestamp: Date.now(),
+          sessionId,
+          actionType: "network",
+          toolName: manifest.name,
+          argsJson: JSON.stringify({ url, method: init?.method ?? "GET" }),
+          result: "success",
+          durationMs: Date.now() - start,
+        });
+
+        return {
+          status: res.status,
+          ok: res.ok,
+          headers: respHeaders,
+          text: () => res.text(),
+          json: () => res.json() as Promise<unknown>,
+        };
+      }
     } catch (err) {
+      // A blocked redirect throws EgressBlockedError (already audited by
+      // `block`); re-throw it as-is so callers see the block reason.
+      if (err instanceof EgressBlockedError) throw err;
       const message =
         controller.signal.aborted
           ? `request timed out after ${timeoutMs}ms`
@@ -169,6 +247,9 @@ export class EgressProxy {
       throw new EgressError(message);
     } finally {
       clearTimeout(timer);
+      if (onCallerAbort && init?.signal) {
+        init.signal.removeEventListener("abort", onCallerAbort);
+      }
     }
   }
 
@@ -191,6 +272,29 @@ export class EgressError extends Error {
   constructor(reason: string) {
     super(reason);
     this.name = "EgressError";
+  }
+}
+
+/** True when `host` is already an IP literal (no DNS resolution needed). */
+function isIpLiteral(host: string): boolean {
+  const bare = host.replace(/^\[|\]$/g, "");
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(bare) || bare.includes(":");
+}
+
+/**
+ * Resolve a hostname to every A/AAAA address so each can be checked against
+ * the SSRF guard. Literal IPs resolve to themselves. On resolution failure we
+ * return `[]` rather than blocking — the hostname-string and whitelist checks
+ * have already run, and a DNS hiccup shouldn't masquerade as a security block;
+ * the subsequent `fetch` will surface the real network error.
+ */
+async function resolveHostIps(host: string): Promise<string[]> {
+  if (isIpLiteral(host)) return [host.replace(/^\[|\]$/g, "")];
+  try {
+    const records = await lookup(host, { all: true });
+    return records.map((r) => r.address);
+  } catch {
+    return [];
   }
 }
 

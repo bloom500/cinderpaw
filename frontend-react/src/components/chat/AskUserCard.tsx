@@ -3,8 +3,22 @@
  *
  * Renders 1-4 AskUserQuestion blocks, each with 2-4 options. The user
  * picks one (or many, for multiSelect), optionally types an "Other"
- * custom answer, and clicks Submit. The component is fully keyboard
- * navigable: Tab between options, 1-9 to quick-select, Enter to submit.
+ * custom answer, and the answers are submitted back to the agent once
+ * EVERY question has an answer.
+ *
+ * Why "wait for all questions" instead of auto-submitting on the first
+ * click of a single-select option:
+ *   - When the model asks 2-4 questions at once, the user must be able
+ *     to answer all of them before the answer goes back. Auto-submitting
+ *     on the first click of Q1 (the previous behaviour) meant the agent
+ *     saw an answer of length 1, the pending Promise resolved, and Q2-Q4
+ *     were never visible / answerable.
+ *   - For the common 1-question case the behaviour is identical: there
+ *     is only one slot, so it is "filled" on the first click and the
+ *     auto-submit effect fires the same way it did before.
+ *
+ * The component is fully keyboard navigable: Tab between options, 1-9
+ * to quick-select, Enter to submit multi-select.
  *
  * Once the user has submitted (or the request was cancelled), the card
  * collapses into a compact "Answered" summary so it does not keep
@@ -13,11 +27,12 @@
  * Props:
  *   - questions:  the questions to render
  *   - answered:   the user's answers, or undefined while pending
- *   - onSubmit:   called with the assembled answers when the user submits
+ *   - onSubmit:   called with the assembled answers when every question
+ *                 has been answered. Called exactly once per card.
  *   - onCancel:   called when the user dismisses the card without answering
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, ChevronDown, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AskUserAnswer, AskUserOption, AskUserQuestion } from '@/stores/askUser';
@@ -39,6 +54,49 @@ export function AskUserCard({
 }: AskUserCardProps) {
   const isAnswered = answered !== undefined;
 
+  // One slot per question, in the same order. null = unanswered.
+  // After every slot is filled, the auto-submit effect below calls
+  // onSubmit(answers) exactly once. Using a sparse array (rather than
+  // appending/popping) keeps question order stable when the user
+  // changes an earlier answer before finishing.
+  const [answers, setAnswers] = useState<(AskUserAnswer | null)[]>(() =>
+    new Array(questions.length).fill(null),
+  );
+  // Guard against double-submit (React StrictMode runs effects twice in
+  // dev, and the parent may pass a fresh onSubmit closure on every
+  // re-render which would otherwise re-fire the effect).
+  const submittedRef = useRef(false);
+
+  const handleAnswer = useCallback((index: number, answer: AskUserAnswer) => {
+    setAnswers((prev) => {
+      const existing = prev[index];
+      // No-op if the answer is identical (same labels + customText) so we
+      // do not re-run the auto-submit effect on no-op clicks.
+      if (
+        existing &&
+        existing.question === answer.question &&
+        existing.customText === answer.customText &&
+        existing.selected.length === answer.selected.length &&
+        existing.selected.every((s, i) => s === answer.selected[i])
+      ) {
+        return prev;
+      }
+      const next = [...prev];
+      next[index] = answer;
+      return next;
+    });
+  }, []);
+
+  // Auto-submit when every question has an answer. Fires exactly once
+  // per card thanks to submittedRef.
+  useEffect(() => {
+    if (isAnswered || submittedRef.current) return;
+    if (answers.length !== questions.length) return;
+    if (answers.some((a) => a === null)) return;
+    submittedRef.current = true;
+    onSubmit(answers as AskUserAnswer[]);
+  }, [answers, isAnswered, onSubmit, questions.length]);
+
   return (
     <div
       className="rounded-xl border border-border-default bg-bg-elevated/40 p-4 my-2 space-y-4"
@@ -48,19 +106,27 @@ export function AskUserCard({
     >
       <div className="text-[11px] uppercase tracking-wider text-text-muted font-medium">
         Feral needs your input
+        {questions.length > 1 && (
+          <span className="ml-2 font-mono text-text-muted/70 normal-case tracking-normal">
+            {answers.filter((a) => a !== null).length} / {questions.length}
+          </span>
+        )}
       </div>
       {questions.map((q, i) => (
         <QuestionBlock
           key={i}
+          index={i}
           question={q}
-          answer={answered?.[i]}
+          // Prefer the parent's authoritative answer (post-submit); fall
+          // back to the in-progress local answer while the user is still
+          // filling the card.
+          answer={answered?.[i] ?? answers[i] ?? undefined}
           disabled={isAnswered}
-          onSubmitSingle={(selection) => {
-            // For single-question cards, build a full answers array and submit.
-            onSubmit([{ question: q.question, selected: [selection] }]);
+          onAnswerSingle={(selection) => {
+            handleAnswer(i, { question: q.question, selected: [selection] });
           }}
-          onSubmitMulti={(selections) => {
-            onSubmit([{ question: q.question, selected: selections }]);
+          onAnswerMulti={(selections) => {
+            handleAnswer(i, { question: q.question, selected: selections });
           }}
         />
       ))}
@@ -80,27 +146,46 @@ export function AskUserCard({
 }
 
 interface QuestionBlockProps {
+  index: number;
   question: AskUserQuestion;
+  /** Authoritative answer from the parent. Drives the visual "selected" state. */
   answer?: AskUserAnswer;
+  /** When true, render the compact "Answered" summary instead of options. */
   disabled: boolean;
-  /** Single-select: one label. */
-  onSubmitSingle: (label: string) => void;
-  /** Multi-select: N labels. */
-  onSubmitMulti: (labels: string[]) => void;
+  /** Single-select: one label. Updates the parent's answer slot only. */
+  onAnswerSingle: (label: string) => void;
+  /** Multi-select: N labels. Updates the parent's answer slot only. */
+  onAnswerMulti: (labels: string[]) => void;
 }
 
 function QuestionBlock({
+  index,
   question,
   answer,
   disabled,
-  onSubmitSingle,
-  onSubmitMulti,
+  onAnswerSingle,
+  onAnswerMulti,
 }: QuestionBlockProps) {
-  // Local state — the selection the user is currently building.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [otherText, setOtherText] = useState('');
+  // Local multi-select state — the selection the user is currently
+  // building. Single-select questions are fully controlled by the
+  // parent's `answer` prop (a click is the answer; no in-progress
+  // state is needed).
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(answer?.selected ?? []),
+  );
+  const [otherText, setOtherText] = useState(answer?.customText ?? '');
   const [otherOpen, setOtherOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // When the parent hands us a new answer (e.g. the user re-answered
+  // this question), keep the in-progress multi-select state in sync so
+  // the option highlights reflect the latest answer.
+  useEffect(() => {
+    if (question.multiSelect) {
+      setSelected(new Set(answer?.selected ?? []));
+      setOtherText(answer?.customText ?? '');
+    }
+  }, [answer, question.multiSelect]);
 
   // Auto-submit the first question when the user has not yet selected
   // anything. The agent loop is blocked until the user answers, so a
@@ -115,8 +200,11 @@ function QuestionBlock({
         return next;
       });
     } else {
-      // Single-select: submit immediately on click.
-      onSubmitSingle(opt.label);
+      // Single-select: hand the answer up to the parent. The parent
+      // decides when the full card is ready to submit (see useEffect
+      // in AskUserCard) — for a 1-question card this fires immediately,
+      // for a multi-question card it waits for every slot to fill.
+      onAnswerSingle(opt.label);
     }
   };
 
@@ -126,7 +214,7 @@ function QuestionBlock({
       labels.push(otherText.trim());
     }
     if (labels.length === 0) return;
-    onSubmitMulti(labels);
+    onAnswerMulti(labels);
   };
 
   // Keyboard nav: 1-9 quick-select on single-select; Enter submits multi.
@@ -156,6 +244,7 @@ function QuestionBlock({
       tabIndex={0}
       onKeyDown={handleKey}
       className="space-y-2 outline-none"
+      data-question-index={index}
     >
       <div className="flex items-baseline gap-2">
         {question.header && (
@@ -181,8 +270,14 @@ function QuestionBlock({
       {!disabled && (
         <div className="space-y-1.5">
           {question.options.map((opt, i) => {
-            const isSelected = selected.has(opt.label);
-            const isAnswer = answer?.selected.includes(opt.label);
+            // For single-select, the visual highlight is driven by the
+            // parent (so the user sees their pick even before the card
+            // is fully submitted). For multi-select, the in-progress
+            // selection is local until Submit.
+            const isSelected = question.multiSelect
+              ? selected.has(opt.label)
+              : answer?.selected.includes(opt.label) ?? false;
+            const isAnswer = answer?.selected.includes(opt.label) ?? false;
             return (
               <button
                 key={opt.label}
@@ -239,7 +334,7 @@ function QuestionBlock({
               onSubmit={() => {
                 const text = otherText.trim();
                 if (!text) return;
-                onSubmitSingle(text);
+                onAnswerSingle(text);
               }}
             />
           )}

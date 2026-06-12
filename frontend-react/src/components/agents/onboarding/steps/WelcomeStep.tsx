@@ -1,31 +1,32 @@
-import { Bot, Search, FileText, Code, Globe } from 'lucide-react';
+const FEATURES = [
+  { emoji: '🔎', title: 'Research', text: 'Search the web and summarise what it finds' },
+  { emoji: '📂', title: 'Files', text: 'Read, write and organize files on your computer' },
+  { emoji: '💻', title: 'Code', text: 'Write and run code snippets for you' },
+  { emoji: '🌐', title: 'Web data', text: 'Fetch and process data from web pages' },
+];
 
 export function WelcomeStep() {
   return (
     <div className="space-y-8 text-center">
-      <div className="flex justify-center">
-        <div className="w-14 h-14 rounded-2xl bg-brand/10 flex items-center justify-center">
-          <Bot size={28} className="text-brand" />
-        </div>
-      </div>
-
-      <div className="space-y-2">
+      <div className="space-y-3">
+        <div className="text-5xl leading-none" aria-hidden="true">👋</div>
         <h1 className="text-2xl font-bold text-text-primary tracking-tight">Meet Agents</h1>
         <p className="text-sm text-text-muted leading-relaxed">
-          AI helpers you configure once and run anytime —<br />on your device, privately.
+          Little AI helpers you set up once and run anytime —<br />
+          on your device, <span className="text-text-secondary">privately</span>. 🔒
         </p>
       </div>
 
-      <div className="space-y-3 text-left">
-        {[
-          { icon: Search,   text: 'Search the web and summarise findings' },
-          { icon: FileText, text: 'Read and write files on your computer' },
-          { icon: Code,     text: 'Write and run code snippets' },
-          { icon: Globe,    text: 'Fetch and process data from web pages' },
-        ].map(({ icon: Icon, text }) => (
-          <div key={text} className="flex items-center gap-3 text-sm text-text-secondary">
-            <Icon size={13} className="shrink-0 text-text-muted" />
-            <span>{text}</span>
+      <div className="grid grid-cols-2 gap-3 text-left">
+        {FEATURES.map(({ emoji, title, text }) => (
+          <div
+            key={title}
+            className="rounded-xl border border-border-subtle bg-bg-surface p-4 space-y-1.5
+                       hover:border-brand/40 hover:bg-bg-hover transition-colors"
+          >
+            <div className="text-2xl leading-none" aria-hidden="true">{emoji}</div>
+            <p className="text-sm font-semibold text-text-primary">{title}</p>
+            <p className="text-xs text-text-muted leading-relaxed">{text}</p>
           </div>
         ))}
       </div>

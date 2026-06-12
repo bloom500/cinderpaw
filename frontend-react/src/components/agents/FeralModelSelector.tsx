@@ -81,7 +81,7 @@ export function FeralModelSelector() {
         <button
           type="button"
           className="flex items-center gap-1.5 h-6 px-2 rounded text-xs font-medium
-                     text-text-secondary bg-bg-secondary hover:bg-bg-hover
+                     text-text-secondary bg-bg-surface hover:bg-bg-hover
                      transition-colors outline-none border border-border-subtle
                      disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={busy}

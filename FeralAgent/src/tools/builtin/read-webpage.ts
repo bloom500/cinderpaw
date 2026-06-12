@@ -55,7 +55,9 @@ export function createReadWebpageTool(jinaApiKey?: string): Tool {
       const headers: Record<string, string> = { Accept: "text/plain" };
       if (jinaApiKey) headers["Authorization"] = `Bearer ${jinaApiKey}`;
 
-      const res = await ctx.fetch(jinaUrl, { timeoutMs: 30_000, headers });
+      // 60s: Jina Reader renders heavy/JS pages server-side and regularly
+      // needs more than 30s for them — observed timeouts at the old limit.
+      const res = await ctx.fetch(jinaUrl, { timeoutMs: 60_000, headers });
       if (!res.ok) {
         return {
           ok: false,

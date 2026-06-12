@@ -196,6 +196,7 @@ mod tests {
             .map(|i| PersistedMessage {
                 role: if i % 2 == 0 { "user".into() } else { "assistant".into() },
                 content: format!("Message {}", i),
+                thinking: None,
             })
             .collect()
     }
@@ -294,15 +295,15 @@ mod tests {
         let dir = tmp();
 
         let conv1_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Hello world".into() },
-            PersistedMessage { role: "assistant".into(), content: "Hi there!".into() },
-            PersistedMessage { role: "user".into(),      content: "What is Rust?".into() },
+            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None },
+            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None },
+            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None },
         ];
         let conv2_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into() },
-            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into() },
-            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into() },
-            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into() },
+            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None },
+            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None },
+            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None },
+            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None },
         ];
 
         save_to_dir(&dir, "session-1", "Hello world", &conv1_msgs, None).unwrap();

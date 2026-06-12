@@ -32,6 +32,9 @@ interface UIStore {
   closeSkills: () => void;
   inputMode: InputMode;
   setInputMode: (m: InputMode) => void;
+  /** #24: pixel-art mascot on the typing bar. Some users want it off. */
+  mascotEnabled: boolean;
+  setMascotEnabled: (v: boolean) => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -82,6 +85,8 @@ export const useUI = create<UIStore>()(
       closeSkills: () => set({ skillsOpen: false }),
       inputMode: 'chat',
       setInputMode: (inputMode) => set({ inputMode }),
+      mascotEnabled: true,
+      setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
     }),
     {
       name: 'feral-ui',
@@ -92,6 +97,7 @@ export const useUI = create<UIStore>()(
         reasoningMode: s.reasoningMode,
         enabledTools: s.enabledTools,
         inputMode: s.inputMode,
+        mascotEnabled: s.mascotEnabled,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

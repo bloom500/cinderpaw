@@ -10,6 +10,11 @@ import { ChatHeader } from '@/components/chat/ChatHeader';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { NoModelEmptyState, NewChatEmptyState } from '@/components/chat/EmptyStates';
+import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
+import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
+import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
+import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
+import { useOnboarding } from '@/stores/onboarding';
 import { FeralGlobalMount } from '@/components/chat/FeralGlobalMount';
 import { useFeralSendMessage } from '@/hooks/useFeral';
 import { useFeralStore } from '@/stores/feral';
@@ -35,21 +40,28 @@ export function ChatPage() {
   const inputWrapperRef = useRef<HTMLDivElement>(null);
   const chatInputRef    = useRef<ChatInputHandle>(null);
   const [translateY, setTranslateY] = useState(0);
+  // #17: agent-creation onboarding — shown in agent mode when no agent
+  // exists, but never while the first-run wizard is still on screen.
+  const [showAgentOnboarding, setShowAgentOnboarding] = useState(false);
+  const wizardActive = useOnboarding((s) => s.active);
 
-  // Recompute centering offset whenever isEmpty changes
+  // Recompute centering offset whenever isEmpty or onboarding visibility changes.
+  // Without showAgentOnboarding in deps, the effect fires while the container
+  // has near-zero height (onboarding dominates), leaving translateY ≈ 0 after
+  // the onboarding exits even though isEmpty is still true.
   useLayoutEffect(() => {
     const container = containerRef.current;
     const wrapper   = inputWrapperRef.current;
     if (!container || !wrapper) return;
 
-    if (isEmpty) {
+    if (isEmpty && !showAgentOnboarding) {
       const containerH = container.offsetHeight;
       const inputH     = wrapper.offsetHeight;
       setTranslateY(-(containerH / 2 - inputH / 2));
     } else {
       setTranslateY(0);
     }
-  }, [isEmpty]);
+  }, [isEmpty, showAgentOnboarding]);
 
   // Initial data hydration
   useEffect(() => {
@@ -109,6 +121,11 @@ export function ChatPage() {
       void useAgent.getState().refresh().then(() => {
         const first = useAgent.getState().list[0];
         if (first?.id) useAgent.getState().setCurrent(first.id);
+        // #17: no agent exists — offer the agent-creation onboarding. It was
+        // previously unreachable (the "New agent" button navigated here and
+        // nothing mounted it). Sequenced below so it never stacks on top of
+        // the first-run wizard. Skip if already dismissed/completed (survives CTRL+R).
+        else if (!localStorage.getItem(ONBOARDING_KEY)) setShowAgentOnboarding(true);
       });
     }
 
@@ -144,9 +161,16 @@ export function ChatPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <ChatHeader />
+      {isAgentMode && showAgentOnboarding && !wizardActive && (
+        <AgentsOnboarding
+          onDone={() => setShowAgentOnboarding(false)}
+          onSkip={() => setShowAgentOnboarding(false)}
+        />
+      )}
+      {!showAgentOnboarding && <ChatHeader />}
 
       {isAgentMode && <FeralGlobalMount />}
+      {isAgentMode && <AgentOfflineBanner />}
 
       {/* Positioning context for absolute children */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
@@ -173,6 +197,8 @@ export function ChatPage() {
           }}
           className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
         >
+          {/* #10: humanized inference errors with a fix-it action */}
+          <StreamErrorNotice />
           <ChatInput
             ref={chatInputRef}
             isEmpty={isEmpty}

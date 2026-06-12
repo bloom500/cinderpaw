@@ -94,7 +94,7 @@ export function ModelPickerPopover() {
   return (
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 h-full px-4 text-sm font-medium text-text-primary hover:text-white transition-colors outline-none">
+        <button className="flex items-center gap-2 h-full px-4 text-sm font-medium text-text-primary hover:text-text-primary/70 transition-colors outline-none">
           <span className="truncate max-w-[200px]">{label}</span>
           <ChevronDown size={12} className="shrink-0 opacity-50" />
         </button>

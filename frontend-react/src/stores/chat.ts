@@ -8,6 +8,12 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * Image attachments as data URLs (paste / file picker). Sent to
+   * vision-capable models alongside the text; kept in-memory for the
+   * session so follow-up turns still include the pixels.
+   */
+  images?: string[];
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;
@@ -90,7 +96,9 @@ interface ChatStore {
     event: Omit<Extract<ToolCallEvent, { kind: 'tool' }>, 'id' | 'startedAt' | 'endedAt'>
       & { startedAt?: number },
   ) => string;
-  completeToolCall: (id: string, result: { ok: boolean; error?: string }) => void;
+  completeToolCall: (id: string, result: { ok: boolean; error?: string; preview?: string }) => void;
+  /** #18: attach a live progress/retry note to the most recent running tool. */
+  noteToolProgress: (message: string) => void;
   pushSkillsContext: (names: string[]) => void;
   clearToolCallStream: () => void;
 }
@@ -113,6 +121,12 @@ export type ToolCallEvent =
       status: 'running' | 'done' | 'error';
       startedAt: number;
       endedAt: number | null;
+      /** #18: truncated tool output, expandable from the bubble. */
+      resultPreview?: string | null;
+      /** #18: error text when the tool failed. */
+      errorMessage?: string | null;
+      /** #18: live progress/retry note from `tool_progress` (e.g. "retry 2/3"). */
+      progressNote?: string | null;
     }
   | {
       id: string;
@@ -125,6 +139,9 @@ export type ToolCallEvent =
 
 /** Hard cap on the number of bubbles the mascot renders at once. */
 export const TOOL_CALL_STREAM_MAX = 4;
+
+/** How long a finished tool bubble lingers before fading out on its own. */
+export const TOOL_CALL_LINGER_MS = 4_000;
 
 export const useChat = create<ChatStore>((set) => ({
   sessionId: crypto.randomUUID(),
@@ -237,10 +254,37 @@ export const useChat = create<ChatStore>((set) => ({
     set((s) => ({
       toolCallStream: s.toolCallStream.map((e) =>
         e.id === id && e.kind === 'tool'
-          ? { ...e, status: result.ok ? 'done' : 'error', endedAt: Date.now() }
+          ? {
+              ...e,
+              status: result.ok ? 'done' : 'error',
+              endedAt: Date.now(),
+              resultPreview: result.preview ?? null,
+              errorMessage: result.error ?? null,
+              progressNote: null,
+            }
           : e,
       ),
     }));
+    // Finished bubbles fade out on their own after a short linger instead of
+    // piling up until the whole turn ends. AnimatePresence in ToolCallStack
+    // plays the exit animation when the entry leaves the array.
+    window.setTimeout(() => {
+      set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== id) }));
+    }, TOOL_CALL_LINGER_MS);
+  },
+
+  noteToolProgress: (message) => {
+    set((s) => {
+      const lastRunning = [...s.toolCallStream]
+        .reverse()
+        .find((e) => e.kind === 'tool' && e.status === 'running');
+      if (!lastRunning) return s;
+      return {
+        toolCallStream: s.toolCallStream.map((e) =>
+          e.id === lastRunning.id && e.kind === 'tool' ? { ...e, progressNote: message } : e,
+        ),
+      };
+    });
   },
 
   pushSkillsContext: (names) => {
@@ -259,6 +303,10 @@ export const useChat = create<ChatStore>((set) => ({
       const next = [...s.toolCallStream, event];
       return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
     });
+    // Context bubbles have no running lifecycle — fade them out too.
+    window.setTimeout(() => {
+      set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== id) }));
+    }, TOOL_CALL_LINGER_MS);
   },
 
   clearToolCallStream: () => set({ toolCallStream: [] }),

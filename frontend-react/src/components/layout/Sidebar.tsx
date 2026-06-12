@@ -203,7 +203,7 @@ export function Sidebar() {
       <motion.aside
         animate={{ width: collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W }}
         transition={{ duration: 0.22, ease: 'easeInOut' }}
-        className="fixed left-2 top-2 bottom-2 bg-bg-surface flex flex-col z-20 overflow-hidden rounded-2xl border border-border-subtle shadow-lg"
+        className="fixed left-2 top-2 bottom-2 bg-bg-surface/90 backdrop-blur border border-border-subtle shadow-lg flex flex-col z-20 overflow-hidden rounded-2xl"
       >
         {/* Header */}
         <div className="h-12 px-3 flex items-center justify-between shrink-0">

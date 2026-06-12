@@ -11,7 +11,9 @@ export function SystemBar() {
   const ram = `${Math.round(info.ram_total_mb / 1024)} GB RAM`;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 bg-bg-surface border-b border-border-subtle text-sm text-text-secondary shrink-0">
+    // #22: drag region — the frameless window must stay draggable from the
+    // top bar on every page, not just the chat header.
+    <div data-tauri-drag-region className="flex items-center gap-3 px-4 py-2 bg-bg-surface border-b border-border-subtle text-sm text-text-secondary shrink-0">
       <span className="font-medium">{info.gpu_name}</span>
       <span className="text-border-default">·</span>
       <span>{vram}</span>

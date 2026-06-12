@@ -3,9 +3,9 @@
  * positioned above the mascot in MascotPerch.
  *
  * The store caps the array at 4 entries; this component renders them in
- * order, oldest at the top. The container is fixed-width-ish (max-w-xs)
- * and non-interactive (pointer-events-none) because bubbles are
- * decorative in v1.
+ * order, oldest at the top. The container ignores pointer events, but
+ * finished tool bubbles re-enable them so their output can be expanded
+ * with a click (#18).
  */
 
 import { AnimatePresence } from 'framer-motion';
@@ -21,8 +21,11 @@ export function ToolCallStack({ events, active }: ToolCallStackProps) {
   if (events.length === 0) return null;
   return (
     <div
-      className="pointer-events-none absolute -top-2 left-full ml-2 z-20
-                 flex flex-col-reverse items-start gap-1"
+      // Anchored ABOVE the mascot and growing upward (column-reverse from
+      // the bottom edge), so the stack can never extend down over the
+      // typing bar no matter how many bubbles are visible.
+      className="pointer-events-none absolute bottom-full mb-1 left-full ml-2 z-20
+                 flex flex-col items-start gap-1"
       data-active={active}
     >
       <AnimatePresence initial={false}>
@@ -48,6 +51,9 @@ export function ToolCallStack({ events, active }: ToolCallStackProps) {
               status={e.status}
               startedAt={e.startedAt}
               endedAt={e.endedAt}
+              resultPreview={e.resultPreview}
+              errorMessage={e.errorMessage}
+              progressNote={e.progressNote}
             />
           ),
         )}

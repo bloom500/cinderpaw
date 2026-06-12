@@ -36,8 +36,9 @@ const ollamaOk = (content: string, promptTokens = 10, evalTokens = 5) => ({
   eval_count: evalTokens,
 });
 
+// A3: Pass 1 (fenced blocks) removed. Use the only remaining format: <tool_call> XML.
 function toolBlock(name: string, args: Record<string, unknown>): string {
-  return "```tool\n" + JSON.stringify({ name, args }) + "\n```";
+  return "<tool_call>\n" + JSON.stringify({ name, args }) + "\n</tool_call>";
 }
 
 function hangToolManifest(name: string): ToolManifest {

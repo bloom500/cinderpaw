@@ -17,6 +17,7 @@ export function NameAgentStep({ name, onChange, onSubmit }: Props) {
   return (
     <div className="space-y-6 text-center">
       <div className="space-y-2">
+        <div className="text-4xl leading-none" aria-hidden="true">✏️</div>
         <h2 className="text-2xl font-bold text-text-primary tracking-tight">
           Give it a name
         </h2>

@@ -1,68 +1,167 @@
 /**
- * shell_exec — run a shell command inside the sandbox.
+ * shell_exec — run a program inside the sandbox.
  *
- * Security model:
- *   - The command is passed as a single STRING, not an argv array. This is
- *     intentional: argv arrays are safer (no shell metacharacter parsing)
- *     but require the model to construct the right quoting. Since the
- *     manifest is the security gate, we keep this simple and the user can
- *     write `node -e "console.log(1)"` directly.
+ * Security model (V2 — argv-only):
+ *   - There is NO shell. The command is executed as an argv array
+ *     (`[binary, ...args]`) handed straight to `ProcessSandbox.run`, which
+ *     spawns the resolved binary directly. No `sh -c` / `cmd /c` wrapper is
+ *     ever used, so shell metacharacters (`;`, `&&`, `|`, backticks, `$()`,
+ *     redirects, globs) are NOT interpreted — they become literal arguments
+ *     to the target program. This closes the whitelist-bypass where a
+ *     whitelisted first binary (e.g. `node`) let an attacker chain arbitrary
+ *     commands (`node && rm -rf x`): the whole string used to be passed to a
+ *     real shell, so only the first token was ever checked.
+ *   - The binary (argv[0]) must be on the env-controlled whitelist, resolved
+ *     to an absolute path at module load so PATH-hijack is impossible.
  *   - cwd is bound to allowedPaths (via the ProcessSandbox).
  *   - stdout/stderr are capped at the sandbox output limit (1 MB default).
  *   - timeoutMs is hard-clamped to the sandbox ceiling.
- *   - The sandbox refuses executables that are not on the tool's
- *     allowedExecutables list; for `shell_exec` we use the platform's
- *     default shell (`sh -c` / `cmd /c`).
+ *   - The tool itself is registered ONLY when FERAL_ENABLE_SHELL_EXEC=true
+ *     (see `index.ts`) — a generic program runner is opt-in, not default-on.
  *
- * This is the "advanced" / "escape hatch" tool — most agent work should
- * go through the narrower `run_tests`, `format_code`, `git_*` tools
- * below. `shell_exec` is registered conditionally (env-controlled) so
- * teams who don't want a generic shell can leave it off.
+ * Input shapes accepted (in priority order):
+ *   1. `argv: string[]`  — the preferred, unambiguous form. The model passes
+ *      `["node", "-e", "console.log(1)"]`. No parsing, no quoting pitfalls.
+ *   2. `command: string` — tokenized into an argv array with a quote-aware
+ *      splitter (single/double quotes honored). Because no shell runs, an
+ *      imperfect split is at worst a correctness issue for that one call —
+ *      never a security one.
+ *
+ * This is the "advanced" / "escape hatch" tool — most agent work should go
+ * through the narrower `run_tests`, `format_code`, `git_*` tools.
  */
 
 import type { Tool, ToolManifest } from "../../types.ts";
 import { resolveExecutables } from "../../core/executables.ts";
 
-const isWin = process.platform === "win32";
-
 /**
- * Resolve the platform shells to absolute paths at module load. The
- * manifest carries these absolute paths so the ProcessSandbox matches by
- * path (Case B) rather than by basename+PATH-walk (Case C) — closes the
- * PATH-hijack window for `shell_exec`.
+ * Env-controlled whitelist of programs `shell_exec` may invoke.
+ *
+ * Only real, spawnable binaries belong here — shell builtins (`cd`, `set`,
+ * `export`, `if`, `for`, …) are intentionally gone: with no shell there is
+ * nothing to interpret them, and listing them would be misleading. Bare
+ * names are resolved to absolute paths at module load so the ProcessSandbox
+ * matches by path and PATH-hijack is impossible.
+ *
+ * Default allowlist: common dev toolchain binaries. Extend with
+ * FERAL_SHELL_WHITELIST="git,node,python,cargo,npm,pip,make,go".
  */
-const SHELL_EXECUTABLES = resolveExecutables(isWin ? ["cmd", "sh"] : ["sh"]);
+function loadShellWhitelist(): string[] {
+  const env = process.env.FERAL_SHELL_WHITELIST;
+  const raw = env && env.trim().length > 0
+    ? env.split(",").map((s) => s.trim()).filter(Boolean)
+    : ["git", "node", "python", "python3", "cargo", "npm", "npx",
+       "pip", "pip3", "make", "go"];
+  return resolveExecutables(raw);
+}
+
+const SAFE_BINARIES = loadShellWhitelist();
 
 /**
- * Build the manifest. The allowed executable is the platform's default
- * shell: `sh` on POSIX (which every Unix-like system has, including
- * macOS), `cmd` on Windows. The model's responsibility is to craft a
- * safe `command` string — the sandbox will not parse it.
+ * Reduce a binary name or path to its comparison "stem": lowercased basename
+ * with any Windows executable extension stripped. So `C:\bin\git.exe`,
+ * `git.EXE`, and `git` all reduce to `git`. This makes the whitelist check
+ * agnostic to how the binary was spelled (bare vs absolute, with vs without
+ * extension) — resolveExecutables() turns `git` into an absolute `git.exe`
+ * on Windows, which a naive basename match would miss.
+ */
+export function binaryStem(nameOrPath: string): string {
+  const base = (nameOrPath.split(/[\\/]/).pop() ?? nameOrPath).toLowerCase();
+  return base.replace(/\.(exe|cmd|bat|com)$/i, "");
+}
+
+const SAFE_BINARY_STEMS = new Set(SAFE_BINARIES.map(binaryStem));
+
+/**
+ * Split a command string into an argv array, honoring single and double
+ * quotes. This is a TOKENIZER, not a shell: it performs no variable
+ * expansion, no command substitution, no operator handling. A `;` or `&&`
+ * in the input becomes an ordinary token. Used only for the legacy
+ * `command: string` input shape; `argv` callers skip it entirely.
+ */
+export function tokenizeCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let hasToken = false;
+
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (quote) {
+      if (c === quote) {
+        quote = null;
+      } else {
+        current += c;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      hasToken = true;
+      continue;
+    }
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+      if (hasToken) {
+        tokens.push(current);
+        current = "";
+        hasToken = false;
+      }
+      continue;
+    }
+    current += c;
+    hasToken = true;
+  }
+  if (hasToken) tokens.push(current);
+  return tokens;
+}
+
+/** Does this binary name/path appear on the whitelist? Compared by stem, so
+ *  `git`, `git.exe`, and an absolute path to git all match the same entry.
+ *  This is a fast, friendly pre-check — the ProcessSandbox still enforces the
+ *  exact allowlisted path as the real gate (PATH-hijack defense). */
+function isWhitelisted(binary: string): boolean {
+  return SAFE_BINARY_STEMS.has(binaryStem(binary));
+}
+
+/**
+ * Build the manifest. `allowedExecutables` is the resolved whitelist itself,
+ * so the ProcessSandbox enforces the exact same set by absolute path. The
+ * spawn target is the real program (git, node, …), never a shell.
  */
 export function createShellExecTool(allowedPaths: string[]): Tool {
   const manifest: ToolManifest = {
     name: "shell_exec",
     description:
-      "Run a shell command on the host. The command is passed to the " +
-      "platform's default shell (`sh -c` on POSIX, `cmd /c` on Windows). " +
-      "Output is capped at 1 MB; processes are hard-killed after the " +
-      "timeout. The cwd must be inside the tool's allowed paths. Prefer " +
-      "the narrower git_* / run_tests / format_code tools over this.",
+      "Run a single program on the host (NO shell). Provide `argv` as an " +
+      "array: [\"git\", \"status\"]. Shell features like pipes, &&, ;, " +
+      "redirects and globbing are NOT available — they are passed as literal " +
+      "arguments. Only whitelisted binaries can run. Output is capped at 1 MB; " +
+      "processes are hard-killed after the timeout; cwd must be inside the " +
+      "allowed paths. Prefer the narrower git_* / run_tests / format_code tools.",
     permissions: ["process:spawn", "fs:read"],
     networkAccess: false,
     allowedPaths,
-    allowedExecutables: SHELL_EXECUTABLES,
+    allowedExecutables: SAFE_BINARIES,
   };
 
   return {
     manifest,
     parameters: {
+      argv: {
+        type: "array",
+        description:
+          "The program and its arguments as an array, e.g. " +
+          "[\"node\", \"-e\", \"console.log(1)\"]. The first element is the " +
+          "binary (must be whitelisted); the rest are passed verbatim — no " +
+          "shell interpretation. Preferred over `command`.",
+        required: false,
+      },
       command: {
         type: "string",
         description:
-          "The shell command to run. Passed verbatim to the platform's " +
-          "default shell, so be careful with quoting and untrusted input.",
-        required: true,
+          "Legacy: a command line that is tokenized into argv (quotes " +
+          "honored). No shell runs, so metacharacters are literal. Prefer `argv`.",
+        required: false,
       },
       cwd: {
         type: "string",
@@ -81,13 +180,43 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       },
     },
     async execute(args, ctx) {
+      // Resolve argv from either input shape. `argv` wins when both are given.
+      let argv: string[];
+      if (Array.isArray(args.argv)) {
+        argv = args.argv.filter((x): x is string => typeof x === "string");
+      } else if (typeof args.command === "string" && args.command.trim()) {
+        argv = tokenizeCommand(args.command.trim());
+      } else {
+        return {
+          ok: false,
+          content: "shell_exec requires `argv` (array) or `command` (string).",
+          error: "bad_args",
+        };
+      }
+
+      if (argv.length === 0 || !argv[0]?.trim()) {
+        return { ok: false, content: "shell_exec: empty command.", error: "bad_args" };
+      }
+
+      const binary = argv[0]!;
+      const binaryArgs = argv.slice(1);
+
+      // Whitelist gate BEFORE the sandbox call so it is testable without a
+      // process sandbox and so the model gets a clear, recoverable error.
+      if (!isWhitelisted(binary)) {
+        return {
+          ok: false,
+          content:
+            "shell_exec: binary \"" + binary + "\" is not in the safe-binary whitelist. " +
+            "Set FERAL_SHELL_WHITELIST in your environment to allow it, " +
+            "or use a more specific tool (git_*, code_quality, etc).",
+          error: "binary_not_whitelisted",
+        };
+      }
       if (!ctx.process) {
         return { ok: false, content: "shell_exec: process sandbox unavailable", error: "no_sandbox" };
       }
-      const command = args.command;
-      if (typeof command !== "string" || !command.trim()) {
-        return { ok: false, content: "shell_exec requires a non-empty 'command' string.", error: "bad_args" };
-      }
+
       const cwd = typeof args.cwd === "string" && args.cwd.trim() ? args.cwd : undefined;
       const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : undefined;
       const env = args.env && typeof args.env === "object" && !Array.isArray(args.env)
@@ -95,18 +224,19 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
         : undefined;
 
       try {
+        // No shell: spawn the binary directly with its argv. The sandbox
+        // re-validates `binary` against allowedExecutables (absolute-path
+        // match) as defense in depth.
         const result = await ctx.process.run(ctx.manifest, ctx.sessionId, {
-          executable: isWin ? "cmd" : "sh",
-          args: isWin ? ["/c", command] : ["-c", command],
+          executable: binary,
+          args: binaryArgs,
           cwd,
           env,
           timeoutMs,
         });
 
-        // Format the result as a code block so the agent can quote parts
-        // of it verbatim in subsequent turns. Include the exit code and
-        // duration so the agent can self-diagnose.
-        const header = `$ ${command}\n` +
+        const printable = [binary, ...binaryArgs].join(" ");
+        const header = `$ ${printable}\n` +
           (cwd ? `  (cwd: ${cwd})\n` : "") +
           `[exit ${result.exitCode}` +
           (result.timedOut ? ", timed out" : "") +

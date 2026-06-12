@@ -1,14 +1,46 @@
+<p align="center">
+  <img src="frontend-react/public/README%20banner.jpeg" alt="Feral — your local-first AI workspace" width="100%" />
+</p>
+
 # Feral
 
 **Your local-first AI workspace. No subscription. No telemetry. No middleman.**
 
-[Download](https://github.com/bloom500/feral/releases/latest) · [Report an issue](https://github.com/bloom500/feral/issues) · [Discussions](https://github.com/bloom500/feral/discussions)
+<p align="center">
+  <a href="https://github.com/bloom500/feral/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/feral?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
+  <img src="https://img.shields.io/badge/license-MIT%20%2B%20Apache--2.0-green?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
+  <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=for-the-badge&logo=tauri" alt="Tauri" />
+</p>
+
+<p align="center">
+  <a href="https://x.com/BloomMedia66730"><img src="https://img.shields.io/badge/Follow-%40BloomMedia66730-black?style=for-the-badge&logo=x" alt="X/Twitter" /></a>
+  <a href="https://github.com/bloom500/feral"><img src="https://img.shields.io/badge/Source-GitHub-181717?style=for-the-badge&logo=github" alt="GitHub" /></a>
+  <a href="https://github.com/bloom500/feral/discussions"><img src="https://img.shields.io/badge/Community-Discussions-purple?style=for-the-badge&logo=github" alt="Discussions" /></a>
+</p>
+
+[Download](https://github.com/bloom500/feral/releases/latest) · [Report an issue](https://github.com/bloom500/feral/issues) · [Discussions](https://github.com/bloom500/feral/discussions) · Discord: *coming soon* · Website: *coming soon*
 
 ---
 
 Feral is a desktop app that runs AI on your machine. With local GGUF models, everything happens offline — no API bills, no data leaving your computer, and absolutely zero VC-funded "alignment" teams reading your conversations at 3am. Prefer frontier models? Plug in your own API keys (BYOK) and talk to OpenAI, Anthropic, Gemini and friends directly — your key, your bill, no proxy in between. Either way: chat, deploy a full agentic runtime with memory and tool-use, and run deep multi-step web research. It's your computer. Do whatever you want.
 
 ![Chat](frontend-react/public/READMEdemo1.png)
+
+---
+
+## What's new in v0.2.0
+
+- 🖼️ **Vision** — paste or drop screenshots and image files; the model sees real pixels, not filenames (BYOK cloud + agent sidecar)
+- 🧠 **Memory that carries over** — a shared knowledge graph feeds every new conversation, and "remember X" / "forget Y" work instantly
+- 🕸️ **Memory Graph page** — explore everything Feral knows about you in a glowing, filterable graph visualization
+- 🔌 **MCP Extensions** — app-store style page for Model Context Protocol servers: one-click install, on/off toggles, zero config files
+- 👹 **The real Feral mascot** — the pixel companion is now the brand monster itself (black fur, orange horns, orange belly): 50+ animated variants across 22 states, plus per-state particle effects, at a bigger, crisper size
+- 🗣️ **Friendlier agent voice** — rewritten SOUL.md, user-overridable identity files
+- 📎 **Attach any file** — drag & drop or paste anything into the chat: PDFs and Office docs are parsed natively, text files of any extension just work, and binaries reach the agent as a path it can open with its tools
+- 🍎🐧 **macOS & Linux** — installers for macOS (Apple Silicon + Intel) and Linux (.AppImage/.deb) now ship alongside Windows, faster startup, stop button that actually stops, and a pile of stability fixes
+
+Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
 
 ---
 
@@ -291,6 +323,36 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 
 ---
 
-*Built by [Bloom Lab](https://github.com/bloom500) · MIT + Apache 2.0*
+## Security
+
+Feral takes the "your machine, your data" promise seriously:
+
+- Tool calls run through a **sandbox**: permission manifests, an egress proxy with SSRF protection and domain allowlists, path containment, and a full audit log
+- A **workspace scanner** catches hardcoded secrets and code anti-patterns before they bite you
+- Updates are **signed** (minisign) and verified before install
+
+Found a vulnerability? Please report it responsibly — see [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+Contributions are welcome — code, docs, bug reports, model recommendations, or just telling us what confused you.
+
+- Start with the [Contributing guide](docs/CONTRIBUTING.md) and the [Contributor guide](docs/CONTRIBUTOR_GUIDE.md) (architecture, IPC protocols, test matrix, build & release flow)
+- Open a [Discussion](https://github.com/bloom500/feral/discussions) for ideas and questions
+- Check [open issues](https://github.com/bloom500/feral/issues) for something to pick up
+
+## License
+
+MIT + Apache 2.0 — see the repository for details.
+
+---
+
+<p align="center">
+  <img src="frontend-react/public/LOGO%20NO%20BG.png" alt="Feral mascot" width="64" />
+</p>
+
+<p align="center">
+  <em>Built with 🦁 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
+</p>
 
 *Feral does not phone home, does not collect telemetry, and has never once asked you to "sign up to unlock the full experience." That would be very un-feral of it.*

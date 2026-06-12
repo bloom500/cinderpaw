@@ -3,6 +3,10 @@
  *
  * Visual: emoji + tool name + (main arg) on the left; status icon + elapsed
  * seconds on the right. The left border is colour-coded by status.
+ *
+ * #18: bubbles are interactive — clicking a finished bubble expands the
+ * tool's output (or its error), and a running bubble shows live
+ * progress/retry notes from `tool_progress` events.
  */
 
 import { useEffect, useState } from 'react';
@@ -16,6 +20,9 @@ export interface ToolCallBubbleProps {
   status: 'running' | 'done' | 'error';
   startedAt: number;
   endedAt: number | null;
+  resultPreview?: string | null;
+  errorMessage?: string | null;
+  progressNote?: string | null;
 }
 
 const STATUS_BORDER: Record<ToolCallBubbleProps['status'], string> = {
@@ -46,8 +53,15 @@ export function ToolCallBubble({
   status,
   startedAt,
   endedAt,
+  resultPreview,
+  errorMessage,
+  progressNote,
 }: ToolCallBubbleProps) {
   const elapsed = useElapsedMs(startedAt, endedAt);
+  const [expanded, setExpanded] = useState(false);
+  const detail = errorMessage || resultPreview || null;
+  const expandable = status !== 'running' && !!detail;
+
   return (
     <motion.div
       role="status"
@@ -58,24 +72,46 @@ export function ToolCallBubble({
       exit={{ opacity: 0, y: -4, scale: 0.95 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
       className={cn(
-        'pointer-events-none select-none',
-        'inline-flex items-center gap-1.5 whitespace-nowrap',
+        'select-none flex flex-col items-stretch',
         'px-2 py-1 rounded-md',
         'bg-bg-elevated border border-border-default',
         'border-l-2',
         STATUS_BORDER[status],
         'text-[11px] text-text-primary shadow-sm',
+        expandable && 'pointer-events-auto cursor-pointer',
       )}
+      onClick={expandable ? () => setExpanded((v) => !v) : undefined}
+      title={expandable ? 'Click to view output' : undefined}
     >
-      <span aria-hidden="true">{emoji}</span>
-      <span className="font-medium">{label}</span>
-      {mainArg && <span className="text-text-muted">({mainArg})</span>}
-      <span className="ml-1 text-text-muted inline-flex items-center gap-0.5">
-        {status === 'running' && <span>⏱</span>}
-        {status === 'done' && <span>✓</span>}
-        {status === 'error' && <span>!</span>}
-        <span>{formatMs(elapsed)}</span>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        <span aria-hidden="true">{emoji}</span>
+        <span className="font-medium">{label}</span>
+        {mainArg && <span className="text-text-muted">({mainArg})</span>}
+        <span className="ml-1 text-text-muted inline-flex items-center gap-0.5">
+          {status === 'running' && <span>⏱</span>}
+          {status === 'done' && <span>✓</span>}
+          {status === 'error' && <span>!</span>}
+          <span>{formatMs(elapsed)}</span>
+        </span>
       </span>
+      {/* #18: live retry/backoff/fallback note while the tool is running */}
+      {status === 'running' && progressNote && (
+        <span className="text-[10px] text-text-muted mt-0.5 max-w-[16rem] truncate">
+          {progressNote}
+        </span>
+      )}
+      {expanded && detail && (
+        <pre
+          className={cn(
+            'mt-1 max-w-[20rem] max-h-32 overflow-auto whitespace-pre-wrap break-words',
+            'rounded bg-bg-surface border border-border-subtle px-1.5 py-1 text-[10px]',
+            errorMessage ? 'text-red-400' : 'text-text-muted',
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {detail}
+        </pre>
+      )}
     </motion.div>
   );
 }

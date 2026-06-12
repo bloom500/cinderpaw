@@ -141,27 +141,54 @@ describe("RecallEngine", () => {
   });
 });
 
-describe("WorkingMemory.setMemoryContext", () => {
-  test("memory context appears in render between system and transcript", () => {
+describe("WorkingMemory.render — P1 prompt-cache layout", () => {
+  // P1: the dynamic per-turn context (skill menu, memory recall) is appended
+  // to the LAST user message rather than injected as its own system message
+  // between the static system prompt and the transcript. The system prompt
+  // is now the only system role in the rendered output, so its tokenized
+  // form is byte-stable across turns and llama.cpp's KV cache can be reused.
+
+  const sampleSkill = {
+    id: "x",
+    name: "X",
+    description: "X tool",
+    author: "a",
+    version: "1",
+    license: "MIT",
+    tags: [] as string[],
+    source_provider: "local",
+    source_url: null,
+    content_url: null,
+    install_status: "installed",
+    trust_label: "verified",
+    last_updated: null,
+  };
+
+  test("system prompt is the only system message; dynamic context rides on the last user message", () => {
     const mem = new WorkingMemory("You are Feral.");
     mem.setMemoryContext("[Memory context]\nname: Darius\n[End memory context]");
+    mem.setSkillMenu([sampleSkill]);
     mem.addUser("hello");
 
     const rendered = mem.render();
-    expect(rendered[0]?.role).toBe("system");
-    expect(rendered[0]?.content).toBe("You are Feral.");
-    expect(rendered[1]?.role).toBe("system");
-    expect(rendered[1]?.content).toContain("name: Darius");
-    expect(rendered[2]?.role).toBe("user");
-    expect(rendered[2]?.content).toBe("hello");
+    // Exactly one system role — the static base prompt. No dynamic system messages.
+    const systemMessages = rendered.filter((m) => m.role === "system");
+    expect(systemMessages).toHaveLength(1);
+    expect(systemMessages[0]?.content).toBe("You are Feral.");
+    // The user message carries the dynamic blocks at the tail.
+    const last = rendered[rendered.length - 1]!;
+    expect(last.role).toBe("user");
+    expect(last.content).toContain("hello");
+    expect(last.content).toContain("name: Darius");
+    expect(last.content).toContain("Available skills");
   });
 
-  test("empty memory context does not add an extra system message", () => {
+  test("no dynamic context → system prompt is the only system message and user content is untouched", () => {
     const mem = new WorkingMemory("You are Feral.");
     mem.addUser("hello");
-
     const rendered = mem.render();
-    expect(rendered).toHaveLength(2); // system + user only
+    expect(rendered.filter((m) => m.role === "system")).toHaveLength(1);
+    expect(rendered[rendered.length - 1]?.content).toBe("hello");
   });
 
   test("memory context is replaced, not accumulated, on subsequent calls", () => {
@@ -169,10 +196,61 @@ describe("WorkingMemory.setMemoryContext", () => {
     mem.setMemoryContext("first context");
     mem.setMemoryContext("second context");
     mem.addUser("hi");
+    const rendered = mem.render();
+    const last = rendered[rendered.length - 1]!;
+    expect(last.content).toContain("second context");
+    expect(last.content).not.toContain("first context");
+  });
+
+  test("static system prompt is byte-identical across renders with different dynamic context", () => {
+    // The crux of P1: the system prompt tokenizes the same way every turn,
+    // regardless of what skill menu / memory context the agent loop set. The
+    // prefix [system, …, last-user-message-start] stays identical so the
+    // KV cache for the static prefix stays valid.
+    const mem = new WorkingMemory("You are Feral.\n## Tools\n- read_file\n");
+    mem.setMemoryContext("ctx1");
+    mem.addUser("u1");
+    const sys1 = mem.render()[0]?.content;
+
+    mem.setMemoryContext("ctx2 — completely different");
+    mem.setSkillMenu([sampleSkill]);
+    mem.addUser("u2");
+    const sys2 = mem.render()[0]?.content;
+
+    expect(sys1).toBe(sys2);
+  });
+
+  test("user message at index of last user-role message is the only one mutated", () => {
+    // After a tool-call iteration the transcript is e.g.
+    //   [user, assistant, tool]
+    // The user message (the only one) is the one that receives the
+    // dynamic context block. (P4 fix: the agent loop no longer appends
+    // a synthetic continuation nudge after a tool result, so the
+    // transcript after a tool turn is exactly
+    // `[user, assistant, tool]` rather than `[user, assistant, tool, user]`.)
+    const mem = new WorkingMemory("sys");
+    mem.addUser("original question");
+    mem.addAssistant("ok");
+    mem.addToolResult("foo", "result");
+    mem.setMemoryContext("RECALL BLOCK");
 
     const rendered = mem.render();
-    const systemMessages = rendered.filter((m) => m.role === "system");
-    expect(systemMessages).toHaveLength(2); // base + one context
-    expect(systemMessages[1]?.content).toBe("second context");
+    const userMessages = rendered.filter((m) => m.role === "user");
+    expect(userMessages).toHaveLength(1);
+    // The dynamic RECALL BLOCK is appended to the original user message
+    // (P1 prompt-cache layout — see `render()`).
+    expect(userMessages[0]?.content).toContain("original question");
+    expect(userMessages[0]?.content).toContain("RECALL BLOCK");
+  });
+
+  test("estimatedTokens still counts the dynamic context toward the budget", () => {
+    // Sanity: the dynamic blocks must still count toward maybeCompress's
+    // budget, otherwise we'd lose compression triggers on memory-heavy turns.
+    const mem = new WorkingMemory("sys");
+    mem.setMemoryContext("x".repeat(400));
+    mem.setSkillMenu([sampleSkill]);
+    mem.addUser("z".repeat(100));
+    const tokens = mem.estimatedTokens();
+    expect(tokens).toBeGreaterThan(0);
   });
 });

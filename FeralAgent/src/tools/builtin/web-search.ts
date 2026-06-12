@@ -22,6 +22,10 @@ export function createWebSearchTool(): Tool {
     permissions: ["network:outbound"],
     networkAccess: true,
     allowedDomains: ALLOWED_DOMAINS,
+    // Feral-WIP #2: if DuckDuckGo returns no results or fails, escalate
+    // to deep_research (which uses Jina + multi-page synthesis) so the
+    // model always gets *something* for a web query.
+    fallback: ["deep_research"],
   };
 
   return {

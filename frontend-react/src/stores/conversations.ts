@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/tauri';
+import { rehydrateLiveSession } from '@/lib/feralLiveSession';
 import { useChat, type ChatMessage } from './chat';
 
 export type { ConversationSummary };
@@ -85,6 +86,10 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // in the sidebar.
       const isStreaming = Boolean(get().streamingIds[id]);
       useChat.getState().loadSession(conv.id, msgs, isStreaming ? 'streaming' : 'idle');
+      // The disk snapshot is stale while a generation is in flight — restore
+      // streamed content, tool bubbles and agent phase from the live mirror
+      // so the task doesn't look like it reset.
+      if (isStreaming) rehydrateLiveSession(id);
       set({ currentId: id });
     } finally {
       set({ loadingConversation: false });

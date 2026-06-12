@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use serde_json::{json, Value};
 
 #[derive(serde::Serialize, specta::Type)]
 pub struct MemoryGraphSnapshot {
@@ -20,6 +21,117 @@ pub struct MemoryGraphEdgeView {
     pub from: String,
     pub to: String,
     pub relation: String,
+}
+
+#[derive(serde::Deserialize, specta::Type)]
+pub struct MemoryFactInput {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+}
+
+/// Merge extracted facts into `~/.feral/memory-graph.json` using the exact
+/// node/edge schema the agent sidecar's MemoryGraph writes, so both the
+/// sidecar and the Chat tab feed one shared knowledge graph. Returns the
+/// number of facts written. Best-effort read-modify-write: a concurrent
+/// sidecar write can win the race, which loses at most one extraction pass.
+#[tauri::command]
+#[specta::specta]
+pub fn add_memory_facts(facts: Vec<MemoryFactInput>) -> Result<u32, String> {
+    if facts.is_empty() {
+        return Ok(0);
+    }
+    let dir = crate::paths::feral_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("memory-graph.json");
+
+    let mut graph: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| json!({ "nodes": {}, "edges": [], "version": 1 }));
+
+    if !graph.get("nodes").map(Value::is_object).unwrap_or(false) {
+        graph["nodes"] = json!({});
+    }
+    if !graph.get("edges").map(Value::is_array).unwrap_or(false) {
+        graph["edges"] = json!([]);
+    }
+
+    let now = chrono_now_ms();
+    let mut written = 0u32;
+
+    for fact in &facts {
+        let subject = fact.subject.trim();
+        let object = fact.object.trim();
+        let predicate = fact.predicate.trim();
+        if subject.is_empty() || object.is_empty() || predicate.is_empty() {
+            continue;
+        }
+        if subject.len() > 120 || object.len() > 300 || predicate.len() > 60 {
+            continue;
+        }
+        let s_id = normalize_id(subject);
+        let o_id = normalize_id(object);
+
+        upsert_node(&mut graph["nodes"], &s_id, subject, "entity", now);
+        upsert_node(&mut graph["nodes"], &o_id, object, "concept", now);
+
+        let edges = graph["edges"].as_array_mut().expect("edges is array");
+        let exists = edges.iter().any(|e| {
+            e.get("from").and_then(Value::as_str) == Some(s_id.as_str())
+                && e.get("to").and_then(Value::as_str) == Some(o_id.as_str())
+                && e.get("relation").and_then(Value::as_str) == Some(predicate)
+        });
+        if !exists {
+            edges.push(json!({
+                "from": s_id,
+                "to": o_id,
+                "relation": predicate,
+                "weight": 1,
+                "createdAt": now,
+            }));
+        }
+        written += 1;
+    }
+
+    if written > 0 {
+        let serialized = serde_json::to_string_pretty(&graph).map_err(|e| e.to_string())?;
+        std::fs::write(&path, serialized).map_err(|e| e.to_string())?;
+    }
+    Ok(written)
+}
+
+fn normalize_id(label: &str) -> String {
+    label.to_lowercase().split_whitespace().collect::<Vec<_>>().join("_")
+}
+
+fn upsert_node(nodes: &mut Value, id: &str, label: &str, node_type: &str, now: u64) {
+    let map = nodes.as_object_mut().expect("nodes is object");
+    match map.get_mut(id) {
+        Some(existing) => {
+            existing["touchedAt"] = json!(now);
+        }
+        None => {
+            map.insert(
+                id.to_string(),
+                json!({
+                    "id": id,
+                    "label": label,
+                    "type": node_type,
+                    "createdAt": now,
+                    "touchedAt": now,
+                    "properties": {},
+                }),
+            );
+        }
+    }
+}
+
+fn chrono_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[tauri::command]

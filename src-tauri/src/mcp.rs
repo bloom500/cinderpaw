@@ -916,6 +916,21 @@ impl McpManager {
             return Ok(());
         }
 
+        // On Windows the child is launched via `cmd /c <command> <args...>`
+        // (npx/node are `.cmd` shims `CreateProcess` can't exec directly).
+        // cmd.exe re-parses its command line, so a server config carrying
+        // metacharacters (`&`, `|`, `<`, `>`, `^`, newlines) could chain
+        // arbitrary commands — a BatBadBut-style hole (CVE-2024-24576). Reject
+        // those before spawning. Legitimate stdio MCP servers use plain tokens
+        // (package names, flags, paths), so this never trips on real configs.
+        #[cfg(target_os = "windows")]
+        {
+            let bad = |s: &str| s.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '\n' | '\r' | '\0'));
+            if bad(&server.command) || server.args.iter().any(|a| bad(a)) {
+                return Err(humanize("This extension's command contains characters that aren't allowed for security reasons."));
+            }
+        }
+
         let cmd = build_command(&server.command, &server.args, &server.env);
         let transport = TokioChildProcess::new(cmd)
             .map_err(|e| humanize(&format!("spawn failed: {e}")))?;

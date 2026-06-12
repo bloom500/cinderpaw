@@ -45,11 +45,29 @@ export function SearchOverlay() {
 
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  // #21: index of the keyboard-highlighted result (-1 = none).
+  const [activeIdx, setActiveIdx] = useState(-1);
   const inputRef              = useRef<HTMLInputElement>(null);
   const cacheRef              = useRef<Map<string, Conversation>>(new Map());
   const debounceRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // #21: focus the input on open and RESTORE focus to whatever had it
+  // before the overlay opened (keyboard users otherwise lose their place).
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    inputRef.current?.focus();
+    return () => prev?.focus?.();
+  }, []);
+
+  // #21: Escape closes from anywhere in the overlay, not only while the
+  // input has focus (e.g. after tabbing to a result).
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') closeSearch();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [closeSearch]);
 
   const runSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); return; }
@@ -110,6 +128,9 @@ export function SearchOverlay() {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search conversations"
       className="fixed inset-0 z-50 flex flex-col items-center pt-[15vh] backdrop-blur-md bg-black/40"
       onClick={closeSearch}
     >
@@ -123,8 +144,26 @@ export function SearchOverlay() {
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape') closeSearch(); }}
+            onChange={(e) => { setQuery(e.target.value); setActiveIdx(-1); }}
+            // #21: arrow keys move through results, Enter opens the
+            // highlighted one (or the first when none is highlighted).
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') closeSearch();
+              else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setActiveIdx((i) => Math.min(i + 1, results.length - 1));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setActiveIdx((i) => Math.max(i - 1, -1));
+              } else if (e.key === 'Enter' && results.length > 0) {
+                e.preventDefault();
+                void handleSelect(results[Math.max(activeIdx, 0)].conv.id);
+              }
+            }}
+            role="combobox"
+            aria-expanded={query.trim().length > 0}
+            aria-controls="search-results"
+            aria-activedescendant={activeIdx >= 0 ? `search-result-${activeIdx}` : undefined}
             placeholder="Search conversations…"
             className="flex-1 bg-transparent text-text-primary text-sm outline-none placeholder:text-text-muted"
           />
@@ -139,18 +178,25 @@ export function SearchOverlay() {
 
         {/* Results */}
         {query.trim() && (
-          <div className="mt-2 bg-bg-surface border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto">
+          <div
+            id="search-results"
+            role="listbox"
+            className="mt-2 bg-bg-surface border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto"
+          >
             {results.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-text-disabled">
                 No matches found
               </div>
             ) : (
-              results.map((r) => (
+              results.map((r, i) => (
                 <button
                   key={r.conv.id}
+                  id={`search-result-${i}`}
                   type="button"
+                  role="option"
+                  aria-selected={i === activeIdx}
                   onClick={() => { void handleSelect(r.conv.id); }}
-                  className="w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors border-b border-bg-hover last:border-0"
+                  className={`w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors border-b border-bg-hover last:border-0 ${i === activeIdx ? 'bg-bg-hover' : ''}`}
                 >
                   <div className="text-sm font-medium text-text-primary truncate">
                     {highlight(r.conv.title, query)}

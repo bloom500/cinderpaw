@@ -22,6 +22,48 @@ const MAX_BYTES = 64 * 1024;
 /** Safe id charset — mirrors the validator in src-tauri/src/skills.rs. */
 const SAFE_ID = /^[a-z0-9_-]+$/;
 
+// Feral-WIP #9: skill content validation. A SKILL.md is just markdown
+// the LLM reads on demand, but a malicious skill (or one imported from
+// an untrusted source) could try to (a) smuggle HTML the chat renderer
+// would treat as markup, or (b) override the agent's identity / system
+// prompt. The validator rejects both shapes BEFORE the body reaches
+// the model. The function is exported so the test suite can exercise
+// the regex set directly without spinning up the full read_skill tool.
+const FORBIDDEN_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  // HTML the renderer would treat as markup. We deliberately leave
+  // benign tags (p, code, ul, …) alone — markdown already covers them
+  // and a chat renderer that doesn't sanitise is a different bug.
+  { name: "html-script", re: /<\/?script\b[^>]*>/i },
+  { name: "html-iframe", re: /<\/?iframe\b[^>]*>/i },
+  { name: "html-object", re: /<\/?object\b[^>]*>/i },
+  { name: "html-embed", re: /<\/?embed\b[^>]*>/i },
+  { name: "html-style", re: /<\/?style\b[^>]*>/i },
+  { name: "html-link", re: /<\/?link\b[^>]*>/i },
+  { name: "html-meta", re: /<\/?meta\b[^>]*>/i },
+  // SOUL.md / system-prompt override attempts. The first three cover
+  // the common "ignore / forget / disregard" injection phrasings; the
+  // "System:" prefix matches role-tag smuggling (some chat templates
+  // treat a line starting with "System:" as a system-prompt message).
+  { name: "override-ignore-previous", re: /\bignore\s+(?:all\s+|any\s+)?(?:previous|prior|above|earlier|preceding)\s+instructions?\b/i },
+  { name: "override-forget", re: /\bforget\s+(?:everything|all)\s+(?:above|before|prior)\b/i },
+  { name: "override-disregard-soul", re: /\bdisregard\s+(?:the\s+)?(?:soul|soul\.md|system\s*prompt)\b/i },
+  { name: "override-system-prefix", re: /^\s*System\s*:/im },
+];
+
+/**
+ * Validate a loaded skill body. Returns null when the body is safe, or a
+ * short human-readable reason string when the validator rejects it.
+ * Reasons include the rule name (e.g. "html-script") so callers can
+ * surface something specific in audit logs and the rejected content
+ * stays blocked from the model.
+ */
+export function validateSkillContent(text: string): string | null {
+  for (const { name, re } of FORBIDDEN_PATTERNS) {
+    if (re.test(text)) return `forbidden:${name}`;
+  }
+  return null;
+}
+
 /**
  * Build a read_skill tool restricted to the given skills directory. The
  * directory is the only path the tool is allowed to read.
@@ -96,6 +138,19 @@ export function createReadSkillTool(skillsDir: string): Tool {
 
       const truncated = buf.byteLength > MAX_BYTES;
       const text = buf.toString("utf8", 0, MAX_BYTES);
+      // Feral-WIP #9: validate the body BEFORE handing it to the model.
+      // The body lives in the LLM's context as a `tool` role message;
+      // any HTML / system-override smuggling in here would be effectively
+      // a prompt-injection vector. Reject the whole load so the model
+      // never sees the malicious content.
+      const violation = validateSkillContent(text);
+      if (violation) {
+        return {
+          ok: false,
+          content: `skill "${id}" content rejected by validator (${violation}); refusing to load.`,
+          error: "invalid_content",
+        };
+      }
       return {
         ok: true,
         content: truncated

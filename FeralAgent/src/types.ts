@@ -79,7 +79,22 @@ export interface ToolManifest {
    * Default (policy absent): no retry, behaviour unchanged.
    */
   retry?: ToolRetryPolicy;
+  /**
+   * Feral-WIP #2: optional list of fallback tool names to try in order
+   * when this tool returns a non-retryable failure. Each fallback must
+   * be a registered tool. The registry invokes them in the given order
+   * with the SAME args, returning the first successful result. Useful
+   * for chains like `web_search → deep_research → read_webpage` when
+   * Jina is down or the user provided a URL directly.
+   */
+  fallback?: Array<string | FallbackDeclaration>;
 }
+
+export interface FallbackDeclaration {
+  name: string;
+  argMap?: (args: Record<string, unknown>) => Record<string, unknown>;
+}
+
 
 export type ToolRetryCategory = "http" | "process" | "any";
 
@@ -95,6 +110,20 @@ export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array";
   description: string;
   required?: boolean;
+}
+
+export interface ToolProgressPayload {
+  stage: string;
+  progress: number | null;
+  message: string;
+  data?: unknown;
+  traceId?: string;
+}
+
+export interface ToolProgressEvent extends ToolProgressPayload {
+  type: "tool_progress";
+  sessionId: string;
+  tool: string;
 }
 
 /** Context handed to a tool when it executes. */
@@ -127,6 +156,11 @@ export interface ToolContext {
    */
   process?: ProcessSandbox;
   /**
+   * Progress callback for long-running tools. The registry fills in `type`,
+   * `sessionId`, and `tool`; tools emit stage/message/progress payloads.
+   */
+  progress?: (event: ToolProgressPayload) => void;
+  /**
    * Interactive-questions bridge. Present only when the transport supports
    * ask_user (Tauri does). Tools that emit questions (currently just
    * `ask_user`) call `ctx.askUser.ask(questions)` and await the user's
@@ -146,9 +180,11 @@ export interface AskUserBridge {
   /**
    * Ask the user one or more questions (max 4, each with 2-4 options).
    * Emits an `ask_user` event, then awaits a matching `ask_user_response`.
-   * Rejects with `AskUserTimeoutError` after 5 minutes.
+   * Rejects with `AskUserTimeoutError` after 5 minutes. `sessionId` is
+   * included in the emitted event so the transport can route the question
+   * to the right conversation (the impl defaults it to "default").
    */
-  ask(questions: AskUserQuestion[]): Promise<AskUserAnswer[]>;
+  ask(questions: AskUserQuestion[], sessionId?: string): Promise<AskUserAnswer[]>;
   /** Cancel a pending question (e.g. session shutdown). */
   cancel(requestId: string, reason?: string): void;
 }
@@ -187,6 +223,8 @@ export interface ToolCallOptions {
    * returns `{ok:false, error:"timeout"}`.
    */
   timeoutMs?: number;
+  /** Progress events emitted by long-running tools during this call. */
+  onProgress?: (event: ToolProgressEvent) => void;
 }
 
 /** Structured result of a tool invocation. Never throws across this boundary. */
@@ -215,6 +253,8 @@ export interface FeralFetchInit {
   body?: string;
   /** Abort the request after this many milliseconds. */
   timeoutMs?: number;
+  /** Abort the request when the caller's signal fires. */
+  signal?: AbortSignal;
 }
 
 export interface FeralFetchResponse {
@@ -366,6 +406,52 @@ export interface ChatMessage {
   content: string;
   /** Present when role is "tool": the tool whose output this carries. */
   name?: string;
+  /**
+   * Image attachments as data URLs (`data:image/png;base64,...`). Present on
+   * user messages when the host app forwards pasted/uploaded images. Each
+   * provider serializes these into its own multimodal format; providers and
+   * models without vision support ignore them (the textual
+   * "[Image attached: name]" note in `content` still describes them).
+   */
+  images?: string[];
+}
+
+/**
+ * A3: Anthropic native function-calling tool schema.
+ *
+ * Mirrors the shape expected by the Anthropic `/v1/messages` `tools` field.
+ * Populated by `agent-loop.ts` from the `ToolRegistry` and consumed only by
+ * `AnthropicProvider`. Other providers ignore this field.
+ */
+export interface AnthropicToolDef {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, { type: string; description: string }>;
+    required: string[];
+  };
+}
+
+/**
+ * OpenAI-compatible native function-calling tool schema.
+ *
+ * Mirrors the shape expected by the OpenAI `/v1/chat/completions` `tools` field
+ * (and all compatible endpoints: NIM, Groq, OpenRouter, Together, Ollama).
+ * Populated by `agent-loop.ts` from the `ToolRegistry` and consumed by
+ * `OpenAICompatibleProvider` and `OllamaProvider`. Other providers ignore it.
+ */
+export interface OpenAIToolDef {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, { type: string; description: string }>;
+      required: string[];
+    };
+  };
 }
 
 export interface InferenceRequest {
@@ -396,6 +482,42 @@ export interface InferenceRequest {
    * recorded — this only bypasses the *gate*, never the accounting.
    */
   skipBudgetCheck?: boolean;
+  /**
+   * Optional GBNF grammar constraining the local engine's decoding. Forwarded
+   * to the bundled llama.cpp API (a Feral extension field) so tool calls are
+   * grammar-constrained. Ignored by cloud providers, which use native
+   * function-calling instead. See `core/tool-grammar.ts`.
+   */
+  grammar?: string;
+  /**
+   * Trigger strings for *lazy* grammar enforcement (e.g. tool-call fences).
+   * The grammar stays dormant until one appears, so prose is unconstrained.
+   */
+  grammarTriggers?: string[];
+  /**
+   * P1 (prompt caching): hint to the local engine that this call's prompt
+   * prefix is stable and the persistent LlamaContext's KV cache should be
+   * reused. Defaults to `true` for the agent loop's main completions; one-shot
+   * callers (summarizer, extractor, cron jobs) opt out by passing `false`.
+   * Ignored by cloud providers, which have their own caching strategy.
+   */
+  cachePrompt?: boolean;
+  /**
+   * A3: Native tool definitions for the Anthropic provider.
+   * When present, `AnthropicProvider` uses the API-level `tools` field instead
+   * of relying on schema injected into the system prompt. Responses containing
+   * `tool_use` blocks are serialised to `<tool_call>…</tool_call>` XML so
+   * Pass 0 of `parseResponse` picks them up without any special-casing.
+   */
+  nativeTools?: AnthropicToolDef[];
+  /**
+   * A3 regression fix: Native tool definitions for OpenAI-compatible providers
+   * (NIM, Groq, OpenRouter, Together) and Ollama. When present, these providers
+   * use the API-level `tools` / `tool_choice: "auto"` fields instead of the
+   * text-injected schema in the system prompt. Responses are normalised to
+   * `<tool_call>…</tool_call>` XML so Pass 0 of `parseResponse` picks them up.
+   */
+  openAITools?: OpenAIToolDef[];
 }
 
 export interface InferenceResponse {
@@ -666,12 +788,25 @@ export interface SkillMeta {
 
 /** Inbound message envelope from any transport. */
 export interface InboundMessage {
-  type: "message" | "ping" | "shutdown" | "set_model"
+  type: "message" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list";
   id?: string;
   content?: string;
   sessionId?: string;
+  /**
+   * Image attachments as data URLs, forwarded by the host app alongside the
+   * text content (type === "message"). Threaded into the user ChatMessage so
+   * vision-capable models receive the actual pixels.
+   */
+  images?: string[];
+  /**
+   * Per-message inference overrides from the host UI's Controls panel
+   * (type === "message"). Applied to the MAIN agent-loop completions for
+   * this session only — the summarizer and memory extractor keep their own
+   * fixed params. Values are validated and clamped by the agent loop.
+   */
+  inferParams?: { temperature?: number; max_tokens?: number };
   /**
    * Roster of currently-installed LOCAL skills, rebuilt by Rust on every send.
    * The agent loop renders this as a short "Available skills" menu inside the
@@ -739,6 +874,7 @@ export type OutboundEvent =
   | { type: "chunk"; id: string; content: string; traceId?: string }
   | { type: "done"; id: string; content: string; stopped: boolean; traceId: string }
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string }
+  | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string }
   | { type: "tool_done"; id: string; tool: string; result: unknown; traceId: string }
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
@@ -751,6 +887,9 @@ export type OutboundEvent =
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
   | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }
+  // X3: surfaced when a scheduled job throws or times out — previously cron
+  // failures were logged to stderr only and invisible in the UI.
+  | { type: "cron_error"; jobId: string; jobName: string; message: string; traceId?: string }
   | { type: "skill_created"; skillId: string; name: string; path: string; version: number; traceId?: string }
   | { type: "skill_refined"; skillId: string; version: number; traceId?: string };
 

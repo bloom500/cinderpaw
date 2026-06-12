@@ -47,7 +47,11 @@ export function SettingsPage() {
   }, [searchParams, cat]);
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* #22: thin drag strip — without it the frameless window can't be
+          moved while Settings is open (only ChatHeader had a drag region). */}
+      <div data-tauri-drag-region className="h-8 shrink-0" />
+      <div className="flex flex-1 overflow-hidden">
       <aside className="w-44 shrink-0 border-r border-border-subtle flex flex-col py-2 overflow-y-auto">
         {CATS.map((c) => (
           <button
@@ -75,6 +79,7 @@ export function SettingsPage() {
         {cat === 'agent'      && <AgentSettingsTab />}
         {cat === 'privacy'    && <PrivacyTab />}
         {cat === 'about'      && <AboutTab />}
+      </div>
       </div>
     </div>
   );

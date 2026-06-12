@@ -10,8 +10,11 @@
  *   - audit every completion (and every budget block)
  *   - support hot-swap of the active model without restarting (reconfigure)
  *
- * Supported providers: "ollama" (local), "anthropic", and any OpenAI-compatible
- * chat-completions endpoint ("openai", "deepseek", "openai_compatible", etc.).
+ * Protocol-specific logic lives in inference-providers.ts. The router is a
+ * clean plugin manager: it holds one InferenceProvider per protocol family and
+ * delegates #callTarget to the appropriate one. Adding a new provider requires
+ * no changes here — implement InferenceProvider, export it from
+ * inference-providers.ts, and add it to the #providers map below.
  */
 
 import type { Database } from "bun:sqlite";
@@ -20,13 +23,19 @@ import type {
   AuditLogger,
   BudgetExhaustedReason,
   BudgetWarning,
-  ChatMessage,
   InferenceConfig,
   InferenceRequest,
   InferenceResponse,
   ModelTarget,
   TokenBudgetConfig,
 } from "../types.ts";
+import {
+  AnthropicProvider,
+  OllamaProvider,
+  OpenAICompatibleProvider,
+  postJson,
+  type InferenceProvider,
+} from "./inference-providers.ts";
 
 export class BudgetExhaustedError extends Error {
   readonly reason: BudgetExhaustedReason;
@@ -50,10 +59,28 @@ export class InferenceRouter {
   #fallback: ModelTarget | undefined;
   #trusted: Set<string>;
 
+  // Provider instances — one per protocol family. Stateless, so shared.
+  readonly #providers: Record<string, InferenceProvider> = {
+    ollama: new OllamaProvider(),
+    anthropic: new AnthropicProvider(),
+    openai: new OpenAICompatibleProvider(),
+  };
+
   readonly #tokenBudget: TokenBudgetConfig;
   readonly #audit: AuditLogger;
   readonly #db: Database;
-  /** In-memory per-conversation token totals (reset when process restarts). */
+  /**
+   * In-memory per-conversation token totals (reset when process restarts).
+   *
+   * N2 fix: this map used to grow without bound. The extractor creates
+   * `${sessionId}__facts` and `${sessionId}__obs` synthetic sessionIds on
+   * every turn, and cron creates `cron:${id}` for every scheduled job —
+   * none of them were ever evicted, so the map accumulated one entry per
+   * turn for the entire sidecar lifetime. Now bounded by
+   * MAX_TRACKED_CONVERSATIONS (LRU, oldest entry evicted on overflow).
+   * The synthetic extractor / cron keys are also explicitly evicted by
+   * `evictSession()` after their one-shot inference call returns.
+   */
   readonly #conversationTokens = new Map<string, number>();
   /**
    * Per-session AbortController map. `complete()` installs the controller's
@@ -75,8 +102,15 @@ export class InferenceRouter {
    * Tracks which (sessionId, kind) tuples have already fired the warning
    * so the listener is called at most once per session per dimension.
    * Reset when the conversation counter resets (process restart).
+   *
+   * N2 fix: stored as a Map<key, true> (not a Set) so we can apply the
+   * same LRU cap as `#conversationTokens` — overflow evicts the oldest
+   * entries, which is safe because the worst-case side effect of
+   * forgetting an entry is "the warning fires a second time for an
+   * ancient session", and that's bounded to ≤ MAX_TRACKED_WARNINGS
+   * duplicate fires across the sidecar lifetime.
    */
-  readonly #budgetWarningFired = new Set<string>();
+  readonly #budgetWarningFired = new Map<string, true>();
 
   constructor(config: InferenceConfig, audit: AuditLogger, db: Database) {
     this.#primary = config.primary;
@@ -156,6 +190,25 @@ export class InferenceRouter {
     return this.#conversationTokens.get(sessionId) ?? 0;
   }
 
+  /**
+   * N2 fix: evict a session's per-conversation state from the router.
+   *
+   * Callers that create synthetic sessionIds (the memory extractor's
+   * `${sid}__facts` and `${sid}__obs` passes, cron's `cron:${id}`) must
+   * invoke this after their one-shot inference call so the maps do not
+   * accumulate one entry per turn for the life of the sidecar. Also
+   * drops the in-memory entry for the natural sessionId so a long-idle
+   * session can be reclaimed.
+   */
+  evictSession(sessionId: string): void {
+    this.#conversationTokens.delete(sessionId);
+    // The warning-fired map is keyed by `${sessionId}:conversation` and
+    // `${sessionId}:day`. Remove both — they're cheap to recompute if
+    // the session ever re-enters the warning band.
+    this.#budgetWarningFired.delete(`${sessionId}:conversation`);
+    this.#budgetWarningFired.delete(`${sessionId}:day`);
+  }
+
   /** Tokens consumed today (UTC) across all sessions. */
   dayTokens(): number {
     const row = this.#db
@@ -186,16 +239,21 @@ export class InferenceRouter {
         { once: true },
       );
     }
+    if (req.signal && !req.signal.aborted) {
+      req.signal.addEventListener(
+        "abort",
+        () => ac.abort(req.signal?.reason),
+        { once: true },
+      );
+    } else if (req.signal?.aborted) {
+      ac.abort(req.signal.reason);
+    }
     this.#sessionControllers.set(req.sessionId, ac);
 
     const start = Date.now();
     // Snapshot at call time so an in-flight reconfigure() doesn't affect us.
     const primary = this.#primary;
     const fallback = this.#fallback;
-    // Thread the abort signal into the request so call paths can compose
-    // it with their own per-call controllers. The signal is optional in
-    // InferenceRequest; if absent (e.g. tests), the existing call paths
-    // work unchanged.
     const reqWithSignal = { ...req, signal: ac.signal };
 
     try {
@@ -271,6 +329,25 @@ export class InferenceRouter {
   static readonly SOFT_WARN_RATIO = 0.8;
 
   /**
+   * N2 fix: hard cap on the per-conversation token map. The synthetic
+   * sessionIds created by the extractor (`${sid}__facts` / `${sid}__obs`)
+   * and by cron (`cron:${id}`) used to grow this map unboundedly. 256
+   * entries covers every realistic power-user session count; LRU eviction
+   * on overflow keeps memory bounded regardless of how many distinct
+   * sessionIds the caller churns through.
+   */
+  static readonly MAX_TRACKED_CONVERSATIONS = 256;
+
+  /**
+   * N2 fix: hard cap on the "warning already fired" map. Same rationale
+   * as MAX_TRACKED_CONVERSATIONS — one entry per (sessionId, kind) pair,
+   * LRU eviction on overflow. The worst-case side effect of forgetting
+   * a key is one duplicate `budget_warning` event for an ancient session,
+   * which is harmless.
+   */
+  static readonly MAX_TRACKED_WARNINGS = 1024;
+
+  /**
    * Install a callback fired when a session crosses the soft warning
    * threshold. The callback receives structured info the agent loop
    * forwards to the UI as a `budget_warning` event. P1-#1.
@@ -299,10 +376,14 @@ export class InferenceRouter {
   }
 
   #recordUsage(sessionId: string, tokens: number): void {
-    this.#conversationTokens.set(
-      sessionId,
-      this.conversationTokens(sessionId) + tokens,
-    );
+    // N2 fix: bounded LRU — delete + re-insert moves the entry to the
+    // tail of the Map's iteration order, so it becomes "newest" for the
+    // cap check. On overflow, evict the oldest entry (head of the Map).
+    const prev = this.#conversationTokens.get(sessionId) ?? 0;
+    this.#conversationTokens.delete(sessionId);
+    this.#conversationTokens.set(sessionId, prev + tokens);
+    this.#evictOldestConversationsIfOver();
+
     this.#db
       .query(
         `INSERT INTO token_usage (day, tokens) VALUES ($day, $tokens)
@@ -310,9 +391,24 @@ export class InferenceRouter {
       )
       .run({ $day: today(), $tokens: tokens });
     // P1-#1: soft warning. After the increment, check if we just crossed
-    // the threshold for either dimension. The fired-set ensures the
+    // the threshold for either dimension. The fired-map ensures the
     // listener is called at most once per (session, kind).
     this.#maybeFireBudgetWarning(sessionId);
+  }
+
+  /**
+   * N2 fix: trim the per-conversation token map to its cap by dropping
+   * the oldest entries (Map preserves insertion order, and the access
+   * path in `#recordUsage` always re-inserts the touched key, so
+   * "oldest" = "least-recently-touched" = correct LRU order).
+   */
+  #evictOldestConversationsIfOver(): void {
+    const cap = InferenceRouter.MAX_TRACKED_CONVERSATIONS;
+    while (this.#conversationTokens.size > cap) {
+      const oldest = this.#conversationTokens.keys().next().value;
+      if (oldest === undefined) break;
+      this.#conversationTokens.delete(oldest);
+    }
   }
 
   #maybeFireBudgetWarning(sessionId: string): void {
@@ -325,8 +421,8 @@ export class InferenceRouter {
 
     if (Number.isFinite(perConversation) && conv >= perConversation * threshold) {
       const key = `${sessionId}:conversation`;
-      if (!this.#budgetWarningFired.has(key)) {
-        this.#budgetWarningFired.add(key);
+      if (!this.#budgetWarningFired.get(key)) {
+        this.#recordBudgetWarningFired(key);
         listener({
           sessionId,
           kind: "conversation",
@@ -338,8 +434,8 @@ export class InferenceRouter {
     }
     if (Number.isFinite(perDay) && day >= perDay * threshold) {
       const key = `${sessionId}:day`;
-      if (!this.#budgetWarningFired.has(key)) {
-        this.#budgetWarningFired.add(key);
+      if (!this.#budgetWarningFired.get(key)) {
+        this.#recordBudgetWarningFired(key);
         listener({
           sessionId,
           kind: "day",
@@ -348,6 +444,24 @@ export class InferenceRouter {
           percent: Math.round((day / perDay) * 100),
         });
       }
+    }
+  }
+
+  /**
+   * N2 fix: bounded insert for the warning-fired map. The same LRU
+   * pattern as `#evictOldestConversationsIfOver`. Worst-case side
+   * effect of overflow: an ancient session's warning can re-fire —
+   * bounded to `MAX_TRACKED_WARNINGS` duplicate events across the
+   * sidecar's lifetime, which is harmless UX noise.
+   */
+  #recordBudgetWarningFired(key: string): void {
+    this.#budgetWarningFired.delete(key); // touch — moves to MRU
+    this.#budgetWarningFired.set(key, true);
+    const cap = InferenceRouter.MAX_TRACKED_WARNINGS;
+    while (this.#budgetWarningFired.size > cap) {
+      const oldest = this.#budgetWarningFired.keys().next().value;
+      if (oldest === undefined) break;
+      this.#budgetWarningFired.delete(oldest);
     }
   }
 
@@ -372,13 +486,17 @@ export class InferenceRouter {
     });
   }
 
+  /**
+   * Dispatch to the appropriate InferenceProvider. Defense-in-depth URL check
+   * runs here (not just at construction) so no reconfigure() race can reach an
+   * untrusted endpoint. The provider receives the fully-wired request
+   * (signal chained, budget already checked).
+   */
   async #callTarget(
     target: ModelTarget,
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
-    // Defense in depth: re-verify the destination at call time, not just at
-    // construction, so no code path can reach an untrusted inference endpoint.
     if (!this.#trusted.has(normalizeBaseUrl(target.baseUrl))) {
       this.#auditBlocked(
         req.sessionId,
@@ -388,612 +506,102 @@ export class InferenceRouter {
         `refusing to contact untrusted inference endpoint: ${target.baseUrl}`,
       );
     }
-    if (target.provider === "ollama") {
-      return this.#callOllama(target, req, isFallback);
-    }
-    if (target.provider === "anthropic") {
-      return this.#callAnthropic(target, req, isFallback);
-    }
-    // Treat everything else (openai, deepseek, openai_compatible, …) as an
-    // OpenAI-compatible chat-completions endpoint.
-    return this.#callOpenAICompatible(target, req, isFallback);
-  }
 
-  async #callOllama(
-    target: ModelTarget,
-    req: InferenceRequest,
-    isFallback: boolean,
-  ): Promise<InferenceResponse> {
-    const url = `${trimSlash(target.baseUrl)}/api/chat`;
+    const provider: InferenceProvider =
+      this.#providers[target.provider] ??
+      // Treat unknown providers as OpenAI-compatible (openai, deepseek, …).
+      this.#providers["openai"]!;
 
-    if (req.onToken) {
-      return this.#streamOllama(url, target, req, isFallback);
-    }
-
-    const ctxSize = req.maxTokens ?? 4096;
-    const body = {
-      model: target.model,
-      messages: req.messages.map(toProviderMessage),
-      stream: false,
-      options: {
-        temperature: req.temperature ?? 0.7,
-        // num_ctx is the total context window (input + thinking + output).
-        // Without it Ollama defaults to ~2048, so thinking models (Qwen3, DeepSeek)
-        // exhaust the window on chain-of-thought tokens and truncate the answer.
-        num_ctx: ctxSize,
-        ...(req.maxTokens ? { num_predict: req.maxTokens } : {}),
-      },
-    };
-
-    const raw = await this.#postJson(url, body, undefined, req.signal);
-    const content: string =
-      (raw as { message?: { content?: string } }).message?.content ?? "";
-    const promptTokens =
-      (raw as { prompt_eval_count?: number }).prompt_eval_count ??
-      estimateTokens(req.messages);
-    const completionTokens =
-      (raw as { eval_count?: number }).eval_count ?? estimateText(content);
-
-    return {
-      content,
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens,
-      model: target.model,
-      usedFallback: isFallback,
-    };
-  }
-
-  async #streamOllama(
-    url: string,
-    target: ModelTarget,
-    req: InferenceRequest,
-    isFallback: boolean,
-  ): Promise<InferenceResponse> {
-    const ctxSize = req.maxTokens ?? 4096;
-    const body = {
-      model: target.model,
-      messages: req.messages.map(toProviderMessage),
-      stream: true,
-      options: {
-        temperature: req.temperature ?? 0.7,
-        // num_ctx is the total context window (input + thinking + output).
-        // Without it Ollama defaults to ~2048, so thinking models (Qwen3, DeepSeek)
-        // exhaust the window on chain-of-thought tokens and truncate the answer.
-        num_ctx: ctxSize,
-        ...(req.maxTokens ? { num_predict: req.maxTokens } : {}),
-      },
-    };
-
-    // Idle timeout, not an absolute one: abort only if NO token arrives for
-    // IDLE_TIMEOUT_MS. A fixed 120s cap killed healthy-but-slow CPU runs of
-    // large models mid-sentence (prefill + generation of a long agent prompt
-    // easily exceeds 120s total). Resetting on each chunk distinguishes a real
-    // hang from slow-but-progressing inference.
-    const controller = new AbortController();
-    const IDLE_TIMEOUT_MS = 300_000;
-    let timer: ReturnType<typeof setTimeout> = setTimeout(
-      () => controller.abort(),
-      IDLE_TIMEOUT_MS,
-    );
-    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
-    // the in-flight fetch. The existing resetIdle() on each chunk keeps
-    // the wall-clock cap from killing slow-but-progressing streams.
-    if (req.signal) {
-      const onSessionAbort = () => {
-        clearTimeout(timer);
-        controller.abort(req.signal!.reason);
-      };
-      if (req.signal.aborted) onSessionAbort();
-      else req.signal.addEventListener("abort", onSessionAbort, { once: true });
-    }
-    const resetIdle = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
-    };
-
-    let content = "";
-    let promptTokens = 0;
-    let completionTokens = 0;
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new InferenceError(
-          `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
-        );
-      }
-      if (!res.body) throw new InferenceError("no response body for streaming");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      const processLine = (line: string): void => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        let chunk: unknown;
-        try { chunk = JSON.parse(trimmed); } catch { return; }
-
-        const token =
-          (chunk as { message?: { content?: string } }).message?.content ?? "";
-        if (token) {
-          content += token;
-          req.onToken!(token);
-        }
-
-        const isDone = (chunk as { done?: boolean }).done === true;
-        if (isDone) {
-          promptTokens =
-            (chunk as { prompt_eval_count?: number }).prompt_eval_count ??
-            estimateTokens(req.messages);
-          completionTokens =
-            (chunk as { eval_count?: number }).eval_count ??
-            estimateText(content);
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        resetIdle();
-        buf += decoder.decode(value, { stream: true });
-
-        // Ollama streams one JSON object per line. Keep the last incomplete
-        // line in the buffer in case it spans a chunk boundary.
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) processLine(line);
-      }
-
-      // Flush any remaining content (e.g. a complete response without a
-      // trailing newline, which is the case for non-streaming mock responses).
-      if (buf.trim()) processLine(buf);
-      buf = "";
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (!promptTokens) promptTokens = estimateTokens(req.messages);
-    if (!completionTokens) completionTokens = estimateText(content);
-
-    return {
-      content,
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens,
-      model: target.model,
-      usedFallback: isFallback,
-    };
-  }
-
-  async #callOpenAICompatible(
-    target: ModelTarget,
-    req: InferenceRequest,
-    isFallback: boolean,
-  ): Promise<InferenceResponse> {
-    const url = `${trimSlash(target.baseUrl)}/v1/chat/completions`;
-
-    if (req.onToken) {
-      return this.#streamOpenAI(url, target, req, isFallback);
-    }
-
-    const authHeaders: Record<string, string> = target.apiKey
-      ? { Authorization: `Bearer ${target.apiKey}` }
-      : {};
-
-    const body = {
-      model: target.model,
-      messages: req.messages.map(toProviderMessage),
-      temperature: req.temperature ?? 0.7,
-      ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      stream: false,
-    };
-
-    const raw = (await this.#postJson(url, body, authHeaders, req.signal)) as {
-      choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
-    };
-    const content = raw.choices?.[0]?.message?.content ?? "";
-    const promptTokens =
-      raw.usage?.prompt_tokens ?? estimateTokens(req.messages);
-    const completionTokens =
-      raw.usage?.completion_tokens ?? estimateText(content);
-
-    return {
-      content,
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens,
-      model: target.model,
-      usedFallback: isFallback,
-    };
-  }
-
-  async #streamOpenAI(
-    url: string,
-    target: ModelTarget,
-    req: InferenceRequest,
-    isFallback: boolean,
-  ): Promise<InferenceResponse> {
-    const body = {
-      model: target.model,
-      messages: req.messages.map(toProviderMessage),
-      temperature: req.temperature ?? 0.7,
-      ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      stream: true,
-    };
-
-    // Idle timeout, not absolute — see #streamOllama for the rationale. This is
-    // the path agent mode actually uses (sidecar → localhost:11435), where a
-    // fixed 120s cap truncated long CPU completions mid-sentence.
-    const controller = new AbortController();
-    const IDLE_TIMEOUT_MS = 300_000;
-    let timer: ReturnType<typeof setTimeout> = setTimeout(
-      () => controller.abort(),
-      IDLE_TIMEOUT_MS,
-    );
-    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
-    // the in-flight fetch. The existing resetIdle() on each chunk keeps
-    // the wall-clock cap from killing slow-but-progressing streams.
-    if (req.signal) {
-      const onSessionAbort = () => {
-        clearTimeout(timer);
-        controller.abort(req.signal!.reason);
-      };
-      if (req.signal.aborted) onSessionAbort();
-      else req.signal.addEventListener("abort", onSessionAbort, { once: true });
-    }
-    const resetIdle = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
-    };
-
-    let content = "";
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new InferenceError(
-          `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
-        );
-      }
-      if (!res.body) throw new InferenceError("no response body for streaming");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      const processSSELine = (line: string): void => {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) return;
-        const data = trimmed.slice(5).trim();
-        if (data === "[DONE]") return;
-        let chunk: unknown;
-        try { chunk = JSON.parse(data); } catch { return; }
-
-        const token =
-          (chunk as { choices?: { delta?: { content?: string } }[] })
-            .choices?.[0]?.delta?.content ?? "";
-        if (token) {
-          content += token;
-          req.onToken!(token);
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        resetIdle();
-        buf += decoder.decode(value, { stream: true });
-
-        // SSE format: "data: {...}\n\n"
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) processSSELine(line);
-      }
-
-      if (buf.trim()) processSSELine(buf);
-    } finally {
-      clearTimeout(timer);
-    }
-
-    return {
-      content,
-      promptTokens: estimateTokens(req.messages),
-      completionTokens: estimateText(content),
-      totalTokens: estimateTokens(req.messages) + estimateText(content),
-      model: target.model,
-      usedFallback: isFallback,
-    };
-  }
-
-  /** Anthropic Messages API — distinct endpoint and header convention. */
-  async #callAnthropic(
-    target: ModelTarget,
-    req: InferenceRequest,
-    isFallback: boolean,
-  ): Promise<InferenceResponse> {
-    const url = `${trimSlash(target.baseUrl)}/v1/messages`;
-
-    if (req.onToken) {
-      return this.#streamAnthropic(url, target, req, isFallback);
-    }
-
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
-    const body: Record<string, unknown> = {
-      model: target.model,
-      max_tokens: req.maxTokens ?? 4096,
-      messages: userMessages,
-      temperature: req.temperature ?? 0.7,
-    };
-    if (systemText) body.system = systemText;
-
-    const authHeaders: Record<string, string> = {
-      "anthropic-version": "2023-06-01",
-    };
-    if (target.apiKey) authHeaders["x-api-key"] = target.apiKey;
-
-    const raw = (await this.#postJson(url, body, authHeaders, req.signal)) as {
-      content?: { type: string; text: string }[];
-      usage?: { input_tokens?: number; output_tokens?: number };
-    };
-
-    const content = raw.content?.find((b) => b.type === "text")?.text ?? "";
-    const promptTokens =
-      raw.usage?.input_tokens ?? estimateTokens(req.messages);
-    const completionTokens =
-      raw.usage?.output_tokens ?? estimateText(content);
-
-    return {
-      content,
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens,
-      model: target.model,
-      usedFallback: isFallback,
-    };
-  }
-
-  async #streamAnthropic(
-    url: string,
-    target: ModelTarget,
-    req: InferenceRequest,
-    isFallback: boolean,
-  ): Promise<InferenceResponse> {
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
-    const body: Record<string, unknown> = {
-      model: target.model,
-      max_tokens: req.maxTokens ?? 4096,
-      messages: userMessages,
-      temperature: req.temperature ?? 0.7,
-      stream: true,
-    };
-    if (systemText) body.system = systemText;
-
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-      "anthropic-version": "2023-06-01",
-    };
-    if (target.apiKey) headers["x-api-key"] = target.apiKey;
-
-    // Idle timeout, not absolute — see #streamOllama for the rationale.
-    const controller = new AbortController();
-    const IDLE_TIMEOUT_MS = 300_000;
-    let timer: ReturnType<typeof setTimeout> = setTimeout(
-      () => controller.abort(),
-      IDLE_TIMEOUT_MS,
-    );
-    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
-    // the in-flight fetch. The existing resetIdle() on each chunk keeps
-    // the wall-clock cap from killing slow-but-progressing streams.
-    if (req.signal) {
-      const onSessionAbort = () => {
-        clearTimeout(timer);
-        controller.abort(req.signal!.reason);
-      };
-      if (req.signal.aborted) onSessionAbort();
-      else req.signal.addEventListener("abort", onSessionAbort, { once: true });
-    }
-    const resetIdle = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
-    };
-
-    let content = "";
-    let inputTokens = 0;
-    let outputTokens = 0;
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new InferenceError(
-          `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
-        );
-      }
-      if (!res.body) throw new InferenceError("no response body for streaming");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      const processSSELine = (line: string): void => {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) return;
-        const data = trimmed.slice(5).trim();
-
-        let chunk: unknown;
-        try { chunk = JSON.parse(data); } catch { return; }
-
-        const type = (chunk as { type?: string }).type;
-
-        if (type === "content_block_delta") {
-          const token =
-            (chunk as { delta?: { type?: string; text?: string } }).delta?.text ?? "";
-          if (token) {
-            content += token;
-            req.onToken!(token);
-          }
-        } else if (type === "message_start") {
-          inputTokens =
-            (chunk as { message?: { usage?: { input_tokens?: number } } })
-              .message?.usage?.input_tokens ?? 0;
-        } else if (type === "message_delta") {
-          outputTokens =
-            (chunk as { usage?: { output_tokens?: number } }).usage
-              ?.output_tokens ?? 0;
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        resetIdle();
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) processSSELine(line);
-      }
-      if (buf.trim()) processSSELine(buf);
-    } finally {
-      clearTimeout(timer);
-    }
-
-    const promptTokens = inputTokens || estimateTokens(req.messages);
-    const completionTokens = outputTokens || estimateText(content);
-
-    return {
-      content,
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens,
-      model: target.model,
-      usedFallback: isFallback,
-    };
+    return provider.complete(target, req, isFallback);
   }
 
   /**
-   * Direct JSON POST. The router is the sanctioned bypass of the egress proxy:
-   * local inference must reach localhost, which the proxy blocks by design.
+   * Tokenize text using the local llama.cpp server's /tokenize endpoint.
+   * This provides accurate token counts matching the model's actual vocabulary,
+   * unlike the GPT-2 BPE fallback which uses a different vocabulary.
    *
-   * KNOWN V1 LIMITATION — DNS rebinding. The trusted-endpoint check validates
-   * the URL *string*, not the IP the host ultimately resolves to. A poisoned
-   * resolver or /etc/hosts entry could point a trusted hostname at, e.g.,
-   * 169.254.169.254 (cloud metadata) and slip past the allowlist.
-   *
-   * We deliberately do NOT resolve-and-reject private/loopback/link-local IPs
-   * here, because that is incompatible with this router's whole reason to exist:
-   * the default target is Ollama on localhost (→ 127.0.0.1), which such a check
-   * would itself block. Resolve-then-pin rebinding defense (resolve once, pin
-   * the IP, fetch against the pinned address, reject on later drift) only
-   * becomes meaningful for V2 cloud inference over *public* endpoints, and is
-   * deferred to that milestone. For V1 (local inference) this is not exploitable
-   * in the intended deployment.
+   * @param text - The text to tokenize
+   * @param model - Optional model name (uses primary model if not specified)
+   * @returns Number of tokens, or -1 if the endpoint is unavailable
    */
-  async #postJson(
-    url: string,
-    body: unknown,
-    extraHeaders?: Record<string, string>,
-    externalSignal?: AbortSignal,
-  ): Promise<unknown> {
-    // Non-streaming single-shot: can't idle-reset (the whole body resolves at
-    // once), so use a generous absolute cap. 120s truncated slow CPU runs.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 300_000);
-    // P0-#3: chain with session-level abort so AgentLoop.stop() reaches
-    // the in-flight fetch.
-    if (externalSignal) {
-      const onSessionAbort = () => {
-        clearTimeout(timer);
-        controller.abort(externalSignal.reason);
-      };
-      if (externalSignal.aborted) onSessionAbort();
-      else externalSignal.addEventListener("abort", onSessionAbort, { once: true });
-    }
+  async tokenizeLocal(text: string, model?: string): Promise<number> {
+    if (!text) return 0;
+
+    const targetModel = model ?? this.#primary.model;
+    const url = `${trimSlash(this.#primary.baseUrl)}/tokenize`;
+
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...extraHeaders },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new InferenceError(
-          `inference endpoint ${url} returned ${res.status}: ${detail.slice(
-            0,
-            200,
-          )}`,
-        );
-      }
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
+      const data = (await postJson(
+        url,
+        { content: text, model: targetModel },
+        undefined,
+        AbortSignal.timeout(5000),
+      )) as { tokens?: number[]; count?: number };
+      if (Array.isArray(data.tokens)) return data.tokens.length;
+      if (typeof data.count === "number") return data.count;
+      return -1;
+    } catch {
+      return -1;
     }
   }
-}
 
-function toProviderMessage(m: ChatMessage): { role: string; content: string } {
-  // Providers expect tool output folded into a user/system turn; map "tool"
-  // role to "user" with a clear marker so local models understand context.
-  const role = m.role === "tool" ? "user" : m.role;
-  const content =
-    m.role === "tool" ? `[tool:${m.name ?? "unknown"}] ${m.content}` : m.content;
-  return { role, content };
-}
+  /**
+   * Count tokens using the local llama.cpp tokenizer when available,
+   * falling back to GPT-2 BPE for cloud providers or when local endpoint fails.
+   *
+   * This is async because it may hit the local /tokenize endpoint.
+   * For hot paths that need sync counting, use `countTokensSync` (GPT-2 BPE).
+   */
+  /**
+   * P3: per-message count cache. The agent loop re-counts the same message
+   * texts on every turn (working-memory budget, recall injection, compression
+   * checks) — without a cache each recount is a network round-trip to
+   * /tokenize. Keyed by text, bounded FIFO so a long session can't grow it
+   * unboundedly. Invalidated wholesale on model switch (different vocab).
+   */
+  #tokenCountCache = new Map<string, number>();
+  #tokenCacheModel = "";
+  static readonly #TOKEN_CACHE_MAX = 512;
 
-/**
- * Anthropic's Messages API separates the system prompt into its own top-level
- * field. Pull it out before mapping the rest of the conversation.
- */
-function splitAnthropicMessages(messages: ChatMessage[]): {
-  systemText: string | undefined;
-  userMessages: { role: string; content: string }[];
-} {
-  const systemMsg = messages.find((m) => m.role === "system");
-  const userMessages = messages
-    .filter((m) => m.role !== "system")
-    .map(toProviderMessage);
-  return { systemText: systemMsg?.content, userMessages };
-}
+  async countTokensAccurate(text: string, model?: string): Promise<number> {
+    const effectiveModel = model ?? this.#primary.model;
+    if (this.#tokenCacheModel !== effectiveModel) {
+      this.#tokenCountCache.clear();
+      this.#tokenCacheModel = effectiveModel;
+    }
+    const hit = this.#tokenCountCache.get(text);
+    if (hit !== undefined) return hit;
 
-function estimateTokens(messages: ChatMessage[]): number {
-  let total = 0;
-  for (const m of messages) total += countTokens(m.content);
-  return total;
-}
+    let count: number;
+    // Use the local /tokenize endpoint for any provider that exposes it
+    // (bundled llama.cpp engine on openai_compatible, or external Ollama).
+    if (
+      this.#primary.provider === "ollama" ||
+      this.#primary.provider === "openai_compatible"
+    ) {
+      const localCount = await this.tokenizeLocal(text, model);
+      count = localCount >= 0 ? localCount : countTokens(text);
+    } else {
+      count = countTokens(text);
+    }
 
-/**
- * Rough token estimate used ONLY as a fallback when a provider omits usage
- * counts. P0-#5: now uses real BPE (gpt-tokenizer) instead of the
- * `length / 4` heuristic, which underestimated by 2-3× for code and CJK
- * content — causing late compression and silent context overflow. The
- * V1 limitation ("local Ollama returns real counts, so this is rare")
- * is unchanged; the new accuracy is just safer for the rare case.
- */
-function estimateText(text: string): number {
-  return countTokens(text);
+    if (this.#tokenCountCache.size >= InferenceRouter.#TOKEN_CACHE_MAX) {
+      // FIFO eviction: drop the oldest insertion.
+      const oldest = this.#tokenCountCache.keys().next().value;
+      if (oldest !== undefined) this.#tokenCountCache.delete(oldest);
+    }
+    this.#tokenCountCache.set(text, count);
+    return count;
+  }
+
+  /**
+   * Synchronous token count using GPT-2 BPE.
+   * Use for hot paths where async is not feasible (streaming, per-message render).
+   * Less accurate for non-GPT-2 vocabularies but zero latency.
+   */
+  countTokensSync(text: string): number {
+    return countTokens(text);
+  }
 }
 
 function trimSlash(url: string): string {

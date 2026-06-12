@@ -28,6 +28,7 @@
  */
 
 import type { AskUserAnswer, AskUserQuestion, Tool, ToolResult } from "../../types.ts";
+import { AskUserTimeoutError } from "../../types.ts";
 
 const MAX_QUESTIONS = 4;
 const MIN_OPTIONS = 2;
@@ -148,14 +149,30 @@ export function createAskUserTool(): Tool {
       }
 
       let answers: AskUserAnswer[];
+      let autoResolved = false;
+      let autoResolveReason: string | null = null;
       try {
         answers = await ctx.askUser.ask(questions as AskUserQuestion[], ctx.sessionId);
       } catch (err) {
-        return {
-          ok: false,
-          content: `ask_user: ${err instanceof Error ? err.message : String(err)}`,
-          error: "ask_user_failed",
-        };
+        // Feral-WIP #5: on AskUserTimeoutError, auto-resolve with the first
+        // recommended option (or first option) so the agent keeps moving.
+        if (err instanceof AskUserTimeoutError) {
+          answers = questions.map((q) => {
+            const rec = q.options.find(
+              (o: { label: string; recommended?: boolean }) => o.recommended,
+            );
+            const picked = rec ?? q.options[0];
+            return { question: q.question, selected: picked ? [picked.label] : [] };
+          });
+          autoResolved = true;
+          autoResolveReason = "timeout after " + err.timeoutMs + "ms -- auto-selected recommended option";
+        } else {
+          return {
+            ok: false,
+            content: "ask_user: " + (err instanceof Error ? err.message : String(err)),
+            error: "ask_user_failed",
+          };
+        }
       }
 
       // Render the answers as a compact, scannable summary for the model.
@@ -167,6 +184,9 @@ export function createAskUserTool(): Tool {
         const custom = a?.customText ? ` — custom: "${a.customText}"` : "";
         lines.push(`  Q${i + 1}: "${q.question}" → ${selected}${custom}`);
       }
+      if (autoResolved) {
+        lines.push("", "WARN: " + autoResolveReason + ". Continue with this default unless you ask the user again.");
+      }
 
       return {
         ok: true,
@@ -174,6 +194,8 @@ export function createAskUserTool(): Tool {
         data: {
           questions,
           answers,
+          autoResolved,
+          autoResolveReason,
         },
       };
     },

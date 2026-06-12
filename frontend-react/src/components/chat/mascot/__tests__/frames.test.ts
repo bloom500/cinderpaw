@@ -104,59 +104,32 @@ describe('mascot variants', () => {
     }
   });
 
-  it('idle has 7 variants', () => {
-    expect(VARIANTS.idle.length).toBe(7);
+  it('per-state variant counts match the v2 redesign', () => {
+    const expected: Record<MascotState, number> = {
+      idle: 5, typing: 3, thinking: 4, calling: 4, done: 4, running: 2,
+      wave: 2, sleep: 3, surprised: 2, curious: 3, celebrate: 4,
+      reading: 2, searching: 2, building: 2, writing: 2,
+      stretching: 2, gaming: 2, love: 2, cool: 2, error: 3, excited: 2,
+      spawning: 2,
+    };
+    for (const s of ALL_STATES) {
+      expect(VARIANTS[s].length, `variants for ${s}`).toBe(expected[s]);
+    }
   });
 
-  it('calling has 10 variants', () => {
-    expect(VARIANTS.calling.length).toBe(10);
+  it('total variant count stays in the 50-60 range', () => {
+    const total = ALL_STATES.reduce((n, s) => n + VARIANTS[s].length, 0);
+    expect(total).toBeGreaterThanOrEqual(50);
+    expect(total).toBeLessThanOrEqual(60);
   });
 
-  it('done has 6 variants', () => {
-    expect(VARIANTS.done.length).toBe(6);
-  });
-
-  it('thinking has 6 variants', () => {
-    expect(VARIANTS.thinking.length).toBe(6);
-  });
-
-  it('typing has 4 variants', () => {
-    expect(VARIANTS.typing.length).toBe(4);
-  });
-
-  it('wave has 4 variants', () => {
-    expect(VARIANTS.wave.length).toBe(4);
-  });
-
-  it('sleep has 3 variants', () => {
-    expect(VARIANTS.sleep.length).toBe(3);
-  });
-
-  it('surprised has 4 variants', () => {
-    expect(VARIANTS.surprised.length).toBe(4);
-  });
-
-  it('celebrate has 5 variants', () => {
-    expect(VARIANTS.celebrate.length).toBe(5);
-  });
-
-  it('running has 3 variants', () => {
-    expect(VARIANTS.running.length).toBe(3);
-  });
-
-  it('curious has 3 variants', () => {
-    expect(VARIANTS.curious.length).toBe(3);
-  });
-
-  it('gaming has 2 variants', () => {
-    expect(VARIANTS.gaming.length).toBe(2);
-  });
-
-  it('cool has 2 variants', () => {
-    expect(VARIANTS.cool.length).toBe(2);
-  });
-
-  it('error has 3 variants', () => {
-    expect(VARIANTS.error.length).toBe(3);
+  it('every variant animates: multi-frame cycles are not all identical', () => {
+    for (const s of ALL_STATES) {
+      for (const variant of VARIANTS[s]) {
+        if (variant.length < 2) continue;
+        const allSame = variant.every(f => f.join('') === variant[0].join(''));
+        expect(allSame, `static multi-frame variant in ${s}`).toBe(false);
+      }
+    }
   });
 });

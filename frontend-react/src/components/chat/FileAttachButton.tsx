@@ -2,7 +2,7 @@ import { Paperclip } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { AttachedFile } from './AttachedFileChip';
-import { tauri } from '@/lib/tauri';
+import { attachmentFromPath } from '@/lib/attachments';
 
 interface Props {
   onFilesSelected: (files: AttachedFile[]) => void;
@@ -14,19 +14,7 @@ export function FileAttachButton({ onFilesSelected }: Props) {
     if (!result) return;
 
     const paths = Array.isArray(result) ? result : [result];
-
-    const files: AttachedFile[] = await Promise.all(
-      paths.map(async (path) => {
-        const name = path.split(/[\\/]/).pop() ?? path;
-        try {
-          const content = await tauri.files.readAsText(path);
-          return { name, path, content };
-        } catch {
-          return { name, path, content: null, error: 'Unsupported format' };
-        }
-      }),
-    );
-
+    const files: AttachedFile[] = await Promise.all(paths.map(attachmentFromPath));
     onFilesSelected(files);
   };
 

@@ -79,6 +79,47 @@ export class MemoryGraph {
     this.addEdge(sId, oId, predicate);
   }
 
+  removeNode(id: string): boolean {
+    if (!this.#data.nodes[id]) return false;
+    delete this.#data.nodes[id];
+    this.#data.edges = this.#data.edges.filter((e) => e.from !== id && e.to !== id);
+    return true;
+  }
+
+  /**
+   * Boot-time hygiene: remove every node whose id/label the predicate flags
+   * (plus its edges) and persist when anything changed. Without this sweep,
+   * junk deleted from the file on disk gets resurrected by the next
+   * `persist()` from a long-running process that still holds it in memory.
+   * Returns the number of nodes removed.
+   */
+  sweepJunk(isJunk: (idAsText: string, label: string) => boolean): number {
+    const doomed = Object.values(this.#data.nodes).filter((n) =>
+      isJunk(n.id.replace(/_/g, " "), n.label),
+    );
+    for (const n of doomed) this.removeNode(n.id);
+    if (doomed.length > 0) this.persist();
+    return doomed.length;
+  }
+
+  removeEdge(from: string, to: string, relation?: string): number {
+    const before = this.#data.edges.length;
+    this.#data.edges = this.#data.edges.filter((e) => {
+      if (e.from !== from || e.to !== to) return true;
+      if (relation !== undefined && e.relation !== relation) return true;
+      return false;
+    });
+    return before - this.#data.edges.length;
+  }
+
+  queryNodes(labelContains?: string, type?: GraphNode["type"]): GraphNode[] {
+    return Object.values(this.#data.nodes).filter((n) => {
+      if (labelContains && !n.label.toLowerCase().includes(labelContains.toLowerCase())) return false;
+      if (type && n.type !== type) return false;
+      return true;
+    });
+  }
+
   persist(): void {
     try {
       save(this.#data);

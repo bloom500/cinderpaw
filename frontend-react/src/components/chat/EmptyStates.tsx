@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getRandomSuggestions } from '@/lib/suggestions';
+import { useT } from '@/lib/i18n';
 import { useUI } from '@/stores/ui';
 import { cn } from '@/lib/utils';
 
@@ -48,26 +49,27 @@ function AgentByokNote() {
   );
 }
 
-const GREETINGS = [
-  'What can I help you with?',
-  "What's on your mind?",
-  'How can I assist you today?',
-  'What would you like to explore?',
-  'What can I help you build?',
-];
+const GREETING_KEYS = [
+  'empty.greeting.1',
+  'empty.greeting.2',
+  'empty.greeting.3',
+  'empty.greeting.4',
+  'empty.greeting.5',
+] as const;
 
 export function NoModelEmptyState() {
   const navigate = useNavigate();
+  const t = useT();
   return (
     <div className="h-full flex flex-col items-center justify-center text-text-muted px-6">
-      <h2 className="text-xl text-text-secondary mb-2">No model selected</h2>
-      <p className="mb-6 text-center">Load a local model or configure a cloud key to start chatting.</p>
+      <h2 className="text-xl text-text-secondary mb-2">{t('empty.noModel.title')}</h2>
+      <p className="mb-6 text-center">{t('empty.noModel.body')}</p>
       <div className="flex gap-3">
         <Button variant="outline" onClick={() => navigate('/models')}>
-          Open Models
+          {t('empty.noModel.openModels')}
         </Button>
         <Button variant="outline" onClick={() => navigate('/settings')}>
-          Cloud Keys
+          {t('empty.noModel.cloudKeys')}
         </Button>
       </div>
     </div>
@@ -81,6 +83,7 @@ interface NewChatEmptyStateProps {
 
 export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStateProps) {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
+  const t = useT();
   const [suggestions] = useState(() => getRandomSuggestions(3));
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [greetingVisible, setGreetingVisible] = useState(true);
@@ -90,7 +93,7 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
     const id = setInterval(() => {
       setGreetingVisible(false);
       setTimeout(() => {
-        setGreetingIndex((i) => (i + 1) % GREETINGS.length);
+        setGreetingIndex((i) => (i + 1) % GREETING_KEYS.length);
         setGreetingVisible(true);
       }, 350);
     }, 4000);
@@ -110,7 +113,7 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
           className="text-2xl font-semibold text-text-primary select-none transition-opacity duration-300"
           style={{ opacity: greetingVisible ? 1 : 0 }}
         >
-          {GREETINGS[greetingIndex]}
+          {t(GREETING_KEYS[greetingIndex])}
         </h1>
 
         <div className="mt-5 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">

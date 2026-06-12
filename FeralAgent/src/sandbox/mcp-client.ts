@@ -1,0 +1,461 @@
+/**
+ * MCP (Model Context Protocol) stdio client.
+ *
+ * Launches an external MCP server as a subprocess, runs the JSON-RPC 2.0
+ * initialize handshake, discovers tools via tools/list, and wraps them as
+ * Feral Tool instances that can be registered directly in ToolRegistry.
+ *
+ * Architecture:
+ *   MCPClient owns the server process. MCP tool calls go through the client's
+ *   callTool() method — no direct process:spawn permission is needed per tool.
+ *   The client is itself sandboxed: it is created by index.ts with explicit
+ *   configuration (command, args, allowed domains), not by agent-accessible code.
+ *
+ * Dynamic sandbox mapping:
+ *   Discovered tools are wrapped with a ToolManifest that reflects their actual
+ *   capabilities. Network-capable MCP servers get network:outbound; file-system
+ *   servers get fs:read + fs:write with the declared roots. Unknown servers get
+ *   the conservative default (no permissions declared, no network, no fs access).
+ *   All tool calls are audited via the registry's normal pipeline (circuit breaker,
+ *   retry, hooks) because the wrappers implement the Tool interface.
+ */
+
+import type { AuditLogger, Tool, ToolContext, ToolManifest, ToolParameter, ToolResult } from "../types.ts";
+
+// ---------------------------------------------------------------------------
+// JSON-RPC 2.0 wire types
+// ---------------------------------------------------------------------------
+
+interface JsonRpcRequest {
+  jsonrpc: "2.0";
+  id: number;
+  method: string;
+  params?: unknown;
+}
+
+interface JsonRpcResponse {
+  jsonrpc: "2.0";
+  id: number;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+}
+
+interface JsonRpcNotification {
+  jsonrpc: "2.0";
+  method: string;
+  params?: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// MCP protocol shapes (subset used for tool discovery + invocation)
+// ---------------------------------------------------------------------------
+
+interface MCPToolInputSchema {
+  type: string;
+  properties?: Record<string, { type?: string; description?: string; [k: string]: unknown }>;
+  required?: string[];
+}
+
+export interface MCPToolDef {
+  name: string;
+  description?: string;
+  inputSchema: MCPToolInputSchema;
+}
+
+interface MCPCallToolResult {
+  content?: Array<{ type: string; text?: string; [k: string]: unknown }>;
+  isError?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Permissions hint for wrapping discovered tools
+// ---------------------------------------------------------------------------
+
+/**
+ * Caller-supplied hints about what permissions a particular MCP server needs.
+ * The sandbox respects these at tool-registration time; tools only ever receive
+ * what is declared here. When omitted, the conservative no-permission default
+ * is used (suitable for pure compute / in-process MCP servers).
+ */
+export interface MCPServerPermissions {
+  /** Server can make outbound HTTP requests. */
+  networkOutbound?: boolean;
+  /** Allowed domains for network access (only effective when networkOutbound). */
+  allowedDomains?: string[];
+  /** Server reads from these filesystem roots. */
+  fsReadRoots?: string[];
+  /** Server writes to these filesystem roots. */
+  fsWriteRoots?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// MCPClient
+// ---------------------------------------------------------------------------
+
+export interface MCPClientConfig {
+  /** The executable to launch (absolute path or PATH-resolvable name). */
+  command: string;
+  /** Arguments passed to the server process. */
+  args?: string[];
+  /**
+   * Extra environment variables for the server process. Combined with a
+   * safe base env (PATH, HOME, LANG). Blocked prefixes (LD_, DYLD_, NODE_)
+   * are stripped so a rogue MCP server config cannot inject shared libraries.
+   */
+  env?: Record<string, string>;
+  /** How long to wait for the initialize handshake (default 10 s). */
+  initTimeoutMs?: number;
+  /** How long to wait for each tool call (default 30 s). */
+  callTimeoutMs?: number;
+  /** Sandbox permissions to grant wrapped tools. Conservative by default. */
+  permissions?: MCPServerPermissions;
+}
+
+const BLOCKED_ENV_PREFIXES = ["LD_", "DYLD_", "NODE_", "PYTHONPATH"];
+
+export class MCPClient {
+  readonly #config: Required<MCPClientConfig>;
+  readonly #audit: AuditLogger;
+
+  #proc: ReturnType<typeof Bun.spawn> | null = null;
+  #pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  #nextId = 1;
+  #buf = "";
+  #connected = false;
+
+  constructor(config: MCPClientConfig, audit: AuditLogger) {
+    this.#audit = audit;
+    this.#config = {
+      command: config.command,
+      args: config.args ?? [],
+      env: config.env ?? {},
+      initTimeoutMs: config.initTimeoutMs ?? 10_000,
+      callTimeoutMs: config.callTimeoutMs ?? 30_000,
+      permissions: config.permissions ?? {},
+    };
+  }
+
+  get connected(): boolean {
+    return this.#connected;
+  }
+
+  /**
+   * Launch the MCP server and complete the initialize handshake.
+   * Must be called before listTools() or callTool().
+   */
+  async connect(): Promise<void> {
+    if (this.#connected) return;
+
+    const safeEnv: Record<string, string> = {
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? (process.env.USERPROFILE ?? ""),
+      LANG: process.env.LANG ?? "C.UTF-8",
+    };
+    for (const [k, v] of Object.entries(this.#config.env)) {
+      if (BLOCKED_ENV_PREFIXES.some((p) => k.startsWith(p))) continue;
+      safeEnv[k] = v;
+    }
+
+    this.#proc = Bun.spawn({
+      cmd: [this.#config.command, ...this.#config.args],
+      env: safeEnv,
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    // Start background reader that dispatches incoming JSON-RPC lines.
+    // Fire-and-forget: it runs until the process's stdout closes; #readLoop
+    // catches its own errors, so the promise never rejects unhandled.
+    void this.#readLoop();
+
+    // Run MCP initialize handshake.
+    const initResult = await this.#rpc(
+      "initialize",
+      {
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: {} },
+        clientInfo: { name: "feral-agent", version: "1.0.0" },
+      },
+      this.#config.initTimeoutMs,
+    );
+
+    if (!initResult || typeof initResult !== "object") {
+      throw new Error("MCP initialize returned unexpected result");
+    }
+
+    // Send initialized notification (required by MCP spec).
+    this.#notify("notifications/initialized", {});
+
+    this.#connected = true;
+
+    this.#audit({
+      timestamp: Date.now(),
+      sessionId: "mcp",
+      actionType: "tool_call",
+      toolName: `mcp:${this.#config.command}`,
+      result: "success",
+    });
+  }
+
+  /** Discover all tools exposed by the server. */
+  async listTools(): Promise<MCPToolDef[]> {
+    this.#assertConnected();
+    const result = await this.#rpc("tools/list", {}, this.#config.callTimeoutMs);
+    const tools = (result as { tools?: MCPToolDef[] })?.tools ?? [];
+    return tools;
+  }
+
+  /**
+   * Invoke a tool on the MCP server. Returns the text content of the result
+   * or throws on protocol/tool error.
+   */
+  async callTool(name: string, args: Record<string, unknown>): Promise<string> {
+    this.#assertConnected();
+    const result = (await this.#rpc(
+      "tools/call",
+      { name, arguments: args },
+      this.#config.callTimeoutMs,
+    )) as MCPCallToolResult | null;
+
+    if (!result) return "";
+
+    if (result.isError) {
+      const errText = result.content
+        ?.filter((b) => b.type === "text")
+        .map((b) => b.text ?? "")
+        .join("\n") ?? "MCP tool returned an error";
+      throw new Error(errText);
+    }
+
+    return (
+      result.content
+        ?.filter((b) => b.type === "text")
+        .map((b) => b.text ?? "")
+        .join("\n") ?? ""
+    );
+  }
+
+  /** Terminate the server process and clean up. */
+  async disconnect(): Promise<void> {
+    this.#connected = false;
+    if (this.#proc) {
+      try {
+        this.#proc.kill();
+        await this.#proc.exited;
+      } catch {
+        /* already dead */
+      }
+      this.#proc = null;
+    }
+    // Reject all pending RPCs.
+    for (const { reject } of this.#pending.values()) {
+      reject(new Error("MCPClient disconnected"));
+    }
+    this.#pending.clear();
+  }
+
+  /**
+   * Discover tools from the server and return them as Feral Tool instances
+   * ready to be passed to ToolRegistry.register(). Each tool is sandboxed
+   * according to the MCPServerPermissions declared at construction time.
+   */
+  async buildTools(): Promise<Tool[]> {
+    const defs = await this.listTools();
+    return defs.map((def) => this.#wrapTool(def));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal: tool wrapping
+  // ---------------------------------------------------------------------------
+
+  #wrapTool(def: MCPToolDef): Tool {
+    const perms = this.#config.permissions;
+    const permissions: ToolManifest["permissions"] = [];
+    if (perms.networkOutbound) permissions.push("network:outbound");
+    if (perms.fsReadRoots && perms.fsReadRoots.length > 0) permissions.push("fs:read");
+    if (perms.fsWriteRoots && perms.fsWriteRoots.length > 0) permissions.push("fs:write");
+
+    const allowedPaths: string[] = [
+      ...(perms.fsReadRoots ?? []),
+      ...(perms.fsWriteRoots ?? []),
+    ];
+
+    const manifest: ToolManifest = {
+      name: `mcp_${def.name}`,
+      description: def.description ?? `MCP tool: ${def.name}`,
+      permissions,
+      networkAccess: perms.networkOutbound ?? false,
+      allowedDomains: perms.allowedDomains,
+      allowedPaths: allowedPaths.length > 0 ? allowedPaths : undefined,
+    };
+
+    const parameters = schemaToParameters(def.inputSchema);
+
+    const client = this;
+    const execute = async (
+      args: Record<string, unknown>,
+      _ctx: ToolContext,
+    ): Promise<ToolResult> => {
+      try {
+        const text = await client.callTool(def.name, args);
+        return { ok: true, content: text || "(no output)" };
+      } catch (err) {
+        return {
+          ok: false,
+          content: `MCP tool "${def.name}" failed: ${String(err)}`,
+          error: "execution_error",
+        };
+      }
+    };
+
+    return { manifest, parameters, execute };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal: JSON-RPC transport
+  // ---------------------------------------------------------------------------
+
+  async #readLoop(): Promise<void> {
+    const proc = this.#proc;
+    if (!proc?.stdout) return;
+    const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        this.#buf += decoder.decode(value, { stream: true });
+
+        const lines = this.#buf.split("\n");
+        this.#buf = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          this.#dispatch(trimmed);
+        }
+      }
+    } catch {
+      /* proc died */
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  #dispatch(line: string): void {
+    let msg: JsonRpcResponse | JsonRpcNotification;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+
+    // Notifications have no id — ignore for now (could be used for progress).
+    if (!("id" in msg)) return;
+
+    const resp = msg as JsonRpcResponse;
+    const pending = this.#pending.get(resp.id);
+    if (!pending) return;
+    this.#pending.delete(resp.id);
+
+    if (resp.error) {
+      pending.reject(
+        new Error(`MCP error ${resp.error.code}: ${resp.error.message}`),
+      );
+    } else {
+      pending.resolve(resp.result ?? null);
+    }
+  }
+
+  #rpc(method: string, params: unknown, timeoutMs: number): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const id = this.#nextId++;
+      const request: JsonRpcRequest = {
+        jsonrpc: "2.0",
+        id,
+        method,
+        params,
+      };
+
+      const timer = setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new Error(`MCP RPC "${method}" timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      this.#pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
+
+      this.#send(request);
+    });
+  }
+
+  #notify(method: string, params: unknown): void {
+    const notification: JsonRpcNotification = { jsonrpc: "2.0", method, params };
+    this.#send(notification);
+  }
+
+  #send(msg: unknown): void {
+    const proc = this.#proc;
+    if (!proc?.stdin) return;
+    const line = JSON.stringify(msg) + "\n";
+    const stdin = proc.stdin as { write(data: string): void };
+    stdin.write(line);
+  }
+
+  #assertConnected(): void {
+    if (!this.#connected) {
+      throw new Error("MCPClient is not connected — call connect() first");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function schemaToParameters(
+  schema: MCPToolInputSchema,
+): Record<string, ToolParameter> {
+  const params: Record<string, ToolParameter> = {};
+  if (!schema.properties) return params;
+
+  const required = new Set(schema.required ?? []);
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    const rawType = typeof prop.type === "string" ? prop.type : "string";
+    const type = normalizeType(rawType);
+    params[key] = {
+      type,
+      description: prop.description ?? key,
+      required: required.has(key) ? true : false,
+    };
+  }
+  return params;
+}
+
+function normalizeType(
+  raw: string,
+): "string" | "number" | "boolean" | "object" | "array" {
+  switch (raw) {
+    case "number":
+    case "integer":
+      return "number";
+    case "boolean":
+      return "boolean";
+    case "object":
+      return "object";
+    case "array":
+      return "array";
+    default:
+      return "string";
+  }
+}

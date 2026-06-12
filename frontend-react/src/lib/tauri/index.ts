@@ -21,7 +21,7 @@ export type { TokenEvent, StreamDoneEvent, StreamErrorEvent, StreamTruncatedEven
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
 
-export interface Message       { role: string; content: string }
+export interface Message       { role: string; content: string; images?: string[] }
 export interface InferParams   {
   temperature: number;
   top_p: number;
@@ -178,6 +178,13 @@ export interface MemoryGraphSnapshot {
   edges: MemoryGraphEdgeView[];
 }
 
+/** One extracted fact triple written to the shared knowledge graph. */
+export interface MemoryFactInput {
+  subject: string;
+  predicate: string;
+  object: string;
+}
+
 // ── Agents ───────────────────────────────────────────────────────────────────
 /** Mirrors Rust AgentEvent — `#[serde(tag = "kind", rename_all = "snake_case")]` */
 export type AgentEvent =
@@ -297,8 +304,8 @@ const raw = {
   installSkill:             (meta: SkillMeta, content: string, overwrite: boolean) =>
     invoke<void>('install_skill', { meta, content, overwrite }),
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
-  feralSendMessage:         (content: string, sessionId: string) =>
-    invoke<string>('feral_send_message', { content, sessionId }),
+  feralSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
+    invoke<string>('feral_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
   feralAgentStatus:         () => invoke<boolean>('feral_agent_status'),
   feralStopGeneration:      (sessionId?: string | null) =>
     invoke<void>('feral_stop_generation', { sessionId: sessionId ?? null }),
@@ -322,6 +329,12 @@ const raw = {
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
+  addMemoryFacts:           (facts: MemoryFactInput[]) =>
+    invoke<number>('add_memory_facts', { facts }),
+  chatCompleteLocal:        (messages: Message[], params: InferParams) =>
+    invoke<string>('chat_complete_local', { messages, params }),
+  chatCloudComplete:        (providerId: string, model: string, messages: Message[], params: InferParams) =>
+    invoke<string>('chat_cloud_complete', { providerId, model, messages, params }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -414,8 +427,8 @@ export const tauri = {
   },
 
   feralAgent: {
-    sendMessage: async (content: string, sessionId: string) =>
-      raw.feralSendMessage(content, sessionId),
+    sendMessage: async (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
+      raw.feralSendMessage(content, sessionId, images, inferParams),
     status:      async () => raw.feralAgentStatus(),
     stop:        async (sessionId?: string) => raw.feralStopGeneration(sessionId ?? null),
   },
@@ -431,6 +444,7 @@ export const tauri = {
 
   memory: {
     getGraph: (): Promise<MemoryGraphSnapshot> => raw.getMemoryGraph(),
+    addFacts: (facts: MemoryFactInput[]): Promise<number> => raw.addMemoryFacts(facts),
   },
 };
 

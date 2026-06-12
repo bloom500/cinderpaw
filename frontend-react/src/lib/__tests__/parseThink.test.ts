@@ -26,9 +26,19 @@ describe('splitThinking', () => {
     });
   });
 
-  it('no open tag → answer carries through unchanged', () => {
+  it('orphan close with empty prefix → answer carries through unchanged', () => {
     expect(splitThinking('</think>orphan close')).toEqual({
       thinking: null, answer: '</think>orphan close', thinkingComplete: true,
+    });
+  });
+
+  // Regression: MiniMax-M2 / DeepSeek-R1-style chat templates bake the opening
+  // <think> into the prompt, so the completion arrives as
+  // "reasoning…</think>answer" with no opening tag. The reasoning prose must
+  // land in the thinking block, never in the chat answer.
+  it('orphan close with reasoning prefix → prefix is thinking, rest is answer', () => {
+    expect(splitThinking('Let me reason about this.</think>Hello!')).toEqual({
+      thinking: 'Let me reason about this.', answer: 'Hello!', thinkingComplete: true,
     });
   });
 

@@ -119,6 +119,12 @@ export function ensureFeralListener(): Promise<void> {
       case 'tool_done':
         if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.callId, parsed.tool, parsed.result);
         break;
+      case 'tool_progress':
+        // #18: retry/backoff/fallback notes from long-running tools. These
+        // carry a sessionId (not a message id), so route straight to the
+        // chat store's most recent running bubble — previously dropped.
+        if (parsed.message) useChat.getState().noteToolProgress(parsed.message);
+        break;
       case 'spawning':
         if (parsed.id) {
           inflight.get(parsed.id)?.onSpawning?.(parsed.count ?? 1);
