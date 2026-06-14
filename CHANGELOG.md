@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.2.3
+
+*Released 2026-06-14 — Windows, macOS (Apple Silicon + Intel), and Linux.*
+
+### Added
+
+- **GPU acceleration.** Feral now ships a GPU backend on every platform —
+  Vulkan on Windows and Linux, Metal on macOS — and offloads the whole model
+  to the GPU by default. Local models that previously ran CPU-only (slow,
+  sometimes "not responding" for minutes) now use the graphics card. If the GPU
+  can't be used — missing or old driver, no Vulkan runtime, or not enough VRAM
+  for the model's context — Feral automatically falls back to CPU so the model
+  still loads instead of failing.
+- **Desktop control (opt-in).** The agent can now drive native applications
+  through the OS accessibility tree — list windows, read controls, type, click,
+  and send real keystrokes. Off by default; enable it under Settings → Agent,
+  with a Safe mode (confirm every action) and a YOLO mode (no prompts). A hard
+  denylist (password managers, system security dialogs, Feral itself) can never
+  be controlled.
+- **Configurable token budget.** The agent's conversation budget is now
+  unlimited by default — no more hitting "budget exhausted" mid-task. Optional
+  caps (1M/5M/20M/50M) are available under Settings → Agent for cost control.
+- **Live context ring.** A live indicator of how full the model's context
+  window is, so you can see when the conversation is approaching the limit.
+
+### Fixed
+
+- **Loading a model no longer crashes the machine.** Modern models advertise
+  enormous training contexts (up to 256K), and the KV cache was sized to that
+  full context and allocated up front — roughly 90 GB for a 4B model, which
+  instantly exhausted memory (a kernel panic and reboot on macOS, a near-hang
+  on Windows). The load-time context is now capped to a safe default (8192,
+  raisable via `FERAL_MAX_CONTEXT`), clamped to what the model actually
+  supports.
+
 ## v0.2.2
 
 *Released 2026-06-13 — Windows, macOS (Apple Silicon + Intel), and Linux.*
