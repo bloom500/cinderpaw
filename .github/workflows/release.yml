@@ -85,14 +85,15 @@ jobs:
 
       # Build the Vulkan backend with Ninja instead of the Visual Studio
       # generator (which breaks llama.cpp's vulkan-shaders-gen ExternalProject —
-      # see the matrix comment). msvc-dev-cmd loads the MSVC toolchain
-      # environment (cl.exe, INCLUDE/LIB, and the Ninja that ships with VS) into
-      # GITHUB_ENV so cmake + Ninja can find the compiler in later steps;
-      # CMAKE_GENERATOR=Ninja is read by the cmake crate that llama-cpp-sys-2
-      # drives. Both are Windows-only; Linux/macOS keep their default generators.
-      - name: Setup MSVC + Ninja (Windows)
+      # see the matrix comment). setup-msvc-dev loads the MSVC toolchain
+      # environment (cl.exe, INCLUDE/LIB) into GITHUB_ENV so cmake + Ninja can
+      # find the compiler in later steps; Ninja itself is preinstalled on the
+      # windows runner image. CMAKE_GENERATOR=Ninja is read by the cmake crate
+      # that llama-cpp-sys-2 drives. Both are Windows-only; Linux/macOS keep
+      # their default generators.
+      - name: Setup MSVC dev environment (Windows)
         if: runner.os == 'Windows'
-        uses: ilammer/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v3.0.2
         with:
           arch: x64
 
