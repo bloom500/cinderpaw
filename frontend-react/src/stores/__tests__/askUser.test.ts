@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 
 const reset = () =>
-  useAskUser.setState({ pending: null, history: [] });
+  useAskUser.setState({ pending: null, waiting: [], history: [] });
 
 const SAMPLE_QUESTIONS: AskUserQuestion[] = [
   {
@@ -71,5 +71,56 @@ describe('useAskUser', () => {
   it('submit() with no pending request is a no-op', () => {
     expect(() => useAskUser.getState().submit([])).not.toThrow();
     expect(useAskUser.getState().history).toHaveLength(0);
+  });
+
+  // --- Queue behaviour: the control_app regression (successive ask_user) ---
+
+  it('queues a second request instead of overwriting the first', async () => {
+    const s = useAskUser.getState();
+    const p1 = s.request('a', 'sess', SAMPLE_QUESTIONS);
+    const p2 = s.request('b', 'sess', SAMPLE_QUESTIONS);
+
+    // First is head, second is queued — neither Promise is dropped.
+    expect(useAskUser.getState().pending?.id).toBe('a');
+    expect(useAskUser.getState().waiting.map((w) => w.id)).toEqual(['b']);
+
+    // Answer the head → it resolves AND the queued one is promoted.
+    useAskUser.getState().submit([{ question: 'Pick a database', selected: ['SQLite'] }]);
+    await expect(p1).resolves.toEqual([{ question: 'Pick a database', selected: ['SQLite'] }]);
+    expect(useAskUser.getState().pending?.id).toBe('b');
+    expect(useAskUser.getState().waiting).toHaveLength(0);
+
+    // Answer the promoted one → it resolves too (previously hung forever).
+    useAskUser.getState().submit([{ question: 'Pick a database', selected: ['PostgreSQL'] }]);
+    await expect(p2).resolves.toEqual([{ question: 'Pick a database', selected: ['PostgreSQL'] }]);
+    expect(useAskUser.getState().pending).toBeNull();
+  });
+
+  it('cancelById rejects a queued request without disturbing the head', async () => {
+    const s = useAskUser.getState();
+    const p1 = s.request('a', 'sess', SAMPLE_QUESTIONS);
+    const p2 = s.request('b', 'sess', SAMPLE_QUESTIONS);
+    p2.catch(() => {}); // suppress unhandled rejection
+
+    useAskUser.getState().cancelById('b', 'sidecar timeout');
+    await expect(p2).rejects.toThrow(/sidecar timeout/);
+    // Head untouched and still answerable.
+    expect(useAskUser.getState().pending?.id).toBe('a');
+    expect(useAskUser.getState().waiting).toHaveLength(0);
+    useAskUser.getState().submit([{ question: 'Pick a database', selected: ['SQLite'] }]);
+    await expect(p1).resolves.toBeDefined();
+  });
+
+  it('cancelAll rejects the head and every queued request', async () => {
+    const s = useAskUser.getState();
+    const p1 = s.request('a', 'sess', SAMPLE_QUESTIONS);
+    const p2 = s.request('b', 'sess', SAMPLE_QUESTIONS);
+    const p3 = s.request('c', 'sess', SAMPLE_QUESTIONS);
+    const settled = Promise.allSettled([p1, p2, p3]);
+    useAskUser.getState().cancelAll('shutdown');
+    const results = await settled;
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    expect(useAskUser.getState().pending).toBeNull();
+    expect(useAskUser.getState().waiting).toHaveLength(0);
   });
 });

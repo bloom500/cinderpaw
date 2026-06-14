@@ -295,6 +295,33 @@ describe('AskUserCard', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('re-submits when the SAME card instance is reused for a new requestId (succession hang regression)', async () => {
+    // Reproduces the control_app per-click-confirmation hang: the parent
+    // reuses one AskUserCard instance (no remount) for a second request.
+    // Without the requestId-reset effect, `submittedRef` stayed true from the
+    // first answer and the second "Approve" silently did nothing.
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <AskUserCard requestId="req-A" questions={SINGLE_Q} onSubmit={onSubmit} />,
+    );
+    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    // Same component position, NEW request (deliberately no `key` so the
+    // instance is reused — this is the worst case the reset effect guards).
+    rerender(
+      <AskUserCard requestId="req-B" questions={SINGLE_Q} onSubmit={onSubmit} />,
+    );
+    await user.click(screen.getByRole('button', { name: /SQLite/ }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit).toHaveBeenLastCalledWith([
+      { question: 'Pick a database', selected: ['SQLite'] },
+    ]);
+  });
+
   it('ignores no-op clicks (same single-select option twice)', async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();

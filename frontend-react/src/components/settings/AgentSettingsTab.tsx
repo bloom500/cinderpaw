@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Trash2, AlertCircle, Bot, RefreshCw, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useAgent } from '@/stores/agent';
+import { useSettings } from '@/stores/settings';
 import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn } from '@/lib/utils';
@@ -47,6 +48,9 @@ export function AgentSettingsTab() {
           or switch to create a new one through the onboarding flow.
         </p>
       </header>
+
+      <TokenBudgetToggle />
+      <DesktopControlToggle />
 
       <div className="flex items-center gap-2">
         <button
@@ -210,6 +214,220 @@ export function AgentSettingsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * Toggle for per-conversation token budget. Default: unlimited (null).
+ * When limited, the agent stops at the configured token count and surfaces
+ * a budget_exceeded event — useful as a runaway-cost guardrail.
+ */
+function TokenBudgetToggle() {
+  const settings       = useSettings((s) => s.settings);
+  const setTokenBudget = useSettings((s) => s.setTokenBudget);
+  const [busy, setBusy] = useState(false);
+
+  const budget  = settings?.token_budget_conversation ?? null;
+  const limited = budget !== null;
+
+  const toggle = async () => {
+    if (busy || !settings) return;
+    setBusy(true);
+    try {
+      // unlimited → 5M cap, limited → back to unlimited
+      await setTokenBudget(limited ? null : 5_000_000);
+    } catch {
+      /* store already rolled back */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const PRESETS = [
+    { label: '1M',  value: 1_000_000 },
+    { label: '5M',  value: 5_000_000 },
+    { label: '20M', value: 20_000_000 },
+    { label: '50M', value: 50_000_000 },
+  ] as const;
+
+  const setPreset = async (value: number) => {
+    if (busy || !settings) return;
+    setBusy(true);
+    try {
+      await setTokenBudget(value);
+    } catch {
+      /* store already rolled back */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">Token budget</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            Cap the number of tokens an agent can use per conversation.
+            Unlimited by default — you're responsible for your own inference costs.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={limited}
+          aria-label="Enable conversation token limit"
+          disabled={busy || !settings}
+          onClick={() => void toggle()}
+          className={cn(
+            'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden disabled:opacity-50',
+            limited ? 'bg-brand' : 'bg-neutral-600',
+          )}
+        >
+          <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', limited ? 'translate-x-5' : 'translate-x-1')} />
+        </button>
+      </div>
+
+      {limited && (
+        <div className="space-y-2 pt-1 border-t border-border-subtle">
+          <p className="text-xs font-medium text-text-primary mt-2">Limit</p>
+          <div className="flex gap-1 rounded-md border border-border-subtle p-1">
+            {PRESETS.map(({ label, value }) => (
+              <button
+                key={value}
+                type="button"
+                disabled={busy}
+                onClick={() => void setPreset(value)}
+                className={cn(
+                  'flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors',
+                  budget === value
+                    ? 'bg-brand text-white'
+                    : 'text-text-secondary hover:bg-bg-hover',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-text-muted">
+            Tokens per conversation. When reached, the agent stops and lets you decide whether to continue.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Opt-in switch for OS-level desktop control (the `control_app` tool). OFF by
+ * default, mirroring the `shell_exec` security posture. Flipping it calls the
+ * backend, which persists the choice and restarts the sidecar so the tool
+ * (de)registers — the agent will only "find" control_app while this is ON.
+ */
+function DesktopControlToggle() {
+  const settings = useSettings((s) => s.settings);
+  const setDesktopControl = useSettings((s) => s.setDesktopControl);
+  const setDesktopControlYolo = useSettings((s) => s.setDesktopControlYolo);
+  const [busy, setBusy] = useState(false);
+  const [yoloBusy, setYoloBusy] = useState(false);
+  const enabled = settings?.desktop_control_enabled ?? false;
+  const yolo = settings?.desktop_control_yolo ?? false;
+
+  const toggle = async () => {
+    if (busy || !settings) return;
+    setBusy(true);
+    try {
+      await setDesktopControl(!enabled);
+    } catch {
+      /* store already rolled back + logged */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleYolo = async (next: boolean) => {
+    if (yoloBusy || !settings || next === yolo) return;
+    setYoloBusy(true);
+    try {
+      await setDesktopControlYolo(next);
+    } catch {
+      /* store already rolled back + logged */
+    } finally {
+      setYoloBusy(false);
+    }
+  };
+
+  const segBtn = (active: boolean) =>
+    cn(
+      'flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors',
+      active ? 'bg-brand text-white' : 'text-text-secondary hover:bg-bg-hover',
+    );
+
+  return (
+    <div className="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">Desktop control</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            Let the agent read and operate native apps through the OS
+            accessibility tree (the <span className="font-mono">control_app</span> tool).
+            Off by default.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Enable desktop control"
+          disabled={busy || !settings}
+          onClick={() => void toggle()}
+          className={cn(
+            'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden disabled:opacity-50',
+            enabled ? 'bg-brand' : 'bg-neutral-600',
+          )}
+        >
+          <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
+        </button>
+      </div>
+
+      {enabled && (
+        <div className="space-y-2 pt-1 border-t border-border-subtle">
+          <p className="text-xs font-medium text-text-primary mt-2">Confirmation</p>
+          <div className="flex gap-1 rounded-md border border-border-subtle p-1">
+            <button
+              type="button"
+              disabled={yoloBusy}
+              onClick={() => void toggleYolo(false)}
+              className={segBtn(!yolo)}
+              aria-pressed={!yolo}
+            >
+              Safe — ask before each action
+            </button>
+            <button
+              type="button"
+              disabled={yoloBusy}
+              onClick={() => void toggleYolo(true)}
+              className={segBtn(yolo)}
+              aria-pressed={yolo}
+            >
+              YOLO — no prompts
+            </button>
+          </div>
+          <p className="text-[11px] text-text-muted">
+            {yolo
+              ? 'YOLO: the agent clicks, types and sends without asking. Launching apps still confirms.'
+              : 'Safe: the agent asks you before any click, type or send.'}
+          </p>
+        </div>
+      )}
+
+      <p className="text-[11px] text-text-muted flex items-center gap-1.5">
+        <AlertCircle size={11} className="shrink-0" />
+        {busy || yoloBusy
+          ? 'Restarting the agent…'
+          : 'Changes restart the agent briefly so the tool reloads.'}
+      </p>
     </div>
   );
 }

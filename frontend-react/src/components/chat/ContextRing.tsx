@@ -42,10 +42,10 @@ export function ContextRing() {
     // Real token usage: use live counts from backend when available.
     // For local models, livePromptTokens is the exact count from llama.cpp tokenization.
     // For cloud, livePromptTokens + liveCompletionTokens comes from the API usage field.
-    // Agent mode runs through the sidecar (a different engine) and never emits these
-    // counts — reading them there would freeze the ring on a stale chat-mode value, so
-    // we fall back to the message estimate, which grows live as the answer streams in.
-    const isLive = !isAgentMode && livePromptTokens !== null;
+    // Agent mode now emits a real `usage` event per completion (router prompt +
+    // completion tokens), wired through the live-session mirror — so the ring
+    // reflects actual context consumption there too, instead of a rough estimate.
+    const isLive = livePromptTokens !== null;
     const used = isLive
       ? (livePromptTokens! + (liveCompletionTokens ?? 0))
       : messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);

@@ -600,11 +600,15 @@ export class AgentLoop {
         ctx.emit({ type: "chunk", id: messageId, content: token, traceId });
       };
 
-      const { content: completion, finishReason } = await this.#complete(
+      const { content: completion, finishReason, promptTokens, completionTokens } = await this.#complete(
         sessionId,
         memory,
         onToken,
       );
+      // Surface REAL token usage so the UI context ring reflects actual context
+      // consumption (the latest call's prompt = full context fed to the model,
+      // plus this turn's completion) instead of a rough message estimate.
+      ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
       const parsed = parseResponse(completion);
 
       if (parsed.toolCalls.length === 0 && parsed.malformedToolCall) {
@@ -743,7 +747,7 @@ export class AgentLoop {
     sessionId: string,
     memory: WorkingMemory,
     onToken?: (token: string) => void,
-  ): Promise<{ content: string; finishReason?: string }> {
+  ): Promise<{ content: string; finishReason?: string; promptTokens: number; completionTokens: number }> {
     // Grammar-constrained tool calls (opt-in). Applied only to the main agent
     // loop — the summarizer and memory extractor have their own router calls
     // and must stay unconstrained.
@@ -775,7 +779,12 @@ export class AgentLoop {
         openAITools: this.#openAITools,
         ...grammarFields,
       });
-      return { content: res.content, ...(res.finishReason ? { finishReason: res.finishReason } : {}) };
+      return {
+        content: res.content,
+        promptTokens: res.promptTokens,
+        completionTokens: res.completionTokens,
+        ...(res.finishReason ? { finishReason: res.finishReason } : {}),
+      };
     } catch (err) {
       if (
         err instanceof BudgetExhaustedError &&
@@ -799,7 +808,12 @@ export class AgentLoop {
             openAITools: this.#openAITools,
             ...grammarFields,
           });
-          return { content: res.content, ...(res.finishReason ? { finishReason: res.finishReason } : {}) };
+          return {
+            content: res.content,
+            promptTokens: res.promptTokens,
+            completionTokens: res.completionTokens,
+            ...(res.finishReason ? { finishReason: res.finishReason } : {}),
+          };
         }
       }
       throw err;

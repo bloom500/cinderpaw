@@ -5,6 +5,9 @@ vi.mock('@/lib/tauri', () => ({
     settings: {
       get:  vi.fn(),
       save: vi.fn(),
+      setDesktopControl: vi.fn(),
+      setDesktopControlYolo: vi.fn(),
+      setTokenBudget: vi.fn(),
     },
     raw: {
       getByokSettings:   vi.fn(),
@@ -28,6 +31,9 @@ const sample = {
   api_server_enabled: false,
   api_port: 11435,
   version: '0.1.0',
+  desktop_control_enabled: false,
+  desktop_control_yolo: false,
+  token_budget_conversation: null,
 };
 
 const reset = () =>

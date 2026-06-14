@@ -179,6 +179,40 @@ export interface ToolContext {
    * not support interactive questions.
    */
   askUser?: AskUserBridge;
+  /**
+   * Desktop-control bridge — structural OS-level control of native GUI apps
+   * via the platform accessibility tree (UIA on Windows, AX on macOS). The OS
+   * work happens in the Rust host, behind a security gate; the sidecar reaches
+   * it by emitting a `desktop_control_request` event and awaiting the matching
+   * `desktop_control_response` (same request/response shape as `askUser`).
+   * Present only when desktop control is enabled (`FERAL_ENABLE_DESKTOP_CONTROL`)
+   * and the transport is the Tauri host. Undefined otherwise — the
+   * `control_app` tool refuses to run without it.
+   */
+  desktopControl?: DesktopControlBridge;
+}
+
+/**
+ * Bridge to the Rust desktop-control backend. `request` emits a
+ * `desktop_control_request` and resolves with the backend's `data` payload, or
+ * rejects with an Error carrying the backend's message. All security gating
+ * (opt-in flag, app allow/deny, secure-field redaction) is enforced in Rust;
+ * the bridge is a thin, transport-level RPC.
+ */
+export interface DesktopControlBridge {
+  request(
+    action: string,
+    params: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown>;
+}
+
+/** Thrown when a desktop-control request gets no response within the timeout. */
+export class DesktopControlTimeoutError extends Error {
+  constructor(public readonly requestId: string, public readonly timeoutMs: number) {
+    super(`desktop_control request ${requestId} timed out after ${timeoutMs}ms`);
+    this.name = "DesktopControlTimeoutError";
+  }
 }
 
 /**
@@ -820,7 +854,8 @@ export interface SkillMeta {
 export interface InboundMessage {
   type: "message" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
-    | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list";
+    | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
+    | "desktop_control_response";
   id?: string;
   content?: string;
   sessionId?: string;
@@ -859,6 +894,14 @@ export interface InboundMessage {
   // (requestId above is shared between response and cancel)
   /** Why the request was cancelled (free-form string; default "user cancelled"). */
   reason?: string;
+  // desktop_control_response fields (present when type === "desktop_control_response").
+  // `id` (above) echoes the originating desktop_control_request id.
+  /** True when the OS action succeeded. */
+  ok?: boolean;
+  /** Backend payload on success (shape depends on the action). */
+  data?: unknown;
+  /** Human-readable failure reason on `ok === false`. */
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -913,6 +956,7 @@ export type OutboundEvent =
   | { type: "error"; id?: string; message: string; traceId?: string }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
   | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
+  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
@@ -921,7 +965,11 @@ export type OutboundEvent =
   // failures were logged to stderr only and invisible in the UI.
   | { type: "cron_error"; jobId: string; jobName: string; message: string; traceId?: string }
   | { type: "skill_created"; skillId: string; name: string; path: string; version: number; traceId?: string }
-  | { type: "skill_refined"; skillId: string; version: number; traceId?: string };
+  | { type: "skill_refined"; skillId: string; version: number; traceId?: string }
+  // Desktop-control bridge request. Handled in the Rust host (not the React
+  // UI): the host runs the OS accessibility action behind its security gate
+  // and replies on stdin with a `desktop_control_response` carrying this `id`.
+  | { type: "desktop_control_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> };
 
 export interface Transport {
   /** Emit an event to the host/user. */

@@ -133,6 +133,10 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
       </div>
       {askUser && (
         <AskUserCard
+          // Force a fresh component instance per request so internal submit
+          // guards / answer slots never leak from a previous question (the
+          // ask_user-in-succession hang — see AskUserCard).
+          key={askUser.requestId}
           requestId={askUser.requestId}
           questions={askUser.questions}
           answered={askUser.answers}

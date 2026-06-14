@@ -2,6 +2,7 @@ mod agents;
 mod api;
 mod byok;
 mod conversations;
+mod desktop_control;
 mod events;
 mod feral_agent;
 mod gpu_detect;
@@ -1246,6 +1247,104 @@ fn save_settings(settings: Settings) -> Result<(), String> {
     settings::save(&settings).map_err(|e| e.to_string())
 }
 
+/// Toggle OS-level desktop control (the `control_app` tool) at runtime.
+///
+/// Persists the choice, updates the host-process env (so the Rust command
+/// gate and the next sidecar spawn agree — both read
+/// `FERAL_ENABLE_DESKTOP_CONTROL`), then restarts the sidecar so its tool
+/// registry re-registers or drops `control_app`. The restart is what makes the
+/// tool actually appear/disappear: tool registration happens once, at sidecar
+/// startup, from `process.env`.
+///
+/// The restart is performed by killing the current child; the `#11` supervisor
+/// detects the exit and respawns it, re-reading the env set above. The stdin
+/// `tx` slot is invalidated so any in-flight send fails fast instead of writing
+/// into a dead pipe.
+#[tauri::command]
+#[specta::specta]
+fn set_desktop_control_enabled(
+    enabled: bool,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let mut s = settings::load();
+    s.desktop_control_enabled = enabled;
+    settings::save(&s).map_err(|e| e.to_string())?;
+
+    if enabled {
+        std::env::set_var("FERAL_ENABLE_DESKTOP_CONTROL", "true");
+    } else {
+        std::env::remove_var("FERAL_ENABLE_DESKTOP_CONTROL");
+    }
+    restart_sidecar(&state);
+    Ok(())
+}
+
+/// Set the per-conversation token budget for the Feral Agent sidecar.
+///
+/// `budget = None` → unlimited (exports `FERAL_BUDGET_CONVERSATION=Infinity`).
+/// `budget = Some(n)` → caps at n tokens (exports the number as a string).
+/// The sidecar reads this env at startup via `Number(env.FERAL_BUDGET_CONVERSATION)`.
+/// Persists the choice and restarts the sidecar so the new budget takes effect.
+#[tauri::command]
+#[specta::specta]
+fn set_token_budget_conversation(
+    budget: Option<u64>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let mut s = settings::load();
+    s.token_budget_conversation = budget;
+    settings::save(&s).map_err(|e| e.to_string())?;
+
+    match budget {
+        Some(n) => std::env::set_var("FERAL_BUDGET_CONVERSATION", n.to_string()),
+        None => std::env::set_var("FERAL_BUDGET_CONVERSATION", "Infinity"),
+    }
+    restart_sidecar(&state);
+    Ok(())
+}
+
+/// Toggle desktop-control "YOLO mode" (no per-action confirmation) at runtime.
+///
+/// The confirmation gate lives in the SIDECAR (it reads
+/// `FERAL_DESKTOP_CONTROL_CONFIRM`), so like the enable toggle this updates the
+/// host env and restarts the sidecar to apply it. Safe mode (the default) asks
+/// before each state-changing action; YOLO mode runs them immediately. `launch`
+/// always confirms regardless, since it creates a process.
+#[tauri::command]
+#[specta::specta]
+fn set_desktop_control_yolo(
+    enabled: bool,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let mut s = settings::load();
+    s.desktop_control_yolo = enabled;
+    settings::save(&s).map_err(|e| e.to_string())?;
+
+    if enabled {
+        std::env::set_var("FERAL_DESKTOP_CONTROL_CONFIRM", "false");
+    } else {
+        std::env::remove_var("FERAL_DESKTOP_CONTROL_CONFIRM");
+    }
+    restart_sidecar(&state);
+    Ok(())
+}
+
+/// Restart the Feral Agent sidecar so it re-reads the desktop-control env vars.
+///
+/// Kills the current child; the `#11` supervisor detects the exit and respawns
+/// it with the updated environment. The slot is kept populated (the supervisor
+/// stops only when it is cleared), and the stdin `tx` is invalidated so any
+/// in-flight send fails fast instead of writing into a dead pipe.
+fn restart_sidecar(state: &AppState) {
+    {
+        let mut guard = state.feral_agent_process.lock();
+        if let Some(ref mut child) = *guard {
+            let _ = child.start_kill();
+        }
+    }
+    *state.feral_agent_tx.lock() = None;
+}
+
 // ---------- BYOK ----------
 
 /// Append a path segment to a base URL that may already contain a query string.
@@ -2118,6 +2217,9 @@ pub fn run() {
             delete_project,
             get_settings,
             save_settings,
+            set_desktop_control_enabled,
+            set_desktop_control_yolo,
+            set_token_budget_conversation,
             search_hf_models,
             get_hf_model_detail,
             get_model_size_info,
@@ -2161,6 +2263,16 @@ pub fn run() {
             mcp::mcp_call_tool,
             memory_graph::get_memory_graph,
             memory_graph::add_memory_facts,
+            desktop_control::list_windows,
+            desktop_control::get_accessibility_tree,
+            desktop_control::find_elements,
+            desktop_control::click_element,
+            desktop_control::type_into_element,
+            desktop_control::get_element_value,
+            desktop_control::get_focused_element,
+            desktop_control::take_element_action,
+            desktop_control::send_keys,
+            desktop_control::launch_app,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
@@ -2210,6 +2322,25 @@ pub fn run() {
             let mut cfg = settings::load();
             cfg.api_server_enabled = true;
             let api_port = cfg.api_port;
+            // Desktop control opt-in (persisted in Settings) → export the env
+            // BEFORE the sidecar spawns so `feral_agent::spawn` forwards it and
+            // the sidecar registers `control_app`. Same flag opens the Rust
+            // command gate (desktop_control.rs reads it per request). Off by
+            // default; the Settings toggle flips this and restarts the sidecar.
+            if cfg.desktop_control_enabled {
+                std::env::set_var("FERAL_ENABLE_DESKTOP_CONTROL", "true");
+            }
+            // YOLO mode (no per-action confirmation) is read by the sidecar, so
+            // export it before spawn too. Safe mode (default) leaves it unset.
+            if cfg.desktop_control_yolo {
+                std::env::set_var("FERAL_DESKTOP_CONTROL_CONFIRM", "false");
+            }
+            // Token budget: always set the env so the sidecar picks it up.
+            // None = unlimited (Infinity); Some(n) = hard cap at n tokens.
+            match cfg.token_budget_conversation {
+                Some(n) => std::env::set_var("FERAL_BUDGET_CONVERSATION", n.to_string()),
+                None => std::env::set_var("FERAL_BUDGET_CONVERSATION", "Infinity"),
+            }
             if cfg.api_server_enabled {
                 let api_state = api::ApiState {
                     manager: manager.clone(),

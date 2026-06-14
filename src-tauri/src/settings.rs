@@ -10,6 +10,28 @@ pub struct Settings {
     pub api_server_enabled: bool,
     pub api_port: u16,
     pub version: String,
+    /// Opt-in for OS-level desktop control (the `control_app` tool). Gated
+    /// exactly like `shell_exec`: OFF by default. When true, the host process
+    /// exports `FERAL_ENABLE_DESKTOP_CONTROL=true` before spawning the sidecar,
+    /// which both registers the tool in the sidecar AND opens the Rust command
+    /// gate (the two must agree). `#[serde(default)]` keeps older settings.json
+    /// files (written before this field existed) loading cleanly.
+    #[serde(default)]
+    pub desktop_control_enabled: bool,
+    /// "YOLO mode" for desktop control: when true, state-changing actions
+    /// (click/type/send_keys/perform_action) run WITHOUT the per-action
+    /// confirmation prompt. False (default) = Safe mode = confirm each action.
+    /// Maps to `FERAL_DESKTOP_CONTROL_CONFIRM=false` in the sidecar env.
+    /// `launch` still always confirms (process creation) regardless.
+    #[serde(default)]
+    pub desktop_control_yolo: bool,
+    /// Per-conversation token budget passed to the sidecar as
+    /// `FERAL_BUDGET_CONVERSATION`. `None` = unlimited (Infinity); `Some(n)`
+    /// caps the conversation at n tokens and surfaces a `budget_exceeded` event
+    /// when reached. Default: None (unlimited — the user is responsible for
+    /// their own inference costs on a local/BYOK setup).
+    #[serde(default)]
+    pub token_budget_conversation: Option<u64>,
 }
 
 impl Default for Settings {
@@ -20,6 +42,9 @@ impl Default for Settings {
             api_server_enabled: false,
             api_port: 11435,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            desktop_control_enabled: false,
+            desktop_control_yolo: false,
+            token_budget_conversation: None,
         }
     }
 }

@@ -32,6 +32,7 @@ import type { AuditLog } from "../sandbox/audit-log.ts";
 import { validateManifest } from "../sandbox/tool-permissions.ts";
 import type {
   AskUserBridge,
+  DesktopControlBridge,
   ProcessSandbox,
   Tool,
   ToolCallOptions,
@@ -52,6 +53,7 @@ export class ToolRegistry {
   readonly #process: ProcessSandbox;
   readonly #observations: ToolObservationLog | null;
   readonly #askUser: AskUserBridge | null;
+  readonly #desktopControl: DesktopControlBridge | null;
   /**
    * Per-tool circuit breaker (P2-#2). Tracks consecutive failures and
    * short-circuits calls to tools that are clearly sick. Saves LLM
@@ -75,6 +77,7 @@ export class ToolRegistry {
     askUser?: AskUserBridge,
     breaker?: CircuitBreaker,
     hooks?: import("../core/hook-registry.ts").HookRegistry,
+    desktopControl?: DesktopControlBridge,
   ) {
     this.#egress = egress;
     this.#audit = audit;
@@ -83,6 +86,7 @@ export class ToolRegistry {
     this.#askUser = askUser ?? null;
     this.#breaker = breaker ?? new CircuitBreaker();
     this.#hooks = hooks ?? null;
+    this.#desktopControl = desktopControl ?? null;
   }
 
 
@@ -281,6 +285,7 @@ export class ToolRegistry {
       // with a bridge; the ask_user tool checks ctx.askUser is defined
       // and refuses to run otherwise.
       askUser: this.#askUser ?? undefined,
+      desktopControl: this.#desktopControl ?? undefined,
       progress: opts.onProgress
         ? (event) => {
             const full: ToolProgressEvent = {
@@ -511,9 +516,17 @@ export class ToolRegistry {
       // P2-#2: feed the circuit breaker. A success resets the failure
       // log; a structured failure counts as a failure. The breaker
       // opens after `failureThreshold` consecutive failures.
+      //
+      // Exception: a `recoverable` error is an explicit "try again" signal
+      // (e.g. control_app's stale element handle after the UI moved, or a
+      // transient UIA hiccup) — fast and EXPECTED during exploration. The
+      // breaker exists to trade *long* repeated waits for a fast signal, so
+      // tripping it on a local, instant tool's recoverable friction only
+      // injects a needless 30–60s OPEN stall. Don't count those; genuine
+      // (unrecoverable) failures still trip the breaker exactly as before.
       if (result.ok) {
         this.#breaker.recordSuccess(name);
-      } else {
+      } else if (result.error !== "recoverable") {
         this.#breaker.recordFailure(name);
       }
       return result.ok

@@ -29,6 +29,18 @@ interface SettingsStore {
   fetchSettings: () => Promise<void>;
   fetchByok: () => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => void;
+  /**
+   * Toggle OS-level desktop control. Persists immediately and restarts the
+   * sidecar (backend command) so the `control_app` tool (de)registers — this
+   * is NOT batched into the manual Save button because the sidecar restart is
+   * the whole point of the toggle. Optimistically updates local state and
+   * rolls back on failure.
+   */
+  setDesktopControl: (enabled: boolean) => Promise<void>;
+  /** Toggle YOLO/Safe mode for desktop control. Persists + restarts sidecar. */
+  setDesktopControlYolo: (enabled: boolean) => Promise<void>;
+  /** Set per-conversation token budget. null = unlimited; number = hard cap. Persists + restarts sidecar. */
+  setTokenBudget: (budget: number | null) => Promise<void>;
   save: () => Promise<void>;
   saveByokProvider: (p: ByokProviderUpdate) => Promise<void>;
   removeByokProvider: (providerId: string) => Promise<void>;
@@ -64,6 +76,44 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
 
   updateSettings: (patch) => {
     set((s) => s.settings ? { settings: { ...s.settings, ...patch } } : {});
+  },
+
+  setDesktopControl: async (enabled) => {
+    const prev = get().settings;
+    // Optimistic flip so the switch responds instantly.
+    set((s) => s.settings ? { settings: { ...s.settings, desktop_control_enabled: enabled } } : {});
+    try {
+      await tauri.settings.setDesktopControl(enabled);
+    } catch (e) {
+      console.error('setDesktopControl failed', e);
+      // Roll back to the previous value on failure.
+      if (prev) set({ settings: { ...prev } });
+      throw e;
+    }
+  },
+
+  setDesktopControlYolo: async (enabled) => {
+    const prev = get().settings;
+    set((s) => s.settings ? { settings: { ...s.settings, desktop_control_yolo: enabled } } : {});
+    try {
+      await tauri.settings.setDesktopControlYolo(enabled);
+    } catch (e) {
+      console.error('setDesktopControlYolo failed', e);
+      if (prev) set({ settings: { ...prev } });
+      throw e;
+    }
+  },
+
+  setTokenBudget: async (budget) => {
+    const prev = get().settings;
+    set((s) => s.settings ? { settings: { ...s.settings, token_budget_conversation: budget } } : {});
+    try {
+      await tauri.settings.setTokenBudget(budget);
+    } catch (e) {
+      console.error('setTokenBudget failed', e);
+      if (prev) set({ settings: { ...prev } });
+      throw e;
+    }
   },
 
   save: async () => {

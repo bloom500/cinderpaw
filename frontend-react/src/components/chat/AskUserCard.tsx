@@ -67,6 +67,21 @@ export function AskUserCard({
   // re-render which would otherwise re-fire the effect).
   const submittedRef = useRef(false);
 
+  // CRITICAL for ask_user-in-succession (e.g. control_app's per-click
+  // confirmations): when this card instance is REUSED for a new request
+  // (same DOM position, different `requestId`), reset the submit guard and
+  // the answer slots. Without this, `submittedRef` stayed `true` from the
+  // previous question, so the auto-submit effect below bailed out and the
+  // second "Approve" did nothing — the card hung and the agent waited
+  // forever. (MessageItem also passes `key={requestId}` to force a fresh
+  // instance; this effect makes the component correct even without it.)
+  useEffect(() => {
+    submittedRef.current = false;
+    setAnswers(new Array(questions.length).fill(null));
+    // questions.length is included so a request with a different number of
+    // questions also gets correctly-sized slots.
+  }, [requestId, questions.length]);
+
   const handleAnswer = useCallback((index: number, answer: AskUserAnswer) => {
     setAnswers((prev) => {
       const existing = prev[index];

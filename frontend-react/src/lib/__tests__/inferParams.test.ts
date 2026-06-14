@@ -9,6 +9,8 @@ vi.mock('@/lib/tauri', () => ({
         api_server_enabled: false,
         api_port: 8080,
         version: '0.1.0',
+        desktop_control_enabled: false,
+        desktop_control_yolo: false,
       }),
     },
   },

@@ -28,6 +28,7 @@ export interface FeralStreamHandlers {
   onStopped?: () => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (callId: string, tool: string, result: unknown) => void;
+  onUsage?: (promptTokens: number, completionTokens: number) => void;
   onAskUser?: (
     requestId: string,
     sessionId: string,
@@ -119,6 +120,9 @@ export function ensureFeralListener(): Promise<void> {
       case 'tool_done':
         if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.callId, parsed.tool, parsed.result);
         break;
+      case 'usage':
+        if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens);
+        break;
       case 'tool_progress':
         // #18: retry/backoff/fallback notes from long-running tools. These
         // carry a sessionId (not a message id), so route straight to the
@@ -139,9 +143,15 @@ export function ensureFeralListener(): Promise<void> {
         routeAskUser(parsed.id, parsed.sessionId, parsed.questions);
         break;
       case 'ask_user_cancelled':
-        // Sidecar reports a cancel/timeout. Tear down any matching pending UI
-        // (store + the message-level askUser field, so the card disappears).
-        cancelAskUserOnAllInflight(parsed.reason ?? 'sidecar cancelled');
+        // Sidecar reports a cancel/timeout for ONE request (carries its id).
+        // Cancel exactly that request wherever it sits in the queue; the
+        // matching routeAskUser .catch advances the card. Only fall back to
+        // cancelling everything if the event somehow lacks an id.
+        if (parsed.id) {
+          useAskUser.getState().cancelById(parsed.id, parsed.reason ?? 'sidecar cancelled');
+        } else {
+          cancelAskUserOnAllInflight(parsed.reason ?? 'sidecar cancelled');
+        }
         break;
       // proactive / pong / model_set / model_error handled elsewhere (useFeralGlobal).
       default:
@@ -188,14 +198,15 @@ function routeAskUser(
   const targetMessageId = activeChatMessageId();
 
   // The promise returned by useAskUser.request() resolves when the user
-  // clicks Submit. We then forward the answers to the sidecar.
+  // clicks Submit. We then forward the answers to the sidecar. If another
+  // request is already pending, this one is QUEUED — it won't become the
+  // visible head until the earlier ones are answered.
   const promise = useAskUser.getState().request(requestId, sessionId, questions);
 
-  // Attach the question card to the right assistant message. When the
-  // message isn't in the current session (the user switched tabs), this
-  // is a no-op — the card is rendered off the message, so if it's not
-  // visible there's nothing to update.
-  if (targetMessageId) {
+  // Only paint the card when THIS request is the current head. A request
+  // queued behind an unanswered one must not steal the card (that was the
+  // bug: the visible card and the resolving request desynced).
+  if (targetMessageId && useAskUser.getState().pending?.id === requestId) {
     useChat.getState().patchMessage(targetMessageId, {
       askUser: { requestId, sessionId, questions },
     });
@@ -214,28 +225,41 @@ function routeAskUser(
 
   promise
     .then((answers) => {
-      // Card collapses to "answered" once the answers are known. Done
-      // before the invoke so the UI updates even if Rust is unreachable.
-      if (targetMessageId) {
-        useChat.getState().patchMessage(targetMessageId, {
-          askUser: { requestId, sessionId, questions, answers },
-        });
-      }
       // Forward the user's selection back to Rust → sidecar.
-      return invoke('feral_ask_user_response', { requestId, answers });
+      void invoke('feral_ask_user_response', { requestId, answers });
+      // Advance the visible card to the next queued request, or REMOVE it
+      // entirely when the queue has drained. We deliberately do not leave an
+      // "answered" summary card lingering in the chat — once the user has
+      // picked, the card disappears (the agent's own message reflects the
+      // decision). This matters most for control_app, which can leave a
+      // trail of identical "Allow" confirmations otherwise.
+      advanceAskUserCard(targetMessageId);
     })
     .catch((err) => {
-      // User cancelled, sidecar cancelled, or timeout. Clear the card
-      // so the chat doesn't keep a stale "ask me" UI around. Tell the
-      // sidecar so it can stop waiting (silently no-op when the sidecar
-      // was the one who initiated the cancel).
-      if (targetMessageId) {
-        useChat.getState().patchMessage(targetMessageId, { askUser: undefined });
-      }
-      return invoke('feral_ask_user_cancel', { requestId }).catch(() => {
+      // User cancelled, sidecar cancelled, or timeout. Tell the sidecar so
+      // it can stop waiting (silently no-op when the sidecar initiated the
+      // cancel), then advance to the next queued request (or clear).
+      void invoke('feral_ask_user_cancel', { requestId }).catch(() => {
         console.warn('[askUser] cancel invoke also failed:', err);
       });
+      advanceAskUserCard(targetMessageId);
     });
+}
+
+/**
+ * Move the on-message ask_user card to the next queued request after the
+ * current head settled, or remove the card when the queue has drained. The
+ * card never lingers as an "answered" summary — answering or cancelling makes
+ * it advance or disappear.
+ */
+function advanceAskUserCard(targetMessageId: string | undefined): void {
+  if (!targetMessageId) return;
+  const next = useAskUser.getState().pending;
+  useChat.getState().patchMessage(targetMessageId, {
+    askUser: next
+      ? { requestId: next.id, sessionId: next.sessionId, questions: next.questions }
+      : undefined,
+  });
 }
 
 /**

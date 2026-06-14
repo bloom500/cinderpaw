@@ -57,6 +57,8 @@ import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
 import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
+import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
+import { createControlAppTool } from "./tools/builtin/control-app.ts";
 import type { InferenceConfig, Transport } from "./types.ts";
 
 interface AppConfig {
@@ -246,13 +248,22 @@ async function main(): Promise<void> {
   };
   const askUser = new AskUserBridgeImpl((e) => sendHolder.current(e));
 
+  // Desktop-control bridge — structural OS control of native apps via the Rust
+  // host. Same sendHolder plumbing as askUser: the request flows out over the
+  // transport, the Rust host runs the OS action behind its security gate, and
+  // the `desktop_control_response` is routed back to the bridge below. The
+  // `control_app` tool is only registered when the user has opted in (see
+  // FERAL_ENABLE_DESKTOP_CONTROL); the bridge itself is always created so the
+  // response-routing wiring is unconditional.
+  const desktopControl = new DesktopControlBridgeImpl((e) => sendHolder.current(e));
+
   // --- P0-4: hook registry. Shared singleton that every layer can
   // emit into and any plugin / future tool can subscribe to. The
   // tool registry receives it next so before_tool_call handlers can
   // block tool invocations.
   const hooks = new HookRegistry();
 
-  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks);
+  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
   registry.register(createReadFileTool([config.workspace]));
   registry.register(createWriteFileTool([config.workspace]));
   registry.register(createListDirectoryTool([config.workspace]));
@@ -318,6 +329,17 @@ async function main(): Promise<void> {
   // ask_user — interactive questions (Claude.ai-style). No permissions;
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
+
+  // control_app — OS-level desktop control via the accessibility tree. This
+  // is powerful (it can click/type into any non-denylisted app), so it is
+  // OPT-IN, exactly like shell_exec: enable with FERAL_ENABLE_DESKTOP_CONTROL=true.
+  // The Rust host ALSO independently gates every call on the same flag plus an
+  // app allow/deny policy, so even if this registration is reached the host is
+  // the final authority. Default OFF.
+  if (process.env.FERAL_ENABLE_DESKTOP_CONTROL === "true") {
+    registry.register(createControlAppTool());
+    log("control_app enabled (FERAL_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
+  }
 
   // memory_ops / memory_graph — explicit CRUD over semantic memory and the
   // knowledge graph. The extractor feeds both automatically in the
@@ -573,6 +595,18 @@ async function main(): Promise<void> {
         break;
       }
 
+      case "desktop_control_response": {
+        // Result of an OS desktop-control action run by the Rust host. Route
+        // it back to the matching pending request so the control_app tool's
+        // awaited Promise settles. `id` echoes the originating request id.
+        if (msg.id) {
+          desktopControl.resolve(msg.id, msg.ok === true, msg.data, msg.error);
+        } else {
+          log(`desktop_control_response: missing id — ignored`);
+        }
+        break;
+      }
+
       case "set_model": {
         const provider = msg.provider;
         const model = msg.model;
@@ -769,6 +803,11 @@ async function main(): Promise<void> {
     }
     try {
       askUser.cancelAll("shutdown");
+    } catch {
+      // ignore — bridge may already be empty
+    }
+    try {
+      desktopControl.cancelAll("shutdown");
     } catch {
       // ignore — bridge may already be empty
     }

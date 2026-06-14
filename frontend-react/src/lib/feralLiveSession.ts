@@ -35,6 +35,9 @@ export interface FeralLiveSnapshot {
   toolCallStream: ToolCallEvent[];
   agentPhase: AgentPhase;
   agentTool: string | null;
+  /** Real token counts from the latest completion (for the context ring). */
+  promptTokens: number | null;
+  completionTokens: number | null;
 }
 
 const live = new Map<string, FeralLiveSnapshot>();
@@ -47,6 +50,8 @@ export function beginLiveSession(sessionId: string): void {
     toolCallStream: [],
     agentPhase: null,
     agentTool: null,
+    promptTokens: null,
+    completionTokens: null,
   });
 }
 
@@ -141,5 +146,7 @@ export function rehydrateLiveSession(sessionId: string): void {
     toolCallStream: pruneExpired(snap.toolCallStream),
     agentPhase: snap.agentPhase,
     agentTool: snap.agentTool,
+    livePromptTokens: snap.promptTokens,
+    liveCompletionTokens: snap.completionTokens,
   });
 }

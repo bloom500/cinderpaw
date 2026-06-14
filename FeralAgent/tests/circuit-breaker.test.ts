@@ -167,6 +167,28 @@ describe("ToolRegistry integrates circuit breaker (P2-#2)", () => {
     db.close();
   });
 
+  test("does NOT trip on 'recoverable' errors (control_app stale handles etc.)", async () => {
+    // A recoverable failure is an explicit retry signal for a fast, local
+    // tool — counting it would inject a needless 30–60s OPEN stall. Even many
+    // in a row must keep the breaker CLOSED so the agent can keep retrying.
+    const { registry, db } = newRegistryWithBreaker({ failureThreshold: 3 });
+    let calls = 0;
+    const tool: Tool = {
+      manifest: makeBaseManifest("control_app"),
+      parameters: {},
+      async execute() {
+        calls++;
+        return { ok: false, content: "element_not_found", error: "recoverable" } satisfies ToolResult;
+      },
+    };
+    registry.register(tool);
+
+    for (let i = 0; i < 6; i++) await registry.call("control_app", {}, "s1");
+    expect(registry.breakerStateOf("control_app")).toBe("closed");
+    expect(calls).toBe(6); // never short-circuited — every call reached the tool
+    db.close();
+  });
+
   test("trips on thrown errors too (process-spawn failures, etc.)", async () => {
     const { registry, db } = newRegistryWithBreaker({ failureThreshold: 2 });
     const tool: Tool = {

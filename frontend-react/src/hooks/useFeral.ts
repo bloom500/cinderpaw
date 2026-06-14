@@ -9,7 +9,7 @@
 import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat, type ChatMessage } from '@/stores/chat';
+import { useChat, type ChatMessage, TOOL_CALL_LINGER_MS } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
@@ -45,6 +45,7 @@ interface StreamCallbacks {
   onTruncated?: (reason: string) => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?:  (callId: string, tool: string, result: unknown) => void;
+  onUsage?:     (promptTokens: number, completionTokens: number) => void;
   /**
    * React-side id of the assistant message that this stream will populate.
    * Threaded into the inflight stream entry so the ask_user flow can attach
@@ -111,6 +112,7 @@ export function useFeralStream(chatSessionId: string) {
         onStopped: () => callbacks.onStopped(),
         onToolStart: callbacks.onToolStart ? (cid, t, a) => callbacks.onToolStart!(cid, t, a) : undefined,
         onToolDone: callbacks.onToolDone ? (cid, t, r) => callbacks.onToolDone!(cid, t, r) : undefined,
+        onUsage: callbacks.onUsage ? (p, c) => callbacks.onUsage!(p, c) : undefined,
         // Ask_user events carry the sidecar's requestId, not a stream
         // messageId — so the stream manager can't tie the question to a
         // specific message on its own. Pass the React-side asstId so the
@@ -295,6 +297,20 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           if (isActive()) {
             useChat.getState().setAgentPhase('processing');
             syncToolStrip();
+          }
+          // Fade-out: the mirror prunes finished bubbles only when it's next
+          // touched (pull-based), so a completed bubble lingered forever between
+          // tool calls / after the last one. Re-sync once the linger window has
+          // passed so the now-expired bubble is pruned from the on-screen strip.
+          window.setTimeout(() => syncToolStrip(), TOOL_CALL_LINGER_MS + 100);
+        },
+        onUsage: (promptTokens, completionTokens) => {
+          // Real per-completion token counts from the sidecar router. Mirror
+          // them so the context ring rehydrates correctly after a tab switch,
+          // and push to the store live when this session is on screen.
+          updateLiveSession(sessionId, { promptTokens, completionTokens });
+          if (isActive()) {
+            useChat.getState().setLiveTokens(promptTokens, completionTokens);
           }
         },
         onDone: async (finalContent?: string, stopped = false) => {

@@ -207,8 +207,26 @@ pub async fn spawn(
         .env("FERAL_PROVIDER", "openai_compatible")
         .env("FERAL_BASE_URL", &base_url)
         .env("FERAL_API_KEY", api_token)
-        .env("FERAL_MODEL", "feral-local")
-        .stdin(std::process::Stdio::piped())
+        .env("FERAL_MODEL", "feral-local");
+
+    // Desktop-control opt-in + policy. Forwarded from the host environment so a
+    // single env var (or, later, a Settings toggle that sets it) consistently
+    // enables BOTH the sidecar's `control_app` tool registration AND the Rust
+    // host's command gate — they must agree or the tool is dead. Absent vars
+    // are simply not forwarded, keeping desktop control OFF by default.
+    for key in [
+        "FERAL_ENABLE_DESKTOP_CONTROL",
+        "FERAL_DESKTOP_CONTROL_CONFIRM",
+        "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
+        // Keep the existing shell_exec opt-in flowing through the same path.
+        "FERAL_ENABLE_SHELL_EXEC",
+    ] {
+        if let Ok(val) = std::env::var(key) {
+            cmd.env(key, val);
+        }
+    }
+
+    cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
@@ -232,8 +250,16 @@ pub async fn spawn(
     let (tx, rx) = mpsc::channel::<String>(64);
     *tx_slot.lock() = Some(tx);
 
+    // The stdout reader needs a way to write responses back to the sidecar's
+    // stdin (for the desktop-control request/response bridge), so hand it a
+    // clone of the stdin sender before `tx` is moved into the slot.
+    let response_tx = {
+        let guard = tx_slot.lock();
+        guard.as_ref().expect("tx_slot was just populated").clone()
+    };
+
     tokio::spawn(stdin_writer(stdin, rx));
-    tokio::spawn(stdout_reader(app.clone(), stdout));
+    tokio::spawn(stdout_reader(app.clone(), stdout, response_tx));
     tokio::spawn(stderr_logger(app.clone(), stderr));
 
     tracing::info!("feral-agent: started (pid {:?})", child.id());
@@ -308,25 +334,41 @@ pub fn supervise(
                 quick_failures = 0;
             }
             quick_failures += 1;
-            let restarting = quick_failures <= MAX_QUICK_FAILURES;
+            // Within the rapid-failure budget we retry fast; once over it we
+            // back off HARD instead of giving up permanently. The old code
+            // `return`ed here, which left the agent dead with no recovery short
+            // of restarting the whole app — a real dead-end when a *transient*
+            // cause (e.g. the sidecar binary being swapped during a rebuild, or
+            // a momentary file lock) made it crash 5× quickly. Now a transient
+            // failure self-heals after the cool-down, and a genuinely-broken
+            // binary just retries slowly (logged) rather than busy-looping.
+            let over_budget = quick_failures > MAX_QUICK_FAILURES;
             tracing::warn!(
                 code = ?status.code(),
                 attempt = quick_failures,
-                restarting,
+                over_budget,
                 "feral-agent: sidecar exited unexpectedly"
             );
             // Invalidate the stale stdin sender so feral_send_message fails
             // fast instead of writing into a dead pipe.
             *tx_slot.lock() = None;
+            // We always intend to restart now, so the UI banner never shows a
+            // permanent "offline" — at worst a slow recovery.
             let _ = app.emit(
                 "feral://agent-exit",
-                serde_json::json!({ "code": status.code(), "restarting": restarting }),
+                serde_json::json!({ "code": status.code(), "restarting": true }),
             );
-            if !restarting {
-                tracing::error!("feral-agent: giving up after {MAX_QUICK_FAILURES} rapid failures");
-                return;
-            }
-            let backoff = std::time::Duration::from_secs((2 * quick_failures as u64).min(10));
+            let backoff = if over_budget {
+                tracing::error!(
+                    "feral-agent: {MAX_QUICK_FAILURES} rapid failures — cooling down 30s before retrying"
+                );
+                // Fresh budget after the long cool-down so the next transient
+                // blip gets the same fast-retry treatment.
+                quick_failures = 0;
+                std::time::Duration::from_secs(30)
+            } else {
+                std::time::Duration::from_secs((2 * quick_failures as u64).min(10))
+            };
             tokio::time::sleep(backoff).await;
         }
     });
@@ -344,18 +386,68 @@ async fn stdin_writer(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Recei
     tracing::debug!("feral-agent: stdin writer exiting");
 }
 
-/// Read stdout line-by-line, forward each JSON line as a Tauri event.
-async fn stdout_reader(app: AppHandle, stdout: tokio::process::ChildStdout) {
+/// Read stdout line-by-line. Most lines are protocol events forwarded verbatim
+/// to the React frontend as `feral://agent-output`. The exception is the
+/// desktop-control bridge: a `desktop_control_request` line is handled in Rust
+/// (the OS accessibility work lives there, behind the security gate) and the
+/// result is written back to the sidecar's stdin as a `desktop_control_response`
+/// — it is NOT forwarded to the frontend.
+async fn stdout_reader(
+    app: AppHandle,
+    stdout: tokio::process::ChildStdout,
+    response_tx: mpsc::Sender<String>,
+) {
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         let line = line.trim().to_string();
         if line.is_empty() {
             continue;
         }
+
+        // Peek the `type` field cheaply; only desktop-control requests are
+        // intercepted, everything else flows straight to the UI.
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+            if v.get("type").and_then(|t| t.as_str()) == Some("desktop_control_request") {
+                let tx = response_tx.clone();
+                tokio::spawn(async move { handle_desktop_control_request(v, tx).await });
+                continue;
+            }
+        }
+
         tracing::debug!("feral-agent out: {}", &line);
         let _ = app.emit("feral://agent-output", FeralAgentOutputEvent { data: line });
     }
     tracing::info!("feral-agent: stdout closed");
+}
+
+/// Run a single desktop-control request from the sidecar and write the
+/// response back to its stdin. All security gating lives inside
+/// `desktop_control::handle_request`; this function only marshals JSON and
+/// guarantees that *every* request gets exactly one response (so the sidecar's
+/// pending Promise never hangs).
+async fn handle_desktop_control_request(req: serde_json::Value, tx: mpsc::Sender<String>) {
+    let id = req.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let action = req.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+
+    let response = match crate::desktop_control::handle_request(&action, &params).await {
+        Ok(data) => serde_json::json!({
+            "type": "desktop_control_response",
+            "id": id,
+            "ok": true,
+            "data": data,
+        }),
+        Err(message) => serde_json::json!({
+            "type": "desktop_control_response",
+            "id": id,
+            "ok": false,
+            "error": message,
+        }),
+    };
+
+    if tx.send(response.to_string()).await.is_err() {
+        tracing::warn!("feral-agent: failed to deliver desktop_control_response (sidecar gone?)");
+    }
 }
 
 /// Log stderr from the agent; emit `feral://agent-ready` when the ready line appears.

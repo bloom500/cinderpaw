@@ -133,6 +133,12 @@ export interface Settings {
   api_server_enabled: boolean;
   api_port: number;
   version: string;
+  /** Opt-in for OS-level desktop control (the `control_app` tool). Off by default. */
+  desktop_control_enabled: boolean;
+  /** YOLO mode: skip the per-action confirmation prompt for desktop control. Off = Safe mode. */
+  desktop_control_yolo: boolean;
+  /** Per-conversation token budget. null = unlimited (Infinity); number = hard cap in tokens. */
+  token_budget_conversation: number | null;
 }
 
 export interface ByokProvider {
@@ -224,6 +230,8 @@ export type FeralAgentEvent =
   | { type: 'ask_user';    id: string; sessionId: string; questions: import('@/stores/askUser').AskUserQuestion[] }
   | { type: 'ask_user_cancelled'; id: string; sessionId: string; reason: string }
   | { type: 'spawning'; id: string; count: number }
+  // Real token usage per completion — drives the live context ring in agent mode.
+  | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number }
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string };
@@ -280,6 +288,12 @@ const raw = {
   deleteProject:         (id: string) => invoke<void>('delete_project', { id }),
   getSettings:           ()    => invoke<Settings>('get_settings'),
   saveSettings:          (settings: Settings) => invoke<void>('save_settings', { settings }),
+  setDesktopControlEnabled: (enabled: boolean) =>
+    invoke<void>('set_desktop_control_enabled', { enabled }),
+  setDesktopControlYolo: (enabled: boolean) =>
+    invoke<void>('set_desktop_control_yolo', { enabled }),
+  setTokenBudgetConversation: (budget: number | null) =>
+    invoke<void>('set_token_budget_conversation', { budget }),
   searchHfModels:        (query: string, cursor?: string | null) =>
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
@@ -377,6 +391,9 @@ export const tauri = {
   settings: {
     get:  async () => raw.getSettings(),
     save: async (s: Settings) => raw.saveSettings(s),
+    setDesktopControl: async (enabled: boolean) => raw.setDesktopControlEnabled(enabled),
+    setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
+    setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
   },
 
   hf: {
