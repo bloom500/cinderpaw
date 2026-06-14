@@ -16,13 +16,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Pinned to windows-2022 (VS 2022 + CMake 3.x). On windows-latest the
-          # image moved to Visual Studio 2026 + CMake 4.3, where llama.cpp's
-          # vulkan-shaders-gen ExternalProject sub-build fails during its MSBuild
-          # custom install step ("cannot find batch label VCEnd" → missing
-          # cmake_install.cmake), panicking the cmake crate. windows-2022 is the
-          # toolchain the Vulkan backend is known to build on. (CPU/Linux/macOS
-          # are unaffected.)
+          # Windows builds the Vulkan backend with the Ninja generator, NOT the
+          # Visual Studio generator (see the "Setup MSVC + Ninja" step below).
+          # Under the VS generator, llama.cpp's vulkan-shaders-gen ExternalProject
+          # sub-build fails in its MSBuild custom install step ("cannot find batch
+          # label VCEnd" → missing cmake_install.cmake), panicking the cmake
+          # crate — reproduced identically on both VS 2022 and VS 2026, so it's
+          # the generator, not the toolchain version. Pinned to windows-2022 for
+          # a stable image. (CPU/Linux/macOS are unaffected.)
           - name: Windows x64
             os: windows-2022
             features: inference-vulkan
@@ -81,6 +82,24 @@ jobs:
         with:
           install_runtime: true
           cache: true
+
+      # Build the Vulkan backend with Ninja instead of the Visual Studio
+      # generator (which breaks llama.cpp's vulkan-shaders-gen ExternalProject —
+      # see the matrix comment). msvc-dev-cmd loads the MSVC toolchain
+      # environment (cl.exe, INCLUDE/LIB, and the Ninja that ships with VS) into
+      # GITHUB_ENV so cmake + Ninja can find the compiler in later steps;
+      # CMAKE_GENERATOR=Ninja is read by the cmake crate that llama-cpp-sys-2
+      # drives. Both are Windows-only; Linux/macOS keep their default generators.
+      - name: Setup MSVC + Ninja (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammer/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Force Ninja generator for the Vulkan build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
 
       - name: Install frontend dependencies
         working-directory: frontend-react
