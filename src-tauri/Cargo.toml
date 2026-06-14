@@ -76,8 +76,28 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
 default = ["inference"]
+# CPU-only baseline (works everywhere; slow for larger models).
 inference = ["dep:llama-cpp-2"]
+# GPU backends — additive on top of `inference`. CI selects one per platform:
+#   Windows/Linux → inference-vulkan   (needs the Vulkan SDK at build time)
+#   macOS         → inference-metal    (Metal ships with Xcode; no extra SDK)
+# A GPU build still falls back to CPU at runtime if GPU init fails (see
+# inference.rs::backend::load), so a missing/broken driver degrades gracefully.
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
+inference-metal = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
+
+# Desktop control (OS accessibility tree). Windows-only for now — UIA via the
+# `windows` crate. macOS (AX) and Linux are compiled stubs in desktop_control.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [dev-dependencies]
 tempfile = "3"

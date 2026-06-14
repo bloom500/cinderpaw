@@ -18,12 +18,16 @@ jobs:
         include:
           - name: Windows x64
             os: windows-latest
+            features: inference-vulkan
           - name: macOS Apple Silicon
             os: macos-latest
+            features: inference-metal
           - name: macOS Intel
             os: macos-13
+            features: inference-metal
           - name: Linux x64
             os: ubuntu-22.04
+            features: inference-vulkan
 
     steps:
       - name: Checkout FeralLocalAI
@@ -48,6 +52,28 @@ jobs:
             librsvg2-dev cmake \
             libfuse2 \
             gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+
+      # Vulkan SDK — required to COMPILE the llama.cpp Vulkan backend
+      # (inference-vulkan). Provides headers, libvulkan, and glslc (the shader
+      # compiler the build invokes). macOS uses Metal instead and needs no SDK.
+      # NOTE: these GPU build steps are new and unvalidated on CI — the first
+      # tagged build may need the SDK install tweaked.
+      - name: Install Vulkan SDK (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list \
+            https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+
+      - name: Install Vulkan SDK (Windows)
+        if: runner.os == 'Windows'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_runtime: true
+          cache: true
 
       - name: Install frontend dependencies
         working-directory: frontend-react
@@ -116,6 +142,11 @@ jobs:
           releaseBody: ${{ steps.changelog.outputs.NOTES }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # Per-platform GPU backend (Vulkan on Win/Linux, Metal on macOS).
+          # `--features` is additive on top of the default `inference` (CPU),
+          # so the build gets CPU + the platform GPU backend; inference.rs falls
+          # back to CPU at runtime if GPU init fails.
+          args: --features ${{ matrix.features }}
           # Uploads the bundles AND latest.json (updater manifest) to the
           # release. With a matrix, tauri-action merges each platform into
           # the same latest.json on the shared release.

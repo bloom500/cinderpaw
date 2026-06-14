@@ -1,5 +1,7 @@
 # Rust / Cargo
 target/
+# Stray cargo target dir from an alternate `--target-dir` check run.
+target-check/
 
 # Tauri
 src-tauri/target/
