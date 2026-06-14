@@ -515,69 +515,64 @@ mod backend {
         const OFFLOAD_ALL: u32 = 1_000_000; // llama clamps to the model's layer count
         let requested = if n_gpu_layers >= 0 { n_gpu_layers as u32 } else { OFFLOAD_ALL };
 
-        // The model is shared via Arc: read-only during inference, so every
-        // pooled context (and every concurrent generation) borrows the same
-        // weights. See the PooledContext block comment for the safety story.
+        // Context size — and the eager KV-cache allocation it triggers — MUST be
+        // capped. Sizing to the model's full training context is a system-crash
+        // hazard: modern models advertise enormous `n_ctx_train` (Jan-v3.5 /
+        // Qwen3 expose up to 256K), and the KV cache is allocated EAGERLY when
+        // the first context is created. KV cost ≈ 2 * n_layers * n_embd * 2
+        // bytes / token, so a 4B model at 256K is ~90 GB — which instantly
+        // exhausts memory: on macOS (unified memory) the machine kernel-panics
+        // and reboots; on Windows it thrashes to a near-hang. The model file is
+        // only a few GB — it's the unbounded context that kills the box.
         //
-        // Runtime CPU fallback: a GPU load can fail (missing/old driver, no
-        // Vulkan runtime, insufficient VRAM) and return an error. Rather than
-        // surface a hard failure, retry on CPU so the app still works. (A hard
-        // GPU *driver crash* can't be caught here, but a clean load error can.)
-        let gpu_params = LlamaModelParams::default().with_n_gpu_layers(requested);
-        let model = match LlamaModel::load_from_file(backend, path, &gpu_params) {
-            Ok(m) => Arc::new(m),
-            Err(e) if requested > 0 => {
-                tracing::warn!(
-                    error = %e,
-                    requested_gpu_layers = requested,
-                    "GPU model load failed — falling back to CPU"
-                );
-                let cpu_params = LlamaModelParams::default().with_n_gpu_layers(0);
-                Arc::new(
-                    LlamaModel::load_from_file(backend, path, &cpu_params)
-                        .map_err(|e2| anyhow!("load {:?} on CPU after GPU failure: {}", path, e2))?,
-                )
-            }
-            Err(e) => return Err(anyhow!("load {:?}: {}", path, e)),
-        };
-
-        // Context size — and the eager KV-cache allocation it triggers below —
-        // MUST be capped. Sizing to the model's full training context is a
-        // system-crash hazard: modern models advertise enormous `n_ctx_train`
-        // (Jan-v3.5 / Qwen3 expose up to 256K), and the KV cache is allocated
-        // EAGERLY at load. KV cost ≈ 2 * n_layers * n_embd * 2 bytes / token,
-        // so a 4B model at 256K is ~90 GB — which instantly exhausts memory:
-        // on macOS (unified memory) the machine kernel-panics and reboots; on
-        // Windows it thrashes to a near-hang. The model file itself is only a
-        // few GB — it's the unbounded context that kills the box.
-        //
-        // So we cap the load-time context at a safe default (8192 — ample for
-        // chat + the agent's compressed transcripts) clamped to whatever the
-        // model actually supports. Power users with the VRAM/RAM to spare can
-        // raise it via FERAL_MAX_CONTEXT; we never exceed the model's own
-        // n_ctx_train. We do NOT dynamically resize — pooled contexts keep
-        // their KV caches alive across calls; if a request would overflow
-        // n_ctx, llama.cpp's decode fails and the agent loop compresses on the
-        // next turn.
-        //
-        // P6: the first context is created eagerly — it validates the KV
-        // allocation fits before load() reports success and warms the pool.
+        // Cap the load-time context at a safe default (8192 — ample for chat +
+        // the agent's compressed transcripts), clamped to the model's own max;
+        // power users can raise it via FERAL_MAX_CONTEXT.
         const DEFAULT_MAX_CONTEXT: u32 = 8192;
         let cap = std::env::var("FERAL_MAX_CONTEXT")
             .ok()
             .and_then(|v| v.trim().parse::<u32>().ok())
             .filter(|v| *v >= 512)
             .unwrap_or(DEFAULT_MAX_CONTEXT);
-        let trained = model.n_ctx_train().max(2048);
-        let ctx_len = trained.min(cap);
-        if trained > ctx_len {
-            tracing::info!(
-                trained,
-                capped_to = ctx_len,
-                "capping context below the model's trained max to avoid an oversized KV allocation (set FERAL_MAX_CONTEXT to raise)"
+
+        // One load attempt at a given GPU-layer count: load weights, size the
+        // context to the model (capped), and eagerly create the first pooled
+        // context. The model is shared via Arc (read-only during inference; see
+        // the PooledContext block comment). Returns model + ctx_len + the warm
+        // first context, or an error if EITHER the weights or the KV allocation
+        // failed.
+        let attempt = |ngl: u32| -> Result<(Arc<LlamaModel>, u32, PooledContext)> {
+            let params = LlamaModelParams::default().with_n_gpu_layers(ngl);
+            let model = Arc::new(
+                LlamaModel::load_from_file(backend, path, &params)
+                    .map_err(|e| anyhow!("load weights: {}", e))?,
             );
-        }
-        let first = create_context(&model, ctx_len)?;
+            let ctx_len = model.n_ctx_train().max(2048).min(cap);
+            // create_context allocates the KV cache — on the GPU when layers are
+            // offloaded, so this is the step that returns a null context when
+            // VRAM is exhausted (a model/context too big for the card).
+            let first = create_context(&model, ctx_len)?;
+            Ok((model, ctx_len, first))
+        };
+
+        // Try GPU first; on ANY failure — weights won't load, OR the KV cache
+        // won't fit in VRAM ("create context: null reference" for a model too
+        // big for the GPU) — fall back to CPU so the model still loads (slower)
+        // instead of erroring out. A hard GPU *driver crash* can't be caught
+        // here, but a clean error can.
+        let (model, ctx_len, first) = match attempt(requested) {
+            Ok(v) => v,
+            Err(e) if requested > 0 => {
+                tracing::warn!(
+                    error = %e,
+                    requested_gpu_layers = requested,
+                    "GPU load failed (weights or KV cache) — falling back to CPU"
+                );
+                attempt(0)
+                    .map_err(|e2| anyhow!("load {:?} on CPU after GPU failure: {}", path, e2))?
+            }
+            Err(e) => return Err(anyhow!("load {:?}: {}", path, e)),
+        };
 
         let name = path.file_name()
             .and_then(|n| n.to_str())

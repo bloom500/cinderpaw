@@ -3,6 +3,9 @@ target/
 # Stray cargo target dir from an alternate `--target-dir` check run.
 target-check/
 
+# Machine-specific local GPU dev launcher (hardcoded VS / Vulkan SDK paths).
+dev-gpu.bat
+
 # Tauri
 src-tauri/target/
 src-tauri/WixTools/
