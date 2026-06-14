@@ -16,8 +16,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Pinned to windows-2022 (VS 2022 + CMake 3.x). On windows-latest the
+          # image moved to Visual Studio 2026 + CMake 4.3, where llama.cpp's
+          # vulkan-shaders-gen ExternalProject sub-build fails during its MSBuild
+          # custom install step ("cannot find batch label VCEnd" → missing
+          # cmake_install.cmake), panicking the cmake crate. windows-2022 is the
+          # toolchain the Vulkan backend is known to build on. (CPU/Linux/macOS
+          # are unaffected.)
           - name: Windows x64
-            os: windows-latest
+            os: windows-2022
             features: inference-vulkan
           - name: macOS Apple Silicon
             os: macos-latest
