@@ -121,6 +121,7 @@ function ConnectorCard({
 }) {
   const [token, setToken] = useState('');
   const [allowlist, setAllowlist] = useState(state?.allowlist.join('\n') ?? '');
+  const [channels, setChannels] = useState(state?.channels.join('\n') ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -131,8 +132,8 @@ function ConnectorCard({
   const enabled = state?.enabled ?? false;
   const configured = state !== null;
 
-  const parseAllowlist = () =>
-    allowlist
+  const parseList = (value: string) =>
+    value
       .split(/[\n,]/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
@@ -143,7 +144,7 @@ function ConnectorCard({
     try {
       // Empty token field means "keep what's saved" (and seed from the Discord
       // extension if nothing is stored yet).
-      await tauri.connectors.save(entry.id, token.trim() || null, parseAllowlist());
+      await tauri.connectors.save(entry.id, token.trim() || null, parseList(allowlist), parseList(channels));
       setToken('');
       onChanged();
       setJustSaved(true);
@@ -277,6 +278,20 @@ function ConnectorCard({
               onChange={(e) => setAllowlist(e.target.value)}
               rows={2}
               placeholder="e.g. 215094730484056064"
+              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y font-mono"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-[11px] text-text-secondary">
+              Channels with no @mention needed
+              <span className="text-text-muted"> (channel IDs, one per line — it answers every message here, like a dedicated #bot channel)</span>
+            </span>
+            <textarea
+              value={channels}
+              onChange={(e) => setChannels(e.target.value)}
+              rows={2}
+              placeholder="e.g. 1479216978496458803"
               className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y font-mono"
             />
           </label>

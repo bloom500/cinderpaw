@@ -36,6 +36,11 @@ pub struct ConnectorConfig {
     /// the owner explicitly adds. Senders not on the list are ignored.
     #[serde(default)]
     pub allowlist: Vec<String>,
+    /// Channel IDs where the agent answers EVERY (allowlisted) message without
+    /// needing an @mention — e.g. a dedicated #bot channel. Elsewhere it still
+    /// requires a mention or a reply to its own message.
+    #[serde(default)]
+    pub channels: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -165,6 +170,7 @@ pub struct ConnectorView {
     /// Whether a bot token is stored — the token itself is never sent.
     pub has_token: bool,
     pub allowlist: Vec<String>,
+    pub channels: Vec<String>,
 }
 
 fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
@@ -186,7 +192,17 @@ fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
         enabled: cfg.enabled,
         has_token: !cfg.token.trim().is_empty(),
         allowlist: cfg.allowlist.clone(),
+        channels: cfg.channels.clone(),
     }
+}
+
+/// Trim, drop blanks, dedupe (order-preserving) a list of IDs from the UI.
+fn clean_ids(ids: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    ids.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && seen.insert(s.clone()))
+        .collect()
 }
 
 /// Tell the sidecar to reconcile its live connectors after a config change.
@@ -226,6 +242,7 @@ pub fn connectors_list() -> Vec<ConnectorView> {
                 enabled: false,
                 token,
                 allowlist: Vec::new(),
+                channels: Vec::new(),
             }));
         }
     }
@@ -242,18 +259,14 @@ pub async fn connectors_save(
     id: String,
     token: Option<String>,
     allowlist: Vec<String>,
+    channels: Vec<String>,
 ) -> Result<ConnectorView, String> {
     if catalog().iter().find(|c| c.id == id).map(|c| c.coming_soon).unwrap_or(true) {
         return Err("This connector isn't available yet.".to_string());
     }
 
-    // Normalise the allowlist: trim, drop blanks, dedupe, keep order.
-    let mut seen = std::collections::HashSet::new();
-    let allowlist: Vec<String> = allowlist
-        .into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty() && seen.insert(s.clone()))
-        .collect();
+    let allowlist = clean_ids(allowlist);
+    let channels = clean_ids(channels);
 
     let mut cfg = load_config();
     let existing = cfg.connectors.iter().find(|c| c.id == id).cloned();
@@ -262,6 +275,7 @@ pub async fn connectors_save(
         enabled: false,
         token: String::new(),
         allowlist: Vec::new(),
+        channels: Vec::new(),
     });
 
     // Token: keep the existing one unless the user typed a new non-empty value.
@@ -278,6 +292,7 @@ pub async fn connectors_save(
         }
     }
     row.allowlist = allowlist;
+    row.channels = channels;
 
     cfg.connectors.retain(|c| c.id != id);
     cfg.connectors.push(row.clone());
@@ -303,7 +318,7 @@ pub async fn connectors_set_enabled(
         if id == "discord" {
             token = discord_token_from_mcp().unwrap_or_default();
         }
-        cfg.connectors.push(ConnectorConfig { id: id.clone(), enabled: false, token, allowlist: Vec::new() });
+        cfg.connectors.push(ConnectorConfig { id: id.clone(), enabled: false, token, allowlist: Vec::new(), channels: Vec::new() });
     }
 
     let row = cfg

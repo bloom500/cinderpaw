@@ -97,6 +97,7 @@ export interface ConnectorView {
   enabled: boolean;
   has_token: boolean;
   allowlist: string[];
+  channels: string[];
 }
 
 // HF types — field names match Rust snake_case serialization exactly
@@ -366,8 +367,8 @@ const raw = {
     invoke<string>('mcp_call_tool', { id, tool, argsJson }),
   connectorsCatalog:        () => invoke<ConnectorCatalogEntry[]>('connectors_catalog'),
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
-  connectorsSave:           (id: string, token: string | null, allowlist: string[]) =>
-    invoke<ConnectorView>('connectors_save', { id, token, allowlist }),
+  connectorsSave:           (id: string, token: string | null, allowlist: string[], channels: string[]) =>
+    invoke<ConnectorView>('connectors_save', { id, token, allowlist, channels }),
   connectorsSetEnabled:     (id: string, enabled: boolean) =>
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
@@ -477,7 +478,7 @@ export const tauri = {
   connectors: {
     catalog:    async () => raw.connectorsCatalog(),
     list:       async () => raw.connectorsList(),
-    save:       async (id: string, token: string | null, allowlist: string[]) => raw.connectorsSave(id, token, allowlist),
+    save:       async (id: string, token: string | null, allowlist: string[], channels: string[]) => raw.connectorsSave(id, token, allowlist, channels),
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
   },

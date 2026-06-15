@@ -91,13 +91,16 @@ function activityFor(tool: string): { emoji: string; label: string } {
 export class DiscordConnector {
   readonly #token: string;
   readonly #allow: Set<string>;
+  /** Channels where any allowlisted message is answered without an @mention. */
+  readonly #channels: Set<string>;
   readonly #agent: AgentLike;
   readonly #log: Log;
   #client: Client | null = null;
 
-  constructor(opts: { token: string; allowlist: string[]; agent: AgentLike; log: Log }) {
+  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log }) {
     this.#token = opts.token;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
+    this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
     this.#agent = opts.agent;
     this.#log = opts.log;
   }
@@ -142,7 +145,22 @@ export class DiscordConnector {
 
     const isDM = message.channel.type === ChannelType.DM;
     const mentioned = message.mentions.users.has(me.id);
-    if (!isDM && !mentioned) return; // v1 scope: DMs and @mentions only
+    const dedicated = this.#channels.has(message.channelId);
+
+    // Reply-to-continue: once a thread is going, replying to one of the bot's
+    // own messages keeps the conversation alive without re-@mentioning it.
+    let replyToBot = false;
+    if (!isDM && !mentioned && !dedicated && message.reference?.messageId && "messages" in message.channel) {
+      const ref = await message.channel.messages
+        .fetch(message.reference.messageId)
+        .catch(() => null);
+      replyToBot = ref?.author.id === me.id;
+    }
+
+    // When to answer: always in DMs; in a dedicated channel; on @mention; or
+    // when continuing a reply thread with the bot. Otherwise stay quiet so the
+    // bot never barges into conversations between other people.
+    if (!isDM && !mentioned && !dedicated && !replyToBot) return;
 
     // Allowlist gate — exact user ID. Unlisted senders get no reply at all.
     if (!this.#allow.has(message.author.id)) {
@@ -253,6 +271,7 @@ interface ConnectorRow {
   enabled?: boolean;
   token?: string;
   allowlist?: string[];
+  channels?: string[];
 }
 
 function configPath(): string {
@@ -305,7 +324,8 @@ export class ConnectorManager {
     }
 
     const allowlist = discord!.allowlist ?? [];
-    const key = `${discord!.token}|${[...allowlist].sort().join(",")}`;
+    const channels = discord!.channels ?? [];
+    const key = `${discord!.token}|${[...allowlist].sort().join(",")}|${[...channels].sort().join(",")}`;
     if (this.#discord && key === this.#discordKey) return; // unchanged
 
     if (this.#discord) {
@@ -315,6 +335,7 @@ export class ConnectorManager {
     const conn = new DiscordConnector({
       token: discord!.token!.trim(),
       allowlist,
+      channels,
       agent: this.#agent,
       log: this.#log,
     });
