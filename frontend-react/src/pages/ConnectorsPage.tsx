@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Trash2, ShieldAlert } from 'lucide-react';
+import { Loader2, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
 import {
   tauri,
   type ConnectorCatalogEntry,
@@ -125,6 +125,7 @@ function ConnectorCard({
   const [err, setErr] = useState<string | null>(null);
   const [logoFailed, setLogoFailed] = useState(false);
   const [removeArmed, setRemoveArmed] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
 
   const hasToken = state?.has_token ?? false;
   const enabled = state?.enabled ?? false;
@@ -145,6 +146,8 @@ function ConnectorCard({
       await tauri.connectors.save(entry.id, token.trim() || null, parseAllowlist());
       setToken('');
       onChanged();
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2500);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -289,10 +292,17 @@ function ConnectorCard({
               type="button"
               onClick={() => void save()}
               disabled={busy}
-              className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand/90 disabled:opacity-50"
+              className={cn(
+                'inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50 transition-colors',
+                justSaved ? 'bg-emerald-500' : 'bg-brand hover:bg-brand/90',
+              )}
             >
-              {busy && <Loader2 size={11} className="animate-spin" />}
-              Save
+              {busy ? (
+                <Loader2 size={11} className="animate-spin" />
+              ) : justSaved ? (
+                <Check size={12} />
+              ) : null}
+              {justSaved ? 'Saved' : 'Save'}
             </button>
             {configured && (
               <button
