@@ -55,6 +55,38 @@ function chunk(text: string): string[] {
   return out;
 }
 
+/** Strip MCP prefixes / separators so a tool id reads like a phrase. */
+function prettyTool(tool: string): string {
+  return tool.replace(/^mcp__/, "").replace(/__/g, " · ").replace(/[_-]+/g, " ").trim();
+}
+
+/**
+ * Map an agent tool to a human "what am I doing right now" status with an
+ * emoji, shown live in Discord while the agent works. Pattern-matched so new
+ * builtin or MCP tools degrade to a sensible generic label.
+ */
+function activityFor(tool: string): { emoji: string; label: string } {
+  const t = tool.toLowerCase();
+  const has = (...xs: string[]) => xs.some((x) => t.includes(x));
+  if (has("deep_research")) return { emoji: "🔬", label: "Researching in depth…" };
+  if (has("web_search")) return { emoji: "🔍", label: "Searching the web…" };
+  if (has("fetch_url", "read_webpage", "http_request", "browse")) return { emoji: "🌐", label: "Browsing the web…" };
+  if (has("write_file", "edit_file")) return { emoji: "✍️", label: "Writing files…" };
+  if (has("read_file", "list_directory", "file_search", "grep", "scan_workspace", "read_skill")) return { emoji: "📂", label: "Reading files…" };
+  if (has("shell", "exec", "command")) return { emoji: "🖥️", label: "Running a command…" };
+  if (has("git")) return { emoji: "🔧", label: "Working with Git…" };
+  if (has("memory")) return { emoji: "🧠", label: "Checking memory…" };
+  if (has("discord")) return { emoji: "💬", label: "Working with Discord…" };
+  if (has("slack")) return { emoji: "💬", label: "Working with Slack…" };
+  if (has("desktop", "control", "click", "type_into", "window", "element", "launch_app", "send_keys")) return { emoji: "🖱️", label: "Controlling the desktop…" };
+  if (has("delegate", "subagent")) return { emoji: "🤝", label: "Delegating a subtask…" };
+  if (has("calculator", "calc")) return { emoji: "🔢", label: "Calculating…" };
+  if (has("time", "date")) return { emoji: "🕐", label: "Checking the time…" };
+  if (has("code_quality")) return { emoji: "🧪", label: "Checking code quality…" };
+  if (has("mcp__")) return { emoji: "🔌", label: `Using ${prettyTool(tool)}…` };
+  return { emoji: "🔧", label: `Working — ${prettyTool(tool)}…` };
+}
+
 /** A live Discord gateway connection that drives the shared agent. */
 export class DiscordConnector {
   readonly #token: string;
@@ -138,13 +170,58 @@ export class DiscordConnector {
     const react = (emoji: string) => void message.react(emoji).catch(() => {});
     react("🐾");
 
+    // Live status: one message we edit as the agent works, so the user sees
+    // exactly what it's doing right now (searching, reading, running a
+    // command…). The same message morphs into the final answer at the end, so
+    // there's no extra message spam. Edits are throttled to stay clear of
+    // Discord's ~5-edits/5s rate limit.
+    const statusMsg = await message.reply("🐾 On it…").catch(() => null);
+    let lastEdit = 0;
+    let pendingStatus: string | null = null;
+    let editTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushStatus = () => {
+      editTimer = null;
+      if (pendingStatus == null || !statusMsg) return;
+      const next = pendingStatus;
+      pendingStatus = null;
+      lastEdit = Date.now();
+      void statusMsg.edit(next).catch(() => {});
+    };
+    const setStatus = (s: string) => {
+      if (!statusMsg) return;
+      pendingStatus = s;
+      const since = Date.now() - lastEdit;
+      if (since >= 1100) {
+        if (editTimer) clearTimeout(editTimer);
+        flushStatus();
+      } else if (!editTimer) {
+        editTimer = setTimeout(flushStatus, 1100 - since);
+      }
+    };
+
     try {
-      // The shared agent answers with the same model + tools as the app.
-      // emit is a no-op here: we post the final returned text (v1 = buffered;
-      // token streaming/edited replies are a v2 refinement).
-      const reply = await this.#agent.handle(sessionId, text, `discord-${message.id}`, () => {});
+      // The shared agent answers with the same model + tools as the app. We
+      // watch its tool events to drive the live status message.
+      const reply = await this.#agent.handle(sessionId, text, `discord-${message.id}`, (event) => {
+        if (event.type === "tool_start") {
+          const a = activityFor(event.tool);
+          setStatus(`${a.emoji} ${a.label}`);
+        } else if (event.type === "tool_progress" && event.message) {
+          const a = activityFor(event.tool);
+          setStatus(`${a.emoji} ${event.message}`);
+        }
+      });
+
+      // Done working: stop status churn and turn the status message into the
+      // answer (or post a fresh reply if the status message never landed).
+      if (editTimer) clearTimeout(editTimer);
+      pendingStatus = null;
       const parts = chunk(reply);
-      await message.reply(parts[0] ?? "(no response)");
+      if (statusMsg) {
+        await statusMsg.edit(parts[0] ?? "(no response)");
+      } else {
+        await message.reply(parts[0] ?? "(no response)");
+      }
       if ("send" in channel) {
         for (const part of parts.slice(1)) {
           await channel.send(part);
@@ -154,8 +231,10 @@ export class DiscordConnector {
     } catch (e) {
       this.#log(`discord: agent error: ${String(e)}`);
       react("⚠️");
+      if (editTimer) clearTimeout(editTimer);
       try {
-        await message.reply("Sorry — something went wrong handling that.");
+        if (statusMsg) await statusMsg.edit("Sorry — something went wrong handling that.");
+        else await message.reply("Sorry — something went wrong handling that.");
       } catch {
         // channel may be gone
       }
