@@ -60,6 +60,10 @@ import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { createControlAppTool } from "./tools/builtin/control-app.ts";
+import { LeadDesk } from "./core/lead-desk.ts";
+import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
+import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
+import { createScheduleMeetingTool } from "./tools/builtin/schedule-meeting.ts";
 import type { InferenceConfig, Transport } from "./types.ts";
 
 interface AppConfig {
@@ -378,6 +382,17 @@ async function main(): Promise<void> {
         : ctxSessionId,
   }));
 
+  // Lead-handling tools for the public connector mode (WhatsApp "business"
+  // persona). They are registered globally but only EXPOSED to the public
+  // profile (see PUBLIC_ALLOWED_TOOLS in transports/connectors.ts). The shared
+  // LeadDesk lets escalate/schedule reach the live connector (owner ping +
+  // conversation pause); records land under ~/.feral/leads/.
+  const leadsDir = resolve(homedir(), ".feral", "leads");
+  const leadDesk = new LeadDesk();
+  registry.register(createCaptureLeadTool(leadsDir));
+  registry.register(createEscalateToHumanTool(leadDesk, leadsDir));
+  registry.register(createScheduleMeetingTool(leadDesk, leadsDir));
+
   // --- Proactive subsystem (X1) ---
   // MoodEngine + InnerThoughtsLoop used to be wired into core by default
   // (FERAL_INNER_THOUGHTS_ENABLED !== "false"). That burned inference on
@@ -565,7 +580,7 @@ async function main(): Promise<void> {
   // The host writes ~/.feral/connectors.json and pokes us with
   // `connectors_reload`; reconcile here. Started in onReady once the agent and
   // tools are fully wired.
-  const connectors = new ConnectorManager(agent, log);
+  const connectors = new ConnectorManager(agent, log, leadDesk);
 
   transport.onMessage(async (msg) => {
     switch (msg.type) {

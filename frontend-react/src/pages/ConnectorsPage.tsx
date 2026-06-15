@@ -122,6 +122,9 @@ function ConnectorCard({
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [allowlist, setAllowlist] = useState(state?.allowlist.join('\n') ?? '');
   const [channels, setChannels] = useState(state?.channels.join('\n') ?? '');
+  const isPublic = (state?.mode ?? 'owner') === 'public';
+  const [mode, setMode] = useState<'owner' | 'public'>(isPublic ? 'public' : 'owner');
+  const [knowledgeBase, setKnowledgeBase] = useState(state?.knowledgeBase ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -153,7 +156,14 @@ function ConnectorCard({
         const v = (secrets[f.key] ?? '').trim();
         if (v) payload[f.key] = v;
       }
-      await tauri.connectors.save(entry.id, payload, parseList(allowlist), parseList(channels));
+      await tauri.connectors.save(
+        entry.id,
+        payload,
+        parseList(allowlist),
+        parseList(channels),
+        entry.id === 'whatsapp' ? mode : undefined,
+        entry.id === 'whatsapp' ? knowledgeBase : undefined,
+      );
       setSecrets({});
       onChanged();
       setJustSaved(true);
@@ -338,6 +348,64 @@ function ConnectorCard({
               className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y font-mono"
             />
           </label>
+
+          {entry.id === 'whatsapp' && (
+            <div className="rounded-md border border-border-default bg-bg-primary p-2.5 space-y-2">
+              <span className="text-[11px] text-text-secondary font-medium">Who can it talk to?</span>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setMode('owner')}
+                  className={cn(
+                    'flex-1 rounded-md px-2 py-1.5 text-[11px] border transition-colors',
+                    mode === 'owner'
+                      ? 'border-brand bg-brand/10 text-text-primary'
+                      : 'border-border-default text-text-muted hover:text-text-secondary',
+                  )}
+                >
+                  Only people I allow
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('public')}
+                  className={cn(
+                    'flex-1 rounded-md px-2 py-1.5 text-[11px] border transition-colors',
+                    mode === 'public'
+                      ? 'border-brand bg-brand/10 text-text-primary'
+                      : 'border-border-default text-text-muted hover:text-text-secondary',
+                  )}
+                >
+                  Anyone (sales assistant)
+                </button>
+              </div>
+              {mode === 'public' ? (
+                <>
+                  <p className="text-[10.5px] text-text-muted leading-relaxed">
+                    New leads who message you get answered automatically by a sales assistant that can ONLY use the
+                    knowledge below — it can't touch your files or this computer. Numbers in your allowed list above still
+                    get the full assistant.
+                  </p>
+                  <label className="block">
+                    <span className="text-[11px] text-text-secondary">
+                      What it can tell people
+                      <span className="text-text-muted"> (products, prices, FAQ, hours — answers come only from this)</span>
+                    </span>
+                    <textarea
+                      value={knowledgeBase}
+                      onChange={(e) => setKnowledgeBase(e.target.value)}
+                      rows={6}
+                      placeholder={'e.g.\nWe sell handmade leather bags.\nPrices: tote €120, crossbody €85.\nShipping: 3–5 days in the EU, free over €100.\nFor orders or a callback, leave your name and number.'}
+                      className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y"
+                    />
+                  </label>
+                </>
+              ) : (
+                <p className="text-[10.5px] text-text-muted leading-relaxed">
+                  Only the phone numbers in your allowed list above can reach your assistant. Best for personal use.
+                </p>
+              )}
+            </div>
+          )}
 
           {err && (
             <p className="text-[11px] text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5">

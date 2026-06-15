@@ -102,6 +102,8 @@ export interface ConnectorView {
   linked: boolean;    // QR connectors: session established
   allowlist: string[];
   channels: string[];
+  mode: string;            // "owner" | "public" (WhatsApp)
+  knowledgeBase: string;   // inline KB text for public mode
 }
 
 // HF types — field names match Rust snake_case serialization exactly
@@ -371,8 +373,8 @@ const raw = {
     invoke<string>('mcp_call_tool', { id, tool, argsJson }),
   connectorsCatalog:        () => invoke<ConnectorCatalogEntry[]>('connectors_catalog'),
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
-  connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[]) =>
-    invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels }),
+  connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) =>
+    invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels, mode, knowledgeBase }),
   connectorsSetEnabled:     (id: string, enabled: boolean) =>
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
@@ -482,7 +484,7 @@ export const tauri = {
   connectors: {
     catalog:    async () => raw.connectorsCatalog(),
     list:       async () => raw.connectorsList(),
-    save:       async (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[]) => raw.connectorsSave(id, secrets, allowlist, channels),
+    save:       async (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) => raw.connectorsSave(id, secrets, allowlist, channels, mode, knowledgeBase),
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
   },

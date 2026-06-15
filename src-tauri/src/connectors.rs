@@ -49,6 +49,18 @@ pub struct ConnectorConfig {
     /// `secrets` on load, then dropped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// WhatsApp operating mode: "owner" (default) = allowlist + full agent;
+    /// "public" = answer strangers (leads) via the restricted sales persona.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Inline knowledge-base text (products/prices/FAQ) the public persona
+    /// answers from. Stored inline so non-technical users never touch a file.
+    #[serde(
+        default,
+        rename = "knowledgeBase",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub knowledge_base: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -243,6 +255,12 @@ pub struct ConnectorView {
     pub linked: bool,
     pub allowlist: Vec<String>,
     pub channels: Vec<String>,
+    /// "owner" (default) or "public". WhatsApp only; harmless for others.
+    pub mode: String,
+    /// Inline knowledge-base text for public mode (returned so the UI textarea
+    /// can be pre-filled). Empty when unset.
+    #[serde(rename = "knowledgeBase")]
+    pub knowledge_base: String,
 }
 
 fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
@@ -277,6 +295,8 @@ fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
         linked: cfg.id == "whatsapp" && whatsapp_linked(),
         allowlist: cfg.allowlist.clone(),
         channels: cfg.channels.clone(),
+        mode: cfg.mode.clone().unwrap_or_else(|| "owner".into()),
+        knowledge_base: cfg.knowledge_base.clone().unwrap_or_default(),
     }
 }
 
@@ -326,6 +346,8 @@ fn blank_config(id: &str) -> ConnectorConfig {
         allowlist: Vec::new(),
         channels: Vec::new(),
         token: None,
+        mode: None,
+        knowledge_base: None,
     }
 }
 
@@ -376,6 +398,8 @@ pub async fn connectors_save(
     secrets: HashMap<String, String>,
     allowlist: Vec<String>,
     channels: Vec<String>,
+    mode: Option<String>,
+    knowledge_base: Option<String>,
 ) -> Result<ConnectorView, String> {
     let entry = catalog()
         .into_iter()
@@ -403,6 +427,15 @@ pub async fn connectors_save(
     seed_discord(&mut row);
     row.allowlist = allowlist;
     row.channels = channels;
+    // Mode + knowledge base (WhatsApp public persona). Normalize mode to the
+    // two known values; treat anything else as the safe default ("owner").
+    if let Some(m) = mode {
+        row.mode = Some(if m == "public" { "public".into() } else { "owner".into() });
+    }
+    if let Some(kb) = knowledge_base {
+        let kb = kb.trim();
+        row.knowledge_base = if kb.is_empty() { None } else { Some(kb.to_string()) };
+    }
 
     cfg.connectors.retain(|c| c.id != id);
     cfg.connectors.push(row.clone());

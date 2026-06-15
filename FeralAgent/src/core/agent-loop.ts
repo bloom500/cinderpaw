@@ -129,6 +129,33 @@ interface SessionEntry {
   lastAccess: number;
 }
 
+/**
+ * A constrained operating profile for a session. The default (owner) session
+ * uses the full system prompt + full tool registry; a registered profile
+ * swaps in its OWN system prompt and restricts the model to a named subset of
+ * tools. Used by the connector surface so a public WhatsApp lead talks to a
+ * sales/support persona with a read-only toolset instead of the owner's full
+ * agent (filesystem, shell, desktop control). Compiled once at registration.
+ */
+interface CompiledProfile {
+  /** The system prompt this profile's sessions run with. */
+  systemPrompt: string;
+  /** Tools the model is allowed to call — enforced in the exec loop. */
+  allowed: Set<string>;
+  /** Native Anthropic tool defs, filtered to `allowed`. */
+  nativeTools: AnthropicToolDef[];
+  /** OpenAI-compatible tool defs, filtered to `allowed`. */
+  openAITools: OpenAIToolDef[];
+}
+
+/** Options for {@link AgentLoop.registerProfile}. */
+export interface ProfileOptions {
+  /** Full system prompt for this profile's sessions (persona + any KB). */
+  systemPrompt: string;
+  /** Whitelist of tool names the profile may use. Unknown names are ignored. */
+  allowedTools: string[];
+}
+
 export class AgentLoop {
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
@@ -229,6 +256,19 @@ export class AgentLoop {
    * text-injected schema in the system prompt.
    */
   readonly #openAITools: OpenAIToolDef[];
+  /**
+   * Connector-surface operating profiles, keyed by profile id. Empty by
+   * default (every session is the full-trust owner). A profile carries its
+   * own system prompt + restricted tool set; see {@link CompiledProfile}.
+   */
+  readonly #profiles = new Map<string, CompiledProfile>();
+  /**
+   * Per-session profile assignment. A sessionId present here runs under the
+   * named profile (restricted prompt + tools); absent = the default owner
+   * session. Set by `setSessionProfile`, consumed by `#memoryFor`,
+   * `#complete`, and the tool-exec gate in `#run`.
+   */
+  readonly #sessionProfile = new Map<string, string>();
 
   constructor(
     router: InferenceRouter,
@@ -281,6 +321,46 @@ export class AgentLoop {
       const sink = this.#sessionContexts.get(info.sessionId)?.emit;
       if (sink) sink(payload);
     });
+  }
+
+  /**
+   * Register (or replace) a constrained operating profile. The tool defs are
+   * compiled once here by filtering the registry to `allowedTools`, so per-turn
+   * cost is a single map lookup. Sessions are bound to a profile via
+   * {@link setSessionProfile}. Idempotent — re-registering an id overwrites it.
+   */
+  registerProfile(id: string, opts: ProfileOptions): void {
+    const allowed = new Set(opts.allowedTools);
+    const keep = (name: string) => allowed.has(name);
+    this.#profiles.set(id, {
+      systemPrompt: opts.systemPrompt,
+      allowed,
+      nativeTools: this.#nativeTools.filter((t) => keep(t.name)),
+      openAITools: this.#openAITools.filter((t) => keep(t.function.name)),
+    });
+  }
+
+  /**
+   * Bind a session to a registered profile (sticky until cleared). Must be
+   * called BEFORE the session's first `handle()`, since the WorkingMemory —
+   * and thus the system prompt — is created on first use. A no-op (and a
+   * silent fallback to the owner profile) if the id was never registered.
+   */
+  setSessionProfile(sessionId: string, profileId: string): void {
+    if (this.#profiles.has(profileId)) {
+      this.#sessionProfile.set(sessionId, profileId);
+    }
+  }
+
+  /** Clear a session's profile binding (reverts to the owner profile). */
+  clearSessionProfile(sessionId: string): void {
+    this.#sessionProfile.delete(sessionId);
+  }
+
+  /** Resolve the compiled profile for a session, or null for the owner default. */
+  #profileFor(sessionId: string): CompiledProfile | null {
+    const id = this.#sessionProfile.get(sessionId);
+    return id ? (this.#profiles.get(id) ?? null) : null;
   }
 
   /**
@@ -696,9 +776,21 @@ export class AgentLoop {
       // Model called tools → process them, then loop for the next turn.
       memory.addAssistant(completion);
 
+      // Profiled (connector) sessions may only call tools on their whitelist.
+      // The model isn't even shown the others, but a hallucinated call is
+      // hard-blocked here before it reaches the registry — the connector
+      // surface's security boundary must not depend on the model behaving.
+      const profile = this.#profileFor(sessionId);
+
       for (const call of parsed.toolCalls) {
         toolCallCount++;
         ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
+        if (profile && !profile.allowed.has(call.name)) {
+          const denied = `Tool "${call.name}" is not available in this conversation.`;
+          ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result: { ok: false, content: denied, error: "not_available" }, traceId });
+          memory.addToolResult(call.name, `ERROR: ${denied}`);
+          continue;
+        }
         // P0-#3: thread the per-session tool signal so AgentLoop.stop()
         // aborts the in-flight tool (in addition to the router).
         const toolSignal = this.#sessionToolSignals.get(sessionId)?.signal;
@@ -762,6 +854,11 @@ export class AgentLoop {
     // engine reuses the cached KV and only recomputes the new tail.
     // The summarize() and extractor() paths leave this off — they are
     // one-shot calls with no stable prefix to cache.
+    // Profiled (connector) sessions advertise only their restricted tool
+    // subset; the owner default sees the full set.
+    const profile = this.#profileFor(sessionId);
+    const nativeTools = profile?.nativeTools ?? this.#nativeTools;
+    const openAITools = profile?.openAITools ?? this.#openAITools;
     try {
       // Controls-panel overrides for this session (UX: the user's Max Tokens
       // / Temperature sliders were previously silently ignored by the agent).
@@ -774,9 +871,9 @@ export class AgentLoop {
         onToken,
         cachePrompt: true,
         // A3: native tool definitions for Anthropic.
-        nativeTools: this.#nativeTools,
+        nativeTools,
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.
-        openAITools: this.#openAITools,
+        openAITools,
         ...grammarFields,
       });
       return {
@@ -803,9 +900,9 @@ export class AgentLoop {
             onToken,
             cachePrompt: true,
             // A3: native tool definitions for Anthropic.
-            nativeTools: this.#nativeTools,
+            nativeTools,
             // A3 regression fix: native tool definitions for OpenAI-compatible providers.
-            openAITools: this.#openAITools,
+            openAITools,
             ...grammarFields,
           });
           return {
@@ -880,9 +977,14 @@ export class AgentLoop {
         const oldest = this.#sessions.keys().next().value;
         if (oldest === undefined) break; // defensive: empty map
         this.#sessions.delete(oldest);
+        this.#sessionProfile.delete(oldest);
       }
+      // A profiled session (connector surface) runs under the profile's own
+      // system prompt; the owner default uses the full prompt. Resolved at
+      // creation only — the prompt is the static, cache-friendly prefix.
+      const profile = this.#profileFor(sessionId);
       entry = {
-        memory: new WorkingMemory(this.#systemPrompt),
+        memory: new WorkingMemory(profile?.systemPrompt ?? this.#systemPrompt),
         lastAccess: Date.now(),
       };
       this.#sessions.set(sessionId, entry);
@@ -908,6 +1010,7 @@ export class AgentLoop {
     for (const [sessionId, entry] of this.#sessions) {
       if (entry.lastAccess < cutoff) {
         this.#sessions.delete(sessionId);
+        this.#sessionProfile.delete(sessionId);
       }
     }
   }
