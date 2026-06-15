@@ -44,7 +44,7 @@ export function ConnectorsPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-hide">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Hero */}
           <div className="mb-6">
@@ -234,14 +234,14 @@ function ConnectorCard({
             aria-label={enabled ? 'Turn off' : 'Turn on'}
             title={!enabled && !hasToken ? 'Add a bot token first' : undefined}
             className={cn(
-              'relative h-5 w-9 rounded-full transition-colors shrink-0 mt-0.5 disabled:opacity-40',
+              'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors mt-0.5 disabled:opacity-40',
               enabled ? 'bg-brand' : 'bg-bg-hover border border-border-default',
             )}
           >
             <span
               className={cn(
-                'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform',
-                enabled ? 'translate-x-4' : 'translate-x-0.5',
+                'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
+                enabled ? 'translate-x-[18px]' : 'translate-x-[2px]',
               )}
             />
           </button>

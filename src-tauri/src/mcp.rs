@@ -470,35 +470,8 @@ fn catalog() -> Vec<CatalogDef> {
             args: &["-y", "@modelcontextprotocol/server-fetch"],
             env_keys: &[],
         },
-        // ── Communication ─────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "slack".into(),
-                name: "Slack".into(),
-                description: "Read and send messages, manage channels in your Slack workspace.".into(),
-                category: "Communication".into(),
-                icon: "💬".into(),
-                logo_url: logo("https://a.slack-edge.com/80588/marketing/img/meta/slack_hash_128.png"),
-                fields: vec![f("SLACK_MCP_XOXB_TOKEN", "Slack bot token (xoxb-…)", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "slack-mcp-server@latest", "--transport", "stdio"],
-            env_keys: &["SLACK_MCP_XOXB_TOKEN"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "discord".into(),
-                name: "Discord".into(),
-                description: "Read and send messages in your Discord servers.".into(),
-                category: "Communication".into(),
-                icon: "🎮".into(),
-                logo_url: logo("https://discord.com/assets/favicon.ico"),
-                fields: vec![f("DISCORD_TOKEN", "Discord bot token", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "mcp-discord@latest", "--config", "{DISCORD_TOKEN}"],
-            env_keys: &["DISCORD_TOKEN"],
-        },
+        // Communication channels (Discord, Slack, Telegram, WhatsApp) live in
+        // the dedicated Connectors section now — not here. See connectors.rs.
         // ── CRM & Sales ───────────────────────────────────────────────────────
         CatalogDef {
             entry: McpCatalogEntry {

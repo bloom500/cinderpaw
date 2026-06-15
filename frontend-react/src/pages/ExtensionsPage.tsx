@@ -20,6 +20,10 @@ import {
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 
+// Communication channels live in the dedicated Connectors section now, never
+// in Extensions — hide them here even if an old install lingers in mcp.json.
+const CONNECTOR_IDS = new Set(['discord', 'slack', 'telegram', 'whatsapp']);
+
 export function ExtensionsPage() {
   const [installed, setInstalled] = useState<McpServerView[]>([]);
   const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
@@ -31,8 +35,8 @@ export function ExtensionsPage() {
     setError(null);
     Promise.all([tauri.mcp.list(), tauri.mcp.catalog()])
       .then(([list, cat]) => {
-        setInstalled(list);
-        setCatalog(cat);
+        setInstalled(list.filter((s) => !CONNECTOR_IDS.has(s.id)));
+        setCatalog(cat.filter((c) => !CONNECTOR_IDS.has(c.id)));
       })
       .catch((e: unknown) => setError(String(e)))
       .finally(() => setLoading(false));
@@ -40,7 +44,8 @@ export function ExtensionsPage() {
 
   useEffect(load, []);
 
-  const refresh = () => tauri.mcp.list().then(setInstalled).catch(() => {});
+  const refresh = () =>
+    tauri.mcp.list().then((l) => setInstalled(l.filter((s) => !CONNECTOR_IDS.has(s.id)))).catch(() => {});
 
   const installedIds = new Set(installed.map((s) => s.id));
   const categories = ['All', ...Array.from(new Set(catalog.map((c) => c.category)))];
@@ -48,7 +53,7 @@ export function ExtensionsPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-hide">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Hero */}
           <div className="mb-8">
@@ -99,18 +104,18 @@ export function ExtensionsPage() {
 
               {/* Discover */}
               <section>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                <div className="mb-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-2">
                     Discover
                   </h2>
-                  <div className="flex gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {categories.map((c) => (
                       <button
                         key={c}
                         type="button"
                         onClick={() => setCategory(c)}
                         className={cn(
-                          'px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors',
+                          'px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap',
                           category === c
                             ? 'bg-brand text-white'
                             : 'bg-bg-hover text-text-muted hover:text-text-secondary',
@@ -240,14 +245,14 @@ function InstalledCard({
           disabled={busy}
           aria-label={server.enabled ? 'Turn off' : 'Turn on'}
           className={cn(
-            'relative h-5 w-9 rounded-full transition-colors shrink-0 mt-0.5',
+            'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors mt-0.5 disabled:opacity-50',
             server.enabled ? 'bg-brand' : 'bg-bg-hover border border-border-default',
           )}
         >
           <span
             className={cn(
-              'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform',
-              server.enabled ? 'translate-x-4' : 'translate-x-0.5',
+              'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
+              server.enabled ? 'translate-x-[18px]' : 'translate-x-[2px]',
             )}
           />
         </button>
