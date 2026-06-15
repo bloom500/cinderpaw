@@ -855,7 +855,7 @@ export interface InboundMessage {
   type: "message" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
-    | "desktop_control_response";
+    | "desktop_control_response" | "connectors_reload";
   id?: string;
   content?: string;
   sessionId?: string;

@@ -1,6 +1,7 @@
 mod agents;
 mod api;
 mod byok;
+mod connectors;
 mod conversations;
 mod desktop_control;
 mod events;
@@ -2261,6 +2262,11 @@ pub fn run() {
             mcp::mcp_remove,
             mcp::mcp_list_tools,
             mcp::mcp_call_tool,
+            connectors::connectors_catalog,
+            connectors::connectors_list,
+            connectors::connectors_save,
+            connectors::connectors_set_enabled,
+            connectors::connectors_remove,
             memory_graph::get_memory_graph,
             memory_graph::add_memory_facts,
             desktop_control::list_windows,

@@ -125,6 +125,7 @@ export function isInbound(value: unknown): value is InboundMessage {
     t === "cron_remove" ||
     t === "cron_toggle" ||
     t === "cron_list" ||
-    t === "desktop_control_response"
+    t === "desktop_control_response" ||
+    t === "connectors_reload"
   );
 }

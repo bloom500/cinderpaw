@@ -75,6 +75,30 @@ export interface McpServerView {
 }
 export interface McpToolView { name: string; description: string }
 
+// Connectors — inbound messaging surfaces over the local agent. Field names
+// match Rust snake_case serialization exactly.
+export interface ConnectorCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  logo_url?: string;
+  token_label: string;
+  coming_soon: boolean;
+}
+export interface ConnectorView {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  logo_url?: string;
+  token_label: string;
+  coming_soon: boolean;
+  enabled: boolean;
+  has_token: boolean;
+  allowlist: string[];
+}
+
 // HF types — field names match Rust snake_case serialization exactly
 export interface HfModelSummary {
   id: string;
@@ -340,6 +364,13 @@ const raw = {
   mcpListTools:             (id: string) => invoke<McpToolView[]>('mcp_list_tools', { id }),
   mcpCallTool:              (id: string, tool: string, argsJson: string) =>
     invoke<string>('mcp_call_tool', { id, tool, argsJson }),
+  connectorsCatalog:        () => invoke<ConnectorCatalogEntry[]>('connectors_catalog'),
+  connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
+  connectorsSave:           (id: string, token: string | null, allowlist: string[]) =>
+    invoke<ConnectorView>('connectors_save', { id, token, allowlist }),
+  connectorsSetEnabled:     (id: string, enabled: boolean) =>
+    invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
+  connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
@@ -441,6 +472,14 @@ export const tauri = {
     remove:     async (id: string) => raw.mcpRemove(id),
     listTools:  async (id: string) => raw.mcpListTools(id),
     callTool:   async (id: string, tool: string, argsJson: string) => raw.mcpCallTool(id, tool, argsJson),
+  },
+
+  connectors: {
+    catalog:    async () => raw.connectorsCatalog(),
+    list:       async () => raw.connectorsList(),
+    save:       async (id: string, token: string | null, allowlist: string[]) => raw.connectorsSave(id, token, allowlist),
+    setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
+    remove:     async (id: string) => raw.connectorsRemove(id),
   },
 
   feralAgent: {

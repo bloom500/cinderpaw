@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot, Puzzle,
+  MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot, Puzzle, Plug,
   Download, PanelLeftClose, PanelLeftOpen, Lock, Folder,
   ChevronDown, ChevronRight, MoreHorizontal, Trash2, FolderInput, FolderMinus,
   X, CheckCircle, AlertCircle, Loader2, Brain,
@@ -24,7 +24,7 @@ import { useAppVersion } from '@/hooks/useAppVersion';
 export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
 
-type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'extensions' | 'memoryGraph';
+type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'extensions' | 'connectors' | 'memoryGraph';
 
 interface MenuItem {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
@@ -43,6 +43,7 @@ const MENU: MenuItem[] = [
   { icon: Settings,     label: 'Settings',     shortcut: null,  action: 'settings',   disabled: false, route: '/settings' },
   { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: false },
   { icon: Puzzle,       label: 'Extensions',   shortcut: null,  action: 'extensions', disabled: false, route: '/extensions' },
+  { icon: Plug,         label: 'Connectors',   shortcut: null,  action: 'connectors', disabled: false, route: '/connectors' },
   { icon: Brain,        label: 'Memory Graph', shortcut: null,  action: 'memoryGraph', disabled: false, route: '/memory-graph' },
 ];
 

@@ -9,6 +9,7 @@ import { ChatPage } from '@/pages/ChatPage';
 // chunks load from local disk in single-digit ms, a spinner would only flash.
 const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const ExtensionsPage  = lazy(() => import('@/pages/ExtensionsPage').then((m) => ({ default: m.ExtensionsPage })));
+const ConnectorsPage  = lazy(() => import('@/pages/ConnectorsPage').then((m) => ({ default: m.ConnectorsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const MemoryGraphPage = lazy(() => import('@/pages/MemoryGraphPage').then((m) => ({ default: m.MemoryGraphPage })));
 
@@ -24,6 +25,7 @@ export const router = createMemoryRouter([
       { path: 'chat/:id', element: <ChatPage /> },
       { path: 'models',     element: lazyPage(<ModelsPage />) },
       { path: 'extensions', element: lazyPage(<ExtensionsPage />) },
+      { path: 'connectors', element: lazyPage(<ConnectorsPage />) },
       { path: 'settings', element: lazyPage(<SettingsPage />) },
       // No '/skills' route: the sidebar's Skills item opens SkillHubDrawer
       // directly; the old StubPage route was unreachable dead weight.

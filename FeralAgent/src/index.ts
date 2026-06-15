@@ -52,6 +52,7 @@ import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
 import { SkillsStorage, SkillAutoCreator } from "./skills/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
+import { ConnectorManager } from "./transports/connectors.ts";
 import type { DeliveryTarget, Schedule } from "./types.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
@@ -560,10 +561,19 @@ async function main(): Promise<void> {
   // to the bridge inside the `onMessage` handler below.
   sendHolder.current = (e) => transport.send(e);
 
+  // Connector Surface (inbound): Discord/Telegram/… share this one agent.
+  // The host writes ~/.feral/connectors.json and pokes us with
+  // `connectors_reload`; reconcile here. Started in onReady once the agent and
+  // tools are fully wired.
+  const connectors = new ConnectorManager(agent, log);
+
   transport.onMessage(async (msg) => {
     switch (msg.type) {
       case "ping":
         transport.send({ type: "pong" });
+        break;
+      case "connectors_reload":
+        void connectors.reload();
         break;
 
       case "shutdown":
@@ -786,6 +796,9 @@ async function main(): Promise<void> {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+    // Start any enabled inbound connectors (Discord, …) now that the agent and
+    // its tools are live. Best-effort: failures log to stderr, never crash.
+    void connectors.reload();
   });
 
   // Persist final audit state on unexpected termination.
@@ -795,6 +808,7 @@ async function main(): Promise<void> {
     innerThoughts?.stop();
     heartbeat.stop();
     cronScheduler.stop();
+    void connectors.stopAll();
     graphCleaner.stop();
     try {
       stopSoulWatcher();
