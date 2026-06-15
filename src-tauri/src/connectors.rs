@@ -213,7 +213,23 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
 #[specta::specta]
 pub fn connectors_list() -> Vec<ConnectorView> {
     let cfg = load_config();
-    cfg.connectors.iter().map(view_of).collect()
+    let mut views: Vec<ConnectorView> = cfg.connectors.iter().map(view_of).collect();
+
+    // Surface the Discord token the user already entered for the mcp-discord
+    // extension even before they save a connector row, so the card shows
+    // "saved" and can be turned on straight away. The token itself stays
+    // backend-side; only `has_token` crosses the boundary.
+    if !views.iter().any(|v| v.id == "discord") {
+        if let Some(token) = discord_token_from_mcp() {
+            views.push(view_of(&ConnectorConfig {
+                id: "discord".into(),
+                enabled: false,
+                token,
+                allowlist: Vec::new(),
+            }));
+        }
+    }
+    views
 }
 
 /// Save a connector's token (when provided) and allowlist. A connector row is
