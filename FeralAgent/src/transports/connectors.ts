@@ -122,19 +122,28 @@ export class DiscordConnector {
     if (!text) return;
 
     const sessionId = `discord:${message.channelId}`;
+    const channel = message.channel;
+
+    // Discord's typing indicator self-expires after ~10s. Agent turns that use
+    // tools routinely run much longer, so the indicator vanishes and the user
+    // thinks the bot died. Re-poke it every 8s for the whole turn so "… is
+    // typing" stays visible continuously until the reply lands.
+    const pokeTyping = () => {
+      if ("sendTyping" in channel) void channel.sendTyping().catch(() => {});
+    };
+    pokeTyping();
+    const keepTyping = setInterval(pokeTyping, 8000);
+
     try {
-      if ("sendTyping" in message.channel) {
-        await message.channel.sendTyping().catch(() => {});
-      }
       // The shared agent answers with the same model + tools as the app.
       // emit is a no-op here: we post the final returned text (v1 = buffered;
       // token streaming/edited replies are a v2 refinement).
       const reply = await this.#agent.handle(sessionId, text, `discord-${message.id}`, () => {});
       const parts = chunk(reply);
       await message.reply(parts[0] ?? "(no response)");
-      if ("send" in message.channel) {
+      if ("send" in channel) {
         for (const part of parts.slice(1)) {
-          await message.channel.send(part);
+          await channel.send(part);
         }
       }
     } catch (e) {
@@ -144,6 +153,8 @@ export class DiscordConnector {
       } catch {
         // channel may be gone
       }
+    } finally {
+      clearInterval(keepTyping);
     }
   }
 }
