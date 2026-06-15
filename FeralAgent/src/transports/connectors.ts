@@ -133,6 +133,10 @@ export class DiscordConnector {
     };
     pokeTyping();
     const keepTyping = setInterval(pokeTyping, 8000);
+    // Instant acknowledgement: the Feral paw lands on the message the moment we
+    // pick it up, so the user knows it was heard even before "typing" shows.
+    const react = (emoji: string) => void message.react(emoji).catch(() => {});
+    react("🐾");
 
     try {
       // The shared agent answers with the same model + tools as the app.
@@ -146,8 +150,10 @@ export class DiscordConnector {
           await channel.send(part);
         }
       }
+      react("✅");
     } catch (e) {
       this.#log(`discord: agent error: ${String(e)}`);
+      react("⚠️");
       try {
         await message.reply("Sorry — something went wrong handling that.");
       } catch {

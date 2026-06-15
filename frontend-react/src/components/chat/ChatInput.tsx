@@ -208,7 +208,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             }
             disabled={disabled}
             rows={1}
-            className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 pt-4"
+            className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 pt-4 scrollbar-hide"
           />
           <div className="flex items-center justify-between px-4 pb-3">
             <div className="flex gap-1">

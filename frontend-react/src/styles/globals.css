@@ -24,6 +24,35 @@
 }
 
 /*
+ * On-brand scrollbars everywhere. Default OS scrollbars clash with the dark,
+ * warm palette (chunky, grey, light-mode track). Make every scrollbar thin,
+ * track-less and themed. Elements that want NO bar still use `.scrollbar-hide`
+ * (higher specificity → wins over these). Firefox uses the `scrollbar-*`
+ * properties; Chromium/WebKit the `::-webkit-scrollbar` pseudo-elements.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--border-default);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}
+
+/*
  * ═══════════════════════════════════════════════════════════════════════════
  * CRITICAL NAMING CONVENTION — read before editing this file
  *
