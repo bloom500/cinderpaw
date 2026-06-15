@@ -77,13 +77,15 @@ export interface McpToolView { name: string; description: string }
 
 // Connectors — inbound messaging surfaces over the local agent. Field names
 // match Rust snake_case serialization exactly.
+export interface ConnectorField { key: string; label: string; secret: boolean }
 export interface ConnectorCatalogEntry {
   id: string;
   name: string;
   description: string;
   icon: string;
   logo_url?: string;
-  token_label: string;
+  fields: ConnectorField[];
+  auth_kind: string; // "token" | "qr"
   coming_soon: boolean;
 }
 export interface ConnectorView {
@@ -92,10 +94,12 @@ export interface ConnectorView {
   description: string;
   icon: string;
   logo_url?: string;
-  token_label: string;
+  fields: ConnectorField[];
+  auth_kind: string;
   coming_soon: boolean;
   enabled: boolean;
-  has_token: boolean;
+  filled: string[];   // field keys that hold a value (never the values)
+  linked: boolean;    // QR connectors: session established
   allowlist: string[];
   channels: string[];
 }
@@ -367,8 +371,8 @@ const raw = {
     invoke<string>('mcp_call_tool', { id, tool, argsJson }),
   connectorsCatalog:        () => invoke<ConnectorCatalogEntry[]>('connectors_catalog'),
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
-  connectorsSave:           (id: string, token: string | null, allowlist: string[], channels: string[]) =>
-    invoke<ConnectorView>('connectors_save', { id, token, allowlist, channels }),
+  connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[]) =>
+    invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels }),
   connectorsSetEnabled:     (id: string, enabled: boolean) =>
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
@@ -478,7 +482,7 @@ export const tauri = {
   connectors: {
     catalog:    async () => raw.connectorsCatalog(),
     list:       async () => raw.connectorsList(),
-    save:       async (id: string, token: string | null, allowlist: string[], channels: string[]) => raw.connectorsSave(id, token, allowlist, channels),
+    save:       async (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[]) => raw.connectorsSave(id, secrets, allowlist, channels),
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
   },

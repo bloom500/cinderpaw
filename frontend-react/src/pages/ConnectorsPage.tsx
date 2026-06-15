@@ -119,7 +119,7 @@ function ConnectorCard({
   state: ConnectorView | null;
   onChanged: () => void;
 }) {
-  const [token, setToken] = useState('');
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [allowlist, setAllowlist] = useState(state?.allowlist.join('\n') ?? '');
   const [channels, setChannels] = useState(state?.channels.join('\n') ?? '');
   const [busy, setBusy] = useState(false);
@@ -128,9 +128,14 @@ function ConnectorCard({
   const [removeArmed, setRemoveArmed] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
-  const hasToken = state?.has_token ?? false;
   const enabled = state?.enabled ?? false;
   const configured = state !== null;
+  const isQr = entry.auth_kind === 'qr';
+  const linked = state?.linked ?? false;
+  const filled = new Set(state?.filled ?? []);
+  // Ready to turn on: QR connectors link on connect; token connectors need every
+  // field either already saved or freshly typed.
+  const ready = isQr || entry.fields.every((f) => filled.has(f.key) || (secrets[f.key]?.trim() ?? '').length > 0);
 
   const parseList = (value: string) =>
     value
@@ -142,10 +147,14 @@ function ConnectorCard({
     setBusy(true);
     setErr(null);
     try {
-      // Empty token field means "keep what's saved" (and seed from the Discord
-      // extension if nothing is stored yet).
-      await tauri.connectors.save(entry.id, token.trim() || null, parseList(allowlist), parseList(channels));
-      setToken('');
+      // Only send fields the user actually typed; empty = keep what's saved.
+      const payload: Record<string, string> = {};
+      for (const f of entry.fields) {
+        const v = (secrets[f.key] ?? '').trim();
+        if (v) payload[f.key] = v;
+      }
+      await tauri.connectors.save(entry.id, payload, parseList(allowlist), parseList(channels));
+      setSecrets({});
       onChanged();
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2500);
@@ -177,8 +186,9 @@ function ConnectorCard({
     setBusy(true);
     try {
       await tauri.connectors.remove(entry.id);
-      setToken('');
+      setSecrets({});
       setAllowlist('');
+      setChannels('');
       onChanged();
     } catch (e) {
       setErr(String(e));
@@ -187,6 +197,23 @@ function ConnectorCard({
       setRemoveArmed(false);
     }
   };
+
+  // Connector-specific wording for the sender / channel lists.
+  const allowLabel =
+    entry.id === 'whatsapp' ? 'Allowed phone numbers'
+      : entry.id === 'slack' ? 'Allowed Slack member IDs'
+        : entry.id === 'discord' ? 'Allowed Discord user IDs'
+          : 'Allowed sender IDs';
+  const allowHint =
+    entry.id === 'whatsapp'
+      ? ' (with country code, one per line — only these people can reach your assistant)'
+      : ' (one per line — only these people can message your assistant)';
+  const channelLabel = entry.id === 'whatsapp' ? 'Group chats to answer' : 'Channels with no @mention needed';
+  const channelHint =
+    entry.id === 'whatsapp'
+      ? ' (group IDs, one per line — private chats are always answered)'
+      : ' (channel IDs, one per line — it answers every message here, like a dedicated #bot channel)';
+  const channelPlaceholder = entry.id === 'whatsapp' ? 'e.g. 120363012345678901@g.us' : 'e.g. 1479216978496458803';
 
   return (
     <div
@@ -234,9 +261,9 @@ function ConnectorCard({
           <button
             type="button"
             onClick={() => void toggle()}
-            disabled={busy || (!enabled && !hasToken)}
+            disabled={busy || (!enabled && !ready)}
             aria-label={enabled ? 'Turn off' : 'Turn on'}
-            title={!enabled && !hasToken ? 'Add a bot token first' : undefined}
+            title={!enabled && !ready ? 'Add the required tokens first' : undefined}
             className={cn(
               'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors mt-0.5 disabled:opacity-40',
               enabled ? 'bg-brand' : 'bg-bg-hover border border-border-default',
@@ -254,44 +281,60 @@ function ConnectorCard({
 
       {!entry.coming_soon && (
         <div className="mt-3 space-y-2">
-          <label className="block">
-            <span className="text-[11px] text-text-secondary">
-              {entry.token_label}
-              {hasToken && <span className="text-emerald-400/80"> · saved</span>}
-            </span>
-            <input
-              type="password"
-              value={token}
-              placeholder={hasToken ? 'Leave blank to keep current token' : ''}
-              onChange={(e) => setToken(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none"
-            />
-          </label>
+          {isQr ? (
+            <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-[11px] leading-relaxed">
+              {linked ? (
+                <span className="text-emerald-400">✅ Linked to WhatsApp.</span>
+              ) : (
+                <span className="text-text-muted">
+                  Turn this on, then scan the QR code shown in the app's terminal window with{' '}
+                  <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>.{' '}
+                  <span className="text-amber-300/90">Use a secondary number — automation can get a number banned.</span>
+                </span>
+              )}
+            </div>
+          ) : (
+            entry.fields.map((f) => (
+              <label key={f.key} className="block">
+                <span className="text-[11px] text-text-secondary">
+                  {f.label}
+                  {filled.has(f.key) && <span className="text-emerald-400/80"> · saved</span>}
+                </span>
+                <input
+                  type={f.secret ? 'password' : 'text'}
+                  value={secrets[f.key] ?? ''}
+                  placeholder={filled.has(f.key) ? 'Leave blank to keep current' : ''}
+                  onChange={(e) => setSecrets((s) => ({ ...s, [f.key]: e.target.value }))}
+                  className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none"
+                />
+              </label>
+            ))
+          )}
 
           <label className="block">
             <span className="text-[11px] text-text-secondary">
-              Allowed Discord user IDs
-              <span className="text-text-muted"> (one per line — only these people can message your assistant)</span>
+              {allowLabel}
+              <span className="text-text-muted">{allowHint}</span>
             </span>
             <textarea
               value={allowlist}
               onChange={(e) => setAllowlist(e.target.value)}
               rows={2}
-              placeholder="e.g. 215094730484056064"
+              placeholder={entry.id === 'whatsapp' ? 'e.g. 40712345678' : 'e.g. 215094730484056064'}
               className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y font-mono"
             />
           </label>
 
           <label className="block">
             <span className="text-[11px] text-text-secondary">
-              Channels with no @mention needed
-              <span className="text-text-muted"> (channel IDs, one per line — it answers every message here, like a dedicated #bot channel)</span>
+              {channelLabel}
+              <span className="text-text-muted">{channelHint}</span>
             </span>
             <textarea
               value={channels}
               onChange={(e) => setChannels(e.target.value)}
               rows={2}
-              placeholder="e.g. 1479216978496458803"
+              placeholder={channelPlaceholder}
               className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y font-mono"
             />
           </label>
