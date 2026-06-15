@@ -479,28 +479,11 @@ fn catalog() -> Vec<CatalogDef> {
                 category: "Communication".into(),
                 icon: "💬".into(),
                 logo_url: logo("https://a.slack-edge.com/80588/marketing/img/meta/slack_hash_128.png"),
-                fields: vec![
-                    f("SLACK_BOT_TOKEN", "Slack Bot token", true, false),
-                    f("SLACK_TEAM_ID", "Workspace ID", false, false),
-                ],
+                fields: vec![f("SLACK_MCP_XOXB_TOKEN", "Slack bot token (xoxb-…)", true, false)],
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-slack"],
-            env_keys: &["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "zernio".into(),
-                name: "Zernio".into(),
-                description: "Automate notifications and messaging via Zernio.".into(),
-                category: "Communication".into(),
-                icon: "📢".into(),
-                logo_url: None,
-                fields: vec![f("ZERNIO_API_KEY", "Zernio API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@zernio/mcp-server"],
-            env_keys: &["ZERNIO_API_KEY"],
+            args: &["-y", "slack-mcp-server@latest", "--transport", "stdio"],
+            env_keys: &["SLACK_MCP_XOXB_TOKEN"],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -510,11 +493,11 @@ fn catalog() -> Vec<CatalogDef> {
                 category: "Communication".into(),
                 icon: "🎮".into(),
                 logo_url: logo("https://discord.com/assets/favicon.ico"),
-                fields: vec![f("DISCORD_BOT_TOKEN", "Discord bot token", true, false)],
+                fields: vec![f("DISCORD_TOKEN", "Discord bot token", true, false)],
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-discord"],
-            env_keys: &["DISCORD_BOT_TOKEN"],
+            args: &["-y", "mcp-discord@latest", "--config", "{DISCORD_TOKEN}"],
+            env_keys: &["DISCORD_TOKEN"],
         },
         // ── CRM & Sales ───────────────────────────────────────────────────────
         CatalogDef {
