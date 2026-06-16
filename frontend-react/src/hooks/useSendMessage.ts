@@ -22,7 +22,11 @@ export function buildUserContent(text: string, files: AttachedFile[]): string {
   const binaryFiles = files.filter((f) => f.content === null && f.kind !== 'image');
   if (textFiles.length === 0 && imageFiles.length === 0 && binaryFiles.length === 0) return text;
   const blocks = [
-    ...textFiles.map((f) => `[File: ${f.name}]\n${f.content}`),
+    // Closing marker lets the chat bubble reliably strip the inlined content
+    // back out for display (showing a "Feral.pdf" chip instead of the whole
+    // file) — see parseUserAttachments(). It also gives the model a clear file
+    // boundary. Keep the marker format in sync with that parser.
+    ...textFiles.map((f) => `[File: ${f.name}]\n${f.content}\n[/File: ${f.name}]`),
     // Text-only models can't see pixels — note the attachment so the model
     // can at least acknowledge it instead of silently ignoring the upload.
     ...imageFiles.map((f) => `[Image attached: ${f.name}]`),

@@ -1,6 +1,7 @@
 import { memo, useEffect, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { AskUserCard } from './AskUserCard';
@@ -74,6 +75,18 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+/** Read-only file chip shown in a sent user message (no remove button). */
+function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }) {
+  const Icon =
+    attachment.kind === 'image' ? ImageIcon : attachment.kind === 'binary' ? FileIcon : FileText;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-border-default bg-bg-surface px-2 py-0.5 text-xs text-text-secondary">
+      <Icon size={12} className="shrink-0 text-text-muted" />
+      <span className="max-w-[160px] truncate">{attachment.name}</span>
+    </span>
+  );
+}
+
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
 // markdown re-parse + re-highlight on every streamed token.
@@ -84,21 +97,29 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
 
   if (isUser) {
     const images = message.images ?? [];
-    // The "[Image attached: name]" note exists for the MODEL's benefit (and
-    // as a fallback after reload, when data URLs are no longer in memory).
-    // While the pixels are available we show real thumbnails instead, so the
-    // note lines are stripped from the visible text.
-    const visibleText =
-      images.length > 0
-        ? message.content.replace(/^\[Image attached: [^\]]*\]\s*$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
-        : message.content;
+    // Pull the inlined attachment blocks back out so we show compact chips
+    // ("Feral.pdf") instead of dumping the whole extracted file content into
+    // the bubble. The model still received the full text — this is display
+    // only, and works off persisted content so it survives a reload.
+    const { attachments, text: visibleText } = parseUserAttachments(message.content);
+    // When real pixels are in memory we render thumbnails; the image chips are
+    // only the post-reload fallback, so drop them while thumbnails are shown.
+    const fileChips =
+      images.length > 0 ? attachments.filter((a) => a.kind !== 'image') : attachments;
     return (
       <div className="flex justify-end">
         <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-bg-elevated border border-border-default">
           {images.length > 0 && (
-            <div className={cn('flex flex-wrap gap-2', visibleText && 'mb-2')}>
+            <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (
                 <ZoomableImage key={i} src={src} alt={`Attached image ${i + 1}`} />
+              ))}
+            </div>
+          )}
+          {fileChips.length > 0 && (
+            <div className={cn('flex flex-wrap gap-1', visibleText && 'mb-2')}>
+              {fileChips.map((a, i) => (
+                <MessageAttachmentChip key={`${a.name}-${i}`} attachment={a} />
               ))}
             </div>
           )}

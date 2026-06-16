@@ -6,6 +6,9 @@ target-check/
 # Machine-specific local GPU dev launcher (hardcoded VS / Vulkan SDK paths).
 dev-gpu.bat
 
+# Local one-off diagnostic scripts (machine-specific absolute paths).
+FeralAgent/tools/
+
 # Tauri
 src-tauri/target/
 src-tauri/WixTools/
