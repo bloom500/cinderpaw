@@ -40,6 +40,23 @@ export function openDatabase(path: string): FeralDb {
   };
 }
 
+/**
+ * Add a column to a table only if it isn't already present, so migrations
+ * stay idempotent across restarts and in-place upgrades. Table/column names
+ * are compile-time literals here — never interpolate user input.
+ */
+function addColumnIfMissing(
+  db: Database,
+  table: string,
+  column: string,
+  type: string,
+): void {
+  const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
+  }
+}
+
 function migrate(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS audit_log (
@@ -60,6 +77,13 @@ function migrate(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_session
       ON audit_log (session_id, timestamp);
   `);
+
+  // Tamper-evidence (H-2): hash-chain columns. Added via idempotent ALTER so
+  // existing databases upgrade in place without losing rows. `prev_hash` links
+  // each entry to the previous one's `entry_hash`; together they make any
+  // post-hoc UPDATE/DELETE on the audit_log detectable (see AuditLog.verify).
+  addColumnIfMissing(db, "audit_log", "prev_hash", "TEXT");
+  addColumnIfMissing(db, "audit_log", "entry_hash", "TEXT");
 
   // Episodic memory: the searchable record of everything said and done.
   // Backed by an FTS5 virtual table for fast full-text recall.
