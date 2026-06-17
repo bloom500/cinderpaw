@@ -6,6 +6,15 @@ use std::path::{Path, PathBuf};
 use crate::paths;
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct VoiceMeta {
+    pub audio_path: String,
+    pub duration_ms: u32,
+    pub transcript: String,
+    /// Normalized 0..1 peak buckets for the waveform.
+    pub peaks: Vec<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct PersistedMessage {
     pub role: String,
     pub content: String,
@@ -13,6 +22,10 @@ pub struct PersistedMessage {
     /// Optional so existing on-disk conversations without this field load cleanly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
+    /// Present when this user turn was recorded as a voice message. Optional and
+    /// `#[serde(default)]` so conversations saved before this field load cleanly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<VoiceMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -134,6 +147,15 @@ pub fn load_index_from_dir(dir: &Path) -> Result<Vec<ConversationSummary>> {
 
 pub fn delete_from_dir(dir: &Path, id: &str) -> Result<()> {
     let path = dir.join(format!("{}.json", id));
+    // Best-effort cleanup of on-disk voice blobs referenced by this conversation
+    // before the JSON is removed (errors ignored — orphaned files are harmless).
+    if let Ok(conv) = load_from_dir(dir, id) {
+        for m in &conv.messages {
+            if let Some(v) = &m.voice {
+                let _ = std::fs::remove_file(&v.audio_path);
+            }
+        }
+    }
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
@@ -197,11 +219,20 @@ mod tests {
                 role: if i % 2 == 0 { "user".into() } else { "assistant".into() },
                 content: format!("Message {}", i),
                 thinking: None,
+                voice: None,
             })
             .collect()
     }
 
     // ── RED tests written first ────────────────────────────────────────────────
+
+    #[test]
+    fn loads_message_without_voice_field() {
+        let json = r#"{"role":"user","content":"hi"}"#;
+        let m: PersistedMessage = serde_json::from_str(json).unwrap();
+        assert!(m.voice.is_none());
+        assert_eq!(m.content, "hi");
+    }
 
     #[test]
     fn save_creates_json_file_for_conversation() {
@@ -295,15 +326,15 @@ mod tests {
         let dir = tmp();
 
         let conv1_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None },
-            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None },
-            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None },
+            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, voice: None },
+            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, voice: None },
+            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, voice: None },
         ];
         let conv2_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None },
-            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None },
-            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None },
-            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None },
+            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, voice: None },
+            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, voice: None },
+            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, voice: None },
+            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, voice: None },
         ];
 
         save_to_dir(&dir, "session-1", "Hello world", &conv1_msgs, None).unwrap();

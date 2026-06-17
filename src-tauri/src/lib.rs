@@ -1219,6 +1219,52 @@ fn clear_all_conversations() -> Result<(), String> {
     conversations::clear_all().map_err(|e| e.to_string())
 }
 
+// ---------- Voice messages (on-device STT) ----------
+
+/// Persist a recorded audio blob to the on-disk `voice/` dir. Returns the path.
+#[tauri::command]
+#[specta::specta]
+async fn save_voice_blob(bytes: Vec<u8>, ext: String) -> Result<String, String> {
+    let safe_ext = ext.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
+    let ext = if safe_ext.is_empty() { "webm".to_string() } else { safe_ext };
+    let dir = paths::voice_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// True if the whisper ggml model for `model_size` is already downloaded.
+#[tauri::command]
+#[specta::specta]
+fn whisper_model_present(model_size: String) -> bool {
+    paths::whisper_model_path(&model_size).exists()
+}
+
+/// Transcribe 16 kHz mono f32 PCM. Errors: "model-missing" | "voice-unavailable".
+#[tauri::command]
+#[specta::specta]
+async fn transcribe_audio(pcm: Vec<f32>, model_size: String) -> Result<String, String> {
+    let model_path = paths::whisper_model_path(&model_size);
+    if !model_path.exists() {
+        return Err("model-missing".into());
+    }
+    #[cfg(feature = "whisper")]
+    {
+        // Whisper is CPU-bound; run off the async runtime thread.
+        tokio::task::spawn_blocking(move || {
+            transcription::transcribe_pcm(&pcm, &model_path).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(feature = "whisper"))]
+    {
+        let _ = (pcm, model_path);
+        Err("voice-unavailable".into())
+    }
+}
+
 // ---------- Projects ----------
 
 #[tauri::command]
@@ -2218,6 +2264,9 @@ pub fn run() {
             load_conversation,
             delete_conversation,
             clear_all_conversations,
+            save_voice_blob,
+            whisper_model_present,
+            transcribe_audio,
             load_projects,
             save_project,
             delete_project,
