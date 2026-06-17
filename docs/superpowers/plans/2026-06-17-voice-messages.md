@@ -12,6 +12,8 @@
 
 - Transcription runs 100% on-device. The only network call is a one-time whisper model download. Copied verbatim from spec.
 - whisper.cpp support is **feature-gated** exactly like inference (`inference` feature → `dep:llama-cpp-2`). New Cargo feature `whisper` → `dep:whisper-rs`. CPU by default; GPU deferred.
+- **Windows MSVC build workaround (C2):** `whisper-rs-sys` bindgen produces a broken/opaque `whisper_full_params` (and glibc-specific types) under MSVC. Set `WHISPER_DONT_GENERATE_BINDINGS=1` so the build uses the crate's pre-generated bindings. Put it in a `.cargo/config.toml` `[env]` block so every build (dev, release, tests) picks it up. Use `whisper-rs` 0.16.x (current) — bump from 0.13 if its bundled bindings are also broken on this machine; adapt the `FullParams`/`WhisperContextParameters` API calls if the version bump changes them.
+- **Build prerequisite (C1):** the Feral app must NOT be running during a Rust build — `tauri-build` copies the sidecar `.exe` and fails on a Windows file lock if the app holds it open.
 - Default whisper model: **`ggml-small.bin`** (≈466 MB) from repo `ggerganov/whisper.cpp`. `ggml-base.bin` (≈142 MB) selectable for low-end machines.
 - Whisper language: **auto-detect** (`set_language(Some("auto"))`). Good for RO + EN.
 - All new Rust commands use `#[tauri::command] #[specta::specta]` and are registered in `tauri_specta::collect_commands![...]` in `src-tauri/src/lib.rs` (~line 2196).
