@@ -12,6 +12,8 @@
 
 import type { Database } from "bun:sqlite";
 import type { AuditLogger } from "../types.ts";
+import { redactPII, piiRedactionEnabled } from "./privacy.ts";
+import { encryptField, decryptField } from "../sandbox/field-crypto.ts";
 
 export interface SemanticFact {
   key: string;
@@ -36,13 +38,26 @@ export class SemanticMemory {
     `);
   }
 
-  /** Write or overwrite a single fact about the user. */
+  /**
+   * Write or overwrite a single fact about the user. High-confidence PII in the
+   * value (card / IBAN / CNP / email / phone) is redacted before persistence
+   * (M-2) so durable memory never silently retains it. Disable with
+   * `FERAL_PII_REDACTION=off`.
+   */
   upsert(key: string, value: string): void {
     if (!key.trim()) return;
+    let storedValue = value;
+    let redactions = 0;
+    if (piiRedactionEnabled()) {
+      const r = redactPII(value);
+      storedValue = r.text;
+      redactions = r.redactions;
+    }
     try {
       this.#upsert.run({
         $key: key.trim().toLowerCase(),
-        $value: value,
+        // Encrypt at rest (H-1). No-op when no key is provisioned.
+        $value: encryptField(storedValue),
         $updatedAt: Date.now(),
       });
       this.#audit({
@@ -50,7 +65,7 @@ export class SemanticMemory {
         sessionId: "semantic",
         actionType: "memory_write",
         result: "success",
-        argsJson: JSON.stringify({ key, length: value.length }),
+        argsJson: JSON.stringify({ key, length: storedValue.length, redactions }),
       });
     } catch (err) {
       this.#audit({
@@ -70,7 +85,7 @@ export class SemanticMemory {
         "SELECT key, value, updated_at FROM semantic ORDER BY updated_at DESC",
       )
       .all()
-      .map((r) => ({ key: r.key, value: r.value, updatedAt: r.updated_at }));
+      .map((r) => ({ key: r.key, value: decryptField(r.value), updatedAt: r.updated_at }));
   }
 
   /** Look up a single fact by key, or undefined when unknown. */
@@ -81,7 +96,7 @@ export class SemanticMemory {
       )
       .get(key.trim().toLowerCase());
     if (!row) return undefined;
-    return { key: row.key, value: row.value, updatedAt: row.updated_at };
+    return { key: row.key, value: decryptField(row.value), updatedAt: row.updated_at };
   }
 
   /** Delete a fact (e.g. user explicitly asks agent to forget something). */

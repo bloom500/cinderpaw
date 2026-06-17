@@ -24,10 +24,11 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, Sparkles, X, FileText, Search, Terminal, Cpu } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Sparkles, X, FileText, Search, Terminal, Cpu, ShieldCheck, ShieldAlert, Shield } from 'lucide-react';
 import { useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { recommendModel } from '@/lib/hardwareRecommendation';
+import { tauri, type DiskEncryptionStatus } from '@/lib/tauri';
 import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
 import { cn } from '@/lib/utils';
 
@@ -377,9 +378,68 @@ function DoneStep() {
           </p>
         </div>
       )}
+      <DiskEncryptionNotice />
+
       <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
         <Sparkles size={12} />
         <span>You can change names anytime in Settings</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * At-rest data protection notice (H-1). Feral keeps everything local, so the
+ * confidentiality of conversations and memory on disk depends on the OS's
+ * full-disk encryption. We surface the host's status here — reassurance when
+ * it's on, a clear nudge when it isn't. Silent on any error (e.g. running
+ * outside the desktop shell) so it never blocks finishing onboarding.
+ */
+function DiskEncryptionNotice() {
+  const [status, setStatus] = useState<DiskEncryptionStatus | null>(null);
+  useEffect(() => {
+    void tauri.system
+      .diskEncryption()
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+  if (!status) return null;
+
+  const variant = {
+    on: {
+      Icon: ShieldCheck,
+      accent: 'text-emerald-500',
+      ring: 'border-emerald-500/30 bg-emerald-500/5',
+      title: 'Your data is protected at rest',
+      body: 'Disk encryption is on, so your conversations and memory are safe even if this device is lost.',
+    },
+    off: {
+      Icon: ShieldAlert,
+      accent: 'text-amber-500',
+      ring: 'border-amber-500/30 bg-amber-500/5',
+      title: 'Turn on disk encryption',
+      body: 'Your data lives only on this device — enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
+    },
+    unknown: {
+      Icon: Shield,
+      accent: 'text-text-muted',
+      ring: 'border-border-subtle bg-bg-primary/50',
+      title: 'Check your disk encryption',
+      body: 'We could not verify it automatically. Make sure BitLocker (Windows) or FileVault (macOS) is on to protect your data at rest.',
+    },
+  }[status.state];
+
+  return (
+    <div
+      className={cn(
+        'mx-auto max-w-md text-left rounded-lg border p-4 flex gap-3',
+        variant.ring,
+      )}
+    >
+      <variant.Icon size={18} className={cn('shrink-0 mt-0.5', variant.accent)} />
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-text-primary">{variant.title}</p>
+        <p className="text-xs text-text-muted leading-relaxed">{variant.body}</p>
       </div>
     </div>
   );

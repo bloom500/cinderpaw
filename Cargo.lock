@@ -1373,6 +1373,7 @@ dependencies = [
  "dirs 5.0.1",
  "encoding_rs",
  "futures",
+ "getrandom 0.2.17",
  "keyring",
  "llama-cpp-2",
  "log",

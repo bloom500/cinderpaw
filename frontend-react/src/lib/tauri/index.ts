@@ -47,6 +47,13 @@ export interface SystemInfo {
   supports_vulkan: boolean;
 }
 
+// At-rest encryption posture for the host disk (H-1). `state` is "on" | "off"
+// | "unknown"; `detail` is a human-readable note for the UI.
+export interface DiskEncryptionStatus {
+  state: 'on' | 'off' | 'unknown';
+  detail: string;
+}
+
 // MCP "Extensions" — display-safe views only (no transports, paths, or keys)
 export interface McpConfigField {
   key: string;
@@ -301,6 +308,7 @@ const raw = {
   getModelSizeInfo:      (repoId: string, filename: string) =>
     invoke<number>('get_model_size_info', { repoId, filename }),
   getSystemInfo:         ()    => invoke<SystemInfo>('get_system_info'),
+  diskEncryptionStatus:  ()    => invoke<DiskEncryptionStatus>('disk_encryption_status'),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
@@ -452,6 +460,7 @@ export const tauri = {
 
   system: {
     info: async () => raw.getSystemInfo(),
+    diskEncryption: async () => raw.diskEncryptionStatus(),
   },
 
   files: {

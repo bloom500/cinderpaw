@@ -3,7 +3,9 @@ mod api;
 mod byok;
 mod connectors;
 mod conversations;
+mod db_key;
 mod desktop_control;
+mod disk_encryption;
 mod events;
 mod feral_agent;
 mod gpu_detect;
@@ -2203,6 +2205,7 @@ pub fn run() {
             chat_stream,
             stop_generation,
             get_system_info,
+            disk_encryption::disk_encryption_status,
             save_agent,
             get_agents,
             delete_agent,

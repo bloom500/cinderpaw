@@ -209,6 +209,14 @@ pub async fn spawn(
         .env("FERAL_API_KEY", api_token)
         .env("FERAL_MODEL", "feral-local");
 
+    // At-rest encryption key (H-1) for the sidecar's sensitive DB columns. From
+    // the OS keychain, generated on first use. Absent ⇒ sidecar stores plaintext
+    // (it must never encrypt with a key it can't persist). Passed like the other
+    // secrets above and never written to disk by the host.
+    if let Some(db_key) = crate::db_key::get_or_create() {
+        cmd.env("FERAL_DB_KEY", db_key);
+    }
+
     // Desktop-control opt-in + policy. Forwarded from the host environment so a
     // single env var (or, later, a Settings toggle that sets it) consistently
     // enables BOTH the sidecar's `control_app` tool registration AND the Rust

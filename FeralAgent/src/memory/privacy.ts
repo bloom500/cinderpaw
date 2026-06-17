@@ -58,3 +58,91 @@ export function hasPrivateContent(input: string): boolean {
   STRIP_REGEX.lastIndex = 0;
   return STRIP_REGEX.test(input);
 }
+
+// ── Automatic PII redaction (M-2) ────────────────────────────────────────────
+//
+// `stripPrivate` only removes content the user *explicitly* tagged. This catches
+// high-confidence PII patterns automatically, so durable memory (semantic facts)
+// never silently retains a card number, IBAN, national ID, email or phone the
+// user mentioned in passing. The bar is deliberately HIGH confidence — credit
+// cards are Luhn-validated, IBAN/CNP are structurally matched — to keep false
+// positives low. Free-form text (names, addresses) is out of scope: it can't be
+// matched without an NER model and would be too lossy to redact blindly.
+
+export interface RedactResult {
+  text: string;
+  /** Total number of PII spans redacted. */
+  redactions: number;
+  /** Distinct kinds redacted, e.g. ["email", "card"]. */
+  kinds: string[];
+}
+
+/** Luhn checksum — distinguishes real card numbers from arbitrary digit runs. */
+function luhnValid(digits: string): boolean {
+  if (digits.length < 13 || digits.length > 19) return false;
+  let sum = 0;
+  let alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (d < 0 || d > 9) return false;
+    if (alt) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+/**
+ * Redact high-confidence PII from `input`, returning the cleaned text and what
+ * was removed. Each match is replaced with `[REDACTED:<kind>]`. Order matters:
+ * structured/anchored patterns run before the looser card scan, and the card
+ * scan is Luhn-gated so a national ID or order number isn't mistaken for one.
+ */
+export function redactPII(input: string): RedactResult {
+  let redactions = 0;
+  const kinds = new Set<string>();
+  const mark = (kind: string): string => {
+    redactions++;
+    kinds.add(kind);
+    return `[REDACTED:${kind}]`;
+  };
+
+  let text = input;
+
+  // Email — anchored, very low false-positive rate.
+  text = text.replace(
+    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    () => mark("email"),
+  );
+
+  // IBAN — 2-letter country, 2 check digits, 11–30 alphanumerics.
+  text = text.replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, () => mark("iban"));
+
+  // Romanian CNP — S YYMMDD CC NNN C (13 digits with a valid month/day).
+  text = text.replace(
+    /\b[1-8]\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{6}\b/g,
+    () => mark("cnp"),
+  );
+
+  // Credit card — 13–19 digits with optional space/dash separators, Luhn-valid.
+  text = text.replace(/\b\d(?:[ -]?\d){12,18}\b/g, (m) =>
+    luhnValid(m.replace(/[^\d]/g, "")) ? mark("card") : m,
+  );
+
+  // Phone — conservative: international `+` form (the `+` self-anchors; `\b`
+  // can't, since `+` is a non-word char), or a RO 07xxxxxxxx mobile.
+  text = text.replace(
+    /(?:\+\d[\d ().-]{6,}\d|\b07\d{8}\b)/g,
+    () => mark("phone"),
+  );
+
+  return { text, redactions, kinds: [...kinds] };
+}
+
+/** True when PII redaction is enabled (default on; `FERAL_PII_REDACTION=off`). */
+export function piiRedactionEnabled(): boolean {
+  return process.env.FERAL_PII_REDACTION !== "off";
+}
