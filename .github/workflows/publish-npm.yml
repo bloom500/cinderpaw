@@ -1,0 +1,79 @@
+name: Publish feral-agent to npm
+
+# Decoupled from the desktop app's `Release` workflow (which fires on `v*`).
+# The agent ships on its own cadence, so it publishes on a dedicated tag
+# (`feral-agent-v*`) or a manual run — never automatically on an app release.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack only (npm publish --dry-run), do not actually publish"
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "feral-agent-v*"
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance (supply-chain attestation)
+
+jobs:
+  publish:
+    name: Publish feral-agent
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: FeralAgent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # registry-url makes setup-node write an .npmrc that reads NODE_AUTH_TOKEN.
+      # The token value never appears in the repo or logs — only the reference
+      # to the `NPM_TOKEN` secret does.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Quality gate: a broken build must never reach npm.
+      - name: Typecheck
+        run: bun run typecheck
+
+      # On a tag push, the tag's version must match package.json — refuse a
+      # mismatched tag rather than publishing a surprising version.
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#feral-agent-v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME ($TAG_VERSION) != package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "Publishing feral-agent@$PKG_VERSION"
+
+      # Manual dry-run path: pack and inspect what WOULD be published without
+      # touching the registry. Default for workflow_dispatch.
+      - name: Publish (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm publish --access public --provenance --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Real publish: tag push, or a manual run with dry_run unchecked.
+      - name: Publish to npm
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

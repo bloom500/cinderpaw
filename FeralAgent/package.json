@@ -4,6 +4,35 @@
   "description": "Feral Agent — proactive, portable AI agent with a native security sandbox",
   "type": "module",
   "module": "src/index.ts",
+  "license": "MIT",
+  "author": "Bloom Media",
+  "homepage": "https://github.com/bloom500/feral#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bloom500/feral.git",
+    "directory": "FeralAgent"
+  },
+  "bugs": {
+    "url": "https://github.com/bloom500/feral/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "local-first",
+    "sandbox",
+    "feral",
+    "llm"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
