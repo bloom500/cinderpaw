@@ -12,6 +12,13 @@ jobs:
   release:
     name: Build, sign & publish (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    # SignPath Foundation signing (H-3) — FREE for open-source. Job-level so the
+    # gated Windows steps can check whether signing is configured. Absent ⇒ every
+    # Windows step below is skipped and the bundle ships unsigned, exactly as
+    # before. Add SIGNPATH_API_TOKEN (secret) + the SIGNPATH_* vars after your
+    # signpath.org/apply project is approved.
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -178,3 +185,81 @@ jobs:
           # release. With a matrix, tauri-action merges each platform into
           # the same latest.json on the shared release.
           includeUpdaterJson: true
+
+      # ── Authenticode signing via SignPath Foundation (FREE for OSS) ──────────
+      # Every step here is gated on SIGNPATH_API_TOKEN, so until the project is
+      # approved at signpath.org/apply and the secret + vars below are set, these
+      # steps are SKIPPED and the release ships unsigned exactly as before.
+      #
+      # Flow: collect the just-built installers → submit to SignPath → it returns
+      # Authenticode-signed copies → regenerate the updater signature over the
+      # SIGNED bytes and clobber the release assets, so both manual downloads and
+      # auto-update see a signed, verifiable installer.
+      #
+      # After approval add: secret SIGNPATH_API_TOKEN, and repo variables
+      # SIGNPATH_ORGANIZATION_ID / SIGNPATH_PROJECT_SLUG / SIGNPATH_POLICY_SLUG.
+      - name: Collect Windows installers
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        run: |
+          $dir = "signpath-in"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Get-ChildItem -Recurse -Path src-tauri/target -Include *-setup.exe,*.msi |
+            Where-Object { $_.FullName -match 'bundle' } |
+            ForEach-Object { Copy-Item $_.FullName $dir }
+          if (-not (Get-ChildItem $dir)) { Write-Error "no installers found to sign"; exit 1 }
+          Get-ChildItem $dir | ForEach-Object { Write-Host "to sign: $($_.Name)" }
+
+      - name: Upload unsigned installers (for SignPath)
+        id: unsigned
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: feral-windows-unsigned
+          path: signpath-in/*
+
+      - name: Sign with SignPath Foundation
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signpath-out
+
+      # Auto-update verifies the .sig against the downloaded bytes, so after
+      # SignPath changes the installer we MUST regenerate the updater signature
+      # and replace the release assets. (This Windows-updater interaction is the
+      # one piece to confirm on the first real signed release.)
+      - name: Re-sign updater manifest over the signed installer
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $signed = Get-ChildItem -Recurse -Path signpath-out -Include *-setup.exe | Select-Object -First 1
+          if (-not $signed) { Write-Error "no signed NSIS installer returned by SignPath"; exit 1 }
+
+          # 1) New updater signature over the SIGNED bytes.
+          bunx --bun @tauri-apps/cli@2 signer sign `
+            --private-key "$env:TAURI_SIGNING_PRIVATE_KEY" `
+            --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" `
+            "$($signed.FullName)"
+          $newSig = (Get-Content "$($signed.FullName).sig" -Raw).Trim()
+
+          # 2) Patch latest.json's windows entry (same filename ⇒ url unchanged).
+          gh release download $tag --pattern latest.json --dir . --clobber
+          $json = Get-Content latest.json -Raw | ConvertFrom-Json
+          $json.platforms.'windows-x86_64'.signature = $newSig
+          $json | ConvertTo-Json -Depth 10 | Set-Content latest.json -Encoding utf8
+
+          # 3) Replace the release assets with the signed installer + manifest.
+          gh release upload $tag "$($signed.FullName)" latest.json --clobber
+          $msi = Get-ChildItem -Recurse -Path signpath-out -Include *.msi | Select-Object -First 1
+          if ($msi) { gh release upload $tag "$($msi.FullName)" --clobber }

@@ -50,3 +50,43 @@ jobs:
       - name: Test
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.test }}
+
+  # Dependency vulnerability scanning (M-3). Fails the build on known
+  # advisories so a vulnerable transitive dep can't slip into a release.
+  security-audit:
+    name: security-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Prebuilt cargo-audit binary (no source compile) for the RustSec DB.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Rust deps — fails on RustSec vulnerability advisories. Uses the
+      # committed Cargo.lock at the workspace root.
+      - name: cargo audit
+        run: cargo audit
+
+      # Frontend (npm) — gate on high+ severity only to avoid dev-only noise.
+      - name: npm audit (frontend-react)
+        working-directory: frontend-react
+        run: npm audit --omit=dev --audit-level=high
+
+      # Sidecar (bun) — same high+ gate against the bun lockfile.
+      - name: bun audit (FeralAgent)
+        working-directory: FeralAgent
+        run: bun audit --audit-level=high
