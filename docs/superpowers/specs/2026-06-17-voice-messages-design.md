@@ -1,7 +1,7 @@
 # Voice Messages — Design Spec
 
 **Date:** 2026-06-17
-**Status:** Approved (pending spec review)
+**Status:** Implemented (whisper feature-gated, dev-only; release wiring deferred — see docs/CONTRIBUTING.md)
 **Scope:** Voice message input for chat. Real-time "Call" mode is a separate, later spec.
 
 ## Summary

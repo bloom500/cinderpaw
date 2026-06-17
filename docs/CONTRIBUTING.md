@@ -51,6 +51,19 @@ FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev
 
 GPU inference: build with `--features inference-vulkan` (default is CPU).
 
+Voice messages (on-device whisper.cpp STT) are feature-gated like inference and
+are **not** in the default build. Enable them locally with:
+
+```bash
+cargo tauri dev --features whisper          # add to inference, e.g. --features whisper,inference-vulkan
+```
+
+Windows prerequisite: whisper-rs's bindgen needs a native LLVM/clang. Install
+LLVM (e.g. to `C:\Program Files\LLVM`) — `src-tauri/.cargo/config.toml` points
+`LIBCLANG_PATH` there, or export your own `LIBCLANG_PATH` to override it. Without
+the `whisper` feature the app still runs; voice transcription returns
+`voice-unavailable` and the UI falls back to text input.
+
 ## Tests
 
 ```bash
