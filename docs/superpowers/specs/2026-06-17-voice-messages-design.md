@@ -21,7 +21,7 @@ users, so every failure path degrades gracefully to plain text input.
 - **In-chat representation:** playable audio bubble with animated waveform (not just a text fill).
 - **Transcript:** shown under the bubble (WhatsApp/Telegram style).
 - **STT engine:** whisper.cpp local via the `whisper-rs` crate, feature-gated like inference.
-- **Whisper model acquisition:** downloaded on first mic use, reusing `download_hf_model`.
+- **Whisper model acquisition:** `ggml-small` (≈466 MB) downloaded on first mic use, reusing `download_hf_model`. `ggml-base` selectable for low-end machines.
 - **Mic UX:** toggle button (tap to start, tap to stop) with a preview step before sending.
 - **Agent response:** text (no voice reply in this spec).
 
@@ -59,7 +59,7 @@ users, so every failure path degrades gracefully to plain text input.
 - `transcription.rs` — `whisper-rs`; lazy-load the ggml model; `transcribe_pcm(Vec<f32>) -> String`.
   **Feature-gated** like inference (CPU default; GPU later).
 - `save_voice_blob(bytes) -> path` command — stores under app data `voice/`.
-- whisper model resolve + download (reuse `download_hf_model`, model `ggml-base` / `ggml-small`).
+- whisper model resolve + download (reuse `download_hf_model`, default `ggml-small`, `ggml-base` optional).
 
 ## Data model (backward-compatible extensions)
 
@@ -78,8 +78,9 @@ users, so every failure path degrades gracefully to plain text input.
 
 ## Settings
 
-- One setting: whisper model size (`base` ≈ 75 MB default / `small` ≈ 150 MB for
-  better accuracy). Default `base`. Language = whisper auto-detect (good for RO + EN).
+- One setting: whisper model size. Default **`small` ≈ 466 MB** (better RO/EN
+  accuracy); `base` ≈ 142 MB selectable for low-end / disk-constrained machines.
+  Language = whisper auto-detect (good for RO + EN).
 
 ## Waveform
 
