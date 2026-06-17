@@ -881,7 +881,12 @@ impl McpManager {
         // (package names, flags, paths), so this never trips on real configs.
         #[cfg(target_os = "windows")]
         {
-            let bad = |s: &str| s.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '\n' | '\r' | '\0'));
+            // `%` is included so a config can't smuggle cmd.exe env-var
+            // expansion (`%CD%`, `%PATH%`). `(`/`)` are deliberately NOT blocked
+            // — they appear in legitimate Windows paths (`C:\Program Files (x86)\…`).
+            // Rust 1.77.2+ std already fixes the BatBadBut arg-quoting CVE; this
+            // denylist is defense-in-depth on top of it.
+            let bad = |s: &str| s.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '\n' | '\r' | '\0'));
             if bad(&server.command) || server.args.iter().any(|a| bad(a)) {
                 return Err(humanize("This extension's command contains characters that aren't allowed for security reasons."));
             }
