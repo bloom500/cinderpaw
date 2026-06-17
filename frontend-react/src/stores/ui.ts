@@ -8,6 +8,7 @@ export type ReasoningMode = 'auto' | 'on' | 'off';
 export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' | 'code_execute';
 export type LangPref = 'en' | 'ro';
 export type InputMode = 'chat' | 'agent';
+export type WhisperModel = 'small' | 'base';
 
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
@@ -35,6 +36,9 @@ interface UIStore {
   /** #24: pixel-art mascot on the typing bar. Some users want it off. */
   mascotEnabled: boolean;
   setMascotEnabled: (v: boolean) => void;
+  /** Whisper STT model size for voice messages. */
+  whisperModel: WhisperModel;
+  setWhisperModel: (m: WhisperModel) => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -87,6 +91,8 @@ export const useUI = create<UIStore>()(
       setInputMode: (inputMode) => set({ inputMode }),
       mascotEnabled: true,
       setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
+      whisperModel: 'small',
+      setWhisperModel: (whisperModel) => set({ whisperModel }),
     }),
     {
       name: 'feral-ui',
@@ -98,6 +104,7 @@ export const useUI = create<UIStore>()(
         enabledTools: s.enabledTools,
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
+        whisperModel: s.whisperModel,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

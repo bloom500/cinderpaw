@@ -395,6 +395,12 @@ const raw = {
     invoke<string>('chat_complete_local', { messages, params }),
   chatCloudComplete:        (providerId: string, model: string, messages: Message[], params: InferParams) =>
     invoke<string>('chat_cloud_complete', { providerId, model, messages, params }),
+  saveVoiceBlob:            (bytes: number[], ext: string) =>
+    invoke<string>('save_voice_blob', { bytes, ext }),
+  whisperModelPresent:      (modelSize: string) =>
+    invoke<boolean>('whisper_model_present', { modelSize }),
+  transcribeAudio:          (pcm: number[], modelSize: string) =>
+    invoke<string>('transcribe_audio', { pcm, modelSize }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -456,6 +462,12 @@ export const tauri = {
       raw.downloadModel(repoId, filename),
     cancel: async (modelId: string) =>
       raw.cancelDownload(modelId),
+  },
+
+  voice: {
+    saveBlob:      async (bytes: number[], ext: string) => raw.saveVoiceBlob(bytes, ext),
+    modelPresent:  async (modelSize: string) => raw.whisperModelPresent(modelSize),
+    transcribe:    async (pcm: number[], modelSize: string) => raw.transcribeAudio(pcm, modelSize),
   },
 
   system: {
