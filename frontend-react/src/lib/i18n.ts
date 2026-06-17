@@ -36,6 +36,11 @@ const en = {
   'chat.truncated.body': 'The model hit its token limit before finishing',
   'chat.truncated.hint.pre': 'Increase',
   'chat.truncated.hint.post': 'in Settings for longer replies.',
+  // Voice messages
+  'voice.permissionDenied': 'Microphone access denied. Enable it to record voice messages.',
+  'voice.unsupported': 'Voice recording is not available on this device.',
+  'voice.modelDownloading': 'Downloading the voice model — try again in a moment.',
+  'voice.emptyTranscript': "Couldn't understand the recording. Try again.",
 } as const;
 
 type Strings = Record<keyof typeof en, string>;
@@ -60,6 +65,10 @@ const ro: Strings = {
   'chat.truncated.body': 'Modelul a atins limita de tokeni înainte să termine',
   'chat.truncated.hint.pre': 'Mărește',
   'chat.truncated.hint.post': 'în Settings pentru răspunsuri mai lungi.',
+  'voice.permissionDenied': 'Acces la microfon refuzat. Activează-l ca să înregistrezi mesaje vocale.',
+  'voice.unsupported': 'Înregistrarea vocală nu este disponibilă pe acest dispozitiv.',
+  'voice.modelDownloading': 'Se descarcă modelul vocal — încearcă din nou într-o clipă.',
+  'voice.emptyTranscript': 'Nu am putut înțelege înregistrarea. Mai încearcă o dată.',
 };
 
 const DICTS = { en, ro } as const;

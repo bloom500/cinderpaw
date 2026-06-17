@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { Brain, ArrowUp, Square } from 'lucide-react';
+import { Brain, ArrowUp, Square, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
+import { VoicePreview } from './VoicePreview';
 import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
@@ -23,8 +24,12 @@ import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
 import { useSendMessage, buildUserContent } from '@/hooks/useSendMessage';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
+import { decodeToPcm16k, computePeaks } from '@/lib/audio';
+import { ensureWhisperModel } from '@/lib/voiceModel';
 import { stopActiveStream } from '@/lib/streamControl';
+import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -77,6 +82,24 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const send = useSendMessage();
   const t = useT();
+  const rec = useVoiceRecorder();
+  const [voicePeaks, setVoicePeaks] = useState<number[]>([]);
+  const whisperModel = useUI((s) => s.whisperModel);
+
+  // When a recording finishes, compute peaks for the preview and warm the model.
+  useEffect(() => {
+    if (rec.state === 'preview' && rec.blob) {
+      void decodeToPcm16k(rec.blob).then((pcm) => setVoicePeaks(computePeaks(pcm)));
+      void ensureWhisperModel(whisperModel);
+    }
+  }, [rec.state, rec.blob, whisperModel]);
+
+  const onMic = async () => {
+    if (rec.state === 'recording') { rec.stop(); return; }
+    await rec.start();
+    if (rec.error === 'denied') useNotifications.getState().push('error', t('voice.permissionDenied'));
+    if (rec.error === 'unsupported') useNotifications.getState().push('error', t('voice.unsupported'));
+  };
 
   useImperativeHandle(ref, () => ({
     setText: (t: string) => {
@@ -193,6 +216,15 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               ))}
             </div>
           )}
+          {rec.state === 'preview' && rec.blob && (
+            <VoicePreview
+              blob={rec.blob}
+              durationMs={rec.durationMs}
+              peaks={voicePeaks}
+              onDelete={() => { rec.reset(); setVoicePeaks([]); }}
+              onReRecord={() => { rec.reset(); setVoicePeaks([]); void rec.start(); }}
+            />
+          )}
           <Textarea
             ref={taRef}
             value={text}
@@ -213,6 +245,16 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           <div className="flex items-center justify-between px-4 pb-3">
             <div className="flex gap-1">
               <FileAttachButton onFilesSelected={addFiles} />
+              {!isStreaming && (
+                <button
+                  type="button"
+                  onClick={() => void onMic()}
+                  aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message'}
+                  className={cn('p-1.5 rounded hover:bg-bg-hover', rec.state === 'recording' ? 'text-rose-400 animate-pulse' : 'text-text-muted')}
+                >
+                  {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
+                </button>
+              )}
               <ToolsPopover />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
