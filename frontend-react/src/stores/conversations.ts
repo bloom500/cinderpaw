@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/tauri';
 import { rehydrateLiveSession } from '@/lib/feralLiveSession';
+import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { useChat, type ChatMessage } from './chat';
 
 export type { ConversationSummary };
@@ -38,12 +39,13 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     content: p.content,
     thinking: p.thinking,
     thinkingComplete: p.thinking != null ? true : undefined,
+    voice: voiceFromPersisted(p.voice),
     createdAt: Date.now() - (1000 * (1000 - idx)),
   };
 }
 
 function toPersisted(m: ChatMessage): PersistedMessage {
-  return { role: m.role, content: m.content, thinking: m.thinking || undefined };
+  return { role: m.role, content: m.content, thinking: m.thinking || undefined, voice: voiceToPersisted(m.voice) };
 }
 
 export const useConversations = create<ConversationsStore>((set, get) => ({

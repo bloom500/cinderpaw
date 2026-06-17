@@ -5,12 +5,13 @@ import { useModel } from '@/stores/model';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
 import { useChatStream } from './useChatStream';
-import { toIpcMessage } from '@/lib/messageMapping';
+import { toIpcMessage, voiceToPersisted } from '@/lib/messageMapping';
 import { currentInferParams } from '@/lib/inferParams';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking } from '@/lib/parseThink';
 import { tauri, type PersistedMessage } from '@/lib/tauri';
 import { buildMemoryContext, extractChatMemory } from '@/lib/chatMemory';
+import { decodeToPcm16k } from '@/lib/audio';
 import type { AttachedFile } from '@/components/chat/AttachedFileChip';
 
 export function buildUserContent(text: string, files: AttachedFile[]): string {
@@ -43,7 +44,7 @@ export function useSendMessage() {
   const stream = useChatStream(useChat.getState().sessionId);
 
   return useCallback(
-    async (text: string, files: AttachedFile[] = []) => {
+    async (text: string, files: AttachedFile[] = [], opts?: { voice?: ChatMessage['voice'] }) => {
       const chat = useChat.getState();
       const { reasoningMode, enabledTools } = useUI.getState();
       const { loaded, cloudModel } = useModel.getState();
@@ -59,6 +60,7 @@ export function useSendMessage() {
         role: 'user' as const,
         content,
         ...(images.length > 0 ? { images } : {}),
+        ...(opts?.voice ? { voice: opts.voice } : {}),
         createdAt: Date.now(),
       };
       const asstMsg = {
@@ -172,6 +174,7 @@ export function useSendMessage() {
           role: m.role,
           content: m.id === asstId ? answer : m.content,
           thinking: m.thinking || undefined,
+          voice: voiceToPersisted(m.voice),
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
@@ -270,5 +273,29 @@ export function useSendMessage() {
       });
     },
     [stream],
+  );
+}
+
+/**
+ * Voice send: persist the blob, decode to 16 kHz PCM, transcribe on-device,
+ * then push the transcript through the normal send pipeline tagged with voice
+ * metadata. Transcription errors ("model-missing" | "voice-unavailable") are
+ * re-thrown so the caller can surface a toast.
+ */
+export function useSendVoiceMessage() {
+  const send = useSendMessage();
+  return useCallback(
+    async (blob: Blob, durationMs: number, peaks: number[]) => {
+      const { whisperModel } = useUI.getState();
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
+      const audioPath = await tauri.voice.saveBlob(Array.from(buf), ext);
+      const pcm = await decodeToPcm16k(blob);
+      const transcript = await tauri.voice.transcribe(Array.from(pcm), whisperModel);
+      await send(transcript || '(unintelligible)', [], {
+        voice: { audioPath, durationMs, transcript, peaks },
+      });
+    },
+    [send],
   );
 }

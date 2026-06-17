@@ -23,7 +23,7 @@ import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
-import { useSendMessage, buildUserContent } from '@/hooks/useSendMessage';
+import { useSendMessage, useSendVoiceMessage, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
@@ -83,6 +83,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const send = useSendMessage();
   const t = useT();
   const rec = useVoiceRecorder();
+  const sendVoice = useSendVoiceMessage();
   const [voicePeaks, setVoicePeaks] = useState<number[]>([]);
   const whisperModel = useUI((s) => s.whisperModel);
 
@@ -161,6 +162,24 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const disabled = alwaysEnabled ? false : (!loaded && !cloudModel);
 
   const trySend = async () => {
+    // Voice path: a recorded preview is pending — transcribe + send it instead
+    // of the (empty) textarea content.
+    if (rec.state === 'preview' && rec.blob) {
+      if (isStreaming || disabled) return;
+      const { blob, durationMs } = rec;
+      const peaks = voicePeaks;
+      rec.reset();
+      setVoicePeaks([]);
+      try {
+        await sendVoice(blob, durationMs, peaks);
+      } catch (err) {
+        const code = String((err as Error).message);
+        if (code === 'model-missing') useNotifications.getState().push('info', t('voice.modelDownloading'));
+        else if (code === 'voice-unavailable') useNotifications.getState().push('error', t('voice.unsupported'));
+        else useNotifications.getState().push('error', t('voice.emptyTranscript'));
+      }
+      return;
+    }
     if ((!text.trim() && attachedFiles.length === 0) || isStreaming || disabled) return;
     const content = text;
     const files = attachedFiles;
@@ -339,7 +358,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 <Button
                   size="icon"
                   onClick={() => void trySend()}
-                  disabled={(!text.trim() && attachedFiles.length === 0) || disabled}
+                  disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || disabled}
                   aria-label="Send"
                   className="h-7 w-7"
                 >

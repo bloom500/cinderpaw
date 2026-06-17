@@ -37,6 +37,8 @@ export interface ChatMessage {
     questions: import('./askUser').AskUserQuestion[];
     answers?: import('./askUser').AskUserAnswer[];
   };
+  /** Present when this user turn was recorded as a voice message. */
+  voice?: { audioPath: string; durationMs: number; transcript: string; peaks: number[] };
 }
 
 interface ChatStore {

@@ -189,7 +189,9 @@ export interface ByokProvider {
   default_model?: string | null;
 }
 
-export interface PersistedMessage    { role: string; content: string; thinking?: string }
+/** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
+export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
