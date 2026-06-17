@@ -1,0 +1,6 @@
+[env]
+# Point bindgen at the Windows LLVM installation so whisper-rs-sys generates
+# correct MSVC-compatible bindings instead of glibc-specific ones.
+# The bundled src/bindings.rs in whisper-rs-sys was generated on Linux and
+# fails to compile on Windows (mismatched sizes for _IO_FILE / _G_fpos_t).
+LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"

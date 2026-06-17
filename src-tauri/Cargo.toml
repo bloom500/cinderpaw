@@ -51,7 +51,7 @@ reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], defau
 llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
 
 # Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
-whisper-rs = { version = "0.13", default-features = false, optional = true }
+whisper-rs = { version = "0.16", default-features = false, optional = true }
 
 # Utilities
 anyhow = "1"

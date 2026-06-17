@@ -9,11 +9,8 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 /// Transcribe 16 kHz mono f32 PCM samples to text using the ggml model at `model_path`.
 /// Language is auto-detected. Returns the concatenated, trimmed transcript.
 pub fn transcribe_pcm(samples: &[f32], model_path: &Path) -> Result<String> {
-    let ctx = WhisperContext::new_with_params(
-        &model_path.to_string_lossy(),
-        WhisperContextParameters::default(),
-    )
-    .context("failed to load whisper model")?;
+    let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
+        .context("failed to load whisper model")?;
 
     let mut state = ctx.create_state().context("failed to create whisper state")?;
 
@@ -24,12 +21,19 @@ pub fn transcribe_pcm(samples: &[f32], model_path: &Path) -> Result<String> {
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
 
-    state.full(params, samples).context("whisper inference failed")?;
+    state
+        .full(params, samples)
+        .map_err(|e| anyhow::anyhow!("whisper inference failed: {e}"))?;
 
-    let n = state.full_n_segments().context("failed to count segments")?;
+    let n = state.full_n_segments();
     let mut out = String::new();
     for i in 0..n {
-        out.push_str(&state.full_get_segment_text(i).context("failed to read segment")?);
+        if let Some(seg) = state.get_segment(i) {
+            out.push_str(
+                seg.to_str()
+                    .map_err(|e| anyhow::anyhow!("failed to read segment {i}: {e}"))?,
+            );
+        }
     }
     Ok(out.trim().to_string())
 }
