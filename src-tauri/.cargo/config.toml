@@ -3,4 +3,8 @@
 # correct MSVC-compatible bindings instead of glibc-specific ones.
 # The bundled src/bindings.rs in whisper-rs-sys was generated on Linux and
 # fails to compile on Windows (mismatched sizes for _IO_FILE / _G_fpos_t).
-LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"
+# bindgen needs a Windows-native clang to generate MSVC-compatible whisper bindings.
+# This points at the default LLVM install. `force = false` means: if LIBCLANG_PATH is
+# already set in your shell or CI environment, that value wins and this is ignored.
+# Override by exporting LIBCLANG_PATH before building, or edit the value below.
+LIBCLANG_PATH = { value = "C:\\Program Files\\LLVM\\bin", force = false }
