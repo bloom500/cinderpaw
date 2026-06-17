@@ -2,6 +2,8 @@ mod agents;
 mod api;
 mod byok;
 mod connectors;
+#[cfg(feature = "whisper")]
+mod transcription;
 mod conversations;
 mod db_key;
 mod desktop_control;

@@ -50,6 +50,9 @@ reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], defau
 # Inference — llama.cpp bindings (CPU by default; add feature "inference-vulkan" for GPU)
 llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
 
+# Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
+whisper-rs = { version = "0.13", default-features = false, optional = true }
+
 # Utilities
 anyhow = "1"
 thiserror = "1"
@@ -88,6 +91,7 @@ inference = ["dep:llama-cpp-2"]
 # inference.rs::backend::load), so a missing/broken driver degrades gracefully.
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
 inference-metal = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
+whisper = ["dep:whisper-rs"]
 
 # Desktop control (OS accessibility tree). Windows-only for now — UIA via the
 # `windows` crate. macOS (AX) and Linux are compiled stubs in desktop_control.
