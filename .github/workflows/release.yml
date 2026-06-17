@@ -136,10 +136,13 @@ jobs:
         shell: pwsh
         run: |
           $content = Get-Content CHANGELOG.md -Raw
+          # CalVer tags are vYYYY.MM.DD (padded); CHANGELOG headers are
+          # `## YYYY.MM.DD` (no `v`). Match the padded date and stop at the next
+          # `## ` header.
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
           $escaped = [regex]::Escape($version)
-          $pattern = "(?m)^## v$escaped\s*\r?\n([\s\S]*?)(?=\r?\n^## v|\Z)"
+          $pattern = "(?m)^## $escaped\s*\r?\n([\s\S]*?)(?=\r?\n^## |\Z)"
           $match = [regex]::Match($content, $pattern)
           if ($match.Success) {
             $notes = $match.Groups[1].Value.Trim()

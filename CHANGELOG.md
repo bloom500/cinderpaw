@@ -1,5 +1,33 @@
 # Changelog
 
+> From this release on, Feral uses **calendar versioning**: a release is named by
+> its date, e.g. `2026.06.17`. (Internally the build uses the equivalent semver
+> `2026.6.17`, since semver forbids leading zeros — the padded date is what's
+> shown everywhere in the app and on releases.)
+
+## 2026.06.17
+
+*Security hardening release — Windows, macOS (Apple Silicon + Intel), and Linux.*
+
+### Security
+
+- **Sandboxed the agent's built-in tools.** Code execution is now off by default
+  and runs with a minimal environment (it can no longer read app secrets); file
+  read/write is confined to the agent workspace; and web requests are blocked
+  from reaching local/private network addresses.
+- **Encrypted sensitive memory at rest.** Facts the agent remembers about you are
+  now encrypted on disk with a key kept in your operating system's secure
+  keychain. High-confidence personal data (card numbers, IBANs, national IDs,
+  emails, phone numbers) is automatically redacted before being stored.
+- **Disk-encryption check.** Onboarding now tells you whether your disk is
+  encrypted (BitLocker / FileVault) and nudges you to turn it on if it isn't.
+- **Tamper-evident activity log.** The audit log is now hash-chained, so any
+  after-the-fact edit or deletion is detectable.
+
+### Changed
+
+- Switched release versioning to the calendar-date format described above.
+
 ## v0.2.3
 
 *Released 2026-06-14 — Windows, macOS (Apple Silicon + Intel), and Linux.*
