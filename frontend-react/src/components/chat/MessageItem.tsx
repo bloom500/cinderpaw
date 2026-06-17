@@ -5,6 +5,7 @@ import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDi
 import { Markdown } from '@/lib/markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { AskUserCard } from './AskUserCard';
+import { VoiceBubble } from './VoiceBubble';
 import type { ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
@@ -96,6 +97,15 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
   const t = useT();
 
   if (isUser) {
+    // Voice message: render the playable audio bubble + transcript instead of
+    // the plain text body (the transcript also lives in `content`).
+    if (message.voice) {
+      return (
+        <div className="flex justify-end">
+          <VoiceBubble voice={message.voice} />
+        </div>
+      );
+    }
     const images = message.images ?? [];
     // Pull the inlined attachment blocks back out so we show compact chips
     // ("Feral.pdf") instead of dumping the whole extracted file content into
