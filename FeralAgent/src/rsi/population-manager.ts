@@ -16,12 +16,17 @@
  * here; it starts at 1 and is raised once the engine is validated.
  */
 
+import type { GenomeConfig } from "./genome.ts";
+
 /** A genome's in-memory record. Mirrors the `rsi_genome` table shape. */
 export interface Genome {
   id: string;
   generation: number;
   /** Parent genome ids (git LCA lineage is tracked separately, in Rust). */
   lineage: string[];
+  /** The evolving agent configuration (strategy_dna). Optional on the
+   *  record because the manager never interprets it — handlers do. */
+  config?: GenomeConfig;
   /** 0..100; null until the genome has been evaluated. */
   fitnessScore: number | null;
   /** Per-task score vector from the eval suite; null until evaluated. */
@@ -36,6 +41,7 @@ export interface GenomeSpec {
   id: string;
   generation: number;
   lineage: string[];
+  config?: GenomeConfig;
 }
 
 /** The eval result attached to a genome on EvalComplete. */
@@ -78,6 +84,7 @@ export class PopulationManager {
       id: spec.id,
       generation: spec.generation,
       lineage: spec.lineage,
+      config: spec.config,
       fitnessScore: null,
       behavioralFingerprint: null,
       sharedFitness: null,
