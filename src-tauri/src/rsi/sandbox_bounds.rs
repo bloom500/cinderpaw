@@ -326,12 +326,6 @@ mod tests {
     use crate::rsi::audit::AuditVerifyResult;
     use tempfile::TempDir;
 
-    /// Mutex that serialises all tests touching the real audit log
-    /// (which lives at `~/.feral/rsi/sandbox_bounds_audit.log`). The
-    /// Rust integration tests run in parallel by default; without
-    /// this guard two tests can race on the same on-disk file.
-    static FS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     /// Build a fresh bounds file at `bounds_path` + the corresponding
     /// audit log, returning the loaded bounds and the audit handle.
     fn fresh(dir: &Path) -> (SandboxBounds, SandboxBoundsAudit) {
@@ -346,60 +340,51 @@ mod tests {
 
     #[test]
     fn bootstrap_writes_genesis_row() {
-        let _guard = FS_LOCK.lock().unwrap();
-        // The bootstrap helper writes to the REAL sandbox_bounds_path
-        // (which is the production contract). Make sure the parent
-        // dir exists before we test, otherwise the file write fails.
-        let bounds_path = crate::paths::rsi_sandbox_bounds_path();
-        if let Some(parent) = bounds_path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        // Clean up any prior state so the audit chain starts fresh.
-        let _ = std::fs::remove_file(&bounds_path);
-        let _ = std::fs::remove_file(crate::paths::rsi_sandbox_bounds_audit_path());
+        // Hermetic: FERAL_HOME points at a temp dir, so this exercises
+        // the real production paths (rsi_sandbox_bounds_path etc.)
+        // without touching the developer's ~/.feral/rsi.
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            let bounds_path = crate::paths::rsi_sandbox_bounds_path();
+            std::fs::create_dir_all(bounds_path.parent().unwrap()).unwrap();
 
-        let audit = SandboxBoundsAudit::open(crate::paths::rsi_sandbox_bounds_audit_path()).unwrap();
-        let bounds = SandboxBounds::bootstrap_with_audit(&audit).unwrap();
-        assert_eq!(bounds.version, BOUNDS_FILE_VERSION);
-        let r = audit.verify().unwrap();
-        match r {
-            AuditVerifyResult::Ok { entries } => assert_eq!(entries, 1),
-            _ => panic!("expected ok"),
-        }
+            let audit =
+                SandboxBoundsAudit::open(crate::paths::rsi_sandbox_bounds_audit_path()).unwrap();
+            let bounds = SandboxBounds::bootstrap_with_audit(&audit).unwrap();
+            assert_eq!(bounds.version, BOUNDS_FILE_VERSION);
+            // Bounds default cap is the locked $25, not a leaked test value.
+            assert_eq!(bounds.max_total_cost_usd, 25.0);
+            match audit.verify().unwrap() {
+                AuditVerifyResult::Ok { entries } => assert_eq!(entries, 1),
+                _ => panic!("expected ok"),
+            }
+        });
     }
 
     #[test]
     fn save_with_audit_records_changed_fields_only() {
-        let _guard = FS_LOCK.lock().unwrap();
-        // Bootstrap a fresh state to start from.
-        let bounds_path = crate::paths::rsi_sandbox_bounds_path();
-        if let Some(parent) = bounds_path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        let _ = std::fs::remove_file(&bounds_path);
-        let _ = std::fs::remove_file(crate::paths::rsi_sandbox_bounds_audit_path());
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            let audit_path = crate::paths::rsi_sandbox_bounds_audit_path();
+            std::fs::create_dir_all(audit_path.parent().unwrap()).unwrap();
 
-        let audit_path = crate::paths::rsi_sandbox_bounds_audit_path();
-        let audit = SandboxBoundsAudit::open(&audit_path).unwrap();
-        let mut b = SandboxBounds::bootstrap_with_audit(&audit).unwrap();
-        // Reset counter so we can detect the new save's delta rows.
-        let _ = std::fs::read_to_string(&audit_path).unwrap(); // sanity
+            let audit = SandboxBoundsAudit::open(&audit_path).unwrap();
+            let mut b = SandboxBounds::bootstrap_with_audit(&audit).unwrap();
 
-        // Bump one field and save — only that field should produce a
-        // new audit row.
-        b.max_total_cost_usd = 50.0;
-        let audit2 = SandboxBoundsAudit::open(&audit_path).unwrap();
-        b.save_with_audit(&audit2, "user raised cap").unwrap();
+            // Bump one field and save — only that field should produce a
+            // new audit row.
+            b.max_total_cost_usd = 50.0;
+            let audit2 = SandboxBoundsAudit::open(&audit_path).unwrap();
+            b.save_with_audit(&audit2, "user raised cap").unwrap();
 
-        let raw = std::fs::read_to_string(&audit_path).unwrap();
-        let rows: Vec<serde_json::Value> = raw
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| serde_json::from_str(l).unwrap())
-            .collect();
-        // Bootstrap row (scorer) + one changed-field row (max_total_cost_usd).
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[1]["field"], "max_total_cost_usd");
+            let raw = std::fs::read_to_string(&audit_path).unwrap();
+            let rows: Vec<serde_json::Value> = raw
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            // Bootstrap row (scorer) + one changed-field row (max_total_cost_usd).
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[1]["field"], "max_total_cost_usd");
+        });
     }
 
     #[test]

@@ -33,6 +33,9 @@ pub mod scorer;
 pub mod tier0;
 pub mod types;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

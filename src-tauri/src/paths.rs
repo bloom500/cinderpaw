@@ -1,6 +1,26 @@
 use std::path::PathBuf;
 
+/// Root of all Feral on-disk state. Defaults to `~/.feral`.
+///
+/// Honors the `FERAL_HOME` environment variable when set: its value is
+/// used as the `.feral` root verbatim (no `.feral` suffix appended), so
+/// `FERAL_HOME=/tmp/x` puts the RSI substrate at `/tmp/x/rsi`. Two uses:
+///
+/// 1. **Relocatable data dir** for portable installs / custom storage.
+/// 2. **Hermetic tests** — the RSI test suite points this at a `TempDir`
+///    so it never writes into the developer's real `~/.feral/rsi`.
+///
+/// This does NOT weaken the bounded-RSI boundary. The variable is read
+/// in-process by the Rust host that owns the sandbox. The agent runs as
+/// a separate sidecar subprocess; it inherits env at spawn and has no
+/// API to mutate the host's environment afterward, so it cannot redirect
+/// the sandbox root by setting `FERAL_HOME`.
 pub fn feral_dir() -> PathBuf {
+    if let Some(over) = std::env::var_os("FERAL_HOME") {
+        if !over.is_empty() {
+            return PathBuf::from(over);
+        }
+    }
     let base = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join(".feral")
 }

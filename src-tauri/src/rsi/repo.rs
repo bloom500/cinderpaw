@@ -120,7 +120,11 @@ pub fn bootstrap() -> Result<String> {
             repo.set_head("refs/heads/main")?;
         }
     } else {
-        ensure_branch_exists(&repo, "main")?;
+        // Unborn repo: HEAD has no commit yet. We can't create a branch
+        // object (there's no commit to anchor it to — that's the
+        // "null OID cannot exist" trap), but we can point the symbolic
+        // HEAD ref at refs/heads/main. The genesis commit below, made
+        // against "HEAD", materialises main at that ref.
         repo.set_head("refs/heads/main")?;
     }
 
@@ -203,10 +207,12 @@ fn ensure_branch_exists(repo: &Repository, branch: &str) -> Result<()> {
                     repo.branch(branch, &commit, true)?;
                 }
                 None => {
-                    // Empty repo — create an unborn branch. In git2
-                    // 0.19 `Oid::zero()` is no longer fallible (it
-                    // returns `Oid` directly), so no `?` is needed.
-                    repo.branch(branch, &repo.find_commit(Oid::zero())?, true)?;
+                    // Unborn repo: there's no commit to anchor a branch
+                    // object to. Point the symbolic HEAD ref at the
+                    // branch instead; the next commit against HEAD
+                    // materialises it. (Trying to branch from
+                    // `Oid::zero()` fails with "null OID cannot exist".)
+                    repo.set_head(&format!("refs/heads/{branch}"))?;
                 }
             }
             Ok(())
@@ -499,5 +505,61 @@ mod tests {
         // aren't). Actually 'b' is hex, so this is "b" alone.
         let empty = short_id_for_filename("zzz!!!");
         assert!(empty.is_empty());
+    }
+
+    /// The keystone test: bootstrap the git substrate into a temp
+    /// FERAL_HOME and assert the on-disk layout + genesis commit are
+    /// exactly what every later phase (ratchet, lineage, diff) relies
+    /// on. This is the verification the original delivery lacked — the
+    /// bootstrap was wired into setup() but never exercised by a test,
+    /// so "Substrate is live on first launch" was unproven.
+    #[test]
+    fn bootstrap_creates_git_substrate() {
+        crate::rsi::test_support::with_temp_feral_home(|root| {
+            let head = bootstrap().expect("bootstrap must succeed");
+            assert_eq!(head.len(), 40, "genesis commit hash is a git SHA-1");
+            assert!(crate::rsi::paths::is_valid_commit_hash(&head));
+
+            // The git repo and the full substrate layout exist on disk.
+            assert!(root.join("rsi/.git").exists(), ".git created");
+            let plan = root.join("rsi/PLAN.md");
+            assert!(plan.exists(), "PLAN.md written");
+            assert_eq!(
+                std::fs::read_to_string(&plan).unwrap(),
+                super::super::plan::PLAN_MD,
+                "PLAN.md on disk matches the embedded plan byte-for-byte"
+            );
+            for rel in [
+                "rsi/eval/tier0/.gitkeep",
+                "rsi/eval/tier1/.gitkeep",
+                "rsi/eval/tier2/.gitkeep",
+                "rsi/genomes/.gitkeep",
+                "rsi/meta/.gitkeep",
+            ] {
+                assert!(root.join(rel).exists(), "{rel} created");
+            }
+
+            // HEAD is on main, and the genesis commit is parentless with
+            // the expected message + the PLAN.md as a diff-able ancestor.
+            let repo = open().unwrap();
+            assert_eq!(
+                repo.head().unwrap().name().unwrap(),
+                "refs/heads/main",
+                "HEAD points at main (the ratchet branch)"
+            );
+            let commit = repo
+                .find_commit(git2::Oid::from_str(&head).unwrap())
+                .unwrap();
+            assert_eq!(commit.parent_count(), 0, "genesis has no parents");
+            assert!(commit
+                .message()
+                .unwrap()
+                .contains("bootstrap — initial plan + substrate layout"));
+
+            // Idempotent: a second bootstrap returns the same tip and
+            // does not create a duplicate genesis.
+            let head2 = bootstrap().expect("second bootstrap is a no-op");
+            assert_eq!(head, head2, "bootstrap is idempotent");
+        });
     }
 }
