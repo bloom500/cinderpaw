@@ -33,7 +33,7 @@ describe("RSI ratchet handler", () => {
       }),
     });
 
-    await bus.emit({ type: "EvalComplete", genomeId: "g1", score: 73, errored: false });
+    await bus.emit({ type: "EvalComplete", genomeId: "g1", score: 73, tokenCost: 1234, errored: false });
 
     expect(committed).toEqual([{ genomeId: "g1", score: 73 }]);
     expect(advanced.length).toBe(1);
@@ -42,11 +42,14 @@ describe("RSI ratchet handler", () => {
       commitHash: string;
       score: number;
       previousBest: number;
+      tokenCost: number;
     };
     expect(e.genomeId).toBe("g1");
     expect(e.commitHash).toBe("a".repeat(40));
     expect(e.score).toBe(73);
     expect(e.previousBest).toBe(50);
+    // Carried through for the recalcitrance tracker.
+    expect(e.tokenCost).toBe(1234);
   });
 
   test("a non-advancing candidate is committed but emits no RatchetAdvanced", async () => {

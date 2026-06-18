@@ -50,6 +50,9 @@ export class RatchetHandler {
         commitHash,
         score,
         previousBest: result.previousBest,
+        // Carried through for the recalcitrance tracker:
+        // improvement_difficulty = tokenCost / (score − previousBest).
+        tokenCost: (event.tokenCost as number) ?? 0,
       });
     }
   }
