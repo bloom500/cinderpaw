@@ -86,6 +86,11 @@ pub struct AppState {
     /// `State` so it can be re-built lazily inside the command without
     /// contending on `rsi_state`.
     pub rsi_goodhart: rsi::commands::GoodhartSlot,
+    /// Engine status mirror. `None` until the sidecar emits its first
+    /// engine event (Faza 7b-part2 wires this — for now the UI sees
+    /// `engine: null` in `rsi_status` and shows "engine not wired").
+    /// Populated from the `rsi_engine_event` outbound events on stdout.
+    pub rsi_engine: std::sync::Arc<parking_lot::Mutex<Option<rsi::commands::RsiEngineState>>>,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -2405,6 +2410,7 @@ pub fn run() {
         mcp: Arc::new(mcp::McpManager::new()),
         rsi_state: rsi::RsiState::default(),
         rsi_goodhart: rsi::commands::GoodhartSlot::default(),
+        rsi_engine: std::sync::Arc::new(parking_lot::Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -2515,6 +2521,9 @@ pub fn run() {
             rsi::commands::rsi_diff,
             rsi::commands::rsi_record_goodhart_sample,
             rsi::commands::rsi_reset_goodhart,
+            rsi::commands::rsi_start,
+            rsi::commands::rsi_stop,
+            rsi::commands::rsi_set_concurrency,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
