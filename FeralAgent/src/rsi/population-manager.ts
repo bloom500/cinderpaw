@@ -146,6 +146,11 @@ export class PopulationManager {
   alive(): Genome[] {
     return [...this.genomes.values()].filter((g) => g.alive);
   }
+
+  /** Look up a genome record by id (alive or dead). */
+  get(id: string): Genome | undefined {
+    return this.genomes.get(id);
+  }
 }
 
 /**
