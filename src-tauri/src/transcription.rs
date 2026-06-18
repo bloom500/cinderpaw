@@ -9,12 +9,31 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 /// Transcribe 16 kHz mono f32 PCM samples to text using the ggml model at `model_path`.
 /// Language is auto-detected. Returns the concatenated, trimmed transcript.
 pub fn transcribe_pcm(samples: &[f32], model_path: &Path) -> Result<String> {
-    let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
-        .context("failed to load whisper model")?;
+    // Load the model bytes in Rust rather than letting whisper.cpp open the
+    // file itself. On Windows debug builds, whisper.cpp's C stdio file I/O
+    // (fopen/fread) trips the debug UCRT assertion `_osfile(fh) & FOPEN`
+    // (read.cpp) because of a Debug/Release CRT mismatch in whisper-rs-sys —
+    // the dialog crashes the app on send. `std::fs::read` goes through Win32
+    // `ReadFile`, not the C runtime, so the buffer path sidesteps it entirely
+    // and works in both debug and release.
+    let model_bytes = std::fs::read(model_path).context("failed to read whisper model file")?;
+    let ctx = WhisperContext::new_from_buffer_with_params(
+        &model_bytes,
+        WhisperContextParameters::default(),
+    )
+    .context("failed to load whisper model")?;
 
     let mut state = ctx.create_state().context("failed to create whisper state")?;
 
+    // Greedy keeps local transcription fast; users who want higher accuracy can
+    // opt into a cloud STT provider (the per-recording choice card). Beam search
+    // was ~5x slower for a marginal local-accuracy gain.
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    // Use all available cores; whisper.cpp otherwise caps itself at 4 threads.
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get() as i32)
+        .unwrap_or(4);
+    params.set_n_threads(threads);
     params.set_language(Some("auto"));
     params.set_print_special(false);
     params.set_print_progress(false);

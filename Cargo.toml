@@ -18,3 +18,16 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Native C/C++ math kernels are unusably slow when compiled without
+# optimizations: a debug build made whisper.cpp transcription take *minutes*
+# and pegged the CPU (the perceived "RAM lag"). Build just these heavy native
+# crates with -O3 even in dev (their build scripts read OPT_LEVEL, so this also
+# flips their CMake/cc compile to Release), while our own Rust stays debug for
+# fast iteration. whisper-rs-sys bundles ggml, so this covers the STT kernels;
+# llama-cpp-2 is the LLM inference kernels.
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
+
+[profile.dev.package.llama-cpp-sys-2]
+opt-level = 3

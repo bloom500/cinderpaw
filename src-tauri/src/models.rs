@@ -136,9 +136,22 @@ pub async fn download_hf_model(
     progress: Sender<f32>,
     cancel: Arc<AtomicBool>,
 ) -> Result<PathBuf> {
+    download_hf_model_to(repo_id, filename, paths::models_dir(), progress, cancel).await
+}
+
+/// Like [`download_hf_model`] but writes into `dest_dir` (e.g. the whisper dir
+/// for STT models) instead of the LLM models dir. The temp file is the final
+/// name plus `.part`, so it works for any extension (`.gguf`, `.bin`, …).
+pub async fn download_hf_model_to(
+    repo_id: String,
+    filename: String,
+    dest_dir: PathBuf,
+    progress: Sender<f32>,
+    cancel: Arc<AtomicBool>,
+) -> Result<PathBuf> {
     paths::ensure_dirs()?;
-    let dest = paths::models_dir().join(&filename);
-    let tmp = dest.with_extension("gguf.part");
+    let dest = dest_dir.join(&filename);
+    let tmp = dest.with_file_name(format!("{filename}.part"));
 
     // Cleanup helper — runs on every exit path (cancel, error, success-on-rename-fail)
     let cleanup_tmp = |tmp: &Path| {
