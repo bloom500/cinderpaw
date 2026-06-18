@@ -9,6 +9,9 @@ export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' 
 export type LangPref = 'en' | 'ro';
 export type InputMode = 'chat' | 'agent';
 export type WhisperModel = 'small' | 'base';
+/** Speech-to-text backend for voice messages. `null` = user hasn't chosen yet
+ *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
+export type SttProvider = 'local' | 'groq';
 
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
@@ -39,6 +42,9 @@ interface UIStore {
   /** Whisper STT model size for voice messages. */
   whisperModel: WhisperModel;
   setWhisperModel: (m: WhisperModel) => void;
+  /** Chosen STT backend. `null` until the user picks in the provider card. */
+  sttProvider: SttProvider | null;
+  setSttProvider: (p: SttProvider) => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -93,6 +99,8 @@ export const useUI = create<UIStore>()(
       setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
       whisperModel: 'small',
       setWhisperModel: (whisperModel) => set({ whisperModel }),
+      sttProvider: null,
+      setSttProvider: (sttProvider) => set({ sttProvider }),
     }),
     {
       name: 'feral-ui',
@@ -105,6 +113,7 @@ export const useUI = create<UIStore>()(
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
         whisperModel: s.whisperModel,
+        sttProvider: s.sttProvider,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

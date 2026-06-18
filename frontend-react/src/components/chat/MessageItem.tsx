@@ -102,7 +102,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
     if (message.voice) {
       return (
         <div className="flex justify-end">
-          <VoiceBubble voice={message.voice} />
+          <VoiceBubble voice={message.voice} pending={message.voicePending} />
         </div>
       );
     }

@@ -16,14 +16,15 @@ import {
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
+import { VoiceProviderCard } from './VoiceProviderCard';
 import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
-import { useChat } from '@/stores/chat';
+import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
-import { useSendMessage, useSendVoiceMessage, buildUserContent } from '@/hooks/useSendMessage';
+import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
@@ -57,7 +58,7 @@ export interface ChatInputProps {
    * Used by the Agents tab to route through the Feral Agent sidecar.
    * `images` carries attachment data URLs for vision-capable models.
    */
-  sendFn?: (text: string, images?: string[]) => Promise<void>;
+  sendFn?: (text: string, images?: string[], opts?: { voice?: ChatMessage['voice']; existingUserId?: string }) => Promise<void>;
   /**
    * When true, the input is always enabled regardless of whether a local
    * model or cloud key is active. Used by the Agents tab (Feral Agent
@@ -83,23 +84,57 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const send = useSendMessage();
   const t = useT();
   const rec = useVoiceRecorder();
-  const sendVoice = useSendVoiceMessage();
   const [voicePeaks, setVoicePeaks] = useState<number[]>([]);
   const whisperModel = useUI((s) => s.whisperModel);
+  const sttProvider = useUI((s) => s.sttProvider);
+  const [providerCardOpen, setProviderCardOpen] = useState(false);
+  // Long-press detection on the mic: a held press opens the provider card; a
+  // normal tap records. `heldRef` suppresses the click that follows a long press.
+  const micHoldTimer = useRef<number | null>(null);
+  const micHeldRef = useRef(false);
 
   // When a recording finishes, compute peaks for the preview and warm the model.
   useEffect(() => {
     if (rec.state === 'preview' && rec.blob) {
-      void decodeToPcm16k(rec.blob).then((pcm) => setVoicePeaks(computePeaks(pcm)));
-      void ensureWhisperModel(whisperModel);
+      void decodeToPcm16k(rec.blob)
+        .then((pcm) => {
+          console.log('[voice] decoded for preview', { pcmLength: pcm.length });
+          setVoicePeaks(computePeaks(pcm));
+        })
+        .catch((err) => console.error('[voice] decodeToPcm16k FAILED (preview)', err));
+      // Only the local backend needs the 466 MB whisper model on disk; a cloud
+      // user should never trigger that download.
+      if (sttProvider === 'local') void ensureWhisperModel(whisperModel);
     }
-  }, [rec.state, rec.blob, whisperModel]);
+  }, [rec.state, rec.blob, whisperModel, sttProvider]);
 
   const onMic = async () => {
     if (rec.state === 'recording') { rec.stop(); return; }
     await rec.start();
     if (rec.error === 'denied') useNotifications.getState().push('error', t('voice.permissionDenied'));
     if (rec.error === 'unsupported') useNotifications.getState().push('error', t('voice.unsupported'));
+  };
+
+  // Press-and-hold the mic to (re)open the provider chooser; a normal tap
+  // records. Holding is disabled while recording so "tap to stop" still works.
+  const onMicPointerDown = () => {
+    if (rec.state === 'recording') return;
+    micHeldRef.current = false;
+    micHoldTimer.current = window.setTimeout(() => {
+      micHeldRef.current = true;
+      setProviderCardOpen(true);
+    }, 500);
+  };
+  const clearMicHold = () => {
+    if (micHoldTimer.current !== null) {
+      clearTimeout(micHoldTimer.current);
+      micHoldTimer.current = null;
+    }
+  };
+  const onMicClick = () => {
+    if (micHeldRef.current) { micHeldRef.current = false; return; } // long-press handled it
+    if (sttProvider === null) { setProviderCardOpen(true); return; } // force first-use choice
+    void onMic();
   };
 
   useImperativeHandle(ref, () => ({
@@ -170,12 +205,42 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       const peaks = voicePeaks;
       rec.reset();
       setVoicePeaks([]);
+      const userId = crypto.randomUUID();
       try {
-        await sendVoice(blob, durationMs, peaks);
+        // Optimistic bubble: persist the blob (fast) and show the playable
+        // voice message instantly, then transcribe in the background. The user
+        // no longer waits seconds for whisper before their own message appears.
+        const audioPath = await saveVoiceBlobToDisk(blob);
+        useChat.getState().addMessage({
+          id: userId,
+          role: 'user',
+          content: '',
+          voice: { audioPath, durationMs, transcript: '', peaks },
+          voicePending: true,
+          createdAt: Date.now(),
+        });
+        const transcript = await transcribeVoiceBlob(blob, audioPath);
+        const body = transcript || '(unintelligible)';
+        const voice = { audioPath, durationMs, transcript, peaks };
+        // Route the transcript exactly like a typed message: through the Feral
+        // Agent sidecar in agent mode (sendFn), or the local/cloud chat
+        // pipeline otherwise. `existingUserId` fills in the optimistic bubble
+        // instead of adding a duplicate. Previously voice always used the chat
+        // pipeline, so in agent mode it hit the (unloaded) local model → "no
+        // model loaded" while the agent's own model sat idle.
+        if (sendFn) await sendFn(body, undefined, { voice, existingUserId: userId });
+        else await send(body, [], { voice, existingUserId: userId });
       } catch (err) {
-        const code = String((err as Error).message);
+        console.error('[voice] sendVoice FAILED', err);
+        // Drop the optimistic bubble — transcription failed before any reply.
+        useChat.getState().removeMessage(userId);
+        // Tauri's invoke rejects with the raw error *string*, not an Error
+        // object, so read both shapes before matching the sentinels.
+        const code = err instanceof Error ? err.message : String(err);
         if (code === 'model-missing') useNotifications.getState().push('info', t('voice.modelDownloading'));
         else if (code === 'voice-unavailable') useNotifications.getState().push('error', t('voice.unsupported'));
+        else if (code === 'stt-no-key') setProviderCardOpen(true); // cloud chosen but key missing
+        else if (code === 'stt-cloud-failed') useNotifications.getState().push('error', t('voice.cloudFailed'));
         else useNotifications.getState().push('error', t('voice.emptyTranscript'));
       }
       return;
@@ -267,8 +332,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               {!isStreaming && (
                 <button
                   type="button"
-                  onClick={() => void onMic()}
-                  aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message'}
+                  onClick={onMicClick}
+                  onPointerDown={onMicPointerDown}
+                  onPointerUp={clearMicHold}
+                  onPointerLeave={clearMicHold}
+                  aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
                   className={cn('p-1.5 rounded hover:bg-bg-hover', rec.state === 'recording' ? 'text-rose-400 animate-pulse' : 'text-text-muted')}
                 >
                   {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
@@ -372,6 +440,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           <p className="text-xs text-text-muted mt-2">{t('chat.noModelHint')}</p>
         )}
       </div>
+      <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />
     </TooltipProvider>
   );
 });

@@ -44,7 +44,11 @@ export function useSendMessage() {
   const stream = useChatStream(useChat.getState().sessionId);
 
   return useCallback(
-    async (text: string, files: AttachedFile[] = [], opts?: { voice?: ChatMessage['voice'] }) => {
+    async (
+      text: string,
+      files: AttachedFile[] = [],
+      opts?: { voice?: ChatMessage['voice']; existingUserId?: string },
+    ) => {
       const chat = useChat.getState();
       const { reasoningMode, enabledTools } = useUI.getState();
       const { loaded, cloudModel } = useModel.getState();
@@ -70,7 +74,20 @@ export function useSendMessage() {
         thinkingComplete: true,
         createdAt: Date.now() + 1,
       };
-      chat.addMessage(userMsg);
+      if (opts?.existingUserId) {
+        // Voice flow: the user bubble was added optimistically (instant
+        // playback + waveform) before transcription finished. Fill in the
+        // transcript + final voice meta and clear the pending flag instead of
+        // adding a duplicate message.
+        chat.patchMessage(opts.existingUserId, {
+          content,
+          voicePending: false,
+          ...(images.length > 0 ? { images } : {}),
+          ...(opts?.voice ? { voice: opts.voice } : {}),
+        });
+      } else {
+        chat.addMessage(userMsg);
+      }
       chat.addMessage(asstMsg);
       chat.setStreamStatus('streaming');
 
@@ -282,20 +299,38 @@ export function useSendMessage() {
  * metadata. Transcription errors ("model-missing" | "voice-unavailable") are
  * re-thrown so the caller can surface a toast.
  */
-export function useSendVoiceMessage() {
-  const send = useSendMessage();
-  return useCallback(
-    async (blob: Blob, durationMs: number, peaks: number[]) => {
-      const { whisperModel } = useUI.getState();
-      const buf = new Uint8Array(await blob.arrayBuffer());
-      const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
-      const audioPath = await tauri.voice.saveBlob(Array.from(buf), ext);
-      const pcm = await decodeToPcm16k(blob);
-      const transcript = await tauri.voice.transcribe(Array.from(pcm), whisperModel);
-      await send(transcript || '(unintelligible)', [], {
-        voice: { audioPath, durationMs, transcript, peaks },
-      });
-    },
-    [send],
-  );
+/**
+ * Persist a recorded blob to disk and return its on-disk asset path. Fast (a
+ * single file write), so the caller can show the voice bubble immediately and
+ * transcribe afterwards.
+ */
+export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
+  console.log('[voice] saveVoiceBlob', { blobSize: blob.size, blobType: blob.type, ext, bytes: buf.length });
+  const audioPath = await tauri.voice.saveBlob(Array.from(buf), ext);
+  console.log('[voice] saved blob ->', audioPath);
+  return audioPath;
+}
+
+/**
+ * Transcribe a recorded blob. Routes by the chosen STT provider:
+ *  - `groq` → cloud whisper-large-v3 (uploads the saved file; needs a key).
+ *  - local (default) → decode to 16 kHz PCM + on-device whisper.
+ * Slow either way, so it runs in the background after the optimistic bubble is
+ * on screen. Errors ("stt-no-key" | "stt-cloud-failed" | "model-missing" |
+ * "voice-unavailable") propagate to the caller for toast handling.
+ */
+export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promise<string> {
+  const { whisperModel, sttProvider } = useUI.getState();
+  if (sttProvider === 'groq') {
+    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq');
+    console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
+    return transcript;
+  }
+  const pcm = await decodeToPcm16k(blob);
+  console.log('[voice] transcribe decoded', { pcmLength: pcm.length });
+  const transcript = await tauri.voice.transcribe(Array.from(pcm), whisperModel);
+  console.log('[voice] transcript ->', JSON.stringify(transcript));
+  return transcript;
 }

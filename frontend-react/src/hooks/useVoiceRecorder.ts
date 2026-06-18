@@ -23,11 +23,22 @@ export function useVoiceRecorder() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      console.log('[voice] getUserMedia tracks', (stream.getAudioTracks?.() ?? []).map((tr) => ({
+        label: tr.label, enabled: tr.enabled, muted: tr.muted, readyState: tr.readyState,
+      })));
       const rec = new MediaRecorder(stream);
+      console.log('[voice] MediaRecorder created', { mimeType: rec.mimeType, state: rec.state });
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       rec.onstop = () => {
         const b = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || 'audio/webm' });
+        console.log('[voice] recorder.onstop', {
+          chunks: chunksRef.current.length,
+          chunkSizes: chunksRef.current.map((c) => c.size),
+          blobSize: b.size,
+          blobType: b.type,
+          recorderMime: rec.mimeType,
+        });
         setBlob(b);
         setDurationMs(Date.now() - startedAtRef.current);
         setState('preview');

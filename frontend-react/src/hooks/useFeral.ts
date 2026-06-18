@@ -16,6 +16,7 @@ import { useModel } from '@/stores/model';
 import { useFeralStore } from '@/stores/feral';
 import { useNotifications } from '@/stores/notifications';
 import { autoTitle } from '@/lib/autoTitle';
+import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
 import { tauri, type FeralAgentEvent, type PersistedMessage } from '@/lib/tauri';
 import {
@@ -133,7 +134,11 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
   const { send } = useFeralStream(chatSessionId);
 
   return useCallback(
-    async (content: string, images?: string[]) => {
+    async (
+      content: string,
+      images?: string[],
+      opts?: { voice?: ChatMessage['voice']; existingUserId?: string },
+    ) => {
       const chat = useChat.getState();
 
       const userMsg = {
@@ -141,6 +146,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
         role: 'user' as const,
         content,
         ...(images && images.length > 0 ? { images } : {}),
+        ...(opts?.voice ? { voice: opts.voice } : {}),
         createdAt: Date.now(),
       };
       const asstMsg = {
@@ -150,7 +156,18 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
         thinkingComplete: true,
         createdAt: Date.now() + 1,
       };
-      chat.addMessage(userMsg);
+      if (opts?.existingUserId) {
+        // Voice flow: the user bubble was added optimistically before
+        // transcription. Fill in the transcript instead of duplicating it.
+        chat.patchMessage(opts.existingUserId, {
+          content,
+          voicePending: false,
+          ...(images && images.length > 0 ? { images } : {}),
+          ...(opts?.voice ? { voice: opts.voice } : {}),
+        });
+      } else {
+        chat.addMessage(userMsg);
+      }
       chat.addMessage(asstMsg);
       chat.setStreamStatus('streaming');
 
@@ -190,6 +207,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           role: m.role,
           content: m.id === asstId ? state.answer : m.content,
           thinking: m.thinking || undefined,
+          voice: voiceToPersisted(m.voice),
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);

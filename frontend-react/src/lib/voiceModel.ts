@@ -1,23 +1,18 @@
 import { tauri } from '@/lib/tauri';
 
-const REPO = 'ggerganov/whisper.cpp';
-const FILE: Record<'small' | 'base', string> = {
-  small: 'ggml-small.bin',
-  base: 'ggml-base.bin',
-};
-
 /**
  * Ensure the whisper ggml model for `size` is on disk. Returns `'ready'` if it
- * is already present, otherwise kicks off the download (progress streams over
- * the existing `feral://download-*` events) and returns `'downloading-started'`.
+ * is already present, otherwise kicks off a dedicated whisper download (into the
+ * whisper dir, progress over `feral://whisper-download-*`) and returns
+ * `'downloading-started'`.
+ *
+ * NOTE: this must NOT reuse the LLM `download_model` command — that writes to
+ * the models dir and makes the frontend auto-load the file as a llama.cpp model.
  */
 export async function ensureWhisperModel(
   size: 'small' | 'base',
 ): Promise<'ready' | 'downloading-started'> {
   if (await tauri.voice.modelPresent(size)) return 'ready';
-  await tauri.download.start(REPO, FILE[size]);
+  await tauri.voice.downloadModel(size);
   return 'downloading-started';
 }
-
-export const WHISPER_FILES = FILE;
-export const WHISPER_REPO = REPO;

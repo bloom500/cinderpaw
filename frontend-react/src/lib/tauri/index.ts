@@ -403,6 +403,10 @@ const raw = {
     invoke<boolean>('whisper_model_present', { modelSize }),
   transcribeAudio:          (pcm: number[], modelSize: string) =>
     invoke<string>('transcribe_audio', { pcm, modelSize }),
+  transcribeAudioCloud:     (audioPath: string, provider: string) =>
+    invoke<string>('transcribe_audio_cloud', { audioPath, provider }),
+  downloadWhisperModel:     (modelSize: string) =>
+    invoke<string>('download_whisper_model', { modelSize }),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────
@@ -470,6 +474,8 @@ export const tauri = {
     saveBlob:      async (bytes: number[], ext: string) => raw.saveVoiceBlob(bytes, ext),
     modelPresent:  async (modelSize: string) => raw.whisperModelPresent(modelSize),
     transcribe:    async (pcm: number[], modelSize: string) => raw.transcribeAudio(pcm, modelSize),
+    transcribeCloud: async (audioPath: string, provider: string) => raw.transcribeAudioCloud(audioPath, provider),
+    downloadModel: async (modelSize: string) => raw.downloadWhisperModel(modelSize),
   },
 
   system: {

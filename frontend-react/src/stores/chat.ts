@@ -39,6 +39,13 @@ export interface ChatMessage {
   };
   /** Present when this user turn was recorded as a voice message. */
   voice?: { audioPath: string; durationMs: number; transcript: string; peaks: number[] };
+  /**
+   * True while a voice message's transcription is still running. The bubble is
+   * added optimistically (instant playback + waveform) the moment recording is
+   * sent, and `voice.transcript` is filled in once whisper finishes — this flag
+   * drives the "transcribing…" placeholder in between.
+   */
+  voicePending?: boolean;
 }
 
 interface ChatStore {
@@ -78,6 +85,9 @@ interface ChatStore {
    */
   loadSession: (sessionId: string, messages: ChatMessage[], streamStatus?: StreamStatus) => void;
   addMessage: (m: ChatMessage) => void;
+  /** Remove a message by id. Used to drop an optimistic voice bubble when its
+   *  transcription fails before any reply was generated. */
+  removeMessage: (id: string) => void;
   appendToStreamingAssistant: (text: string) => void;
   updateLastAssistantMessage: (patch: Partial<ChatMessage>) => void;
   /**
@@ -177,6 +187,8 @@ export const useChat = create<ChatStore>((set) => ({
     set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false }),
 
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
+
+  removeMessage: (id) => set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
 
   appendToStreamingAssistant: (text) =>
     set((s) => {

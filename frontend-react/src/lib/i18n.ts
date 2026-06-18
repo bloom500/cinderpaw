@@ -41,6 +41,19 @@ const en = {
   'voice.unsupported': 'Voice recording is not available on this device.',
   'voice.modelDownloading': 'Downloading the voice model — try again in a moment.',
   'voice.emptyTranscript': "Couldn't understand the recording. Try again.",
+  'voice.transcribing': 'Transcribing…',
+  'voice.cloudFailed': 'Cloud transcription failed — check your connection or key.',
+  'voice.keySaveFailed': "Couldn't save the API key. Try again.",
+  'voice.provider.title': 'Choose voice transcription',
+  'voice.provider.subtitle': 'How should your voice messages be turned into text? You can change this later (long-press the mic).',
+  'voice.provider.local.title': 'On your device (Whisper)',
+  'voice.provider.local.desc': 'Private · 100% offline · free. Uses ~0.5 GB RAM and is less accurate, especially for non-English.',
+  'voice.provider.cloud.title': 'Cloud (Groq · whisper-large-v3)',
+  'voice.provider.cloud.desc': 'Much more accurate · free tier. ⚠️ Your audio leaves your device.',
+  'voice.provider.cloud.keyPlaceholder': 'Paste your Groq API key',
+  'voice.provider.cloud.getKey': 'Get a free Groq key →',
+  'voice.provider.cloud.keySet': '✓ Groq key saved.',
+  'voice.provider.confirm': 'Use this',
 } as const;
 
 type Strings = Record<keyof typeof en, string>;
@@ -69,6 +82,19 @@ const ro: Strings = {
   'voice.unsupported': 'Înregistrarea vocală nu este disponibilă pe acest dispozitiv.',
   'voice.modelDownloading': 'Se descarcă modelul vocal — încearcă din nou într-o clipă.',
   'voice.emptyTranscript': 'Nu am putut înțelege înregistrarea. Mai încearcă o dată.',
+  'voice.transcribing': 'Transcriere…',
+  'voice.cloudFailed': 'Transcrierea în cloud a eșuat — verifică conexiunea sau cheia.',
+  'voice.keySaveFailed': 'Nu am putut salva cheia API. Mai încearcă.',
+  'voice.provider.title': 'Alege transcrierea vocală',
+  'voice.provider.subtitle': 'Cum transformăm mesajele tale vocale în text? Poți schimba mai târziu (ține apăsat pe microfon).',
+  'voice.provider.local.title': 'Pe dispozitivul tău (Whisper)',
+  'voice.provider.local.desc': 'Privat · 100% offline · gratis. Folosește ~0.5 GB RAM și e mai puțin precis, mai ales non-engleză.',
+  'voice.provider.cloud.title': 'Cloud (Groq · whisper-large-v3)',
+  'voice.provider.cloud.desc': 'Mult mai precis · free tier. ⚠️ Audio-ul tău părăsește dispozitivul.',
+  'voice.provider.cloud.keyPlaceholder': 'Lipește cheia ta API Groq',
+  'voice.provider.cloud.getKey': 'Ia o cheie Groq gratis →',
+  'voice.provider.cloud.keySet': '✓ Cheia Groq salvată.',
+  'voice.provider.confirm': 'Folosește asta',
 };
 
 const DICTS = { en, ro } as const;
