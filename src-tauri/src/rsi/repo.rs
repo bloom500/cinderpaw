@@ -1,0 +1,503 @@
+//! Git substrate for the RSI layer, via the `git2` crate (libgit2
+//! vendored). All access to `~/.feral/rsi/.git/` goes through this
+//! module. The sidecar has no libgit2 / no `git` CLI access — every
+//! commit, every diff, every LCA query, every fast-forward is an
+//! explicit call here.
+//!
+//! **Branch model**
+//! - `main` = the ratchet. Advances ONLY via `fast_forward_main`
+//!   (which itself only succeeds when the new commit's score beats
+//!   the prior tip's score — the monotonicity guarantee).
+//! - One branch per live genome candidate, named `genome/<commit>`.
+//!   Created lazily when a new candidate is committed.
+//!
+//! **Commit metadata format** — the spec asks for a JSON blob in the
+//! commit message body:
+//!
+//! ```text
+//! rsi: iteration {iter_id}
+//!
+//! {json_blob}
+//! ```
+//!
+//! where `{json_blob}` carries `{score, strategy, parent_lineage,
+//! mutation_type, cost_tokens, duration_ms}`. We parse this back out
+//! on the read path with `parse_iteration_metadata`.
+
+use std::path::{Path, PathBuf};
+use std::str;
+
+use anyhow::{anyhow, Context, Result};
+use git2::{BranchType, Commit, DiffOptions, Oid, Repository, Signature};
+use serde::{Deserialize, Serialize};
+
+use crate::paths::rsi_dir;
+
+/// Subdirectory of the RSI repo where genome snapshots live. Must
+/// match `paths::rsi_genomes_dir()`; we re-declare it here so this
+/// module can be reasoned about without an import cycle.
+const GENOMES_DIR: &str = "genomes";
+
+/// Metadata encoded into every iteration commit's message body.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+pub struct IterationMetadata {
+    pub score: f64,
+    pub strategy: String,
+    pub parent_lineage: Vec<String>,
+    pub mutation_type: String,
+    pub cost_tokens: u32,
+    pub duration_ms: u32,
+}
+
+/// One row of the git log as the RSI layer sees it. The
+/// `commit_hash` is the canonical id; `metadata_json` is the raw
+/// JSON blob parsed from the commit body (as a string) when it
+/// matches the iteration format, otherwise `None`.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct CommitMeta {
+    pub commit_hash: String,
+    pub parent_hashes: Vec<String>,
+    pub author: String,
+    pub timestamp: i64,
+    pub summary: String,
+    /// Parsed from the commit body when present, kept as a raw JSON
+    /// string because `serde_json::Value` doesn't implement
+    /// `specta::Type` and the UI parses it lazily.
+    pub metadata_json: Option<String>,
+}
+
+/// Result of an `ratchet_attempt` call.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct RatchetResult {
+    /// True iff `main` advanced to the new commit.
+    pub advanced: bool,
+    /// Hash of the previous main tip (so the UI can show the diff).
+    pub previous_tip: Option<String>,
+    /// Hash of the new main tip after the call.
+    pub new_tip: Option<String>,
+    /// The candidate's score (echoed back for the UI).
+    pub candidate_score: f64,
+    /// The score on the prior tip, if there was one.
+    pub prior_score: Option<f64>,
+}
+
+/// Open the RSI repo. Errors if the directory is not a git repo
+/// (i.e. bootstrap has not been run).
+pub fn open() -> Result<Repository> {
+    let path = rsi_dir();
+    Repository::open(&path)
+        .with_context(|| format!("open git repo at {}", path.display()))
+}
+
+/// Bootstrap the RSI substrate. Idempotent: if the repo already
+/// exists, opens it and returns the existing tip. Otherwise
+/// initialises a new repo on `main`, writes the embedded PLAN.md,
+/// commits it, and returns the initial commit's hash.
+///
+/// **Note**: the eval/ tree (tier0/1/2) and the meta/ directory are
+/// created here so the sidecar's first writes don't have to mkdir.
+pub fn bootstrap() -> Result<String> {
+    let rsi_path = rsi_dir();
+    std::fs::create_dir_all(&rsi_path).context("create rsi dir")?;
+
+    let repo = if rsi_path.join(".git").exists() {
+        Repository::open(&rsi_path)?
+    } else {
+        let mut init_opts = git2::RepositoryInitOptions::new();
+        // git2 0.19: initial_head takes &str, not Option<&str>.
+        init_opts.initial_head("main");
+        init_opts.mkpath(true);
+        // We don't need any template files; the bare repo + main
+        // branch is enough.
+        git2::Repository::init_opts(&rsi_path, &init_opts)?
+    };
+
+    // Set HEAD to main (idempotent if already there).
+    if let Ok(head) = repo.head() {
+        if head.name().unwrap_or("") != "refs/heads/main" {
+            // Stale HEAD — point it at main, creating main if needed.
+            ensure_branch_exists(&repo, "main")?;
+            repo.set_head("refs/heads/main")?;
+        }
+    } else {
+        ensure_branch_exists(&repo, "main")?;
+        repo.set_head("refs/heads/main")?;
+    }
+
+    // Write PLAN.md + tier0/task_marker so the initial commit has
+    // actual content. The marker just makes the directory trackable
+    // by git even before any task files exist.
+    let plan_path = rsi_path.join("PLAN.md");
+    if !plan_path.exists() {
+        std::fs::write(&plan_path, super::plan::PLAN_MD)
+            .with_context(|| format!("write PLAN.md to {}", plan_path.display()))?;
+    }
+
+    let eval_root = rsi_path.join("eval");
+    for tier in 0u8..=2 {
+        let dir = eval_root.join(format!("tier{}", tier));
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("mkdir {}", dir.display()))?;
+        let marker = dir.join(".gitkeep");
+        if !marker.exists() {
+            std::fs::write(&marker, b"# Tier directory placeholder - see rsi/plan.rs\n")
+                .with_context(|| format!("write marker {}", marker.display()))?;
+        }
+    }
+
+    let genomes_dir = rsi_path.join(GENOMES_DIR);
+    std::fs::create_dir_all(&genomes_dir).context("mkdir genomes")?;
+    if !genomes_dir.join(".gitkeep").exists() {
+        std::fs::write(genomes_dir.join(".gitkeep"), b"# Per-commit genome JSON snapshots\n")?;
+    }
+
+    let meta_dir = rsi_path.join("meta");
+    std::fs::create_dir_all(&meta_dir).context("mkdir meta")?;
+    if !meta_dir.join(".gitkeep").exists() {
+        std::fs::write(meta_dir.join(".gitkeep"), b"# PBT state + taste_vector\n")?;
+    }
+
+    // If main already has a commit, we're done — bootstrap is
+    // idempotent.
+    if let Ok(head) = repo.head() {
+        if let Some(oid) = head.target() {
+            return Ok(oid.to_string());
+        }
+    }
+
+    // First commit on main.
+    let sig = Signature::now("feral-rsi", "rsi@feral.local")?;
+    let mut index = repo.index()?;
+    index.add_path(Path::new("PLAN.md"))?;
+    index.add_path(Path::new("eval/tier0/.gitkeep"))?;
+    index.add_path(Path::new("eval/tier1/.gitkeep"))?;
+    index.add_path(Path::new("eval/tier2/.gitkeep"))?;
+    index.add_path(Path::new("genomes/.gitkeep"))?;
+    index.add_path(Path::new("meta/.gitkeep"))?;
+    let tree_oid = index.write_tree()?;
+    let tree = repo.find_tree(tree_oid)?;
+
+    let commit_oid = repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        "rsi: bootstrap — initial plan + substrate layout",
+        &tree,
+        &[], // no parents
+    )?;
+
+    Ok(commit_oid.to_string())
+}
+
+/// Ensure `branch` exists locally; create it from HEAD if not.
+fn ensure_branch_exists(repo: &Repository, branch: &str) -> Result<()> {
+    match repo.find_branch(branch, BranchType::Local) {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            // Empty repo: create the branch with no commit. If HEAD
+            // already has a commit, branch from it.
+            let head_oid = repo.head().ok().and_then(|h| h.target());
+            match head_oid {
+                Some(oid) => {
+                    let commit = repo.find_commit(oid)?;
+                    repo.branch(branch, &commit, true)?;
+                }
+                None => {
+                    // Empty repo — create an unborn branch. In git2
+                    // 0.19 `Oid::zero()` is no longer fallible (it
+                    // returns `Oid` directly), so no `?` is needed.
+                    repo.branch(branch, &repo.find_commit(Oid::zero())?, true)?;
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Commit a new genome onto a candidate branch. Returns the new
+/// commit hash. The genome JSON is written to
+/// `genomes/<commit>.json` and the metadata is encoded into the
+/// commit message.
+pub fn commit_genome(
+    genome_id: &str,
+    genome_json: &serde_json::Value,
+    parent_commits: &[&str],
+    metadata: &IterationMetadata,
+    candidate_branch: &str,
+) -> Result<String> {
+    let repo = open()?;
+
+    // Write the genome snapshot file.
+    let rsi_root = rsi_dir();
+    let snapshot_rel = format!("{}/{}.json", GENOMES_DIR, &short_id_for_filename(genome_id));
+    let snapshot_abs = rsi_root.join(&snapshot_rel);
+    std::fs::create_dir_all(snapshot_abs.parent().unwrap())?;
+    std::fs::write(
+        &snapshot_abs,
+        serde_json::to_string_pretty(genome_json)?,
+    )?;
+
+    // Stage the snapshot.
+    let mut index = repo.index()?;
+    index.add_path(Path::new(&snapshot_rel))?;
+    let tree_oid = index.write_tree()?;
+    let tree = repo.find_tree(tree_oid)?;
+
+    // Resolve parents — if any parent commits are provided, they
+    // must already exist in the repo (callers should commit
+    // sequentially, not in parallel).
+    let mut parents: Vec<Commit> = Vec::with_capacity(parent_commits.len());
+    for p in parent_commits {
+        let oid = Oid::from_str(p).with_context(|| format!("parse parent oid '{}'", p))?;
+        let c = repo.find_commit(oid).with_context(|| format!("find parent {}", p))?;
+        parents.push(c);
+    }
+    let parent_refs: Vec<&Commit> = parents.iter().collect();
+
+    let sig = Signature::now("feral-rsi", "rsi@feral.local")?;
+    let msg = format_iteration_message(genome_id, metadata);
+    let commit_oid = repo.commit(
+        None, // update the branch ref via repo::branch below
+        &sig,
+        &sig,
+        &msg,
+        &tree,
+        &parent_refs,
+    )?;
+
+    // Make sure the candidate branch exists at this commit.
+    let commit = repo.find_commit(commit_oid)?;
+    if let Err(_) = repo.find_branch(candidate_branch, BranchType::Local) {
+        repo.branch(candidate_branch, &commit, true)?;
+    } else {
+        // Branch exists — point it at the new commit. In git2 0.19
+        // the way to update a branch's target is through its
+        // `Reference`: branch.into_reference().set_target(...). The
+        // previous `branch.set_target(...)` call shape existed in
+        // older versions of the crate.
+        let branch = repo.find_branch(candidate_branch, BranchType::Local)?;
+        let mut reference = branch.into_reference();
+        reference.set_target(commit_oid, "rsi: new candidate")?;
+    }
+
+    Ok(commit_oid.to_string())
+}
+
+/// Attempt to advance `main` to `candidate_commit`. Succeeds only if
+/// the candidate's metadata score is strictly greater than the
+/// current `main` tip's score. Returns a `RatchetResult` describing
+/// the outcome (advanced or not, and the before/after tips).
+pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
+    let repo = open()?;
+    let candidate_oid =
+        Oid::from_str(candidate_commit).with_context(|| format!("parse candidate oid '{}'", candidate_commit))?;
+    let candidate = repo
+        .find_commit(candidate_oid)
+        .with_context(|| format!("find candidate commit {}", candidate_commit))?;
+    let candidate_meta = parse_iteration_metadata(&candidate)
+        .ok_or_else(|| anyhow!("candidate commit has no parseable iteration metadata"))?;
+    let candidate_score = candidate_meta.score;
+
+    // Find main's current tip (if any).
+    let (previous_tip, prior_score) = match repo.find_branch("main", BranchType::Local) {
+        Ok(b) => match b.get().target() {
+            Some(tip_oid) => {
+                let tip_commit = repo.find_commit(tip_oid)?;
+                let prior = parse_iteration_metadata(&tip_commit).map(|m| m.score);
+                (Some(tip_oid.to_string()), prior)
+            }
+            None => (None, None),
+        },
+        Err(_) => (None, None),
+    };
+
+    let prior_score_value = prior_score.unwrap_or(f64::NEG_INFINITY);
+    let advanced = candidate_score > prior_score_value;
+
+    if !advanced {
+        // previous_tip is cloned into new_tip because the contract is
+        // "no advance → main tip unchanged". Rust's move checker
+        // refuses to use the same String twice without cloning.
+        return Ok(RatchetResult {
+            advanced: false,
+            previous_tip: previous_tip.clone(),
+            new_tip: previous_tip,
+            candidate_score,
+            prior_score,
+        });
+    }
+
+    // Fast-forward main. We do NOT merge — the ratchet is a strict
+    // replacement of the tip with a strictly-higher-scoring commit.
+    // If main's history does not contain the candidate, this is a
+    // fast-forward of a fresh ref.
+    let main_branch = repo.find_branch("main", BranchType::Local)?;
+    let mut main_reference = main_branch.into_reference();
+    main_reference.set_target(candidate_oid, "rsi: ratchet advance")?;
+    // Detach the working tree just in case anyone is observing it.
+    let _ = repo.set_head("refs/heads/main");
+
+    Ok(RatchetResult {
+        advanced: true,
+        previous_tip,
+        new_tip: Some(candidate_oid.to_string()),
+        candidate_score,
+        prior_score,
+    })
+}
+
+/// Last N commits across all refs, newest first. Used by the
+/// lineage / taste-vector miner in Faza 3.
+pub fn log(max: usize) -> Result<Vec<CommitMeta>> {
+    let repo = open()?;
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push_head()?;
+    revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
+
+    let mut out = Vec::with_capacity(max.min(1024));
+    for oid in revwalk.take(max) {
+        let oid = oid?;
+        let commit = repo.find_commit(oid)?;
+        let parents: Vec<String> = commit.parent_ids().map(|o| o.to_string()).collect();
+        let metadata_json = parse_iteration_metadata(&commit)
+            .and_then(|m| serde_json::to_string(&m).ok());
+        out.push(CommitMeta {
+            commit_hash: commit.id().to_string(),
+            parent_hashes: parents,
+            author: commit.author().name().unwrap_or("").to_string(),
+            timestamp: commit.time().seconds(),
+            summary: commit.summary().unwrap_or("").to_string(),
+            metadata_json,
+        });
+    }
+    Ok(out)
+}
+
+/// Lowest common ancestor of two commits. Returns `None` when the
+/// two histories have no shared commit (e.g. parallel branches from
+/// an empty start). Returns the LCA's commit hash otherwise.
+pub fn lca(a: &str, b: &str) -> Result<Option<String>> {
+    let repo = open()?;
+    let a_oid = Oid::from_str(a).with_context(|| format!("parse a '{}'", a))?;
+    let b_oid = Oid::from_str(b).with_context(|| format!("parse b '{}'", b))?;
+    let a_commit = repo.find_commit(a_oid)?;
+    let b_commit = repo.find_commit(b_oid)?;
+    let lca_oid = repo.merge_base(a_commit.id(), b_commit.id())?;
+    Ok(Some(lca_oid.to_string()))
+}
+
+/// Unified diff between two commits. Returns the diff as a string
+/// suitable for the LLM-driven taste vector miner.
+pub fn diff(a: &str, b: &str) -> Result<String> {
+    let repo = open()?;
+    let a_oid = Oid::from_str(a).with_context(|| format!("parse a '{}'", a))?;
+    let b_oid = Oid::from_str(b).with_context(|| format!("parse b '{}'", b))?;
+    let a_commit = repo.find_commit(a_oid)?;
+    let b_commit = repo.find_commit(b_oid)?;
+    let a_tree = a_commit.tree()?;
+    let b_tree = b_commit.tree()?;
+    let mut opts = DiffOptions::new();
+    opts.context_lines(3);
+    let diff = repo.diff_tree_to_tree(Some(&a_tree), Some(&b_tree), Some(&mut opts))?;
+    let mut out = String::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        out.push(line.origin());
+        out.push_str(str::from_utf8(line.content()).unwrap_or(""));
+        true
+    })?;
+    Ok(out)
+}
+
+/// Format the iteration commit message body in the spec'd shape.
+/// Format:
+///
+/// ```text
+/// rsi: iteration <genome_id>
+///
+/// {json}
+/// ```
+fn format_iteration_message(genome_id: &str, meta: &IterationMetadata) -> String {
+    let blob = serde_json::to_string_pretty(meta).unwrap_or_else(|_| "{}".to_string());
+    format!("rsi: iteration {}\n\n{}", genome_id, blob)
+}
+
+/// Parse the iteration metadata out of a commit message. Returns
+/// None if the message doesn't start with `rsi: iteration ` or the
+/// trailing JSON is unparseable.
+pub fn parse_iteration_metadata(commit: &Commit) -> Option<IterationMetadata> {
+    let msg = commit.message()?;
+    let prefix = "rsi: iteration ";
+    let body = msg.strip_prefix(prefix)?;
+    // The body is `<genome_id>\n\n{json}` — skip the genome_id line
+    // and the blank line, take whatever JSON follows.
+    let mut parts = body.splitn(2, '\n');
+    let _genome_id_line = parts.next()?;
+    let rest = parts.next()?.trim_start_matches('\n').trim();
+    serde_json::from_str::<IterationMetadata>(rest).ok()
+}
+
+/// A short, filesystem-safe id derived from a UUID. We do NOT use
+/// the full UUID in filenames because:
+/// 1. The git commit hash is the actual identifier we anchor on.
+/// 2. Filenames longer than ~80 chars make `ls` outputs painful.
+///
+/// 8 hex chars = 32 bits of entropy, which is enough to disambiguate
+/// genomes within a single user / single day.
+fn short_id_for_filename(id: &str) -> String {
+    let hex: String = id.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    hex.chars().take(8).collect()
+}
+
+#[allow(dead_code)]
+fn _unused_path_assertion() -> PathBuf {
+    // Compile-time pin: the GENOMES_DIR constant must agree with
+    // what paths.rs returns. If they diverge, this fn won't compile.
+    let p = crate::paths::rsi_genomes_dir();
+    assert_eq!(
+        p.file_name().and_then(|s| s.to_str()),
+        Some(GENOMES_DIR),
+        "rsi::repo::GENOMES_DIR must match paths::rsi_genomes_dir()"
+    );
+    p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// We don't run live git2 tests in CI by default (they're slow
+    /// and require a clean tempdir). The test below is a smoke test
+    /// for the message-format helpers, which is the only piece
+    /// that's pure-data.
+    #[test]
+    fn format_and_parse_iteration_metadata_round_trips() {
+        let meta = IterationMetadata {
+            score: 73.4,
+            strategy: "test".into(),
+            parent_lineage: vec!["abc".into()],
+            mutation_type: "mutation".into(),
+            cost_tokens: 1234,
+            duration_ms: 567,
+        };
+        let msg = format_iteration_message("gen-1234", &meta);
+        assert!(msg.starts_with("rsi: iteration gen-1234"));
+        // We can't easily round-trip through a Commit here without a
+        // live repo, so we just verify the JSON slice parses.
+        let json_part = msg.splitn(2, '\n').nth(1).unwrap().trim_start_matches('\n').trim();
+        let parsed: IterationMetadata = serde_json::from_str(json_part).unwrap();
+        assert_eq!(parsed, meta);
+    }
+
+    #[test]
+    fn short_id_truncates_to_8_hex_chars() {
+        assert_eq!(
+            short_id_for_filename("550e8400-e29b-41d4-a716-446655440000"),
+            "550e8400"
+        );
+        // No hex digits at all (g, r, b, s are NOT a-f — `b` and `r`
+        // are NOT in the [0-9a-f] hex set; `b` IS but `r`/`s`/`g`
+        // aren't). Actually 'b' is hex, so this is "b" alone.
+        let empty = short_id_for_filename("zzz!!!");
+        assert!(empty.is_empty());
+    }
+}

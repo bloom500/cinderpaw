@@ -45,6 +45,54 @@ pub fn voice_dir() -> PathBuf {
     feral_dir().join("voice")
 }
 
+// ── RSI (Fractal Memory System) ────────────────────────────────────────────────
+// All RSI state lives under ~/.feral/rsi/. The git substrate at .git/ holds
+// every genome commit; the eval/ tree holds the frozen Tier 0/1/2 tasks; the
+// meta/ dir holds PBT state and taste_vector. The agent has no write path to
+// any of these directories — every write is mediated by Rust commands in
+// src/rsi/commands.rs after SandboxBounds validation.
+
+/// Root of the RSI substrate.
+pub fn rsi_dir() -> PathBuf {
+    feral_dir().join("rsi")
+}
+
+/// `~/.feral/rsi/eval/<tier>/` — frozen evaluation suite per tier.
+/// Tier 0 frozen permanently. Tier 1 frozen per epoch. Tier 2 human-gated.
+pub fn rsi_eval_dir(tier: u8) -> PathBuf {
+    rsi_dir().join("eval").join(format!("tier{}", tier))
+}
+
+/// `~/.feral/rsi/genomes/` — per-commit snapshot of the winning genome JSON.
+pub fn rsi_genomes_dir() -> PathBuf {
+    rsi_dir().join("genomes")
+}
+
+/// `~/.feral/rsi/meta/pbt_state.json` — strategy-genomes + taste_vector.
+/// Updated on every RatchetAdvanced by the meta-RSI handler (Faza 3.5).
+pub fn rsi_meta_dir() -> PathBuf {
+    rsi_dir().join("meta")
+}
+
+/// `~/.feral/rsi/sandbox_bounds.json` — the canonical, agent-immutable
+/// SandboxBounds. Writes go through the hash-chained audit log.
+pub fn rsi_sandbox_bounds_path() -> PathBuf {
+    rsi_dir().join("sandbox_bounds.json")
+}
+
+/// `~/.feral/rsi/sandbox_bounds_audit.log` — append-only hash-chained log of
+/// every mutation to sandbox_bounds.json. The chain starts at GENESIS; each
+/// row carries `prev_hash` and `entry_hash = sha256(prev_hash || canonical(row))`.
+pub fn rsi_sandbox_bounds_audit_path() -> PathBuf {
+    rsi_dir().join("sandbox_bounds_audit.log")
+}
+
+/// `~/.feral/rsi/PLAN.md` — versioned architectural plan. Read-only for the
+/// agent after bootstrap (writes require an out-of-band user confirmation).
+pub fn rsi_plan_path() -> PathBuf {
+    rsi_dir().join("PLAN.md")
+}
+
 /// HuggingFace repo hosting whisper.cpp ggml models.
 pub const WHISPER_REPO: &str = "ggerganov/whisper.cpp";
 
@@ -70,6 +118,11 @@ pub fn ensure_dirs() -> anyhow::Result<()> {
     std::fs::create_dir_all(feral_agent_workspace_path())?;
     std::fs::create_dir_all(whisper_dir())?;
     std::fs::create_dir_all(voice_dir())?;
+    // RSI substrate — created here so the bootstrap path is a no-op on
+    // subsequent launches. Contents (.git, eval/, PLAN.md, …) are populated
+    // by rsi::bootstrap().
+    std::fs::create_dir_all(rsi_dir())?;
+    std::fs::create_dir_all(rsi_meta_dir())?;
     Ok(())
 }
 

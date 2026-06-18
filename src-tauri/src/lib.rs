@@ -17,6 +17,7 @@ mod memory_graph;
 mod models;
 mod paths;
 mod projects;
+mod rsi;
 mod settings;
 mod skills;
 mod sysinfo_mod;
@@ -76,6 +77,15 @@ pub struct AppState {
     /// MCP "Extensions" client manager (rmcp). Holds live connections to
     /// installed servers; configs persist at ~/.feral/mcp.json.
     pub mcp: Arc<mcp::McpManager>,
+    /// RSI (Fractal Memory System) state. Holds the cached SandboxBounds
+    /// and the initialised flag so every RSI command can answer "are
+    /// we bootstrapped?" without a disk round-trip. Populated by
+    /// `rsi_init`; consumed by every other rsi::* command.
+    pub rsi_state: rsi::RsiState,
+    /// Goodhart detector's rolling window. Kept as a separate Tauri
+    /// `State` so it can be re-built lazily inside the command without
+    /// contending on `rsi_state`.
+    pub rsi_goodhart: rsi::commands::GoodhartSlot,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -2393,6 +2403,8 @@ pub fn run() {
         feral_model_config: Arc::new(Mutex::new(None)),
         local_api_token: local_api_token.clone(),
         mcp: Arc::new(mcp::McpManager::new()),
+        rsi_state: rsi::RsiState::default(),
+        rsi_goodhart: rsi::commands::GoodhartSlot::default(),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -2490,6 +2502,19 @@ pub fn run() {
             desktop_control::take_element_action,
             desktop_control::send_keys,
             desktop_control::launch_app,
+            rsi::commands::rsi_init,
+            rsi::commands::rsi_status,
+            rsi::commands::rsi_get_bounds,
+            rsi::commands::rsi_update_bounds,
+            rsi::commands::rsi_score,
+            rsi::commands::rsi_get_tier0_specs,
+            rsi::commands::rsi_commit_genome,
+            rsi::commands::rsi_ratchet_attempt,
+            rsi::commands::rsi_log,
+            rsi::commands::rsi_lca,
+            rsi::commands::rsi_diff,
+            rsi::commands::rsi_record_goodhart_sample,
+            rsi::commands::rsi_reset_goodhart,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
@@ -2525,6 +2550,61 @@ pub fn run() {
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
+
+            // ── RSI substrate bootstrap (Faza 0 — Keystone) ──────────────
+            // Runs BEFORE the sidecar spawns. The sidecar's bootstrapOnce()
+            // expects the git repo + PLAN.md + SandboxBounds to already be
+            // on disk; without this the sidecar would log a missing
+            // substrate and skip the rsi_init IPC call (which is the
+            // documented ordering — see FeralAgent/src/rsi/mod.ts).
+            //
+            // Bootstrap is idempotent: if the repo exists, repo::bootstrap
+            // returns its current tip; if the bounds file exists,
+            // bootstrap_with_audit would create a duplicate genesis row, so
+            // we use SandboxBounds::load instead when the file is present.
+            match rsi::repo::bootstrap() {
+                Ok(plan_commit) => {
+                    tracing::info!(plan_commit = %plan_commit, "rsi: git substrate bootstrapped");
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "rsi: git substrate bootstrap failed");
+                }
+            }
+            let audit_path = paths::rsi_sandbox_bounds_audit_path();
+            match rsi::audit::SandboxBoundsAudit::open(&audit_path) {
+                Ok(audit) => {
+                    let bounds_result = if paths::rsi_sandbox_bounds_path().exists() {
+                        rsi::sandbox_bounds::SandboxBounds::load()
+                    } else {
+                        rsi::sandbox_bounds::SandboxBounds::bootstrap_with_audit(&audit)
+                    };
+                    match bounds_result {
+                        Ok(bounds) => {
+                            let sha = bounds.file_sha256().ok();
+                            tracing::info!(
+                                version = bounds.version,
+                                bounds_sha256 = sha.as_deref().unwrap_or("?"),
+                                "rsi: sandbox_bounds ready",
+                            );
+                            // Reflect the boot state into AppState so the
+                            // very first rsi_init call from the UI is a
+                            // no-op and the subsequent rsi_status call
+                            // returns the right values immediately.
+                            let st = app.handle().state::<AppState>();
+                            *st.rsi_state.bounds.lock() = Some(bounds);
+                            *st.rsi_state.bounds_file_sha256.lock() = sha;
+                            *st.rsi_state.initialized.lock() = true;
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "rsi: sandbox_bounds bootstrap failed");
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "rsi: audit log open failed");
+                }
+            }
+
             // Start API server in background.
             //
             // R4 fix: the Feral Agent sidecar is hardcoded to point at

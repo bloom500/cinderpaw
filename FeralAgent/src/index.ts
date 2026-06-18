@@ -53,6 +53,7 @@ import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
 import { SkillsStorage, SkillAutoCreator } from "./skills/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
+import { bootstrapOnce } from "./rsi/mod.ts";
 import type { DeliveryTarget, Schedule } from "./types.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
@@ -164,6 +165,34 @@ function buildTransport(kind: AppConfig["transport"]): Transport {
 async function main(): Promise<void> {
   const config = loadConfig();
   const db = openDatabase(config.dbPath);
+
+  // --- RSI bootstrap (Faza 0 — Keystone) ---
+  // Boot the Bounded-RSI substrate. Two slices, two owners:
+  //
+  //   - Rust slice (git repo at ~/.feral/rsi/, PLAN.md, SandboxBounds,
+  //     audit chain) — bootstrapped by Tauri's `setup()` hook in
+  //     src-tauri/src/lib.rs BEFORE the sidecar process spawns. By
+  //     the time we reach this line, that slice is already live.
+  //
+  //   - Sidecar slice (5 tables in feral.db, 4 initial
+  //     strategy-genomes) — bootstrapped here. Idempotent: re-running
+  //     is a no-op.
+  //
+  // This is fail-soft: a failed bootstrap here doesn't kill the
+  // sidecar — chat still works, just without RSI. The error is
+  // surfaced to the log so the operator can diagnose.
+  try {
+    const result = bootstrapOnce(db.raw);
+    if (!result.allTablesPresent) {
+      log(`RSI tables missing: ${result.missingTables.join(", ")} — migration may have failed`);
+    }
+    log(
+      `RSI bootstrap → strategy_seeds=${result.strategyGenomesSeeded} ` +
+        `tables_ok=${result.allTablesPresent}`,
+    );
+  } catch (err) {
+    log(`RSI bootstrap failed (continuing without RSI): ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // --- Identity: load SOUL.md (bundled default + user override). The loader
   // is the source of truth for the agent's tone, identity, and behavior; it
