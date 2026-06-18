@@ -46,6 +46,23 @@ export class EventBus {
   }
 
   /**
+   * Remove a previously-registered `handler` from `type`. No-op if
+   * the handler was never registered or has already been removed.
+   * Used by long-running loops (GoalMode.run, the live event feed,
+   * the bridge client) to drop their handler on teardown so the
+   * handler list doesn't grow unbounded across calls.
+   */
+  off(type: RsiEventType, handler: RsiEventHandler): void {
+    const list = this.handlers.get(type);
+    if (!list) return;
+    const idx = list.indexOf(handler);
+    if (idx >= 0) list.splice(idx, 1);
+    // Drop the bucket if it became empty so future emits short-circuit
+    // (the emit loop guards with `if (!list) continue`).
+    if (list.length === 0) this.handlers.delete(type);
+  }
+
+  /**
    * Enqueue `event` for dispatch.
    *
    * If no pump is running, this call becomes the pump: it drains the
@@ -77,5 +94,18 @@ export class EventBus {
     } finally {
       this.pumping = false;
     }
+  }
+
+  /**
+   * Register `handler` and return a disposer that unsubscribes it.
+   * Equivalent to `on(type, handler)` followed by a saved reference
+   * to `handler` for later `off(type, handler)` — the disposer is
+   * just a closure that captures both. Useful in long-running loops
+   * (GoalMode.run, the live event feed) that need to drop their
+   * handler on teardown.
+   */
+  onDisposable(type: RsiEventType, handler: RsiEventHandler): () => void {
+    this.on(type, handler);
+    return () => this.off(type, handler);
   }
 }

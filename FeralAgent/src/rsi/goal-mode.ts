@@ -6,9 +6,14 @@
  * caller before this runs; GoalMode adds the work queue + budget
  * bookkeeping and drives evaluation until a StopReason.
  *
- * Concurrency: the engine starts at 1 (the validated, sequential mode —
- * each eval's full event cascade completes before the next is pulled).
- * Raising concurrency to N is a follow-up once the loop is validated.
+ * Concurrency: the engine reads `pop.concurrency` on every refill of
+ * the worker pool, so the live `rsi_set_concurrency` Tauri command
+ * takes effect within one eval cycle without restarting the loop.
+ * Lowering concurrency does NOT cancel in-flight evals — they finish
+ * naturally and the pool drains to the new ceiling. Raising concurrency
+ * fills new slots on the next slot-free callback. The cap is intentionally
+ * soft; "kill in-flight eval" semantics can layer on top via a per-eval
+ * cancellation token in a future phase.
  */
 
 import type { EventBus, RsiEvent } from "./event-bus.ts";
@@ -63,7 +68,7 @@ export class GoalMode {
   private userStopped = false;
 
   constructor(
-    bus: EventBus,
+    private readonly bus: EventBus,
     private readonly pop: PopulationManager,
     private readonly evalWorker: EvalWorker,
     private readonly config: GoalConfig,
@@ -85,30 +90,113 @@ export class GoalMode {
     this.userStopped = true;
   }
 
-  /** Drive the engine until a StopReason. Sequential (concurrency 1). */
+  /**
+   * Drive the engine until a StopReason. Worker pool with up to
+   * `pop.concurrency` parallel evals.
+   *
+   * Iteration counting is event-driven (via the EvalComplete bus
+   * subscription we install below) — the parallel pool just runs as
+   * many evals as it can hold, and the count lands whenever they
+   * finish. This decouples counting from the pool mechanics and is
+   * the same semantic the serial loop had (count after completion),
+   * which the existing tests depend on.
+   */
   async run(): Promise<GoalResult> {
     let iterations = 0;
     let lastBest = -Infinity;
     let sinceImprovement = 0;
 
-    while (true) {
-      const reason = this.checkStop(iterations, sinceImprovement);
-      if (reason) return this.result(reason, iterations);
-      if (this.queue.length === 0) return this.result("Converged", iterations);
-
-      const genome = this.pop.get(this.queue.shift()!);
-      if (!genome) continue;
-
-      await this.evalWorker.run(genome);
+    // Event-driven iteration + best-score tracking. Registered here
+    // (rather than in the constructor) so it doesn't fire for evals
+    // initiated before this run() call — keeps test invariants tight.
+    const offComplete = this.bus.onDisposable("EvalComplete", (e: RsiEvent) => {
       iterations += 1;
-
-      const best = this.pop.best();
-      if (best && best.score > lastBest) {
-        lastBest = best.score;
+      const score = e.score as number;
+      if (score > lastBest) {
+        lastBest = score;
         sinceImprovement = 0;
       } else {
         sinceImprovement += 1;
       }
+    });
+
+    try {
+      let stopReason: StopReason | null = null;
+      const inFlight = new Set<Promise<void>>();
+
+      // Launch one eval. Returns the promise (added to inFlight) or
+      // null if the genome id was stale. The cleanup chain removes
+      // itself from inFlight and tries to refill one slot — that
+      // pickup is what makes live `pop.concurrency` changes take
+      // effect on the next opportunity.
+      const launch = (genomeId: string): Promise<void> | null => {
+        const genome = this.pop.get(genomeId);
+        if (!genome) return null;
+        const p = this.evalWorker
+          .run(genome)
+          .catch((err) => {
+            // The eval worker already catches its own errors and
+            // emits a terminal EvalComplete (errored: true); this
+            // catch is belt-and-braces for programmer-introduced
+            // bugs that escape the worker. Don't let an unhandled
+            // rejection tear down the pool.
+            // eslint-disable-next-line no-console
+            console.error("goal-mode: unhandled eval error", err);
+          })
+          .finally(() => {
+            inFlight.delete(p);
+            refill();
+          });
+        inFlight.add(p);
+        return p;
+      };
+
+      // Fill the pool up to the current ceiling. Called at start AND
+      // after every slot-free (above). No-op once stopReason is set,
+      // so the tail of the pool drains to zero without further launches.
+      const refill = (): void => {
+        if (stopReason !== null) return;
+        if (this.userStopped) {
+          stopReason = "UserStopped";
+          return;
+        }
+        const maxN = Math.max(0, this.pop.concurrency || 1);
+        while (inFlight.size < maxN) {
+          const reason = this.checkStop(iterations, sinceImprovement);
+          if (reason) { stopReason = reason; return; }
+          if (this.queue.length === 0) return; // nothing to launch; pool drains naturally
+          const nextId = this.queue.shift()!;
+          const p = launch(nextId);
+          if (p === null) continue; // pop.get returned undefined — skip
+        }
+      };
+
+      // Prime the pump, then wait for the pool to empty or a stop to fire.
+      refill();
+      while (inFlight.size > 0) {
+        // userStopped can flip on the bus thread (a handler called
+        // gm.stop()); surface it as stopReason so we exit and drain.
+        if (this.userStopped && stopReason === null) {
+          stopReason = "UserStopped";
+        }
+        if (stopReason !== null) break;
+        // Race on whichever in-flight promise resolves next. allSettled
+        // shape (never throws) means the loop continues until empty.
+        await Promise.race(inFlight);
+      }
+
+      // Even on stopReason we let in-flight evals drain — they were
+      // already launched; aborting mid-flight risks leaving the sidecar
+      // in an inconsistent state. allSettled absorbs the per-eval
+      // already-handled rejections.
+      if (inFlight.size > 0) await Promise.allSettled(inFlight);
+
+      const finalReason: StopReason =
+        stopReason ??
+        (this.queue.length === 0 ? "Converged" : (this.checkStop(iterations, sinceImprovement) ?? "Converged"));
+      return this.result(finalReason, iterations);
+    } finally {
+      offComplete();
     }
   }
 
