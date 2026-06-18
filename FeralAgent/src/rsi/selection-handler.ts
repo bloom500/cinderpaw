@@ -61,6 +61,13 @@ export class SelectionMutationHandler {
       generation: parent.generation + 1,
       lineage: [parent.id],
       config: child,
+      // mutationType is the same value emitted on the GenomeBorn event
+      // below — captured on the Genome record so the commit adapter
+      // can read it back when building the git metadata (the spec'd
+      // shape of `rsi_iteration.mutation_type`). Without this, the
+      // adapter has no way to know whether the genome was a bootstrap
+      // seed or a selection-handler birth.
+      mutationType,
     });
 
     await this.bus.emit({

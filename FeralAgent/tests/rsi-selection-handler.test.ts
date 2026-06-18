@@ -79,8 +79,14 @@ describe("RSI selection/mutation handler", () => {
     expect(e.config.toolPreferenceWeights.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
     expect(e.config.toolPreferenceWeights).not.toEqual(CFG.toolPreferenceWeights);
 
-    // The child is now part of the live population.
+    // The child is now part of the live population, AND the
+    // mutationType captured at birth is on the Genome record too —
+    // the commit adapter reads it from there when it builds the git
+    // metadata (see population-manager.test.ts). Without this, the
+    // adapter has no way to know whether the genome was a bootstrap
+    // seed or a selection-handler birth.
     expect(pop.alive().map((g) => g.id).sort()).toEqual(["child-1", "g1"]);
+    expect(pop.get("child-1")!.mutationType).toBe("parametric");
   });
 
   test("does not birth when the population is at capacity", async () => {

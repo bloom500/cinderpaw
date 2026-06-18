@@ -91,6 +91,14 @@ pub struct AppState {
     /// `engine: null` in `rsi_status` and shows "engine not wired").
     /// Populated from the `rsi_engine_event` outbound events on stdout.
     pub rsi_engine: std::sync::Arc<parking_lot::Mutex<Option<rsi::commands::RsiEngineState>>>,
+    /// In-flight ack registry for the 3 engine-driver commands
+    /// (`rsi_start` / `rsi_stop` / `rsi_set_concurrency`). Each entry
+    /// is a oneshot whose sender is fired by `feral_agent::stdout_reader`
+    /// when the matching `rsi_engine_event` arrives on stdout, so the
+    /// command can return success only after the sidecar has actually
+    /// accepted the request. Cloned into `feral_agent::spawn` so the
+    /// reader can ack without holding the AppState mutex.
+    pub rsi_request_registry: rsi::commands::RsiRequestRegistry,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -2411,6 +2419,7 @@ pub fn run() {
         rsi_state: rsi::RsiState::default(),
         rsi_goodhart: rsi::commands::GoodhartSlot::default(),
         rsi_engine: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+        rsi_request_registry: rsi::commands::RsiRequestRegistry::default(),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -2662,12 +2671,25 @@ pub fn run() {
             let fa_handle = app.handle().clone();
             let fa_tx_slot = app.handle().state::<AppState>().feral_agent_tx.clone();
             let fa_process_slot = app.handle().state::<AppState>().feral_agent_process.clone();
+            let fa_registry = app.handle().state::<AppState>().rsi_request_registry.clone();
+            let fa_engine_mirror = app.handle().state::<AppState>().rsi_engine.clone();
             let fa_port = api_port;
             let fa_token = local_api_token.to_string();
             // #11: supervised spawn — watches for sidecar crashes, restarts
             // with backoff, and emits `feral://agent-exit` so the UI can show
-            // an "agent offline" banner instead of going silently mute.
-            feral_agent::supervise(fa_handle, fa_tx_slot, fa_process_slot, fa_port, fa_token);
+            // an "agent offline" banner instead of going silently mute. The
+            // registry + engine mirror are cloned into every spawn generation
+            // so the stdout reader can route `rsi_engine_event` acks to the
+            // matching oneshot and keep `rsi_status.engine` fresh.
+            feral_agent::supervise(
+                fa_handle,
+                fa_tx_slot,
+                fa_process_slot,
+                fa_port,
+                fa_token,
+                fa_registry,
+                fa_engine_mirror,
+            );
 
             // Reconnect enabled MCP extensions in the background. Failures
             // are logged per-server — a broken extension never blocks launch.

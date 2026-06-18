@@ -86,4 +86,19 @@ describe("RSI population manager", () => {
     // g1 is now alone in its niche → full fitness restored.
     expect(pop.alive().find((g) => g.id === "g1")!.sharedFitness).toBeCloseTo(80);
   });
+
+  test("add() stores optional mutationType; older callers may omit it", () => {
+    // The mutationType field is what the commit adapter reads back when
+    // building the git commit metadata (see adapters.ts). Bootstrap
+    // seeds set "seed"; selection-handler births set "parametric"
+    // (or whatever mutateConfig returns). Tests / legacy callers can
+    // omit it and the record just has undefined — the adapter falls
+    // back to "unknown" at that point.
+    const pop = new PopulationManager();
+    pop.add({ id: "g1", generation: 0, lineage: [], mutationType: "seed" });
+    pop.add({ id: "g2", generation: 0, lineage: [] });
+
+    expect(pop.get("g1")!.mutationType).toBe("seed");
+    expect(pop.get("g2")!.mutationType).toBeUndefined();
+  });
 });

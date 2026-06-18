@@ -27,6 +27,14 @@ export interface Genome {
   /** The evolving agent configuration (strategy_dna). Optional on the
    *  record because the manager never interprets it — handlers do. */
   config?: GenomeConfig;
+  /** How this genome was produced. `"seed"` for the four bootstrap seeds
+   *  (no parent mutation); `"parametric"` (and later `"crossover"`,
+   *  `"llm_mutation"`) for selection-handler births. Captured at
+   *  `add()` time and persisted into the git commit metadata by the
+   *  `commitGenome` adapter so audits can tell bootstrap from evolved
+   *  genomes without consulting an external log. Optional because
+   *  pre-7b-part2 callers and tests may omit it. */
+  mutationType?: string;
   /** 0..100; null until the genome has been evaluated. */
   fitnessScore: number | null;
   /** Per-task score vector from the eval suite; null until evaluated. */
@@ -42,6 +50,11 @@ export interface GenomeSpec {
   generation: number;
   lineage: string[];
   config?: GenomeConfig;
+  /** See `Genome.mutationType`. The selection handler passes the
+   *  `"parametric"` (etc.) value returned by `mutateConfig`; bootstrap
+   *  paths set `"seed"`. The commit adapter reads it back when
+   *  building the git commit's metadata. */
+  mutationType?: string;
 }
 
 /** The eval result attached to a genome on EvalComplete. */
@@ -85,6 +98,7 @@ export class PopulationManager {
       generation: spec.generation,
       lineage: spec.lineage,
       config: spec.config,
+      mutationType: spec.mutationType,
       fitnessScore: null,
       behavioralFingerprint: null,
       sharedFitness: null,

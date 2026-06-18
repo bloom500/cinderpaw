@@ -27,11 +27,14 @@
 //! Command shape follows the rest of `src-tauri/src/lib.rs`:
 //! `#[tauri::command] #[specta::specta] fn name(...) -> Result<T, String>`.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use tokio::sync::oneshot;
 
 use super::audit::{AuditVerifyResult, SandboxBoundsAudit};
 use super::goodhart::GoodhartDetector;
@@ -45,6 +48,15 @@ use crate::paths;
 use crate::rsi::paths as rsi_paths;
 use crate::AppState;
 
+/// How long `rsi_start` / `rsi_stop` / `rsi_set_concurrency` wait for a
+/// matching ack on the Feral Agent's stdout before returning an error to the
+/// UI. The sidecar emits an `rsi_engine_event` line whose `id` matches the
+/// request's `request_id`; `feral_agent::stdout_reader` routes that into the
+/// matching `oneshot::Sender` here. 500 ms is the proven ceiling on Windows
+/// for spawn-to-IPC-ready (see Faza 7b-part2 design notes) and short enough
+/// that a wedged engine surfaces to the UI in under a second.
+pub const RSI_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+
 // ── Public types ────────────────────────────────────────────────────────────
 
 /// Shared, lazily-initialised Goodhart detector. Held as a field on
@@ -55,6 +67,76 @@ use crate::AppState;
 #[derive(Default)]
 pub struct GoodhartSlot {
     pub detector: Arc<Mutex<Option<GoodhartDetector>>>,
+}
+
+/// In-flight request registry for the three engine-driver commands
+/// (`rsi_start` / `rsi_stop` / `rsi_set_concurrency`).
+///
+/// The race condition we close here: `tx.send()` on the stdin mpsc
+/// returns as soon as the message is queued in the channel, NOT when
+/// the sidecar has actually ingested it and set up its IPC handlers.
+/// On Windows the gap between "Rust started writing to stdin" and
+/// "sidecar is ready to ack" can be hundreds of ms during cold
+/// boot; sending `rsi_start` then would drop the message into a
+/// sidecar that isn't yet listening for it.
+///
+/// Pattern: Rust generates a `request_id` UUID, registers a
+/// `oneshot::Sender<()>` keyed by that id, sends the message, and
+/// awaits the receiver with `RSI_ACK_TIMEOUT`. The sidecar emits
+/// `{type:"rsi_engine_event", event:"started"|"stopped"|"concurrency_set",
+/// id:"<request_id>", ...}` on stdout once the engine action has
+/// actually been applied; `feral_agent::stdout_reader` looks up
+/// `request_id` in this registry and fires the oneshot. If the
+/// oneshot doesn't fire within `RSI_ACK_TIMEOUT`, the command
+/// returns a timeout error to the UI instead of hanging.
+///
+/// `Clone` is cheap (only an `Arc`) so `stdout_reader` can keep a
+/// long-lived handle next to `feral_agent_tx`.
+#[derive(Default, Clone)]
+pub struct RsiRequestRegistry {
+    inner: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+}
+
+impl RsiRequestRegistry {
+    /// Register `request_id` and return the receiver the caller awaits.
+    /// If `request_id` is already registered, the previous sender is
+    /// dropped (which causes its receiver to error with `RecvError`) —
+    /// duplicate ids are programmer error, not user error.
+    pub fn register(&self, request_id: String) -> oneshot::Receiver<()> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.lock().insert(request_id, tx);
+        rx
+    }
+
+    /// Fire the oneshot for `request_id`, if registered. Returns true
+    /// iff the ack actually fired (false = unknown or already-consumed
+    /// id). Used by `feral_agent::stdout_reader` to route engine
+    /// events. The send errors are ignored — a `RecvError` just means
+    /// the command already gave up (timeout).
+    pub fn ack(&self, request_id: &str) -> bool {
+        if let Some(tx) = self.inner.lock().remove(request_id) {
+            let _ = tx.send(());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Drop the pending sender for `request_id` without firing it.
+    /// Called by the command after a timeout so the registry doesn't
+    /// grow unbounded if the sidecar eventually acks a request nobody
+    /// is waiting on.
+    #[allow(dead_code)]
+    pub fn cleanup(&self, request_id: &str) {
+        self.inner.lock().remove(request_id);
+    }
+
+    /// Number of in-flight requests. Tests only — production code
+    /// has no reason to inspect the size.
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.inner.lock().len()
+    }
 }
 
 /// Mirror of the running engine. Populated from `rsi_engine_event`
@@ -252,7 +334,15 @@ pub fn rsi_score(
     state: State<'_, AppState>,
     outcomes: Vec<EvalOutcome>,
 ) -> Result<ScoreBreakdown, String> {
-    ensure_initialized(&state)?;
+    do_rsi_score(state.inner(), outcomes)
+}
+
+/// Body of `rsi_score` extracted so the sidecar request dispatcher
+/// (`dispatch_rsi_request`) can call it without going through a
+/// Tauri `State<'_, AppState>` extractor — it gets a plain
+/// `&AppState` from `app.state::<AppState>().inner()`.
+pub(crate) fn do_rsi_score(state: &AppState, outcomes: Vec<EvalOutcome>) -> Result<ScoreBreakdown, String> {
+    ensure_initialized(state)?;
     // Use the bounds' weights if they exist, otherwise defaults.
     let weights = state
         .rsi_state
@@ -293,7 +383,22 @@ pub fn rsi_commit_genome(
     metadata: IterationMetadata,
     candidate_branch: String,
 ) -> Result<String, String> {
-    ensure_initialized(&state)?;
+    do_rsi_commit_genome(state.inner(), genome_id, genome_json, parent_commits, metadata, candidate_branch)
+}
+
+/// Body of `rsi_commit_genome` extracted so the sidecar request
+/// dispatcher (`dispatch_rsi_request`) can call it without going
+/// through a Tauri `State<'_, AppState>` extractor — it gets a plain
+/// `&AppState` from `app.state::<AppState>().inner()`.
+pub(crate) fn do_rsi_commit_genome(
+    state: &AppState,
+    genome_id: String,
+    genome_json: String,
+    parent_commits: Vec<String>,
+    metadata: IterationMetadata,
+    candidate_branch: String,
+) -> Result<String, String> {
+    ensure_initialized(state)?;
     // Bounds check: parse the JSON, ensure it's an object. The
     // genome schema itself is opaque to Rust (the agent defines it);
     // we only enforce the top-level shape.
@@ -437,6 +542,11 @@ pub fn rsi_reset_goodhart(state: State<'_, AppState>) -> Result<(), String> {
 /// `StopReason::BudgetExhausted`. `concurrency` is the initial
 /// eval concurrency — ramped via `rsi_set_concurrency` once the
 /// system is validated.
+///
+/// The returned `RsiStartAck` only proves the sidecar **acked** the
+/// request (i.e. received the message and started constructing the
+/// engine), NOT that the engine reached a steady state. The UI
+/// polls `rsi_status` for `engine.running = true`.
 #[tauri::command]
 #[specta::specta]
 pub async fn rsi_start(
@@ -457,7 +567,7 @@ pub async fn rsi_start(
         "concurrency": concurrency,
     })
     .to_string();
-    deliver_to_sidecar(&state, &payload).await?;
+    wait_for_sidecar_ack(&state, &request_id, &payload).await?;
     Ok(RsiStartAck {
         delivered: true,
         request_id,
@@ -470,12 +580,13 @@ pub async fn rsi_start(
 #[tauri::command]
 #[specta::specta]
 pub async fn rsi_stop(state: State<'_, AppState>) -> Result<RsiStopAck, String> {
+    let request_id = uuid::Uuid::new_v4().to_string();
     let payload = serde_json::json!({
         "type": "rsi_stop",
-        "id": uuid::Uuid::new_v4().to_string(),
+        "id": request_id,
     })
     .to_string();
-    deliver_to_sidecar(&state, &payload).await?;
+    wait_for_sidecar_ack(&state, &request_id, &payload).await?;
     Ok(RsiStopAck { delivered: true })
 }
 
@@ -492,12 +603,14 @@ pub async fn rsi_set_concurrency(
     if concurrency == 0 {
         return Err("rsi_set_concurrency: concurrency must be >= 1".into());
     }
+    let request_id = uuid::Uuid::new_v4().to_string();
     let payload = serde_json::json!({
         "type": "rsi_set_concurrency",
+        "id": request_id,
         "concurrency": concurrency,
     })
     .to_string();
-    deliver_to_sidecar(&state, &payload).await?;
+    wait_for_sidecar_ack(&state, &request_id, &payload).await?;
     Ok(())
 }
 
@@ -506,7 +619,7 @@ pub async fn rsi_set_concurrency(
 /// Reject calls made before `rsi_init` succeeded. Without this guard
 /// the sidecar could attempt to commit a genome before the git
 /// substrate exists, and the failure mode would be confusing.
-fn ensure_initialized(state: &State<'_, AppState>) -> Result<(), String> {
+fn ensure_initialized(state: &AppState) -> Result<(), String> {
     if !*state.rsi_state.initialized.lock() {
         return Err("RSI not initialized — call rsi_init first".into());
     }
@@ -531,6 +644,44 @@ async fn deliver_to_sidecar(state: &State<'_, AppState>, line: &str) -> Result<(
     Ok(())
 }
 
+/// Send `payload` to the sidecar and wait up to `RSI_ACK_TIMEOUT`
+/// for a matching ack on stdout (via `RsiRequestRegistry`).
+///
+/// `request_id` is included in `payload` verbatim — the sidecar
+/// echoes it back in the corresponding `rsi_engine_event` line so
+/// `feral_agent::stdout_reader` can route the ack to this wait.
+///
+/// On timeout the registry entry is dropped so the registry doesn't
+/// leak: the sidecar may eventually ack a request nobody is waiting
+/// on, and we don't want those ghosts to accumulate. The error
+/// message is explicit so the UI can render a meaningful banner
+/// ("sidecar didn't ack rsi_start within 500ms — is it hung?").
+async fn wait_for_sidecar_ack(
+    state: &State<'_, AppState>,
+    request_id: &str,
+    payload: &str,
+) -> Result<(), String> {
+    let rx = state.rsi_request_registry.register(request_id.to_string());
+    // Deliver AFTER registering so an instantly-acking sidecar
+    // (tests, warm boot) can't fire-and-forget before we've hooked
+    // the receiver into the registry.
+    deliver_to_sidecar(state, payload).await?;
+    match tokio::time::timeout(RSI_ACK_TIMEOUT, rx).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(_canceled)) => Err(format!(
+            "rsi request {request_id}: ack channel closed before fire (engine task died?)"
+        )),
+        Err(_elapsed) => {
+            // Drop the pending sender so a late ack doesn't keep
+            // an entry alive forever.
+            state.rsi_request_registry.cleanup(request_id);
+            Err(format!(
+                "rsi request {request_id}: sidecar did not ack within {RSI_ACK_TIMEOUT:?}"
+            ))
+        }
+    }
+}
+
 // `rsi_paths` is referenced in the path validation flows even
 // though every direct call site uses the free functions in
 // `rsi::paths`; pin the alias so the import doesn't go unused.
@@ -546,4 +697,342 @@ fn _paths_module_pinned() {
 fn _arc_mutex_pinned() {
     let _: Arc<()> = Arc::new(());
     let _: Mutex<()> = Mutex::new(());
+}
+
+// ── Sidecar request dispatcher (protocol (a)) ─────────────────────────────
+
+/// Dispatch a single `{type:"rsi_request", id, method, params}` line
+/// coming from the Feral Agent sidecar's stdout. Returns a JSON
+/// value to embed in `{type:"rsi_response", id, ok, data}` on
+/// success, or `Err(message)` for `{ok:false, error}`.
+///
+/// The methods listed here are the ones the sidecar's bridge client
+/// actually calls. The UI-driven ones (`rsi_init`, `rsi_update_bounds`,
+/// `rsi_status`, `rsi_record_goodhart_sample`, `rsi_reset_goodhart`)
+/// are NOT routed here — those flow through Tauri's invoke path
+/// from React and never appear on the sidecar's stdout. Adding them
+/// here without callers would be dead code that drifts.
+///
+/// Stateless methods (`rsi_ratchet_attempt`, `rsi_log`, `rsi_lca`,
+/// `rsi_diff`, `rsi_get_tier0_specs`) delegate straight to `repo` /
+/// `tier0`; they don't read AppState. Stateful methods
+/// (`rsi_commit_genome`, `rsi_score`) route through the `do_*`
+/// helpers so the same body code serves both Tauri callers and the
+/// bridge.
+pub async fn dispatch_rsi_request(
+    state: &AppState,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    match method {
+        "rsi_commit_genome" => {
+            let genome_id: String = require_string(params.get("genome_id"), "genome_id")?;
+            let genome_json: String = require_string(params.get("genome_json"), "genome_json")?;
+            let parent_commits: Vec<String> = params
+                .get("parent_commits")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let metadata: IterationMetadata = serde_json::from_value(
+                params
+                    .get("metadata")
+                    .cloned()
+                    .ok_or_else(|| "rsi_commit_genome: missing 'metadata'".to_string())?,
+            )
+            .map_err(|e| format!("rsi_commit_genome: bad metadata: {e}"))?;
+            let candidate_branch: String = require_string(params.get("candidate_branch"), "candidate_branch")?;
+            let commit_hash = do_rsi_commit_genome(
+                state,
+                genome_id,
+                genome_json,
+                parent_commits,
+                metadata,
+                candidate_branch,
+            )?;
+            Ok(json!({ "commitHash": commit_hash }))
+        }
+        "rsi_score" => {
+            let outcomes: Vec<EvalOutcome> = serde_json::from_value(
+                params
+                    .get("outcomes")
+                    .cloned()
+                    .ok_or_else(|| "rsi_score: missing 'outcomes'".to_string())?,
+            )
+            .map_err(|e| format!("rsi_score: bad outcomes: {e}"))?;
+            let breakdown = do_rsi_score(state, outcomes)?;
+            // breakdown is specta::Type, so serialises to its own JSON
+            // shape — wrap as the canonical {data: ...} envelope the
+            // bridge client expects.
+            Ok(serde_json::to_value(breakdown).map_err(|e| format!("rsi_score: serialise: {e}"))?)
+        }
+        // Stateless methods: no AppState needed. The sidecar's bridge
+        // client uses these for lineage queries, diffing, and the
+        // ratchet decision; routing them here keeps the protocol
+        // symmetric (every method the sidecar can call is handled).
+        "rsi_ratchet_attempt" => {
+            let candidate_commit: String =
+                require_string(params.get("candidate_commit"), "candidate_commit")?;
+            let result = repo::ratchet_attempt(&candidate_commit).map_err(|e| e.to_string())?;
+            Ok(json!({
+                "advanced": result.advanced,
+                "previous_tip": result.previous_tip,
+                "new_tip": result.new_tip,
+                "candidate_score": result.candidate_score,
+                "prior_score": result.prior_score,
+            }))
+        }
+        "rsi_log" => {
+            let max: usize = params
+                .get("max")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(50);
+            let commits = repo::log(max).map_err(|e| e.to_string())?;
+            Ok(json!(commits))
+        }
+        "rsi_lca" => {
+            let a: String = require_string(params.get("a"), "a")?;
+            let b: String = require_string(params.get("b"), "b")?;
+            let lca = repo::lca(&a, &b).map_err(|e| e.to_string())?;
+            Ok(json!({ "lca": lca }))
+        }
+        "rsi_diff" => {
+            let a: String = require_string(params.get("a"), "a")?;
+            let b: String = require_string(params.get("b"), "b")?;
+            let diff = repo::diff(&a, &b).map_err(|e| e.to_string())?;
+            Ok(json!({ "diff": diff }))
+        }
+        "rsi_get_tier0_specs" => {
+            let specs: Vec<super::tier0::Tier0Spec> = TIER0_SPECS.iter().cloned().collect();
+            Ok(json!(specs))
+        }
+        other => Err(format!("rsi_request: unknown method '{other}'")),
+    }
+}
+
+/// Helper used by the dispatcher to pull a required string param out
+/// of a serde_json::Value with a clear error. Returns
+/// `Err(field_name)`-shaped errors so the sidecar's bridge sees a
+/// useful message instead of a generic "missing field".
+fn require_string(v: Option<&serde_json::Value>, field: &str) -> Result<String, String> {
+    v.and_then(|x| x.as_str())
+        .map(String::from)
+        .ok_or_else(|| format!("rsi_request: missing or non-string '{field}'"))
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_register_and_ack_round_trip() {
+        let reg = RsiRequestRegistry::default();
+        let rx = reg.register("req-1".to_string());
+        assert_eq!(reg.len(), 1);
+        assert!(reg.ack("req-1"));
+        assert_eq!(reg.len(), 0);
+        // Receiver should now resolve with Ok.
+        let result = rx.blocking_recv();
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn registry_ack_for_unknown_id_is_noop() {
+        let reg = RsiRequestRegistry::default();
+        assert!(!reg.ack("never-registered"));
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn registry_ack_twice_only_fires_first_sender() {
+        // Repro guard: if a duplicate ack came in (sidecar emits a
+        // second event for the same id by mistake) we must not
+        // accidentally fire a stale sender that's been replaced by a
+        // re-registration.
+        let reg = RsiRequestRegistry::default();
+        let rx1 = reg.register("req".to_string());
+        assert!(reg.ack("req"));
+        // After ack the entry is gone; a second ack should not panic
+        // and should return false.
+        assert!(!reg.ack("req"));
+        // rx1 still resolves to Ok(()).
+        assert_eq!(rx1.blocking_recv(), Ok(()));
+    }
+
+    #[test]
+    fn registry_cleanup_drops_sender_so_late_ack_returns_false() {
+        let reg = RsiRequestRegistry::default();
+        let _rx = reg.register("req-c".to_string());
+        reg.cleanup("req-c");
+        assert_eq!(reg.len(), 0);
+        // Late ack from the sidecar finds no entry → no-op.
+        assert!(!reg.ack("req-c"));
+    }
+
+    #[test]
+    fn registry_is_clone_and_shares_state() {
+        let reg = RsiRequestRegistry::default();
+        let reg2 = reg.clone();
+        let rx = reg.register("shared".to_string());
+        // Clone can ack; original receiver still resolves.
+        assert!(reg2.ack("shared"));
+        assert_eq!(rx.blocking_recv(), Ok(()));
+    }
+
+    #[test]
+    fn wait_for_sidecar_ack_succeeds_when_ack_arrives() {
+        // We can't easily build a full State<AppState> without a
+        // Tauri runtime, so test the registry primitives the wait
+        // helper relies on (the wait itself is exercised by the
+        // engine integration test once 7d ships the UI). What we CAN
+        // verify here: the registry primitives compose correctly.
+        let reg = RsiRequestRegistry::default();
+        let request_id = "ack-test".to_string();
+        let rx = reg.register(request_id.clone());
+        let handle = std::thread::spawn(move || {
+            // Simulate the sidecar's stdout reader firing the ack.
+            std::thread::sleep(Duration::from_millis(10));
+            reg.ack(&request_id);
+        });
+        // The real wait would do `tokio::time::timeout(RSI_ACK_TIMEOUT, rx)`.
+        // Verify the receiver unblocks promptly once the ack fires.
+        let result = rx.blocking_recv();
+        assert_eq!(result, Ok(()));
+        handle.join().unwrap();
+    }
+
+    // --- dispatch_rsi_request routing tests -----------------------------
+
+    fn fake_state() -> AppState {
+        // Build a minimal AppState sufficient to exercise the
+        // dispatcher. We only touch the rsi_state field — the
+        // dispatcher doesn't read any other AppState field, and
+        // the rest of the struct (manager, settings, mcp, …) isn't
+        // relevant to protocol-(a) routing. Default-initialised
+        // wherever possible.
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc as StdArc;
+        use parking_lot::Mutex as PlMutex;
+        crate::AppState {
+            rsi_state: crate::rsi::RsiState {
+                initialized: StdArc::new(PlMutex::new(true)),
+                bounds: StdArc::new(PlMutex::new(None)),
+                bounds_file_sha256: StdArc::new(PlMutex::new(None)),
+            },
+            rsi_goodhart: crate::rsi::commands::GoodhartSlot::default(),
+            rsi_engine: StdArc::new(PlMutex::new(None)),
+            rsi_request_registry: crate::rsi::commands::RsiRequestRegistry::default(),
+            manager: StdArc::new(crate::inference::ModelManager::new()),
+            downloads: StdArc::new(PlMutex::new(std::collections::HashMap::new())),
+            stop_signal: StdArc::new(AtomicBool::new(false)),
+            settings: crate::settings::Settings::default(),
+            system_info_cache: StdArc::new(PlMutex::new(None)),
+            feral_agent_process: StdArc::new(PlMutex::new(None)),
+            feral_agent_tx: StdArc::new(PlMutex::new(None)),
+            feral_model_config: StdArc::new(PlMutex::new(None)),
+            local_api_token: StdArc::from("test-token-not-used"),
+            mcp: StdArc::new(crate::mcp::McpManager::new()),
+        }
+    }
+
+    fn run_dispatch(method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        // The dispatcher is async (so it can be wired to async ops
+        // later); for now it doesn't actually await anything, so we
+        // can use futures::executor::block_on without dragging in a
+        // full tokio runtime here.
+        let state = fake_state();
+        futures::executor::block_on(crate::rsi::commands::dispatch_rsi_request(
+            &state, method, params,
+        ))
+    }
+
+    #[test]
+    fn dispatch_unknown_method_returns_named_error() {
+        let result = run_dispatch("rsi_does_not_exist", serde_json::json!({}));
+        let err = result.unwrap_err();
+        assert!(err.contains("unknown method"), "got: {err}");
+        assert!(err.contains("rsi_does_not_exist"), "got: {err}");
+    }
+
+    #[test]
+    fn dispatch_rsi_get_tier0_specs_returns_array() {
+        let result = run_dispatch("rsi_get_tier0_specs", serde_json::json!({}))
+            .expect("dispatch must succeed");
+        let arr = result.as_array().expect("tier0 specs must be an array");
+        // Tier 0 has 10 frozen specs (see tier0.rs).
+        assert_eq!(arr.len(), 10, "Tier 0 should have 10 frozen specs");
+        // Each spec must have at least a string id field.
+        for spec in arr {
+            assert!(spec.get("id").and_then(|v| v.as_str()).is_some(),
+                "every Tier 0 spec needs a string id; got {spec}");
+        }
+    }
+
+    #[test]
+    fn dispatch_rsi_score_rejects_missing_outcomes() {
+        let err = run_dispatch("rsi_score", serde_json::json!({})).unwrap_err();
+        assert!(err.contains("outcomes"), "error must mention 'outcomes': {err}");
+    }
+
+    #[test]
+    fn dispatch_rsi_score_returns_breakdown_shape() {
+        // Use defaults from ScorerWeights; ensure_initialized passes
+        // because fake_state sets initialized = true.
+        let result = run_dispatch(
+            "rsi_score",
+            serde_json::json!({
+                "outcomes": [
+                    { "task_id": "t1", "tier": 0, "success": true, "latency_ms": 10, "tokens": 100, "errored": false }
+                ]
+            }),
+        )
+        .expect("score must succeed");
+        // ScoreBreakdown shape: {score, success_component, cost_component, error_component, latency_component, raw}
+        assert!(result.get("score").and_then(|v| v.as_f64()).is_some(), "missing score: {result}");
+        assert!(result.get("success_component").is_some());
+        assert!(result.get("raw").is_some());
+    }
+
+    #[test]
+    fn dispatch_rsi_commit_genome_rejects_missing_genome_id() {
+        let err = run_dispatch("rsi_commit_genome", serde_json::json!({})).unwrap_err();
+        assert!(err.contains("genome_id"), "error must mention genome_id: {err}");
+    }
+
+    #[test]
+    fn dispatch_rsi_commit_genome_rejects_missing_metadata() {
+        let err = run_dispatch(
+            "rsi_commit_genome",
+            serde_json::json!({
+                "genome_id": "g1",
+                "genome_json": "{}",
+                "candidate_branch": "genome/g1"
+            }),
+        )
+        .unwrap_err();
+        assert!(err.contains("metadata"), "error must mention metadata: {err}");
+    }
+
+    #[test]
+    fn dispatch_rsi_lca_requires_two_commits() {
+        let err = run_dispatch("rsi_lca", serde_json::json!({ "a": "x" })).unwrap_err();
+        assert!(err.contains("'b'") || err.contains("\"b\""), "error must mention missing 'b': {err}");
+    }
+
+    #[test]
+    fn require_string_helper_handles_missing_and_wrong_type() {
+        assert!(require_string(None, "x").is_err());
+        assert!(require_string(Some(&serde_json::json!(123)), "x").is_err());
+        assert_eq!(
+            require_string(Some(&serde_json::json!("hi")), "x").unwrap(),
+            "hi".to_string()
+        );
+    }
 }
