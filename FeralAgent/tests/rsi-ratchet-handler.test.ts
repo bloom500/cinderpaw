@@ -21,10 +21,10 @@ describe("RSI ratchet handler", () => {
     const advanced: RsiEvent[] = [];
     bus.on("RatchetAdvanced", async (e) => advanced.push(e));
 
-    const committed: Array<{ genomeId: string; score: number }> = [];
+    const committed: Array<{ genomeId: string; score: number; tokenCost: number; durationMs: number }> = [];
     new RatchetHandler(bus, {
-      commitGenome: async (genomeId, score) => {
-        committed.push({ genomeId, score });
+      commitGenome: async (req) => {
+        committed.push(req);
         return { commitHash: "a".repeat(40) };
       },
       ratchetAttempt: async (_commitHash, _score) => ({
@@ -33,9 +33,18 @@ describe("RSI ratchet handler", () => {
       }),
     });
 
-    await bus.emit({ type: "EvalComplete", genomeId: "g1", score: 73, tokenCost: 1234, errored: false });
+    await bus.emit({
+      type: "EvalComplete",
+      genomeId: "g1",
+      score: 73,
+      tokenCost: 1234,
+      durationMs: 56,
+      errored: false,
+    });
 
-    expect(committed).toEqual([{ genomeId: "g1", score: 73 }]);
+    // commitGenome receives the full context it needs to build a commit;
+    // config/lineage/mutationType are filled by the adapter from the population.
+    expect(committed).toEqual([{ genomeId: "g1", score: 73, tokenCost: 1234, durationMs: 56 }]);
     expect(advanced.length).toBe(1);
     const e = advanced[0] as RsiEvent & {
       genomeId: string;

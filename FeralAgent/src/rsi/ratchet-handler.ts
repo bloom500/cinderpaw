@@ -14,10 +14,19 @@
 
 import type { EventBus, RsiEvent } from "./event-bus.ts";
 
+/** Everything from EvalComplete the commit adapter needs; config,
+ *  lineage and mutationType are filled by the adapter from the population. */
+export interface CommitRequest {
+  genomeId: string;
+  score: number;
+  tokenCost: number;
+  durationMs: number;
+}
+
 export interface RatchetDeps {
-  /** Commit `genomeId` (with its score in metadata) to its candidate
-   *  branch; returns the new commit hash. */
-  commitGenome: (genomeId: string, score: number) => Promise<{ commitHash: string }>;
+  /** Commit the genome (with its score + cost in metadata) to its
+   *  candidate branch; returns the new commit hash. */
+  commitGenome: (req: CommitRequest) => Promise<{ commitHash: string }>;
   /** Try to fast-forward `main` to `commitHash`. Advances only if `score`
    *  beats main's prior best (decided in Rust). */
   ratchetAttempt: (
@@ -40,7 +49,12 @@ export class RatchetHandler {
     const genomeId = event.genomeId as string;
     const score = event.score as number;
 
-    const { commitHash } = await this.deps.commitGenome(genomeId, score);
+    const { commitHash } = await this.deps.commitGenome({
+      genomeId,
+      score,
+      tokenCost: (event.tokenCost as number) ?? 0,
+      durationMs: (event.durationMs as number) ?? 0,
+    });
     const result = await this.deps.ratchetAttempt(commitHash, score);
 
     if (result.advanced) {
