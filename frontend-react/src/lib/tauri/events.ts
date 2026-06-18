@@ -29,6 +29,34 @@ export interface StreamStartEvent  { sessionId: string; promptTokens: number }
 /** Emitted at the end of a cloud stream when the provider returns usage stats. */
 export interface StreamUsageEvent  { sessionId: string; promptTokens: number; completionTokens: number }
 
+/**
+ * One raw line from the Feral Agent sidecar, forwarded by Rust over
+ * `feral://agent-output`. The `data` field is the sidecar's JSON
+ * line verbatim — the React side parses it and dispatches by `type`.
+ * For the RSI engine specifically, lines look like:
+ *   { "type": "rsi_engine_event", "event": "started", "id": "<uuid>",
+ *     "iteration": 0, "concurrency": 1, "costSoFarUsd": 0.0, "bestScore": null }
+ */
+export interface FeralAgentOutputEvent { data: string }
+
+/**
+ * Parsed RSI engine event extracted from a `feral://agent-output`
+ * line. Mirrors the wire shape documented in `feral_agent.rs
+ * handle_rsi_engine_event`. Fields are optional because each event
+ * carries only the relevant subset (e.g. a `progress` event omits
+ * `stopReason`, a `concurrency_set` omits `iteration`).
+ */
+export interface RsiEngineEventLine {
+  type: 'rsi_engine_event';
+  event: 'started' | 'stopped' | 'concurrency_set' | 'progress';
+  id?: string;
+  iteration?: number;
+  bestScore?: number | null;
+  costSoFarUsd?: number;
+  concurrency?: number;
+  stopReason?: string;
+}
+
 function wrap<T>(channel: string) {
   return {
     listen: (cb: EventCallback<T>): Promise<UnlistenFn> => listen<T>(channel, cb),
@@ -47,4 +75,12 @@ export const events = {
   downloadErrorEvent:     wrap<DownloadErrorEvent>('feral://download-error'),
   modelLoadProgressEvent: wrap<ModelLoadProgressEvent>('model-load-progress'),
   agentStreamEvent:       wrap<AgentStreamEvent>('feral://agent-event'),
+  /**
+   * The Feral Agent sidecar's raw stdout forwarded by Rust. The
+   * `data` field is the original JSON line — the React side parses
+   * it and routes by `type` (chunk/done/tool/rsi_engine_event/…).
+   * The listener fires for EVERY sidecar line, not just RSI events,
+   * so callers must filter.
+   */
+  feralAgentOutputEvent: wrap<FeralAgentOutputEvent>('feral://agent-output'),
 };

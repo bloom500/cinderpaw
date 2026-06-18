@@ -189,6 +189,62 @@ export interface ByokProvider {
   default_model?: string | null;
 }
 
+// ── RSI (Fractal Memory) ────────────────────────────────────────────────────
+//
+// Rust types are snake_case (no `rename_all`). The `engine` field is
+// `null` until the sidecar starts emitting `rsi_engine_event` lines on
+// stdout; until then the UI shows "engine not wired" rather than crashing
+// on `engine.something` (7c comment in commands.rs).
+//
+// Ack semantics (7b-part2): `rsi_start` / `rsi_stop` / `rsi_set_concurrency`
+// now wait up to 500ms for the sidecar's ack on stdout before returning.
+// If the sidecar doesn't ack, Tauri throws the timeout string — surface
+// that to the user as "sidecar did not ack rsi_start within 500ms".
+
+export interface RsiInitResult {
+  plan_commit: string;
+  main_tip: string;
+  bounds_version: number;
+  audit_chain_ok: boolean;
+}
+
+/** Mirror of the running RSI engine. Updated by Rust from the
+ *  sidecar's `rsi_engine_event` stdout lines. */
+export interface RsiEngineState {
+  running: boolean;
+  iteration: number;
+  best_score: number | null;
+  cost_so_far_usd: number;
+  concurrency: number;
+  /** Last `StopReason` if the engine has terminated; null while
+   *  running or before the engine has ever been started. */
+  stop_reason: string | null;
+}
+
+/** Display-safe snapshot of the RSI substrate + engine mirror. */
+export interface RsiStatus {
+  initialized: boolean;
+  bounds_sha256: string | null;
+  bounds_version: number | null;
+  max_total_cost_usd: number | null;
+  cost_warning_ratio: number | null;
+  main_tip: string | null;
+  main_tip_score: number | null;
+  /** `null` until the sidecar starts emitting engine status events. */
+  engine: RsiEngineState | null;
+}
+
+export interface RsiStartAck {
+  /** True iff the sidecar's stdin send succeeded (Tauri throw → false). */
+  delivered: boolean;
+  /** UUID echoed back by Rust for log correlation. */
+  request_id: string;
+}
+
+export interface RsiStopAck {
+  delivered: boolean;
+}
+
 /** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
@@ -397,6 +453,18 @@ const raw = {
     invoke<string>('chat_complete_local', { messages, params }),
   chatCloudComplete:        (providerId: string, model: string, messages: Message[], params: InferParams) =>
     invoke<string>('chat_cloud_complete', { providerId, model, messages, params }),
+  // ── RSI (Fractal Memory) commands. Field names match Rust snake_case
+  // exactly (the Tauri command extractor doesn't auto-rename). The engine-
+  // driver trio (start/stop/set_concurrency) embed a request_id and wait
+  // up to 500ms for the sidecar's ack; a timeout surfaces as a thrown
+  // string from Tauri.
+  rsiInit:            () => invoke<RsiInitResult>('rsi_init'),
+  rsiStatus:          () => invoke<RsiStatus>('rsi_status'),
+  rsiStart:           (goal: string, budgetUsd: number, maxIterations: number, concurrency: number) =>
+    invoke<RsiStartAck>('rsi_start', { goal, budgetUsd, maxIterations, concurrency }),
+  rsiStop:            () => invoke<RsiStopAck>('rsi_stop'),
+  rsiSetConcurrency:  (concurrency: number) =>
+    invoke<void>('rsi_set_concurrency', { concurrency }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -523,6 +591,15 @@ export const tauri = {
       raw.feralSendMessage(content, sessionId, images, inferParams),
     status:      async () => raw.feralAgentStatus(),
     stop:        async (sessionId?: string) => raw.feralStopGeneration(sessionId ?? null),
+  },
+
+  rsi: {
+    init:            async () => raw.rsiInit(),
+    status:          async () => raw.rsiStatus(),
+    start:           async (goal: string, budgetUsd: number, maxIterations: number, concurrency: number) =>
+      raw.rsiStart(goal, budgetUsd, maxIterations, concurrency),
+    stop:            async () => raw.rsiStop(),
+    setConcurrency:  async (concurrency: number) => raw.rsiSetConcurrency(concurrency),
   },
 
   agents: {
