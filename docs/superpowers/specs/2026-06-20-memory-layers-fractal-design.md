@@ -69,24 +69,45 @@ behavior, unchanged).
 env in `passiveStartOptions()`. There is **no USD spend cap**. On a cloud provider
 this could burn real money silently.
 
-**Design:**
-- Add a **"RSI background budget"** control to `SettingsPage`, persisted with the
-  existing settings mechanism (same store/persistence other settings use).
+**Design — a literal USD cap (user choice 2026-06-20).** The engine internally
+measures **tokens** (`GoalMode.totalTokens` → `BudgetExhausted` at
+`maxTotalTokens`); there is no USD layer today. We add a thin token→USD
+conversion so the user sets a real dollar amount.
+
+- Add a **"RSI background budget ($)"** control to `SettingsPage` (in
+  `AgentSettingsTab`, mirroring the existing `TokenBudgetToggle`), persisted via
+  the same Rust `Settings` + tauri-command + env pattern as
+  `token_budget_conversation`.
 - Semantics: a **maximum USD spend cap** for the passive RSI engine.
-  - **Default: `$0` = local-only.** At `$0` the passive engine may run on local
-    models (which cost nothing) but must **not** spend on cloud providers. The UI
-    copy states plainly: *"Local models are free; this cap only limits cloud
-    spend. 0 = never spend cloud money."*
-  - User can raise it to opt into a bounded cloud spend.
-- **Wiring:** the Settings value flows to the sidecar passive engine as its cost
-  cap, feeding the existing `max_total_cost_usd` / `cost_warning_ratio`
-  substrate machinery (already surfaced in `rsi_status`) rather than the current
-  unbounded token cap. Concretely: the value is passed into the sidecar env /
-  passive start options (e.g. a `FERAL_RSI_MAX_COST_USD` knob) and enforced by the
-  engine's existing budget guard. When the cap is reached the passive run ends
-  (its normal stop path) and the supervisor's restart respects the same cap.
-- A `$0` / local-only cap must hard-gate cloud-provider RSI calls — not merely
-  warn — so the default can never spend.
+  - **Default: `$0` = local-only.** Local inference is free (loopback engine), so
+    a `$0` cap lets the passive engine run forever on the **local** model and
+    spend **nothing**, while halting the instant any **paid cloud** spend would
+    accrue. UI copy: *"Local models are free. This caps what the background
+    self-improvement engine may spend on paid cloud models. $0 = never spend
+    cloud money."*
+  - User can raise it (e.g. `$2.00`) to allow bounded cloud spend.
+- **Local vs cloud detection:** reuse `isLoopbackTarget()` (already in
+  `inference-providers.ts`) — loopback `baseUrl` ⇒ price `$0`; otherwise a
+  blended `$/1k tokens` from a small price table (conservative default + a few
+  known-model overrides). The estimate is approximate and labeled as such; the
+  $0-on-local guarantee is **exact** (loopback is always free).
+- **Enforcement (new `rsi-cost.ts` + `GoalMode`):**
+  - `estimateUsd(totalTokens, modelId, isLoopback)` — pure function; loopback ⇒
+    `0`, else `totalTokens / 1000 * blendedPricePer1k(modelId)`.
+  - `GoalConfig` gains `maxTotalCostUsd?: number` and `pricePer1kUsd: number`
+    (0 for local). `GoalMode` accrues `totalCostUsd` from each `EvalComplete`
+    alongside `totalTokens`. Stop check (next to the token check):
+    - cap `> 0`: stop `CostBudgetExhausted` when `totalCostUsd >= cap`.
+    - cap `=== 0`: stop `CostBudgetExhausted` when `totalCostUsd > 0` (so local —
+      always `0` — runs forever; the first paid token halts it; worst-case
+      overspend is one eval iteration, documented).
+- **Wiring:** Settings value → `FERAL_RSI_MAX_COST_USD` env (set at boot + on
+  change, sidecar restarted, identical to `FERAL_BUDGET_CONVERSATION`) →
+  `passiveStartOptions()` reads it into `maxTotalCostUsd`; the sidecar start path
+  computes `pricePer1kUsd` from `FERAL_MODEL` + loopback-ness of `FERAL_BASE_URL`
+  and threads both into `GoalConfig`. When the cap trips, the run ends via the
+  normal stop path and the supervisor restarts it (re-tripping immediately at
+  `$0`, i.e. it idles on local).
 
 **Acceptance:** Setting persists across restarts; with default `$0`, no cloud RSI
 spend occurs (verifiable: cloud-provider RSI calls are gated off); raising the cap
@@ -149,6 +170,17 @@ background change with theme. Interior (in-set) points render as the field/black
   UI-level backdrop with bounded auto-drift + interactive zoom this is well within
   range and not a concern. If true astronomical deep-zoom is ever wanted it needs
   fp64-emulation / perturbation — explicitly out of scope here.
+
+**Mathematical accuracy (per user reference — fractals.marguz.net):** standard
+escape-time iteration `z → z² + c` with **smooth/normalized iteration coloring**
+(fractional escape: `mu = n + 1 - log2(log2(|z|))`) so color bands are continuous,
+not stepped. Zoom/pan are exact: a `center` (complex coord) + `scale` uniform; the
+shader recomputes per pixel so it is resolution-independent (see Vector zoom). The
+auto-drift tours the set's aesthetic regions named in the reference — **Seahorse
+Valley** (`≈ -0.745 + 0.113i`, the light reference), **Elephant Valley**
+(`≈ 0.275 + 0.007i`), and a **minibrot** spiral (the dark reference) — easing
+between them so the backdrop is always in a "pretty" region, never the flat
+interior.
 
 **Motion (the "alive" feel):** a slow, continuous auto-drift/zoom of the fractal
 parameters (bounded, looping) so the backdrop breathes. Subtle — it must not
@@ -213,3 +245,6 @@ identical in behavior to today; only the rendering layer changes.
   running app.
 - Whether to keep the `Brain` sidebar icon or pick a fractal-flavored one.
 - Final env knob name for the budget (`FERAL_RSI_MAX_COST_USD` proposed).
+- The cloud price table values in `rsi-cost.ts` (conservative blended default +
+  known overrides) — tune as real provider prices shift; the $0-local guarantee
+  does not depend on them.
