@@ -34,6 +34,8 @@
 import type { Database } from "bun:sqlite";
 import type { RsiBridge } from "./bridge.ts";
 import type { PopulationManager } from "./population-manager.ts";
+import type { EvalOutcome } from "./eval-worker.ts";
+import type { ScoreResult } from "./eval-worker.ts";
 
 /** What `commitGenome` returns to the ratchet handler. */
 export interface CommitAck {
@@ -155,5 +157,35 @@ export function makeRatchetAttemptAdapter(deps: { bridge: RsiBridge }) {
       advanced: result.advanced,
       previousBest: result.prior_score ?? 0,
     };
+  };
+}
+
+/**
+ * Build the production `scoreGenome` adapter the EvalWorker injects.
+ *
+ * Sends the eval batch to Rust's `rsi_score` over the bridge and unwraps
+ * the composite. The sidecar NEVER computes the score itself — that
+ * formula is the asymmetric-trust boundary the agent may not edit. The
+ * bridge is a thin JSON pipe with no camelCase translation, so each TS
+ * `EvalOutcome` (camelCase) is mapped to the snake_case shape Rust's
+ * `EvalOutcome` deserialises (`task_id`, `latency_ms`, `error_message`).
+ * `errorMessage` is normalised to `null` (not `undefined`) so the wire
+ * payload always carries the field — matching Rust's `Option<String>`.
+ */
+export function makeScoreGenomeAdapter(deps: { bridge: RsiBridge }) {
+  return async (outcomes: EvalOutcome[]): Promise<ScoreResult> => {
+    const wire = outcomes.map((o) => ({
+      task_id: o.taskId,
+      tier: o.tier,
+      success: o.success,
+      latency_ms: o.latencyMs,
+      tokens: o.tokens,
+      errored: o.errored,
+      error_message: o.errorMessage ?? null,
+    }));
+    const result = await deps.bridge.request<{ score: number }>("rsi_score", {
+      outcomes: wire,
+    });
+    return { score: result.score };
   };
 }

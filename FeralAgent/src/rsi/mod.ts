@@ -14,17 +14,19 @@
  *
  * Communication topology: the sidecar talks to Rust via stdin
  * (Rust → sidecar commands) and stdout (sidecar → Tauri events).
- * Direct request/response from the sidecar to a Rust Tauri command
- * is NOT supported in the existing protocol — that's why the
- * bootstrap here doesn't call `rsi_init` via `invoke()`. The Rust
- * crate runs its own bootstrap in `setup()`, before the sidecar
- * starts handling messages.
+ * The bootstrap here does NOT call `rsi_init` over a bridge — the Rust
+ * crate runs its own bootstrap in `setup()`, before the sidecar starts
+ * handling messages, so by the time `bootstrapOnce` runs the Rust slice
+ * already exists.
  *
- * The Tauri commands exposed by Rust (rsi_init, rsi_status,
- * rsi_commit_genome, rsi_score, etc.) are called from the React
- * UI's tauri invoke layer, NOT from the sidecar. See
- * frontend-react/src/lib/tauri/index.ts for the frontend wrappers
- * (added when the React UI starts wiring up the RSI page in Faza 1).
+ * NOTE (Faza 1, 7b-part2): sidecar → Rust request/response over the
+ * stdin/stdout pipe IS now supported — `RsiBridge` (bridge.ts) +
+ * `handle_rsi_request` (Rust dispatcher) implement protocol (a), with an
+ * ack-with-timeout to handle the sidecar-not-ready race. The engine uses
+ * it for `rsi_commit_genome`, `rsi_ratchet_attempt`, and `rsi_score`
+ * (see adapters.ts). The React UI still calls the same Rust commands
+ * directly via its tauri invoke layer for the /rsi page; both callers
+ * coexist.
  */
 
 import type { Database } from "bun:sqlite";

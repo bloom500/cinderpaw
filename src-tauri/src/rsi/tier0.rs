@@ -31,6 +31,12 @@ pub struct Tier0Spec {
     pub name: String,
     /// Human-readable description; shown on hover in the eval UI.
     pub description: String,
+    /// The prompt actually sent to the agent during an eval run. This is
+    /// additive metadata: it makes explicit the question each check was
+    /// always implicitly about, and does NOT affect grading (that is
+    /// `kind`/`expected`), so populating it is not a breaking-spec
+    /// amendment. A real run cannot happen without it.
+    pub prompt: String,
     /// What kind of check this is. Drives the validator the sidecar
     /// runs against the agent's response.
     pub kind: Tier0Kind,
@@ -149,6 +155,9 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/json_format"),
             name: String::from("Valid JSON response"),
             description: String::from("Agent returns a parseable JSON object."),
+            prompt: String::from(
+                "Reply with ONLY a JSON object that has an \"answer\" key whose value is the number of days in a week. No prose, no code fences.",
+            ),
             kind: Tier0Kind::JsonFormat,
             expected: Tier0Expected::JsonFormat {
                 required_keys: vec![String::from("answer")],
@@ -158,6 +167,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/fact_capital_france"),
             name: String::from("Capital of France"),
             description: String::from("Agent names Paris when asked for the capital of France."),
+            prompt: String::from("What is the capital of France? Answer with just the city name."),
             kind: Tier0Kind::FactLookup,
             expected: Tier0Expected::FactLookup {
                 answer: String::from("paris"),
@@ -167,6 +177,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/fact_water_formula"),
             name: String::from("Chemical formula for water"),
             description: String::from("Agent answers H2O when asked for the formula of water."),
+            prompt: String::from("What is the chemical formula for water? Answer with just the formula."),
             kind: Tier0Kind::FactLookup,
             expected: Tier0Expected::FactLookup {
                 answer: String::from("h2o"),
@@ -176,6 +187,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/fact_planets"),
             name: String::from("Number of planets in our solar system"),
             description: String::from("Agent answers 8 when asked for the planet count."),
+            prompt: String::from("How many planets are in our solar system? Answer with just the number."),
             kind: Tier0Kind::FactLookup,
             expected: Tier0Expected::FactLookup {
                 answer: String::from("8"),
@@ -185,6 +197,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/fact_un_membres_2025"),
             name: String::from("United Nations founding year"),
             description: String::from("Agent answers 1945 when asked for the UN founding year."),
+            prompt: String::from("In what year was the United Nations founded? Answer with just the year."),
             kind: Tier0Kind::FactLookup,
             expected: Tier0Expected::FactLookup {
                 answer: String::from("1945"),
@@ -194,6 +207,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/fact_pi_2dp"),
             name: String::from("Pi to 2 decimal places"),
             description: String::from("Agent answers 3.14 when asked for pi to 2dp."),
+            prompt: String::from("What is pi rounded to 2 decimal places? Answer with just the number."),
             kind: Tier0Kind::FactLookup,
             expected: Tier0Expected::FactLookup {
                 answer: String::from("3.14"),
@@ -203,6 +217,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/fact_largest_continent"),
             name: String::from("Largest continent by area"),
             description: String::from("Agent names Asia when asked for the largest continent."),
+            prompt: String::from("What is the largest continent by area? Answer with just the continent name."),
             kind: Tier0Kind::FactLookup,
             expected: Tier0Expected::FactLookup {
                 answer: String::from("asia"),
@@ -214,6 +229,9 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             description: String::from(
                 "Agent returns a JSON object with `title` and `summary` keys when asked for a summary.",
             ),
+            prompt: String::from(
+                "Summarise the following text. Reply with ONLY a JSON object that has \"title\" and \"summary\" keys, no prose or code fences. Text: \"The water cycle moves water between the oceans, atmosphere, and land through evaporation, condensation, and precipitation.\"",
+            ),
             kind: Tier0Kind::JsonFormat,
             expected: Tier0Expected::JsonFormat {
                 required_keys: vec![String::from("title"), String::from("summary")],
@@ -223,6 +241,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/token_budget_short"),
             name: String::from("Token budget on a short prompt"),
             description: String::from("Agent stays under 800 tokens for a short factual prompt."),
+            prompt: String::from("In one short sentence, what is the boiling point of water at sea level in Celsius?"),
             kind: Tier0Kind::TokenBudget,
             expected: Tier0Expected::TokenBudget { max_tokens: 800 },
         },
@@ -230,6 +249,7 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
             id: String::from("tier0/latency_short"),
             name: String::from("Latency on a short prompt"),
             description: String::from("Agent finishes a short prompt in under 1500ms p95."),
+            prompt: String::from("Reply with a single word: ready."),
             kind: Tier0Kind::Latency,
             expected: Tier0Expected::Latency { max_ms: 1500 },
         },
@@ -243,6 +263,13 @@ mod tests {
     #[test]
     fn ten_specs_constant() {
         assert_eq!(TIER0_SPECS.len(), 10);
+    }
+
+    #[test]
+    fn every_spec_carries_a_non_empty_prompt() {
+        for s in TIER0_SPECS.iter() {
+            assert!(!s.prompt.trim().is_empty(), "spec {} has no prompt", s.id);
+        }
     }
 
     #[test]
@@ -285,6 +312,7 @@ mod tests {
             id: String::from("test/mismatch"),
             name: String::from("mismatch"),
             description: String::from("test only"),
+            prompt: String::from("test only"),
             kind: Tier0Kind::FactLookup,
             expected: Tier0Expected::Latency { max_ms: 100 },
         };
