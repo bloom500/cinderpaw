@@ -45,6 +45,11 @@ import {
   type GoalConfig,
   type GoalResult,
 } from "./goal-mode.ts";
+import {
+  EscapeTimeTracker,
+  type EscapeTimeOptions,
+} from "./escape-time.ts";
+import { EscapeTimeRecorder } from "./escape-time-recorder.ts";
 
 export interface RsiEngineDeps {
   /** Initial population (the bootstrap strategy seeds). */
@@ -61,6 +66,12 @@ export interface RsiEngineDeps {
   recalcitrance?: RecalcitranceOptions;
   /** Extinction tuning (optional; sensible defaults). */
   extinction?: ExtinctionDeps;
+  /** Escape-time tracker tuning (optional; sensible defaults). The
+   *  recorder is always wired (so a future SelectionDeps.escapeTracker
+   *  is not a dead reference); the tracker's zoom sensitivity drives
+   *  how strongly `selection.escapeTracker.zoomFactorFor` shrinks the
+   *  mutation grammar in long-escape-time regions. */
+  escapeTime?: EscapeTimeOptions;
   /** Starting concurrency; raised live via rsi_set_concurrency. Default 1. */
   concurrency?: number;
 }
@@ -69,6 +80,11 @@ export interface RsiEngine {
   bus: EventBus;
   pop: PopulationManager;
   gm: GoalMode;
+  /** The shared escape-time tracker — exposed so production wiring
+   *  can hand the SAME instance to SelectionDeps.escapeTracker if it
+   *  wants to share state with the recorder. Default: a fresh tracker
+   *  built from `deps.escapeTime ?? {}`. */
+  escapeTracker: EscapeTimeTracker;
   /** Drive the engine until a StopReason. */
   run: () => Promise<GoalResult>;
 }
@@ -80,15 +96,27 @@ export function createRsiEngine(deps: RsiEngineDeps): RsiEngine {
   for (const seed of deps.seeds) pop.add(seed);
 
   const evalWorker = new EvalWorker(bus, deps.evalDeps);
+  const escapeTracker = new EscapeTimeTracker(deps.escapeTime ?? {});
 
-  // 1. recorder first (shared fitness visible downstream in the same cascade)
+  // 1. population recorder first (shared fitness visible downstream in the same cascade)
   attachPopulationRecorder(bus, pop);
-  // 2. ratchet, 3. selection, 4. recalcitrance, 5. extinction
+  // 2. escape-time recorder (same EvalComplete — feeds the tracker from
+  //    the freshly-set fitnessScore; wired before ratchet so the
+  //    ratchet's RatchetAdvanced chain runs after the escape-time
+  //    observation is recorded).
+  new EscapeTimeRecorder(bus, pop, escapeTracker);
+  // 3. ratchet, 4. selection, 5. recalcitrance, 6. extinction
   new RatchetHandler(bus, deps.ratchetDeps);
   new SelectionMutationHandler(bus, pop, deps.selection);
   new RecalcitranceTracker(bus, deps.recalcitrance ?? {});
   new ExtinctionHandler(bus, pop, deps.extinction ?? {});
 
   const gm = new GoalMode(bus, pop, evalWorker, deps.goal);
-  return { bus, pop, gm, run: () => gm.run() };
+  return {
+    bus,
+    pop,
+    gm,
+    escapeTracker,
+    run: () => gm.run(),
+  };
 }
