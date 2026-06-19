@@ -190,7 +190,29 @@ populations the weight is small (no history yet), at large
 populations the weight is large. The `GenomeBorn` handler reads
 the taste vector and biases sampling accordingly.
 
+## Passive Operation (amendment 2026-06-19)
+
+The engine is a PASSIVE, always-on background system — the successor to
+the old simple self-improvement loop. It is NOT user-triggered:
+
+- The sidecar autostarts the engine on boot when a real model is
+  present (placeholder/empty model → skip, to avoid learning from empty
+  responses). Kill switch: `FERAL_RSI_PASSIVE=false`.
+- There is no user-typed goal. The standing objective is fixed:
+  improve the agent's own general-purpose configuration against the
+  frozen eval suite (quality + reliability up, cost + latency down).
+- The run is continuous: effectively-unbounded iteration/token budget,
+  bounded only by a low concurrency cap. When a run ends (plateau /
+  convergence / iteration cap) the supervisor restarts it.
+- The ONLY user-facing surface is the read-only Mandelbrot view
+  (below). No control panel, no goal/budget form, no Start/Stop — a
+  non-technical user gets an evolving agent without touching configs or
+  code. The lifecycle brain is `passive-supervisor.ts` (sidecar).
+
 ## Mandelbrot Visualization (Faza 4)
+
+The sole user-facing surface (see Passive Operation above): a read-only
+window onto the background engine, not a control panel.
 
 WebGL2 canvas with fragment shader for the Mandelbrot background.
 Smooth zoom via uniform variables. PCA on the population's
