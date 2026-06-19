@@ -138,8 +138,6 @@ export class RsiSidecar {
       return;
     }
 
-    const bus = new EventBus();
-
     // ── Population + seeds ────────────────────────────────────────────
     const pop = new PopulationManager({ concurrency: opts.concurrency ?? 1 });
     // Resume from the persisted champion (best-known config) so a fresh
@@ -213,22 +211,6 @@ export class RsiSidecar {
     };
     const runEval = makeRunEval({ getSpecs, invokeAgent });
 
-    // ── Escape-time + taste miner ─────────────────────────────────────
-    // The taste miner shares the bus so it sees every RatchetAdvanced.
-    const tasteMiner = makeTasteMiner({
-      bus,
-      bridge: this.deps.bridge,
-      pop,
-      ...(this.deps.fsRoot ? { fsRoot: this.deps.fsRoot } : {}),
-      ...(this.deps.historyWindow ? { historyWindow: this.deps.historyWindow } : {}),
-    });
-    this.tasteMiner = tasteMiner;
-    // Seed the in-memory taste from any pre-existing main history so
-    // the very first birth already sees a meaningful bias. Errors are
-    // swallowed — taste is a soft layer, never crash on it.
-    await tasteMiner.loadPersisted().catch(() => {});
-    void tasteMiner.mineNow();
-
     // ── Crossover wiring (LCA over the bridge) ────────────────────────
     const lca = makeLcaAdapter({ bridge: this.deps.bridge, pop });
     const crossover = {
@@ -241,6 +223,15 @@ export class RsiSidecar {
     // tracker AFTER `createRsiEngine` returns it — that avoids the
     // chicken-and-egg between engine and selection construction.
     const escapeTrackerHolder: { current: import("./escape-time.ts").EscapeTimeTracker | undefined } = {
+      current: undefined,
+    };
+    // Same live-binding trick for taste: the miner must subscribe to the
+    // ENGINE's bus (which only exists after createRsiEngine), so we bind
+    // selection.taste through a holder and fill it in once the miner is
+    // built on engine.bus. (Previously the miner was built on a separate
+    // local bus and never saw the engine's RatchetAdvanced → never
+    // re-mined; this fixes that.)
+    const tasteHolder: { current: ReturnType<typeof makeTasteDeps> | undefined } = {
       current: undefined,
     };
     // ── PBT meta-layer (Faza 3.5) ─────────────────────────────────────
@@ -282,7 +273,9 @@ export class RsiSidecar {
       get escapeTracker() {
         return escapeTrackerHolder.current;
       },
-      taste: makeTasteDeps(tasteMiner),
+      get taste() {
+        return tasteHolder.current;
+      },
       wildExplorerRng: () => Math.random(),
       get wildExplorerFraction() {
         return pbtController.activeHyperparams().zoom_policy.wild_explorer_pct;
@@ -301,7 +294,7 @@ export class RsiSidecar {
       evalDeps: { runEval, scoreGenome },
       ratchetDeps: { commitGenome, ratchetAttempt },
       selection,
-      tasteMiner,
+      // taste is wired below on engine.bus, not here — see tasteHolder.
       ...(opts.concurrency != null ? { concurrency: opts.concurrency } : {}),
     });
     // Inject the engine's escape tracker into the selection deps now
@@ -309,6 +302,26 @@ export class RsiSidecar {
     // selection construction).
     escapeTrackerHolder.current = engine.escapeTracker;
     this.engine = engine;
+
+    // ── Taste miner on the ENGINE bus ─────────────────────────────────
+    // Built here (not before createRsiEngine) so it subscribes to the
+    // bus the engine actually emits RatchetAdvanced on, then re-mines
+    // on every ratchet. selection.taste reads tasteHolder live, so the
+    // first birth already sees the persisted taste vector.
+    const tasteMiner = makeTasteMiner({
+      bus: engine.bus,
+      bridge: this.deps.bridge,
+      pop,
+      ...(this.deps.fsRoot ? { fsRoot: this.deps.fsRoot } : {}),
+      ...(this.deps.historyWindow ? { historyWindow: this.deps.historyWindow } : {}),
+    });
+    this.tasteMiner = tasteMiner;
+    tasteHolder.current = makeTasteDeps(tasteMiner);
+    // Seed the in-memory taste from any pre-existing main history so the
+    // very first birth already sees a meaningful bias. Errors are
+    // swallowed — taste is a soft layer, never crash on it.
+    await tasteMiner.loadPersisted().catch(() => {});
+    void tasteMiner.mineNow();
 
     // ── PBT handler on the ENGINE bus (where RatchetAdvanced fires) ───
     // Credits the active strategy + runs exploit/explore on each ratchet,
