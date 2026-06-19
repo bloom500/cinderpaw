@@ -13,6 +13,7 @@
  */
 
 import type { EventBus, RsiEvent } from "./event-bus.ts";
+import type { PopulationManager } from "./population-manager.ts";
 
 /** Everything from EvalComplete the commit adapter needs; config,
  *  lineage and mutationType are filled by the adapter from the population. */
@@ -39,6 +40,11 @@ export class RatchetHandler {
   constructor(
     private readonly bus: EventBus,
     private readonly deps: RatchetDeps,
+    /** The population — used to record each genome's commit hash so
+     *  the LCA adapter can resolve `id → hash` later. Optional for
+     *  legacy/test wiring where the lookup is not needed; in
+     *  production it is always supplied. */
+    private readonly pop?: PopulationManager,
   ) {
     bus.on("EvalComplete", (e) => this.onEvalComplete(e));
   }
@@ -55,6 +61,12 @@ export class RatchetHandler {
       tokenCost: (event.tokenCost as number) ?? 0,
       durationMs: (event.durationMs as number) ?? 0,
     });
+    // Record the hash so the LCA adapter (and any future lookup) can
+    // resolve this genome without re-reading the git substrate. Done
+    // before `ratchetAttempt` so it's visible regardless of whether
+    // main advances.
+    this.pop?.setCommitHash(genomeId, commitHash);
+
     const result = await this.deps.ratchetAttempt(commitHash, score);
 
     if (result.advanced) {

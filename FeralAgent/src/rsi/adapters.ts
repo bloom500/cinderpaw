@@ -189,3 +189,48 @@ export function makeScoreGenomeAdapter(deps: { bridge: RsiBridge }) {
     return { score: result.score };
   };
 }
+
+/**
+ * Build the production `hasRecentCommonAncestor` adapter the
+ * crossover-selection pair picker injects (via
+ * `SelectionDeps.crossover.selectPairs`'s `CrossoverSelectionDeps`).
+ *
+ * Resolves each genome id to its git commit hash (recorded by the
+ * ratchet handler after every successful commit) and asks Rust for
+ * the LCA over the bridge. The bridge surfaces `rsi_lca` which returns
+ * `{ "lca": Option<String> }` — we treat `null` (and any bridge
+ * error) as "no common ancestor" so the pair is filtered out by
+ * `selectCrossoverPairs`. Two genomes that share a commit hash
+ * (rare but possible if a genome was re-evaluated and re-committed
+ * to the same hash) are treated as trivially related.
+ *
+ * The "recent" qualifier in the name is currently a soft check —
+ * any LCA is considered recent enough. A future PBT phase can
+ * layer on a recency window by inspecting the LCA's age from
+ * `rsi_log` (the commit history).
+ */
+export function makeLcaAdapter(deps: {
+  bridge: RsiBridge;
+  pop: PopulationManager;
+}) {
+  return async (idA: string, idB: string): Promise<boolean> => {
+    const hashA = deps.pop.getCommitHash(idA);
+    const hashB = deps.pop.getCommitHash(idB);
+    if (!hashA || !hashB) return false; // uncommitted → can't compute LCA
+    if (hashA === hashB) return true; // identical commit → trivially related
+
+    try {
+      const result = await deps.bridge.request<{ lca: string | null }>(
+        "rsi_lca",
+        { a: hashA, b: hashB },
+      );
+      return result.lca !== null;
+    } catch {
+      // Bridge failure (e.g. Rust rejects one of the hashes, the
+      // substrate is mid-mutation, or the connection dropped).
+      // Conservative: refuse the pair so a transient bridge error
+      // can never widen the search by accident.
+      return false;
+    }
+  };
+}

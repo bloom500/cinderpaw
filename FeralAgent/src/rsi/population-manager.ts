@@ -78,6 +78,15 @@ export interface PopulationOptions {
 
 export class PopulationManager {
   private readonly genomes = new Map<string, Genome>();
+  /**
+   * Commit hash per genome id, set by the ratchet handler after every
+   * `commitGenome` returns. Used by the LCA adapter (`rsi_lca` over
+   * the bridge) to look up the two commits whose ancestry it should
+   * compare. Not persisted across restarts — the Rust side is the
+   * source of truth for the git substrate; this is an in-memory map
+   * for fast lookups while the sidecar is alive.
+   */
+  private readonly commitHashes = new Map<string, string>();
   /** Best fitness ever recorded. Monotonic: only ever increases, and
    *  is not cleared when the record-holding genome dies. */
   private bestRecord: BestRecord | null = null;
@@ -247,6 +256,27 @@ export class PopulationManager {
   /** Look up a genome record by id (alive or dead). */
   get(id: string): Genome | undefined {
     return this.genomes.get(id);
+  }
+
+  /**
+   * Record the git commit hash returned by `commitGenome` for `id`.
+   * Called by the ratchet handler after every successful commit so
+   * the LCA adapter can resolve `id → commit_hash` without re-reading
+   * the git substrate. Overwrites silently — a re-commit (e.g. the
+   * same genome re-evaluated) is fine, the hash is per-commit, not
+   * per-genome, and the most recent is the one that matters for
+   * future LCA lookups.
+   */
+  setCommitHash(id: string, hash: string): void {
+    if (!this.genomes.has(id)) {
+      throw new Error(`setCommitHash: unknown genome '${id}'`);
+    }
+    this.commitHashes.set(id, hash);
+  }
+
+  /** The last-known commit hash for `id`, or undefined if never committed. */
+  getCommitHash(id: string): string | undefined {
+    return this.commitHashes.get(id);
   }
 }
 

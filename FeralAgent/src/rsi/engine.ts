@@ -106,7 +106,7 @@ export function createRsiEngine(deps: RsiEngineDeps): RsiEngine {
   //    observation is recorded).
   new EscapeTimeRecorder(bus, pop, escapeTracker);
   // 3. ratchet, 4. selection, 5. recalcitrance, 6. extinction
-  new RatchetHandler(bus, deps.ratchetDeps);
+  new RatchetHandler(bus, deps.ratchetDeps, pop);
   new SelectionMutationHandler(bus, pop, deps.selection);
   new RecalcitranceTracker(bus, deps.recalcitrance ?? {});
   new ExtinctionHandler(bus, pop, deps.extinction ?? {});
