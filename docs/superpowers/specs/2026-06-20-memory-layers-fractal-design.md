@@ -157,14 +157,18 @@ background change with theme. Interior (in-set) points render as the field/black
 - Nodes scale as **vector** too: glows are drawn via SDF/Canvas2D vector
   primitives at device-pixel resolution (honor `devicePixelRatio`), so orbs and
   edges stay crisp at any zoom and on HiDPI displays.
-- **Scale target: ~1000+ memory nodes without quality or perf loss.** Approach:
+- **Scale target: up to ~100,000 memory nodes without quality or perf loss.**
+  Approach:
   - Node positions from the seeded layout are in world space; only screen
-    projection changes on zoom (no relayout while zooming).
-  - **Level-of-detail (LOD):** labels and faint edges fade out when zoomed far
-    out or when node density is high; they fade back in on zoom-in / hover. The
-    fractal and node orbs always render; only text/edge clutter is culled.
-  - Node draw stays cheap at 1000+ (batched 2D draw or instanced points); avoid
-    per-frame physics — layout is computed once per snapshot, not per frame.
+    projection changes on zoom (no relayout while zooming). Layout is O(n) and
+    computed once per snapshot, never per frame.
+  - **Level-of-detail (LOD):** labels and faint edges drop out when zoomed far
+    out or when node density is high; they return on zoom-in. The fractal always
+    renders; node text/edge clutter is culled first.
+  - **Bounded draw:** the overlay caps orbs drawn per frame (`MAX_DRAWN`,
+    highest-degree first) and viewport-culls the rest, and drops the expensive
+    glow above a second threshold — so 100k nodes cost the same per-frame work as
+    a few thousand. No per-frame physics.
 - **Precision boundary (honest limit):** WebGL2 `float` (fp32) supports deep but
   not infinite zoom; extreme deep-zoom eventually shows fp32 banding. For a
   UI-level backdrop with user-driven interactive zoom this is well within range
@@ -242,9 +246,10 @@ identical in behavior to today; only the rendering layer changes.
   changes `scale` and a drag changes `center` (user-driven zoom/pan).
 - Regression: removing `RsiPage` leaves no dead imports; old `/memory-graph`
   redirects to `/memory-layers`.
-- Scale/zoom: render a synthetic ~1000-node snapshot — verify interactive frame
-  rate holds, zoom stays crisp (no pixelation), and LOD culls labels/edges at low
-  zoom and restores them on zoom-in.
+- Scale/zoom: render a synthetic 100,000-node snapshot — verify layout stays fast
+  (O(n)) and deterministic, the overlay draw cap keeps the frame rate interactive,
+  zoom stays crisp (no pixelation), and LOD culls labels/edges at low zoom and
+  restores them on zoom-in.
 - WebGL is hard to assert pixel-wise in unit tests; cover the shader path with a
   context-creation guard + fallback test, and verify visually in the running app.
 

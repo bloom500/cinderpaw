@@ -1353,6 +1353,11 @@ interface Props {
 
 /** Hit radius in px around a node center for click selection. */
 const HIT_PX = 14;
+/** Scale guards: at very large graphs (100k+) drawing every orb with a glow
+ *  would tank the framerate. Cap how many we draw per frame (highest-degree
+ *  first) and drop the expensive shadowBlur glow above a second threshold. */
+const MAX_DRAWN = 4000;   // hard cap on orbs drawn per frame
+const MAX_GLOW = 1200;    // above this many drawn, skip shadowBlur (cheap dots)
 
 /**
  * Vector node/edge layer drawn on a 2D canvas above the fractal. Nodes are glow
@@ -1367,8 +1372,14 @@ export function NodeOverlay({ snapshot, view, colorFor, hiddenTypes, search, onS
   const byId = useMemo(() => new Map(laidOut.map((n) => [n.id, n] as const)), [laidOut]);
   const q = search.trim().toLowerCase();
 
+  // Filter, then sort highest-degree-first so the draw cap keeps the most
+  // important nodes when the graph is huge (100k+). Sorting once per filter
+  // change (not per frame) keeps it cheap.
   const visible = useMemo<LaidOutNode[]>(
-    () => laidOut.filter((n) => !hiddenTypes.has(n.type) && (!q || n.label.toLowerCase().includes(q))),
+    () =>
+      laidOut
+        .filter((n) => !hiddenTypes.has(n.type) && (!q || n.label.toLowerCase().includes(q)))
+        .sort((a, b) => b.degree - a.degree),
     [laidOut, hiddenTypes, q],
   );
 
@@ -1405,24 +1416,26 @@ export function NodeOverlay({ snapshot, view, colorFor, hiddenTypes, search, onS
       }
     }
 
+    let drawn = 0;
     for (const n of visible) {
+      if (drawn >= MAX_DRAWN) break;                 // hard draw cap (100k safety)
       const p = complexToScreen(n.wx, n.wy, w, h, view);
-      if (p.px < -50 || p.py < -50 || p.px > w + 50 || p.py > h + 50) continue; // cull off-screen
+      if (p.px < -50 || p.py < -50 || p.px > w + 50 || p.py > h + 50) continue; // viewport cull
       const radius = 4 + Math.min(n.degree * 1.5, 12);
       const color = colorFor(n.type);
-      // Glow
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 12;
+      const glow = drawn < MAX_GLOW;                  // cheap dots once over the glow budget
+      if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(p.px, p.py, radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
+      if (glow) ctx.shadowBlur = 0;
       if (showLabels) {
         ctx.fillStyle = 'rgba(203,213,225,0.95)';
         ctx.font = '11px Inter, system-ui, sans-serif';
         ctx.fillText(n.label, p.px + radius + 3, p.py + 3);
       }
+      drawn++;
     }
   }, [visible, view, snapshot.edges, byId, colorFor]);
 
@@ -1566,26 +1579,38 @@ const fractalTheme = resolvedTheme === 'dark' ? 'dark' : 'light';
 Run: `cd frontend-react && npx vitest run src/pages/__tests__/MemoryLayersPage.test.tsx`
 Expected: PASS — title "Memory Layers" present, `getGraph` called, no vis-network import error, WebGL absence degrades to the CSS fallback without throwing.
 
-- [ ] **Step 5: Scale check (synthetic ~1000 nodes) — manual + assert layout cost**
+- [ ] **Step 5: Scale check (synthetic 100,000 nodes) — assert layout cost + draw cap**
 
-Add a quick perf assertion to `layout.test.ts`:
+Add a hard-scale perf assertion to `layout.test.ts`. 100k is the stress test: the
+pure layout must stay fast and deterministic, and the overlay's draw cap
+(`MAX_DRAWN`) is what keeps rendering bounded regardless of node count.
 
 ```ts
-it('lays out 1000 nodes quickly and deterministically', () => {
+it('lays out 100,000 nodes quickly and deterministically', () => {
+  const N = 100_000;
   const big: MemoryGraphSnapshot = {
-    nodes: Array.from({ length: 1000 }, (_, i) => ({ id: `n${i}`, label: `N${i}`, type: 'fact', touched_at: i })),
+    nodes: Array.from({ length: N }, (_, i) => ({ id: `n${i}`, label: `N${i}`, type: 'fact', touched_at: i })),
     edges: [],
   };
   const t0 = performance.now();
   const a = layoutNodes(big);
   const ms = performance.now() - t0;
-  expect(a).toHaveLength(1000);
-  expect(ms).toBeLessThan(50); // pure layout is cheap; no per-frame physics
+  expect(a).toHaveLength(N);
+  expect(ms).toBeLessThan(500);            // pure layout is O(n), no physics
+  // determinism still holds at scale (spot-check a few, full compare is heavy)
+  const b = layoutNodes(big);
+  expect(b[0]).toEqual(a[0]);
+  expect(b[N - 1]).toEqual(a[N - 1]);
+  expect(b[50_000]).toEqual(a[50_000]);
 });
 ```
 
 Run: `cd frontend-react && npx vitest run src/lib/fractal/__tests__/layout.test.ts`
-Expected: PASS. Then verify visually in the running app (see Step 7): zoom in/out stays crisp (no pixelation), labels/edges cull when zoomed out, drag pans, theme switch flips the palette.
+Expected: PASS. The render path stays bounded because `NodeOverlay` caps drawn
+orbs at `MAX_DRAWN` (highest-degree first) and viewport-culls the rest — so 100k
+nodes draw the same per-frame work as a few thousand. Then verify visually in the
+running app (Step 7): zoom in/out stays crisp (no pixelation), labels/edges cull
+when zoomed out / dense, drag pans, theme switch flips the palette.
 
 - [ ] **Step 6: Full frontend suite + typecheck + build**
 
