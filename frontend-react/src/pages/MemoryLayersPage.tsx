@@ -279,6 +279,7 @@ export function MemoryLayersPage() {
             colorFor={colorFor}
             hiddenTypes={hiddenTypes}
             search={search}
+            showLabels={showLabels}
             onSelect={(id) => {
               if (!id) { setSelected(null); return; }
               const node = graph.nodes.find((n) => n.id === id);

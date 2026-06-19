@@ -10,6 +10,9 @@ interface Props {
   hiddenTypes: Set<string>;
   search: string;
   onSelect: (id: string | null) => void;
+  /** User-controlled label visibility. When false, labels are suppressed
+   *  regardless of the auto-LOD `dense`/scale heuristics. */
+  showLabels?: boolean;
 }
 
 /** Hit radius in px around a node center for click selection. */
@@ -26,7 +29,7 @@ const MAX_GLOW = 1200;    // above this many drawn, skip shadowBlur (cheap dots)
  * crisp at any zoom. LOD: labels + edges fade out when zoomed far out or dense,
  * keeping ~1000+ nodes readable and cheap (one draw per view change, no physics).
  */
-export function NodeOverlay({ snapshot, view, colorFor, hiddenTypes, search, onSelect }: Props) {
+export function NodeOverlay({ snapshot, view, colorFor, hiddenTypes, search, onSelect, showLabels: showLabelsProp = true }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const laidOut = useMemo(() => layoutNodes(snapshot), [snapshot]);
@@ -59,8 +62,10 @@ export function NodeOverlay({ snapshot, view, colorFor, hiddenTypes, search, onS
     const visibleSet = new Set(visible.map((n) => n.id));
     const dense = visible.length > 350;
     // LOD: show edges/labels only when not too dense AND zoomed in enough.
+    // The user toggle (showLabelsProp) is the master switch — when off,
+    // labels are suppressed regardless of the auto heuristics.
     const showEdges = !dense && view.scale < 0.5;
-    const showLabels = !dense && view.scale < 0.12;
+    const showLabels = showLabelsProp && !dense && view.scale < 0.12;
 
     if (showEdges) {
       ctx.lineWidth = 1;

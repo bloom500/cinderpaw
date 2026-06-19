@@ -6,6 +6,7 @@ import { useSettings } from '@/stores/settings';
 import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn } from '@/lib/utils';
+import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
 
 export function AgentSettingsTab() {
   const navigate          = useNavigate();
@@ -51,6 +52,7 @@ export function AgentSettingsTab() {
 
       <TokenBudgetToggle />
       <RsiBudgetControl />
+      <RsiEngineStatusPanel />
       <DesktopControlToggle />
 
       <div className="flex items-center gap-2">

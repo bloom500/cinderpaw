@@ -3,10 +3,11 @@ import { createMemoryRouter, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { ChatPage } from '@/pages/ChatPage';
 
-// Non-chat pages are code-split so their dependencies (vis-network alone is
-// several hundred KB) stay out of the startup bundle. Chat is the landing
-// page and stays statically imported. The Suspense fallback is empty: these
-// chunks load from local disk in single-digit ms, a spinner would only flash.
+// Non-chat pages are code-split so their dependencies (Fractal: WebGL2 +
+// node overlay code; Settings: per-tab forms) stay out of the startup bundle.
+// Chat is the landing page and stays statically imported. The Suspense
+// fallback is empty: these chunks load from local disk in single-digit ms,
+// a spinner would only flash.
 const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const ExtensionsPage  = lazy(() => import('@/pages/ExtensionsPage').then((m) => ({ default: m.ExtensionsPage })));
 const ConnectorsPage  = lazy(() => import('@/pages/ConnectorsPage').then((m) => ({ default: m.ConnectorsPage })));

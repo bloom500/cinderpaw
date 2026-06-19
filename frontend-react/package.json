@@ -42,8 +42,6 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
     "unist-util-visit": "^5.1.0",
-    "vis-data": "^8.0.4",
-    "vis-network": "^10.1.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
