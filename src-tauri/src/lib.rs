@@ -1532,6 +1532,30 @@ fn set_token_budget_conversation(
     Ok(())
 }
 
+/// Set the USD spend cap for the passive RSI background engine.
+///
+/// `budget = Some(0.0)` (default) → local-only: free local runs continue, any
+/// paid cloud spend halts. `Some(n)` → allow up to $n of cloud spend. `None` →
+/// no cap. Exports `FERAL_RSI_MAX_COST_USD` and restarts the sidecar so the
+/// passive supervisor re-reads it.
+#[tauri::command]
+#[specta::specta]
+fn set_rsi_budget(
+    budget: Option<f64>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let mut s = settings::load();
+    s.rsi_max_cost_usd = budget;
+    settings::save(&s).map_err(|e| e.to_string())?;
+
+    match budget {
+        Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", n.to_string()),
+        None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
+    }
+    restart_sidecar(&state);
+    Ok(())
+}
+
 /// Toggle desktop-control "YOLO mode" (no per-action confirmation) at runtime.
 ///
 /// The confirmation gate lives in the SIDECAR (it reads
@@ -2459,6 +2483,7 @@ pub fn run() {
             set_desktop_control_enabled,
             set_desktop_control_yolo,
             set_token_budget_conversation,
+            set_rsi_budget,
             search_hf_models,
             get_hf_model_detail,
             get_model_size_info,
@@ -2655,6 +2680,12 @@ pub fn run() {
             match cfg.token_budget_conversation {
                 Some(n) => std::env::set_var("FERAL_BUDGET_CONVERSATION", n.to_string()),
                 None => std::env::set_var("FERAL_BUDGET_CONVERSATION", "Infinity"),
+            }
+            // RSI background spend cap. Some(0.0)/default = local-only; Some(n)
+            // = allow $n cloud spend; None = no cap (remove the var).
+            match cfg.rsi_max_cost_usd {
+                Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", n.to_string()),
+                None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
             }
             if cfg.api_server_enabled {
                 let api_state = api::ApiState {
