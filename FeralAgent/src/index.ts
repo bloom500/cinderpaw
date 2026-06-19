@@ -61,6 +61,11 @@ import {
   shouldAutostartPassive,
   passiveStartOptions,
 } from "./rsi/passive-supervisor.ts";
+import {
+  mapGenomeToAgentConfig,
+  readChampion,
+  defaultChampionPath,
+} from "./rsi/champion.ts";
 import type { DeliveryTarget, Schedule } from "./types.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
@@ -633,7 +638,23 @@ async function main(): Promise<void> {
     bridge: rsiBridge,
     send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
     onIdle: () => passive?.onRunEnded(),
+    // The Crux: a new ratcheted-best config is applied to the LIVE agent
+    // (temperature today; the UI Controls override still wins per-session).
+    onChampion: (record) => {
+      const params = mapGenomeToAgentConfig(record.config);
+      agent.applyChampionParams(params);
+      log(`rsi champion: applied genome ${record.genomeId} (score=${record.score.toFixed(1)}) → agent ${JSON.stringify(params)}`);
+    },
   });
+  // Boot with the last persisted champion so the agent doesn't start
+  // cold on every relaunch (resume the learned tuning immediately).
+  {
+    const champ = readChampion(defaultChampionPath());
+    if (champ) {
+      agent.applyChampionParams(mapGenomeToAgentConfig(champ.config));
+      log(`rsi champion: loaded persisted champion ${champ.genomeId} (score=${champ.score.toFixed(1)})`);
+    }
+  }
   // Passive RSI: the evolutionary engine runs in the background by
   // default (no UI trigger), starting itself when a real model is
   // present and restarting on each run end for continuous evolution.

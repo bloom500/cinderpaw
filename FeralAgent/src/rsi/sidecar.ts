@@ -49,6 +49,11 @@ import type { EvalKind, EvalExpected } from "./eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
 import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
 import { PbtHandler } from "./pbt-handler.ts";
+import {
+  writeChampion,
+  defaultChampionPath,
+  type ChampionRecord,
+} from "./champion.ts";
 
 /** Tiny contract the sidecar needs from the host's transport: a
  *  function that writes one outbound event as JSON. */
@@ -90,6 +95,14 @@ export interface RsiSidecarDeps {
    *  engine is torn down. The passive supervisor uses this to restart
    *  the engine for continuous background evolution. */
   onIdle?: () => void;
+  /** Optional: called when the engine ratchets a new best genome (the
+   *  Crux). The host maps the record's config onto the live agent so
+   *  the evolved configuration actually reaches the agent the user
+   *  talks to. The record is also persisted to `championPath`. */
+  onChampion?: (record: ChampionRecord) => void;
+  /** Optional: where to persist `champion.json`. Default
+   *  `~/.feral/rsi/champion.json`. */
+  championPath?: string;
 }
 
   /** Sidecar singleton — one per process. */
@@ -297,6 +310,37 @@ export class RsiSidecar {
       controller: pbtController,
       persist: (strategies) => persistStrategyGenomes(db, strategies),
     });
+
+    // ── Champion hook (the Crux): new best → live agent ───────────────
+    // On each ratchet, project the new best genome's config onto the
+    // live agent (via the host's onChampion) and persist it so the
+    // agent boots with the last winner. Best-effort: a persist/notify
+    // failure must never abort the engine cascade.
+    const championPath = this.deps.championPath ?? defaultChampionPath();
+    const onChampion = this.deps.onChampion;
+    this.mirrors.push(
+      engine.bus.onDisposable("RatchetAdvanced", (ev) => {
+        const genomeId = ev.genomeId as string;
+        const config = pop.get(genomeId)?.config;
+        if (!config) return;
+        const record: ChampionRecord = {
+          genomeId,
+          score: (ev.score as number) ?? 0,
+          config,
+          updatedAt: Date.now(),
+        };
+        try {
+          writeChampion(championPath, record);
+        } catch {
+          // disk error — soft layer
+        }
+        try {
+          onChampion?.(record);
+        } catch {
+          // host callback error — never abort the engine
+        }
+      }),
+    );
 
     // ── Mirror engine events → outbound (Rust state + UI) ─────────────
     this.mirrors.push(mirrorEngineEvents(engine.bus, this.deps.send));

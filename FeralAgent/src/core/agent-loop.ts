@@ -237,6 +237,16 @@ export class AgentLoop {
     { temperature?: number; maxTokens?: number }
   >();
   /**
+   * RSI champion params — the ratcheted-best genome config, mapped onto
+   * the live agent (temperature today). Applied to EVERY session as a
+   * default, below the per-session UI Controls override but above the
+   * provider default. This is how the passive evolutionary engine
+   * actually improves the agent the user talks to: a non-technical user
+   * gets a better-tuned agent over time without touching any config.
+   * Set by `applyChampionParams` (on RSI ratchet + at boot).
+   */
+  #championParams: { temperature?: number; maxTokens?: number } = {};
+  /**
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
    */
@@ -355,6 +365,17 @@ export class AgentLoop {
   /** Clear a session's profile binding (reverts to the owner profile). */
   clearSessionProfile(sessionId: string): void {
     this.#sessionProfile.delete(sessionId);
+  }
+
+  /**
+   * Apply the RSI champion's inference params to every session as a
+   * default (the passive evolutionary engine's output reaching the live
+   * agent). Called on each ratchet and once at boot from the persisted
+   * champion. A per-session UI Controls override still wins; absent
+   * that, these win over the provider default. Pass `{}` to clear.
+   */
+  applyChampionParams(params: { temperature?: number; maxTokens?: number }): void {
+    this.#championParams = { ...params };
   }
 
   /** Resolve the compiled profile for a session, or null for the owner default. */
@@ -866,8 +887,9 @@ export class AgentLoop {
       const res = await this.#router.complete({
         sessionId,
         messages: memory.render(),
-        maxTokens: overrides?.maxTokens ?? this.#config.maxTokensPerCall,
-        temperature: overrides?.temperature,
+        // Precedence: explicit UI Controls override > RSI champion > config default.
+        maxTokens: overrides?.maxTokens ?? this.#championParams.maxTokens ?? this.#config.maxTokensPerCall,
+        temperature: overrides?.temperature ?? this.#championParams.temperature,
         onToken,
         cachePrompt: true,
         // A3: native tool definitions for Anthropic.

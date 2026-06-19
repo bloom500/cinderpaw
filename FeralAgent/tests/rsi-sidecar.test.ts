@@ -354,6 +354,44 @@ class EmptyRouter implements InvokeRouter {
   }
 }
 
+/** Bridge whose ratchet attempts always ADVANCE — exercises the
+ *  champion hook (the Crux) which fires on RatchetAdvanced. */
+class AdvancingBridge extends FakeBridge {
+  protected defaultFor(method: string): RsiResponse {
+    if (method === "rsi_ratchet_attempt") return ratchetAdv("a".repeat(40));
+    return super["defaultFor"](method);
+  }
+}
+
+describe("RsiSidecar — champion hook (the Crux)", () => {
+  test("a ratchet fires onChampion with the best genome's config + persists", async () => {
+    const bridge = new AdvancingBridge();
+    const champions: Array<{ genomeId: string; config: unknown; score: number }> = [];
+    const tmp = resolve(import.meta.dir, `../.tmp-champion-${Date.now()}.json`);
+    const sidecar = new RsiSidecar({
+      bridge,
+      db: makeDb(),
+      router: new FakeRouter(),
+      send: () => {},
+      championPath: tmp,
+      onChampion: (rec) => champions.push(rec),
+    });
+
+    await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, concurrency: 1 }, "ack");
+    for (let i = 0; i < 60 && champions.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(champions.length).toBeGreaterThan(0);
+    expect(typeof champions[0]!.genomeId).toBe("string");
+    expect((champions[0]!.config as { temperature?: number }).temperature).toBeTypeOf("number");
+    // It was persisted too.
+    const { readChampion } = await import("../src/rsi/champion.ts");
+    expect(readChampion(tmp)).not.toBeNull();
+    try { require("node:fs").rmSync(tmp, { force: true }); } catch { /* ignore */ }
+  });
+});
+
 describe("RsiSidecar — empty-response telemetry", () => {
   test("empty model responses surface a one-time warning + a tally on stopped", async () => {
     // A model that returns empty/whitespace content makes every eval
