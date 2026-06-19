@@ -218,6 +218,27 @@ describe("RsiSidecar — lifecycle", () => {
     expect(emitted.some((e) => e.type === "error" && String(e.message).includes("not running"))).toBe(true);
   });
 
+  test("onIdle fires after a run ends (passive-supervisor restart hook)", async () => {
+    const bridge = new FakeBridge();
+    let idleCount = 0;
+    const sidecar = new RsiSidecar({
+      bridge,
+      db: makeDb(),
+      router: new FakeRouter(),
+      send: () => {},
+      onIdle: () => {
+        idleCount += 1;
+      },
+    });
+
+    await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, concurrency: 1 }, "ack");
+    for (let i = 0; i < 50 && idleCount === 0; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(idleCount).toBe(1);
+    expect(sidecar.isRunning()).toBe(false);
+  });
+
   test("onResponse routes the message to the bridge", async () => {
     const bridge = new FakeBridge();
     const { sidecar } = buildSidecar({ bridge });

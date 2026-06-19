@@ -56,6 +56,11 @@ import { ConnectorManager } from "./transports/connectors.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/bridge.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
+import {
+  PassiveSupervisor,
+  shouldAutostartPassive,
+  passiveStartOptions,
+} from "./rsi/passive-supervisor.ts";
 import type { DeliveryTarget, Schedule } from "./types.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
@@ -618,11 +623,24 @@ async function main(): Promise<void> {
   const rsiBridge = new RsiBridge({
     send: (msg) => transport.send(msg as unknown as import("./types.ts").OutboundEvent),
   });
+  // Forward declaration: the sidecar's onIdle restarts the engine via
+  // the passive supervisor, but the supervisor needs the sidecar to
+  // start it — late-bind through this holder to break the cycle.
+  let passive: PassiveSupervisor | undefined;
   const rsiSidecar = new RsiSidecar({
     router,
     db: db.raw,
     bridge: rsiBridge,
     send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
+    onIdle: () => passive?.onRunEnded(),
+  });
+  // Passive RSI: the evolutionary engine runs in the background by
+  // default (no UI trigger), starting itself when a real model is
+  // present and restarting on each run end for continuous evolution.
+  passive = new PassiveSupervisor({
+    start: () => rsiSidecar.start(passiveStartOptions(process.env)),
+    isRunning: () => rsiSidecar.isRunning(),
+    log,
   });
 
   // Connector Surface (inbound): Discord/Telegram/… share this one agent.
@@ -908,10 +926,26 @@ async function main(): Promise<void> {
     // Start any enabled inbound connectors (Discord, …) now that the agent and
     // its tools are live. Best-effort: failures log to stderr, never crash.
     void connectors.reload();
+
+    // Passive RSI: autostart the background evolutionary engine when a
+    // real model is configured. Off when FERAL_RSI_PASSIVE=false or when
+    // only a placeholder model is present (avoids spinning on empty
+    // responses). The user never has to open /rsi — the agent improves
+    // its own configuration on its own.
+    const decision = shouldAutostartPassive(process.env);
+    if (decision.enabled) {
+      log(`rsi passive: autostarting background engine (${decision.reason})`);
+      void passive?.begin();
+    } else {
+      log(`rsi passive: not autostarting (${decision.reason})`);
+    }
   });
 
   // Persist final audit state on unexpected termination.
   const shutdown = () => {
+    // Break the passive restart loop so we don't relaunch the engine
+    // into a closing process.
+    passive?.shutdown();
     // X1 fix: only stop the inner-thoughts loop if it was actually
     // started (i.e. the proactive subsystem is on).
     innerThoughts?.stop();

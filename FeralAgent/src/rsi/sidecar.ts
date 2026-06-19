@@ -86,6 +86,10 @@ export interface RsiSidecarDeps {
   /** Optional: where to write `pbt_state.json`. Default
    *  `~/.feral/meta/`. */
   fsRoot?: string;
+  /** Optional: called when a run ends (resolve OR reject), after the
+   *  engine is torn down. The passive supervisor uses this to restart
+   *  the engine for continuous background evolution. */
+  onIdle?: () => void;
 }
 
   /** Sidecar singleton — one per process. */
@@ -320,6 +324,7 @@ export class RsiSidecar {
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
+        this.deps.onIdle?.();
       },
       (err) => {
         this.deps.send({
@@ -329,6 +334,7 @@ export class RsiSidecar {
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
+        this.deps.onIdle?.();
       },
     );
   }
