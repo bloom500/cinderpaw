@@ -106,6 +106,9 @@ function buildSidecar(opts: {
     db: makeDb(),
     router: opts.router ?? new FakeRouter(),
     send,
+    // Hermetic: point at a nonexistent champion path so tests never read
+    // the real ~/.feral/rsi/champion.json (resume seed) from the dev box.
+    championPath: resolve(import.meta.dir, `../.tmp-nochampion-${Math.random()}.json`),
     ...(opts.historyWindow != null ? { historyWindow: opts.historyWindow } : {}),
   });
   return { sidecar, emitted };
@@ -226,6 +229,7 @@ describe("RsiSidecar — lifecycle", () => {
       db: makeDb(),
       router: new FakeRouter(),
       send: () => {},
+      championPath: resolve(import.meta.dir, `../.tmp-nochampion-idle-${Math.random()}.json`),
       onIdle: () => {
         idleCount += 1;
       },

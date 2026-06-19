@@ -16,6 +16,7 @@ import {
   mapGenomeToAgentConfig,
   writeChampion,
   readChampion,
+  championSeed,
   type ChampionRecord,
 } from "../src/rsi/champion.ts";
 import type { GenomeConfig } from "../src/rsi/genome.ts";
@@ -59,6 +60,15 @@ describe("champion persistence", () => {
 
   test("read returns null for a missing file", () => {
     expect(readChampion(join(tmpdir(), "definitely-missing-champion.json"))).toBeNull();
+  });
+
+  test("championSeed builds a resume seed from the record (null when absent)", () => {
+    expect(championSeed(null)).toBeNull();
+    const seed = championSeed({ genomeId: "g7", score: 80, config: CFG, updatedAt: 1 });
+    expect(seed).not.toBeNull();
+    expect(seed!.id).toContain("g7");
+    expect(seed!.mutationType).toBe("seed");
+    expect(seed!.config!.temperature).toBe(0.65);
   });
 
   test("read returns null for corrupt JSON (never throws)", () => {

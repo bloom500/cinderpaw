@@ -25,6 +25,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type { GenomeConfig } from "./genome.ts";
+import type { GenomeSpec } from "./population-manager.ts";
 
 /** The live-agent inference params a champion can set. Mirrors the
  *  agent loop's per-session override shape so wiring is a direct pass. */
@@ -62,6 +63,22 @@ export function defaultChampionPath(): string {
 export function writeChampion(path: string, record: ChampionRecord): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(record, null, 2), "utf8");
+}
+
+/** Build a population seed from the persisted champion so a fresh run
+ *  resumes from the best-known config instead of cold defaults (the
+ *  git ratchet bar persists across restarts; without re-seeding the
+ *  champion, a cold population would have to rediscover it from scratch
+ *  to clear that bar). Returns null when there is no champion yet. */
+export function championSeed(record: ChampionRecord | null): GenomeSpec | null {
+  if (!record) return null;
+  return {
+    id: `champion-${record.genomeId}`,
+    generation: 0,
+    lineage: [],
+    config: record.config,
+    mutationType: "seed",
+  };
 }
 
 /** Read the persisted champion. Returns null for a missing or corrupt

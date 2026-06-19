@@ -51,6 +51,8 @@ import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
 import { PbtHandler } from "./pbt-handler.ts";
 import {
   writeChampion,
+  readChampion,
+  championSeed,
   defaultChampionPath,
   type ChampionRecord,
 } from "./champion.ts";
@@ -140,7 +142,15 @@ export class RsiSidecar {
 
     // ── Population + seeds ────────────────────────────────────────────
     const pop = new PopulationManager({ concurrency: opts.concurrency ?? 1 });
-    const seeds = defaultEngineSeedsWithExtras(this.deps.extraSeeds);
+    // Resume from the persisted champion (best-known config) so a fresh
+    // run doesn't restart cold — the git ratchet bar persists across
+    // restarts, so the population must carry the champion to re-clear it
+    // and keep evolving from there. Falls back to cold defaults when
+    // there's no champion yet.
+    const championPath = this.deps.championPath ?? defaultChampionPath();
+    const resumeSeed = championSeed(readChampion(championPath));
+    const baseSeeds = defaultEngineSeedsWithExtras(this.deps.extraSeeds);
+    const seeds = resumeSeed ? [resumeSeed, ...baseSeeds] : baseSeeds;
     for (const seed of seeds) pop.add(seed);
 
     // ── Adapters (bridge → engine vocabulary) ─────────────────────────
@@ -315,8 +325,8 @@ export class RsiSidecar {
     // On each ratchet, project the new best genome's config onto the
     // live agent (via the host's onChampion) and persist it so the
     // agent boots with the last winner. Best-effort: a persist/notify
-    // failure must never abort the engine cascade.
-    const championPath = this.deps.championPath ?? defaultChampionPath();
+    // failure must never abort the engine cascade. (championPath is
+    // hoisted above where the resume seed is built.)
     const onChampion = this.deps.onChampion;
     this.mirrors.push(
       engine.bus.onDisposable("RatchetAdvanced", (ev) => {
