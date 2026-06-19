@@ -296,6 +296,76 @@ describe("mirrorEngineEvents — outbound emission", () => {
   });
 });
 
+/** Router that always returns empty content — simulates a misbehaving
+ *  local model (wrong chat template, zero-token budget, refusal-to-empty)
+ *  so the eval suite scores ~0 while the engine keeps running. */
+class EmptyRouter implements InvokeRouter {
+  complete(): Promise<{ content: string; totalTokens: number; promptTokens: number; completionTokens: number; model: string; usedFallback: boolean }> {
+    return Promise.resolve({
+      content: "   ",
+      totalTokens: 4,
+      promptTokens: 4,
+      completionTokens: 0,
+      model: "fake",
+      usedFallback: false,
+    });
+  }
+}
+
+describe("RsiSidecar — empty-response telemetry", () => {
+  test("empty model responses surface a one-time warning + a tally on stopped", async () => {
+    // A model that returns empty/whitespace content makes every eval
+    // score ~0 (validateOutcome fails) while the engine keeps running —
+    // a silent "running but learning nothing" failure. The sidecar must
+    // make that observable: exactly one early warning per run plus a
+    // final count on the stopped event so the operator's e2e shows
+    // immediately that the MODEL, not the engine, is the problem.
+    const bridge = new FakeBridge();
+    const { sidecar, emitted } = buildSidecar({ bridge, router: new EmptyRouter() });
+
+    await sidecar.start({
+      goal: "test",
+      maxIterations: 1,
+      maxTotalTokens: 1_000,
+      concurrency: 1,
+    }, "ack");
+
+    for (let i = 0; i < 50 && !emitted.some((e) => e.event === "stopped"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    const warnings = emitted.filter(
+      (e) => e.event === "warning" && e.warning === "empty_response",
+    );
+    expect(warnings.length).toBe(1); // one-time, not per-eval flood
+    expect(String(warnings[0]!.message)).toContain("empty");
+
+    const stopped = emitted.find((e) => e.event === "stopped");
+    expect(stopped).toBeDefined();
+    expect((stopped as { emptyResponses?: number }).emptyResponses).toBeGreaterThan(0);
+  });
+
+  test("a healthy model emits no empty-response warning and a zero tally", async () => {
+    const bridge = new FakeBridge();
+    const { sidecar, emitted } = buildSidecar({ bridge }); // default FakeRouter → "OK"
+
+    await sidecar.start({
+      goal: "test",
+      maxIterations: 1,
+      maxTotalTokens: 1_000,
+      concurrency: 1,
+    }, "ack");
+
+    for (let i = 0; i < 50 && !emitted.some((e) => e.event === "stopped"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(emitted.some((e) => e.event === "warning" && e.warning === "empty_response")).toBe(false);
+    const stopped = emitted.find((e) => e.event === "stopped");
+    expect((stopped as { emptyResponses?: number }).emptyResponses).toBe(0);
+  });
+});
+
 describe("RsiSidecar — integration smoke (engine runs to completion)", () => {
   test("a 1-iteration run hits the bridge, returns, and emits stopped", async () => {
     const bridge = new FakeBridge();

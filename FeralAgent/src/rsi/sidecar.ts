@@ -150,11 +150,38 @@ export class RsiSidecar {
     };
     const getSpecs = makeGetSpecs({ fetchTier0 });
 
-    const invokeAgent = makeInvokeAgent({
+    // Empty-response telemetry. A model that returns empty/whitespace
+    // content makes every eval score ~0 (validateOutcome fails) while
+    // the engine keeps running — a silent "running but learning
+    // nothing" failure that looks identical to a healthy run from the
+    // engine's side. Surface it: exactly one early warning per run plus
+    // a final tally on the `stopped` event, so the operator's e2e shows
+    // immediately whether the MODEL (not the engine) is the problem.
+    let emptyResponses = 0;
+    let emptyWarned = false;
+    const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
       getSystemPrompt: (id) =>
         this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT,
     });
+    const invokeAgent: typeof baseInvokeAgent = async (prompt, genome) => {
+      const res = await baseInvokeAgent(prompt, genome);
+      if (res.response.trim() === "") {
+        emptyResponses += 1;
+        if (!emptyWarned) {
+          emptyWarned = true;
+          this.deps.send({
+            type: "rsi_engine_event",
+            event: "warning",
+            warning: "empty_response",
+            genomeId: genome.id,
+            message:
+              "model returned an empty response — evals will score ~0; check the model/server (chat template, token budget, or wrong model id)",
+          });
+        }
+      }
+      return res;
+    };
     const runEval = makeRunEval({ getSpecs, invokeAgent });
 
     // ── Escape-time + taste miner ─────────────────────────────────────
@@ -243,6 +270,7 @@ export class RsiSidecar {
           iteration: result.iterations,
           bestScore: result.best?.score,
           stopReason: result.reason,
+          emptyResponses,
         });
         this.engine = null;
         for (const off of this.mirrors) off();
