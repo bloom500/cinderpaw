@@ -126,6 +126,10 @@ export function isInbound(value: unknown): value is InboundMessage {
     t === "cron_toggle" ||
     t === "cron_list" ||
     t === "desktop_control_response" ||
-    t === "connectors_reload"
+    t === "connectors_reload" ||
+    t === "rsi_start" ||
+    t === "rsi_stop" ||
+    t === "rsi_set_concurrency" ||
+    t === "rsi_response"
   );
 }

@@ -855,10 +855,30 @@ export interface InboundMessage {
   type: "message" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
-    | "desktop_control_response" | "connectors_reload";
+    | "desktop_control_response" | "connectors_reload"
+    // RSI engine driver (Faza 1 production wiring) — the Rust host
+    // commands the sidecar engine via these messages; the sidecar
+    // emits `rsi_engine_event` outbound events to ack + mirror state.
+    | "rsi_start" | "rsi_stop" | "rsi_set_concurrency"
+    // Bridge response delivery — every `rsi_request` the sidecar emits
+    // is paired with exactly one `rsi_response` line by Rust. Routed
+    // to `RsiBridge.onResponse` in the sidecar.
+    | "rsi_response";
   id?: string;
   content?: string;
   sessionId?: string;
+  /** RSI start payload (type === "rsi_start"). */
+  rsiGoal?: string;
+  rsiMaxIterations?: number;
+  rsiMaxTotalTokens?: number;
+  rsiConcurrency?: number;
+  /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
+  rsiNewConcurrency?: number;
+  /** RSI response payload (type === "rsi_response"). */
+  rsiRequestId?: string;
+  rsiOk?: boolean;
+  rsiData?: unknown;
+  rsiError?: string;
   /**
    * Image attachments as data URLs, forwarded by the host app alongside the
    * text content (type === "message"). Threaded into the user ChatMessage so
@@ -948,7 +968,7 @@ export type OutboundEvent =
   | { type: "done"; id: string; content: string; stopped: boolean; traceId: string }
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string }
   | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string }
-  | { type: "tool_done"; id: string; tool: string; result: unknown; traceId: string }
+  | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string }
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }
@@ -969,7 +989,17 @@ export type OutboundEvent =
   // Desktop-control bridge request. Handled in the Rust host (not the React
   // UI): the host runs the OS accessibility action behind its security gate
   // and replies on stdin with a `desktop_control_response` carrying this `id`.
-  | { type: "desktop_control_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> };
+  | { type: "desktop_control_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> }
+  // RSI engine event — emitted by the sidecar to mirror engine state into
+  // Rust (`RsiEngineState`) and to ack in-flight `rsi_start` /
+  // `rsi_stop` / `rsi_set_concurrency` commands. Rust reads
+  // `event` + `id` (when present) and updates its mirror + fires the
+  // matching `oneshot::Sender`.
+  | { type: "rsi_engine_event"; event: "started" | "stopped" | "concurrency_set" | "progress"; id?: string; iteration?: number; bestScore?: number; costSoFarUsd?: number; concurrency?: number; stopReason?: string }
+  // RSI request — emitted by the RsiBridge client. Paired with a
+  // matching `rsi_response` inbound line. Rust's `handle_rsi_request`
+  // dispatcher writes the response back on stdin.
+  | { type: "rsi_request"; id: string; method: string; params: unknown };
 
 export interface Transport {
   /** Emit an event to the host/user. */

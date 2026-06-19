@@ -54,6 +54,8 @@ import { SkillsStorage, SkillAutoCreator } from "./skills/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
+import { RsiBridge } from "./rsi/bridge.ts";
+import { RsiSidecar } from "./rsi/sidecar.ts";
 import type { DeliveryTarget, Schedule } from "./types.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
@@ -605,6 +607,24 @@ async function main(): Promise<void> {
   // to the bridge inside the `onMessage` handler below.
   sendHolder.current = (e) => transport.send(e);
 
+  // --- RSI sidecar (Faza 1) ---
+  // The bridge writes `rsi_request` lines via transport.send; the
+  // `onMessage` switch routes `rsi_response` lines back to
+  // `bridge.onResponse`. The sidecar builds the production engine
+  // (real adapters, real taste miner, real escape tracker) and emits
+  // `rsi_engine_event` outbound events that mirror into Rust's
+  // `RsiEngineState` AND ack in-flight `rsi_start`/`rsi_stop`/
+  // `rsi_set_concurrency` requests via the `RsiRequestRegistry`.
+  const rsiBridge = new RsiBridge({
+    send: (msg) => transport.send(msg as unknown as import("./types.ts").OutboundEvent),
+  });
+  const rsiSidecar = new RsiSidecar({
+    router,
+    db: db.raw,
+    bridge: rsiBridge,
+    send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
+  });
+
   // Connector Surface (inbound): Discord/Telegram/… share this one agent.
   // The host writes ~/.feral/connectors.json and pokes us with
   // `connectors_reload`; reconcile here. Started in onReady once the agent and
@@ -815,6 +835,51 @@ async function main(): Promise<void> {
         }
         cronRepo.setEnabled(m.id, m.enabled);
         log(`cron_toggle → ${m.id} enabled=${m.enabled}`);
+        break;
+      }
+
+      // RSI engine driver (Faza 1 production wiring). The Rust host
+      // generates a `request_id` UUID and waits on a oneshot that the
+      // matching `rsi_engine_event` line fires. The sidecar builds /
+      // drives / stops the engine; rsi_engine_event is the only ack
+      // surface the host needs.
+      case "rsi_start": {
+        const goal = msg.rsiGoal ?? "rsiautomation";
+        const maxIterations = msg.rsiMaxIterations ?? 50;
+        const maxTotalTokens = msg.rsiMaxTotalTokens ?? 5_000_000;
+        const concurrency = msg.rsiConcurrency ?? 1;
+        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} conc=${concurrency}`);
+        await rsiSidecar.start(
+          { goal, maxIterations, maxTotalTokens, concurrency },
+          msg.id,
+        );
+        break;
+      }
+      case "rsi_stop": {
+        log(`rsi_stop requested`);
+        rsiSidecar.stop(msg.id);
+        break;
+      }
+      case "rsi_set_concurrency": {
+        const n = msg.rsiNewConcurrency ?? 1;
+        log(`rsi_set_concurrency → ${n}`);
+        rsiSidecar.setConcurrency(n, msg.id);
+        break;
+      }
+      case "rsi_response": {
+        // Bridge response delivery — every `rsi_request` we emitted is
+        // paired with exactly one `rsi_response` line by Rust. Route
+        // it back to the RsiBridge so the awaiting Promise settles.
+        if (msg.rsiRequestId) {
+          rsiSidecar.onResponse({
+            id: msg.rsiRequestId,
+            ok: msg.rsiOk ?? false,
+            ...(msg.rsiData !== undefined ? { data: msg.rsiData } : {}),
+            ...(msg.rsiError ? { error: msg.rsiError } : {}),
+          });
+        } else {
+          log(`rsi_response without requestId — ignored`);
+        }
         break;
       }
     }
