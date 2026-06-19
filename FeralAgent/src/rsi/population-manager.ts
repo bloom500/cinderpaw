@@ -81,6 +81,9 @@ export class PopulationManager {
   /** Best fitness ever recorded. Monotonic: only ever increases, and
    *  is not cleared when the record-holding genome dies. */
   private bestRecord: BestRecord | null = null;
+  /** Genome ids immune to extinction. Permanent: membership survives the
+   *  genome's death (PLAN.md "Hall of Fame"). */
+  private readonly hallOfFameIds = new Set<string>();
 
   /** How many evals may run at once. Mutated via `rsi_set_concurrency`. */
   concurrency: number;
@@ -114,8 +117,35 @@ export class PopulationManager {
     g.behavioralFingerprint = record.behavioralFingerprint;
     if (this.bestRecord === null || record.fitnessScore > this.bestRecord.score) {
       this.bestRecord = { genomeId: id, score: record.fitnessScore };
+      // A new best-all-time is auto-inducted into the Hall of Fame, so
+      // the record-holder can never be culled by an extinction event.
+      this.hallOfFameIds.add(id);
     }
     this.recomputeSharedFitness();
+  }
+
+  /**
+   * Induct a genome into the Hall of Fame (extinction-immune). Used for
+   * the best-all-time auto-induction (above) and for Tier 2 breakthroughs
+   * (called by the extinction handler, which has the per-tier data).
+   * Idempotent; throws on an unknown genome so a typo'd id can't silently
+   * create a phantom immunity.
+   */
+  induct(id: string): void {
+    if (!this.genomes.has(id)) {
+      throw new Error(`induct: unknown genome '${id}'`);
+    }
+    this.hallOfFameIds.add(id);
+  }
+
+  /** True iff `id` is in the Hall of Fame (immune to extinction). */
+  isImmune(id: string): boolean {
+    return this.hallOfFameIds.has(id);
+  }
+
+  /** The Hall-of-Fame genome ids, in induction order. */
+  hallOfFame(): string[] {
+    return [...this.hallOfFameIds];
   }
 
   /** Mark a genome dead (a GenomeDied). It leaves the alive set but its
@@ -149,6 +179,59 @@ export class PopulationManager {
       }
       g.sharedFitness = nicheCount > 0 ? g.fitnessScore! / nicheCount : g.fitnessScore!;
     }
+  }
+
+  /**
+   * Mean pairwise cosine similarity of the behavioral fingerprints of all
+   * live, evaluated genomes — the monoculture metric driving extinction
+   * (PLAN.md "Extinction"). Averaged over unique pairs (i<j), excluding
+   * self-pairs. Returns 0 with fewer than two evaluated genomes, since no
+   * monoculture can exist and extinction must never trigger.
+   */
+  meanFingerprintSimilarity(): number {
+    const scored = this.alive().filter(
+      (g) => g.behavioralFingerprint !== null,
+    );
+    if (scored.length < 2) return 0;
+    let sum = 0;
+    let pairs = 0;
+    for (let i = 0; i < scored.length; i++) {
+      for (let j = i + 1; j < scored.length; j++) {
+        sum += cosineSimilarity(
+          scored[i]!.behavioralFingerprint!,
+          scored[j]!.behavioralFingerprint!,
+        );
+        pairs += 1;
+      }
+    }
+    return pairs > 0 ? sum / pairs : 0;
+  }
+
+  /**
+   * Choose the genomes an extinction event should cull (PLAN.md
+   * "Extinction"). Kills `killFraction` (default 0.8) of the live
+   * *candidate* pool — the alive genomes that are neither in the Hall of
+   * Fame (which already contains main / best-all-time) nor among the top
+   * `eliteCount` (default 1) candidates by shared fitness. The
+   * lowest-shared-fitness candidates die first; an unevaluated genome
+   * (null shared fitness) is treated as the weakest, so the most
+   * expendable. Returns the ids to kill; the caller issues GenomeDied.
+   */
+  selectForExtinction(
+    opts: { killFraction?: number; eliteCount?: number } = {},
+  ): string[] {
+    const killFraction = opts.killFraction ?? 0.8;
+    const eliteCount = opts.eliteCount ?? 1;
+    const sf = (g: Genome) => g.sharedFitness ?? Number.NEGATIVE_INFINITY;
+
+    const candidates = this.alive()
+      .filter((g) => !this.isImmune(g.id))
+      .sort((a, b) => sf(b) - sf(a)); // strongest first
+    const killable = candidates.slice(eliteCount); // drop the elite
+    const killCount = Math.floor(killFraction * killable.length);
+    // killable is sorted strongest→weakest, so the last `killCount` are
+    // the weakest candidates.
+    return killable.slice(killable.length - killCount).map((g) => g.id);
   }
 
   /** The best-all-time genome + score, or null if nothing is evaluated. */
