@@ -47,6 +47,7 @@ import { TasteMiner, makeTasteDeps } from "./taste-miner.ts";
 import type { GenomeConfig } from "./genome.ts";
 import type { EvalKind, EvalExpected } from "./eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
+import { blendedPricePer1kUsd } from "./rsi-cost.ts";
 import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
 import { PbtHandler } from "./pbt-handler.ts";
 import {
@@ -66,6 +67,8 @@ export interface RsiStartOptions {
   goal: string;
   maxIterations: number;
   maxTotalTokens: number;
+  /** USD spend cap. 0 = local-only. undefined ⇒ no cost cap (manual runs). */
+  maxTotalCostUsd?: number;
   concurrency?: number;
 }
 
@@ -284,12 +287,22 @@ export class RsiSidecar {
     };
 
     // ── Compose ───────────────────────────────────────────────────────
+    const baseUrl = process.env.FERAL_BASE_URL ?? "";
+    let isLoopback = false;
+    try {
+      const host = new URL(baseUrl).hostname;
+      isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+    } catch { isLoopback = false; }
+    const pricePer1kUsd = blendedPricePer1kUsd(process.env.FERAL_MODEL ?? "", isLoopback);
+
     const engine = createRsiEngine({
       seeds,
       goal: {
         goal: opts.goal,
         maxIterations: opts.maxIterations,
         maxTotalTokens: opts.maxTotalTokens,
+        ...(opts.maxTotalCostUsd !== undefined ? { maxTotalCostUsd: opts.maxTotalCostUsd } : {}),
+        pricePer1kUsd,
       },
       evalDeps: { runEval, scoreGenome },
       ratchetDeps: { commitGenome, ratchetAttempt },

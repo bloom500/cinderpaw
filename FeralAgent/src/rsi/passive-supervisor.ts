@@ -69,6 +69,8 @@ export interface PassiveStartOptions {
   goal: string;
   maxIterations: number;
   maxTotalTokens: number;
+  /** USD spend cap for the passive engine. 0 = local-only (default). */
+  maxTotalCostUsd: number;
   concurrency: number;
 }
 
@@ -81,10 +83,15 @@ export function passiveStartOptions(
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : dflt;
   };
+  const nonNegative = (v: string | undefined, dflt: number): number => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : dflt;
+  };
   return {
     goal: STANDING_GOAL,
     maxIterations: positive(env.FERAL_RSI_MAX_ITER, 100_000),
     maxTotalTokens: positive(env.FERAL_RSI_MAX_TOKENS, 1_000_000_000),
+    maxTotalCostUsd: nonNegative(env.FERAL_RSI_MAX_COST_USD, 0),
     // Compute cap: the user chose always-on, so concurrency is the only
     // throttle. Default 1; clamp any override to a sane 1..4.
     concurrency: Math.max(1, Math.min(4, Math.floor(positive(env.FERAL_RSI_CONCURRENCY, 1)))),

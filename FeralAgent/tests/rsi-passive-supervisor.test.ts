@@ -61,6 +61,21 @@ describe("passiveStartOptions", () => {
   });
 });
 
+describe("passiveStartOptions cost cap", () => {
+  test("defaults to $0 (local-only) when FERAL_RSI_MAX_COST_USD is unset", () => {
+    const o = passiveStartOptions({ FERAL_MODEL: "feral-local-7b" });
+    expect(o.maxTotalCostUsd).toBe(0);
+  });
+  test("reads a positive cap from the env", () => {
+    const o = passiveStartOptions({ FERAL_MODEL: "gpt-4o", FERAL_RSI_MAX_COST_USD: "2.5" });
+    expect(o.maxTotalCostUsd).toBe(2.5);
+  });
+  test("treats a malformed cap as $0 (safe default)", () => {
+    const o = passiveStartOptions({ FERAL_MODEL: "x", FERAL_RSI_MAX_COST_USD: "abc" });
+    expect(o.maxTotalCostUsd).toBe(0);
+  });
+});
+
 describe("PassiveSupervisor — autostart + restart loop", () => {
   function harness() {
     const scheduled: Array<{ cb: () => void; ms: number }> = [];
