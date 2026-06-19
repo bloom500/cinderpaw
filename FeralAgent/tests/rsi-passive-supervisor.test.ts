@@ -70,6 +70,10 @@ describe("passiveStartOptions cost cap", () => {
     const o = passiveStartOptions({ FERAL_MODEL: "gpt-4o", FERAL_RSI_MAX_COST_USD: "2.5" });
     expect(o.maxTotalCostUsd).toBe(2.5);
   });
+  test("honors an explicit $0 cap", () => {
+    const o = passiveStartOptions({ FERAL_RSI_MAX_COST_USD: "0" });
+    expect(o.maxTotalCostUsd).toBe(0);
+  });
   test("treats a malformed cap as $0 (safe default)", () => {
     const o = passiveStartOptions({ FERAL_MODEL: "x", FERAL_RSI_MAX_COST_USD: "abc" });
     expect(o.maxTotalCostUsd).toBe(0);
