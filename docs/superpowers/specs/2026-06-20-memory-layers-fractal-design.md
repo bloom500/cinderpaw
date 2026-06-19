@@ -167,25 +167,29 @@ background change with theme. Interior (in-set) points render as the field/black
     per-frame physics — layout is computed once per snapshot, not per frame.
 - **Precision boundary (honest limit):** WebGL2 `float` (fp32) supports deep but
   not infinite zoom; extreme deep-zoom eventually shows fp32 banding. For a
-  UI-level backdrop with bounded auto-drift + interactive zoom this is well within
-  range and not a concern. If true astronomical deep-zoom is ever wanted it needs
+  UI-level backdrop with user-driven interactive zoom this is well within range
+  and not a concern. If true astronomical deep-zoom is ever wanted it needs
   fp64-emulation / perturbation — explicitly out of scope here.
 
 **Mathematical accuracy (per user reference — fractals.marguz.net):** standard
 escape-time iteration `z → z² + c` with **smooth/normalized iteration coloring**
 (fractional escape: `mu = n + 1 - log2(log2(|z|))`) so color bands are continuous,
 not stepped. Zoom/pan are exact: a `center` (complex coord) + `scale` uniform; the
-shader recomputes per pixel so it is resolution-independent (see Vector zoom). The
-auto-drift tours the set's aesthetic regions named in the reference — **Seahorse
-Valley** (`≈ -0.745 + 0.113i`, the light reference), **Elephant Valley**
-(`≈ 0.275 + 0.007i`), and a **minibrot** spiral (the dark reference) — easing
-between them so the backdrop is always in a "pretty" region, never the flat
-interior.
+shader recomputes per pixel so it is resolution-independent (see Vector zoom).
 
-**Motion (the "alive" feel):** a slow, continuous auto-drift/zoom of the fractal
-parameters (bounded, looping) so the backdrop breathes. Subtle — it must not
-distract from the nodes or cause motion sickness; respects
-`prefers-reduced-motion` (freezes to a static frame when set).
+**Motion — NONE. Everything is user-driven (hard requirement).** There is **no**
+auto-drift, no auto-zoom, no "breathing," no animated tour — the backdrop is
+completely still until the user acts. The user controls the view entirely:
+- **Zoom:** mouse wheel / trackpad pinch, zooming toward the cursor.
+- **Pan:** click-drag.
+- **Reset / jump:** the view *opens* at a hand-picked pretty region (default
+  **Seahorse Valley** `≈ -0.745 + 0.113i`, matching the light reference) and a
+  "reset view" control returns there. Optional static "jump to region" buttons
+  (Seahorse `≈ -0.745 + 0.113i`, Elephant `≈ 0.275 + 0.007i`, a minibrot spiral
+  for the dark reference) snap the center on click — still a deliberate user
+  action, never automatic.
+Because nothing moves on its own, there is no motion to gate behind
+`prefers-reduced-motion` for the fractal itself.
 
 **Nodes as "layers" over the fractal:**
 - Node 2D positions come from a **seeded deterministic layout** (reuse the same
@@ -200,9 +204,11 @@ distract from the nodes or cause motion sickness; respects
 - **Edges** = faint trails between related nodes (relation label on hover), low
   opacity so the fractal reads through — like the lace filigree connecting forms
   in the references.
-- **"Layers"** = depth/parallax: the fractal backdrop sits behind, nodes float
-  above with a slight parallax against the auto-drift, giving a sense of zooming
-  *through* memory layers. (Naming rationale for "Memory Layers.")
+- **"Layers"** = depth: the fractal backdrop sits behind; nodes float above it and
+  the two share the same `center`/`scale` so that when the **user** zooms, nodes
+  and fractal zoom together as one scene — a sense of zooming *through* memory
+  layers, driven entirely by the user (no parallax animation, no auto-motion).
+  (Naming rationale for "Memory Layers.")
 
 **Interaction preserved:** hover tooltip (label + type), click → selected-node
 detail card with neighbors, search highlight/filter, type filters, refresh — all
@@ -220,7 +226,9 @@ identical in behavior to today; only the rendering layer changes.
 - `MemoryLayersPage` (page): data fetch, filters, selection, chrome — same shape
   as today.
 - `MandelbrotCanvas` (new component): owns the WebGL2 context, shader, palette
-  (theme prop), and auto-drift loop. Pure renderer — props in, no app knowledge.
+  (theme prop), and the user-driven `center`/`scale` view state (wheel zoom, drag
+  pan, reset). Renders only in response to user input — no animation loop. Pure
+  renderer — props in, no app knowledge.
 - Node overlay: a focused component/layer that takes laid-out nodes + edges and
   handles draw + hit-testing. Testable independently of the shader.
 - Seeded layout: a pure function `layout(snapshot) -> positions`, unit-testable.
@@ -229,8 +237,9 @@ identical in behavior to today; only the rendering layer changes.
 
 - Unit: seeded layout is deterministic (same snapshot → same positions); palette
   selection by theme; node→screen projection math.
-- Smoke: page mounts with empty graph (empty state), with a small graph (nodes
-  render), and `prefers-reduced-motion` freezes the drift.
+- Smoke: page mounts with empty graph (empty state) and with a small graph (nodes
+  render). The view is static on mount (no automatic movement); a wheel event
+  changes `scale` and a drag changes `center` (user-driven zoom/pan).
 - Regression: removing `RsiPage` leaves no dead imports; old `/memory-graph`
   redirects to `/memory-layers`.
 - Scale/zoom: render a synthetic ~1000-node snapshot — verify interactive frame
@@ -241,8 +250,8 @@ identical in behavior to today; only the rendering layer changes.
 
 ## Open decisions (flag during build, not blockers)
 
-- Exact gradient LUTs / drift speed — tuned visually against the references in the
-  running app.
+- Exact gradient LUTs + zoom sensitivity / min-max zoom bounds — tuned visually
+  against the references in the running app.
 - Whether to keep the `Brain` sidebar icon or pick a fractal-flavored one.
 - Final env knob name for the budget (`FERAL_RSI_MAX_COST_USD` proposed).
 - The cloud price table values in `rsi-cost.ts` (conservative blended default +
