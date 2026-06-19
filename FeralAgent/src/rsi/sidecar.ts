@@ -46,7 +46,9 @@ import { EventBus } from "./event-bus.ts";
 import { TasteMiner, makeTasteDeps } from "./taste-miner.ts";
 import type { GenomeConfig } from "./genome.ts";
 import type { EvalKind, EvalExpected } from "./eval-spec.ts";
-import { STRATEGY_SEED_VERSION } from "./strategy-seeds.ts";
+import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
+import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
+import { PbtHandler } from "./pbt-handler.ts";
 
 /** Tiny contract the sidecar needs from the host's transport: a
  *  function that writes one outbound event as JSON. */
@@ -214,9 +216,38 @@ export class RsiSidecar {
     const escapeTrackerHolder: { current: import("./escape-time.ts").EscapeTimeTracker | undefined } = {
       current: undefined,
     };
+    // ── PBT meta-layer (Faza 3.5) ─────────────────────────────────────
+    // The strategy-genome population steers the Level-1 search. It is
+    // loaded from the DB (seeded at bootstrap); a fresh/in-memory DB
+    // with no seeded rows falls back to the embedded STRATEGY_SEEDS.
+    const pbtController = new PbtController({
+      strategies: loadStrategyGenomes(this.deps.db),
+      rng: () => Math.random(),
+    });
+
+    // The selection knobs read the ACTIVE strategy's hyperparams live —
+    // getters, so each strategy rotation (on RatchetAdvanced) changes
+    // the search behaviour without reconstructing the handler.
     const selection = {
-      capacity: 8,
-      bounds: defaultBounds(),
+      get capacity() {
+        return clampInt(pbtController.activeHyperparams().population_size, 2, 64);
+      },
+      get bounds() {
+        // mutation_rate scales the bounded-real mutation magnitude
+        // (temperature + context-window sigmas) relative to the
+        // "balanced" reference rate.
+        const base = defaultBounds();
+        const factor = clampNum(
+          pbtController.activeHyperparams().mutation_rate / PBT_REFERENCE_MUTATION_RATE,
+          0.1,
+          8,
+        );
+        return {
+          ...base,
+          temperatureSigma: base.temperatureSigma * factor,
+          contextWindowSigma: base.contextWindowSigma * factor,
+        };
+      },
       rng: () => Math.random(),
       gaussian: boxMullerRandom,
       newId: () => crypto.randomUUID(),
@@ -226,7 +257,10 @@ export class RsiSidecar {
       },
       taste: makeTasteDeps(tasteMiner),
       wildExplorerRng: () => Math.random(),
-      wildExplorerFraction: 0.05,
+      get wildExplorerFraction() {
+        return pbtController.activeHyperparams().zoom_policy.wild_explorer_pct;
+      },
+      selectionPressure: () => pbtController.activeHyperparams().selection_pressure,
     };
 
     // ── Compose ───────────────────────────────────────────────────────
@@ -248,6 +282,17 @@ export class RsiSidecar {
     // selection construction).
     escapeTrackerHolder.current = engine.escapeTracker;
     this.engine = engine;
+
+    // ── PBT handler on the ENGINE bus (where RatchetAdvanced fires) ───
+    // Credits the active strategy + runs exploit/explore on each ratchet,
+    // emits PBTSyncTriggered, and persists the strategy population to the
+    // DB (canonical store). Persistence is a soft layer inside the
+    // handler — a DB error never aborts the engine cascade.
+    const db = this.deps.db;
+    new PbtHandler(engine.bus, {
+      controller: pbtController,
+      persist: (strategies) => persistStrategyGenomes(db, strategies),
+    });
 
     // ── Mirror engine events → outbound (Rust state + UI) ─────────────
     this.mirrors.push(mirrorEngineEvents(engine.bus, this.deps.send));
@@ -344,6 +389,73 @@ export class RsiSidecar {
  *  is an index into whatever pool the host supplies. */
 const DEFAULT_SYSTEM_PROMPT =
   "You are a precise assistant. Answer the following question concisely and accurately.";
+
+/** The "balanced" strategy-seed mutation_rate. The active strategy's
+ *  mutation_rate scales the grammar sigmas relative to this reference,
+ *  so the balanced profile leaves the embedded defaults unchanged. */
+const PBT_REFERENCE_MUTATION_RATE = 0.1;
+
+function clampNum(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+function clampInt(v: number, lo: number, hi: number): number {
+  return Math.round(clampNum(v, lo, hi));
+}
+
+/** Load the active strategy-genome population for the PBT controller.
+ *  Reads the DB rows seeded at bootstrap (preserving the lifetime
+ *  `ratchet_count` so PBT credit accumulates across restarts). Falls
+ *  back to the embedded STRATEGY_SEEDS when the table is empty or
+ *  absent (fresh / in-memory DB), so the controller always has a
+ *  heterogeneous starting population. Fitness is a within-run EMA and
+ *  always starts at 0. */
+function loadStrategyGenomes(db: Database): StrategyGenome[] {
+  try {
+    const rows = db
+      .query<{ id: string; hyperparams: string; ratchet_count: number }, []>(
+        `SELECT id, hyperparams, ratchet_count FROM rsi_strategy_genome
+         WHERE active = 1 ORDER BY id`,
+      )
+      .all();
+    if (rows.length > 0) {
+      return rows.map((r) => ({
+        id: r.id,
+        hyperparams: JSON.parse(r.hyperparams),
+        ratchetCount: r.ratchet_count ?? 0,
+        fitness: 0,
+      }));
+    }
+  } catch {
+    // Table missing (e.g. a bare in-memory test DB) — fall through.
+  }
+  return STRATEGY_SEEDS.map((s) => ({
+    id: s.id,
+    hyperparams: s.hyperparams,
+    ratchetCount: 0,
+    fitness: 0,
+  }));
+}
+
+/** Persist the strategy population to the canonical DB store after a
+ *  PBT sync. Best-effort: the caller (PbtHandler) swallows throws so a
+ *  transient DB error never aborts the engine. A missing table is a
+ *  no-op (the row UPDATEs simply match nothing). */
+function persistStrategyGenomes(db: Database, strategies: StrategyGenome[]): void {
+  const now = Date.now();
+  const stmt = db.query(
+    `UPDATE rsi_strategy_genome
+       SET hyperparams = $hp, ratchet_count = $rc, last_sync_at = $t
+     WHERE id = $id`,
+  );
+  for (const s of strategies) {
+    stmt.run({
+      $hp: JSON.stringify(s.hyperparams),
+      $rc: s.ratchetCount,
+      $t: now,
+      $id: s.id,
+    });
+  }
+}
 
 /** Mutation bounds — sensible defaults for the embedded grammar. */
 function defaultBounds() {
@@ -487,6 +599,19 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
       genomeId: ev.genomeId,
       cause: ev.cause,
       died: true,
+    });
+  }));
+  offs.push(bus.onDisposable("PBTSyncTriggered", (ev) => {
+    // Meta-RSI sync (Faza 3.5): the active strategy-genome was credited
+    // for a ratchet and the population exploit/explored. Surfaced so the
+    // UI can show which search strategy is steering and when it rotates.
+    send({
+      type: "rsi_engine_event",
+      event: "pbt_sync",
+      iteration: iterationCount,
+      creditedId: ev.creditedId,
+      nextActiveId: ev.nextActiveId,
+      replaced: ev.replaced,
     });
   }));
   offs.push(bus.onDisposable("ExtinctionTriggered", (ev) => {

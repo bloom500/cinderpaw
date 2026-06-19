@@ -294,6 +294,27 @@ describe("mirrorEngineEvents — outbound emission", () => {
 
     off();
   });
+
+  test("forwards PBTSyncTriggered as a pbt_sync event with the credited/next active ids", async () => {
+    const bus = new EventBus();
+    const emitted: Array<Record<string, unknown>> = [];
+    const off = mirrorEngineEvents(bus, (e) => emitted.push(e));
+
+    await bus.emit({
+      type: "PBTSyncTriggered",
+      creditedId: "s1",
+      nextActiveId: "s2",
+      replaced: [{ id: "s4", donorId: "s1" }],
+    });
+
+    const sync = emitted.find((e) => e.event === "pbt_sync");
+    expect(sync).toBeDefined();
+    expect(sync!.creditedId).toBe("s1");
+    expect(sync!.nextActiveId).toBe("s2");
+    expect(Array.isArray(sync!.replaced)).toBe(true);
+
+    off();
+  });
 });
 
 /** Router that always returns empty content — simulates a misbehaving
