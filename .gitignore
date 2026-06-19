@@ -79,3 +79,6 @@ data/
 
 # Sidecar binary backups
 src-tauri/binaries/*.old*
+
+# vitest on-disk cache (must never be tracked)
+node_modules/.vite/
