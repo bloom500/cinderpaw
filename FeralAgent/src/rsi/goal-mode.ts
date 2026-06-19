@@ -19,6 +19,7 @@
 import type { EventBus, RsiEvent } from "./event-bus.ts";
 import type { EvalWorker } from "./eval-worker.ts";
 import type { BestRecord, PopulationManager } from "./population-manager.ts";
+import { estimateUsd } from "./rsi-cost.ts";
 
 export interface GoalConfig {
   /** Free-text objective (carried for the UI / lineage; not used in control). */
@@ -27,6 +28,11 @@ export interface GoalConfig {
   maxIterations: number;
   /** Hard stop on cumulative token cost. */
   maxTotalTokens: number;
+  /** Optional hard stop on cumulative USD cost. undefined ⇒ no cost cap.
+   *  0 ⇒ local-only (any nonzero spend halts). */
+  maxTotalCostUsd?: number;
+  /** Blended $/1k tokens for the active model. 0 ⇒ local/free. */
+  pricePer1kUsd?: number;
   /** Stop early once best-all-time reaches this score. */
   targetScore?: number;
   /** Stop after this many consecutive iterations without an improvement. */
@@ -36,6 +42,7 @@ export interface GoalConfig {
 export type StopReason =
   | "TargetReached"
   | "BudgetExhausted"
+  | "CostBudgetExhausted"
   | "MaxIterations"
   | "PlateauPersistent"
   | "UserStopped"
@@ -46,6 +53,15 @@ export interface GoalResult {
   iterations: number;
   best: BestRecord | null;
   totalTokens: number;
+  totalCostUsd: number;
+}
+
+/** Pure cost-cap decision. `cap` undefined ⇒ never; `cap === 0` ⇒ stop on any
+ *  spend (local stays at 0 so it runs forever); `cap > 0` ⇒ stop at/above cap. */
+export function costStop(totalCostUsd: number, cap: number | undefined): boolean {
+  if (cap === undefined) return false;
+  if (cap === 0) return totalCostUsd > 0;
+  return totalCostUsd >= cap;
 }
 
 /**
@@ -65,6 +81,7 @@ export function attachPopulationRecorder(bus: EventBus, pop: PopulationManager):
 export class GoalMode {
   private readonly queue: string[] = [];
   private totalTokens = 0;
+  private totalCostUsd = 0;
   private userStopped = false;
 
   constructor(
@@ -81,7 +98,9 @@ export class GoalMode {
     });
     // Budget bookkeeping.
     bus.on("EvalComplete", (e: RsiEvent) => {
-      this.totalTokens += (e.tokenCost as number) ?? 0;
+      const tokens = (e.tokenCost as number) ?? 0;
+      this.totalTokens += tokens;
+      this.totalCostUsd += estimateUsd(tokens, this.config.pricePer1kUsd ?? 0);
     });
   }
 
@@ -207,6 +226,7 @@ export class GoalMode {
       return "TargetReached";
     }
     if (this.totalTokens >= this.config.maxTotalTokens) return "BudgetExhausted";
+    if (costStop(this.totalCostUsd, this.config.maxTotalCostUsd)) return "CostBudgetExhausted";
     if (iterations >= this.config.maxIterations) return "MaxIterations";
     if (this.config.plateauPatience != null && sinceImprovement >= this.config.plateauPatience) {
       return "PlateauPersistent";
@@ -215,6 +235,12 @@ export class GoalMode {
   }
 
   private result(reason: StopReason, iterations: number): GoalResult {
-    return { reason, iterations, best: this.pop.best(), totalTokens: this.totalTokens };
+    return {
+      reason,
+      iterations,
+      best: this.pop.best(),
+      totalTokens: this.totalTokens,
+      totalCostUsd: this.totalCostUsd,
+    };
   }
 }
