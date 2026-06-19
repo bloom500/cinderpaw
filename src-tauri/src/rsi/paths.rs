@@ -13,6 +13,13 @@
 //! unrecognised tier because Tier 2 in particular has a different
 //! governance story (human-gated) and the wrong directory would silently
 //! route eval traffic.
+#![allow(dead_code)]
+// Several helpers here (`safe_join`, `require_under`, `eval_dir`,
+// `genomes_dir`, `meta_dir`, `plan_path`, `genome_snapshot_path`,
+// `eval_task_path`, `is_valid_commit_hash`) are scaffolded for the
+// Faza 3.5 / Faza 4 commands but not yet called by any Tauri
+// command. The allow keeps the build output clean until those
+// phases wire them up.
 
 use std::path::{Component, Path, PathBuf};
 

@@ -3,6 +3,13 @@
 //! type-checked on both sides, and so the schema is greppable from one
 //! place. The sidecar stores these as rows; Rust reads/writes them via
 //! the sidecar's exposed helpers — but the Rust side still gets to
+#![allow(dead_code)]
+// These structs (RsiGenome, RsiIteration, RsiLineageEdge,
+// RsiHallOfFameEntry, RsiStrategyGenome) are the IPC return shapes
+// for Tauri commands that the Faza 3.5 (PBT) and Faza 4 (Mandelbrot)
+// phases will expose. They're greppable here today so the schema
+// stays in one place; the allow keeps the build clean until those
+// phases wire the queries.
 //! validate the shape before any scoring or ratchet logic runs.
 //!
 //! The DB lives in the sidecar (bun:sqlite). Rust never opens the DB

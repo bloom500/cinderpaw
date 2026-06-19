@@ -10,6 +10,13 @@
 //! functioning at all (responds, parses, doesn't hallucinate obvious
 //! facts). Anything a 4-bit model can pass is fair game. The harder
 //! tiers (1, 2) live in `eval/tier1/` and `eval/tier2/` and are loaded
+#![allow(dead_code)]
+// `validate_outcome` and its kind-specific helpers (`json_format_ok`,
+// `fact_lookup_ok`, `normalise`) are the Rust-side mirror of the
+// sidecar's TS validators. The engine drives them through the
+// Rust-side `rsi_score` dispatcher today; the public re-export
+// is for a future Faza 4 command (`rsi_replay_tier0`). Allow
+// keeps the build clean until that lands.
 //! from disk at boot — Tier 0 is hardcoded here because changing it is
 //! a SAFETY event, not a tuning event.
 //!

@@ -10,6 +10,11 @@
 //!    fitness.
 //! 3. The SandboxBounds file itself — recursively, because otherwise
 //!    the agent could just disable its own restrictions.
+#![allow(dead_code)]
+// `genesis_hash` is the re-export of the GENESIS audit-chain
+// constant. A future Tauri command (Faza 4 — Mandelbrot) will expose
+// it to the UI as the chain anchor; the allow keeps the build clean
+// until then.
 //! 4. The SandboxBounds audit log — append-only, hash-chained.
 //! 5. The git repo at `~/.feral/rsi/.git/` — the substrate of memory.
 //!    (Read access is fine; write access is mediated by Rust commands

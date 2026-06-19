@@ -13,6 +13,10 @@
 //! Submodule split (kept narrow so each file is auditable on its own):
 //! - `paths`    : canonical paths + containment checks (no traversal)
 //! - `types`    : DB table shapes that match the sidecar SQLite schema
+#![allow(dead_code)]
+// `rsi_root` is a scaffolded helper that the Faza 3.5 (PBT) and
+// Faza 4 (Mandelbrot) commands will consume. The allow keeps the
+// build output clean until those phases wire it up.
 //! - `scorer`   : pure scoring function — the formula the agent cannot edit
 //! - `tier0`    : the 10 frozen Tier 0 sanity checks
 //! - `goodhart` : Tier 1 vs Tier 2 divergence detector

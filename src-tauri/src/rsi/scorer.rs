@@ -6,6 +6,11 @@
 //! the agent could rewrite the formula at runtime (it has write
 //! access to its own skill files, and the inference router is the
 //! only thing it can't bypass). In Rust, the scorer is compiled into
+#![allow(dead_code)]
+// `score_single` is a convenience wrapper the UI will use to show
+// per-task scores next to the composite. The full-suite scoring path
+// (`score`) is what the engine actually drives today. Allow keeps
+// the build clean until the UI wires the per-task view.
 //! the binary the agent never has filesystem access to. The agent
 //! can ship better eval *outcomes*; it cannot redefine what "better"
 //! means.
