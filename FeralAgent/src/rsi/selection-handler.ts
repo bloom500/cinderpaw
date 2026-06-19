@@ -14,7 +14,11 @@
 
 import type { EventBus } from "./event-bus.ts";
 import type { Genome, PopulationManager } from "./population-manager.ts";
-import { mutateConfig, type MutationGrammar, type Rng } from "./mutation.ts";
+import { type MutationGrammar, type Rng } from "./mutation.ts";
+import { planBirth } from "./birth-policy.ts";
+import { isWildExplorer } from "./fractal.ts";
+import { regionKey, type EscapeTimeTracker } from "./escape-time.ts";
+import type { CrossoverPair } from "./crossover-selection.ts";
 
 /** Grammar bounds without the per-call randomness sources. */
 export type GrammarBounds = Omit<MutationGrammar, "rng" | "gaussian">;
@@ -29,6 +33,18 @@ export interface SelectionDeps {
   gaussian: () => number;
   /** Fresh genome id generator. */
   newId: () => string;
+  // ── Faza 2/3 reproduction (all optional; absent = Faza 1 behaviour) ──
+  /** Crossover candidate provider; when it yields a pair the birth is a
+   *  crossover instead of a mutation (Faza 2). */
+  crossover?: { selectPairs: () => Promise<CrossoverPair[]> };
+  /** Escape-time tracker; zooms the mutation grammar per region (Faza 3). */
+  escapeTracker?: EscapeTimeTracker;
+  /** Uniform source for the 5% wild-explorer decision (Faza 3). */
+  wildExplorerRng?: Rng;
+  /** Wild-explorer probability (default 0.05). */
+  wildExplorerFraction?: number;
+  /** Taste bias applied to the child (Faza 3 taste layer). */
+  taste?: { vector: () => number[]; weight: () => number };
 }
 
 export class SelectionMutationHandler {
@@ -45,7 +61,22 @@ export class SelectionMutationHandler {
     const alive = this.pop.alive();
     if (alive.length >= this.deps.capacity) return; // no room
 
-    const parent = this.selectParent(alive);
+    // Faza 3: a small fraction of births ignore the zoom/crossover policy
+    // and explore wildly under the coarse grammar.
+    const wild = this.deps.wildExplorerRng
+      ? isWildExplorer(this.deps.wildExplorerRng, this.deps.wildExplorerFraction)
+      : false;
+
+    // Faza 2: prefer a crossover when a related+divergent pair is available
+    // (skipped for wild explorers).
+    let crossoverPair: CrossoverPair | null = null;
+    if (this.deps.crossover && !wild) {
+      crossoverPair = (await this.deps.crossover.selectPairs())[0] ?? null;
+    }
+
+    // The mutation path needs a fitness-proportionate parent; the
+    // crossover path uses the pair's fitter parent for lineage anchoring.
+    const parent = crossoverPair ? crossoverPair.fitter : this.selectParent(alive);
     if (!parent || !parent.config) return; // nothing eligible to breed from
 
     const grammar: MutationGrammar = {
@@ -53,30 +84,37 @@ export class SelectionMutationHandler {
       rng: this.deps.rng,
       gaussian: this.deps.gaussian,
     };
-    const { child, mutationType } = mutateConfig(parent.config, grammar);
+    // Faza 3: zoom the grammar by the parent region's escape-time.
+    const zoomFactor = this.deps.escapeTracker
+      ? this.deps.escapeTracker.zoomFactorFor(regionKey(parent.config))
+      : 1;
+    const taste = this.deps.taste
+      ? { vector: this.deps.taste.vector(), weight: this.deps.taste.weight() }
+      : undefined;
+
+    const plan = planBirth({ parent, base: grammar, crossoverPair, wild, zoomFactor, taste });
 
     const childId = this.deps.newId();
     this.pop.add({
       id: childId,
-      generation: parent.generation + 1,
-      lineage: [parent.id],
-      config: child,
-      // mutationType is the same value emitted on the GenomeBorn event
-      // below — captured on the Genome record so the commit adapter
-      // can read it back when building the git metadata (the spec'd
-      // shape of `rsi_iteration.mutation_type`). Without this, the
-      // adapter has no way to know whether the genome was a bootstrap
-      // seed or a selection-handler birth.
-      mutationType,
+      generation: plan.generation,
+      lineage: plan.lineage,
+      // mutationType is captured on the Genome record so the commit
+      // adapter can read it back when building the git metadata
+      // (`rsi_iteration.mutation_type`): "crossover" | "wild" |
+      // "parametric" (or "seed" for the bootstrap genomes).
+      config: plan.config,
+      mutationType: plan.mutationType,
     });
 
     await this.bus.emit({
       type: "GenomeBorn",
       genomeId: childId,
       parentId: parent.id,
-      generation: parent.generation + 1,
-      mutationType,
-      config: child,
+      generation: plan.generation,
+      mutationType: plan.mutationType,
+      config: plan.config,
+      wild: plan.wild,
     });
   }
 
