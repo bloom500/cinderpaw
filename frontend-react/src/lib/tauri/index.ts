@@ -177,6 +177,8 @@ export interface Settings {
   desktop_control_yolo: boolean;
   /** Per-conversation token budget. null = unlimited (Infinity); number = hard cap in tokens. */
   token_budget_conversation: number | null;
+  /** USD spend cap for the passive RSI background engine. null / 0 = local-only (free). */
+  rsi_max_cost_usd: number | null;
 }
 
 export interface ByokProvider {
@@ -391,6 +393,8 @@ const raw = {
     invoke<void>('set_desktop_control_yolo', { enabled }),
   setTokenBudgetConversation: (budget: number | null) =>
     invoke<void>('set_token_budget_conversation', { budget }),
+  setRsiBudget: (budget: number | null) =>
+    invoke<void>('set_rsi_budget', { budget }),
   searchHfModels:        (query: string, cursor?: string | null) =>
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
@@ -520,6 +524,7 @@ export const tauri = {
     setDesktopControl: async (enabled: boolean) => raw.setDesktopControlEnabled(enabled),
     setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
+    setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
   },
 
   hf: {

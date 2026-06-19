@@ -18,6 +18,7 @@ const baseSettings = {
   models_dir: '/m', default_gpu_layers: 100,
   api_server_enabled: false, api_port: 11435, version: '0.1.0',
   desktop_control_enabled: false, desktop_control_yolo: false,
+  token_budget_conversation: null, rsi_max_cost_usd: 0,
 };
 
 function setupStore(overrides: Partial<typeof baseSettings> = {}, saved = false) {

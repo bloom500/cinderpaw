@@ -8,6 +8,7 @@ vi.mock('@/lib/tauri', () => ({
       setDesktopControl: vi.fn(),
       setDesktopControlYolo: vi.fn(),
       setTokenBudget: vi.fn(),
+      setRsiBudget: vi.fn(),
     },
     raw: {
       getByokSettings:   vi.fn(),
@@ -34,6 +35,7 @@ const sample = {
   desktop_control_enabled: false,
   desktop_control_yolo: false,
   token_budget_conversation: null,
+  rsi_max_cost_usd: 0,
 };
 
 const reset = () =>
@@ -106,5 +108,13 @@ describe('useSettings', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error).toBe('Invalid API key');
+  });
+
+  it("setRsiBudget persists via the tauri command and updates state", async () => {
+    useSettings.setState({ settings: { ...sample } });
+    const spy = vi.spyOn(tauri.settings, "setRsiBudget").mockResolvedValue(undefined);
+    await useSettings.getState().setRsiBudget(2.5);
+    expect(spy).toHaveBeenCalledWith(2.5);
+    expect(useSettings.getState().settings?.rsi_max_cost_usd).toBe(2.5);
   });
 });

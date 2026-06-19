@@ -41,6 +41,8 @@ interface SettingsStore {
   setDesktopControlYolo: (enabled: boolean) => Promise<void>;
   /** Set per-conversation token budget. null = unlimited; number = hard cap. Persists + restarts sidecar. */
   setTokenBudget: (budget: number | null) => Promise<void>;
+  /** Set RSI background engine USD spend cap. null / 0 = local-only (free). */
+  setRsiBudget: (budget: number | null) => Promise<void>;
   save: () => Promise<void>;
   saveByokProvider: (p: ByokProviderUpdate) => Promise<void>;
   removeByokProvider: (providerId: string) => Promise<void>;
@@ -111,6 +113,18 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
       await tauri.settings.setTokenBudget(budget);
     } catch (e) {
       console.error('setTokenBudget failed', e);
+      if (prev) set({ settings: { ...prev } });
+      throw e;
+    }
+  },
+
+  setRsiBudget: async (budget) => {
+    const prev = get().settings;
+    set((s) => s.settings ? { settings: { ...s.settings, rsi_max_cost_usd: budget } } : {});
+    try {
+      await tauri.settings.setRsiBudget(budget);
+    } catch (e) {
+      console.error('setRsiBudget failed', e);
       if (prev) set({ settings: { ...prev } });
       throw e;
     }

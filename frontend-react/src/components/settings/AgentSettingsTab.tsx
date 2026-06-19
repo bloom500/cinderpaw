@@ -50,6 +50,7 @@ export function AgentSettingsTab() {
       </header>
 
       <TokenBudgetToggle />
+      <RsiBudgetControl />
       <DesktopControlToggle />
 
       <div className="flex items-center gap-2">
@@ -214,6 +215,61 @@ export function AgentSettingsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * USD spend cap for the passive RSI background engine. Default $0 = local-only:
+ * the free local engine self-improves forever and never spends; any paid cloud
+ * spend halts. Raise it to allow bounded cloud spend.
+ */
+function RsiBudgetControl() {
+  const settings    = useSettings((s) => s.settings);
+  const setRsiBudget = useSettings((s) => s.setRsiBudget);
+  const [busy, setBusy] = useState(false);
+
+  const budget = settings?.rsi_max_cost_usd ?? 0;
+
+  const PRESETS = [
+    { label: 'Local only ($0)', value: 0 },
+    { label: '$1',  value: 1 },
+    { label: '$5',  value: 5 },
+    { label: '$20', value: 20 },
+  ] as const;
+
+  const setPreset = async (value: number) => {
+    if (busy || !settings) return;
+    setBusy(true);
+    try { await setRsiBudget(value); } catch { /* rolled back */ } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text-primary">Background self-improvement budget</p>
+        <p className="text-xs text-text-muted mt-0.5">
+          Feral quietly improves itself in the background. Local models are free —
+          this caps what it may spend on <span className="text-text-secondary">paid cloud models</span>.
+          <span className="text-text-secondary"> $0 = never spend cloud money.</span>
+        </p>
+      </div>
+      <div className="flex gap-1 rounded-md border border-border-subtle p-1">
+        {PRESETS.map(({ label, value }) => (
+          <button
+            key={value}
+            type="button"
+            disabled={busy || !settings}
+            onClick={() => void setPreset(value)}
+            className={cn(
+              'flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50',
+              budget === value ? 'bg-brand text-white' : 'text-text-secondary hover:bg-bg-hover',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
