@@ -30,4 +30,26 @@ describe('layoutNodes', () => {
       expect(Number.isFinite(n.wy)).toBe(true);
     }
   });
+
+  it('lays out 100,000 nodes quickly and deterministically', () => {
+    // Pure perf + determinism check at the spec's stress scale. No UI, no
+    // backend — this just exercises layoutNodes() directly.
+    const N = 100_000;
+    const big: MemoryGraphSnapshot = {
+      nodes: Array.from({ length: N }, (_, i) => ({
+        id: `n${i}`, label: `N${i}`, type: 'fact', touched_at: i,
+      })),
+      edges: [],
+    };
+    const t0 = performance.now();
+    const a = layoutNodes(big);
+    const ms = performance.now() - t0;
+    expect(a).toHaveLength(N);
+    expect(ms).toBeLessThan(500);            // pure layout is O(n), no physics
+    // determinism still holds at scale (spot-check a few, full compare is heavy)
+    const b = layoutNodes(big);
+    expect(b[0]).toEqual(a[0]);
+    expect(b[N - 1]).toEqual(a[N - 1]);
+    expect(b[50_000]).toEqual(a[50_000]);
+  });
 });

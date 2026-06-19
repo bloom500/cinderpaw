@@ -1,46 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Network } from 'vis-network';
-import { DataSet } from 'vis-data';
+import { useEffect, useMemo, useState } from 'react';
 import { tauri, type MemoryGraphSnapshot } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
-import { RefreshCw, Brain, Search, X } from 'lucide-react';
+import { RefreshCw, Brain, Search, X, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MandelbrotCanvas } from '@/components/memory/MandelbrotCanvas';
+import { NodeOverlay } from '@/components/memory/NodeOverlay';
+import { SEAHORSE_VIEW, complexToScreen, type View } from '@/lib/fractal/mandelbrot';
+import { layoutNodes } from '@/lib/fractal/layout';
 
-/**
- * Cognee-inspired graph visualization. All chrome lives in ONE floating
- * panel over the canvas (no sidebar, no separators), styled with the app's
- * semantic tokens so it follows Light/Dark mode, and rendered in Inter —
- * including the vis-network node/edge labels.
- */
-const VIS_FONT = "'Inter Variable', Inter, system-ui, sans-serif";
-
-/** Per-theme palette for the canvas (vis-network needs concrete hex values). */
-const THEME_VIS = {
-  dark: {
-    types: { entity: '#a78bfa', concept: '#22d3ee', event: '#fbbf24', fact: '#34d399' } as Record<string, string>,
-    fallback: '#94a3b8',
-    nodeLabel: '#cbd5e1',
-    labelStroke: '#0b0b12',
-    edge: '#38bdf8',
-    edgeOpacity: 0.28,
-    edgeHighlight: '#7dd3fc',
-    edgeLabel: '#64748b',
-    glowSize: 22,
-  },
-  light: {
-    types: { entity: '#7c3aed', concept: '#0891b2', event: '#d97706', fact: '#059669' } as Record<string, string>,
-    fallback: '#64748b',
-    nodeLabel: '#334155',
-    labelStroke: '#ffffff',
-    edge: '#0284c7',
-    edgeOpacity: 0.3,
-    edgeHighlight: '#0369a1',
-    edgeLabel: '#94a3b8',
-    glowSize: 10,
-  },
-} as const;
+/** Per-theme palette for the node/edge tints (theme → node type color). */
+const TYPE_COLORS: Record<'dark' | 'light', Record<string, string>> = {
+  dark:  { entity: '#a78bfa', concept: '#22d3ee', event: '#fbbf24', fact: '#34d399' },
+  light: { entity: '#7c3aed', concept: '#0891b2', event: '#d97706', fact: '#059669' },
+};
+const TYPE_FALLBACK: Record<'dark' | 'light', string> = { dark: '#94a3b8', light: '#64748b' };
 
 const NODE_TYPES = ['entity', 'concept', 'event', 'fact'] as const;
+const HIT_PX = 14;
 
 interface SelectedNode {
   id: string;
@@ -50,8 +26,6 @@ interface SelectedNode {
 }
 
 export function MemoryLayersPage() {
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const networkRef = useRef<Network | null>(null);
   const resolvedTheme = useUI((s) => s.resolvedTheme);
   const [graph, setGraph] = useState<MemoryGraphSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,9 +33,11 @@ export function MemoryLayersPage() {
   const [search, setSearch] = useState('');
   const [showLabels, setShowLabels] = useState(true);
   const [selected, setSelected] = useState<SelectedNode | null>(null);
+  const [view, setView] = useState<View>(SEAHORSE_VIEW);
 
-  const vis = THEME_VIS[resolvedTheme];
-  const colorFor = (type: string) => vis.types[type] ?? vis.fallback;
+  const fractalTheme: 'dark' | 'light' = resolvedTheme === 'dark' ? 'dark' : 'light';
+  const colorFor = (type: string) =>
+    TYPE_COLORS[fractalTheme][type] ?? TYPE_FALLBACK[fractalTheme];
 
   const load = async () => {
     setLoading(true);
@@ -77,10 +53,6 @@ export function MemoryLayersPage() {
 
   useEffect(() => {
     void load();
-    return () => {
-      networkRef.current?.destroy();
-      networkRef.current = null;
-    };
   }, []);
 
   // Per-type counts for the filter chips (computed on the FULL graph).
@@ -113,111 +85,44 @@ export function MemoryLayersPage() {
     return { nodes, edges };
   }, [graph, hiddenTypes, search]);
 
-  // (Re)build the network when the subgraph, label mode, or theme changes.
-  useEffect(() => {
-    if (!canvasRef.current || loading || visible.nodes.length === 0) return;
+  // Pre-laid-out nodes (for click hit-test) — same ordering the overlay uses.
+  const laidOut = useMemo(
+    () => (graph ? layoutNodes(graph) : []),
+    [graph],
+  );
 
-    // Node size scales with degree so hubs read as clusters.
-    const degree = new Map<string, number>();
-    for (const e of visible.edges) {
-      degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
-      degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+  // Container-level click hit-test: a click that lands on the scene (overlay
+  // is pointer-events-none, so this catches clicks that reached the fractal
+  // canvas below). A drag pans; a click selects the nearest node within
+  // HIT_PX, or clears the selection if none.
+  const onSceneClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!graph) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    let bestId: string | null = null;
+    let bestD = HIT_PX;
+    for (const n of laidOut) {
+      if (hiddenTypes.has(n.type)) continue;
+      const p = complexToScreen(n.wx, n.wy, rect.width, rect.height, view);
+      const d = Math.hypot(p.px - px, p.py - py);
+      if (d <= bestD) { bestD = d; bestId = n.id; }
     }
-
-    const nodes = new DataSet(
-      visible.nodes.map((n) => {
-        const c = colorFor(n.type);
-        const d = degree.get(n.id) ?? 0;
-        return {
-          id: n.id,
-          label: showLabels ? n.label : undefined,
-          shape: 'dot',
-          size: 9 + Math.min(d * 2.5, 18),
-          color: {
-            background: c,
-            border: `${c}55`,
-            highlight: { background: vis.nodeLabel, border: c },
-            hover: { background: c, border: vis.nodeLabel },
-          },
-          font: {
-            color: vis.nodeLabel,
-            size: 11,
-            face: VIS_FONT,
-            strokeWidth: 4,
-            strokeColor: vis.labelStroke,
-          },
-          shadow: { enabled: true, color: c, size: vis.glowSize, x: 0, y: 0 },
-          title: `${n.label} (${n.type})`,
-        };
-      }),
-    );
-    const edges = new DataSet(
-      visible.edges.map((e, i) => ({
-        id: i,
-        from: e.from,
-        to: e.to,
-        label: showLabels ? e.relation : undefined,
-        arrows: { to: { enabled: true, scaleFactor: 0.4 } },
-        color: { color: vis.edge, opacity: vis.edgeOpacity, highlight: vis.edgeHighlight },
-        width: 1,
-        smooth: { enabled: true, type: 'continuous', roundness: 0.4 },
-        font: {
-          color: vis.edgeLabel,
-          size: 9,
-          face: VIS_FONT,
-          align: 'middle',
-          strokeWidth: 3,
-          strokeColor: vis.labelStroke,
-        },
-      })),
-    );
-
-    networkRef.current?.destroy();
-    const network = new Network(
-      canvasRef.current,
-      { nodes, edges },
-      {
-        physics: {
-          solver: 'forceAtlas2Based',
-          forceAtlas2Based: {
-            gravitationalConstant: -42,
-            centralGravity: 0.012,
-            springLength: 110,
-            springConstant: 0.06,
-            damping: 0.5,
-          },
-          stabilization: { iterations: 160 },
-        },
-        interaction: { hover: true, zoomView: true, tooltipDelay: 120 },
-        layout: { randomSeed: 42 },
-        autoResize: true,
-      },
-    );
-    networkRef.current = network;
-
-    network.on('click', (params: { nodes: (string | number)[] }) => {
-      const nodeId = params.nodes[0];
-      if (nodeId === undefined) {
-        setSelected(null);
-        return;
+    if (!bestId) { setSelected(null); return; }
+    const node = graph.nodes.find((n) => n.id === bestId);
+    if (!node) return;
+    const neighbors: SelectedNode['neighbors'] = [];
+    for (const e2 of graph.edges) {
+      if (e2.from === bestId) {
+        const to = graph.nodes.find((n) => n.id === e2.to);
+        if (to) neighbors.push({ relation: e2.relation, label: to.label, direction: 'out' });
+      } else if (e2.to === bestId) {
+        const from = graph.nodes.find((n) => n.id === e2.from);
+        if (from) neighbors.push({ relation: e2.relation, label: from.label, direction: 'in' });
       }
-      const node = visible.nodes.find((n) => n.id === nodeId);
-      if (!node) return;
-      const byId = new Map(visible.nodes.map((n) => [n.id, n] as const));
-      const neighbors: SelectedNode['neighbors'] = [];
-      for (const e of visible.edges) {
-        if (e.from === nodeId) {
-          const to = byId.get(e.to);
-          if (to) neighbors.push({ relation: e.relation, label: to.label, direction: 'out' });
-        } else if (e.to === nodeId) {
-          const from = byId.get(e.from);
-          if (from) neighbors.push({ relation: e.relation, label: from.label, direction: 'in' });
-        }
-      }
-      setSelected({ id: node.id, label: node.label, type: node.type, neighbors });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, showLabels, loading, resolvedTheme]);
+    }
+    setSelected({ id: node.id, label: node.label, type: node.type, neighbors });
+  };
 
   const toggleType = (type: string) =>
     setHiddenTypes((prev) => {
@@ -228,6 +133,7 @@ export function MemoryLayersPage() {
     });
 
   const empty = !loading && (graph?.nodes.length ?? 0) === 0;
+  const hasScene = !loading && !empty;
 
   return (
     <div className="relative h-full overflow-hidden">
@@ -320,13 +226,22 @@ export function MemoryLayersPage() {
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={() => void load()}
-        className="absolute top-4 right-4 z-10 inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-bg-surface/90 backdrop-blur px-2.5 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-hover"
-      >
-        <RefreshCw size={11} /> Refresh
-      </button>
+      <div className="absolute top-4 right-4 z-10 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setView(SEAHORSE_VIEW)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-bg-surface/90 backdrop-blur px-2.5 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+        >
+          <RotateCcw size={11} /> Reset view
+        </button>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-bg-surface/90 backdrop-blur px-2.5 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+        >
+          <RefreshCw size={11} /> Refresh
+        </button>
+      </div>
 
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -350,11 +265,39 @@ export function MemoryLayersPage() {
         </div>
       )}
 
-      {/* Full-bleed graph canvas: spans the whole window (under the floating
-          sidebar) so the sidebar's translucent backdrop samples the nodes —
-          1:1 with how the control card reveals the graph behind it. Sits at
-          z-0, below the sidebar (z-20) and the control cards (z-10). */}
-      <div ref={canvasRef} className="fixed inset-0 z-0" />
+      {/* Scene: fractal backdrop + node overlay. Click anywhere on the scene
+          to select the nearest node (drag still pans via the canvas below). */}
+      {hasScene && graph && (
+        <div
+          onClick={onSceneClick}
+          className="fixed inset-0 z-0"
+        >
+          <MandelbrotCanvas view={view} theme={fractalTheme} onViewChange={setView} />
+          <NodeOverlay
+            snapshot={graph}
+            view={view}
+            colorFor={colorFor}
+            hiddenTypes={hiddenTypes}
+            search={search}
+            onSelect={(id) => {
+              if (!id) { setSelected(null); return; }
+              const node = graph.nodes.find((n) => n.id === id);
+              if (!node) return;
+              const neighbors: SelectedNode['neighbors'] = [];
+              for (const e of graph.edges) {
+                if (e.from === id) {
+                  const to = graph.nodes.find((n) => n.id === e.to);
+                  if (to) neighbors.push({ relation: e.relation, label: to.label, direction: 'out' });
+                } else if (e.to === id) {
+                  const from = graph.nodes.find((n) => n.id === e.from);
+                  if (from) neighbors.push({ relation: e.relation, label: from.label, direction: 'in' });
+                }
+              }
+              setSelected({ id: node.id, label: node.label, type: node.type, neighbors });
+            }}
+          />
+        </div>
+      )}
 
       {/* Selected node detail card */}
       {selected && (
