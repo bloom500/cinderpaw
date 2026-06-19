@@ -128,6 +128,28 @@ message) covers contexts without WebGL2.
 Both palettes apply the same smooth-iteration coloring; only the gradient LUT and
 background change with theme. Interior (in-set) points render as the field/black.
 
+**Vector zoom & scalability (hard requirement):**
+- The Mandelbrot is **resolution-independent**: the fragment shader recomputes
+  every pixel at the current zoom/center each frame, so zooming **never loses
+  quality / never pixelates** — unlike zooming a raster image. User zoom (wheel /
+  pinch) and pan adjust shader uniforms (`center`, `scale`), not a stored bitmap.
+- Nodes scale as **vector** too: glows are drawn via SDF/Canvas2D vector
+  primitives at device-pixel resolution (honor `devicePixelRatio`), so orbs and
+  edges stay crisp at any zoom and on HiDPI displays.
+- **Scale target: ~1000+ memory nodes without quality or perf loss.** Approach:
+  - Node positions from the seeded layout are in world space; only screen
+    projection changes on zoom (no relayout while zooming).
+  - **Level-of-detail (LOD):** labels and faint edges fade out when zoomed far
+    out or when node density is high; they fade back in on zoom-in / hover. The
+    fractal and node orbs always render; only text/edge clutter is culled.
+  - Node draw stays cheap at 1000+ (batched 2D draw or instanced points); avoid
+    per-frame physics — layout is computed once per snapshot, not per frame.
+- **Precision boundary (honest limit):** WebGL2 `float` (fp32) supports deep but
+  not infinite zoom; extreme deep-zoom eventually shows fp32 banding. For a
+  UI-level backdrop with bounded auto-drift + interactive zoom this is well within
+  range and not a concern. If true astronomical deep-zoom is ever wanted it needs
+  fp64-emulation / perturbation — explicitly out of scope here.
+
 **Motion (the "alive" feel):** a slow, continuous auto-drift/zoom of the fractal
 parameters (bounded, looping) so the backdrop breathes. Subtle — it must not
 distract from the nodes or cause motion sickness; respects
@@ -179,6 +201,9 @@ identical in behavior to today; only the rendering layer changes.
   render), and `prefers-reduced-motion` freezes the drift.
 - Regression: removing `RsiPage` leaves no dead imports; old `/memory-graph`
   redirects to `/memory-layers`.
+- Scale/zoom: render a synthetic ~1000-node snapshot — verify interactive frame
+  rate holds, zoom stays crisp (no pixelation), and LOD culls labels/edges at low
+  zoom and restores them on zoom-in.
 - WebGL is hard to assert pixel-wise in unit tests; cover the shader path with a
   context-creation guard + fallback test, and verify visually in the running app.
 
