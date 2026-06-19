@@ -259,6 +259,41 @@ describe("mirrorEngineEvents — outbound emission", () => {
 
     off();
   });
+
+  test("iteration counter increments on each EvalComplete and is attached to every progress event", async () => {
+    // Regression: the iteration counter used to be a static 0 in
+    // GenomeBorn events and absent from every other event — Rust's
+    // rsi_engine_mirror never updated past 0, so /rsi's iteration
+    // badge was stuck at "0 iteratii" while the engine was actively
+    // running. Surfaced on the second manual e2e. Each EvalComplete
+    // bumps the counter; every subsequent progress event carries
+    // the current count.
+    const bus = new EventBus();
+    const emitted: Array<Record<string, unknown>> = [];
+    const off = mirrorEngineEvents(bus, (e) => emitted.push(e));
+
+    await bus.emit({ type: "GenomeBorn", genomeId: "g0", mutationType: "seed" });
+    expect(emitted.at(-1)?.iteration).toBe(0);
+
+    await bus.emit({ type: "EvalComplete", genomeId: "g0", score: 50, tokenCost: 10 });
+    const after1 = emitted.filter((e) => (e as { score?: number }).score === 50)[0];
+    expect(after1?.iteration).toBe(1);
+
+    await bus.emit({ type: "GenomeBorn", genomeId: "g1", mutationType: "parametric" });
+    expect(emitted.at(-1)?.iteration).toBe(1);
+
+    await bus.emit({ type: "EvalComplete", genomeId: "g1", score: 60, tokenCost: 10 });
+    const after2 = emitted.filter((e) => (e as { score?: number }).score === 60)[0];
+    expect(after2?.iteration).toBe(2);
+
+    await bus.emit({ type: "GenomeDied", genomeId: "g2", cause: "extinction" });
+    expect(emitted.at(-1)?.iteration).toBe(2);
+
+    await bus.emit({ type: "ExtinctionTriggered", reason: "adaptive", killed: ["g2"] });
+    expect(emitted.at(-1)?.iteration).toBe(2);
+
+    off();
+  });
 });
 
 describe("RsiSidecar — integration smoke (engine runs to completion)", () => {

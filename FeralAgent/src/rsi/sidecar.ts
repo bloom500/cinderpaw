@@ -398,13 +398,21 @@ function boxMullerRandom(): number {
  *  returned function detaches the subscriptions so teardown is clean. */
 export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
   const offs: Array<() => void> = [];
-  const emit = (e: Record<string, unknown>) => send({ type: "rsi_engine_event", ...e });
+  // The Rust mirror's `iteration` field updates only when an emitted
+  // `rsi_engine_event` carries an `iteration` value. The engine's
+  // iteration counter lives in `GoalMode` (out of reach of the bus
+  // subscriptions), so we mirror it here by counting EvalComplete
+  // events — exactly one per iteration. GenomeBorn fires AFTER an
+  // iteration completed (the selection handler runs in the same
+  // EvalComplete cascade), so we tag it with the post-iteration count
+  // too.
+  let iterationCount = 0;
 
   offs.push(bus.onDisposable("GenomeBorn", (ev) => {
-    emit({ event: "progress", iteration: 0 });
     send({
       type: "rsi_engine_event",
       event: "progress",
+      iteration: iterationCount,
       genomeId: ev.genomeId,
       mutationType: ev.mutationType,
     });
@@ -413,14 +421,17 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
     send({
       type: "rsi_engine_event",
       event: "progress",
+      iteration: iterationCount,
       genomeId: ev.genomeId,
       stage: "started",
     });
   }));
   offs.push(bus.onDisposable("EvalComplete", (ev) => {
+    iterationCount += 1;
     send({
       type: "rsi_engine_event",
       event: "progress",
+      iteration: iterationCount,
       genomeId: ev.genomeId,
       score: ev.score,
       tokenCost: ev.tokenCost,
@@ -432,6 +443,7 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
     send({
       type: "rsi_engine_event",
       event: "progress",
+      iteration: iterationCount,
       genomeId: ev.genomeId,
       commitHash: ev.commitHash,
       score: ev.score,
@@ -443,6 +455,7 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
     send({
       type: "rsi_engine_event",
       event: "progress",
+      iteration: iterationCount,
       genomeId: ev.genomeId,
       cause: ev.cause,
       died: true,
@@ -452,6 +465,7 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
     send({
       type: "rsi_engine_event",
       event: "progress",
+      iteration: iterationCount,
       extinction: true,
       reason: ev.reason,
       killed: ev.killed,
