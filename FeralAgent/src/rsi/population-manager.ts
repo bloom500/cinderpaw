@@ -87,6 +87,14 @@ export class PopulationManager {
    * for fast lookups while the sidecar is alive.
    */
   private readonly commitHashes = new Map<string, string>();
+  /**
+   * Genome config per commit hash, set by the ratchet handler at the
+   * same time as `commitHashes`. Lets the taste miner reconstruct the
+   * configs of past main commits (read out via `rsi_log`) without
+   * re-reading the git substrate — `rsi_log` returns metadata only,
+   * not the genome_json stored under `genomes/<short_id>.json`.
+   */
+  private readonly commitConfigs = new Map<string, GenomeConfig>();
   /** Best fitness ever recorded. Monotonic: only ever increases, and
    *  is not cleared when the record-holding genome dies. */
   private bestRecord: BestRecord | null = null;
@@ -277,6 +285,26 @@ export class PopulationManager {
   /** The last-known commit hash for `id`, or undefined if never committed. */
   getCommitHash(id: string): string | undefined {
     return this.commitHashes.get(id);
+  }
+
+  /**
+   * Record the genome config committed at `hash`. Called alongside
+   * `setCommitHash` so the taste miner can reconstruct the configs
+   * of past main commits (returned by `rsi_log`, which only carries
+   * metadata) without re-reading the git substrate.
+   *
+   * The config is REQUIRED — a commit without a known config is a
+   * bug (the ratchet handler always supplies one from the live
+   * population). Throws so the bug surfaces immediately rather than
+   * silently producing a "no taste" outcome.
+   */
+  setCommitConfig(hash: string, config: GenomeConfig): void {
+    this.commitConfigs.set(hash, config);
+  }
+
+  /** The config committed at `hash`, or undefined if never recorded. */
+  getConfigByCommit(hash: string): GenomeConfig | undefined {
+    return this.commitConfigs.get(hash);
   }
 }
 

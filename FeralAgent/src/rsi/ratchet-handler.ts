@@ -61,11 +61,18 @@ export class RatchetHandler {
       tokenCost: (event.tokenCost as number) ?? 0,
       durationMs: (event.durationMs as number) ?? 0,
     });
-    // Record the hash so the LCA adapter (and any future lookup) can
-    // resolve this genome without re-reading the git substrate. Done
-    // before `ratchetAttempt` so it's visible regardless of whether
-    // main advances.
-    this.pop?.setCommitHash(genomeId, commitHash);
+    // Record the hash + config so the LCA adapter and the taste
+    // miner can resolve `id → commit_hash → GenomeConfig` later
+    // without re-reading the git substrate. Done before
+    // `ratchetAttempt` so it's visible regardless of whether main
+    // advances.
+    if (this.pop) {
+      this.pop.setCommitHash(genomeId, commitHash);
+      const g = this.pop.get(genomeId);
+      if (g?.config) {
+        this.pop.setCommitConfig(commitHash, g.config);
+      }
+    }
 
     const result = await this.deps.ratchetAttempt(commitHash, score);
 

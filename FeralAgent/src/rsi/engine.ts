@@ -50,6 +50,8 @@ import {
   type EscapeTimeOptions,
 } from "./escape-time.ts";
 import { EscapeTimeRecorder } from "./escape-time-recorder.ts";
+import type { RsiBridge } from "./bridge.ts";
+import { TasteMiner, makeTasteDeps } from "./taste-miner.ts";
 
 export interface RsiEngineDeps {
   /** Initial population (the bootstrap strategy seeds). */
@@ -72,6 +74,12 @@ export interface RsiEngineDeps {
    *  how strongly `selection.escapeTracker.zoomFactorFor` shrinks the
    *  mutation grammar in long-escape-time regions. */
   escapeTime?: EscapeTimeOptions;
+  /** Optional taste miner — subscribes to RatchetAdvanced and feeds
+   *  `selection.taste` automatically. Production wires this in via
+   *  `makeTasteMiner({ bridge, pop })`; tests inject a stub. The
+   *  `selection.taste` dep is read each time the selection handler
+   *  births, so the binding is live across the run. */
+  tasteMiner?: TasteMiner;
   /** Starting concurrency; raised live via rsi_set_concurrency. Default 1. */
   concurrency?: number;
 }
@@ -85,6 +93,10 @@ export interface RsiEngine {
    *  wants to share state with the recorder. Default: a fresh tracker
    *  built from `deps.escapeTime ?? {}`. */
   escapeTracker: EscapeTimeTracker;
+  /** The taste miner if one was supplied — exposed so the sidecar
+   *  can `await engine.tasteMiner.drain()` before quitting, and so
+   *  tests can assert post-mine state directly. */
+  tasteMiner?: TasteMiner;
   /** Drive the engine until a StopReason. */
   run: () => Promise<GoalResult>;
 }
@@ -97,6 +109,15 @@ export function createRsiEngine(deps: RsiEngineDeps): RsiEngine {
 
   const evalWorker = new EvalWorker(bus, deps.evalDeps);
   const escapeTracker = new EscapeTimeTracker(deps.escapeTime ?? {});
+
+  // If a taste miner was supplied, inject its current vector + weight
+  // into the selection handler so the very first birth already sees
+  // the persisted taste (no mine wait). The miner keeps the
+  // selection.taste binding live via its `getVector` / `getWeight`
+  // accessors, so subsequent re-mines flow through automatically.
+  if (deps.tasteMiner) {
+    deps.selection.taste = makeTasteDeps(deps.tasteMiner);
+  }
 
   // 1. population recorder first (shared fitness visible downstream in the same cascade)
   attachPopulationRecorder(bus, pop);
@@ -117,6 +138,28 @@ export function createRsiEngine(deps: RsiEngineDeps): RsiEngine {
     pop,
     gm,
     escapeTracker,
+    ...(deps.tasteMiner ? { tasteMiner: deps.tasteMiner } : {}),
     run: () => gm.run(),
   };
+}
+
+/**
+ * Helper: build a taste miner bound to a bridge + population. The
+ * production wiring (`FeralAgent/src/index.ts`) calls this so the
+ * miner is part of the engine surface — `createRsiEngine({...,
+ * tasteMiner})` then wires the live binding into `selection.taste`.
+ */
+export function makeTasteMiner(deps: {
+  bus: EventBus;
+  bridge: RsiBridge;
+  pop: PopulationManager;
+  fsRoot?: string;
+  historyWindow?: number;
+}): TasteMiner {
+  return new TasteMiner(deps.bus, {
+    bridge: deps.bridge,
+    pop: deps.pop,
+    ...(deps.fsRoot ? { fsRoot: deps.fsRoot } : {}),
+    ...(deps.historyWindow ? { historyWindow: deps.historyWindow } : {}),
+  });
 }
