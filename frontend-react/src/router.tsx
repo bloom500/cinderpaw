@@ -11,7 +11,7 @@ const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ d
 const ExtensionsPage  = lazy(() => import('@/pages/ExtensionsPage').then((m) => ({ default: m.ExtensionsPage })));
 const ConnectorsPage  = lazy(() => import('@/pages/ConnectorsPage').then((m) => ({ default: m.ConnectorsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const MemoryGraphPage = lazy(() => import('@/pages/MemoryGraphPage').then((m) => ({ default: m.MemoryGraphPage })));
+const MemoryLayersPage = lazy(() => import('@/pages/MemoryLayersPage').then((m) => ({ default: m.MemoryLayersPage })));
 
 const lazyPage = (page: React.ReactNode) => <Suspense fallback={null}>{page}</Suspense>;
 
@@ -29,7 +29,8 @@ export const router = createMemoryRouter([
       { path: 'settings', element: lazyPage(<SettingsPage />) },
       // No '/skills' route: the sidebar's Skills item opens SkillHubDrawer
       // directly; the old StubPage route was unreachable dead weight.
-      { path: 'memory-graph', element: lazyPage(<MemoryGraphPage />) },
+      { path: 'memory-layers', element: lazyPage(<MemoryLayersPage />) },
+      { path: 'memory-graph', element: <Navigate to="/memory-layers" replace /> },
     ],
   },
 ]);

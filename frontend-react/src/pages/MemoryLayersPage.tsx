@@ -49,7 +49,7 @@ interface SelectedNode {
   neighbors: { relation: string; label: string; direction: 'out' | 'in' }[];
 }
 
-export function MemoryGraphPage() {
+export function MemoryLayersPage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
   const resolvedTheme = useUI((s) => s.resolvedTheme);
@@ -235,7 +235,7 @@ export function MemoryGraphPage() {
       <div className="absolute top-4 left-4 z-10 w-60 rounded-xl border border-border-subtle bg-bg-surface/90 backdrop-blur px-4 py-4 space-y-3 shadow-lg">
         <div className="flex items-center gap-2">
           <Brain size={15} className="text-brand" />
-          <h1 className="text-sm font-semibold text-text-primary">Memory Graph</h1>
+          <h1 className="text-sm font-semibold text-text-primary">Memory Layers</h1>
         </div>
 
         <div className="relative">
