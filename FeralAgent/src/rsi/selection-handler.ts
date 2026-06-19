@@ -45,6 +45,12 @@ export interface SelectionDeps {
   wildExplorerFraction?: number;
   /** Taste bias applied to the child (Faza 3 taste layer). */
   taste?: { vector: () => number[]; weight: () => number };
+  /** Roulette sharpness exponent on shared_fitness (Faza 3.5 PBT
+   *  hyperparameter). `weight = shared_fitness ^ pressure`. 1.0 (the
+   *  default when absent) is plain fitness-proportionate; > 1 sharpens
+   *  toward the fittest (exploit), < 1 flattens toward uniform
+   *  (explore). Read live so the active strategy-genome owns it. */
+  selectionPressure?: () => number;
 }
 
 export class SelectionMutationHandler {
@@ -127,14 +133,22 @@ export class SelectionMutationHandler {
     const eligible = alive.filter((g) => g.config && g.sharedFitness !== null);
     if (eligible.length === 0) return null;
 
-    const total = eligible.reduce((sum, g) => sum + (g.sharedFitness ?? 0), 0);
+    // Faza 3.5: the active strategy-genome's selection_pressure sharpens
+    // (or flattens) the roulette. weight = shared_fitness ^ pressure;
+    // pressure defaults to 1.0 (plain fitness-proportionate) when no
+    // strategy is steering.
+    const pressure = this.deps.selectionPressure ? this.deps.selectionPressure() : 1;
+    const weightOf = (g: Genome): number =>
+      Math.pow(Math.max(0, g.sharedFitness ?? 0), pressure);
+
+    const total = eligible.reduce((sum, g) => sum + weightOf(g), 0);
     if (total <= 0) {
       return eligible[Math.min(eligible.length - 1, Math.floor(this.deps.rng() * eligible.length))]!;
     }
 
     let r = this.deps.rng() * total;
     for (const g of eligible) {
-      r -= g.sharedFitness ?? 0;
+      r -= weightOf(g);
       if (r < 0) return g;
     }
     return eligible[eligible.length - 1]!;

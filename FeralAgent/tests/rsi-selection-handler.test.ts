@@ -142,3 +142,44 @@ describe("RSI selection/mutation handler", () => {
     expect((born[0] as RsiEvent & { parentId: string }).parentId).toBe("g2");
   });
 });
+
+describe("RSI selection — selection_pressure (PBT hyperparameter, Faza 3.5)", () => {
+  // Two parents alone in their niches: g1=10 (weak), g2=90 (strong).
+  // The same rng draw (0.05) must pick the WEAK parent under neutral
+  // pressure but the STRONG one under high pressure — i.e. pressure
+  // sharpens the roulette toward the fitter genome. Strategy-genomes own
+  // this knob, so PBT can dial exploration↔exploitation of the Level-1
+  // population without touching the metric.
+  async function pressurePick(pressure: number | undefined): Promise<string> {
+    const bus = new EventBus();
+    const pop = new PopulationManager();
+    pop.add({ id: "g1", generation: 0, lineage: [], config: CFG });
+    pop.add({ id: "g2", generation: 0, lineage: [], config: CFG });
+    pop.recordEval("g1", { fitnessScore: 10, behavioralFingerprint: [1, 0] });
+    pop.recordEval("g2", { fitnessScore: 90, behavioralFingerprint: [0, 1] });
+    const born: RsiEvent[] = [];
+    bus.on("GenomeBorn", async (e) => born.push(e));
+    new SelectionMutationHandler(bus, pop, {
+      capacity: 8,
+      bounds: BOUNDS,
+      rng: seqRng([0.05]),
+      gaussian: () => 0,
+      newId: () => "child",
+      ...(pressure != null ? { selectionPressure: () => pressure } : {}),
+    });
+    await bus.emit({ type: "EvalComplete", genomeId: "g2", score: 90, errored: false });
+    return (born[0] as RsiEvent & { parentId: string }).parentId;
+  }
+
+  test("neutral pressure (1.0): r=5 < g1's band (10) → weak parent g1", async () => {
+    expect(await pressurePick(1.0)).toBe("g1");
+  });
+
+  test("high pressure (3.0): weights^3 dwarf g1 → strong parent g2 for the same draw", async () => {
+    expect(await pressurePick(3.0)).toBe("g2");
+  });
+
+  test("default (no selectionPressure dep) behaves like pressure 1.0", async () => {
+    expect(await pressurePick(undefined)).toBe("g1");
+  });
+});
