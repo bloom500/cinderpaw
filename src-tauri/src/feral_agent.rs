@@ -157,6 +157,54 @@ fn binary_filename() -> String {
     }
 }
 
+/// Discover the model id the bundled engine is serving by hitting
+/// `/v1/models` on the local api server (OpenAI-compatible). Returns
+/// the first model id (the bundled llama.cpp server exposes one
+/// primary model — the `.gguf` filename minus the directory).
+///
+/// Used at sidecar-spawn time so `FERAL_MODEL` matches the real
+/// model the server returns from `/v1/models`. Previously the
+/// sidecar's `FERAL_MODEL` was hardcoded to `"feral-local"`, which
+/// never matched a real model — every `invokeAgent` call returned
+/// 404 from the api and the engine emitted `EvalComplete` with
+/// `errored: true` even though the wire format was correct.
+///
+/// On any failure (server not up yet, network blip, parse error)
+/// the function returns `None` and the caller falls back to
+/// `"feral-local"` — better than aborting the spawn, because the
+/// user might be running with an external provider where `/v1/models`
+/// isn't accessible.
+///
+/// 1-second timeout is generous: the api server is local on
+/// `127.0.0.1:{api_port}` and serves /v1/models within a few ms when
+/// the engine has finished loading. A slow first-call (engine still
+/// warming up) is still < 1s; we don't want to block Tauri startup
+/// behind model-load time.
+async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String> {
+    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()
+        .ok()?;
+    let resp = client
+        .get(&url)
+        .bearer_auth(api_token)
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    let id = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|m| m.get("id"))
+        .and_then(|v| v.as_str())?;
+    Some(id.to_string())
+}
+
 /// Spawn the feral-agent sidecar and wire up stdin/stdout communication.
 ///
 /// Populates `tx_slot` with a `Sender<String>`; Tauri commands clone it to
@@ -216,8 +264,22 @@ pub async fn spawn(
         .env("FERAL_WORKSPACE", &workspace)
         .env("FERAL_PROVIDER", "openai_compatible")
         .env("FERAL_BASE_URL", &base_url)
-        .env("FERAL_API_KEY", api_token)
-        .env("FERAL_MODEL", "feral-local");
+        .env("FERAL_API_KEY", api_token);
+    // Discover the active model id from the bundled engine BEFORE spawning
+    // the sidecar. The previous hardcoded "feral-local" was a placeholder
+    // that never matched a real model on disk — every `invokeAgent` would
+    // 404 against the api server and the run would emit errored
+    // EvalComplete events even though the sidecar's wire format was
+    // correct. The api server exposes /v1/models (OpenAI-compatible) and
+    // returns the id we should use verbatim as `model` in completion calls.
+    // Fallback to "feral-local" preserves the old behaviour for environments
+    // where /v1/models is unreachable (offline / api down) — better to spawn
+    // with a placeholder than to fail the launch outright.
+    let model_name = discover_active_model(&base_url, api_token)
+        .await
+        .unwrap_or_else(|| "feral-local".to_string());
+    cmd.env("FERAL_MODEL", &model_name);
+    tracing::info!(model = %model_name, "feral-agent: using discovered model");
 
     // At-rest encryption key (H-1) for the sidecar's sensitive DB columns. From
     // the OS keychain, generated on first use. Absent ⇒ sidecar stores plaintext

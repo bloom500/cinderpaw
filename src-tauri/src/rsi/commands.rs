@@ -558,15 +558,22 @@ pub async fn rsi_start(
 ) -> Result<RsiStartAck, String> {
     ensure_initialized(&state)?;
     let request_id = uuid::Uuid::new_v4().to_string();
-    let payload = serde_json::json!({
-        "type": "rsi_start",
-        "id": request_id,
-        "goal": goal,
-        "budgetUsd": budget_usd,
-        "maxIterations": max_iterations,
-        "concurrency": concurrency,
-    })
-    .to_string();
+    // The sidecar (TS) reads `rsiGoal` / `rsiMaxIterations` /
+    // `rsiMaxTotalTokens` / `rsiConcurrency` from the inbound
+    // `InboundMessage`. Renaming here without updating both sides
+    // would silently fall back to the TS defaults — a real bug we
+    // hit during the first manual e2e (the engine ran with
+    // hard-coded defaults, not the user's inputs).
+    //
+    // budget_usd → maxTotalTokens heuristic: 1 USD ≈ 1M tokens,
+    // conservative for local models (Gemma 4 E4B-it is well under
+    // this). A future phase can wire a proper USD↔tokens rate
+    // for cloud providers; the sidecar's `stopReason: BudgetExhausted`
+    // will still fire correctly because the engine compares
+    // accumulated tokens against `rsiMaxTotalTokens`.
+    let max_total_tokens = ((budget_usd.max(0.1) * 1_000_000.0) as u64).max(100_000);
+    let payload = build_rsi_start_payload(&request_id, &goal, budget_usd, max_iterations, concurrency, max_total_tokens);
+    let payload = payload.to_string();
     wait_for_sidecar_ack(&state, &request_id, &payload).await?;
     Ok(RsiStartAck {
         delivered: true,
@@ -642,6 +649,50 @@ async fn deliver_to_sidecar(state: &State<'_, AppState>, line: &str) -> Result<(
         .await
         .map_err(|e| format!("failed to deliver to sidecar: {e}"))?;
     Ok(())
+}
+
+/// Build the JSON payload the host writes to the sidecar's stdin
+/// for `rsi_start`. Extracted so the field-name convention can be
+/// regression-tested without spinning up the Tauri command + state
+/// plumbing (see `tests::rsi_start_payload_uses_prefixed_field_names`).
+///
+/// History: the original implementation sent `goal` / `budgetUsd` /
+/// `maxIterations` / `concurrency` — the sidecar's `InboundMessage`
+/// reads the `rsi`-prefixed variants (`rsiGoal` etc.), so every
+/// field silently fell back to the TS defaults. The first manual
+/// e2e surfaced this as "the engine runs but ignores my inputs".
+///
+/// Wire contract (read by `FeralAgent/src/index.ts::onMessage`):
+///   type:               "rsi_start"
+///   id:                 request_id (mirrors back in rsi_engine_event)
+///   rsiGoal:            string
+///   rsiMaxIterations:   u32
+///   rsiMaxTotalTokens:  u64 — derived from `budget_usd` × 1M
+///                       (conservative for local models; see rsi_start)
+///   rsiConcurrency:     u32
+///   budgetUsd:          f64 — kept for the live event feed display
+///   goal / maxIterations / concurrency — kept as legacy camelCase
+///                       aliases for any future TS-side override path
+fn build_rsi_start_payload(
+    request_id: &str,
+    goal: &str,
+    budget_usd: f64,
+    max_iterations: u32,
+    concurrency: u32,
+    max_total_tokens: u64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": "rsi_start",
+        "id": request_id,
+        "rsiGoal": goal,
+        "rsiMaxIterations": max_iterations,
+        "rsiMaxTotalTokens": max_total_tokens,
+        "rsiConcurrency": concurrency,
+        "goal": goal,
+        "budgetUsd": budget_usd,
+        "maxIterations": max_iterations,
+        "concurrency": concurrency,
+    })
 }
 
 /// Send `payload` to the sidecar and wait up to `RSI_ACK_TIMEOUT`
@@ -1032,7 +1083,78 @@ mod tests {
         assert!(require_string(Some(&serde_json::json!(123)), "x").is_err());
         assert_eq!(
             require_string(Some(&serde_json::json!("hi")), "x").unwrap(),
-            "hi".to_string()
+            "hi",
+        );
+    }
+
+    /// Regression test for the field-name alignment between Rust
+    /// (host) and TS (sidecar) — without the `rsi`-prefixed fields
+    /// the sidecar's `InboundMessage` reader silently falls back to
+    /// its hardcoded defaults (50 iterations, 5M tokens, etc.) and
+    /// the engine ignores every input the user typed in the UI.
+    /// Surfaced during the first manual e2e (`nothing happens` on
+    /// /rsi). If this test ever flips, both sides of the wire
+    /// drifted — update both at once.
+    #[test]
+    fn rsi_start_payload_uses_prefixed_field_names() {
+        let payload = build_rsi_start_payload(
+            "req-uuid",
+            "smoke",
+            1.0,
+            50,
+            4,
+            1_000_000,
+        );
+
+        // Discriminant + id MUST match what the sidecar's onMessage
+        // switch arms on.
+        assert_eq!(payload.get("type").and_then(|v| v.as_str()), Some("rsi_start"));
+        assert_eq!(payload.get("id").and_then(|v| v.as_str()), Some("req-uuid"));
+
+        // The four prefixed fields are the ones the TS side reads.
+        assert_eq!(payload.get("rsiGoal").and_then(|v| v.as_str()), Some("smoke"));
+        assert_eq!(
+            payload.get("rsiMaxIterations").and_then(|v| v.as_u64()),
+            Some(50),
+        );
+        assert_eq!(
+            payload.get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
+            Some(1_000_000),
+        );
+        assert_eq!(
+            payload.get("rsiConcurrency").and_then(|v| v.as_u64()),
+            Some(4),
+        );
+
+        // The legacy camelCase aliases are still present (event feed
+        // reads budgetUsd for display).
+        assert_eq!(payload.get("budgetUsd").and_then(|v| v.as_f64()), Some(1.0));
+    }
+
+    /// `budget_usd → max_total_tokens` heuristic: 1 USD ≈ 1M tokens,
+    /// clamped to a floor of 100k so a $0.05 smoke test still has
+    /// enough budget for a few Tier 0 specs. The cap is defensive —
+    /// the sidecar's `BudgetExhausted` stop reason will still fire
+    /// correctly even if the heuristic drifts for a given model.
+    #[test]
+    fn rsi_start_payload_converts_budget_usd_to_tokens() {
+        // $1.00 → 1M tokens
+        assert_eq!(
+            build_rsi_start_payload("id", "g", 1.0, 1, 1, 1_000_000)
+                .get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
+            Some(1_000_000),
+        );
+        // $0.10 → 100k (the floor)
+        assert_eq!(
+            build_rsi_start_payload("id", "g", 0.1, 1, 1, 100_000)
+                .get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
+            Some(100_000),
+        );
+        // $5.00 → 5M
+        assert_eq!(
+            build_rsi_start_payload("id", "g", 5.0, 1, 1, 5_000_000)
+                .get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
+            Some(5_000_000),
         );
     }
 }
