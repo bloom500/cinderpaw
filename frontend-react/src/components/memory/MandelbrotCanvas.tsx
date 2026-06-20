@@ -4,10 +4,13 @@ import {
   createMandelbrotRenderer, screenToComplex,
   type View, type FractalTheme, type MandelbrotRenderer,
 } from '@/lib/fractal/mandelbrot';
+import type { FractalState } from '@/lib/fractal/signal';
 
 interface Props {
   view: View;
   theme: FractalTheme;
+  /** Memory/RSI-derived rendering parameters (depth + morph). */
+  fractalState: FractalState;
   /** User changed the view (wheel/drag). Parent owns the View (shared with nodes). */
   onViewChange: (v: View) => void;
 }
@@ -20,11 +23,13 @@ const MAX_SCALE = 2.0;    // fully zoomed out
  * drag pans. No animation loop — we redraw only when `view`/`theme` change or
  * the user interacts. Falls back to a flat field if WebGL2 is unavailable.
  */
-export function MandelbrotCanvas({ view, theme, onViewChange }: Props) {
+export function MandelbrotCanvas({ view, theme, fractalState, onViewChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<MandelbrotRenderer | null>(null);
   const viewRef = useRef(view);
   viewRef.current = view;
+  const fractalRef = useRef(fractalState);
+  fractalRef.current = fractalState;
 
   // Create the renderer once.
   useEffect(() => {
@@ -33,7 +38,7 @@ export function MandelbrotCanvas({ view, theme, onViewChange }: Props) {
     const r = createMandelbrotRenderer(canvas);
     rendererRef.current = r;
     if (!r) return; // fallback handled by CSS background below
-    const onResize = () => { r.render(viewRef.current, theme); };
+    const onResize = () => { r.render(viewRef.current, theme, fractalRef.current); };
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
@@ -43,10 +48,10 @@ export function MandelbrotCanvas({ view, theme, onViewChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Redraw on view/theme change.
+  // Redraw on view/theme/fractalState change.
   useEffect(() => {
-    rendererRef.current?.render(view, theme);
-  }, [view, theme]);
+    rendererRef.current?.render(view, theme, fractalState);
+  }, [view, theme, fractalState]);
 
   // Wheel zoom toward cursor.
   const onWheel = (e: React.WheelEvent) => {
