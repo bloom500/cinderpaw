@@ -479,6 +479,11 @@ const raw = {
     invoke<string>('transcribe_audio_cloud', { audioPath, provider }),
   downloadWhisperModel:     (modelSize: string) =>
     invoke<string>('download_whisper_model', { modelSize }),
+  // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
+  // the models dir. Idempotent — a no-op if already present — so it is safe to
+  // fire on startup. Progress streams over `feral://embedding-download-*`.
+  downloadEmbeddingModel:   () =>
+    invoke<string>('download_embedding_model'),
 };
 
 // ── Public façade ─────────────────────────────────────────────────────────────

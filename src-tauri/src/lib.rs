@@ -1356,6 +1356,100 @@ async fn download_whisper_model(
     Ok(key)
 }
 
+/// Download the embedding model (bge-small) into the shared models dir for
+/// Fractal Memory Search. Mirrors `download_whisper_model`: dedicated events so
+/// the LLM auto-load listener never tries to load it as a chat model, a no-op
+/// when already present, and cancellable. Idempotent — the frontend can fire
+/// this at startup and it returns immediately if the model is on disk.
+/// Progress: `feral://embedding-download-progress`. Completion/failure:
+/// `feral://embedding-download-complete` / `-error`.
+#[tauri::command]
+#[specta::specta]
+async fn download_embedding_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let repo = paths::EMBED_REPO.to_string();
+    let filename = paths::EMBED_FILENAME.to_string();
+    let key = format!("embedding::{}", filename);
+
+    {
+        let map = state.downloads.lock();
+        if map.contains_key(&key) {
+            return Err(format!("Download already in progress: {}", key));
+        }
+    }
+
+    // Already present — nothing to do.
+    if paths::embedding_model_path().exists() {
+        return Ok(key);
+    }
+
+    let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
+    state.downloads.lock().insert(key.clone(), cancel.clone());
+
+    let (tx, mut rx) = mpsc::channel::<f32>(32);
+    {
+        let app = app.clone();
+        let file = filename.clone();
+        tokio::spawn(async move {
+            while let Some(p) = rx.recv().await {
+                let _ = app.emit(
+                    "feral://embedding-download-progress",
+                    events::DownloadProgressEvent {
+                        repo_id: "embedding".into(),
+                        filename: file.clone(),
+                        progress: p,
+                    },
+                );
+            }
+        });
+    }
+
+    let app_for_task = app.clone();
+    let downloads_map = state.downloads.clone();
+    let key_for_task = key.clone();
+    let file_for_task = filename.clone();
+    let cancel_for_task = cancel.clone();
+    tokio::spawn(async move {
+        let result = models::download_hf_model_to(
+            repo,
+            file_for_task.clone(),
+            paths::models_dir(),
+            tx,
+            cancel_for_task.clone(),
+        )
+        .await;
+        downloads_map.lock().remove(&key_for_task);
+        match result {
+            Ok(path) => {
+                let _ = app_for_task.emit(
+                    "feral://embedding-download-complete",
+                    events::DownloadCompleteEvent {
+                        repo_id: "embedding".into(),
+                        filename: file_for_task.clone(),
+                        path: path.to_string_lossy().into_owned(),
+                    },
+                );
+            }
+            Err(e) => {
+                let cancelled = cancel_for_task.load(Ordering::Relaxed);
+                let _ = app_for_task.emit(
+                    "feral://embedding-download-error",
+                    events::DownloadErrorEvent {
+                        repo_id: "embedding".into(),
+                        filename: file_for_task.clone(),
+                        error: e.to_string(),
+                        cancelled,
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(key)
+}
+
 /// Transcribe 16 kHz mono f32 PCM. Errors: "model-missing" | "voice-unavailable".
 #[tauri::command]
 #[specta::specta]
@@ -2451,6 +2545,7 @@ pub fn run() {
             get_models,
             get_loaded_model,
             download_model,
+            download_embedding_model,
             cancel_download,
             load_model,
             start_model_load,

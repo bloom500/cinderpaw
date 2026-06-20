@@ -560,7 +560,7 @@ mod backend {
                 return Some(pb);
             }
         }
-        let candidate = crate::paths::models_dir().join("bge-small-en-v1.5.Q8_0.gguf");
+        let candidate = crate::paths::embedding_model_path();
         if candidate.is_file() {
             Some(candidate)
         } else {
