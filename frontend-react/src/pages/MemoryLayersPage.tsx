@@ -5,6 +5,7 @@ import { useOrganismImpulse } from '@/hooks/useOrganismImpulse';
 import {
   createOrganismRenderer,
   DEFAULT_VIEW,
+  screenToComplex,
   type OrganismRenderer,
   type OrganismView,
 } from '@/lib/fractal/organism';
@@ -79,8 +80,20 @@ export default function MemoryLayersPage() {
   // Pan / zoom — pure vector navigation of the organism.
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const v = viewRef.current;
+    const before = screenToComplex(px, py, w, h, v);
     const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1;
-    viewRef.current = { ...viewRef.current, scale: Math.max(1e-7, viewRef.current.scale * factor) };
+    const scale = Math.max(1e-7, v.scale * factor);
+    const v2 = { ...v, scale };
+    const after = screenToComplex(px, py, w, h, v2);
+    viewRef.current = { ...v2, centerX: v2.centerX + (before.x - after.x), centerY: v2.centerY + (before.y - after.y) };
     draw();
   }, [draw]);
 
