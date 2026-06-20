@@ -102,6 +102,13 @@ function migrate(db: Database): void {
       ON episodic (session_id, timestamp);
   `);
 
+  // Fractal Memory Search (Phase 0): per-row embedding vector, stored as a
+  // Float32 little-endian BLOB. Added idempotently so existing databases
+  // upgrade in place. NULL means "not embedded yet" — the row falls back to
+  // FTS5 (the exact-match leaf layer) until a recall/cluster pass or the
+  // one-shot backfill populates it.
+  addColumnIfMissing(db, "episodic", "embedding", "BLOB");
+
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS episodic_fts USING fts5(
       content,

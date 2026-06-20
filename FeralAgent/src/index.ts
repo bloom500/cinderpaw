@@ -55,6 +55,7 @@ import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/bridge.ts";
+import { setEmbedInvoker, rsiBridgeEmbed } from "./memory/fractal/embed.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import {
   PassiveSupervisor,
@@ -628,6 +629,11 @@ async function main(): Promise<void> {
   const rsiBridge = new RsiBridge({
     send: (msg) => transport.send(msg as unknown as import("./types.ts").OutboundEvent),
   });
+  // Fractal Memory Search (Phase 0): point the embed module at the live bridge
+  // so embed(...) routes text → Rust `embed_text` → vectors. Until a model is
+  // present Rust returns an error and callers fall back to FTS5; this just
+  // makes the path available.
+  setEmbedInvoker(rsiBridgeEmbed(rsiBridge));
   // Forward declaration: the sidecar's onIdle restarts the engine via
   // the passive supervisor, but the supervisor needs the sidecar to
   // start it — late-bind through this holder to break the cycle.
