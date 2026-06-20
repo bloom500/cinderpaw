@@ -202,6 +202,44 @@ describe("FractalRecallEngine — empty output", () => {
   });
 });
 
+describe("FractalRecallEngine — beam does not starve semantic recall (fix #1)", () => {
+  it("surfaces more than the old beam cap (4) semantic hits when topK allows", async () => {
+    const tree = await fixtureTree();
+    const engine = new FractalRecallEngine({
+      tree,
+      embed: fixedEmbed(QVEC_NEAR_A),
+      ftsSearch: () => [], // semantic-only so we measure the tree path alone
+      leavesById: leavesById(),
+    });
+    // "other-session" matches neither s-a nor s-b → session filter excludes
+    // nothing, so every semantic candidate can reach the block.
+    const result = await engine.recall("q", "other-session");
+    // With the old QUERY_BEAM=4 the tree descent capped the surviving leaf
+    // frontier at 4 regardless of topK, so semanticFacts could never exceed
+    // 4. The fix raises beam to >= QUERY_TOPK; the block now fills up to
+    // MAX_CONTEXT_HITS.
+    expect(result.semanticFacts).toBeGreaterThan(4);
+  });
+});
+
+describe("FractalRecallEngine — line format carries role (fix #2)", () => {
+  it("FTS-backed hits render the `role:` prefix matching RecallEngine", async () => {
+    const tree = await fixtureTree();
+    const engine = new FractalRecallEngine({
+      tree,
+      embed: fixedEmbed(QVEC_NEAR_A),
+      // assistant-role FTS hit in a non-current session, semantic-only id.
+      ftsSearch: () => [
+        { id: 99, sessionId: "s-b", timestamp: 1700000000000, role: "assistant", content: "fts payload" },
+      ],
+      leavesById: leavesById(),
+    });
+    const result = await engine.recall("q", "current-session");
+    // Mirrors recall.ts `formatEpisodic`: "[date] role: snippet".
+    expect(result.context).toContain("assistant: fts payload");
+  });
+});
+
 describe("FractalRecallEngine — RecallResult shape", () => {
   it("returns exactly { context, episodicHits, semanticFacts }", async () => {
     const tree = await fixtureTree();

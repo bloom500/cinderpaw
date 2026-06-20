@@ -20,9 +20,17 @@
  * into the same `[Memory context] … [End memory context]` block the
  * existing `RecallEngine` produces.
  *
- * Mirrors `RecallEngine.recall()` exactly: same `RecallResult` shape,
- * same session-exclusion semantics. Drop-in replacement; the integration
- * into the live engine is a separate, reviewed step.
+ * Scope: this is a replacement for `RecallEngine`'s *episodic* recall path,
+ * not the whole engine — it does NOT render the structured-facts or
+ * knowledge-graph blocks. It returns the same `RecallResult` shape
+ * (`{context, episodicHits, semanticFacts}`) and the same session-exclusion
+ * semantics, and the per-line format mirrors `RecallEngine`'s
+ * `formatEpisodic` (`[date] role: snippet`) with one addition: a
+ * collapsed-tree `via [...]` prefix recording the ancestor summaries that
+ * justified the hit. Unlike `RecallEngine.recall()` (synchronous), this is
+ * `async` — embedding the query is a bridge roundtrip. Wiring it into the
+ * live engine (making that call site await, and deciding how it composes
+ * with the facts/graph blocks) is a separate, reviewed step.
  */
 import { queryTree } from "./tree-query.ts";
 import type { EmbedInvoker } from "./embed.ts";
@@ -32,14 +40,32 @@ import type { EpisodicEvent } from "../../types.ts";
 /** Top-K semantic candidates from the tree before re-rank. */
 const QUERY_TOPK = 20;
 
-/** Beam width for the tree descent. */
-const QUERY_BEAM = 4;
+/**
+ * Beam width for the tree descent. MUST be >= QUERY_TOPK: the beam caps the
+ * surviving leaf frontier (see `tree-query.ts`), so a beam smaller than topK
+ * silently starves the semantic path to `beam` hits regardless of topK.
+ * Holding it equal to topK lets the descent surface the full candidate set;
+ * scoring the wider frontier is just extra cosine dot products (cheap).
+ */
+const QUERY_BEAM = QUERY_TOPK;
 
 /** Max hits in the formatted context. Caps both backends after dedup. */
 const MAX_CONTEXT_HITS = 10;
 
 /** Boost added to a hit's semantic score when FTS5 also matched it. */
 const FTS_BOOST = 0.5;
+
+/**
+ * Minimum cosine score for a semantic-only hit to make the block. Now that
+ * the beam is wide enough to surface the full candidate set (QUERY_BEAM >=
+ * QUERY_TOPK), the descent no longer implicitly filters by relevance — so an
+ * anti-correlated leaf (score <= 0, i.e. pointing away from the query) would
+ * otherwise pad the block whenever there's a free slot. A floor of 0 drops
+ * those without depending on score calibration; the benchmark gate can raise
+ * it. FTS5-matched hits bypass the floor — their exact-match presence is its
+ * own relevance signal.
+ */
+const MIN_SEMANTIC_SCORE = 0;
 
 /** Per-hit snippet length, matching `RecallEngine.snippetMaxChars`. */
 const SNIPPET_MAX_CHARS = 200;
@@ -77,6 +103,9 @@ interface MergedHit {
   text: string;
   sessionId: string;
   ts: number;
+  /** Speaker role for the line prefix; "" for semantic-only hits (the
+   *  RAPTOR leaf carries no role — only FTS5 events do). */
+  role: string;
   viaSummaryPath: string[];
 }
 
@@ -139,6 +168,7 @@ export class FractalRecallEngine {
         text: leaf?.text ?? `event-${hit.leafId}`,
         sessionId: leaf?.sessionId ?? "",
         ts: leaf?.ts ?? 0,
+        role: "", // RAPTOR leaves carry no role; FTS5 may fill it in below.
         viaSummaryPath: hit.viaSummaryPath,
       });
     }
@@ -147,10 +177,11 @@ export class FractalRecallEngine {
       const existing = merged.get(ev.id);
       if (existing) {
         existing.fts = true;
-        // FTS5 wins on text/sessionId/ts (it's the source of truth).
+        // FTS5 wins on text/sessionId/ts/role (it's the source of truth).
         existing.text = ev.content;
         existing.sessionId = ev.sessionId;
         existing.ts = ev.timestamp;
+        existing.role = ev.role;
       } else {
         merged.set(ev.id, {
           id: ev.id,
@@ -159,6 +190,7 @@ export class FractalRecallEngine {
           text: ev.content,
           sessionId: ev.sessionId,
           ts: ev.timestamp,
+          role: ev.role,
           viaSummaryPath: [],
         });
       }
@@ -167,6 +199,7 @@ export class FractalRecallEngine {
     // 5. Drop hits from the current session; re-rank by score + FTS boost.
     const ranked = [...merged.values()]
       .filter((h) => h.sessionId !== sessionId)
+      .filter((h) => h.fts || h.score > MIN_SEMANTIC_SCORE)
       .sort((a, b) => (b.score + (b.fts ? FTS_BOOST : 0)) - (a.score + (a.fts ? FTS_BOOST : 0)))
       .slice(0, MAX_CONTEXT_HITS);
 
@@ -185,7 +218,10 @@ export class FractalRecallEngine {
       const via = h.viaSummaryPath.length > 0
         ? `via [${h.viaSummaryPath.join(" → ")}] `
         : "";
-      return `  ${via}[${stamp}] ${snippet(h.text)}`;
+      // Mirror RecallEngine.formatEpisodic ("[date] role: snippet"); the role
+      // prefix is dropped for semantic-only hits (leaves carry no role).
+      const rolePart = h.role ? `${h.role}: ` : "";
+      return `  ${via}[${stamp}] ${rolePart}${snippet(h.text)}`;
     });
 
     const context = [
