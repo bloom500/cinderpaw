@@ -19,10 +19,8 @@ interface Props {
   departing: LaidOutNode[];
   /** Birth/extinction classification for the current snapshot. */
   diff: NodeDiff;
-  onSelect: (id: string | null) => void;
 }
 
-const HIT_PX = 14;
 const MAX_DRAWN = 4000;            // hard cap (100k-node safety)
 const TEXT_SCALE_MAX = 0.12;       // show filament text only when zoomed in past this
 const SPARK_RADIUS = 2.5;          // discrete dot when zoomed out / dense
@@ -67,7 +65,7 @@ function drawAlong(
 
 export function FilamentText({
   snapshot, view, colorFor, hiddenTypes, search, showLabels = true,
-  phase, departing, diff, onSelect,
+  phase, departing, diff,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -130,24 +128,9 @@ export function FilamentText({
     }
   }, [visible, departing, diff, view, phase, colorFor, hiddenTypes, showLabels]);
 
-  const onClick = (e: React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    let best: { id: string; d: number } | null = null;
-    for (const n of visible) {
-      const p = complexToScreen(n.wx, n.wy, rect.width, rect.height, view);
-      const d = Math.hypot(p.px - px, p.py - py);
-      if (d <= HIT_PX && (!best || d < best.d)) best = { id: n.id, d };
-    }
-    onSelect(best?.id ?? null);
-  };
-
   return (
     <canvas
       ref={canvasRef}
-      onClick={onClick}
       className="pointer-events-none fixed inset-0 z-[1] h-full w-full"
     />
   );
