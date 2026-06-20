@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
-import { tauri, type MemoryGraphSnapshot } from '@/lib/tauri';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { tauri, type MemoryGraphSnapshot, type RsiStatus } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
 import { RefreshCw, Brain, Search, X, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MandelbrotCanvas } from '@/components/memory/MandelbrotCanvas';
-import { NodeOverlay } from '@/components/memory/NodeOverlay';
+import { FilamentText } from '@/components/memory/FilamentText';
 import { SEAHORSE_VIEW, complexToScreen, type View } from '@/lib/fractal/mandelbrot';
-import { layoutNodes } from '@/lib/fractal/layout';
+import { layoutNodes, type LaidOutNode } from '@/lib/fractal/layout';
+import { deriveFractalState, type FractalState } from '@/lib/fractal/signal';
+import { maturity } from '@/lib/fractal/maturity';
+import { diffNodes, type NodeDiff } from '@/lib/fractal/diff';
+import { useFractalTransition } from '@/lib/fractal/useFractalTransition';
 
 /** Per-theme palette for the node/edge tints (theme → node type color). */
 const TYPE_COLORS: Record<'dark' | 'light', Record<string, string>> = {
@@ -35,15 +39,50 @@ export function MemoryLayersPage() {
   const [selected, setSelected] = useState<SelectedNode | null>(null);
   const [view, setView] = useState<View>(SEAHORSE_VIEW);
 
+  const { displayed: fractalState, phase, run } = useFractalTransition();
+  const [diff, setDiff] = useState<NodeDiff>({
+    born: new Set(), extinct: new Set(), surviving: new Set(), changed: false,
+  });
+  const [departing, setDeparting] = useState<LaidOutNode[]>([]);
+  const prevTargetRef = useRef<FractalState>({ depthBoost: 0, morph: 0 });
+  const prevIdsRef = useRef<string[]>([]);
+  const prevLaidOutRef = useRef<LaidOutNode[]>([]);
+
   const fractalTheme: 'dark' | 'light' = resolvedTheme === 'dark' ? 'dark' : 'light';
   const colorFor = (type: string) =>
     TYPE_COLORS[fractalTheme][type] ?? TYPE_FALLBACK[fractalTheme];
 
-  const load = async () => {
+  const applySnapshot = (next: MemoryGraphSnapshot, rsi: RsiStatus | null, animate: boolean) => {
+    const persisted = maturity.current();
+    const { state: target, floor } = deriveFractalState({
+      nodeCount: next.nodes.length, rsi, persistedFloor: persisted,
+    });
+    maturity.bump(floor);
+
+    const nextIds = next.nodes.map((n) => n.id);
+    const d = diffNodes(prevIdsRef.current, nextIds);
+    setDiff(d);
+    // Departing nodes are laid out from the PREVIOUS snapshot so they fade from
+    // where they lived. We reuse the previous laid-out array, filtered to extinct.
+    setDeparting(prevLaidOutRef.current.filter((n) => d.extinct.has(n.id)));
+
+    run(prevTargetRef.current, target, animate && (d.changed || target.depthBoost !== prevTargetRef.current.depthBoost || target.morph !== prevTargetRef.current.morph));
+
+    prevTargetRef.current = target;
+    prevIdsRef.current = nextIds;
+    prevLaidOutRef.current = layoutNodes(next);
+  };
+
+  const load = async (animate = true) => {
     setLoading(true);
     setSelected(null);
     try {
-      setGraph(await tauri.memory.getGraph());
+      const [next, rsi] = await Promise.all([
+        tauri.memory.getGraph(),
+        tauri.rsi.status().catch(() => null), // engine null / not wired → graceful
+      ]);
+      setGraph(next);
+      applySnapshot(next, rsi, animate);
     } catch {
       setGraph({ nodes: [], edges: [] });
     } finally {
@@ -272,30 +311,17 @@ export function MemoryLayersPage() {
           onClick={onSceneClick}
           className="fixed inset-0 z-0"
         >
-          <MandelbrotCanvas view={view} theme={fractalTheme} onViewChange={setView} />
-          <NodeOverlay
+          <MandelbrotCanvas view={view} theme={fractalTheme} fractalState={fractalState} onViewChange={setView} />
+          <FilamentText
             snapshot={graph}
             view={view}
             colorFor={colorFor}
             hiddenTypes={hiddenTypes}
             search={search}
             showLabels={showLabels}
-            onSelect={(id) => {
-              if (!id) { setSelected(null); return; }
-              const node = graph.nodes.find((n) => n.id === id);
-              if (!node) return;
-              const neighbors: SelectedNode['neighbors'] = [];
-              for (const e of graph.edges) {
-                if (e.from === id) {
-                  const to = graph.nodes.find((n) => n.id === e.to);
-                  if (to) neighbors.push({ relation: e.relation, label: to.label, direction: 'out' });
-                } else if (e.to === id) {
-                  const from = graph.nodes.find((n) => n.id === e.from);
-                  if (from) neighbors.push({ relation: e.relation, label: from.label, direction: 'in' });
-                }
-              }
-              setSelected({ id: node.id, label: node.label, type: node.type, neighbors });
-            }}
+            phase={phase}
+            departing={departing}
+            diff={diff}
           />
         </div>
       )}
