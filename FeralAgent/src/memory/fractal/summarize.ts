@@ -108,3 +108,15 @@ export function routerInfer(router: InferenceRouter): InferFn {
     return res.content;
   };
 }
+
+/**
+ * Production 1-arg `summarizeCluster` wrapper for the tree-builder. Closes
+ * over a router so callers don't have to thread the `InferFn` themselves.
+ * Result has the shape `BuildTreeDeps.summarize`.
+ */
+export function summarizeFromRouter(
+  router: InferenceRouter,
+): (items: string[]) => Promise<string> {
+  const infer = routerInfer(router);
+  return (items) => summarizeCluster(items, infer);
+}
