@@ -3,6 +3,12 @@ import { render, screen } from '@testing-library/react';
 import MemoryLayersPage from '@/pages/MemoryLayersPage';
 import { tauri } from '@/lib/tauri';
 
+// Stub out the Tauri event-bus so `listen()` never touches window.__TAURI_INTERNALS__
+// in jsdom. Returns a no-op unlisten promise, matching the real UnlistenFn shape.
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(() => Promise.resolve(() => {})),
+}));
+
 vi.mock('@/lib/fractal/organism', () => ({
   createOrganismRenderer: vi.fn(() => ({
     render: vi.fn(),

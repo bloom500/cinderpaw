@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
+import { events } from '@/lib/tauri';
+import { useOrganismImpulse } from '@/hooks/useOrganismImpulse';
 import {
   createOrganismRenderer,
   DEFAULT_VIEW,
@@ -23,6 +25,10 @@ export default function MemoryLayersPage() {
   const draw = useCallback(() => {
     rendererRef.current?.render(viewRef.current, stateRef.current);
   }, []);
+
+  const { impulseTo } = useOrganismImpulse({
+    onFrame: (s) => { stateRef.current = s; draw(); },
+  });
 
   // One-time renderer setup.
   useEffect(() => {
@@ -54,16 +60,22 @@ export default function MemoryLayersPage() {
         persistedFloor: maturity.current(),
       });
       maturity.bump(floor);
-      stateRef.current = state;
-      draw();
+      impulseTo(stateRef.current, state);
     } catch (err) {
       console.error('[MemoryLayersPage] refresh failed', err);
     } finally {
       setLoading(false);
     }
-  }, [draw]);
+  }, [impulseTo]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Live evolution: re-pull + pulse whenever the RSI engine reports progress.
+  useEffect(() => {
+    let alive = true;
+    const unlistenP = events.onRsiEngineEvent.listen(() => { if (alive) void refresh(); });
+    return () => { alive = false; void unlistenP.then((u) => u()); };
+  }, [refresh]);
 
   // Pan / zoom — pure vector navigation of the organism.
   const onWheel = useCallback((e: React.WheelEvent) => {

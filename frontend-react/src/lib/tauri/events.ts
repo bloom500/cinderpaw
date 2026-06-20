@@ -83,4 +83,28 @@ export const events = {
    * so callers must filter.
    */
   feralAgentOutputEvent: wrap<FeralAgentOutputEvent>('feral://agent-output'),
+
+  /**
+   * Thin binding over `feralAgentOutputEvent` that filters for RSI engine
+   * events only. Fires for any `rsi_engine_event` line (started / progress /
+   * stopped / concurrency_set). Mirrors the `wrap()` shape so callers use
+   * the same `.listen(cb)` API as every other event in this file.
+   */
+  onRsiEngineEvent: {
+    listen: (cb: (e: RsiEngineEventLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'rsi_engine_event'
+          ) {
+            cb(parsed as RsiEngineEventLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
 };
