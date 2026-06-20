@@ -67,8 +67,12 @@ prev snapshot + next snapshot ──→ transition controller (rAF, user-driven,
 - **`maturity` store** — persists the monotonic floor (localStorage, per-install
   key). Exposes `current()` and `bump(value)` (max-only).
 - **transition controller** — given `from` and `to` `FractalState` + a node diff,
-  runs a temporary `requestAnimationFrame` ease (~1.5s) then `cancelAnimationFrame`.
-  Starts only when `to !== from` or the diff is non-empty. Never runs idle.
+  runs a temporary `requestAnimationFrame` ease (**1.5s, ease-out cubic-bezier**)
+  then `cancelAnimationFrame`. 1.5s is the psychological sweet spot: read as an
+  organic "the system breathes and reconfigures" without being tiring for a user
+  who just wants to read their data; being user-triggered (Refresh/Mount) makes
+  it a small sync ritual. Starts only when `to !== from` or the diff is
+  non-empty. Never runs idle.
 - **`MandelbrotCanvas`** — unchanged zoom/pan; gains one prop `fractalState` and
   passes two new uniforms to the shader.
 - **`FilamentText`** — replaces `NodeOverlay`. Renders memory text along filament
@@ -79,12 +83,20 @@ prev snapshot + next snapshot ──→ transition controller (rAF, user-driven,
 ### Depth — hybrid floor + living volume (resolves the monotonic-vs-cataclysm tension)
 
 ```
-floor      = monotonic baseline from lifetime maturity
-             (RSI engine.iteration high-water and/or bounds_version), persisted.
-             NEVER decreases.
+floor      = monotonic baseline from lifetime maturity, persisted, NEVER decreases:
+             floor = max(persistedFloor,
+                         a * highWater(rsi.engine.iteration)      // daily-ish maturity
+                       + b * boundsVersionStep(rsi.bounds_version)) // paradigm shifts
 reactive   = f(eliteNodeCount)   e.g. k * log2(1 + eliteNodeCount)
 depthBoost = floor + reactive    (reactive clamped >= 0)
 ```
+
+**`bounds_version` in the floor (deliberate):** a `bounds_version` bump is a
+paradigm change — a major sandbox/eval-criteria reconfiguration, not daily node
+churn. Folding it into `floor` (as a stepped term) means that when the agent
+advances to a higher `bounds_version`, the main trunk physically recalibrates and
+locks in a new lifetime baseline shape, independent of day-to-day node count.
+Guard `rsi == null` → contributes 0 (floor still holds via `persistedFloor`).
 
 - Pruning drops `reactive` → filaments beyond the floor **retract** → "airy".
 - `floor` guarantees a permanent earned baseline; the agent never visually
@@ -102,10 +114,17 @@ morph = 0   when rsi == null OR rsi.engine == null  // MANDATORY graceful defaul
 
 - `RsiStatus.engine` is `null` until the sidecar emits events (`index.ts:213`).
   Reading `engine.iteration` without the null guard crashes first run.
-- In the shader, `c = mix(c_pixel, c_seed, u_morph)` — small Julia interpolation
+- In the shader, `c = mix(c_pixel, C_SEED, u_morph)` — small Julia interpolation
   so the boundary undulates without detaching from the node anchor region.
 - Capped at 0.12 deliberately: a full Julia morph makes the set unrecognizable
   and would float the (Seahorse-Valley-anchored) text over unrelated structure.
+- **`C_SEED` = `-0.8 + 0.156i`** (a classic thin-filament / dendritic Julia
+  seed). Rationale: the seed must be a "thin-branch" point so a subtle morph
+  makes the *edges of existing bulbs pulse elegantly*. A seed inside the main
+  cardioid (a "fat" interior point) would instead **smear/erase** detail as
+  morph rises — the opposite of the intended effect. Alternative fine-filament
+  seeds if `-0.8 + 0.156i` reads too nervous: `-0.4 + 0.6i`, or the deep
+  Seahorse point `-0.743643887 + 0.131825904i`.
 
 ## Shader Changes (`lib/fractal/mandelbrot.ts`)
 
@@ -115,13 +134,26 @@ morph = 0   when rsi == null OR rsi.engine == null  // MANDATORY graceful defaul
 2. **Morph:** new uniform `u_morph`; inside the iteration loop,
    `c_eff = mix(c, C_SEED, u_morph)` with a fixed interesting `C_SEED`
    (e.g. a Julia constant near the boundary). `z = z² + c_eff`.
-3. **Anti-aliasing (the *real* fix for the pixelated screenshot):** 2×2
-   supersampling in the fragment shader — compute escape-time at 4 sub-pixel
-   offsets and average. This removes the salt-and-pepper speckle at zoom-out.
-   **Note:** the speckle is *under-sampling aliasing*, NOT CSS image-scaling.
-   The shader already recomputes z→z²+c per physical pixel each draw
-   (`mandelbrot.ts:167-178`), so zoom is already resolution-independent. We do
-   **not** touch the zoom/pan logic.
+3. **Anti-aliasing (the *real* fix for the pixelated screenshot):** **zoom-adaptive**
+   supersampling. Compute escape-time at N sub-pixel offsets and average, where
+   `N = (scale > ZOOMOUT_THRESHOLD) ? 4 : 1`.
+   - **Why adaptive, not flat 4×:** a naive `samples = 4` runs the full
+     `for (i < u_maxIter)` loop 4× *per pixel* — at deep zoom (`u_maxIter` ≈ 2048)
+     that quadruples GPU cost and breaks 60fps on integrated GPUs. There is **no**
+     way to "collect 4 iteration values cheaply"; 4 escape-time evals are 4× the
+     work. The fix is *where* you spend it: the speckle is worst at **zoom-out**,
+     where filaments are sub-pixel — and that is exactly where `u_maxIter` is
+     **low** (~120–200). So 4× supersampling costs `4 × ~150` (cheap) when needed,
+     and drops to 1× at deep zoom (where aliasing is negligible because each pixel
+     covers a minuscule region). Cost stays bounded everywhere.
+   - **Implementation constraint for the plan:** the shader must gate the extra
+     samples on `u_scale` (or pass a precomputed `u_samples` int from JS), NOT run
+     the iteration loop 4× unconditionally. Optionally also early-out interior
+     pixels (`i >= u_maxIter`) from extra sampling — interior is flat, needs no AA.
+   - **Note:** the speckle is *under-sampling aliasing*, NOT CSS image-scaling.
+     The shader already recomputes z→z²+c per physical pixel each draw
+     (`mandelbrot.ts:167-178`), so zoom is already resolution-independent. We do
+     **not** touch the zoom/pan logic.
 
 ## Node Representation (`FilamentText`, replaces `NodeOverlay`)
 
@@ -181,8 +213,9 @@ user looks/refreshes. Consistent with "nothing animates on auto."
 ## Testing
 
 - `deriveFractalState` (pure): empty DB → depthBoost 0; monotonic floor never
-  decreases; `engine null` → morph 0; morph clamped at 0.12; reactive shrinks
-  when eliteNodeCount shrinks but total stays ≥ floor.
+  decreases; a `bounds_version` bump raises the floor and it stays raised after a
+  later node-count drop; `engine null` → morph 0; morph clamped at 0.12; reactive
+  shrinks when eliteNodeCount shrinks but total stays ≥ floor.
 - maturity store: `bump` is max-only; survives reload (mock localStorage).
 - lifecycle diff: birth/extinction sets computed correctly from prev/next.
 - Shader is not unit-tested; verified visually via `bun run` (sidecar/build per
