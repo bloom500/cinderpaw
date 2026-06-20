@@ -300,13 +300,35 @@ impl ModelManager {
     }
 }
 
+/// Embed a batch of texts into L2-normalized vectors with the dedicated
+/// embedding model (separate from the chat model in STATE). Blocking/CPU-bound
+/// — async callers MUST wrap this in `spawn_blocking`. Returns one unit vector
+/// per input, in input order. Errors when no embedding model is available, so
+/// the caller can fall back to lexical/exact retrieval (the Tier-3 leaf layer).
+pub fn embed_text(texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+    #[cfg(feature = "inference")]
+    {
+        backend::embed_batch(&texts)
+    }
+    #[cfg(not(feature = "inference"))]
+    {
+        let _ = texts;
+        Err(anyhow::anyhow!(
+            "embeddings require a build with --features inference"
+        ))
+    }
+}
+
 #[cfg(feature = "inference")]
 mod backend {
     use super::{InferParams, Message};
     use anyhow::{anyhow, Result};
     use encoding_rs::UTF_8;
     use llama_cpp_2::{
-        context::{params::LlamaContextParams, LlamaContext},
+        context::{
+            params::{LlamaContextParams, LlamaPoolingType},
+            LlamaContext,
+        },
         llama_backend::LlamaBackend,
         llama_batch::LlamaBatch,
         model::{params::LlamaModelParams, AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel},
@@ -316,7 +338,7 @@ mod backend {
     use once_cell::sync::{Lazy, OnceCell};
     use parking_lot::{Condvar, Mutex};
     use std::num::NonZeroU32;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use tokio::sync::mpsc;
@@ -497,6 +519,167 @@ mod backend {
             cached_tokens: Vec::new(),
             _model: Arc::clone(model),
         })
+    }
+
+    // ── Embeddings: a dedicated small model + one serialized context ──────
+    //
+    // The embedding model (e.g. bge-small) loads INDEPENDENTLY of the chat
+    // model in STATE: it is tiny, CPU-cheap, and uses a non-causal context
+    // with mean pooling. All embed calls serialize behind one Mutex'd context
+    // — embeddings are short, so a pool buys nothing and a single context
+    // keeps KV memory negligible. Mean pooling + L2 normalization happen here,
+    // so callers receive unit vectors ready for a plain cosine dot product.
+    //
+    // Self-referential layout mirrors PooledContext: `context` borrows the
+    // Arc'd model on the heap (one transmute to 'static), kept alive by the
+    // `model` Arc below; `context` is declared FIRST so it drops FIRST.
+    struct EmbedState {
+        context: LlamaContext<'static>,
+        model: Arc<LlamaModel>,
+        n_embd: usize,
+    }
+    // SAFETY: same as PooledContext — only ever used by one thread at a time
+    // (serialized behind the EMBED mutex); LlamaContext wraps a raw pointer so
+    // it is not auto-Send.
+    unsafe impl Send for EmbedState {}
+
+    static EMBED: Lazy<Mutex<Option<EmbedState>>> = Lazy::new(|| Mutex::new(None));
+
+    /// bge-small and friends top out at a 512-token sequence; cap the context
+    /// (and truncate inputs) to that — keeps KV memory tiny and matches the
+    /// model's training window.
+    const EMBED_CTX_LEN: u32 = 512;
+
+    /// Resolve the embedding GGUF: an explicit `FERAL_EMBED_MODEL` override
+    /// wins; otherwise the bundled/downloaded default in the models dir. `None`
+    /// when absent — the caller then falls back to lexical retrieval.
+    fn embedding_model_path() -> Option<PathBuf> {
+        if let Ok(p) = std::env::var("FERAL_EMBED_MODEL") {
+            let pb = PathBuf::from(p);
+            if pb.is_file() {
+                return Some(pb);
+            }
+        }
+        let candidate = crate::paths::models_dir().join("bge-small-en-v1.5.Q8_0.gguf");
+        if candidate.is_file() {
+            Some(candidate)
+        } else {
+            None
+        }
+    }
+
+    /// Load the embedding model + its pooled, embeddings-enabled context into
+    /// EMBED. CPU-only (`n_gpu_layers = 0`): the model is small and this keeps
+    /// VRAM for the chat model.
+    fn load_embedding(path: &Path) -> Result<()> {
+        let backend = BACKEND.get_or_try_init(|| {
+            LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
+        })?;
+        let params = LlamaModelParams::default().with_n_gpu_layers(0);
+        let model = Arc::new(
+            LlamaModel::load_from_file(backend, path, &params)
+                .map_err(|e| anyhow!("load embedding weights {:?}: {}", path, e))?,
+        );
+        let n_embd = usize::try_from(model.n_embd())
+            .map_err(|_| anyhow!("embedding model reports a negative n_embd"))?;
+        if n_embd == 0 {
+            return Err(anyhow!("embedding model reports n_embd = 0"));
+        }
+        let ctx_size =
+            NonZeroU32::new(EMBED_CTX_LEN).ok_or_else(|| anyhow!("invalid embedding ctx len"))?;
+        let ctx_params = LlamaContextParams::default()
+            .with_n_ctx(Some(ctx_size))
+            .with_embeddings(true)
+            .with_pooling_type(LlamaPoolingType::Mean);
+        let context = model
+            .new_context(backend, ctx_params)
+            .map_err(|e| anyhow!("create embedding context: {}", e))?;
+        // SAFETY: the context borrows the model on the heap behind the Arc (a
+        // stable address across moves); the `model` Arc stored alongside keeps
+        // that allocation alive at least as long as the context (field drop
+        // order: context first). See the PooledContext block comment.
+        let context: LlamaContext<'static> = unsafe { std::mem::transmute(context) };
+        *EMBED.lock() = Some(EmbedState {
+            context,
+            model,
+            n_embd,
+        });
+        Ok(())
+    }
+
+    /// L2-normalize in place so cosine collapses to a dot product downstream.
+    fn l2_normalize(v: &mut [f32]) {
+        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for x in v.iter_mut() {
+                *x /= norm;
+            }
+        }
+    }
+
+    /// Embed a batch of texts → one L2-normalized vector per input, in order.
+    /// Lazy-loads the embedding model on first use. Serialized behind EMBED.
+    pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Lazy load (idempotent; a rare concurrent double-load just wastes one
+        // load — the second overwrites the first).
+        if EMBED.lock().is_none() {
+            let path = embedding_model_path().ok_or_else(|| {
+                anyhow!(
+                    "no embedding model found — set FERAL_EMBED_MODEL or place the GGUF in {:?}",
+                    crate::paths::models_dir()
+                )
+            })?;
+            load_embedding(&path)?;
+        }
+
+        let mut guard = EMBED.lock();
+        let state = guard
+            .as_mut()
+            .ok_or_else(|| anyhow!("embedding model unavailable after load"))?;
+        let n_embd = state.n_embd;
+
+        let mut out: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+        for text in texts {
+            let mut tokens = state
+                .model
+                .str_to_token(text, AddBos::Always)
+                .map_err(|e| anyhow!("embedding tokenize: {}", e))?;
+            if tokens.is_empty() {
+                // Empty/whitespace input — emit a zero vector so result[i] still
+                // lines up with texts[i]; downstream cosine guards zero vectors.
+                out.push(vec![0.0; n_embd]);
+                continue;
+            }
+            // bge tops out at EMBED_CTX_LEN; truncate over-long inputs so the
+            // batch fits the context (and the default n_batch).
+            if tokens.len() > EMBED_CTX_LEN as usize {
+                tokens.truncate(EMBED_CTX_LEN as usize);
+            }
+
+            let mut batch = LlamaBatch::new(tokens.len(), 1);
+            batch
+                .add_sequence(&tokens, 0, false)
+                .map_err(|e| anyhow!("embedding batch add: {}", e))?;
+
+            // Fresh KV state per text (single shared context, one seq id).
+            state.context.clear_kv_cache();
+            state
+                .context
+                .decode(&mut batch)
+                .map_err(|e| anyhow!("embedding decode: {}", e))?;
+
+            let emb = state
+                .context
+                .embeddings_seq_ith(0)
+                .map_err(|e| anyhow!("read pooled embedding: {}", e))?;
+            let mut v: Vec<f32> = emb.to_vec();
+            l2_normalize(&mut v);
+            out.push(v);
+        }
+        Ok(out)
     }
 
     pub fn load(path: &Path, n_gpu_layers: i32) -> Result<u32> {

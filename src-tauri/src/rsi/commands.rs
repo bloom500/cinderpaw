@@ -862,6 +862,26 @@ pub async fn dispatch_rsi_request(
             let specs: Vec<super::tier0::Tier0Spec> = TIER0_SPECS.iter().cloned().collect();
             Ok(json!(specs))
         }
+        // Embeddings for Fractal Memory Search. Not RSI per se, but it rides
+        // the same sidecar↔Rust bridge: the TS `embed.ts` module calls this to
+        // turn query/leaf text into vectors via the dedicated embedding model.
+        // CPU-bound, so it runs on a blocking thread off the async runtime.
+        "embed_text" => {
+            let texts: Vec<String> = params
+                .get("texts")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
+                .ok_or_else(|| "embed_text: missing or non-array 'texts'".to_string())?;
+            let vectors = tokio::task::spawn_blocking(move || crate::inference::embed_text(texts))
+                .await
+                .map_err(|e| format!("embed_text: task panicked: {e}"))?
+                .map_err(|e| format!("embed_text: {e}"))?;
+            Ok(json!(vectors))
+        }
         other => Err(format!("rsi_request: unknown method '{other}'")),
     }
 }
