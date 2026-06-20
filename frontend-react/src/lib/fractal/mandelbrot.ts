@@ -5,6 +5,8 @@
  * caller draws only in response to user input (wheel/drag/reset).
  */
 
+import type { FractalState } from '@/lib/fractal/signal';
+
 export interface View {
   centerX: number;   // complex-plane center (real)
   centerY: number;   // complex-plane center (imag)
@@ -45,18 +47,21 @@ const VERT = `#version 300 es
 in vec2 a_pos;
 void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
 
-// Smooth-iteration Mandelbrot. Palette chosen by u_theme (0=light,1=dark).
+// Smooth-iteration Mandelbrot with subtle Julia morph + zoom-adaptive AA.
 const FRAG = `#version 300 es
 precision highp float;
 out vec4 outColor;
-uniform vec2  u_res;      // canvas pixels
-uniform vec2  u_center;   // complex center
-uniform float u_scale;    // complex units per half-height
-uniform int   u_theme;    // 0 light, 1 dark
+uniform vec2  u_res;        // canvas pixels
+uniform vec2  u_center;     // complex center
+uniform float u_scale;      // complex units per half-height
+uniform int   u_theme;      // 0 light, 1 dark
 uniform int   u_maxIter;
+uniform float u_morph;      // 0..0.12 Julia interpolation
+uniform int   u_samples;    // 1 or 4 (zoom-adaptive AA)
+
+const vec2 C_SEED = vec2(-0.8, 0.156); // thin-filament Julia seed
 
 vec3 lightPalette(float t) {
-  // near-white lavender field → blue-violet → periwinkle filigree
   vec3 field  = vec3(0.918, 0.910, 0.949);
   vec3 violet = vec3(0.357, 0.373, 0.682);
   vec3 peri   = vec3(0.604, 0.627, 0.878);
@@ -65,7 +70,6 @@ vec3 lightPalette(float t) {
   return c;
 }
 vec3 darkPalette(float t) {
-  // black → deep red → orange → amber → cream ember (Feral brand)
   vec3 red    = vec3(0.45, 0.06, 0.03);
   vec3 orange = vec3(0.92, 0.45, 0.06);
   vec3 amber  = vec3(1.00, 0.72, 0.25);
@@ -76,31 +80,45 @@ vec3 darkPalette(float t) {
   return c;
 }
 
-void main() {
-  float aspect = u_res.x / u_res.y;
-  vec2 ndc = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;   // -1..1
-  vec2 c = u_center + vec2(ndc.x * u_scale * aspect, ndc.y * u_scale);
-
+// Smooth iteration at complex point c. Returns -1.0 for interior.
+float escape(vec2 c) {
+  vec2 ceff = mix(c, C_SEED, u_morph);
   vec2 z = vec2(0.0);
   int i = 0;
   const float BAIL = 256.0;
   for (int n = 0; n < 2048; n++) {
     if (n >= u_maxIter) break;
-    z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
+    z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + ceff;
     if (dot(z, z) > BAIL) break;
     i++;
   }
-
-  vec3 interior = (u_theme == 1) ? vec3(0.02, 0.02, 0.03) : vec3(0.05, 0.05, 0.09);
-  if (i >= u_maxIter) { outColor = vec4(interior, 1.0); return; }
-
-  // Normalized (smooth) iteration count.
+  if (i >= u_maxIter) return -1.0;
   float mu = float(i) + 1.0 - log2(log2(dot(z, z)) * 0.5);
-  float t = clamp(mu / float(u_maxIter), 0.0, 1.0);
-  t = pow(t, 0.5); // perceptual lift so detail near the boundary reads
+  return clamp(mu / float(u_maxIter), 0.0, 1.0);
+}
 
-  vec3 col = (u_theme == 1) ? darkPalette(t) : lightPalette(t);
-  outColor = vec4(col, 1.0);
+vec3 shade(float t) {
+  if (t < 0.0) return (u_theme == 1) ? vec3(0.02, 0.02, 0.03) : vec3(0.05, 0.05, 0.09);
+  float tt = pow(t, 0.5);
+  return (u_theme == 1) ? darkPalette(tt) : lightPalette(tt);
+}
+
+void main() {
+  float aspect = u_res.x / u_res.y;
+  vec3 acc = vec3(0.0);
+  // u_samples == 1 → one center sample (deep zoom, cheap). == 4 → 2x2 grid.
+  for (int sy = 0; sy < 2; sy++) {
+    for (int sx = 0; sx < 2; sx++) {
+      if (u_samples == 1 && (sx != 0 || sy != 0)) continue;
+      vec2 off = (u_samples == 1) ? vec2(0.0)
+                                  : (vec2(float(sx), float(sy)) - 0.5) * 0.5;
+      vec2 ndc = ((gl_FragCoord.xy + off) / u_res) * 2.0 - 1.0;
+      vec2 c = u_center + vec2(ndc.x * u_scale * aspect, ndc.y * u_scale);
+      acc += shade(escape(c));
+    }
+  }
+  float div = (u_samples == 1) ? 1.0 : 4.0;
+  outColor = vec4(acc / div, 1.0);
 }`;
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader | null {
@@ -117,7 +135,7 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
 }
 
 export interface MandelbrotRenderer {
-  render(view: View, theme: FractalTheme): void;
+  render(view: View, theme: FractalTheme, fractal?: FractalState): void;
   resize(): void;
   dispose(): void;
 }
@@ -153,6 +171,8 @@ export function createMandelbrotRenderer(canvas: HTMLCanvasElement): MandelbrotR
   const u_scale = gl.getUniformLocation(prog, 'u_scale');
   const u_theme = gl.getUniformLocation(prog, 'u_theme');
   const u_maxIter = gl.getUniformLocation(prog, 'u_maxIter');
+  const u_morph = gl.getUniformLocation(prog, 'u_morph');
+  const u_samples = gl.getUniformLocation(prog, 'u_samples');
 
   const resize = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -164,16 +184,24 @@ export function createMandelbrotRenderer(canvas: HTMLCanvasElement): MandelbrotR
     gl.viewport(0, 0, canvas.width, canvas.height);
   };
 
-  const render = (view: View, theme: FractalTheme) => {
+  const ZOOMOUT_AA_THRESHOLD = 0.05; // supersample only when zoomed out
+
+  const render = (view: View, theme: FractalTheme, fractal?: FractalState) => {
     resize();
     gl.useProgram(prog);
     gl.uniform2f(u_res, canvas.width, canvas.height);
     gl.uniform2f(u_center, view.centerX, view.centerY);
     gl.uniform1f(u_scale, view.scale);
     gl.uniform1i(u_theme, theme === 'dark' ? 1 : 0);
-    // More iterations as we zoom in (deeper detail) — bounded by the loop cap.
-    const iter = Math.min(2048, Math.floor(120 + 60 * Math.log2(1 / Math.max(view.scale, 1e-7))));
-    gl.uniform1i(u_maxIter, Math.max(120, iter));
+    // Zoom-driven base iterations + memory-driven depth boost, capped by loop.
+    const base = Math.floor(120 + 60 * Math.log2(1 / Math.max(view.scale, 1e-7)));
+    const boost = Math.max(0, Math.floor(fractal?.depthBoost ?? 0));
+    const iter = Math.min(2048, Math.max(120, base + boost));
+    gl.uniform1i(u_maxIter, iter);
+    gl.uniform1f(u_morph, fractal?.morph ?? 0);
+    // Adaptive AA: 4 samples when zoomed out (maxIter is low there, so cheap);
+    // 1 sample at deep zoom (aliasing negligible, loop is expensive).
+    gl.uniform1i(u_samples, view.scale > ZOOMOUT_AA_THRESHOLD ? 4 : 1);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
 
