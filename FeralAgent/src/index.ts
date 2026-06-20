@@ -55,7 +55,9 @@ import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/bridge.ts";
-import { setEmbedInvoker, rsiBridgeEmbed } from "./memory/fractal/embed.ts";
+import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
+import { summarizeFromRouter } from "./memory/fractal/summarize.ts";
+import { FractalMemory } from "./memory/fractal/fractal-memory.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import {
   PassiveSupervisor,
@@ -282,6 +284,30 @@ async function main(): Promise<void> {
   // --- ECC tool observation telemetry ---
   const dataDir = config.dbPath === ":memory:" ? "data" : require("node:path").dirname(config.dbPath);
   const observations = new ToolObservationLog(dataDir);
+
+  // --- Fractal Memory Search (semantic recall over the RAPTOR tree) ---
+  // Wraps the legacy RecallEngine: with a built tree + an embedding model it
+  // serves the semantic + FTS5 hybrid; otherwise it transparently falls back
+  // to RecallEngine, so there is zero regression before the model is on disk.
+  // The tree is loaded from disk here; the first build runs in the background
+  // after the embed bridge is wired (below), and is a no-op without a model.
+  const fractalMemory = new FractalMemory({
+    loadLeaves: () =>
+      episodic.all().map((e) => ({
+        id: e.id ?? 0,
+        text: e.content,
+        vec: new Float32Array(0), // buildTree embeds these
+        ts: e.timestamp,
+        sessionId: e.sessionId,
+      })),
+    embed: (texts) => embed(texts),
+    summarize: summarizeFromRouter(router),
+    ftsSearch: (q, limit) => episodic.search(q, limit),
+    fallback: recall,
+    treePath: require("node:path").join(dataDir, "fractal-tree.json"),
+    log,
+  });
+  fractalMemory.init();
 
   // --- Tools (each gated by the sandbox) ---
   // ask_user bridge is created up front so the registry can hand it to
@@ -517,7 +543,7 @@ async function main(): Promise<void> {
   const agent = new AgentLoop(
     router, registry, episodic,
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
-    recall,
+    fractalMemory,
     extractor,
     soul,
     user,
@@ -634,6 +660,12 @@ async function main(): Promise<void> {
   // present Rust returns an error and callers fall back to FTS5; this just
   // makes the path available.
   setEmbedInvoker(rsiBridgeEmbed(rsiBridge));
+  // First RAPTOR tree build, in the background now that embed() can reach Rust.
+  // No-op (and instant) until an embedding model is on disk or the corpus is
+  // large enough; never blocks boot and never throws into it.
+  void fractalMemory
+    .rebuild()
+    .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
   // Forward declaration: the sidecar's onIdle restarts the engine via
   // the passive supervisor, but the supervisor needs the sidecar to
   // start it — late-bind through this holder to break the cycle.

@@ -20,7 +20,17 @@ import {
 } from "../sandbox/inference-router.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
 import type { EpisodicMemory } from "../memory/episodic.ts";
-import type { RecallEngine } from "../memory/recall.ts";
+import type { RecallResult } from "../memory/recall.ts";
+
+/**
+ * Either the legacy synchronous `RecallEngine` or the async `FractalMemory`
+ * facade — both answer `recall()` with a `RecallResult`. The loop `await`s
+ * either (awaiting a sync value is a no-op), so the semantic path can do its
+ * single-query embedding without changing this call site again.
+ */
+export interface Recaller {
+  recall(query: string, sessionId: string): RecallResult | Promise<RecallResult>;
+}
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { stripPrivate } from "../memory/privacy.ts";
@@ -160,7 +170,7 @@ export class AgentLoop {
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
   readonly #episodic: EpisodicMemory;
-  readonly #recall: RecallEngine | null;
+  readonly #recall: Recaller | null;
   readonly #extractor: MemoryExtractor | null;
   readonly #config: AgentLoopConfig;
   readonly #systemPrompt: string;
@@ -285,7 +295,7 @@ export class AgentLoop {
     registry: ToolRegistry,
     episodic: EpisodicMemory,
     config: Partial<AgentLoopConfig> = {},
-    recall: RecallEngine | null = null,
+    recall: Recaller | null = null,
     extractor: MemoryExtractor | null = null,
     soul: SoulConfig | null = null,
     user: UserConfig | null = null,
@@ -530,9 +540,11 @@ export class AgentLoop {
     const traceId = crypto.randomUUID();
 
     // Inject relevant past context before the user message lands in the prompt.
-    // This runs synchronously (no I/O — pure DB reads) and never throws.
+    // The fractal facade may embed the query (async); the legacy engine is a
+    // pure DB read. Either way recall never throws — it downgrades to FTS5 on
+    // any failure — so a missing embedding model can't break a turn.
     if (this.#recall) {
-      const result = this.#recall.recall(userText, sessionId);
+      const result = await this.#recall.recall(userText, sessionId);
       memory.setMemoryContext(result.context);
     }
 

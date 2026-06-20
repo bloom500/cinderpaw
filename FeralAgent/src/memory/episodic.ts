@@ -67,6 +67,24 @@ export class EpisodicMemory {
   }
 
   /**
+   * Every event across all sessions, oldest-first, capped at `limit`. Used by
+   * Fractal Memory Search to (re)build the RAPTOR tree over the whole corpus.
+   * The cap bounds memory for very large histories; offline tree-building
+   * tolerates a ceiling, and FTS5 still covers anything beyond it.
+   */
+  all(limit = 50_000): EpisodicEvent[] {
+    const rows = this.#db
+      .query<EpisodicRow, [number]>(
+        `SELECT id, session_id, timestamp, role, content
+         FROM episodic
+         ORDER BY timestamp ASC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return rows.map(fromRow);
+  }
+
+  /**
    * Full-text search across all sessions. Returns the best-matching events,
    * most relevant first. The query is sanitized into an FTS5 prefix-OR query so
    * arbitrary user text never produces a syntax error.
