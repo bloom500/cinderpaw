@@ -9,7 +9,7 @@
  *
  * All tests inject a fake invoker — we never hit Rust here.
  */
-import { beforeEach, describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, beforeEach } from "bun:test";
 import {
   embed,
   resetEmbedCache,
@@ -36,9 +36,9 @@ function vecFromText(text: string): Float32Array {
   return new Float32Array([Math.cos(angle), Math.sin(angle)]);
 }
 
-beforeEach(() => resetEmbedCache());
-
 describe("embed — batching", () => {
+  beforeEach(() => resetEmbedCache());
+
   it("calls the invoker exactly once with the full input batch", async () => {
     const inv = fakeInvoker((t) => t.map(vecFromText));
     await embed(["a", "b", "c", "d"], inv);
@@ -63,6 +63,8 @@ describe("embed — batching", () => {
 });
 
 describe("embed — order preservation", () => {
+  beforeEach(() => resetEmbedCache());
+
   it("result[i] is the embedding of texts[i] (same text in different positions = same vec)", async () => {
     const inv = fakeInvoker((t) => t.map(vecFromText));
     const out = await embed(["x", "y", "x"], inv);
@@ -75,6 +77,8 @@ describe("embed — order preservation", () => {
 });
 
 describe("embed — caching", () => {
+  beforeEach(() => resetEmbedCache());
+
   it("repeat call with identical text does NOT invoke the bridge again", async () => {
     const inv = fakeInvoker((t) => t.map(vecFromText));
     await embed(["hello"], inv);
@@ -102,6 +106,8 @@ describe("embed — caching", () => {
 });
 
 describe("embed — normalization", () => {
+  beforeEach(() => resetEmbedCache());
+
   it("L2-normalizes the invoker's output (defense in depth — Rust already does it)", async () => {
     // Invoker returns a clearly non-unit vector; embed should fix it.
     const inv: EmbedInvoker = async () => [
@@ -115,6 +121,8 @@ describe("embed — normalization", () => {
 });
 
 describe("embed — error handling", () => {
+  beforeEach(() => resetEmbedCache());
+
   it("throws if no invoker is set and none is passed", async () => {
     // No invoker anywhere; we deliberately don't call setEmbedInvoker in this test.
     // (The module-level default is null between test runs unless a prior test set it.)
