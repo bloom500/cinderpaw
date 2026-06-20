@@ -43,18 +43,13 @@ export function resetEmbedCache(): void {
   cache.clear();
 }
 
-/** Process-local text→vector cache. Keyed by FNV-1a content hash. */
+/**
+ * Process-local text→vector cache, keyed by the exact text. We key on the
+ * full string (not a content hash) so two distinct texts can never collide
+ * onto the same cached vector — a 32-bit hash would make that a silent,
+ * wrong-answer bug. `Map` already hashes the key internally.
+ */
 const cache = new Map<string, Float32Array>();
-
-/** Cheap stable content hash; security is not a concern, only stability. */
-function contentHash(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16);
-}
 
 /** L2-normalize a Float32Array in place; returns it for chaining. */
 function normalize(v: Float32Array): Float32Array {
@@ -89,20 +84,17 @@ export async function embed(
 
   // Partition into cached hits (in order) and uncached misses (de-duped).
   const results: (Float32Array | null)[] = new Array(texts.length).fill(null);
-  const missHashes: string[] = [];
   const missTexts: string[] = [];
   const seenMiss = new Set<string>();
   for (let i = 0; i < texts.length; i++) {
     const text = texts[i]!;
-    const hash = contentHash(text);
-    const cached = cache.get(hash);
+    const cached = cache.get(text);
     if (cached) {
       results[i] = cached;
       continue;
     }
-    if (seenMiss.has(hash)) continue; // multiple inputs share this text
-    seenMiss.add(hash);
-    missHashes.push(hash);
+    if (seenMiss.has(text)) continue; // multiple inputs share this text
+    seenMiss.add(text);
     missTexts.push(text);
   }
 
@@ -116,18 +108,12 @@ export async function embed(
   }
 
   for (let j = 0; j < missTexts.length; j++) {
-    const v = normalize(vectors[j]!);
-    cache.set(missHashes[j]!, v);
+    cache.set(missTexts[j]!, normalize(vectors[j]!));
   }
 
-  for (let j = 0; j < missTexts.length; j++) {
-    const text = missTexts[j]!;
-    const hash = missHashes[j]!;
-    const cached = cache.get(hash)!;
-    // Fill every input position that matched this miss.
-    for (let i = 0; i < texts.length; i++) {
-      if (results[i] === null && texts[i] === text) results[i] = cached;
-    }
+  // Fill the remaining positions (the misses) straight from the cache.
+  for (let i = 0; i < texts.length; i++) {
+    if (results[i] === null) results[i] = cache.get(texts[i]!)!;
   }
 
   return results as Float32Array[];
