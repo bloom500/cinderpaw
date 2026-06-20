@@ -56,6 +56,8 @@ export default function MemoryLayersPage() {
       maturity.bump(floor);
       stateRef.current = state;
       draw();
+    } catch (err) {
+      console.error('[MemoryLayersPage] refresh failed', err);
     } finally {
       setLoading(false);
     }
