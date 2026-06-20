@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { tauri } from '@/lib/tauri';
-import { events } from '@/lib/tauri';
+import { tauri, events } from '@/lib/tauri';
 import { useOrganismImpulse } from '@/hooks/useOrganismImpulse';
 import {
   createOrganismRenderer,
@@ -74,7 +73,7 @@ export default function MemoryLayersPage() {
   useEffect(() => {
     let alive = true;
     const unlistenP = events.onRsiEngineEvent.listen(() => { if (alive) void refresh(); });
-    return () => { alive = false; void unlistenP.then((u) => u()); };
+    return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
   }, [refresh]);
 
   // Pan / zoom — pure vector navigation of the organism.
