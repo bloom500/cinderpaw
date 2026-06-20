@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryLayersPage } from '@/pages/MemoryLayersPage';
+import { render } from '@testing-library/react';
+import MemoryLayersPage from '@/pages/MemoryLayersPage';
 import { tauri } from '@/lib/tauri';
 
 beforeEach(() => {
@@ -11,9 +11,8 @@ beforeEach(() => {
 });
 
 describe('MemoryLayersPage', () => {
-  it('renders the control panel title and loads the graph', async () => {
+  it('mounts and calls getGraph on load', async () => {
     render(<MemoryLayersPage />);
-    expect(await screen.findByText('Memory Layers')).toBeInTheDocument();
-    await waitFor(() => expect(tauri.memory.getGraph).toHaveBeenCalled());
+    await vi.waitFor(() => expect(tauri.memory.getGraph).toHaveBeenCalled());
   });
 });

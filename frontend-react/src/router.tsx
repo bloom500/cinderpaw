@@ -12,7 +12,7 @@ const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ d
 const ExtensionsPage  = lazy(() => import('@/pages/ExtensionsPage').then((m) => ({ default: m.ExtensionsPage })));
 const ConnectorsPage  = lazy(() => import('@/pages/ConnectorsPage').then((m) => ({ default: m.ConnectorsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const MemoryLayersPage = lazy(() => import('@/pages/MemoryLayersPage').then((m) => ({ default: m.MemoryLayersPage })));
+const MemoryLayersPage = lazy(() => import('@/pages/MemoryLayersPage'));
 
 const lazyPage = (page: React.ReactNode) => <Suspense fallback={null}>{page}</Suspense>;
 
