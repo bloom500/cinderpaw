@@ -140,6 +140,8 @@ export function createOrganismRenderer(canvas: HTMLCanvasElement): OrganismRende
   const buf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
   const loc = gl.getAttribLocation(prog, 'a_pos');
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
@@ -161,6 +163,7 @@ export function createOrganismRenderer(canvas: HTMLCanvasElement): OrganismRende
   const render = (view: OrganismView, state: OrganismState) => {
     resize();
     gl.useProgram(prog);
+    gl.bindVertexArray(vao);
     gl.uniform2f(u_res, canvas.width, canvas.height);
     gl.uniform2f(u_center, view.centerX, view.centerY);
     gl.uniform1f(u_scale, view.scale);
@@ -174,6 +177,7 @@ export function createOrganismRenderer(canvas: HTMLCanvasElement): OrganismRende
   };
 
   return { render, resize, dispose() {
+    gl.deleteVertexArray(vao);
     gl.deleteProgram(prog); gl.deleteShader(vs); gl.deleteShader(fs); gl.deleteBuffer(buf);
   } };
 }
