@@ -56,6 +56,13 @@ export interface FractalMemoryDeps {
   minLeaves?: number;
   /** Optional diagnostics sink (production passes the sidecar logger). */
   log?: (msg: string) => void;
+  /**
+   * Optional write-back hook. `buildTree` calls it after each chunk of
+   * leaves is freshly embedded so vectors land on disk and the next
+   * rebuild can skip the embed roundtrip entirely. Production wires this
+   * to `EpisodicMemory.setEmbeddings`; tests use an in-memory map.
+   */
+  persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
 }
 
 export class FractalMemory {
@@ -67,6 +74,7 @@ export class FractalMemory {
   readonly #treePath: string;
   readonly #minLeaves: number;
   readonly #log?: (msg: string) => void;
+  readonly #persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
@@ -80,11 +88,17 @@ export class FractalMemory {
     this.#treePath = deps.treePath;
     this.#minLeaves = deps.minLeaves ?? 8;
     this.#log = deps.log;
+    this.#persistEmbeddings = deps.persistEmbeddings;
   }
 
   /** True once a tree is loaded/built and ready to serve semantic recalls. */
   get hasTree(): boolean {
     return this.#tree !== null && this.#leavesById !== null;
+  }
+
+  /** Leaves covered by the currently loaded/built tree (0 when none). */
+  get treeLeafCount(): number {
+    return this.#tree?.leafIds.length ?? 0;
   }
 
   /**
@@ -121,8 +135,14 @@ export class FractalMemory {
       return false;
     }
     let tree: TreeNode;
+    const t0 = Date.now();
+    this.#log?.(`fractal: rebuild started (${leaves.length} leaves)`);
     try {
-      tree = await buildTree(leaves, { embed: this.#embed, summarize: this.#summarize });
+      tree = await buildTree(leaves, {
+        embed: this.#embed,
+        summarize: this.#summarize,
+        persistEmbeddings: (rows) => this.#persistEmbeddings?.(rows),
+      });
     } catch (e) {
       this.#log?.(`fractal: tree build failed (embeddings unavailable?): ${String(e)}`);
       return false;
@@ -136,8 +156,26 @@ export class FractalMemory {
     }
     this.#tree = tree;
     this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
-    this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves)`);
+    const secs = ((Date.now() - t0) / 1000).toFixed(1);
+    this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
     return true;
+  }
+
+  /**
+   * Rebuild only when worthwhile: no tree yet, or the corpus has grown past
+   * `growthRatio`× the tree's current coverage. Avoids re-paying the (cloud)
+   * summary cost on every boot when the loaded tree is already fresh.
+   */
+  async rebuildIfStale(growthRatio = 1.2): Promise<boolean> {
+    const covered = this.treeLeafCount;
+    if (covered > 0) {
+      const corpus = this.#loadLeaves().length;
+      if (corpus < covered * growthRatio) {
+        this.#log?.(`fractal: tree fresh (${covered} covered, ${corpus} corpus); skip rebuild`);
+        return false;
+      }
+    }
+    return this.rebuild();
   }
 
   /**

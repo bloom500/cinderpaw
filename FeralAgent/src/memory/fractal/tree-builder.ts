@@ -24,6 +24,39 @@ import { kmeans as defaultKmeans } from "./kmeans.ts";
 
 /** Max children per parent. Tweakable; spec recommends ~8. */
 const BRANCH = 8;
+/**
+ * Leaves are embedded in chunks of this size — ONE bridge roundtrip to Rust
+ * per chunk, not one per leaf. A corpus of thousands of leaves embedded
+ * one-at-a-time (each its own stdin/stdout roundtrip) never finished before a
+ * restart; batching makes the first tree build tractable.
+ */
+const EMBED_CHUNK = 128;
+/**
+ * Cluster summaries run through the inference router (cloud or local). A wide
+ * corpus produces hundreds of parent nodes; awaiting them one-by-one made the
+ * build take ~15 min. Run a bounded number concurrently — fast without
+ * hammering the provider's rate limit.
+ */
+const SUMMARIZE_CONCURRENCY = 6;
+
+/** Map `items` through async `fn` with at most `limit` in flight; preserves order. */
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) {
+      out[i] = await fn(items[i]!, i);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+  );
+  return out;
+}
 
 /** Seed for `kmeans` — fixed for reproducible snapshot rebuilds. */
 const KMEANS_SEED = 1;
@@ -47,6 +80,15 @@ export interface BuildTreeDeps {
    * fewer leaves; production never sets this.
    */
   branch?: number;
+  /**
+   * Called after each chunk of leaves is embedded so callers can persist
+   * the vectors back to their store (typically SQLite, via
+   * `EpisodicMemory.setEmbeddings`). Per-chunk rather than once-at-the-end
+   * so a crash mid-build only re-pays the embedding cost for the last
+   * chunk, not the whole corpus. Optional — when omitted, vectors live
+   * only in memory and the next rebuild re-embeds everything.
+   */
+  persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
 }
 
 /** L2-normalize a Float32Array in place; returns it for chaining. */
@@ -95,19 +137,46 @@ export async function buildTree(
   // case (snapshots loaded from SQLite) all leaves arrive pre-embedded
   // and `embed` is never called.
   const leafById = new Map<number, Leaf>();
+  const needEmbed: Leaf[] = [];
   for (const leaf of leaves) {
     if (leaf.vec && leaf.vec.length > 0 && leaf.vec.some((x) => x !== 0)) {
       leafById.set(leaf.id, leaf);
-      continue;
+    } else {
+      needEmbed.push(leaf);
     }
+  }
+  if (needEmbed.length > 0) {
     if (!deps.embed) {
       throw new Error(
-        `buildTree: leaf ${leaf.id} has no embedding and no embed() was provided in deps`,
+        `buildTree: leaf ${needEmbed[0]!.id} has no embedding and no embed() was provided in deps`,
       );
     }
-    const [vec] = await deps.embed([leaf.text]);
-    if (!vec) throw new Error(`buildTree: embed returned no vector for leaf ${leaf.id}`);
-    leafById.set(leaf.id, { ...leaf, vec: normalize(vec) });
+    // Batch the embed calls — one roundtrip per chunk, never one per leaf.
+    for (let i = 0; i < needEmbed.length; i += EMBED_CHUNK) {
+      const chunk = needEmbed.slice(i, i + EMBED_CHUNK);
+      const vecs = await deps.embed(chunk.map((l) => l.text));
+      if (vecs.length !== chunk.length) {
+        throw new Error(
+          `buildTree: embed returned ${vecs.length} vectors for ${chunk.length} texts`,
+        );
+      }
+      // Normalized vectors + matching ids, paired up for the persist hook.
+      // Normalize here once so the caller doesn't have to redo it, and so
+      // what's stored on disk matches what the tree uses for clustering.
+      const persistBatch: { id: number; vec: Float32Array }[] = [];
+      for (let j = 0; j < chunk.length; j++) {
+        const rawVec = vecs[j];
+        if (!rawVec) throw new Error(`buildTree: embed returned no vector for leaf ${chunk[j]!.id}`);
+        const vec = normalize(rawVec);
+        leafById.set(chunk[j]!.id, { ...chunk[j]!, vec });
+        persistBatch.push({ id: chunk[j]!.id, vec });
+      }
+      // Fire-and-await: persistEmbeddings wraps its own transaction. If the
+      // hook throws we propagate — losing durability mid-build is worse
+      // than failing loudly, because the next run would silently re-embed
+      // everything and double the inference cost.
+      deps.persistEmbeddings?.(persistBatch);
+    }
   }
 
   // Level 0 — raw leaves wrapped as tree nodes.
@@ -151,23 +220,20 @@ export async function buildTree(
       bucket.push(current[i]!);
     }
 
-    // Build a parent per group.
-    const parents: TreeNode[] = [];
-    let pid = 0;
-    for (const [, members] of groups) {
-      const childTexts = members.map(textFor);
-      const summary = await summarize(childTexts);
-      parents.push({
-        id: `L${level}-${pid++}`,
-        level,
-        centroid: normalizedMean(members.map((m) => m.centroid)),
-        summary,
-        children: members,
-        leafIds: [...new Set(members.flatMap((m) => m.leafIds))].sort(
-          (a, b) => a - b,
-        ),
-      });
-    }
+    // Build a parent per group. Summaries run with bounded concurrency;
+    // group order is preserved so node ids stay deterministic.
+    const groupList = [...groups.values()];
+    const summaries = await mapLimit(groupList, SUMMARIZE_CONCURRENCY, (members) =>
+      summarize(members.map(textFor)),
+    );
+    const parents: TreeNode[] = groupList.map((members, pid) => ({
+      id: `L${level}-${pid}`,
+      level,
+      centroid: normalizedMean(members.map((m) => m.centroid)),
+      summary: summaries[pid]!,
+      children: members,
+      leafIds: [...new Set(members.flatMap((m) => m.leafIds))].sort((a, b) => a - b),
+    }));
     current = parents;
   }
 

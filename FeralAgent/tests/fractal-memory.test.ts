@@ -101,6 +101,51 @@ describe("FractalMemory — rebuild + semantic serve", () => {
     expect(r.context).toContain("[Memory context]");
   });
 
+  it("rebuildIfStale builds when no tree exists yet", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+    });
+    expect(fm.hasTree).toBe(false);
+    expect(await fm.rebuildIfStale()).toBe(true);
+    expect(fm.hasTree).toBe(true);
+  });
+
+  it("rebuildIfStale skips (no re-embed) when the tree already covers the corpus", async () => {
+    let embedCalls = 0;
+    const embed = async (texts: string[]) => {
+      embedCalls++;
+      return texts.map((t) => new Float32Array(t.includes("s-a") ? [1, 0] : [-1, 0]));
+    };
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed, summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+    });
+    expect(await fm.rebuild()).toBe(true);
+    const callsAfterBuild = embedCalls;
+    expect(await fm.rebuildIfStale()).toBe(false); // fresh → skip
+    expect(embedCalls).toBe(callsAfterBuild); // never re-embedded
+  });
+
+  it("rebuildIfStale rebuilds once the corpus grows past the ratio", async () => {
+    let extra = 0;
+    const dynLeaves = (): Leaf[] => {
+      const base = leaves();
+      for (let i = 0; i < extra; i++) {
+        base.push({ id: 100 + i, text: `new-${i} s-a`, vec: new Float32Array(0), ts: 1700000001000 + i, sessionId: "s-a" });
+      }
+      return base;
+    };
+    const fm = new FractalMemory({
+      loadLeaves: dynLeaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+    });
+    expect(await fm.rebuild()).toBe(true); // covers 12
+    expect(await fm.rebuildIfStale()).toBe(false); // still 12 → skip
+    extra = 12; // corpus now 24 (> 1.2 × 12)
+    expect(await fm.rebuildIfStale()).toBe(true); // grown → rebuild
+  });
+
   it("a persisted tree is adopted by a fresh instance via init()", async () => {
     const path = treePath();
     const a = new FractalMemory({

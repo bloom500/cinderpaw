@@ -1022,4 +1022,12 @@ export interface EpisodicEvent {
   timestamp: number;
   role: ChatMessage["role"];
   content: string;
+  /**
+   * Stored 384-dim L2-normalized embedding (raw little-endian f32 bytes).
+   * Populated by `EpisodicMemory.all()` when the row already has a vector in
+   * SQLite — `undefined` for rows that haven't been embedded yet (older rows,
+   * or ones enqueued for a backfill). Optional so legacy callers don't have
+   * to change.
+   */
+  embedding?: Float32Array;
 }

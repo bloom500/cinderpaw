@@ -291,12 +291,18 @@ async function main(): Promise<void> {
   // to RecallEngine, so there is zero regression before the model is on disk.
   // The tree is loaded from disk here; the first build runs in the background
   // after the embed bridge is wired (below), and is a no-op without a model.
+  //
+  // `loadLeaves` reuses the per-row embedding already stored in SQLite when
+  // present — that's what makes subsequent rebuilds free of re-embedding.
+  // `persistEmbeddings` is the write-back hook the tree builder calls after
+  // each chunk, so freshly-computed vectors land on disk for next time
+  // (crash-safe: rows that didn't get written just get re-embedded next run).
   const fractalMemory = new FractalMemory({
     loadLeaves: () =>
       episodic.all().map((e) => ({
         id: e.id ?? 0,
         text: e.content,
-        vec: new Float32Array(0), // buildTree embeds these
+        vec: e.embedding ?? new Float32Array(0), // reuse stored vec when present
         ts: e.timestamp,
         sessionId: e.sessionId,
       })),
@@ -306,6 +312,7 @@ async function main(): Promise<void> {
     fallback: recall,
     treePath: require("node:path").join(dataDir, "fractal-tree.json"),
     log,
+    persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
   });
   fractalMemory.init();
 
@@ -660,11 +667,12 @@ async function main(): Promise<void> {
   // present Rust returns an error and callers fall back to FTS5; this just
   // makes the path available.
   setEmbedInvoker(rsiBridgeEmbed(rsiBridge));
-  // First RAPTOR tree build, in the background now that embed() can reach Rust.
-  // No-op (and instant) until an embedding model is on disk or the corpus is
-  // large enough; never blocks boot and never throws into it.
+  // RAPTOR tree build, in the background now that embed() can reach Rust.
+  // `rebuildIfStale` is a no-op when init() already loaded a fresh tree from
+  // disk, so we don't re-pay the (cloud) summary cost on every boot — it only
+  // builds on first run or after the corpus grows materially.
   void fractalMemory
-    .rebuild()
+    .rebuildIfStale()
     .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
   // Forward declaration: the sidecar's onIdle restarts the engine via
   // the passive supervisor, but the supervisor needs the sidecar to

@@ -258,6 +258,33 @@ describe("buildTree — centroid normalization", () => {
   });
 });
 
+describe("buildTree — batched embedding", () => {
+  it("embeds missing-vector leaves in batches, not one call per leaf", () => {
+    const leaves: Leaf[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i,
+      text: `leaf-${i}`,
+      vec: new Float32Array(0), // force the embed path
+      ts: 1000 + i,
+      sessionId: "s1",
+    }));
+    let calls = 0;
+    let totalTexts = 0;
+    const deps = {
+      ...trivialDeps(),
+      embed: async (texts: string[]) => {
+        calls++;
+        totalTexts += texts.length;
+        return texts.map(() => new Float32Array([1, 0]));
+      },
+    };
+    return buildTree(leaves, deps).then((root) => {
+      expect(totalTexts).toBe(20); // every leaf still embedded
+      expect(calls).toBeLessThanOrEqual(2); // batched — NOT 20 serial calls
+      expect(root.leafIds.length).toBe(20); // all leaves present in the tree
+    });
+  });
+});
+
 describe("buildTree — error handling", () => {
   it("throws on empty input (caller error)", () => {
     return expect(buildTree([], trivialDeps())).rejects.toThrow(/empty/i);
