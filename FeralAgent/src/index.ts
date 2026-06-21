@@ -425,7 +425,13 @@ async function main(): Promise<void> {
   // knowledge graph. The extractor feeds both automatically in the
   // background; these tools let the agent act on "remember X" / "forget Y"
   // immediately and query what it already knows.
-  registry.register(createMemoryOpsTool(semantic));
+  // `memory_ops search` is also a facade over Fractal Memory Search: it
+  // augments the literal fact matches with semantically-relevant past
+  // conversations via the loaded RAPTOR tree. Best-effort — no model/tree just
+  // means no episodic section (the fact search is unchanged).
+  registry.register(
+    createMemoryOpsTool(semantic, (q, limit) => fractalMemory.query(q, limit)),
+  );
   registry.register(createMemoryGraphOpsTool(memoryGraph));
 
   // P0-2: feedback_skill — refine a skill's body given user feedback.

@@ -248,8 +248,46 @@ export class FractalMemory {
     });
   }
 
+  /**
+   * Structured semantic query over the loaded tree — the `fractalQuery`
+   * surface the `memory_ops`/`memory_graph` tool facades call. Returns ranked
+   * `{leafId, text}` hits (best first), embedding the query through the tree
+   * the same way `recall` does but without formatting a prompt block or
+   * excluding any session (an explicit tool query has no "current" session).
+   *
+   * Same contract as the rest of the facade: never throws, augment never
+   * replace. No tree, an embedding failure, or an empty query → `[]`, so the
+   * calling tool simply falls back to its own (non-fractal) results.
+   */
+  async query(pattern: string, limit: number): Promise<FractalQueryHit[]> {
+    if (!this.#tree || !this.#leavesById || !pattern.trim() || limit <= 0) return [];
+    const leavesById = this.#leavesById;
+    try {
+      const engine = new FractalRecallEngine({
+        tree: this.#tree,
+        embed: this.#embed,
+        ftsSearch: this.#ftsSearch,
+        leavesById,
+      });
+      const ids = await engine.rankedLeafIds(pattern, "", limit);
+      return ids.flatMap((leafId) => {
+        const leaf = leavesById.get(leafId);
+        return leaf ? [{ leafId, text: leaf.text }] : [];
+      });
+    } catch (e) {
+      this.#log?.(`fractal: query fell back to empty: ${String(e)}`);
+      return [];
+    }
+  }
+
   /** Map current episodic rows to `leafId → Leaf`, for the recall engine. */
   #mapLeaves(): Map<number, Leaf> {
     return new Map(this.#loadLeaves().map((l) => [l.id, l]));
   }
+}
+
+/** One structured hit from {@link FractalMemory.query}. */
+export interface FractalQueryHit {
+  leafId: number;
+  text: string;
 }

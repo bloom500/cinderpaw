@@ -19,6 +19,24 @@
 import type { Tool, ToolManifest } from "../../types.ts";
 import type { SemanticMemory, SemanticFact } from "../../memory/semantic.ts";
 
+/**
+ * Optional fractal episodic search — the facade over Fractal Memory Search.
+ * When wired (production passes `FractalMemory.query`), `memory_ops search`
+ * augments its semantic-fact matches with semantically-relevant past
+ * conversations. Narrow by design so the tool never imports the fractal stack
+ * and stays trivially testable. Returns ranked `{leafId, text}` hits.
+ */
+export type EpisodicSemanticSearch = (
+  query: string,
+  limit: number,
+) => Promise<{ leafId: number; text: string }[]>;
+
+/** How many episodic hits `search` surfaces alongside the fact matches. */
+const EPISODIC_LIMIT = 5;
+
+/** Per-hit snippet length, matching the recall engine's truncation. */
+const SNIPPET_MAX_CHARS = 200;
+
 type Action = "get" | "search" | "add" | "forget" | "list";
 
 const VALID_ACTIONS: ReadonlySet<Action> = new Set([
@@ -32,13 +50,28 @@ function formatFacts(facts: SemanticFact[]): string {
   return facts.map((f) => `- ${f.key}: ${f.value}`).join("\n");
 }
 
-export function createMemoryOpsTool(mem: SemanticMemory): Tool {
+function formatEpisodic(hits: { leafId: number; text: string }[]): string {
+  return hits
+    .map((h) => {
+      const snippet = h.text.length > SNIPPET_MAX_CHARS
+        ? h.text.slice(0, SNIPPET_MAX_CHARS) + "…"
+        : h.text;
+      return `- ${snippet}`;
+    })
+    .join("\n");
+}
+
+export function createMemoryOpsTool(
+  mem: SemanticMemory,
+  fractalSearch?: EpisodicSemanticSearch,
+): Tool {
   const manifest: ToolManifest = {
     name: "memory_ops",
     description:
       "Read or write the agent's persistent semantic memory (facts " +
       "about the user, their preferences, projects, etc.). Actions: " +
-      "`get` (single key), `search` (substring over values), `add` " +
+      "`get` (single key), `search` (substring over facts, plus " +
+      "semantically-relevant past conversations when available), `add` " +
       "(write or overwrite a fact), `forget` (delete a fact), `list` " +
       "(dump all). Keys are slug-style identifiers.",
     permissions: [],
@@ -79,13 +112,28 @@ export function createMemoryOpsTool(mem: SemanticMemory): Tool {
           const hits = mem.all().filter((f) =>
             f.key.toLowerCase().includes(needle) || f.value.toLowerCase().includes(needle),
           );
-          return {
-            ok: true,
-            content: hits.length === 0
-              ? `No facts matched "${query}".`
-              : `${hits.length} match(es):\n${formatFacts(hits)}`,
-            data: { hits, query },
-          };
+
+          // Facade over Fractal Memory Search: surface semantically-relevant
+          // past conversations next to the literal fact matches. Best-effort —
+          // a fractal failure (or no model) just means no episodic section, so
+          // the fact search degrades to exactly its legacy behavior.
+          let episodic: { leafId: number; text: string }[] = [];
+          if (fractalSearch) {
+            try {
+              episodic = await fractalSearch(query, EPISODIC_LIMIT);
+            } catch {
+              episodic = [];
+            }
+          }
+
+          const factBlock = hits.length === 0
+            ? `No facts matched "${query}".`
+            : `${hits.length} match(es):\n${formatFacts(hits)}`;
+          const content = episodic.length === 0
+            ? factBlock
+            : `${factBlock}\n\nRelated past conversations:\n${formatEpisodic(episodic)}`;
+
+          return { ok: true, content, data: { hits, query, episodic } };
         }
         case "add": {
           const key = typeof args.key === "string" && args.key.trim() ? args.key.trim() : "";
