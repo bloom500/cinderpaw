@@ -547,8 +547,19 @@ mod backend {
 
     /// bge-small and friends top out at a 512-token sequence; cap the context
     /// (and truncate inputs) to that — keeps KV memory tiny and matches the
-    /// model's training window.
+    /// model's training window. This is the per-SEQUENCE window.
     const EMBED_CTX_LEN: u32 = 512;
+    /// How many texts are embedded in ONE `llama_decode` (the batch path).
+    /// Short memories (most chat turns) pack many per decode; this is the cap.
+    const EMBED_MAX_BATCH_SEQS: u32 = 16;
+    /// Total context = per-sequence window × max sequences, so every packed
+    /// sequence keeps its full 512-token window even under a strict per-seq KV
+    /// split (n_ctx / n_seq_max == EMBED_CTX_LEN). bge KV at this size is tiny.
+    const EMBED_CTX_TOTAL: u32 = EMBED_MAX_BATCH_SEQS * EMBED_CTX_LEN;
+    /// Upper bound on tokens decoded in one call (the n_batch limit). A decode
+    /// packs sequences until either this many tokens or EMBED_MAX_BATCH_SEQS
+    /// sequences are queued, whichever comes first.
+    const EMBED_BATCH_TOKENS: u32 = 2048;
 
     /// Resolve the embedding GGUF: an explicit `FERAL_EMBED_MODEL` override
     /// wins; otherwise the bundled/downloaded default in the models dir. `None`
@@ -569,13 +580,22 @@ mod backend {
     }
 
     /// Load the embedding model + its pooled, embeddings-enabled context into
-    /// EMBED. CPU-only (`n_gpu_layers = 0`): the model is small and this keeps
-    /// VRAM for the chat model.
+    /// EMBED. GPU-offloaded by default: bge-small is ~130 MB, so putting every
+    /// layer on the GPU is cheap and turns ~2.8 s/text on CPU into milliseconds
+    /// — the difference between a tree that never finishes building over
+    /// thousands of memories and one that builds in a minute. Set
+    /// `FERAL_EMBED_GPU_LAYERS=0` to force CPU (for anyone tight on VRAM); on a
+    /// CPU-only build llama.cpp ignores the request and runs on CPU regardless.
     fn load_embedding(path: &Path) -> Result<()> {
         let backend = BACKEND.get_or_try_init(|| {
             LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
         })?;
-        let params = LlamaModelParams::default().with_n_gpu_layers(0);
+        // Default 999 = "all layers" (bge has ~12; any GPU fits it whole).
+        let gpu_layers: u32 = std::env::var("FERAL_EMBED_GPU_LAYERS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(999);
+        let params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
         let model = Arc::new(
             LlamaModel::load_from_file(backend, path, &params)
                 .map_err(|e| anyhow!("load embedding weights {:?}: {}", path, e))?,
@@ -585,10 +605,16 @@ mod backend {
         if n_embd == 0 {
             return Err(anyhow!("embedding model reports n_embd = 0"));
         }
+        // Size the context for BATCHED decoding: room for EMBED_MAX_BATCH_SEQS
+        // sequences, each with a full EMBED_CTX_LEN window, and an n_batch large
+        // enough to decode a packed batch in one call.
         let ctx_size =
-            NonZeroU32::new(EMBED_CTX_LEN).ok_or_else(|| anyhow!("invalid embedding ctx len"))?;
+            NonZeroU32::new(EMBED_CTX_TOTAL).ok_or_else(|| anyhow!("invalid embedding ctx len"))?;
         let ctx_params = LlamaContextParams::default()
             .with_n_ctx(Some(ctx_size))
+            .with_n_batch(EMBED_BATCH_TOKENS)
+            .with_n_ubatch(EMBED_BATCH_TOKENS)
+            .with_n_seq_max(EMBED_MAX_BATCH_SEQS)
             .with_embeddings(true)
             .with_pooling_type(LlamaPoolingType::Mean);
         let context = model
@@ -641,43 +667,68 @@ mod backend {
             .ok_or_else(|| anyhow!("embedding model unavailable after load"))?;
         let n_embd = state.n_embd;
 
-        let mut out: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
-        for text in texts {
+        // Tokenize everything up front (no `state.context` borrow held here, so
+        // the decode loop below can borrow it mutably without conflict). Empty
+        // inputs get a zero vector in place so result[i] lines up with texts[i].
+        let mut out: Vec<Vec<f32>> = vec![Vec::new(); texts.len()];
+        let mut pending: Vec<(usize, Vec<LlamaToken>)> = Vec::with_capacity(texts.len());
+        for (idx, text) in texts.iter().enumerate() {
             let mut tokens = state
                 .model
                 .str_to_token(text, AddBos::Always)
                 .map_err(|e| anyhow!("embedding tokenize: {}", e))?;
             if tokens.is_empty() {
-                // Empty/whitespace input — emit a zero vector so result[i] still
-                // lines up with texts[i]; downstream cosine guards zero vectors.
-                out.push(vec![0.0; n_embd]);
+                out[idx] = vec![0.0; n_embd]; // downstream cosine guards zeros
                 continue;
             }
-            // bge tops out at EMBED_CTX_LEN; truncate over-long inputs so the
-            // batch fits the context (and the default n_batch).
+            // bge tops out at EMBED_CTX_LEN; truncate over-long inputs so each
+            // sequence fits its per-seq window.
             if tokens.len() > EMBED_CTX_LEN as usize {
                 tokens.truncate(EMBED_CTX_LEN as usize);
             }
+            pending.push((idx, tokens));
+        }
 
-            let mut batch = LlamaBatch::new(tokens.len(), 1);
-            batch
-                .add_sequence(&tokens, 0, false)
-                .map_err(|e| anyhow!("embedding batch add: {}", e))?;
+        // Greedily pack sequences into decodes: at most EMBED_MAX_BATCH_SEQS
+        // sequences and EMBED_BATCH_TOKENS tokens per `llama_decode`. One decode
+        // embeds many texts at once — that's what turns thousands of one-at-a-
+        // time roundtrips into a handful of batched calls.
+        let mut i = 0usize;
+        while i < pending.len() {
+            let mut batch =
+                LlamaBatch::new(EMBED_BATCH_TOKENS as usize, EMBED_MAX_BATCH_SEQS as i32);
+            let mut local: Vec<usize> = Vec::new(); // local seq id -> global index
+            let mut tok_count = 0usize;
+            while i < pending.len()
+                && local.len() < EMBED_MAX_BATCH_SEQS as usize
+                && tok_count + pending[i].1.len() <= EMBED_BATCH_TOKENS as usize
+            {
+                let item = &pending[i];
+                let seq_id = local.len() as i32;
+                batch
+                    .add_sequence(&item.1, seq_id, false)
+                    .map_err(|e| anyhow!("embedding batch add: {}", e))?;
+                tok_count += item.1.len();
+                local.push(item.0);
+                i += 1;
+            }
 
-            // Fresh KV state per text (single shared context, one seq id).
+            // Fresh KV state per decode; pooled embeddings are read per seq id.
             state.context.clear_kv_cache();
             state
                 .context
                 .decode(&mut batch)
                 .map_err(|e| anyhow!("embedding decode: {}", e))?;
 
-            let emb = state
-                .context
-                .embeddings_seq_ith(0)
-                .map_err(|e| anyhow!("read pooled embedding: {}", e))?;
-            let mut v: Vec<f32> = emb.to_vec();
-            l2_normalize(&mut v);
-            out.push(v);
+            for (seq_id, &gidx) in local.iter().enumerate() {
+                let emb = state
+                    .context
+                    .embeddings_seq_ith(seq_id as i32)
+                    .map_err(|e| anyhow!("read pooled embedding: {}", e))?;
+                let mut v: Vec<f32> = emb.to_vec();
+                l2_normalize(&mut v);
+                out[gidx] = v;
+            }
         }
         Ok(out)
     }
