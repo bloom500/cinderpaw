@@ -56,7 +56,7 @@ import { ConnectorManager } from "./transports/connectors.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
-import { summarizeFromRouter } from "./memory/fractal/summarize.ts";
+import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory } from "./memory/fractal/fractal-memory.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import {
@@ -674,6 +674,43 @@ async function main(): Promise<void> {
   void fractalMemory
     .rebuildIfStale()
     .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
+  // Dev-only benchmark gate (FERAL_RUN_FRACTAL_BENCH=1). Runs INSIDE the live
+  // sidecar because embeddings only work here (the embed bridge needs Rust).
+  // Builds the tree if needed, scores flat FTS5 vs the fractal hybrid on a
+  // generated (or supplied) query set, writes a JSON report next to the tree,
+  // and logs the ship/no-ship verdict. Never affects normal startup.
+  if (process.env.FERAL_RUN_FRACTAL_BENCH) {
+    void (async () => {
+      try {
+        const fs = require("node:fs") as typeof import("node:fs");
+        await fractalMemory.rebuildIfStale();
+        if (!fractalMemory.hasTree) {
+          log("fractal-bench: no tree (no embedding model on disk?) — skipping");
+          return;
+        }
+        const queriesPath = process.env.FERAL_FRACTAL_BENCH_QUERIES;
+        const report = await fractalMemory.benchmark({
+          infer: routerInfer(router),
+          querySetJsonl: queriesPath ? fs.readFileSync(queriesPath, "utf8") : undefined,
+          count: Number(process.env.FERAL_FRACTAL_BENCH_COUNT) || 50,
+          seed: Number(process.env.FERAL_FRACTAL_BENCH_SEED) || 1,
+        });
+        const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
+        fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
+        const v = report.verdict;
+        log(
+          `fractal-bench: n=${report.n} k=${report.k} | ` +
+            `recall@${report.k} fractal=${report.fractal.meanRecallAtK.toFixed(3)} ` +
+            `fts=${report.fts.meanRecallAtK.toFixed(3)} | ` +
+            `p99 fractal=${report.fractal.p99Ms.toFixed(1)}ms fts=${report.fts.p99Ms.toFixed(1)}ms | ` +
+            `verdict=${v.ship ? "SHIP" : "HOLD"}${v.reasons.length ? " — " + v.reasons.join("; ") : ""} | ` +
+            `report=${outPath}`,
+        );
+      } catch (e) {
+        log(`fractal-bench: failed: ${String(e)}`);
+      }
+    })();
+  }
   // Forward declaration: the sidecar's onIdle restarts the engine via
   // the passive supervisor, but the supervisor needs the sidecar to
   // start it — late-bind through this holder to break the cycle.

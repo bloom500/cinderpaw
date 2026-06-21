@@ -28,8 +28,26 @@
 import { buildTree } from "./tree-builder.ts";
 import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
+import { runFractalBenchmark } from "./bench/run-benchmark.ts";
+import type { BenchReport } from "./bench/runner.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
+
+/** Options for {@link FractalMemory.benchmark}. */
+export interface FractalBenchmarkOptions {
+  /** Local-model completion, used to generate paraphrase queries. */
+  infer: (prompt: string) => Promise<string>;
+  /** Pre-labelled JSONL query set; when present, skips generation. */
+  querySetJsonl?: string;
+  /** Queries to generate when no JSONL is given (default 50). */
+  count?: number;
+  /** Seed for deterministic query sampling (default 1). */
+  seed?: number;
+  /** recall@k cutoff (default 10). */
+  k?: number;
+  /** p99 latency budget in ms (default 80). */
+  budgetMs?: number;
+}
 
 /** Minimal shape of the legacy engine we fall back to (RecallEngine). */
 export interface RecallFallback {
@@ -198,6 +216,36 @@ export class FractalMemory {
       }
     }
     return this.#fallback.recall(query, sessionId);
+  }
+
+  /**
+   * Run the benchmark gate against the currently loaded tree: flat FTS5 vs the
+   * fractal hybrid, over a generated (or supplied) labelled query set. Returns
+   * the recall@k + latency + ship report. Requires a built tree — call
+   * `rebuild()`/`init()` first; throws otherwise (a benchmark with no tree
+   * would just measure the fallback against itself).
+   *
+   * This is the entrypoint the dev-only sidecar trigger calls: the facade
+   * already holds the live embed bridge, FTS5 search, and leaf map, so the
+   * benchmark runs inside the running process where embeddings actually work.
+   */
+  async benchmark(opts: FractalBenchmarkOptions): Promise<BenchReport> {
+    if (!this.#tree || !this.#leavesById) {
+      throw new Error("FractalMemory.benchmark: no tree built — call rebuild() first");
+    }
+    return runFractalBenchmark({
+      loadLeaves: () => this.#loadLeaves().map((l) => ({ id: l.id, text: l.text })),
+      ftsSearch: this.#ftsSearch,
+      tree: this.#tree,
+      leavesById: this.#leavesById,
+      embed: this.#embed,
+      infer: opts.infer,
+      querySetJsonl: opts.querySetJsonl,
+      count: opts.count,
+      seed: opts.seed,
+      k: opts.k,
+      budgetMs: opts.budgetMs,
+    });
   }
 
   /** Map current episodic rows to `leafId → Leaf`, for the recall engine. */

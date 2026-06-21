@@ -134,11 +134,16 @@ export class FractalRecallEngine {
     this.#leavesById = deps.leavesById;
   }
 
-  async recall(query: string, sessionId: string): Promise<RecallResult> {
-    // Empty query: never worth surfacing anything.
-    if (!query.trim()) {
-      return { context: "", episodicHits: 0, semanticFacts: 0 };
-    }
+  /**
+   * The merge + re-rank that backs both `recall` and `rankedLeafIds`: embed
+   * the query, pull semantic hits from the tree and exact hits from FTS5,
+   * merge by id (FTS5 is the source of truth for text/session/role, the tree
+   * for score + path), drop the current session, apply the relevance floor,
+   * and sort by score + FTS boost. Returns the full sorted list — callers
+   * slice it to whatever cap they need. Empty/whitespace query → [].
+   */
+  async #rankedHits(query: string, sessionId: string): Promise<MergedHit[]> {
+    if (!query.trim()) return [];
 
     // 1. Embed the query.
     const [qVec] = await this.#embed([query]);
@@ -197,11 +202,29 @@ export class FractalRecallEngine {
     }
 
     // 5. Drop hits from the current session; re-rank by score + FTS boost.
-    const ranked = [...merged.values()]
+    return [...merged.values()]
       .filter((h) => h.sessionId !== sessionId)
       .filter((h) => h.fts || h.score > MIN_SEMANTIC_SCORE)
-      .sort((a, b) => (b.score + (b.fts ? FTS_BOOST : 0)) - (a.score + (a.fts ? FTS_BOOST : 0)))
-      .slice(0, MAX_CONTEXT_HITS);
+      .sort((a, b) => (b.score + (b.fts ? FTS_BOOST : 0)) - (a.score + (a.fts ? FTS_BOOST : 0)));
+  }
+
+  /**
+   * The ranked leaf ids behind a recall, for the benchmark gate (recall@k).
+   * Identical retrieval to `recall` — same embed, merge, session exclusion,
+   * dedup, and ordering — but returns ids instead of a formatted block.
+   * `limit` defaults to the same cap `recall` applies to its block.
+   */
+  async rankedLeafIds(
+    query: string,
+    sessionId: string,
+    limit = MAX_CONTEXT_HITS,
+  ): Promise<number[]> {
+    const ranked = await this.#rankedHits(query, sessionId);
+    return ranked.slice(0, limit).map((h) => h.id);
+  }
+
+  async recall(query: string, sessionId: string): Promise<RecallResult> {
+    const ranked = (await this.#rankedHits(query, sessionId)).slice(0, MAX_CONTEXT_HITS);
 
     // 6. Counters.
     const episodicHits = ranked.filter((h) => h.fts).length;
