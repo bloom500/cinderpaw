@@ -13,8 +13,8 @@ export interface OrganismView {
   scale: number; // complex units per HALF the canvas height (smaller = deeper)
 }
 
-/** Opening view — the whole young organism centered, slightly left of origin. */
-export const DEFAULT_VIEW: OrganismView = { centerX: -0.4, centerY: 0, scale: 1.3 };
+/** Opening view — the classic Mandelbrot framed: cardioid + head + antenna. */
+export const DEFAULT_VIEW: OrganismView = { centerX: -0.6, centerY: 0, scale: 1.25 };
 
 export function screenToComplex(px: number, py: number, width: number, height: number, v: OrganismView) {
   const aspect = width / height;

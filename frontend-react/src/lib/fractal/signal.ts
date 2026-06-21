@@ -42,21 +42,18 @@ const FLOOR_BOUNDS_B = 40;    // floor step per bounds_version (paradigm shift)
 const MORPH_ITER_G = 0.0008;  // morph per RSI iteration (then clamped)
 
 // Tuning (see spec §Signal Mapping).
-const POWER_MIN = 2;
-const POWER_MAX = 8;
-const POWER_K = 0.9;          // power gain per log2 unit of clusters
+// Exponent is locked to 2: the organism must read as THE Mandelbrot, not a
+// doubled/mirrored multibrot. Memory diversity drives depth/colour, not power.
+const MANDELBROT_POWER = 2;
 const WARP_SIGMA = 0.12;      // base Gaussian width per warp seed (Phase 3b)
 
 export function deriveOrganismState(input: OrganismInput): DerivedOrganism {
-  const { clusterCount, eliteNodeCount, rsi, persistedFloor, clusters } = input;
+  const { eliteNodeCount, rsi, persistedFloor, clusters } = input;
   const engine = rsi?.engine ?? null;
   const iter = engine?.iteration ?? 0;
   const boundsVersion = rsi?.bounds_version ?? 0;
 
-  const power = Math.min(
-    POWER_MAX,
-    Math.max(POWER_MIN, POWER_MIN + POWER_K * Math.log2(1 + Math.max(0, clusterCount))),
-  );
+  const power = MANDELBROT_POWER;
 
   const floorCandidate = FLOOR_ITER_A * iter + FLOOR_BOUNDS_B * boundsVersion;
   const floor = Math.max(persistedFloor, floorCandidate, 0);

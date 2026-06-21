@@ -6,19 +6,18 @@ const noRsi = null;
 const rsiWith = (iteration: number, bounds_version = 0): RsiStatus =>
   ({ engine: { iteration }, bounds_version } as unknown as RsiStatus);
 
-describe('deriveOrganismState — power (arms from diversity)', () => {
-  it('newborn (no clusters) → power 2', () => {
+describe('deriveOrganismState — power (always the classic Mandelbrot)', () => {
+  // The set must read as THE Mandelbrot (power 2), never a doubled/mirrored
+  // multibrot. Diversity drives depth/colour elsewhere, not the exponent.
+  it('power is 2 for a newborn', () => {
     const { state } = deriveOrganismState({ clusterCount: 0, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 });
     expect(state.power).toBe(2);
   });
-  it('power rises with clusterCount', () => {
-    const a = deriveOrganismState({ clusterCount: 2, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 }).state.power;
-    const b = deriveOrganismState({ clusterCount: 32, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 }).state.power;
-    expect(b).toBeGreaterThan(a);
-  });
-  it('power is clamped to 8', () => {
-    const { state } = deriveOrganismState({ clusterCount: 100000, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 });
-    expect(state.power).toBeLessThanOrEqual(8);
+  it('power stays 2 regardless of clusterCount', () => {
+    for (const clusterCount of [1, 2, 5, 32, 100000]) {
+      const { state } = deriveOrganismState({ clusterCount, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 });
+      expect(state.power).toBe(2);
+    }
   });
 });
 
