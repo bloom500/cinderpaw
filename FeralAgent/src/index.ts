@@ -780,6 +780,49 @@ async function main(): Promise<void> {
         void connectors.reload();
         break;
 
+      // PROVISIONAL (temporary Settings button): run the Fractal Memory Search
+      // benchmark gate on demand and emit the verdict back to the UI. Runs off
+      // the hot path; builds the tree first if needed.
+      case "fractal_benchmark": {
+        void (async () => {
+          try {
+            await fractalMemory.rebuildIfStale();
+            if (!fractalMemory.hasTree) {
+              transport.send({
+                type: "fractal_bench_result",
+                ok: false,
+                error: "No RAPTOR tree yet — is the embedding model present and the build finished?",
+              } as unknown as import("./types.ts").OutboundEvent);
+              return;
+            }
+            const report = await fractalMemory.benchmark({ infer: routerInfer(router), count: 50 });
+            const fs = require("node:fs") as typeof import("node:fs");
+            const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
+            fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
+            transport.send({
+              type: "fractal_bench_result",
+              ok: true,
+              ship: report.verdict.ship,
+              reasons: report.verdict.reasons,
+              n: report.n,
+              k: report.k,
+              fractalRecall: report.fractal.meanRecallAtK,
+              ftsRecall: report.fts.meanRecallAtK,
+              fractalP99Ms: report.fractal.p99Ms,
+              ftsP99Ms: report.fts.p99Ms,
+              path: outPath,
+            } as unknown as import("./types.ts").OutboundEvent);
+          } catch (e) {
+            transport.send({
+              type: "fractal_bench_result",
+              ok: false,
+              error: String(e),
+            } as unknown as import("./types.ts").OutboundEvent);
+          }
+        })();
+        break;
+      }
+
       case "shutdown":
         log(`shutdown requested`);
         askUser.cancelAll("shutdown");

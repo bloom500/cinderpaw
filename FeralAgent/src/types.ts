@@ -856,6 +856,9 @@ export interface InboundMessage {
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
     | "desktop_control_response" | "connectors_reload"
+    // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
+    // benchmark gate on demand. Remove with the button after the ship/hold call.
+    | "fractal_benchmark"
     // RSI engine driver (Faza 1 production wiring) — the Rust host
     // commands the sidecar engine via these messages; the sidecar
     // emits `rsi_engine_event` outbound events to ack + mirror state.

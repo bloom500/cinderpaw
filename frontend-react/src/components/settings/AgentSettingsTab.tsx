@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn } from '@/lib/utils';
 import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
+import { FractalBenchmarkPanel } from './FractalBenchmarkPanel'; // PROVISIONAL — remove after ship/hold decision
 
 export function AgentSettingsTab() {
   const navigate          = useNavigate();
@@ -53,6 +54,7 @@ export function AgentSettingsTab() {
       <TokenBudgetToggle />
       <RsiBudgetControl />
       <RsiEngineStatusPanel />
+      <FractalBenchmarkPanel />{/* PROVISIONAL — remove after ship/hold decision */}
       <DesktopControlToggle />
 
       <div className="flex items-center gap-2">
