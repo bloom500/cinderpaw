@@ -10,6 +10,7 @@ import {
   type OrganismView,
 } from '@/lib/fractal/organism';
 import { deriveOrganismState, type OrganismState } from '@/lib/fractal/signal';
+import { breathingMorph, BREATH_WINDOW_MS } from '@/lib/fractal/breathing';
 import { maturity } from '@/lib/fractal/maturity';
 
 const REST_STATE: OrganismState = { power: 2, depthBoost: 0, morph: 0, warpSeeds: [] };
@@ -21,6 +22,9 @@ export default function MemoryLayersPage() {
   const stateRef = useRef<OrganismState>(REST_STATE);
   const [loading, setLoading] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
+  // Active breath: a self-terminating RAF started by a `recall` pulse. null
+  // when the organism is at rest (no idle animation).
+  const breathRef = useRef<{ raf: number; start: number; base: OrganismState } | null>(null);
 
   const draw = useCallback(() => {
     rendererRef.current?.render(viewRef.current, stateRef.current);
@@ -69,6 +73,49 @@ export default function MemoryLayersPage() {
   }, [impulseTo]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Breathing: a `recall` pulse makes the organism breathe over the active
+  // region for one window, then it goes perfectly still again. The loop reads
+  // the current resting state as its base and overlays the morph swell on top,
+  // restoring the base and stopping itself once the window elapses.
+  const startBreathing = useCallback(() => {
+    if (breathRef.current) cancelAnimationFrame(breathRef.current.raf);
+    const base = stateRef.current;
+    const start = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - start;
+      if (elapsed >= BREATH_WINDOW_MS) {
+        stateRef.current = base;       // back to rest
+        draw();
+        breathRef.current = null;      // loop stops — no idle animation
+        return;
+      }
+      const m = breathingMorph(elapsed);
+      stateRef.current = { ...base, morph: Math.max(base.morph, m) };
+      draw();
+      breathRef.current = { raf: requestAnimationFrame(tick), start, base };
+    };
+    breathRef.current = { raf: requestAnimationFrame(tick), start, base };
+  }, [draw]);
+
+  // Stop any in-flight breath on unmount.
+  useEffect(() => () => {
+    if (breathRef.current) cancelAnimationFrame(breathRef.current.raf);
+    breathRef.current = null;
+  }, []);
+
+  // Live evolution, driven by Fractal Memory Search (not RSI):
+  //   grow   → re-pull memory + ease the form to its new size (filament growth)
+  //   recall → breathe over the just-traversed region
+  useEffect(() => {
+    let alive = true;
+    const unlistenP = events.onFractalActivity.listen((e) => {
+      if (!alive) return;
+      if (e.kind === 'grow') void refresh();
+      else if (e.kind === 'recall') startBreathing();
+    });
+    return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
+  }, [refresh, startBreathing]);
 
   // Live evolution: re-pull + pulse whenever the RSI engine reports progress.
   useEffect(() => {

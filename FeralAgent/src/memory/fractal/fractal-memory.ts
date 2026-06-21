@@ -54,6 +54,16 @@ export interface RecallFallback {
   recall(query: string, sessionId: string): RecallResult;
 }
 
+/**
+ * A pulse the living organism listens to. The sidecar forwards these to the
+ * frontend so the Mandelbrot is driven by Fractal Memory Search, not RSI:
+ *   - `recall` — a real semantic query traversed the tree → breathing focuses
+ *   - `grow`   — a rebuild grew the tree → filaments extend
+ */
+export type FractalActivity =
+  | { kind: "recall"; hits: number }
+  | { kind: "grow"; leafCount: number; clusterCount: number };
+
 export interface FractalMemoryDeps {
   /** Pull the current episodic rows as leaves (vectors optional — `buildTree`
    *  embeds any leaf missing one). Used both to build the tree and to map
@@ -81,6 +91,12 @@ export interface FractalMemoryDeps {
    * to `EpisodicMemory.setEmbeddings`; tests use an in-memory map.
    */
   persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
+  /**
+   * Optional sink for organism pulses (recall/grow). Production wires this to
+   * the sidecar transport so Rust forwards the pulse to the frontend; tests
+   * collect into an array. Best-effort — a throwing sink never breaks recall.
+   */
+  onActivity?: (activity: FractalActivity) => void;
 }
 
 export class FractalMemory {
@@ -93,6 +109,7 @@ export class FractalMemory {
   readonly #minLeaves: number;
   readonly #log?: (msg: string) => void;
   readonly #persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
+  readonly #onActivity?: (activity: FractalActivity) => void;
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
@@ -107,6 +124,17 @@ export class FractalMemory {
     this.#minLeaves = deps.minLeaves ?? 8;
     this.#log = deps.log;
     this.#persistEmbeddings = deps.persistEmbeddings;
+    this.#onActivity = deps.onActivity;
+  }
+
+  /** Emit an organism pulse; a throwing/absent sink is never fatal. */
+  #emit(activity: FractalActivity): void {
+    if (!this.#onActivity) return;
+    try {
+      this.#onActivity(activity);
+    } catch (e) {
+      this.#log?.(`fractal: activity sink threw (ignored): ${String(e)}`);
+    }
   }
 
   /** True once a tree is loaded/built and ready to serve semantic recalls. */
@@ -176,6 +204,7 @@ export class FractalMemory {
     this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
+    this.#emit({ kind: "grow", leafCount: tree.leafIds.length, clusterCount: tree.children.length });
     return true;
   }
 
@@ -210,7 +239,12 @@ export class FractalMemory {
           ftsSearch: this.#ftsSearch,
           leavesById: this.#leavesById,
         });
-        return await engine.recall(query, sessionId);
+        const result = await engine.recall(query, sessionId);
+        // A real semantic traversal happened → pulse the organism so breathing
+        // focuses on the active region. Only on the semantic path, never on the
+        // FTS5 fallback below.
+        this.#emit({ kind: "recall", hits: result.semanticFacts });
+        return result;
       } catch (e) {
         this.#log?.(`fractal: recall fell back to FTS5: ${String(e)}`);
       }

@@ -57,7 +57,7 @@ import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
-import { FractalMemory } from "./memory/fractal/fractal-memory.ts";
+import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import {
   PassiveSupervisor,
@@ -297,6 +297,12 @@ async function main(): Promise<void> {
   // `persistEmbeddings` is the write-back hook the tree builder calls after
   // each chunk, so freshly-computed vectors land on disk for next time
   // (crash-safe: rows that didn't get written just get re-embedded next run).
+  // Organism pulse forwarder: FractalMemory emits recall/grow activity that
+  // drives the living Mandelbrot. The transport doesn't exist yet, so route
+  // through a holder wired to it below (same pattern as `sendHolder`).
+  const fractalActivitySink: { current: (a: FractalActivity) => void } = {
+    current: () => {},
+  };
   const fractalMemory = new FractalMemory({
     loadLeaves: () =>
       episodic.all().map((e) => ({
@@ -313,6 +319,7 @@ async function main(): Promise<void> {
     treePath: require("node:path").join(dataDir, "fractal-tree.json"),
     log,
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
+    onActivity: (a) => fractalActivitySink.current(a),
   });
   fractalMemory.init();
 
@@ -656,6 +663,11 @@ async function main(): Promise<void> {
   // React UI, and `ask_user_response` messages from the UI are routed back
   // to the bridge inside the `onMessage` handler below.
   sendHolder.current = (e) => transport.send(e);
+  // Forward organism pulses as plain sidecar lines; Rust relays every line to
+  // the frontend over `feral://agent-output`, where the organism filters for
+  // `type: "fractal_activity"` (mirrors how RSI engine events travel).
+  fractalActivitySink.current = (a) =>
+    transport.send({ type: "fractal_activity", ...a } as unknown as import("./types.ts").OutboundEvent);
 
   // --- RSI sidecar (Faza 1) ---
   // The bridge writes `rsi_request` lines via transport.send; the

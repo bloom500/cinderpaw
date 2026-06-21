@@ -57,6 +57,20 @@ export interface RsiEngineEventLine {
   stopReason?: string;
 }
 
+/**
+ * A Fractal Memory Search pulse, extracted from a `feral://agent-output` line.
+ * The sidecar emits these so the living organism is driven by memory activity,
+ * not RSI: `recall` (a semantic query traversed the tree → breathing) and
+ * `grow` (a rebuild grew the tree → filament growth). Counts are per-kind.
+ */
+export interface FractalActivityLine {
+  type: 'fractal_activity';
+  kind: 'recall' | 'grow';
+  hits?: number;
+  leafCount?: number;
+  clusterCount?: number;
+}
+
 function wrap<T>(channel: string) {
   return {
     listen: (cb: EventCallback<T>): Promise<UnlistenFn> => listen<T>(channel, cb),
@@ -101,6 +115,29 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'rsi_engine_event'
           ) {
             cb(parsed as RsiEngineEventLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
+   * Fractal Memory Search activity (`recall` / `grow`), filtered out of the
+   * raw sidecar line stream. Drives the living organism. Same `.listen(cb)`
+   * shape as every other event here.
+   */
+  onFractalActivity: {
+    listen: (cb: (e: FractalActivityLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'fractal_activity'
+          ) {
+            cb(parsed as FractalActivityLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore
