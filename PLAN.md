@@ -51,8 +51,13 @@ fallback la RecallEngine). Toate cu teste.
   regresează recall **ȘI** rămâne sub buget. Rulează **în sidecar**
   (`FERAL_RUN_FRACTAL_BENCH=1`), scrie `data/fractal-bench-report.json`.
   46 teste noi, 908/908 verde, tsc curat. Vezi `FeralAgent/src/memory/fractal/bench/README.md`.
-- ⬜ **Facade `memory_graph` / `memory_ops`** — uneltele de memorie ale
-  agentului să treacă prin noul `fractalQuery`, păstrând forma de output.
+- ✅ **Facade `memory_ops`** (commit `c3c6630`) — `FractalMemory.query()` =
+  suprafața `fractalQuery` (hituri `{leafId, text}` structurate); `memory_ops
+  search` adaugă „Related past conversations" lângă fact-matches, păstrând
+  forma de output (fără model/arbore = exact comportamentul vechi). 916 teste.
+- ⬜ **Facade `memory_graph`** — lăsat intenționat ca-atare: e alt model de
+  date (triple entity-relation), nu text episodic → nu se potrivește pe
+  fractalul episodic-semantic. De reevaluat doar dacă apare un caz real.
 
 ### Faza 3 — Organism viz (frontend) ✅ ~gata
 - ✅ Rescris „Memory Layers” ca organism pur Mandelbrot (fără text/noduri).
