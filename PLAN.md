@@ -64,15 +64,22 @@ fallback la RecallEngine). Toate cu teste.
 - ✅ Eliminat path-ul `FilamentText`.
 - ✅ Renderer WebGL2 `z^d+c` + zoom ancorat pe cursor.
 
-### Faza 4 — „Breathing” pe activitate 🟡
+### Faza 4 — „Breathing” pe activitate ✅ *(logică gata; vizual de confirmat)*
 - ✅ Evoluție live pulsată de evenimente (idle = înghețat).
-- 🟡 Morph/breathing localizat pe regiunile traversate de query — de rafinat.
+- ✅ `breathing.ts` — anvelopă pură, auto-terminantă (~0.3 Hz swell sub decay
+  liniar, cap 0.12 Julia-blend, exact 0 după fereastră) → idle = imobil. Testat.
+- ✅ RAF gated în `MemoryLayersPage` pe pulsul `recall` (suprapune morph, se
+  oprește singur). 👁 De confirmat VIZUAL în app.
 
-### Faza 5 — Cuplare + decizie (ambele) ⬜
-- ⬜ **RULEAZĂ benchmark-ul cu model real** pe memorii reale → **decizie
-  ship/hold**. (Doar tu poți: cere GGUF pe disc + app live.)
-- ⬜ Leagă evenimentele FractalMemorySearch → motorul de creștere al organismului
-  (ingest → filament; query → breathing; cluster terminal → mini-brot).
+### Faza 5 — Cuplare + decizie ✅ cuplare / ⬜ decizie
+- ✅ **Cuplare DONE (commit d700bc5):** organismul e hrănit de Fractal Memory
+  Search, NU de RSI. `FractalMemory` emite pulsuri `recall`/`grow` prin sink
+  injectat → index.ts le trimite ca linii `fractal_activity` → Rust le relează
+  (fără schimbări Rust) → `events.onFractalActivity` în frontend. `grow` =
+  re-pull + creștere; `recall` = breathing. Sidecar 921, frontend 23, tsc curat.
+- ⬜ Mini-brot pe cluster terminal — neimplementat încă (nice-to-have).
+- ⬜ **RULEAZĂ benchmark-ul cu model real** → **decizie ship/hold**. (Doar tu:
+  GGUF pe disc + app live.)
 - ⬜ Test pe ~10k memorii.
 
 ### Rămas tehnic (oricând, post-gate)
