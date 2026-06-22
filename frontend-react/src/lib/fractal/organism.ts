@@ -11,11 +11,12 @@ export const MAX_WARP = 32;
 
 /** Pack warp seeds into fixed-length uniform arrays (clamped to MAX_WARP). */
 export function packWarpUniforms(seeds: WarpSeed[]): { count: number; xy: Float32Array; sa: Float32Array } {
-  const count = Math.min(seeds.length, MAX_WARP);
+  const ranked = [...seeds].sort((a, b) => b.amp - a.amp);
+  const count = Math.min(ranked.length, MAX_WARP);
   const xy = new Float32Array(MAX_WARP * 2);
   const sa = new Float32Array(MAX_WARP * 2);
   for (let i = 0; i < count; i++) {
-    const s = seeds[i]!;
+    const s = ranked[i]!;
     xy[i * 2] = s.x; xy[i * 2 + 1] = s.y;
     sa[i * 2] = s.sigma; sa[i * 2 + 1] = s.amp;
   }
@@ -60,14 +61,14 @@ uniform float u_power;     // fractional multibrot power (2..8)
 uniform float u_morph;     // 0..0.12 Julia blend
 uniform int   u_samples;   // 1 or 4
 uniform int  u_warpCount;
-uniform vec2 u_warpXY[32];
-uniform vec2 u_warpSA[32];   // (sigma, amp) per seed
+uniform vec2 u_warpXY[${MAX_WARP}];
+uniform vec2 u_warpSA[${MAX_WARP}];   // (sigma, amp) per seed
 
 const vec2 C_SEED = vec2(-0.8, 0.156);
 
 vec2 warp(vec2 c) {
   vec2 d = vec2(0.0);
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < ${MAX_WARP}; i++) {
     if (i >= u_warpCount) break;
     vec2 diff = c - u_warpXY[i];
     float sigma = max(u_warpSA[i].x, 1e-3);
