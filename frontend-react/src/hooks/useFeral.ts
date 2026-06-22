@@ -77,6 +77,13 @@ function isOkResult(result: unknown): boolean {
 
 export { type MascotStateSink };
 
+/**
+ * Join two answer segments with a blank line. Multi-step agent turns emit
+ * prose, call a tool, then emit more prose; without joining, only the segment
+ * after the LAST tool call survived (the rest was wiped on tool_start).
+ */
+const joinSegments = (a: string, b: string): string => (a && b ? a + '\n\n' + b : a + b);
+
 export function useFeralStream(chatSessionId: string) {
   const send = useCallback(
     async (content: string, callbacks: StreamCallbacks, images?: string[]) => {
@@ -197,6 +204,10 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
       const state = {
         buffer: '',
         answer: '',
+        // Prose from segments BEFORE the current one, joined. A multi-step
+        // answer (prose → tool → prose → tool → prose) accumulates here so
+        // the whole response survives instead of only the last segment.
+        committed: '',
         thinkingStartMs: 0,
         thinkingDurationRecorded: false,
         toolCallCount: 0,
@@ -205,7 +216,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
       const persistFinal = async () => {
         const persisted: PersistedMessage[] = snapshot.map((m) => ({
           role: m.role,
-          content: m.id === asstId ? state.answer : m.content,
+          content: m.id === asstId ? joinSegments(state.committed, state.answer) : m.content,
           thinking: m.thinking || undefined,
           voice: voiceToPersisted(m.voice),
         }));
@@ -229,8 +240,9 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           // mid-message <tool_call> stays visible; the call itself never does).
           const visibleAnswer = stripStreamingToolCalls(split.answer);
           state.answer = visibleAnswer;
+          const display = joinSegments(state.committed, visibleAnswer);
           updateLiveSession(sessionId, {
-            content: visibleAnswer,
+            content: display,
             ...(split.thinking !== null
               ? { thinking: split.thinking, thinkingComplete: split.thinkingComplete }
               : {}),
@@ -238,7 +250,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           });
           if (isActive()) {
             const chat = useChat.getState();
-            const patch: Partial<ChatMessage> = { content: visibleAnswer };
+            const patch: Partial<ChatMessage> = { content: display };
             if (split.thinking !== null) {
               if (state.thinkingStartMs === 0) state.thinkingStartMs = Date.now();
               patch.thinking = split.thinking;
@@ -254,6 +266,10 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
         },
         onToolStart: (_callId, tool, args) => {
           state.toolCallCount += 1;
+          // Commit the prose emitted before this tool call so it survives the
+          // buffer reset; otherwise only the segment after the LAST tool call
+          // reached the bubble (the "only the last sentence" bug).
+          if (state.answer.trim()) state.committed = joinSegments(state.committed, state.answer);
           state.buffer = '';
           state.answer = '';
           state.thinkingStartMs = 0;
@@ -272,13 +288,16 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
             endedAt: null,
           });
           updateLiveSession(sessionId, {
-            content: '',
+            content: state.committed,
             thinking: null,
             agentPhase: 'calling',
             agentTool: tool,
           });
           if (isActive()) {
             useChat.getState().clearStreamingContent();
+            // Keep prior segments on screen while the tool runs; clearing to ''
+            // is what made earlier prose vanish.
+            useChat.getState().updateLastAssistantMessage({ content: state.committed });
             useChat.getState().setAgentPhase('calling', tool);
             syncToolStrip();
           }
@@ -333,12 +352,12 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
         },
         onDone: async (finalContent?: string, stopped = false) => {
           endLiveSession(sessionId);
-          if (state.answer.trim().length === 0 && finalContent?.trim()) {
+          if (joinSegments(state.committed, state.answer).trim().length === 0 && finalContent?.trim()) {
             const cleaned = splitThinking(finalContent).answer.trim();
             if (cleaned) {
               state.answer = cleaned;
               if (isActive()) {
-                useChat.getState().updateLastAssistantMessage({ content: state.answer });
+                useChat.getState().updateLastAssistantMessage({ content: joinSegments(state.committed, state.answer) });
               }
             }
           }
@@ -348,7 +367,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
             // 5s post-done window before clearing the bubble strip.
             setTimeout(() => useChat.getState().clearToolCallStream(), 5000);
           }
-          if (state.answer.trim().length > 0) await persistFinal();
+          if (joinSegments(state.committed, state.answer).trim().length > 0) await persistFinal();
           if (state.toolCallCount > 3 && mascotSink) {
             mascotSink.setMascotState('cool');
           }
