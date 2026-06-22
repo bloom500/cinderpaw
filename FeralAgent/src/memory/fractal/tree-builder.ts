@@ -42,6 +42,36 @@ const EMBED_CHUNK = (() => {
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 32;
 })();
 /**
+ * Max characters per leaf when its text is fed into a cluster summary
+ * prompt. The 2700-leaf corpus has long conversation memories (some
+ * 10k+ chars); without this cap, a single cluster aggregating a few of
+ * those would blow the chat provider's context window and MiniMax
+ * rejects the whole build with `context window exceeds limit (2013)`.
+ * Default 800 chars ≈ 200 tokens, plenty for a one-line thematic summary
+ * even after stripping boilerplate. Override with `FERAL_TREE_ITEM_MAX_CHARS`.
+ *
+ * Read at call-time (not module-load time) so tests can override the
+ * env var without dynamic-import gymnastics.
+ */
+function maxItemChars(): number {
+  const n = Number(process.env.FERAL_TREE_ITEM_MAX_CHARS);
+  return Number.isFinite(n) && n >= 100 ? Math.floor(n) : 800;
+}
+/**
+ * Max total characters across all items in one cluster-summary prompt.
+ * Even with per-item capping, a dense cluster of N items × maxItemChars()
+ * can still exceed the provider's window. This is the second line of
+ * defence: stop accumulating items once the running total hits the cap
+ * (truncating the boundary item to fit if needed). Default 12 000 chars
+ * ≈ 3 000 tokens, safely inside any 8k+ provider context window even
+ * with a non-trivial system prompt + RAPTOR instructions. Override with
+ * `FERAL_TREE_CLUSTER_MAX_CHARS`.
+ */
+function maxClusterItemsChars(): number {
+  const n = Number(process.env.FERAL_TREE_CLUSTER_MAX_CHARS);
+  return Number.isFinite(n) && n >= 500 ? Math.floor(n) : 12_000;
+}
+/**
  * Cluster summaries run through the inference router (cloud or local). A wide
  * corpus produces hundreds of parent nodes; awaiting them one-by-one made the
  * build take ~15 min. Run a bounded number concurrently — fast without
@@ -70,6 +100,37 @@ async function mapLimit<T, R>(
 
 /** Seed for `kmeans` — fixed for reproducible snapshot rebuilds. */
 const KMEANS_SEED = 1;
+
+/**
+ * Cap the items array so its total character count stays under
+ * `maxTotalChars`. Stops appending once the running total hits the cap
+ * and truncates the boundary item to fit if needed (so the cluster
+ * always contributes at least one item, and the total never exceeds the
+ * cap by more than a single trailing ellipsis).
+ *
+ * Used to keep cluster-summary prompts inside the chat provider's
+ * context window — see `MAX_CLUSTER_ITEMS_CHARS` above.
+ */
+function capClusterItems(items: string[], maxTotalChars: number): string[] {
+  if (items.length === 0) return items;
+  const out: string[] = [];
+  let total = 0;
+  for (const item of items) {
+    if (total >= maxTotalChars) break;
+    const remaining = maxTotalChars - total;
+    if (item.length <= remaining) {
+      out.push(item);
+      total += item.length;
+    } else {
+      // Truncate the boundary item to fit, keeping a single trailing
+      // ellipsis as a marker so downstream code can detect the cut.
+      const slice = remaining > 1 ? item.slice(0, remaining - 1) + "…" : "…";
+      out.push(slice);
+      total = maxTotalChars;
+    }
+  }
+  return out;
+}
 
 export interface BuildTreeDeps {
   /** Optional fallback for leaves that arrive without an embedding. */
@@ -202,11 +263,21 @@ export async function buildTree(
   // The "what to summarize" text for a node:
   //   - raw leaf node: the leaf's original text
   //   - any other node: its summary
+  //
+  // The leaf-text branch applies maxItemChars() truncation so a single
+  // 10k-char memory doesn't dominate one cluster's summary prompt. The
+  // cap is small (default 800 chars ≈ 200 tokens) because the cluster
+  // summary is meant to capture a thematic label, not the whole memory.
   const textFor = (node: TreeNode): string => {
-    if (node.children.length === 0) {
-      return leafById.get(node.leafIds[0]!)?.text ?? "";
+    const raw =
+      node.children.length === 0
+        ? (leafById.get(node.leafIds[0]!)?.text ?? "")
+        : node.summary;
+    const cap = maxItemChars();
+    if (raw.length > cap) {
+      return raw.slice(0, cap - 1) + "…";
     }
-    return node.summary;
+    return raw;
   };
 
   // Bottom-up loop. Exit when the current level fits in `branch`; then wrap
@@ -232,9 +303,15 @@ export async function buildTree(
 
     // Build a parent per group. Summaries run with bounded concurrency;
     // group order is preserved so node ids stay deterministic.
+    //
+    // Each cluster's items list is capped to maxClusterItemsChars() so
+    // the prompt stays inside the chat provider's context window even
+    // when a dense cluster would otherwise aggregate several long
+    // memories into one request. See maxItemChars() for the per-text
+    // truncation that happens upstream.
     const groupList = [...groups.values()];
     const summaries = await mapLimit(groupList, SUMMARIZE_CONCURRENCY, (members) =>
-      summarize(members.map(textFor)),
+      summarize(capClusterItems(members.map(textFor), maxClusterItemsChars())),
     );
     const parents: TreeNode[] = groupList.map((members, pid) => ({
       id: `L${level}-${pid}`,
@@ -249,7 +326,7 @@ export async function buildTree(
 
   // Wrap whatever fits in BRANCH under one root.
   level++;
-  const rootTexts = current.map(textFor);
+  const rootTexts = capClusterItems(current.map(textFor), maxClusterItemsChars());
   const rootSummary = await summarize(rootTexts);
   const root: TreeNode = {
     id: "root",
