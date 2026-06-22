@@ -85,3 +85,67 @@ Fractal Memory.
 **Logical next step when resuming:** fix rebuild thrashing (single-flight),
 or validate the whole pipeline on a corpus subset small enough to rebuild in
 minutes on CPU.
+
+## Smoke test 2026-06-22 12:23 — first real numbers, HOLD (commit b8f2722)
+
+Took the "validate on a subset" path. Rebuilt tree on **200 leaves** (env
+`FERAL_FRACTAL_BENCH_MAX_LEAVES=200`), supplied 12 hard-labelled queries via
+`FERAL_FRACTAL_BENCH_QUERIES` (JSONL extracted from `episodic` table, query ==
+exact text of the source leaf). Skipped the LLM query-gen so the bench would
+run end-to-end without a chat model loaded.
+
+**Result (smoke):**
+- `fractal: recall@10=0.083 (1/12)  p99=1496ms`
+- `fts:    recall@10=1.000 (12/12) p99= 303ms`
+- `verdict=HOLD — recall regressed + p99 over budget`
+
+### Why this still isn't SHIP
+
+Fractal is **vastly worse** than FTS even on `query == exact text`, where
+FTS's exact-match gives it an unfair ceiling of 100%. Fractal missing 11/12
+with the same query the leaf is stored as is a real failure of the retrieval
+pipeline, not a sampling artefact.
+
+**Most likely root cause:** tree was built without cluster summaries.
+`FERAL_RUN_FRACTAL_BENCH=1` fires at boot, *before* the UI ever gets a
+chance to call `load_model`. Without a chat model loaded, `routerInfer()`
+returns empty summaries → the tree-builder still produces clusters but each
+cluster caption is `""` → top-level routing is garbage → traversal lands on
+the wrong branches → recall collapses. (Empirically consistent: summaries
+that DO land via the in-memory tree from prior runs got 0.5 recall; this
+fresh-from-scratch rebuild with no summaries got 0.083.)
+
+A secondary issue: p99 = 1496ms on the worst query. Tree traversal on a
+200-leaf tree with empty summaries + embedding on CPU is plausible to hit
+that number on the longest leaf, but it's still over the 80ms budget.
+
+### Honest framing for an investor / due diligence
+
+- "RSI + retrieval pipeline runs end-to-end and writes a real report in
+  <30 s." — **true**, proven.
+- "Fractal Memory Search beats FTS on real retrieval." — **false**. Not yet.
+  The smoke number (0.083 vs 1.000) goes the wrong way.
+- "MVP is architectural solid; benchmark validation is the next milestone."
+  — **true and the only honest framing**.
+
+### Next concrete steps (priority order)
+
+1. **Rebench with a chat model loaded** so cluster summaries are real
+   strings, not empty. Easiest path: launch with `FERAL_PROVIDER=openai_compatible`
+   `FERAL_BASE_URL=https://api.minimax.io/v1` `FERAL_API_KEY=…`
+   `FERAL_MODEL=MiniMax-M3` (do NOT set `FERAL_TRUSTED_BASE_URLS` — the
+   default `[primary.baseUrl]` allowlist is what lets the sidecar boot).
+   Note: query-gen still goes through `routerInfer` on the cloud model, so
+   the JSONL path is no longer needed; we can drop `FERAL_FRACTAL_BENCH_QUERIES`
+   and let LLM-generated paraphrases run.
+2. **Investigate why traversal misses even on `query == exact text`** even
+   when summaries *are* present (the 0.5 recall run). Hypothesis: embedding
+   cache miss on the query → bge CPU inference is correct but the leaf's
+   stored embedding was from a different bge build / quantisation, so
+   cosine sim < 0.99. Cheapest check: log the actual cosine sim at the
+   matching step.
+3. **Latency budget** — even at 0.5 recall p99 was 295ms. With a working
+   pipeline, profile embed vs traversal separately to know where the
+   remaining ms go. (Easy to add: `console.time`/`console.timeEnd` inside
+   the retrieval path, gated by `FERAL_BENCH_PROFILE=1`.)
+
