@@ -69,6 +69,7 @@ export interface FractalActivityLine {
   hits?: number;
   leafCount?: number;
   clusterCount?: number;
+  clusters?: { x: number; y: number; weight: number }[];
 }
 
 function wrap<T>(channel: string) {
