@@ -217,6 +217,38 @@ describe("buildTree — summary propagation", () => {
   });
 });
 
+describe("buildTree — branch via FERAL_TREE_BRANCH", () => {
+  it("the env override widens the branch when deps.branch is unset", () => {
+    // 12 leaves. Default branch 8 → k = ceil(12/8) = 2 top-level clusters.
+    // With FERAL_TREE_BRANCH=4 → k = ceil(12/4) = 3 top-level clusters.
+    const prev = process.env.FERAL_TREE_BRANCH;
+    process.env.FERAL_TREE_BRANCH = "4";
+    return buildTree(THREE_GROUPS_OF_FOUR, trivialDeps())
+      .then((root) => {
+        expect(root.children).toHaveLength(3);
+      })
+      .finally(() => {
+        if (prev === undefined) delete process.env.FERAL_TREE_BRANCH;
+        else process.env.FERAL_TREE_BRANCH = prev;
+      });
+  });
+
+  it("deps.branch still wins over the env override", () => {
+    const prev = process.env.FERAL_TREE_BRANCH;
+    process.env.FERAL_TREE_BRANCH = "4";
+    const deps = { ...trivialDeps(), branch: 8 };
+    return buildTree(TWO_GROUPS_OF_SIX, deps)
+      .then((root) => {
+        // branch=8 from deps → k = ceil(12/8) = 2, not the env's 3.
+        expect(root.children).toHaveLength(2);
+      })
+      .finally(() => {
+        if (prev === undefined) delete process.env.FERAL_TREE_BRANCH;
+        else process.env.FERAL_TREE_BRANCH = prev;
+      });
+  });
+});
+
 describe("buildTree — small input", () => {
   it("a single leaf produces a root with that leaf as its only child", () => {
     const one: Leaf[] = [

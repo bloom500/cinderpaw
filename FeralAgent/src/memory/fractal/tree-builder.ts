@@ -22,8 +22,20 @@
 import type { Leaf, TreeNode } from "./types.ts";
 import { kmeans as defaultKmeans } from "./kmeans.ts";
 
-/** Max children per parent. Tweakable; spec recommends ~8. */
-const BRANCH = 8;
+/**
+ * Max children per parent. Spec recommends ~8, but on a wide corpus a small
+ * branch produces too few top-level clusters (2700 leaves / 8 ≈ 6 apex
+ * clusters), making first-hop routing too coarse for good recall. Raising the
+ * branch widens every level → more, finer top-level clusters → finer routing.
+ *
+ * Read at call-time (not module-load) so a bench launcher can set
+ * `FERAL_TREE_BRANCH=16` without code changes. Default 8; clamped to >=2 (a
+ * branch of 1 never reduces the level and would loop forever).
+ */
+function defaultBranch(): number {
+  const n = Number(process.env.FERAL_TREE_BRANCH);
+  return Number.isFinite(n) && n >= 2 ? Math.floor(n) : 8;
+}
 /**
  * Leaves are embedded in chunks of this size — ONE bridge roundtrip to Rust
  * per chunk, not one per leaf. A corpus of thousands of leaves embedded
@@ -198,7 +210,7 @@ export async function buildTree(
 ): Promise<TreeNode> {
   const kmeans = deps.kmeans ?? defaultKmeans;
   const summarize = deps.summarize;
-  const branch = deps.branch ?? BRANCH;
+  const branch = deps.branch ?? defaultBranch();
 
   if (leaves.length === 0) {
     throw new Error("buildTree: leaves array is empty");
