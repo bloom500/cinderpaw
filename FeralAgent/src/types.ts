@@ -877,11 +877,14 @@ export interface InboundMessage {
   rsiConcurrency?: number;
   /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
   rsiNewConcurrency?: number;
-  /** RSI response payload (type === "rsi_response"). */
-  rsiRequestId?: string;
-  rsiOk?: boolean;
-  rsiData?: unknown;
-  rsiError?: string;
+  /**
+   * RSI response payload (type === "rsi_response") reuses the PLAIN fields
+   * `id` (above) and `ok`/`data`/`error` (declared below). Rust's
+   * `handle_rsi_request` sends exactly these, mirroring the `rsi_request`
+   * envelope. The earlier `rsiRequestId`/`rsiOk`/`rsiData`/`rsiError` names
+   * matched nothing Rust sent, so every bridge response was dropped and
+   * `embed_text` hung forever.
+   */
   /**
    * Image attachments as data URLs, forwarded by the host app alongside the
    * text content (type === "message"). Threaded into the user ChatMessage so
@@ -1002,7 +1005,38 @@ export type OutboundEvent =
   // RSI request — emitted by the RsiBridge client. Paired with a
   // matching `rsi_response` inbound line. Rust's `handle_rsi_request`
   // dispatcher writes the response back on stdin.
-  | { type: "rsi_request"; id: string; method: string; params: unknown };
+  | { type: "rsi_request"; id: string; method: string; params: unknown }
+  // PROVISIONAL — temporary progress + result events for the Settings
+  // Fractal Benchmark button. The sidecar emits any number of
+  // `fractal_bench_progress` lines while the bench runs (so the panel
+  // can show "generating queries 4/12" instead of an opaque spinner),
+  // and exactly ONE `fractal_bench_result` per click — `ok:false` on
+  // any error path (timeout, no tree, throw) and `ok:true` on a normal
+  // report. Remove with the button after the ship/hold decision.
+  | {
+      type: "fractal_bench_progress";
+      kind: "generate_queries" | "run_queries";
+      current: number;
+      total: number;
+      message: string;
+    }
+  | {
+      type: "fractal_bench_result";
+      ok: boolean;
+      // ok:false path — at least one of `error` / `phase` is set.
+      error?: string;
+      phase?: "build" | "queries" | "run";
+      // ok:true path — the full report payload.
+      ship?: boolean;
+      reasons?: string[];
+      n?: number;
+      k?: number;
+      fractalRecall?: number;
+      ftsRecall?: number;
+      fractalP99Ms?: number;
+      ftsP99Ms?: number;
+      path?: string;
+    };
 
 export interface Transport {
   /** Emit an event to the host/user. */

@@ -185,7 +185,7 @@ export default function MemoryLayersPage() {
         onClick={() => void refresh()}
         disabled={loading}
         aria-label="Refresh organism"
-        className="absolute top-4 right-4 z-10 rounded-lg border border-border-subtle bg-bg-surface/70 backdrop-blur p-2 text-text-secondary hover:text-text-primary disabled:opacity-50"
+        className="absolute bottom-4 right-4 z-10 rounded-lg border border-border-subtle bg-bg-surface/70 backdrop-blur p-2 text-text-secondary hover:text-text-primary disabled:opacity-50"
       >
         <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
       </button>

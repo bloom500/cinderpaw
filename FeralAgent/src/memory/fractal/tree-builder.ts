@@ -29,8 +29,18 @@ const BRANCH = 8;
  * per chunk, not one per leaf. A corpus of thousands of leaves embedded
  * one-at-a-time (each its own stdin/stdout roundtrip) never finished before a
  * restart; batching makes the first tree build tractable.
+ *
+ * Kept small (32) because the bridge response carries the WHOLE chunk's
+ * vectors as one JSON line (chunk × 384 floats): at 128 that line was ~0.5 MB
+ * and the request/response round-trip deadlocked mid-build (the response came
+ * back to the sidecar with a dropped id → the embed Promise never resolved).
+ * A smaller chunk keeps each line well within pipe limits. Override with
+ * FERAL_EMBED_CHUNK for tuning/diagnosis.
  */
-const EMBED_CHUNK = 128;
+const EMBED_CHUNK = (() => {
+  const n = Number(process.env.FERAL_EMBED_CHUNK);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 32;
+})();
 /**
  * Cluster summaries run through the inference router (cloud or local). A wide
  * corpus produces hundreds of parent nodes; awaiting them one-by-one made the

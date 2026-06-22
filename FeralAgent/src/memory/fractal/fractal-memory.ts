@@ -29,6 +29,13 @@ import { buildTree } from "./tree-builder.ts";
 import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
 import { runFractalBenchmark } from "./bench/run-benchmark.ts";
+import {
+  runFractalBenchmarkWithProgress,
+  type BenchProgress,
+  DEFAULT_BENCH_COUNT,
+  DEFAULT_BENCH_TIMEOUT_MS,
+  DEFAULT_GEN_CONCURRENCY,
+} from "./bench/orchestrator.ts";
 import type { BenchReport } from "./bench/runner.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
@@ -82,6 +89,17 @@ export interface FractalMemoryDeps {
   /** Below this many leaves, skip the tree entirely (FTS5 is plenty for a tiny
    *  corpus, and clustering a handful of rows is noise). Default 8. */
   minLeaves?: number;
+  /**
+   * Optional upper bound on the leaves used to build/bench the tree (dev-only).
+   * When set, the corpus is capped to the first `maxLeaves` rows EVERYWHERE the
+   * facade reads leaves — tree build, staleness check, recall metadata, and the
+   * benchmark's query generation — so the gate measures a self-consistent
+   * subset. Production leaves this unset (the live tree covers the whole
+   * corpus); the Fractal Memory benchmark wires it from
+   * `FERAL_FRACTAL_BENCH_MAX_LEAVES` to get real numbers in minutes on CPU
+   * instead of hours over the full corpus. Unset/0 = no cap.
+   */
+  maxLeaves?: number;
   /** Optional diagnostics sink (production passes the sidecar logger). */
   log?: (msg: string) => void;
   /**
@@ -107,12 +125,15 @@ export class FractalMemory {
   readonly #fallback: RecallFallback;
   readonly #treePath: string;
   readonly #minLeaves: number;
+  readonly #maxLeaves: number;
   readonly #log?: (msg: string) => void;
   readonly #persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
   readonly #onActivity?: (activity: FractalActivity) => void;
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
+  /** Shared promise while a rebuild is in flight; dedupes concurrent callers. */
+  #rebuildInFlight: Promise<boolean> | null = null;
 
   constructor(deps: FractalMemoryDeps) {
     this.#loadLeaves = deps.loadLeaves;
@@ -122,9 +143,25 @@ export class FractalMemory {
     this.#fallback = deps.fallback;
     this.#treePath = deps.treePath;
     this.#minLeaves = deps.minLeaves ?? 8;
+    this.#maxLeaves = deps.maxLeaves && deps.maxLeaves > 0 ? deps.maxLeaves : 0;
     this.#log = deps.log;
     this.#persistEmbeddings = deps.persistEmbeddings;
     this.#onActivity = deps.onActivity;
+  }
+
+  /**
+   * Current leaves, capped to `maxLeaves` when set (dev bench subset). Single
+   * source of truth so the tree, staleness check, recall metadata, and the
+   * benchmark's query generation all read the SAME subset — otherwise queries
+   * would target gold leaves that aren't in the (capped) tree and the recall
+   * comparison would be meaningless.
+   */
+  #cappedLeaves(): Leaf[] {
+    const all = this.#loadLeaves();
+    if (this.#maxLeaves && all.length > this.#maxLeaves) {
+      return all.slice(0, this.#maxLeaves);
+    }
+    return all;
   }
 
   /** Emit an organism pulse; a throwing/absent sink is never fatal. */
@@ -175,7 +212,24 @@ export class FractalMemory {
    * false and leaves the previous tree (and the fallback) untouched.
    */
   async rebuild(): Promise<boolean> {
-    const leaves = this.#loadLeaves();
+    // Concurrency guard: the facade is rebuilt from several places (startup,
+    // the bench env path, the bench IPC handler, the Settings button). Without
+    // this latch they raced into parallel `buildTree` runs over the same
+    // corpus — the "3× rebuild started" thrashing we saw live. The latch is
+    // assigned synchronously (before the first await), so concurrent callers
+    // join the same build instead of starting their own.
+    if (this.#rebuildInFlight) {
+      this.#log?.("fractal: rebuild already in flight — joining existing build");
+      return this.#rebuildInFlight;
+    }
+    this.#rebuildInFlight = this.#doRebuild().finally(() => {
+      this.#rebuildInFlight = null;
+    });
+    return this.#rebuildInFlight;
+  }
+
+  async #doRebuild(): Promise<boolean> {
+    const leaves = this.#cappedLeaves();
     if (leaves.length < this.#minLeaves) {
       this.#log?.(`fractal: ${leaves.length} leaves < min ${this.#minLeaves}; using FTS5 only`);
       return false;
@@ -216,7 +270,7 @@ export class FractalMemory {
   async rebuildIfStale(growthRatio = 1.2): Promise<boolean> {
     const covered = this.treeLeafCount;
     if (covered > 0) {
-      const corpus = this.#loadLeaves().length;
+      const corpus = this.#cappedLeaves().length;
       if (corpus < covered * growthRatio) {
         this.#log?.(`fractal: tree fresh (${covered} covered, ${corpus} corpus); skip rebuild`);
         return false;
@@ -268,7 +322,7 @@ export class FractalMemory {
       throw new Error("FractalMemory.benchmark: no tree built — call rebuild() first");
     }
     return runFractalBenchmark({
-      loadLeaves: () => this.#loadLeaves().map((l) => ({ id: l.id, text: l.text })),
+      loadLeaves: () => this.#cappedLeaves().map((l) => ({ id: l.id, text: l.text })),
       ftsSearch: this.#ftsSearch,
       tree: this.#tree,
       leavesById: this.#leavesById,
@@ -279,6 +333,49 @@ export class FractalMemory {
       seed: opts.seed,
       k: opts.k,
       budgetMs: opts.budgetMs,
+    });
+  }
+
+  /**
+   * Hardening-wrapped variant of {@link benchmark} for the user-visible
+   * Settings button. Same measurement contract, plus:
+   *   - bounded query-generation concurrency (default 4) so a slow local
+   *     `infer` doesn't sequentially block dozens of siblings
+   *   - hard wall-clock cap (default 10 min) that rejects with a labelled
+   *     error if the bench never finishes
+   *   - sane default `count` (12, not 50)
+   *   - per-phase progress callback so the panel can render a real status
+   *     line instead of an opaque spinner
+   *
+   * Throws on the same conditions as `benchmark` (no tree). Timeout
+   * errors are surfaced as `Error("bench timeout after Xms at <phase>")`
+   * so the sidecar handler can attach a `phase` field to the result.
+   */
+  async benchmarkWithProgress(
+    opts: FractalBenchmarkOptions & {
+      timeoutMs?: number;
+      genConcurrency?: number;
+      onProgress?: (p: BenchProgress) => void;
+    },
+  ): Promise<BenchReport> {
+    if (!this.#tree || !this.#leavesById) {
+      throw new Error("FractalMemory.benchmarkWithProgress: no tree built — call rebuild() first");
+    }
+    return runFractalBenchmarkWithProgress({
+      loadLeaves: () => this.#cappedLeaves().map((l) => ({ id: l.id, text: l.text })),
+      ftsSearch: this.#ftsSearch,
+      tree: this.#tree,
+      leavesById: this.#leavesById,
+      embed: this.#embed,
+      infer: opts.infer,
+      querySetJsonl: opts.querySetJsonl,
+      count: opts.count ?? DEFAULT_BENCH_COUNT,
+      seed: opts.seed,
+      k: opts.k,
+      budgetMs: opts.budgetMs,
+      timeoutMs: opts.timeoutMs ?? DEFAULT_BENCH_TIMEOUT_MS,
+      genConcurrency: opts.genConcurrency ?? DEFAULT_GEN_CONCURRENCY,
+      onProgress: opts.onProgress,
     });
   }
 
@@ -316,7 +413,7 @@ export class FractalMemory {
 
   /** Map current episodic rows to `leafId → Leaf`, for the recall engine. */
   #mapLeaves(): Map<number, Leaf> {
-    return new Map(this.#loadLeaves().map((l) => [l.id, l]));
+    return new Map(this.#cappedLeaves().map((l) => [l.id, l]));
   }
 }
 

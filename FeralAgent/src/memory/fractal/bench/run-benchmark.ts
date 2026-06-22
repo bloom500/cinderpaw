@@ -37,9 +37,15 @@ export interface FractalBenchDeps {
   /** Local-model completion, used only to generate queries. */
   infer: (prompt: string) => Promise<string>;
 
+  /**
+   * Pre-built query set; when present, JSONL and generation are both
+   * skipped. Mutually exclusive with `querySetJsonl` (if both are given,
+   * `queries` wins — it's the lowest-level input).
+   */
+  queries?: BenchQuery[];
   /** Pre-labelled JSONL query set; when present, skips generation. */
   querySetJsonl?: string;
-  /** How many queries to generate when no JSONL is given (default 50). */
+  /** How many queries to generate when no JSONL and no `queries` are given (default 50). */
   count?: number;
   /** Seed for deterministic query sampling (default 1). */
   seed?: number;
@@ -50,6 +56,8 @@ export interface FractalBenchDeps {
   budgetMs?: number;
   /** Clock; injected for deterministic timing in tests (default Date.now). */
   now?: () => number;
+  /** Optional per-query progress tick (1..N). Forwarded to runBenchmark. */
+  onQuery?: (current: number) => void;
 }
 
 /**
@@ -62,14 +70,16 @@ export async function runFractalBenchmark(deps: FractalBenchDeps): Promise<Bench
   const budgetMs = deps.budgetMs ?? 80;
   const now = deps.now ?? Date.now;
 
-  const queries: BenchQuery[] = deps.querySetJsonl
-    ? parseQuerySet(deps.querySetJsonl)
-    : await generateQuerySet({
-        leaves: deps.loadLeaves(),
-        infer: deps.infer,
-        count: deps.count ?? 50,
-        seed: deps.seed ?? 1,
-      });
+  const queries: BenchQuery[] = deps.queries
+    ? deps.queries
+    : deps.querySetJsonl
+      ? parseQuerySet(deps.querySetJsonl)
+      : await generateQuerySet({
+          leaves: deps.loadLeaves(),
+          infer: deps.infer,
+          count: deps.count ?? 50,
+          seed: deps.seed ?? 1,
+        });
 
   const engine = new FractalRecallEngine({
     tree: deps.tree,
@@ -84,5 +94,5 @@ export async function runFractalBenchmark(deps: FractalBenchDeps): Promise<Bench
   const fts = async (query: string) =>
     deps.ftsSearch(query, k).flatMap((e) => (e.id === undefined ? [] : [e.id]));
 
-  return runBenchmark({ queries, fts, fractal, k, budgetMs, now });
+  return runBenchmark({ queries, fts, fractal, k, budgetMs, now, onQuery: deps.onQuery });
 }

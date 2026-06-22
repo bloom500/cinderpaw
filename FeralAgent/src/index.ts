@@ -58,6 +58,7 @@ import { RsiBridge } from "./rsi/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
+import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import {
   PassiveSupervisor,
@@ -317,6 +318,10 @@ async function main(): Promise<void> {
     ftsSearch: (q, limit) => episodic.search(q, limit),
     fallback: recall,
     treePath: require("node:path").join(dataDir, "fractal-tree.json"),
+    // Dev-only subset cap for the benchmark gate: build/measure over the first
+    // N leaves so we get real numbers in minutes on CPU instead of hours over
+    // the full corpus. Unset in production (whole corpus). See FractalMemoryDeps.
+    maxLeaves: Number(process.env.FERAL_FRACTAL_BENCH_MAX_LEAVES) || 0,
     log,
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
     onActivity: (a) => fractalActivitySink.current(a),
@@ -782,24 +787,69 @@ async function main(): Promise<void> {
 
       // PROVISIONAL (temporary Settings button): run the Fractal Memory Search
       // benchmark gate on demand and emit the verdict back to the UI. Runs off
-      // the hot path; builds the tree first if needed.
+      // the hot path; builds the tree first if needed. The whole flow is
+      // hardening-wrapped so the FE panel can NEVER spin forever:
+      //   - build phase has its own wall-clock cap (15 min default)
+      //   - bench phase delegates to `benchmarkWithProgress` which has a
+      //     separate wall-clock cap (10 min default), bounded query
+      //     generation (concurrency 4), and a default count of 12 (not 50)
+      //   - any throw or timeout emits a typed `fractal_bench_result
+      //     {ok:false, error, phase}` so the panel can show a real reason
+      //   - periodic `fractal_bench_progress` events give the panel a live
+      //     status line ("generating queries 4/12" / "running queries 4/12")
+      //     so the user can see something is happening, not just a spinner
       case "fractal_benchmark": {
         void (async () => {
+          const send = (event: import("./types.ts").OutboundEvent): void => {
+            transport.send(event);
+          };
+          const sendError = (error: string, phase: "build" | "queries" | "run"): void => {
+            send({ type: "fractal_bench_result", ok: false, error, phase });
+          };
+          const buildTimeoutMs = 15 * 60 * 1000;
           try {
-            await fractalMemory.rebuildIfStale();
+            // Phase 1: ensure a tree exists. Bounded by its own wall clock
+            // (the rebuild was the previous infinite-spin path: 2.8 s/text
+            // × 2695 leaves on CPU = ~2 hours, and looked identical to the
+            // sidecar being dead).
+            send({
+              type: "fractal_bench_progress",
+              kind: "generate_queries",
+              current: 0,
+              total: 0,
+              message: "Building RAPTOR tree…",
+            });
+            await withTimeout(
+              fractalMemory.rebuildIfStale(),
+              buildTimeoutMs,
+              "build",
+            );
             if (!fractalMemory.hasTree) {
-              transport.send({
-                type: "fractal_bench_result",
-                ok: false,
-                error: "No RAPTOR tree yet — is the embedding model present and the build finished?",
-              } as unknown as import("./types.ts").OutboundEvent);
+              sendError(
+                "No RAPTOR tree — is the embedding model present and the build finished? Try restarting after the model is on disk.",
+                "build",
+              );
               return;
             }
-            const report = await fractalMemory.benchmark({ infer: routerInfer(router), count: 50 });
+            // Phase 2: run the benchmark through the hardening wrapper.
+            // Progress is forwarded as a typed `fractal_bench_progress`
+            // event; timeout / errors throw and are caught below.
+            const report = await fractalMemory.benchmarkWithProgress({
+              infer: routerInfer(router),
+              onProgress: (p) => {
+                send({
+                  type: "fractal_bench_progress",
+                  kind: p.kind,
+                  current: p.current,
+                  total: p.total,
+                  message: p.message,
+                });
+              },
+            });
             const fs = require("node:fs") as typeof import("node:fs");
             const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
             fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
-            transport.send({
+            send({
               type: "fractal_bench_result",
               ok: true,
               ship: report.verdict.ship,
@@ -811,13 +861,18 @@ async function main(): Promise<void> {
               fractalP99Ms: report.fractal.p99Ms,
               ftsP99Ms: report.fts.p99Ms,
               path: outPath,
-            } as unknown as import("./types.ts").OutboundEvent);
+            });
           } catch (e) {
-            transport.send({
-              type: "fractal_bench_result",
-              ok: false,
-              error: String(e),
-            } as unknown as import("./types.ts").OutboundEvent);
+            // The orchestrator's timeout errors carry "at <phase>" in the
+            // message; surface that so the panel can tell the user which
+            // phase was the bottleneck.
+            const msg = String(e);
+            const phase: "build" | "queries" | "run" = /at build/.test(msg)
+              ? "build"
+              : /at queries/.test(msg)
+                ? "queries"
+                : "run";
+            sendError(msg, phase);
           }
         })();
         break;
@@ -1053,15 +1108,23 @@ async function main(): Promise<void> {
         // Bridge response delivery — every `rsi_request` we emitted is
         // paired with exactly one `rsi_response` line by Rust. Route
         // it back to the RsiBridge so the awaiting Promise settles.
-        if (msg.rsiRequestId) {
+        //
+        // Rust (`handle_rsi_request`) sends PLAIN field names — `id`, `ok`,
+        // `data`, `error` — mirroring the `rsi_request` it reads (`id`,
+        // `method`, `params`). This handler previously read the prefixed
+        // `rsiRequestId`/`rsiOk`/`rsiData`/`rsiError`, which Rust never sends,
+        // so EVERY response was "without requestId — ignored" and every
+        // bridge Promise (notably `embed_text`) hung forever — the real cause
+        // of the RAPTOR tree build never finishing. Match Rust's field names.
+        if (msg.id) {
           rsiSidecar.onResponse({
-            id: msg.rsiRequestId,
-            ok: msg.rsiOk ?? false,
-            ...(msg.rsiData !== undefined ? { data: msg.rsiData } : {}),
-            ...(msg.rsiError ? { error: msg.rsiError } : {}),
+            id: msg.id,
+            ok: msg.ok ?? false,
+            ...(msg.data !== undefined ? { data: msg.data } : {}),
+            ...(msg.error ? { error: msg.error } : {}),
           });
         } else {
-          log(`rsi_response without requestId — ignored`);
+          log(`rsi_response without id — ignored`);
         }
         break;
       }

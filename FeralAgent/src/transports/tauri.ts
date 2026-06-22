@@ -22,11 +22,30 @@ export class TauriTransport implements Transport {
   #started = false;
   /** In-flight handler promises, drained before exit on stdin close. */
   readonly #pending = new Set<Promise<void>>();
+  /** Serializes outbound writes so concurrent senders never interleave. */
+  #writeChain: Promise<void> = Promise.resolve();
 
   send(event: OutboundEvent): void {
-    // One compact JSON object per line. process.stdout.write is synchronous
-    // enough for line-delimited protocol use and avoids console formatting.
-    process.stdout.write(JSON.stringify(event) + "\n");
+    // One compact JSON object per line. Writes are SERIALIZED through a chain:
+    // concurrent senders (e.g. a large `embed_text` request batching 128 texts
+    // and the RSI passive engine's requests) previously raced on
+    // process.stdout.write. Under Bun a large write can be split and
+    // interleaved with another, mangling the newline-delimited framing — Rust
+    // then parsed a request with a missing `id`, replied with an empty id
+    // ("rsi_response without requestId — ignored"), and the bridge Promise hung
+    // forever, deadlocking the RAPTOR tree build mid-embed. Chaining each write
+    // after the previous one drains keeps every JSON object an intact line.
+    const line = JSON.stringify(event) + "\n";
+    this.#writeChain = this.#writeChain
+      .then(
+        () =>
+          new Promise<void>((resolve) => {
+            if (process.stdout.write(line)) resolve();
+            else process.stdout.once("drain", () => resolve());
+          }),
+      )
+      // A failed write must never wedge the queue for every later line.
+      .catch(() => {});
   }
 
   onMessage(handler: (msg: InboundMessage) => void | Promise<void>): void {
@@ -110,26 +129,57 @@ export class TauriTransport implements Transport {
  * React, sidecar's `onMessage`, and the validator) can be caught with a
  * one-line test.
  */
+/**
+ * Allow-list of inbound message `type` strings. MUST stay in lockstep with
+ * the `InboundMessage` union in `../types.ts` — drift here is what caused
+ * the Fractal Benchmark button to spin forever (the new `fractal_benchmark`
+ * type was added to the union and the onMessage switch, but the allow-list
+ * wasn't updated, so the transport rejected the message before the handler
+ * ever saw it). The exhaustive test in
+ * `tests/tauri-transport-isinbound.test.ts` pins this surface.
+ */
+const INBOUND_TYPES = [
+  "message",
+  "ping",
+  "shutdown",
+  "set_model",
+  "stop",
+  "ask_user_response",
+  "ask_user_cancel",
+  "cron_add",
+  "cron_remove",
+  "cron_toggle",
+  "cron_list",
+  "desktop_control_response",
+  "connectors_reload",
+  // PROVISIONAL — temporary Settings button for the benchmark gate.
+  "fractal_benchmark",
+  "rsi_start",
+  "rsi_stop",
+  "rsi_set_concurrency",
+  "rsi_response",
+] as const satisfies readonly InboundMessage["type"][];
+
+/**
+ * Exhaustiveness check: if a new variant is added to `InboundMessage["type"]`
+ * without being added to `INBOUND_TYPES`, the `as const satisfies` cast on the
+ * array literal above will fail to compile. The `_assertExhaustive` value
+ * below further asserts the opposite direction: every union member appears
+ * in the array. Together they pin the allow-list to the union at compile
+ * time, so drift is a TypeScript error, not a silent drop. The `void` keeps
+ * TypeScript from complaining about an unused local.
+ */
+type _AssertExhaustive = Exclude<
+  InboundMessage["type"],
+  (typeof INBOUND_TYPES)[number]
+> extends never
+  ? true
+  : false;
+const _assertExhaustive: _AssertExhaustive = true;
+void _assertExhaustive;
+
 export function isInbound(value: unknown): value is InboundMessage {
   if (typeof value !== "object" || value === null) return false;
   const t = (value as { type?: unknown }).type;
-  return (
-    t === "message" ||
-    t === "ping" ||
-    t === "shutdown" ||
-    t === "set_model" ||
-    t === "stop" ||
-    t === "ask_user_response" ||
-    t === "ask_user_cancel" ||
-    t === "cron_add" ||
-    t === "cron_remove" ||
-    t === "cron_toggle" ||
-    t === "cron_list" ||
-    t === "desktop_control_response" ||
-    t === "connectors_reload" ||
-    t === "rsi_start" ||
-    t === "rsi_stop" ||
-    t === "rsi_set_concurrency" ||
-    t === "rsi_response"
-  );
+  return typeof t === "string" && (INBOUND_TYPES as readonly string[]).includes(t);
 }

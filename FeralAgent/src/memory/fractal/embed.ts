@@ -129,7 +129,11 @@ export async function embed(
  */
 export function rsiBridgeEmbed(bridge: RsiBridge): EmbedInvoker {
   return async (texts) => {
-    const wire = await bridge.request<number[][]>("embed_text", { texts });
+    // Generous safety-net timeout (5 min/chunk): real CPU embedding of a chunk
+    // is slow but finite; this only fires if a response is genuinely lost
+    // (the interleaved-stdout deadlock), so the build fails over to FTS5
+    // instead of hanging forever. Not a latency budget.
+    const wire = await bridge.request<number[][]>("embed_text", { texts }, 5 * 60 * 1000);
     if (!Array.isArray(wire)) {
       throw new Error(
         `embed_text: expected number[][], got ${typeof wire} from Rust`,

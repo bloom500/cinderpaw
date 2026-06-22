@@ -37,11 +37,36 @@ export class RsiBridge {
 
   constructor(private readonly transport: BridgeTransport) {}
 
-  /** Send `method`(`params`) to Rust and resolve with its `data`. */
-  request<T = unknown>(method: string, params: unknown): Promise<T> {
+  /**
+   * Send `method`(`params`) to Rust and resolve with its `data`.
+   *
+   * `timeoutMs` (optional) rejects the request if no response arrives in time.
+   * Without it a lost/corrupted response line — e.g. interleaved stdout writes
+   * that mangle a request's `id`, which deadlocked the embed bridge mid
+   * tree-build — would leave the Promise pending forever. With it the caller
+   * gets a clean error and can fall back (FTS5) instead of hanging.
+   */
+  request<T = unknown>(method: string, params: unknown, timeoutMs?: number): Promise<T> {
     const id = `rsi-${++this.seq}`;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      if (timeoutMs && timeoutMs > 0) {
+        timer = setTimeout(() => {
+          if (this.pending.delete(id)) {
+            reject(new Error(`rsi_request '${method}' timed out after ${timeoutMs}ms`));
+          }
+        }, timeoutMs);
+      }
+      this.pending.set(id, {
+        resolve: (v) => {
+          if (timer) clearTimeout(timer);
+          (resolve as (x: unknown) => void)(v);
+        },
+        reject: (e) => {
+          if (timer) clearTimeout(timer);
+          reject(e);
+        },
+      });
       this.transport.send({ type: "rsi_request", id, method, params });
     });
   }

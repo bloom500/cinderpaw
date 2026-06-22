@@ -33,6 +33,13 @@ export interface RunBenchmarkOptions {
   budgetMs: number;
   /** Millisecond clock; injected so timing is deterministic in tests. */
   now: () => number;
+  /**
+   * Optional per-query progress tick. Fired after each query completes
+   * against BOTH engines (1..N, 1..N), so a single counter can drive a
+   * "running queries i/N" line. The orchestrator (`bench/orchestrator.ts`)
+   * uses this; the test suite omits it.
+   */
+  onQuery?: (current: number) => void;
 }
 
 /** One query's outcome for a single engine. */
@@ -64,13 +71,18 @@ async function runEngine(
   retrieve: Retriever,
   k: number,
   now: () => number,
+  onQuery?: (current: number) => void,
 ): Promise<EngineReport> {
   const perQuery: PerQuery[] = [];
-  for (const q of queries) {
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i]!;
     const t0 = now();
     const ranked = await retrieve(q.query);
     const ms = now() - t0;
     perQuery.push({ query: q.query, recall: recallAtK(ranked, q.relevant, k), ms });
+    // 1-based, fires once per query in each engine. Orchestrator uses this
+    // to drive a single "running queries i/N" line; tests omit the hook.
+    onQuery?.(i + 1);
   }
   const recalls = perQuery.map((p) => p.recall);
   const latencies = perQuery.map((p) => p.ms);
@@ -91,8 +103,8 @@ export async function runBenchmark(opts: RunBenchmarkOptions): Promise<BenchRepo
   if (opts.queries.length === 0) {
     throw new Error("runBenchmark: empty query set");
   }
-  const fts = await runEngine(opts.queries, opts.fts, opts.k, opts.now);
-  const fractal = await runEngine(opts.queries, opts.fractal, opts.k, opts.now);
+  const fts = await runEngine(opts.queries, opts.fts, opts.k, opts.now, opts.onQuery);
+  const fractal = await runEngine(opts.queries, opts.fractal, opts.k, opts.now, opts.onQuery);
   return {
     k: opts.k,
     n: opts.queries.length,

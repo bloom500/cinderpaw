@@ -14,6 +14,7 @@
  * we truncate so the tree builder never blows the prompt budget.
  */
 import type { InferenceRouter } from "../../sandbox/inference-router.ts";
+import { stripThinking } from "../../core/agent-loop.ts";
 
 /**
  * Narrow inference injection: a function that takes a prompt and returns
@@ -24,6 +25,17 @@ export type InferFn = (prompt: string) => Promise<string>;
 
 /** Soft target for the LLM's per-call `maxTokens`. */
 const MAX_TOKENS = 200;
+
+/**
+ * Generation budget passed to the router. Larger than {@link MAX_TOKENS}
+ * because reasoning models (MiniMax-M3, DeepSeek-R1, VibeThinker, …) spend
+ * their first hundreds of tokens inside a `<think>…</think>` block; with only
+ * 200 tokens they truncate mid-thought and emit NO answer, so the bench
+ * query-gen produced empty/garbage queries (and cluster summaries came back
+ * empty). This leaves room to finish reasoning AND emit the answer; the
+ * `<think>` block is stripped and the final text is still char-capped below.
+ */
+const GEN_MAX_TOKENS = 1024;
 
 /**
  * Hard ceiling on the returned string, measured in characters. 200 tokens
@@ -101,11 +113,16 @@ export function routerInfer(router: InferenceRouter): InferFn {
     const res = await router.complete({
       sessionId: SUMMARY_SESSION_ID,
       messages: [{ role: "user", content: prompt }],
-      maxTokens: MAX_TOKENS,
+      maxTokens: GEN_MAX_TOKENS,
       temperature: 0.1,
       cachePrompt: false,
     });
-    return res.content;
+    // Reasoning models wrap their answer in `<think>…</think>` (often the
+    // whole budget). Strip it so callers get the actual question/summary, not
+    // the model's monologue — otherwise the bench embeds the reasoning blob as
+    // the "query" (inflating latency and tanking recall) and summaries are
+    // empty. Handles paired, orphan-close, and dangling-open variants.
+    return stripThinking(res.content);
   };
 }
 

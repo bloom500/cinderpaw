@@ -205,6 +205,52 @@ describe("FractalMemory — embeddings unavailable", () => {
   });
 });
 
+describe("FractalMemory — concurrent rebuild dedupe", () => {
+  it("two concurrent rebuild() calls share one build (no thrashing)", async () => {
+    const logs: string[] = [];
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+      log: (m) => logs.push(m),
+    });
+    // Fire both before awaiting: the guard is set synchronously at method
+    // entry, so the second call must join the first instead of starting a
+    // second buildTree (the "3× rebuild started" thrashing we hit live).
+    const [a, b] = await Promise.all([fm.rebuild(), fm.rebuild()]);
+    expect(a).toBe(true);
+    expect(b).toBe(true);
+    expect(logs.filter((m) => m.includes("rebuild started")).length).toBe(1);
+    // The inflight latch is released, so a later legitimate rebuild still runs.
+    logs.length = 0;
+    expect(await fm.rebuild()).toBe(true);
+    expect(logs.filter((m) => m.includes("rebuild started")).length).toBe(1);
+  });
+});
+
+describe("FractalMemory — maxLeaves cap (dev bench subset)", () => {
+  it("rebuild builds a tree over at most maxLeaves rows", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+      maxLeaves: 8, // corpus is 12; cap to 8
+    });
+    expect(await fm.rebuild()).toBe(true);
+    expect(fm.treeLeafCount).toBe(8);
+  });
+
+  it("rebuildIfStale treats the capped count as the corpus size (stays fresh)", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+      maxLeaves: 8,
+    });
+    expect(await fm.rebuild()).toBe(true); // covers 8
+    // Without capping the corpus comparison, 12 > 1.2×8 would force a rebuild
+    // on every call; the cap must make this a no-op.
+    expect(await fm.rebuildIfStale()).toBe(false);
+  });
+});
+
 describe("FractalMemory — tiny corpus", () => {
   it("rebuild skips when fewer than minLeaves rows exist", async () => {
     const fm = new FractalMemory({

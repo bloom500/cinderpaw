@@ -65,4 +65,24 @@ describe("RSI protocol-(a) bridge client", () => {
       bridge.onResponse({ type: "rsi_response", id: "ghost", ok: true, data: 1 }),
     ).not.toThrow();
   });
+
+  test("a request with a timeout rejects when no response arrives (no infinite hang)", async () => {
+    // Safety net for the embed-bridge deadlock: a lost/corrupted response line
+    // (e.g. interleaved stdout writes mangling the request id) must surface as
+    // an error so the caller falls back, not hang the tree build forever.
+    const bridge = new RsiBridge({ send: () => {} });
+    const p = bridge.request("embed_text", { texts: ["x"] }, 20);
+    await expect(p).rejects.toThrow(/timed out/);
+  });
+
+  test("a response that arrives before the timeout clears it and resolves", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const bridge = new RsiBridge({ send: (m) => sent.push(m) });
+    const p = bridge.request("embed_text", { texts: ["x"] }, 1000);
+    bridge.onResponse({ type: "rsi_response", id: sent[0]!.id as string, ok: true, data: [[1, 2]] });
+    expect(await p).toEqual([[1, 2]]);
+    // If the timer were still armed it would reject a settled promise (no-op)
+    // but also keep the event loop alive; the clear is asserted by the test
+    // completing without an unhandled late rejection.
+  });
 });

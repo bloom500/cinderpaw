@@ -196,13 +196,24 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
         return None;
     }
     let body: serde_json::Value = resp.json().await.ok()?;
-    let id = body
-        .get("data")
-        .and_then(|d| d.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|m| m.get("id"))
-        .and_then(|v| v.as_str())?;
-    Some(id.to_string())
+    // Pick the first *chat* model, skipping the bundled embedding model
+    // (bge-small): /v1/models lists every GGUF in the models dir, and on
+    // NTFS the embedding model often sorts first (case-insensitive `b` <
+    // `v`), so a naive `data[0]` hands the sidecar a BERT model it can't
+    // generate text with — breaking RAPTOR cluster summaries and bench
+    // query generation. Falls back to the first entry if the only model
+    // present is the embedding model.
+    let arr = body.get("data").and_then(|d| d.as_array())?;
+    let pick = arr
+        .iter()
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
+        .find(|id| *id != crate::paths::EMBED_FILENAME)
+        .or_else(|| {
+            arr.first()
+                .and_then(|m| m.get("id"))
+                .and_then(|v| v.as_str())
+        })?;
+    Some(pick.to_string())
 }
 
 /// Spawn the feral-agent sidecar and wire up stdin/stdout communication.
