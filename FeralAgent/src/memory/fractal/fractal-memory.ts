@@ -28,6 +28,7 @@
 import { buildTree } from "./tree-builder.ts";
 import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
+import { projectCentroids } from "./project-centroids.ts";
 import { runFractalBenchmark } from "./bench/run-benchmark.ts";
 import {
   runFractalBenchmarkWithProgress,
@@ -69,7 +70,12 @@ export interface RecallFallback {
  */
 export type FractalActivity =
   | { kind: "recall"; hits: number }
-  | { kind: "grow"; leafCount: number; clusterCount: number };
+  | {
+      kind: "grow";
+      leafCount: number;
+      clusterCount: number;
+      clusters: { x: number; y: number; weight: number }[];
+    };
 
 export interface FractalMemoryDeps {
   /** Pull the current episodic rows as leaves (vectors optional — `buildTree`
@@ -115,6 +121,29 @@ export interface FractalMemoryDeps {
    * collect into an array. Best-effort — a throwing sink never breaks recall.
    */
   onActivity?: (activity: FractalActivity) => void;
+}
+
+/** Build the `grow` activity from a freshly built tree: real counts + 2D
+ *  cluster positions (projected centroids) with leaf-count weights normalized
+ *  to 0..1. Pure + exported so it can be unit-tested without a live tree. */
+export function buildGrowActivity(tree: {
+  leafIds: number[];
+  children: { leafIds: number[]; centroid: Float32Array }[];
+}): Extract<FractalActivity, { kind: "grow" }> {
+  const points = projectCentroids(tree.children.map((c) => c.centroid));
+  const counts = tree.children.map((c) => c.leafIds.length);
+  const maxCount = Math.max(1, ...counts);
+  const clusters = tree.children.map((c, i) => ({
+    x: points[i]?.x ?? 0,
+    y: points[i]?.y ?? 0,
+    weight: counts[i]! / maxCount,
+  }));
+  return {
+    kind: "grow",
+    leafCount: tree.leafIds.length,
+    clusterCount: tree.children.length,
+    clusters,
+  };
 }
 
 export class FractalMemory {
@@ -258,7 +287,7 @@ export class FractalMemory {
     this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
-    this.#emit({ kind: "grow", leafCount: tree.leafIds.length, clusterCount: tree.children.length });
+    this.#emit(buildGrowActivity(tree));
     return true;
   }
 

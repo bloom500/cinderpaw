@@ -14,7 +14,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FractalMemory, type RecallFallback, type FractalActivity } from "../src/memory/fractal/fractal-memory.ts";
+import { FractalMemory, type RecallFallback, type FractalActivity, buildGrowActivity } from "../src/memory/fractal/fractal-memory.ts";
 import type { Leaf } from "../src/memory/fractal/types.ts";
 import type { EpisodicEvent } from "../../src/types.ts";
 
@@ -99,5 +99,28 @@ describe("FractalMemory activity events", () => {
     await fm.rebuild();
     const r = await fm.recall("something in s-a", "other-session");
     expect(typeof r.context).toBe("string");
+  });
+});
+
+describe("buildGrowActivity", () => {
+  it("emits normalized weights and one cluster point per top-level child", () => {
+    const tree = {
+      leafIds: [1, 2, 3, 4, 5],
+      children: [
+        { leafIds: [1, 2, 3], centroid: Float32Array.from([1, 0, 0]) },
+        { leafIds: [4, 5], centroid: Float32Array.from([0, 1, 0]) },
+      ],
+    } as any;
+    const a = buildGrowActivity(tree);
+    expect(a.kind).toBe("grow");
+    expect(a.leafCount).toBe(5);
+    expect(a.clusterCount).toBe(2);
+    expect(a.clusters).toHaveLength(2);
+    // max leaf count (3) normalizes to weight 1.
+    expect(Math.max(...a.clusters.map((c) => c.weight))).toBeCloseTo(1, 6);
+    for (const c of a.clusters) {
+      expect(typeof c.x).toBe("number");
+      expect(typeof c.y).toBe("number");
+    }
   });
 });
