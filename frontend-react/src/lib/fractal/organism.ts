@@ -5,7 +5,22 @@
  * pixel each draw, so vector zoom stays crisp within float32 precision. No
  * animation loop — the caller draws on demand (wheel/drag/impulse).
  */
-import type { OrganismState } from '@/lib/fractal/signal';
+import type { OrganismState, WarpSeed } from '@/lib/fractal/signal';
+
+export const MAX_WARP = 32;
+
+/** Pack warp seeds into fixed-length uniform arrays (clamped to MAX_WARP). */
+export function packWarpUniforms(seeds: WarpSeed[]): { count: number; xy: Float32Array; sa: Float32Array } {
+  const count = Math.min(seeds.length, MAX_WARP);
+  const xy = new Float32Array(MAX_WARP * 2);
+  const sa = new Float32Array(MAX_WARP * 2);
+  for (let i = 0; i < count; i++) {
+    const s = seeds[i]!;
+    xy[i * 2] = s.x; xy[i * 2 + 1] = s.y;
+    sa[i * 2] = s.sigma; sa[i * 2 + 1] = s.amp;
+  }
+  return { count, xy, sa };
+}
 
 export interface OrganismView {
   centerX: number;
@@ -44,8 +59,24 @@ uniform int   u_maxIter;
 uniform float u_power;     // fractional multibrot power (2..8)
 uniform float u_morph;     // 0..0.12 Julia blend
 uniform int   u_samples;   // 1 or 4
+uniform int  u_warpCount;
+uniform vec2 u_warpXY[32];
+uniform vec2 u_warpSA[32];   // (sigma, amp) per seed
 
 const vec2 C_SEED = vec2(-0.8, 0.156);
+
+vec2 warp(vec2 c) {
+  vec2 d = vec2(0.0);
+  for (int i = 0; i < 32; i++) {
+    if (i >= u_warpCount) break;
+    vec2 diff = c - u_warpXY[i];
+    float sigma = max(u_warpSA[i].x, 1e-3);
+    float amp = u_warpSA[i].y;
+    float g = exp(-dot(diff, diff) / (2.0 * sigma * sigma));
+    d += amp * g * normalize(diff + vec2(1e-6));
+  }
+  return c + d * 0.15;
+}
 
 // z^p for fractional p via polar form.
 vec2 cpow(vec2 z, float p) {
@@ -68,7 +99,7 @@ vec3 palette(float t) {
 }
 
 float escape(vec2 c) {
-  vec2 ceff = mix(c, C_SEED, u_morph);
+  vec2 ceff = mix(warp(c), C_SEED, u_morph);
   vec2 z = vec2(0.0);
   int i = 0;
   const float BAIL = 256.0;
@@ -149,6 +180,7 @@ export function createOrganismRenderer(canvas: HTMLCanvasElement): OrganismRende
   const U = (n: string) => gl.getUniformLocation(prog, n);
   const u_res = U('u_res'), u_center = U('u_center'), u_scale = U('u_scale');
   const u_maxIter = U('u_maxIter'), u_power = U('u_power'), u_morph = U('u_morph'), u_samples = U('u_samples');
+  const u_warpCount = U('u_warpCount'), u_warpXY = U('u_warpXY'), u_warpSA = U('u_warpSA');
 
   const resize = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -173,6 +205,10 @@ export function createOrganismRenderer(canvas: HTMLCanvasElement): OrganismRende
     gl.uniform1f(u_power, state.power);
     gl.uniform1f(u_morph, state.morph);
     gl.uniform1i(u_samples, view.scale > ZOOMOUT_AA ? 4 : 1);
+    const warp = packWarpUniforms(state.warpSeeds);
+    gl.uniform1i(u_warpCount, warp.count);
+    gl.uniform2fv(u_warpXY, warp.xy);
+    gl.uniform2fv(u_warpSA, warp.sa);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
 
