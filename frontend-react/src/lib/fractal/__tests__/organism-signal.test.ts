@@ -1,23 +1,51 @@
 import { describe, it, expect } from 'vitest';
-import { deriveOrganismState } from '@/lib/fractal/signal';
+import { deriveOrganismState, powerForClusters } from '@/lib/fractal/signal';
 import type { RsiStatus } from '@/lib/tauri';
 
 const noRsi = null;
 const rsiWith = (iteration: number, bounds_version = 0): RsiStatus =>
   ({ engine: { iteration }, bounds_version } as unknown as RsiStatus);
 
-describe('deriveOrganismState — power (always the classic Mandelbrot)', () => {
-  // The set must read as THE Mandelbrot (power 2), never a doubled/mirrored
-  // multibrot. Diversity drives depth/colour elsewhere, not the exponent.
-  it('power is 2 for a newborn', () => {
+describe('powerForClusters — coarse signal that skips the ugly valley', () => {
+  it('genesis: 2 or fewer clusters → exactly power 2', () => {
+    for (const n of [0, 1, 2]) expect(powerForClusters(n)).toBe(2);
+  });
+  it('never rests in the open valley (2, 4.5)', () => {
+    for (let n = 0; n <= 100000; n += 137) {
+      const p = powerForClusters(n);
+      expect(p === 2 || p >= 4.5).toBe(true);
+    }
+  });
+  it('saturates at the cap 5.0', () => {
+    expect(powerForClusters(100000)).toBeLessThanOrEqual(5);
+    expect(powerForClusters(100000)).toBeGreaterThan(4.5);
+  });
+  it('more clusters → monotonically non-decreasing power', () => {
+    let prev = 0;
+    for (const n of [3, 8, 32, 256, 4096]) {
+      const p = powerForClusters(n);
+      expect(p).toBeGreaterThanOrEqual(prev);
+      prev = p;
+    }
+  });
+});
+
+describe('deriveOrganismState — power from real clusters', () => {
+  it('power is 2 for a newborn (0 clusters)', () => {
     const { state } = deriveOrganismState({ clusterCount: 0, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 });
     expect(state.power).toBe(2);
   });
-  it('power stays 2 regardless of clusterCount', () => {
-    for (const clusterCount of [1, 2, 5, 32, 100000]) {
-      const { state } = deriveOrganismState({ clusterCount, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 });
-      expect(state.power).toBe(2);
-    }
+  it('power climbs above the valley with many clusters', () => {
+    const { state } = deriveOrganismState({ clusterCount: 64, eliteNodeCount: 0, rsi: noRsi, persistedFloor: 0 });
+    expect(state.power).toBeGreaterThanOrEqual(4.5);
+  });
+  it('warpSeeds come from provided clusters', () => {
+    const { state } = deriveOrganismState({
+      clusterCount: 2, eliteNodeCount: 10, rsi: noRsi, persistedFloor: 0,
+      clusters: [{ x: -0.5, y: 0.2, weight: 1 }, { x: -1.1, y: -0.3, weight: 0.5 }],
+    });
+    expect(state.warpSeeds).toHaveLength(2);
+    expect(state.warpSeeds[0]).toMatchObject({ x: -0.5, y: 0.2 });
   });
 });
 

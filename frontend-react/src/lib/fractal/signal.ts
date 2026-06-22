@@ -36,24 +36,35 @@ export interface DerivedOrganism {
 
 // Tuning constants (see spec §Signal Mapping).
 const MORPH_MAX = 0.12;
-const REACTIVE_K = 18;        // depthBoost per log2 unit of living nodes
+const REACTIVE_K = 40;        // depthBoost per log2 unit of living nodes (was 18)
 const FLOOR_ITER_A = 0.02;    // floor per RSI engine iteration (lifetime maturity)
 const FLOOR_BOUNDS_B = 40;    // floor step per bounds_version (paradigm shift)
 const MORPH_ITER_G = 0.0008;  // morph per RSI iteration (then clamped)
 
-// Tuning (see spec §Signal Mapping).
-// Exponent is locked to 2: the organism must read as THE Mandelbrot, not a
-// doubled/mirrored multibrot. Memory diversity drives depth/colour, not power.
-const MANDELBROT_POWER = 2;
+// Power is a COARSE shape signal: classic cardioid (2) at genesis, easing into
+// the 4.5..5 "several macro arms" band as real RAPTOR topics accumulate. It
+// NEVER rests in the ugly doubled-blob valley (2, 4.5) — transitions sweep it
+// only in motion (handled by the impulse easing layer).
+export const POWER_GENESIS = 2;
+export const POWER_VALLEY_HI = 4.5;
+export const POWER_CAP = 5;
+const GENESIS_CLUSTERS = 2;
+
+export function powerForClusters(n: number): number {
+  if (!Number.isFinite(n) || n <= GENESIS_CLUSTERS) return POWER_GENESIS;
+  const frac = Math.min(1, Math.max(0, Math.log2(n) / Math.log2(64)));
+  return POWER_VALLEY_HI + (POWER_CAP - POWER_VALLEY_HI) * frac;
+}
+
 const WARP_SIGMA = 0.12;      // base Gaussian width per warp seed (Phase 3b)
 
 export function deriveOrganismState(input: OrganismInput): DerivedOrganism {
-  const { eliteNodeCount, rsi, persistedFloor, clusters } = input;
+  const { clusterCount, eliteNodeCount, rsi, persistedFloor, clusters } = input;
   const engine = rsi?.engine ?? null;
   const iter = engine?.iteration ?? 0;
   const boundsVersion = rsi?.bounds_version ?? 0;
 
-  const power = MANDELBROT_POWER;
+  const power = powerForClusters(clusterCount);
 
   const floorCandidate = FLOOR_ITER_A * iter + FLOOR_BOUNDS_B * boundsVersion;
   const floor = Math.max(persistedFloor, floorCandidate, 0);
