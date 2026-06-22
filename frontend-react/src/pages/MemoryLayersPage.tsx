@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { listen } from '@tauri-apps/api/event';
 import { tauri, events } from '@/lib/tauri';
-import type { FractalActivityLine } from '@/lib/tauri/events';
 import { useOrganismImpulse } from '@/hooks/useOrganismImpulse';
 import {
   createOrganismRenderer,
@@ -138,16 +136,10 @@ export default function MemoryLayersPage() {
   //   recall → breathe over the just-traversed region
   useEffect(() => {
     let alive = true;
-    const unlistenP = listen<string>('feral://agent-output', (raw) => {
+    const unlistenP = events.onFractalActivity.listen((e) => {
       if (!alive) return;
-      try {
-        const e = JSON.parse(raw.payload) as FractalActivityLine;
-        if (e.type !== 'fractal_activity') return;
-        if (e.kind === 'grow') void growFrom(e);
-        else if (e.kind === 'recall') startBreathing();
-      } catch {
-        // non-JSON or unrelated sidecar lines — ignore
-      }
+      if (e.kind === 'grow') void growFrom(e);
+      else if (e.kind === 'recall') startBreathing();
     });
     return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
   }, [growFrom, startBreathing]);

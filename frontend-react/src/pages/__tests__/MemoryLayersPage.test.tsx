@@ -71,7 +71,7 @@ describe('MemoryLayersPage', () => {
     // Emit a grow line with real cluster data.
     const grow = { type: 'fractal_activity', kind: 'grow', leafCount: 500, clusterCount: 64,
                    clusters: [{ x: -0.5, y: 0.1, weight: 1 }] };
-    for (const cb of handlers) cb({ payload: JSON.stringify(grow) });
+    for (const cb of handlers) cb({ payload: { data: JSON.stringify(grow) } });
     await vi.waitFor(() => expect(deriveOrganismState).toHaveBeenCalled());
     const arg = (deriveOrganismState as any).mock.calls.at(-1)[0];
     expect(arg.clusterCount).toBe(64);
