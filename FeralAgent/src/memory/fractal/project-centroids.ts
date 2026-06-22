@@ -51,6 +51,11 @@ export function projectCentroids(centroids: Float32Array[], seed = 1): Point2D[]
   const rawX: number[] = [];
   const rawY: number[] = [];
   for (const c of centroids) {
+    if (c.length !== dim) {
+      throw new Error(
+        `projectCentroids: jagged input — expected all centroids of length ${dim}, got ${c.length}`,
+      );
+    }
     let x = 0, y = 0;
     for (let i = 0; i < dim; i++) { x += c[i]! * ax[i]!; y += c[i]! * ay[i]!; }
     rawX.push(x); rawY.push(y);

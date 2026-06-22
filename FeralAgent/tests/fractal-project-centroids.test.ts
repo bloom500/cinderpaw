@@ -8,6 +8,10 @@ describe("projectCentroids", () => {
     expect(projectCentroids([])).toEqual([]);
   });
 
+  it("throws on jagged input (uneven centroid lengths)", () => {
+    expect(() => projectCentroids([vec([1, 0, 0]), vec([1, 0])])).toThrow(/jagged input/);
+  });
+
   it("is deterministic for a fixed seed", () => {
     const cs = [vec([1, 0, 0, 2]), vec([0, 1, 3, 0]), vec([2, 2, 1, 1])];
     expect(projectCentroids(cs, 7)).toEqual(projectCentroids(cs, 7));
