@@ -326,6 +326,32 @@ async function main(): Promise<void> {
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
     onActivity: (a) => fractalActivitySink.current(a),
   });
+
+  // --- Env-cap guard ---
+  // If the user is routing through a *cloud* provider (anything not on the
+  // loopback) but forgot to set FERAL_FRACTAL_BENCH_MAX_LEAVES, the next
+  // rebuild will try to summarise every leaf in the corpus and the
+  // provider will reject the call with "context window exceeds limit".
+  // That bug has already broken a manual UI bench run once (silent empty
+  // tree, 0% recall on both engines). Warn loudly so the next operator
+  // sees it before clicking Run Benchmark.
+  {
+    const baseUrl = process.env.FERAL_BASE_URL ?? "";
+    const isLoopback = baseUrl === "" || /^(https?:\/\/)?(127\.|localhost)/i.test(baseUrl);
+    const cap = Number(process.env.FERAL_FRACTAL_BENCH_MAX_LEAVES) || 0;
+    if (!isLoopback && cap === 0) {
+      log(
+        `[bench-cap] WARN: FERAL_BASE_URL=${baseUrl} is non-loopback but ` +
+          `FERAL_FRACTAL_BENCH_MAX_LEAVES is unset. The next fractal rebuild ` +
+          `will try to summarise the full corpus (~2.7k leaves) and the ` +
+          `cloud provider will likely reject with "context window exceeds limit", ` +
+          `leaving you with an empty tree and 0% recall. ` +
+          `Set FERAL_FRACTAL_BENCH_MAX_LEAVES=200 (or another small number) ` +
+          `before launching, or the next rebuild may fail.`,
+      );
+    }
+  }
+
   fractalMemory.init();
 
   // --- Tools (each gated by the sandbox) ---

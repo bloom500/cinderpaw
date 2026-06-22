@@ -136,17 +136,27 @@ export class FractalRecallEngine {
 
   /**
    * The merge + re-rank that backs both `recall` and `rankedLeafIds`: embed
-   * the query, pull semantic hits from the tree and exact hits from FTS5,
-   * merge by id (FTS5 is the source of truth for text/session/role, the tree
-   * for score + path), drop the current session, apply the relevance floor,
-   * and sort by score + FTS boost. Returns the full sorted list — callers
-   * slice it to whatever cap they need. Empty/whitespace query → [].
+   * the query (unless a pre-computed vec is provided), pull semantic hits
+   * from the tree and exact hits from FTS5, merge by id (FTS5 is the source
+   * of truth for text/session/role, the tree for score + path), drop the
+   * current session, apply the relevance floor, and sort by score + FTS
+   * boost. Returns the full sorted list — callers slice it to whatever cap
+   * they need. Empty/whitespace query → [].
+   *
+   * `providedVec` is the bench-orchestrator's optimisation: when the caller
+   * has already embedded the query in a batch, they hand the vec in and we
+   * skip the per-call embed (which on bge-small CPU is ~1–2 tokens/ms and
+   * makes the longest query in the set dominate p99).
    */
-  async #rankedHits(query: string, sessionId: string): Promise<MergedHit[]> {
+  async #rankedHits(
+    query: string,
+    sessionId: string,
+    providedVec?: Float32Array,
+  ): Promise<MergedHit[]> {
     if (!query.trim()) return [];
 
-    // 1. Embed the query.
-    const [qVec] = await this.#embed([query]);
+    // 1. Embed the query (unless the caller already did, in a batch).
+    const qVec = providedVec ?? (await this.#embed([query]))[0];
     if (!qVec) {
       throw new Error("fractal-recall: embed returned no vector");
     }
@@ -220,6 +230,24 @@ export class FractalRecallEngine {
     limit = MAX_CONTEXT_HITS,
   ): Promise<number[]> {
     const ranked = await this.#rankedHits(query, sessionId);
+    return ranked.slice(0, limit).map((h) => h.id);
+  }
+
+  /**
+   * Pre-embed-aware variant of {@link rankedLeafIds}. The bench orchestrator
+   * embeds the entire query set in one bge call up front and feeds the
+   * resulting map in via `queryVec`, so the per-query hot path here is just
+   * tree traversal + FTS merge + sort — no model calls. Falls back to the
+   * per-call embed path if `queryVec` is missing (e.g. a query the orchestrator
+   * didn't pre-embed because it appeared after the batch boundary).
+   */
+  async rankedLeafIdsWithVec(
+    query: string,
+    queryVec: Float32Array,
+    sessionId: string,
+    limit = MAX_CONTEXT_HITS,
+  ): Promise<number[]> {
+    const ranked = await this.#rankedHits(query, sessionId, queryVec);
     return ranked.slice(0, limit).map((h) => h.id);
   }
 

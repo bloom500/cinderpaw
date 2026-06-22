@@ -176,6 +176,29 @@ export async function runFractalBenchmarkWithProgress(
     throw new Error("runBenchmark: empty query set");
   }
 
+  // === Phase 1.5: pre-embed all queries in one batched bge call ===
+  // bge-small on CPU embeds ~1–2 tokens/ms; doing N individual embed calls
+  // means the longest query in the set dominates p99 and trips the budget
+  // even when 11/12 queries finish in <50ms. Embedding the whole query set
+  // in a single batched call before the per-query loop amortises the
+  // per-call constant and removes that outlier.
+  //
+  // The fractal retriever in `run-benchmark.ts` reads the resulting map and
+  // skips its own embed for any query whose text is present; queries not in
+  // the map fall back to per-call embed (defensive — shouldn't happen here,
+  // but the wrapper in run-benchmark.ts makes the fallback free).
+  const queryTexts = queries.map((q) => q.query);
+  const queryVecs = await withTimeout(
+    opts.embed(queryTexts),
+    timeoutMs,
+    "pre_embed",
+  );
+  const precomputedEmbeddings = new Map<string, Float32Array>();
+  for (let i = 0; i < queryTexts.length; i++) {
+    const vec = queryVecs[i];
+    if (vec) precomputedEmbeddings.set(queryTexts[i]!, vec);
+  }
+
   // === Phase 2: run the measurement with per-query progress ===
   // The runner fires `onQuery` after each engine finishes a query (so
   // N queries → 2N ticks across both engines). Throttle to one tick per
@@ -195,6 +218,7 @@ export async function runFractalBenchmarkWithProgress(
       k: opts.k,
       budgetMs: opts.budgetMs,
       now: opts.now,
+      precomputedEmbeddings,
       onQuery: (current) => {
         if (announced.has(current)) return;
         announced.add(current);

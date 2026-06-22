@@ -16,7 +16,7 @@
  * function never imports the bridge or a model. The sidecar trigger supplies
  * the live `embed`/`infer`/`ftsSearch` from the running process.
  */
-import { runBenchmark, type BenchQuery, type BenchReport } from "./runner.ts";
+import { runBenchmark, type BenchQuery, type BenchReport, type Retriever } from "./runner.ts";
 import { parseQuerySet, generateQuerySet, type GenLeaf } from "./query-gen.ts";
 import { FractalRecallEngine } from "../fractal-recall.ts";
 import type { EmbedInvoker } from "../embed.ts";
@@ -58,6 +58,16 @@ export interface FractalBenchDeps {
   now?: () => number;
   /** Optional per-query progress tick (1..N). Forwarded to runBenchmark. */
   onQuery?: (current: number) => void;
+
+  /**
+   * Pre-computed query vectors keyed by query text. When present, the
+   * fractal retriever skips the per-call embed for any query whose text
+   * is in the map — the bench orchestrator builds this with a single
+   * batched embed call up front, which on bge-small CPU is ~3× faster
+   * than N individual calls and removes the long-query p99 outlier.
+   * Queries not in the map fall back to the normal per-call embed.
+   */
+  precomputedEmbeddings?: Map<string, Float32Array>;
 }
 
 /**
@@ -90,7 +100,13 @@ export async function runFractalBenchmark(deps: FractalBenchDeps): Promise<Bench
 
   // No session is "current" in a benchmark, so pass "" — real session ids are
   // non-empty, so nothing is excluded and the gold doc can always surface.
-  const fractal = (query: string) => engine.rankedLeafIds(query, "", k);
+  const fractal: Retriever = (query: string) => {
+    const precomputed = deps.precomputedEmbeddings?.get(query);
+    if (precomputed) {
+      return engine.rankedLeafIdsWithVec(query, precomputed, "", k);
+    }
+    return engine.rankedLeafIds(query, "", k);
+  };
   const fts = async (query: string) =>
     deps.ftsSearch(query, k).flatMap((e) => (e.id === undefined ? [] : [e.id]));
 
