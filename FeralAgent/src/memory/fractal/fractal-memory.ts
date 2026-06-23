@@ -41,6 +41,9 @@ import type { BenchReport } from "./bench/runner.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
 import { LeafStore, type LeafSummary } from "./leaf-store.ts";
+import type { EvictionPolicy } from "./eviction.ts";
+import { appendFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 /** Options for {@link FractalMemory.benchmark}. */
 export interface FractalBenchmarkOptions {
@@ -81,7 +84,8 @@ export type FractalActivity =
       clusterCount: number;
       clusters: { x: number; y: number; weight: number }[];
     }
-  | { kind: "seed"; leafId: number; sessionId: string; ts: number };
+  | { kind: "seed"; leafId: number; sessionId: string; ts: number }
+  | { kind: "prune"; evictedLeafIds: number[]; ts: number };
 
 export interface FractalMemoryDeps {
   /** Pull the current episodic rows as leaves (vectors optional — `buildTree`
@@ -181,6 +185,8 @@ export class FractalMemory {
   readonly #onActivity?: (activity: FractalActivity) => void;
   /** Durable provenance-bearing store for reactive leaves (PR-C C.0). */
   readonly #leafStore: LeafStore;
+  /** Raw store path — used to derive the sibling evicted-leaf audit log (C.2). */
+  readonly #leafStorePath: string;
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
@@ -200,7 +206,8 @@ export class FractalMemory {
     this.#persistEmbeddings = deps.persistEmbeddings;
     this.#clearEmbeddings = deps.clearEmbeddings;
     this.#onActivity = deps.onActivity;
-    this.#leafStore = new LeafStore(deps.leafStorePath ?? ":memory:");
+    this.#leafStorePath = deps.leafStorePath ?? ":memory:";
+    this.#leafStore = new LeafStore(this.#leafStorePath);
   }
 
   /**
@@ -578,6 +585,38 @@ export class FractalMemory {
    */
   leaves(): LeafSummary[] {
     return this.#leafStore.summaries();
+  }
+
+  /**
+   * Apply an EvictionPolicy to the durable store (PR-C C.2). Removes the
+   * selected leaves, appends them to `<dir>/fractal-evicted.jsonl` for audit,
+   * and emits a `prune` pulse so the organism reflects the loss. A no-op
+   * (no removal, no file, no pulse) when the policy selects nothing.
+   */
+  async evict(policy: EvictionPolicy, now: number = Date.now()): Promise<{ evicted: number[] }> {
+    const ids = policy.select(this.#leafStore.summaries(), now);
+    if (ids.length === 0) return { evicted: [] };
+    this.#leafStore.remove(ids);
+    // Keep the in-boot caches consistent with the durable store.
+    for (const id of ids) {
+      this.#pendingLeaves.delete(id);
+      this.#provenance.delete(id);
+    }
+    this.#appendEvicted(ids, now, policy.name);
+    this.#emit({ kind: "prune", evictedLeafIds: ids, ts: now });
+    return { evicted: ids };
+  }
+
+  /** Append evicted leaves to the audit log; skipped for the in-memory store. */
+  #appendEvicted(ids: number[], now: number, reason: string): void {
+    if (this.#leafStorePath === ":memory:" || this.#leafStorePath === "") return;
+    const path = join(dirname(this.#leafStorePath), "fractal-evicted.jsonl");
+    const body = ids.map((leafId) => JSON.stringify({ leafId, evictedAt: now, reason })).join("\n") + "\n";
+    try {
+      appendFileSync(path, body, "utf8");
+    } catch (e) {
+      this.#log?.(`fractal: evicted-log append failed (ignored): ${String(e)}`);
+    }
   }
 
   /**
