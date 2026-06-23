@@ -380,9 +380,9 @@ async function main(): Promise<void> {
   // block tool invocations.
   const hooks = new HookRegistry();
 
-  // --- Reconciler (Pathway 3 step 2 Task 2) ---
-  // Single subscriber to `after_memory_write`. Task 3 will route the
-  // payload into `fractal.upsertLeaf(...)`; Task 4 will additionally
+  // --- Reconciler (Pathway 3 step 2 Task 2 + Task 3) ---
+  // Single subscriber to `after_memory_write`. Task 3 wires
+  // `fractal.upsertLeaf(...)` for fact writes; Task 4 will additionally
   // mirror the result into `memoryGraph.reconcile(treeView)`. Started
   // here — after `fractalMemory.init()` and after `hooks` is built —
   // so the tree is ready before the first capture event arrives.
@@ -390,6 +390,7 @@ async function main(): Promise<void> {
     hooks,
     fractal: fractalMemory,
     graph: memoryGraph,
+    embed,
   });
   reconciler.start();
 

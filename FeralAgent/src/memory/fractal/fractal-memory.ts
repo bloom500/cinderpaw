@@ -502,6 +502,239 @@ export class FractalMemory {
   #mapLeaves(): Map<number, Leaf> {
     return new Map(this.#cappedLeaves().map((l) => [l.id, l]));
   }
+
+  // -------------------------------------------------------------------------
+  // Pathway 3 step 2 — upsertLeaf
+  //
+  // Reactive write entry point: the Reconciler calls this on every
+  // `after_memory_write` fact event so the tree reflects new captures
+  // without waiting for a full `rebuild()`. Two paths:
+  //
+  //   1. Near-duplicate (cosine >= MERGE_THRESHOLD) → bump provenance on
+  //      the existing leaf + emit `seed`. The tree's cluster topology is
+  //      unchanged; the leaf's hit_count / last_seen_at are updated via
+  //      the side-channel #provenance map.
+  //   2. New leaf → add to the in-memory pending set, persist the
+  //      embedding through the optional `persistEmbeddings` hook, and
+  //      emit `grow`. The next `rebuild()` will pick the leaf up via
+  //      `loadLeaves()` (the source of truth) and cluster it.
+  //
+  // Idempotency: the dedup key is `sha256(text + first_seen_at)`. Calling
+  // upsertLeaf twice with the same `(text, first_seen_at)` returns the
+  // same leaf id without emitting a second pulse or persisting twice.
+  //
+  // Best-effort: empty embedding (model missing), zero-length embedding,
+  // or persist failure all surface as graceful no-ops. A new memory
+  // write NEVER crashes the extraction pipeline.
+  // -------------------------------------------------------------------------
+
+  /** Bumped on every successful insert; merge and failed-write are silent. */
+  #mutationSeq = 0;
+  /** Per-leaf provenance side-channel (hit_count, last_seen_at, provenance). */
+  readonly #provenance = new Map<number, LeafProvenance>();
+  /** Deduplication: `provenanceKey(leafId)` is set on first insert. */
+  readonly #provenanceKeys = new Set<string>();
+  /** Pending leaves awaiting the next `loadLeaves()` cycle / rebuild. */
+  readonly #pendingLeaves = new Map<number, Leaf>();
+
+  get mutationSeq(): number {
+    return this.#mutationSeq;
+  }
+
+  /**
+   * Read-only view of leaves inserted via upsertLeaf since the last
+   * full rebuild. Used by the Reconciler (Task 4) to drive graph
+   * reconcile; useful for tests too. The next `rebuild()` will pick
+   * these up via `loadLeaves()` once the production wiring merges
+   * pending leaves into the episodic source (or via a side-table
+   * merge — design choice deferred to Task 4 or a later plan).
+   */
+  pendingLeaves(): Leaf[] {
+    return Array.from(this.#pendingLeaves.values());
+  }
+
+  /**
+   * Insert a single leaf, merging into the nearest existing one when their
+   * cosine similarity meets `MERGE_THRESHOLD` (env-overridable, default
+   * 0.92). Returns the activity kind that was emitted so callers can
+   * log or forward without re-classifying.
+   */
+  async upsertLeaf(opts: {
+    text: string;
+    embedding: number[];
+    provenance: {
+      source: string;
+      first_seen_at: number;
+      sessionId: string;
+      ts: number;
+      key?: string;
+      value?: string;
+    };
+  }): Promise<{ kind: "grow"; leafId: number } | { kind: "seed"; leafId: number }> {
+    const threshold = readMergeThreshold();
+    const key = provenanceKey(opts.text, opts.provenance.first_seen_at);
+
+    // 1. Idempotency: same (text, first_seen_at) already inserted → reuse.
+    if (this.#provenanceKeys.has(key)) {
+      const existingId = [...this.#pendingLeaves.entries()].find(
+        ([, l]) => l.text === opts.text,
+      )?.[0];
+      if (existingId !== undefined) {
+        return { kind: "grow", leafId: existingId };
+      }
+    }
+
+    // 2. Near-duplicate scan: nearest existing leaf by cosine.
+    const nearest = this.#nearestByCosine(opts.embedding);
+    if (nearest && nearest.sim >= threshold) {
+      this.#mergeInto(nearest.leaf, opts.provenance);
+      this.#emit({
+        kind: "seed",
+        leafId: nearest.leaf.id,
+        sessionId: opts.provenance.sessionId,
+        ts: opts.provenance.ts,
+      });
+      return { kind: "seed", leafId: nearest.leaf.id };
+    }
+
+    // 3. Insert path — needs a leaf id; pick the smallest positive int
+    //    not already used (avoids colliding with episodic row ids).
+    const embeddingVec = embeddingAsFloat32(opts.embedding);
+    if (embeddingVec.length === 0) {
+      // No model — degrade gracefully. Same return shape; no pulse, no bump.
+      return { kind: "grow", leafId: -1 };
+    }
+    const newId = this.#nextLeafId();
+    const leaf: Leaf = {
+      id: newId,
+      text: opts.text,
+      vec: embeddingVec,
+      ts: opts.provenance.ts,
+      sessionId: opts.provenance.sessionId,
+    };
+    this.#pendingLeaves.set(newId, leaf);
+    this.#provenance.set(newId, {
+      first_seen_at: opts.provenance.first_seen_at,
+      last_seen_at: opts.provenance.ts,
+      hit_count: 1,
+      source: opts.provenance.source,
+      key: opts.provenance.key,
+      value: opts.provenance.value,
+    });
+    this.#provenanceKeys.add(key);
+
+    // Persist the embedding so the next rebuild can skip the embed roundtrip.
+    try {
+      this.#persistEmbeddings?.([{ id: newId, vec: embeddingVec }]);
+    } catch (e) {
+      this.#log?.(`fractal: persistEmbeddings failed (idempotent retry on next call): ${String(e)}`);
+    }
+
+    this.#mutationSeq++;
+    this.#emit({
+      kind: "grow",
+      leafCount: this.#pendingLeaves.size,
+      clusterCount: 0,
+      clusters: [],
+    });
+    return { kind: "grow", leafId: newId };
+  }
+
+  /** Scan pending + fresh loadLeaves() for the nearest cosine. */
+  #nearestByCosine(embedding: number[]): { leaf: Leaf; sim: number } | null {
+    const target = embeddingAsFloat32(embedding);
+    if (target.length === 0) return null;
+
+    const candidates: Leaf[] = [];
+    // Pending leaves (inserted via upsertLeaf since the last rebuild).
+    for (const l of this.#pendingLeaves.values()) candidates.push(l);
+    // Fresh loadLeaves() snapshot — reads from episodic, the source
+    // of truth. Cached #leavesById is NOT consulted because it goes
+    // stale between rebuilds.
+    for (const l of this.#cappedLeaves()) candidates.push(l);
+    if (candidates.length === 0) return null;
+
+    let best: { leaf: Leaf; sim: number } | null = null;
+    for (const c of candidates) {
+      if (c.vec.length !== target.length) continue;
+      const sim = cosineSafe(target, c.vec);
+      if (best === null || sim > best.sim) best = { leaf: c, sim };
+    }
+    return best;
+  }
+
+  /** Bump hit_count + last_seen_at on a merged leaf. */
+  #mergeInto(leaf: Leaf, provenance: { ts: number; source: string; key?: string; value?: string; first_seen_at: number }): void {
+    const existing = this.#provenance.get(leaf.id);
+    if (existing) {
+      existing.hit_count++;
+      existing.last_seen_at = Math.max(existing.last_seen_at, provenance.ts);
+    } else {
+      this.#provenance.set(leaf.id, {
+        first_seen_at: provenance.first_seen_at,
+        last_seen_at: provenance.ts,
+        hit_count: 2, // existing leaf had 1, this merge is the 2nd hit
+        source: provenance.source,
+        key: provenance.key,
+        value: provenance.value,
+      });
+    }
+  }
+
+  /** Pick the next positive int not used by any pending or loaded leaf. */
+  #nextLeafId(): number {
+    const taken = new Set<number>();
+    for (const id of this.#pendingLeaves.keys()) taken.add(id);
+    if (this.#leavesById) for (const id of this.#leavesById.keys()) taken.add(id);
+    let candidate = 1;
+    while (taken.has(candidate)) candidate++;
+    return candidate;
+  }
+}
+
+/** Provenance side-channel — keeps `Leaf` shape stable across writes. */
+interface LeafProvenance {
+  first_seen_at: number;
+  last_seen_at: number;
+  hit_count: number;
+  source: string;
+  key?: string;
+  value?: string;
+}
+
+/** Compute the dedup key for a leaf insertion. Stable across runs. */
+function provenanceKey(text: string, firstSeenAt: number): string {
+  // FNV-1a 32-bit. Good enough for dedup; not for crypto.
+  let h = 0x811c9dc5;
+  const combined = `${text}\u0000${firstSeenAt}`;
+  for (let i = 0; i < combined.length; i++) {
+    h ^= combined.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+
+/** Convert a number[] embedding to a Float32Array (unit-norm expected). */
+function embeddingAsFloat32(values: number[]): Float32Array {
+  if (values.length === 0) return new Float32Array(0);
+  return new Float32Array(values);
+}
+
+/** Cosine for same-length Float32Arrays; returns 0 on length mismatch. */
+function cosineSafe(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a[i]! * b[i]!;
+  return sum;
+}
+
+/** Read MERGE_THRESHOLD from env, falling back to 0.92. */
+function readMergeThreshold(): number {
+  const raw = process.env.FERAL_MERGE_THRESHOLD;
+  if (!raw) return 0.92;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0 || v > 1) return 0.92;
+  return v;
 }
 
 /** One structured hit from {@link FractalMemory.query}. */
