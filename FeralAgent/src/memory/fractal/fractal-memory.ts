@@ -620,6 +620,42 @@ export class FractalMemory {
   }
 
   /**
+   * Cross-session dedup (PR-C C.3). Collapses leaves whose cosine similarity
+   * >= mergeThreshold AND whose first_seen_at differ by >= spanThresholdMs.
+   * Absorbed leaves are removed from the store; survivors get summed hit_count
+   * and max last_seen_at. Emits a `prune` pulse with the absorbed ids.
+   */
+  async dedup(opts: { mergeThreshold?: number; spanThresholdMs?: number } = {}): Promise<{ groups: number }> {
+    const { dedupAcrossSessions } = await import("./cross-session-dedup.ts");
+    const records = this.#leafStore.all();
+    const dedupLeaves = records.map((r) => ({
+      id: r.id,
+      text: r.text,
+      first_seen_at: r.provenance.first_seen_at,
+      last_seen_at: r.provenance.last_seen_at,
+      hit_count: r.provenance.hit_count,
+      vec: r.vec,
+    }));
+    const mergeThreshold = opts.mergeThreshold ?? Number(process.env.FERAL_FMS_MERGE_THRESHOLD ?? "0.92");
+    const spanThresholdMs = opts.spanThresholdMs ?? Number(process.env.FERAL_FMS_DEDUP_SPAN_MS ?? String(30 * 24 * 60 * 60 * 1000));
+    const groups = dedupAcrossSessions(dedupLeaves, {
+      mergeThreshold,
+      spanThresholdMs,
+      now: Date.now(),
+    });
+    if (groups.length === 0) return { groups: 0 };
+    const absorbedIds = groups.flatMap((g) => g.absorbed.map((l) => l.id));
+    this.#leafStore.remove(absorbedIds);
+    for (const id of absorbedIds) {
+      this.#pendingLeaves.delete(id);
+      this.#provenance.delete(id);
+    }
+    this.#appendEvicted(absorbedIds, Date.now(), "dedup");
+    this.#emit({ kind: "prune", evictedLeafIds: absorbedIds, ts: Date.now() });
+    return { groups: groups.length };
+  }
+
+  /**
    * Read-only snapshot of the tree's cluster + leaf summary — what
    * the MemoryGraph needs to mirror fact ↔ graph. Currently a thin
    * shape: cluster ids + summaries, leaf ids + first 80 chars of
