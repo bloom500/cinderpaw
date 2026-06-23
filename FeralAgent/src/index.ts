@@ -42,7 +42,6 @@ import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
-import { createFeedbackSkillTool } from "./tools/builtin/feedback-skill.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
@@ -464,11 +463,6 @@ async function main(): Promise<void> {
   registry.register(
     createRecallTool((q, limit) => fractalMemory.query(q, limit)),
   );
-
-  // P0-2: feedback_skill — refine a skill's body given user feedback.
-  // Default OFF (auto-creation is gated separately by
-  // FERAL_SKILL_AUTO_CREATE); the tool itself is always available.
-  registry.register(createFeedbackSkillTool(db.raw, router));
 
   // P0-1: delegate_task — spawn a subagent for an isolated, bounded
   // task. The subagent inherits the parent's router / sandbox /

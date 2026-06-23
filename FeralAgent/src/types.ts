@@ -990,8 +990,6 @@ export type OutboundEvent =
   // X3: surfaced when a scheduled job throws or times out — previously cron
   // failures were logged to stderr only and invisible in the UI.
   | { type: "cron_error"; jobId: string; jobName: string; message: string; traceId?: string }
-  | { type: "skill_created"; skillId: string; name: string; path: string; version: number; traceId?: string }
-  | { type: "skill_refined"; skillId: string; version: number; traceId?: string }
   // Desktop-control bridge request. Handled in the Rust host (not the React
   // UI): the host runs the OS accessibility action behind its security gate
   // and replies on stdin with a `desktop_control_response` carrying this `id`.
