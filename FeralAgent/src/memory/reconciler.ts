@@ -71,21 +71,41 @@ export class Reconciler {
 
   /**
    * Handler body — Task 3 wires `fractal.upsertLeaf(...)` on the fact
-   * branch; Task 4 will additionally call `graph.reconcile(treeView)`
-   * for observation writes. Always resolves to `{ block: false }`
-   * because `after_memory_write` is informational, not gateable.
+   * branch; Task 4 additionally calls `graph.reconcile(treeView)` on
+   * the observation branch so fact ↔ graph can't drift. Always
+   * resolves to `{ block: false }` because `after_memory_write` is
+   * informational, not gateable.
    */
   async #handle(payload: AfterMemoryWritePayload): Promise<{ block: false }> {
     if (payload.kind === "fact") {
       await this.#handleFact(payload);
     } else {
-      // Observation — Task 4 wires `graph.reconcile(treeView)` here.
-      // Until then, this is a debug-log no-op (same shape as Task 2).
-      console.debug(
-        `[reconciler] observation ${payload.obsType}:${payload.title}`,
-      );
+      await this.#handleObservation(payload);
     }
     return { block: false };
+  }
+
+  /**
+   * Observation branch — mirror the current tree view into the
+   * knowledge graph so graph nodes match the fractal tree after every
+   * observation write. Idempotent (graph.upsertNode collapses on id).
+   *
+   * The fractal tree itself doesn't change here (observations live in
+   * EpisodicMemory and are picked up by the next tree rebuild). Only
+   * the graph mirror moves on each observation.
+   */
+  async #handleObservation(payload: AfterMemoryWritePayload): Promise<void> {
+    if (payload.kind !== "observation") return;
+    try {
+      const view = this.#deps.fractal.treeView();
+      this.#deps.graph.reconcile(view);
+    } catch (e) {
+      // Reconcile failure is non-fatal — the next observation write
+      // will retry. Logging at debug keeps stdout clean in normal flow.
+      console.debug(
+        `[reconciler] graph.reconcile threw for "${payload.title ?? "(untitled)"}": ${String(e)}`,
+      );
+    }
   }
 
   /**

@@ -554,6 +554,37 @@ export class FractalMemory {
   }
 
   /**
+   * Read-only snapshot of the tree's cluster + leaf summary — what
+   * the MemoryGraph needs to mirror fact ↔ graph. Currently a thin
+   * shape: cluster ids + summaries, leaf ids + first 80 chars of
+   * their text. The graph's `reconcile(view)` upserts nodes only;
+   * edges are derived from cluster membership at a later step.
+   *
+   * Cheap (no rebuild, no embedding). Safe to call on every
+   * observation write.
+   */
+  treeView(): { clusters: Array<{ id: string; summary: string }>; leaves: Array<{ id: number; summary: string }> } {
+    const clusters: Array<{ id: string; summary: string }> = [];
+    if (this.#tree) {
+      const walk = (node: TreeNode) => {
+        if (node.level > 0) clusters.push({ id: node.id, summary: node.summary });
+        for (const c of node.children) walk(c);
+      };
+      walk(this.#tree);
+    }
+    const leaves: Array<{ id: number; summary: string }> = [];
+    const seen = new Set<number>();
+    const collect = (l: Leaf) => {
+      if (seen.has(l.id)) return;
+      seen.add(l.id);
+      leaves.push({ id: l.id, summary: l.text.slice(0, 80) });
+    };
+    for (const l of this.#pendingLeaves.values()) collect(l);
+    for (const l of this.#cappedLeaves()) collect(l);
+    return { clusters, leaves };
+  }
+
+  /**
    * Insert a single leaf, merging into the nearest existing one when their
    * cosine similarity meets `MERGE_THRESHOLD` (env-overridable, default
    * 0.92). Returns the activity kind that was emitted so callers can

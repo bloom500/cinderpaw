@@ -20,6 +20,7 @@ import { SemanticMemory } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
+import { runMigration } from "./memory/fractal/migration.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { ToolRegistry } from "./tools/registry.ts";
@@ -393,6 +394,28 @@ async function main(): Promise<void> {
     embed,
   });
   reconciler.start();
+
+  // --- Migration (Pathway 3 step 2 Task 4) ---
+  // One-shot lift of the ~41 pre-step1 facts from SemanticMemory into
+  // the new reactive tree. Idempotent via marker file; failure-tolerant
+  // (missing model is non-fatal — the FTS5 fallback keeps the old
+  // facts reachable via auto-inject). Best-effort, fire-and-forget
+  // — the result is logged but the boot does not block on it.
+  void runMigration({
+    semantic,
+    fractal: fractalMemory,
+    dataDir,
+  }).then((result) => {
+    if (result.ran) {
+      log(`migration: lifted ${result.facts} fact(s) into the reactive tree`);
+    } else if (result.error) {
+      log(`migration: skipped (${result.error}) — will retry next boot`);
+    } else {
+      log("migration: marker present, no-op");
+    }
+  }).catch((e) => {
+    log(`migration: unexpected error: ${String(e)}`);
+  });
 
   const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
   registry.register(createReadFileTool([config.workspace]));
