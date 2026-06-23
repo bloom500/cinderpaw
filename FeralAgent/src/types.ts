@@ -685,7 +685,8 @@ export type HookEvent =
   | "agent_start"
   | "agent_end"
   | "subagent_spawn"
-  | "subagent_complete";
+  | "subagent_complete"
+  | "after_memory_write";
 
 /** Per-event payload shape. Each hook handler gets the matching one. */
 export interface BeforeToolCallPayload {
@@ -741,6 +742,33 @@ export interface SubagentCompletePayload {
   subagentId: string;
   status: "completed" | "failed" | "timeout" | "budget_exceeded";
   durationMs: number;
+}
+
+/**
+ * after_memory_write — fired by MemoryExtractor after every fact
+ * persistence to SemanticMemory and after every observation persistence
+ * to EpisodicMemory. The Reconciler (Pathway 3 step 2) is the first
+ * subscriber; the event is informational (cannot be blocked).
+ *
+ * Discriminated by `kind`:
+ *   - "fact": { key, value } — durable user fact (name, language, …)
+ *   - "observation": { obsType, title, concepts } — typed observation
+ *     (claude-mem style) for episodic recall and concept-graph linking.
+ */
+export type AfterMemoryWriteKind = "fact" | "observation";
+
+export interface AfterMemoryWritePayload {
+  kind: AfterMemoryWriteKind;
+  sessionId: string;
+  /** Wall-clock at the moment of the write. `Date.now()` from the extractor. */
+  ts: number;
+  // For "fact"
+  key?: string;
+  value?: string;
+  // For "observation"
+  obsType?: import("./memory/extractor.ts").ObservationType;
+  title?: string;
+  concepts?: string[];
 }
 
 /** Result a hook returns. `block: true` aborts `before_*` operations. */

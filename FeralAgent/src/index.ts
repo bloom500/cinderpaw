@@ -545,7 +545,12 @@ async function main(): Promise<void> {
   }
 
   // --- Memory extractor (async, fire-and-forget after each turn) ---
-  const extractor = new MemoryExtractor(router, semantic, episodic);
+  // Path 3 step 2: the extractor fires `after_memory_write` to the
+  // shared HookRegistry on every fact / observation persistence. The
+  // Reconciler (constructed a few lines below) subscribes to the event
+  // and keeps the fractal tree reactive. Without a registry attached,
+  // the extractor silently no-ops the fires (pre-Path-3 behaviour).
+  const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
   extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---

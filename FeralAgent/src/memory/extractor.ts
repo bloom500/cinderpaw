@@ -27,8 +27,9 @@
 import type { InferenceRouter } from "../sandbox/inference-router.ts";
 import type { SemanticMemory } from "./semantic.ts";
 import type { EpisodicMemory } from "./episodic.ts";
-import type { ChatMessage } from "../types.ts";
+import type { ChatMessage, AfterMemoryWritePayload } from "../types.ts";
 import type { MemoryGraph } from "./graph.ts";
+import type { HookRegistry } from "../core/hook-registry.ts";
 
 export type ObservationType =
   | "discovery"
@@ -47,6 +48,7 @@ export class MemoryExtractor {
   readonly #router: InferenceRouter;
   readonly #semantic: SemanticMemory;
   readonly #episodic: EpisodicMemory | null;
+  readonly #hooks: HookRegistry | null;
   readonly #running = new Set<string>();
   readonly #queue: { sessionId: string; turns: ChatMessage[] }[] = [];
   #isIdle: () => boolean = () => true;
@@ -57,10 +59,12 @@ export class MemoryExtractor {
     router: InferenceRouter,
     semantic: SemanticMemory,
     episodic?: EpisodicMemory,
+    hooks?: HookRegistry | null,
   ) {
     this.#router = router;
     this.#semantic = semantic;
     this.#episodic = episodic ?? null;
+    this.#hooks = hooks ?? null;
   }
 
   setIdleChecker(checker: () => boolean) {
@@ -175,6 +179,18 @@ export class MemoryExtractor {
           if (fact) {
             this.#semantic.upsert(fact.key, fact.value);
             graphFacts.push(fact);
+            // Fire after_memory_write ONCE per fact write — the
+            // Reconciler (Pathway 3 step 2) subscribes to upsert into
+            // the fractal tree. Awaited so the hook completes before
+            // the extraction loop moves on; the registry contract
+            // guarantees handlers never throw.
+            await this.#fireMemoryWrite({
+              kind: "fact",
+              sessionId,
+              ts: Date.now(),
+              key: fact.key,
+              value: fact.value,
+            });
           }
         }
         if (this.#graph && graphFacts.length > 0) {
@@ -215,6 +231,16 @@ export class MemoryExtractor {
             }
             this.#graph.persist();
           }
+          // Fire after_memory_write ONCE per observation — same contract
+          // as the fact branch above.
+          await this.#fireMemoryWrite({
+            kind: "observation",
+            sessionId,
+            ts: Date.now(),
+            obsType: obs.type,
+            title: obs.title,
+            concepts: [...obs.concepts],
+          });
         }
       }
     } catch {
@@ -222,6 +248,19 @@ export class MemoryExtractor {
     } finally {
       this.#router.evictSession(extractionSessionId);
     }
+  }
+
+  /**
+   * Fire `after_memory_write` to the registry, if one is attached. No-op
+   * when the extractor was constructed without a HookRegistry (the
+   * pathway-3-step-1 substrate was hook-less). The registry's own
+   * fire() catches handler errors so this method never rejects — keeping
+   * the extraction pipeline resilient exactly like the rest of the
+   * memory write path.
+   */
+  async #fireMemoryWrite(payload: AfterMemoryWritePayload): Promise<void> {
+    if (!this.#hooks) return;
+    await this.#hooks.fire("after_memory_write", payload);
   }
 }
 

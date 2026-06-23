@@ -38,6 +38,7 @@ export type HookHandler<E extends HookEvent> = (
            E extends "agent_end" ? import("../types.ts").AgentEndPayload :
            E extends "subagent_spawn" ? import("../types.ts").SubagentSpawnPayload :
            E extends "subagent_complete" ? import("../types.ts").SubagentCompletePayload :
+           E extends "after_memory_write" ? import("../types.ts").AfterMemoryWritePayload :
            never,
 ) => Promise<HookResult> | HookResult;
 
