@@ -115,6 +115,7 @@ describe("runMigration", () => {
       const result = await runMigration({
         semantic,
         fractal: fmStub as any,
+        embed: identityEmbed(),
         dataDir,
       });
 
@@ -144,6 +145,7 @@ describe("runMigration", () => {
       const result = await runMigration({
         semantic,
         fractal: fmStub as any,
+        embed: identityEmbed(),
         dataDir,
       });
 
@@ -166,6 +168,7 @@ describe("runMigration", () => {
       const result = await runMigration({
         semantic,
         fractal: fmStub as any,
+        embed: identityEmbed(),
         dataDir,
       });
 
@@ -189,6 +192,7 @@ describe("runMigration", () => {
       const result = await runMigration({
         semantic,
         fractal: fmStub as any,
+        embed: identityEmbed(),
         dataDir,
       });
 
@@ -209,7 +213,7 @@ describe("runMigration", () => {
         upsertLeaf: async () => ({ kind: "grow" as const, leafId: 1 }),
       };
 
-      await runMigration({ semantic, fractal: fmStub as any, dataDir });
+      await runMigration({ semantic, fractal: fmStub as any, embed: identityEmbed(), dataDir });
 
       // After the call, the tmp file (if we used one) should be gone.
       const tmpPath = join(dataDir, `${MIGRATION_MARKER_FILENAME}.tmp`);
@@ -232,13 +236,79 @@ describe("runMigration", () => {
         },
       };
 
-      await runMigration({ semantic, fractal: fmStub as any, dataDir });
+      await runMigration({ semantic, fractal: fmStub as any, embed: identityEmbed(), dataDir });
 
       expect(captured).toHaveLength(1);
       expect(captured[0]?.text).toBe("language: ro");
       expect(captured[0]?.provenance?.source).toBe("migration-v1");
       expect(typeof captured[0]?.provenance?.first_seen_at).toBe("number");
       expect(captured[0]?.provenance?.sessionId).toBe("migration");
+    } finally {
+      close();
+    }
+  });
+
+  test("real FractalMemory: embeds each fact and inserts a leaf per fact", async () => {
+    const { semantic, close } = makeSemantic();
+    try {
+      semantic.upsert("language", "ro");
+      semantic.upsert("name", "Alice");
+      // Distinct orthogonal vectors per fact so neither merges into the other
+      // (cosine 0 < the 0.92 MERGE_THRESHOLD): the migration must produce two
+      // real leaves, not a no-op.
+      const table: Record<string, number[]> = {
+        "language: ro": [1, 0, 0],
+        "name: Alice": [0, 1, 0],
+      };
+      const embed: EmbedInvoker = (texts) =>
+        Promise.resolve(texts.map((t) => vec(table[t] ?? [0, 0, 1])));
+      const fm = new FractalMemory({
+        loadLeaves: () => [],
+        embed,
+        summarize: noopSummarize,
+        ftsSearch: silentFts,
+        fallback: noopFallback,
+        treePath: join(dataDir, "fractal-tree.json"),
+      });
+
+      const result = await runMigration({ semantic, fractal: fm, embed, dataDir });
+
+      expect(result.ran).toBe(true);
+      expect(result.facts).toBe(2);
+      // The whole point of Task 4: the legacy facts actually land in the tree.
+      expect(fm.pendingLeaves()).toHaveLength(2);
+      expect(fm.pendingLeaves().map((l) => l.text).sort()).toEqual([
+        "language: ro",
+        "name: Alice",
+      ]);
+      expect(existsSync(join(dataDir, MIGRATION_MARKER_FILENAME))).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
+  test("missing model (embed returns []) → no marker, no upsert, retries next boot", async () => {
+    const { semantic, close } = makeSemantic();
+    try {
+      semantic.upsert("language", "ro");
+      const emptyEmbed: EmbedInvoker = () => Promise.resolve([]);
+      let upsertCalls = 0;
+      const fmStub = {
+        upsertLeaf: async () => { upsertCalls++; return { kind: "grow" as const, leafId: 1 }; },
+      };
+
+      const result = await runMigration({
+        semantic,
+        fractal: fmStub as any,
+        embed: emptyEmbed,
+        dataDir,
+      });
+
+      expect(result.ran).toBe(false);
+      expect(result.error ?? "").toMatch(/embed|model/i);
+      // Never upserts a leaf with no embedding, and never marks itself done.
+      expect(upsertCalls).toBe(0);
+      expect(existsSync(join(dataDir, MIGRATION_MARKER_FILENAME))).toBe(false);
     } finally {
       close();
     }

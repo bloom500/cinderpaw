@@ -31,6 +31,7 @@
 import { existsSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { SemanticMemory } from "../semantic.ts";
+import type { EmbedInvoker } from "./embed.ts";
 
 /**
  * Single source of truth for the marker file name. The string MUST
@@ -61,6 +62,15 @@ export interface MigrationDeps {
       };
     }): Promise<{ kind: "grow"; leafId: number } | { kind: "seed"; leafId: number }>;
   };
+  /**
+   * Embedder — the same `embed(text) → vec` path the reactive engine and
+   * the bench use. The migration computes the embedding for each fact
+   * BEFORE calling `upsertLeaf` (which requires a non-empty embedding to
+   * actually insert). When the model is missing on disk, `embed` returns
+   * an empty array; the migration treats that as "retry next boot" and
+   * does NOT write the marker.
+   */
+  embed: EmbedInvoker;
   /** Where the marker file lives. */
   dataDir: string;
 }
@@ -92,13 +102,27 @@ export async function runMigration(deps: MigrationDeps): Promise<MigrationResult
   }
 
   for (const fact of facts) {
+    const text = `${fact.key}: ${fact.value}`;
+
+    // Embed the fact first. upsertLeaf only inserts when handed a
+    // non-empty embedding; an empty vector means the model is missing
+    // on disk, so we abort WITHOUT writing the marker and the next boot
+    // retries (the FTS5 fallback keeps the fact reachable meanwhile).
+    let vec;
+    try {
+      const embedded = await deps.embed([text]);
+      vec = embedded[0];
+    } catch (e) {
+      return { ran: false, facts: 0, error: `embed threw on "${fact.key}": ${String(e)}` };
+    }
+    if (!vec || vec.length === 0) {
+      return { ran: false, facts: 0, error: `embedder unavailable (model missing) on "${fact.key}"` };
+    }
+
     try {
       await deps.fractal.upsertLeaf({
-        text: `${fact.key}: ${fact.value}`,
-        embedding: [], // empty — migration does not re-embed old facts; the
-                        // existing episodic embeddings (if any) are reused by
-                        // the next tree rebuild via loadLeaves(). A future
-                        // step can pre-embed here if the model is available.
+        text,
+        embedding: Array.from(vec),
         provenance: {
           source: "migration-v1",
           first_seen_at: fact.updatedAt,

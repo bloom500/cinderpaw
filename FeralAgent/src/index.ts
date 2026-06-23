@@ -404,6 +404,7 @@ async function main(): Promise<void> {
   void runMigration({
     semantic,
     fractal: fractalMemory,
+    embed,
     dataDir,
   }).then((result) => {
     if (result.ran) {
