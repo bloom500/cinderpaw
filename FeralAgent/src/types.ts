@@ -1069,13 +1069,14 @@ export type OutboundEvent =
   // the `kind` discriminator + the kind-specific fields.
   | {
       type: "fractal_activity";
-      kind: "recall" | "grow" | "seed";
+      kind: "recall" | "grow" | "seed" | "prune";
       hits?: number;
       leafCount?: number;
       clusterCount?: number;
       clusters?: { x: number; y: number; weight: number }[];
       leafId?: number;
       sessionId?: string;
+      evictedLeafIds?: number[];
       ts?: number;
     };
 

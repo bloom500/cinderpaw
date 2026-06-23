@@ -1,9 +1,10 @@
 # Local Models & GPU
 
-**Status:** Active — RX 580 Vulkan path is unstable; CPU offload is the
-default for embeddings.
-**Date:** 2026-06-22
-**Branch / worktree:** `feat/rsi-fractal-memory` @ `D:\FeralLocalAI\.worktrees\wt-29286b1b`
+**Status:** Canonical CPU-only — Vulkan embed is permanently unstable on this
+dev box (RX 580 + llama.cpp × AMDVLK). `FERAL_EMBED_GPU_LAYERS=0` is the
+documented canonical path.
+**Date:** 2026-06-23 (Pathway 4 PR-C C.5 confirmed CPU-only as permanent)
+**Branch / worktree:** `feat/pathway4-prC-c0-leafstore` @ `D:\FeralLocalAI\.worktrees\wt-p4C0`
 
 ## TL;DR
 

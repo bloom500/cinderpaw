@@ -40,6 +40,10 @@ import {
 import type { BenchReport } from "./bench/runner.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
+import { LeafStore, type LeafSummary } from "./leaf-store.ts";
+import type { EvictionPolicy } from "./eviction.ts";
+import { appendFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 /** Options for {@link FractalMemory.benchmark}. */
 export interface FractalBenchmarkOptions {
@@ -80,7 +84,8 @@ export type FractalActivity =
       clusterCount: number;
       clusters: { x: number; y: number; weight: number }[];
     }
-  | { kind: "seed"; leafId: number; sessionId: string; ts: number };
+  | { kind: "seed"; leafId: number; sessionId: string; ts: number }
+  | { kind: "prune"; evictedLeafIds: number[]; ts: number };
 
 export interface FractalMemoryDeps {
   /** Pull the current episodic rows as leaves (vectors optional — `buildTree`
@@ -97,6 +102,12 @@ export interface FractalMemoryDeps {
   fallback: RecallFallback;
   /** Where the persisted tree lives on disk. */
   treePath: string;
+  /**
+   * Where the durable reactive-leaf store lives (Pathway 4 PR-C C.0).
+   * Production wires `<dataDir>/fractal-leaves.jsonl`; omit (or pass
+   * `":memory:"`) for hermetic tests — the store then does no disk I/O.
+   */
+  leafStorePath?: string;
   /** Below this many leaves, skip the tree entirely (FTS5 is plenty for a tiny
    *  corpus, and clustering a handful of rows is noise). Default 8. */
   minLeaves?: number;
@@ -172,6 +183,10 @@ export class FractalMemory {
   readonly #persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
   readonly #clearEmbeddings?: () => number;
   readonly #onActivity?: (activity: FractalActivity) => void;
+  /** Durable provenance-bearing store for reactive leaves (PR-C C.0). */
+  readonly #leafStore: LeafStore;
+  /** Raw store path — used to derive the sibling evicted-leaf audit log (C.2). */
+  readonly #leafStorePath: string;
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
@@ -191,6 +206,8 @@ export class FractalMemory {
     this.#persistEmbeddings = deps.persistEmbeddings;
     this.#clearEmbeddings = deps.clearEmbeddings;
     this.#onActivity = deps.onActivity;
+    this.#leafStorePath = deps.leafStorePath ?? ":memory:";
+    this.#leafStore = new LeafStore(this.#leafStorePath);
   }
 
   /**
@@ -234,6 +251,12 @@ export class FractalMemory {
    * a usable tree was loaded.
    */
   init(): boolean {
+    // Load the durable reactive-leaf store first (PR-C C.0) — independent of
+    // the tree, so reactive leaves survive restart even when no tree exists.
+    const loaded = this.#leafStore.load();
+    if (loaded.loaded > 0 || loaded.skipped > 0) {
+      this.#log?.(`fractal: loaded ${loaded.loaded} reactive leaf(s) from store (${loaded.skipped} skipped)`);
+    }
     const persisted = loadTree(this.#treePath);
     if (!persisted) return false;
     try {
@@ -554,6 +577,85 @@ export class FractalMemory {
   }
 
   /**
+   * Provenance-bearing summaries of the durable reactive leaves (PR-C C.0).
+   * This is the surface eviction (C.1/C.2) and cross-session dedup (C.3)
+   * operate on as pure functions: each summary carries `first_seen_at`,
+   * `last_seen_at`, and `hit_count`. Reads from the durable LeafStore, so it
+   * reflects leaves written across restarts (after `init()` loaded them).
+   */
+  leaves(): LeafSummary[] {
+    return this.#leafStore.summaries();
+  }
+
+  /**
+   * Apply an EvictionPolicy to the durable store (PR-C C.2). Removes the
+   * selected leaves, appends them to `<dir>/fractal-evicted.jsonl` for audit,
+   * and emits a `prune` pulse so the organism reflects the loss. A no-op
+   * (no removal, no file, no pulse) when the policy selects nothing.
+   */
+  async evict(policy: EvictionPolicy, now: number = Date.now()): Promise<{ evicted: number[] }> {
+    const ids = policy.select(this.#leafStore.summaries(), now);
+    if (ids.length === 0) return { evicted: [] };
+    this.#leafStore.remove(ids);
+    // Keep the in-boot caches consistent with the durable store.
+    for (const id of ids) {
+      this.#pendingLeaves.delete(id);
+      this.#provenance.delete(id);
+    }
+    this.#appendEvicted(ids, now, policy.name);
+    this.#emit({ kind: "prune", evictedLeafIds: ids, ts: now });
+    return { evicted: ids };
+  }
+
+  /** Append evicted leaves to the audit log; skipped for the in-memory store. */
+  #appendEvicted(ids: number[], now: number, reason: string): void {
+    if (this.#leafStorePath === ":memory:" || this.#leafStorePath === "") return;
+    const path = join(dirname(this.#leafStorePath), "fractal-evicted.jsonl");
+    const body = ids.map((leafId) => JSON.stringify({ leafId, evictedAt: now, reason })).join("\n") + "\n";
+    try {
+      appendFileSync(path, body, "utf8");
+    } catch (e) {
+      this.#log?.(`fractal: evicted-log append failed (ignored): ${String(e)}`);
+    }
+  }
+
+  /**
+   * Cross-session dedup (PR-C C.3). Collapses leaves whose cosine similarity
+   * >= mergeThreshold AND whose first_seen_at differ by >= spanThresholdMs.
+   * Absorbed leaves are removed from the store; survivors get summed hit_count
+   * and max last_seen_at. Emits a `prune` pulse with the absorbed ids.
+   */
+  async dedup(opts: { mergeThreshold?: number; spanThresholdMs?: number } = {}): Promise<{ groups: number }> {
+    const { dedupAcrossSessions } = await import("./cross-session-dedup.ts");
+    const records = this.#leafStore.all();
+    const dedupLeaves = records.map((r) => ({
+      id: r.id,
+      text: r.text,
+      first_seen_at: r.provenance.first_seen_at,
+      last_seen_at: r.provenance.last_seen_at,
+      hit_count: r.provenance.hit_count,
+      vec: r.vec,
+    }));
+    const mergeThreshold = opts.mergeThreshold ?? Number(process.env.FERAL_FMS_MERGE_THRESHOLD ?? "0.92");
+    const spanThresholdMs = opts.spanThresholdMs ?? Number(process.env.FERAL_FMS_DEDUP_SPAN_MS ?? String(30 * 24 * 60 * 60 * 1000));
+    const groups = dedupAcrossSessions(dedupLeaves, {
+      mergeThreshold,
+      spanThresholdMs,
+      now: Date.now(),
+    });
+    if (groups.length === 0) return { groups: 0 };
+    const absorbedIds = groups.flatMap((g) => g.absorbed.map((l) => l.id));
+    this.#leafStore.remove(absorbedIds);
+    for (const id of absorbedIds) {
+      this.#pendingLeaves.delete(id);
+      this.#provenance.delete(id);
+    }
+    this.#appendEvicted(absorbedIds, Date.now(), "dedup");
+    this.#emit({ kind: "prune", evictedLeafIds: absorbedIds, ts: Date.now() });
+    return { groups: groups.length };
+  }
+
+  /**
    * Read-only snapshot of the tree's cluster + leaf summary — what
    * the MemoryGraph needs to mirror fact ↔ graph. Currently a thin
    * shape: cluster ids + summaries, leaf ids + first 80 chars of
@@ -654,6 +756,24 @@ export class FractalMemory {
     });
     this.#provenanceKeys.add(key);
 
+    // Write the leaf through to the durable store (PR-C C.0) so it survives
+    // restart and carries provenance for eviction/dedup.
+    this.#leafStore.upsert({
+      id: newId,
+      text: opts.text,
+      vec: Array.from(embeddingVec),
+      ts: opts.provenance.ts,
+      sessionId: opts.provenance.sessionId,
+      provenance: {
+        source: opts.provenance.source,
+        first_seen_at: opts.provenance.first_seen_at,
+        last_seen_at: opts.provenance.ts,
+        hit_count: 1,
+        key: opts.provenance.key,
+        value: opts.provenance.value,
+      },
+    });
+
     // Persist the embedding so the next rebuild can skip the embed roundtrip.
     try {
       this.#persistEmbeddings?.([{ id: newId, vec: embeddingVec }]);
@@ -708,6 +828,26 @@ export class FractalMemory {
         source: provenance.source,
         key: provenance.key,
         value: provenance.value,
+      });
+    }
+    // Mirror the bumped provenance into the durable store (PR-C C.0) so
+    // eviction/dedup see the current hit_count / last_seen_at.
+    const prov = this.#provenance.get(leaf.id);
+    if (prov) {
+      this.#leafStore.upsert({
+        id: leaf.id,
+        text: leaf.text,
+        vec: Array.from(leaf.vec),
+        ts: leaf.ts,
+        sessionId: leaf.sessionId,
+        provenance: {
+          source: prov.source,
+          first_seen_at: prov.first_seen_at,
+          last_seen_at: prov.last_seen_at,
+          hit_count: prov.hit_count,
+          key: prov.key,
+          value: prov.value,
+        },
       });
     }
   }
