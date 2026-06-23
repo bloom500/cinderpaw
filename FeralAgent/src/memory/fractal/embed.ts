@@ -36,6 +36,13 @@ let defaultInvoker: EmbedInvoker | null = null;
 /** Install the production invoker. Call once at sidecar startup. */
 export function setEmbedInvoker(invoker: EmbedInvoker): void {
   defaultInvoker = invoker;
+  // Pathway 4 PR-C C.5: warn if Vulkan GPU layers are not explicitly disabled.
+  if (!process.env.FERAL_EMBED_GPU_LAYERS) {
+    console.warn(
+      "[embed] FERAL_EMBED_GPU_LAYERS is unset — Vulkan embed may crash on this hardware. " +
+      "Set FERAL_EMBED_GPU_LAYERS=0 for CPU-only (canonical on RX 580).",
+    );
+  }
 }
 
 /** Drop all cached embeddings. Test helper — never call in production. */

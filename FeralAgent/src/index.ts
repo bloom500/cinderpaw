@@ -19,6 +19,8 @@ import { EpisodicMemory } from "./memory/episodic.ts";
 import { SemanticMemory } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
+import { Reconciler } from "./memory/reconciler.ts";
+import { runMigration } from "./memory/fractal/migration.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { ToolRegistry } from "./tools/registry.ts";
@@ -55,6 +57,7 @@ import { RsiBridge } from "./rsi/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
+import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import {
@@ -315,6 +318,7 @@ async function main(): Promise<void> {
     ftsSearch: (q, limit) => episodic.search(q, limit),
     fallback: recall,
     treePath: require("node:path").join(dataDir, "fractal-tree.json"),
+    leafStorePath: require("node:path").join(dataDir, LEAF_STORE_FILENAME),
     // Dev-only subset cap for the benchmark gate: build/measure over the first
     // N leaves so we get real numbers in minutes on CPU instead of hours over
     // the full corpus. Unset in production (whole corpus). See FractalMemoryDeps.
@@ -378,6 +382,43 @@ async function main(): Promise<void> {
   // tool registry receives it next so before_tool_call handlers can
   // block tool invocations.
   const hooks = new HookRegistry();
+
+  // --- Reconciler (Pathway 3 step 2 Task 2 + Task 3) ---
+  // Single subscriber to `after_memory_write`. Task 3 wires
+  // `fractal.upsertLeaf(...)` for fact writes; Task 4 will additionally
+  // mirror the result into `memoryGraph.reconcile(treeView)`. Started
+  // here — after `fractalMemory.init()` and after `hooks` is built —
+  // so the tree is ready before the first capture event arrives.
+  const reconciler = new Reconciler({
+    hooks,
+    fractal: fractalMemory,
+    graph: memoryGraph,
+    embed,
+  });
+  reconciler.start();
+
+  // --- Migration (Pathway 3 step 2 Task 4) ---
+  // One-shot lift of the ~41 pre-step1 facts from SemanticMemory into
+  // the new reactive tree. Idempotent via marker file; failure-tolerant
+  // (missing model is non-fatal — the FTS5 fallback keeps the old
+  // facts reachable via auto-inject). Best-effort, fire-and-forget
+  // — the result is logged but the boot does not block on it.
+  void runMigration({
+    semantic,
+    fractal: fractalMemory,
+    embed,
+    dataDir,
+  }).then((result) => {
+    if (result.ran) {
+      log(`migration: lifted ${result.facts} fact(s) into the reactive tree`);
+    } else if (result.error) {
+      log(`migration: skipped (${result.error}) — will retry next boot`);
+    } else {
+      log("migration: marker present, no-op");
+    }
+  }).catch((e) => {
+    log(`migration: unexpected error: ${String(e)}`);
+  });
 
   const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
   registry.register(createReadFileTool([config.workspace]));
@@ -545,7 +586,13 @@ async function main(): Promise<void> {
   }
 
   // --- Memory extractor (async, fire-and-forget after each turn) ---
-  const extractor = new MemoryExtractor(router, semantic, episodic);
+  // Path 3 step 2: the extractor fires `after_memory_write` to the
+  // shared HookRegistry on every fact / observation persistence. The
+  // Reconciler (constructed earlier in this file) subscribes to the
+  // event and keeps the fractal tree reactive. Without a registry
+  // attached, the extractor silently no-ops the fires (pre-Path-3
+  // behaviour).
+  const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
   extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---

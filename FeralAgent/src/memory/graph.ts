@@ -25,28 +25,39 @@ export interface MemoryGraphData {
   version: 1;
 }
 
-const GRAPH_PATH = path.join(os.homedir(), ".feral", "memory-graph.json");
+const DEFAULT_GRAPH_PATH = path.join(os.homedir(), ".feral", "memory-graph.json");
 
-function load(): MemoryGraphData {
-  try {
-    const raw = fs.readFileSync(GRAPH_PATH, "utf8");
-    return JSON.parse(raw) as MemoryGraphData;
-  } catch {
-    return { nodes: {}, edges: [], version: 1 };
-  }
-}
-
-function save(g: MemoryGraphData): void {
-  const dir = path.dirname(GRAPH_PATH);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(GRAPH_PATH, JSON.stringify(g, null, 2), "utf8");
+export interface MemoryGraphOptions {
+  /** Override the on-disk path. Default: `~/.feral/memory-graph.json`. */
+  path?: string;
 }
 
 export class MemoryGraph {
   #data: MemoryGraphData;
+  readonly #path: string;
 
-  constructor() {
-    this.#data = load();
+  constructor(opts: MemoryGraphOptions | string = {}) {
+    if (typeof opts === "string") {
+      this.#path = opts;
+    } else {
+      this.#path = opts.path ?? DEFAULT_GRAPH_PATH;
+    }
+    this.#data = this.#load(this.#path);
+  }
+
+  #load(p: string): MemoryGraphData {
+    try {
+      const raw = fs.readFileSync(p, "utf8");
+      return JSON.parse(raw) as MemoryGraphData;
+    } catch {
+      return { nodes: {}, edges: [], version: 1 };
+    }
+  }
+
+  #save(g: MemoryGraphData): void {
+    const dir = path.dirname(this.#path);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(this.#path, JSON.stringify(g, null, 2), "utf8");
   }
 
   upsertNode(id: string, label: string, type: GraphNode["type"], properties: Record<string, string> = {}): void {
@@ -122,15 +133,46 @@ export class MemoryGraph {
 
   persist(): void {
     try {
-      save(this.#data);
+      this.#save(this.#data);
     } catch {
       // Retry once after 100 ms — the cleaner may be writing at this instant.
       const snapshot = structuredClone(this.#data);
-      setTimeout(() => { try { save(snapshot); } catch { /* best-effort */ } }, 100);
+      setTimeout(() => { try { this.#save(snapshot); } catch { /* best-effort */ } }, 100);
     }
   }
 
   snapshot(): MemoryGraphData {
     return structuredClone(this.#data);
+  }
+
+  /**
+   * Pathway 3 step 2 — mirror the tree's cluster + leaf summary into
+   * the graph. Idempotent (upsertNode collapses on id). Returns the
+   * count of nodes touched so the Reconciler can log a meaningful
+   * delta on each observation write.
+   *
+   * Edges are not added here in Task 4 — Task 5 / Pathway 4 PR-C will
+   * derive cluster↔leaf edges from the tree's membership. The graph
+   * is already populated for facts by the extractor's direct addFact
+   * path (kept for belt-and-braces, see spec).
+   */
+  reconcile(view: {
+    clusters: Array<{ id: string; summary: string }>;
+    leaves: Array<{ id: number; summary: string }>;
+  }): { nodesTouched: number } {
+    let touched = 0;
+    for (const c of view.clusters) {
+      this.upsertNode(`cluster_${c.id}`, c.summary || c.id, "concept", {
+        kind: "cluster",
+      });
+      touched++;
+    }
+    for (const l of view.leaves) {
+      this.upsertNode(`leaf_${l.id}`, l.summary || `leaf-${l.id}`, "fact", {
+        kind: "leaf",
+      });
+      touched++;
+    }
+    return { nodesTouched: touched };
   }
 }
