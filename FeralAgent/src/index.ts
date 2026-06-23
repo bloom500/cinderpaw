@@ -45,8 +45,6 @@ import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createFeedbackSkillTool } from "./tools/builtin/feedback-skill.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
-import { createMemoryOpsTool } from "./tools/builtin/memory-ops.ts";
-import { createMemoryGraphOpsTool } from "./tools/builtin/memory-graph-ops.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
@@ -467,19 +465,6 @@ async function main(): Promise<void> {
   registry.register(
     createRecallTool((q, limit) => fractalMemory.query(q, limit)),
   );
-
-  // memory_ops / memory_graph — explicit CRUD over semantic memory and the
-  // knowledge graph. The extractor feeds both automatically in the
-  // background; these tools let the agent act on "remember X" / "forget Y"
-  // immediately and query what it already knows.
-  // `memory_ops search` is also a facade over Fractal Memory Search: it
-  // augments the literal fact matches with semantically-relevant past
-  // conversations via the loaded RAPTOR tree. Best-effort — no model/tree just
-  // means no episodic section (the fact search is unchanged).
-  registry.register(
-    createMemoryOpsTool(semantic, (q, limit) => fractalMemory.query(q, limit)),
-  );
-  registry.register(createMemoryGraphOpsTool(memoryGraph));
 
   // P0-2: feedback_skill — refine a skill's body given user feedback.
   // Default OFF (auto-creation is gated separately by
