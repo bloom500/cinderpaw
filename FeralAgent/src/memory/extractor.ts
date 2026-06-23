@@ -28,7 +28,6 @@ import type { InferenceRouter } from "../sandbox/inference-router.ts";
 import type { SemanticMemory } from "./semantic.ts";
 import type { EpisodicMemory } from "./episodic.ts";
 import type { ChatMessage } from "../types.ts";
-import type { SkillAutoCreator } from "../skills/auto-create.ts";
 import type { MemoryGraph } from "./graph.ts";
 
 export type ObservationType =
@@ -48,7 +47,6 @@ export class MemoryExtractor {
   readonly #router: InferenceRouter;
   readonly #semantic: SemanticMemory;
   readonly #episodic: EpisodicMemory | null;
-  readonly #skillCreator: SkillAutoCreator | null;
   readonly #running = new Set<string>();
   readonly #queue: { sessionId: string; turns: ChatMessage[] }[] = [];
   #isIdle: () => boolean = () => true;
@@ -59,12 +57,10 @@ export class MemoryExtractor {
     router: InferenceRouter,
     semantic: SemanticMemory,
     episodic?: EpisodicMemory,
-    skillCreator?: SkillAutoCreator | null,
   ) {
     this.#router = router;
     this.#semantic = semantic;
     this.#episodic = episodic ?? null;
-    this.#skillCreator = skillCreator ?? null;
   }
 
   setIdleChecker(checker: () => boolean) {
@@ -116,14 +112,8 @@ export class MemoryExtractor {
     const assistantTurns = turns.filter((m) => m.role === "assistant").length;
     if (assistantTurns === 0) return;
 
-    // Extract on the FIRST assistant turn too — most conversations are short,
-    // and the old %3-only cadence meant a 1-2 turn chat never produced any
-    // memory at all ("the agent never learns"). After the first turn, the
-    // every-3rd cadence keeps token cost bounded.
     const shouldExtract = assistantTurns === 1 || assistantTurns % 3 === 0;
-    const shouldSkill = this.#skillCreator && (assistantTurns % 5 === 0);
-
-    if (!shouldExtract && !shouldSkill) return;
+    if (!shouldExtract) return;
 
     const recent = turns.slice(-6);
     let transcript = recent
@@ -131,21 +121,7 @@ export class MemoryExtractor {
       .join("\n");
     if (transcript.length > 2000) transcript = transcript.slice(-2000);
 
-    const promises: Promise<void>[] = [];
-
-    if (shouldExtract) {
-      promises.push(this.#extractFactsAndObservation(sessionId, transcript));
-    }
-
-    if (shouldSkill && this.#skillCreator) {
-      promises.push(
-        this.#skillCreator.maybeCreate(transcript, sessionId).then(() => undefined)
-      );
-    }
-
-    if (promises.length > 0) {
-      await Promise.all(promises);
-    }
+    await this.#extractFactsAndObservation(sessionId, transcript);
   }
 
   async #extractFactsAndObservation(sessionId: string, transcript: string): Promise<void> {

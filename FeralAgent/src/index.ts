@@ -49,7 +49,6 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
-import { SkillsStorage, SkillAutoCreator } from "./skills/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
@@ -551,37 +550,8 @@ async function main(): Promise<void> {
     log("inner-thoughts loop enabled (opt-in via FERAL_PROACTIVE_ENABLED)");
   }
 
-  // --- Skills subsystem (P0-2) ---
-  const skillsStorage = new SkillsStorage();
-  const skillAutoCreateEnabled = process.env.FERAL_SKILL_AUTO_CREATE === "true";
-  // The auto-creator is created up front; whether it actually fires
-  // depends on `enabled` AND on MemoryExtractor wiring below. The
-  // onCreated callback emits a `skill_created` event so the React UI
-  // can prompt the user to review.
-  const skillCreator = new SkillAutoCreator({
-    storage: skillsStorage,
-    db: db.raw,
-    router,
-    enabled: skillAutoCreateEnabled,
-    onCreated: (manifest, path) => {
-      log(`skill created → ${manifest.id} (${manifest.name}) v${manifest.version}`);
-      // The transport may not be wired yet at construction time, but
-      // it's wired by the time any auto-create runs (those run AFTER
-      // the first handle, which is AFTER transport.start()).
-      if (sendHolder.current !== (() => {})) {
-        sendHolder.current({
-          type: "skill_created",
-          skillId: manifest.id,
-          name: manifest.name,
-          path,
-          version: manifest.version,
-        });
-      }
-    },
-  });
-
   // --- Memory extractor (async, fire-and-forget after each turn) ---
-  const extractor = new MemoryExtractor(router, semantic, episodic, skillCreator);
+  const extractor = new MemoryExtractor(router, semantic, episodic);
   extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---
