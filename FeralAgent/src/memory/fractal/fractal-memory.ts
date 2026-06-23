@@ -451,9 +451,9 @@ export class FractalMemory {
 
   /**
    * Structured semantic query over the loaded tree — the `fractalQuery`
-   * surface the `memory_ops`/`memory_graph` tool facades call. Returns ranked
-   * `{leafId, text}` hits (best first), embedding the query through the tree
-   * the same way `recall` does but without formatting a prompt block or
+   * surface the read-only `recall` tool calls. Returns ranked `{leafId, text}`
+   * hits (best first), embedding the query through the tree the same way
+   * the per-turn auto-injection does but without formatting a prompt block or
    * excluding any session (an explicit tool query has no "current" session).
    *
    * Same contract as the rest of the facade: never throws, augment never

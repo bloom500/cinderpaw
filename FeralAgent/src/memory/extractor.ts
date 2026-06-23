@@ -296,8 +296,9 @@ export function isJunkFactKey(key: string): boolean {
  * the facts output; the old colon-split stored keys like "- language",
  * "1. user shared a link", "we need to produce final answer", and
  * "the user has a project at `d" (path split at the drive-letter colon).
- * Those keys are unguessable, so `memory_ops forget` could never target
- * them and the graph filled with junk nodes.
+ * Those keys are unguessable, so any future tool that targets a fact by key
+ * would never hit them and the graph would fill with junk nodes — hence the
+ * aggressive sanitation here.
  *
  * Returns the cleaned fact, or null when the line is not a usable fact.
  */

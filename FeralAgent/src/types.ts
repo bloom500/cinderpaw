@@ -627,7 +627,7 @@ export interface ParsedResponse {
   toolCalls: ParsedToolCall[];
   /**
    * True when the response contained a tool-call attempt that could not be
-   * parsed (corrupted JSON, e.g. `{"name="memory_graph">`). The fragment is
+   * parsed (corrupted JSON, e.g. `{"name="read_skill">`). The fragment is
    * scrubbed from `text`, but the loop must NOT treat the turn as a final
    * answer — the model meant to act. The loop feeds back a corrective nudge
    * so the model re-emits a valid call instead of silently stopping mid-task.

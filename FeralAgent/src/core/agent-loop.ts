@@ -703,7 +703,7 @@ export class AgentLoop {
     const MAX_CONTINUATIONS = 4;
     let continuations = 0;
     // Malformed tool-call recovery: when a turn contains a tool-call attempt
-    // that failed to parse (corrupted JSON like `{"name="memory_graph">`),
+    // that failed to parse (corrupted JSON like `{"name="read_skill">`),
     // the model meant to act — ending the turn there strands the task. Feed
     // back a corrective nudge and let it re-emit a valid call. Bounded so a
     // model that can never produce valid JSON doesn't loop forever.
@@ -1298,10 +1298,10 @@ export function parseResponse(raw: string): ParsedResponse {
   }
 
   // Pass 1 (narrow): bare tool-call JSON in the content. Grammar-constrained
-  // local inference normally guarantees <tool_call> tags, but models on
+  // local inference normally guarantees  tool_call tags, but models on
   // plain OpenAI-compatible APIs (observed: MiniMax M3) still emit
-  // `{"name":"memory_ops","args":{…}}` — sometimes several in a row, and
-  // sometimes corrupted (`{"name="memory_ops">`). Without this pass the raw
+  // `{"name":"read_skill","args":{…}}` — sometimes several in a row, and
+  // sometimes corrupted (`{"name="read_skill">`). Without this pass the raw
   // JSON was displayed verbatim in the chat instead of executing.
   //
   // Unlike the removed legacy passes, this one only fires on objects whose
