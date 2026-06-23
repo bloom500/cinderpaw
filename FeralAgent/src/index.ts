@@ -42,17 +42,31 @@ import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
-import { createFeedbackSkillTool } from "./tools/builtin/feedback-skill.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
-import { createMemoryOpsTool } from "./tools/builtin/memory-ops.ts";
-import { createMemoryGraphOpsTool } from "./tools/builtin/memory-graph-ops.ts";
+import { createRecallTool } from "./tools/builtin/recall.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
-import { SkillsStorage, SkillAutoCreator } from "./skills/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
+import { bootstrapOnce } from "./rsi/mod.ts";
+import { RsiBridge } from "./rsi/bridge.ts";
+import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
+import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
+import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
+import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
+import { RsiSidecar } from "./rsi/sidecar.ts";
+import {
+  PassiveSupervisor,
+  shouldAutostartPassive,
+  passiveStartOptions,
+} from "./rsi/passive-supervisor.ts";
+import {
+  mapGenomeToAgentConfig,
+  readChampion,
+  defaultChampionPath,
+} from "./rsi/champion.ts";
 import type { DeliveryTarget, Schedule } from "./types.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
@@ -165,6 +179,34 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const db = openDatabase(config.dbPath);
 
+  // --- RSI bootstrap (Faza 0 — Keystone) ---
+  // Boot the Bounded-RSI substrate. Two slices, two owners:
+  //
+  //   - Rust slice (git repo at ~/.feral/rsi/, PLAN.md, SandboxBounds,
+  //     audit chain) — bootstrapped by Tauri's `setup()` hook in
+  //     src-tauri/src/lib.rs BEFORE the sidecar process spawns. By
+  //     the time we reach this line, that slice is already live.
+  //
+  //   - Sidecar slice (5 tables in feral.db, 4 initial
+  //     strategy-genomes) — bootstrapped here. Idempotent: re-running
+  //     is a no-op.
+  //
+  // This is fail-soft: a failed bootstrap here doesn't kill the
+  // sidecar — chat still works, just without RSI. The error is
+  // surfaced to the log so the operator can diagnose.
+  try {
+    const result = bootstrapOnce(db.raw);
+    if (!result.allTablesPresent) {
+      log(`RSI tables missing: ${result.missingTables.join(", ")} — migration may have failed`);
+    }
+    log(
+      `RSI bootstrap → strategy_seeds=${result.strategyGenomesSeeded} ` +
+        `tables_ok=${result.allTablesPresent}`,
+    );
+  } catch (err) {
+    log(`RSI bootstrap failed (continuing without RSI): ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // --- Identity: load SOUL.md (bundled default + user override). The loader
   // is the source of truth for the agent's tone, identity, and behavior; it
   // is wired in early so the system prompt is consistent on the first turn
@@ -240,6 +282,75 @@ async function main(): Promise<void> {
   // --- ECC tool observation telemetry ---
   const dataDir = config.dbPath === ":memory:" ? "data" : require("node:path").dirname(config.dbPath);
   const observations = new ToolObservationLog(dataDir);
+
+  // --- Fractal Memory Search (semantic recall over the RAPTOR tree) ---
+  // Wraps the legacy RecallEngine: with a built tree + an embedding model it
+  // serves the semantic + FTS5 hybrid; otherwise it transparently falls back
+  // to RecallEngine, so there is zero regression before the model is on disk.
+  // The tree is loaded from disk here; the first build runs in the background
+  // after the embed bridge is wired (below), and is a no-op without a model.
+  //
+  // `loadLeaves` reuses the per-row embedding already stored in SQLite when
+  // present — that's what makes subsequent rebuilds free of re-embedding.
+  // `persistEmbeddings` is the write-back hook the tree builder calls after
+  // each chunk, so freshly-computed vectors land on disk for next time
+  // (crash-safe: rows that didn't get written just get re-embedded next run).
+  // Organism pulse forwarder: FractalMemory emits recall/grow activity that
+  // drives the living Mandelbrot. The transport doesn't exist yet, so route
+  // through a holder wired to it below (same pattern as `sendHolder`).
+  const fractalActivitySink: { current: (a: FractalActivity) => void } = {
+    current: () => {},
+  };
+  const fractalMemory = new FractalMemory({
+    loadLeaves: () =>
+      episodic.all().map((e) => ({
+        id: e.id ?? 0,
+        text: e.content,
+        vec: e.embedding ?? new Float32Array(0), // reuse stored vec when present
+        ts: e.timestamp,
+        sessionId: e.sessionId,
+      })),
+    embed: (texts) => embed(texts),
+    summarize: summarizeFromRouter(router),
+    ftsSearch: (q, limit) => episodic.search(q, limit),
+    fallback: recall,
+    treePath: require("node:path").join(dataDir, "fractal-tree.json"),
+    // Dev-only subset cap for the benchmark gate: build/measure over the first
+    // N leaves so we get real numbers in minutes on CPU instead of hours over
+    // the full corpus. Unset in production (whole corpus). See FractalMemoryDeps.
+    maxLeaves: Number(process.env.FERAL_FRACTAL_BENCH_MAX_LEAVES) || 0,
+    log,
+    persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
+    clearEmbeddings: () => episodic.clearEmbeddings(),
+    onActivity: (a) => fractalActivitySink.current(a),
+  });
+
+  // --- Env-cap guard ---
+  // If the user is routing through a *cloud* provider (anything not on the
+  // loopback) but forgot to set FERAL_FRACTAL_BENCH_MAX_LEAVES, the next
+  // rebuild will try to summarise every leaf in the corpus and the
+  // provider will reject the call with "context window exceeds limit".
+  // That bug has already broken a manual UI bench run once (silent empty
+  // tree, 0% recall on both engines). Warn loudly so the next operator
+  // sees it before clicking Run Benchmark.
+  {
+    const baseUrl = process.env.FERAL_BASE_URL ?? "";
+    const isLoopback = baseUrl === "" || /^(https?:\/\/)?(127\.|localhost)/i.test(baseUrl);
+    const cap = Number(process.env.FERAL_FRACTAL_BENCH_MAX_LEAVES) || 0;
+    if (!isLoopback && cap === 0) {
+      log(
+        `[bench-cap] WARN: FERAL_BASE_URL=${baseUrl} is non-loopback but ` +
+          `FERAL_FRACTAL_BENCH_MAX_LEAVES is unset. The next fractal rebuild ` +
+          `will try to summarise the full corpus (~2.7k leaves) and the ` +
+          `cloud provider will likely reject with "context window exceeds limit", ` +
+          `leaving you with an empty tree and 0% recall. ` +
+          `Set FERAL_FRACTAL_BENCH_MAX_LEAVES=200 (or another small number) ` +
+          `before launching, or the next rebuild may fail.`,
+      );
+    }
+  }
+
+  fractalMemory.init();
 
   // --- Tools (each gated by the sandbox) ---
   // ask_user bridge is created up front so the registry can hand it to
@@ -346,17 +457,12 @@ async function main(): Promise<void> {
     log("control_app enabled (FERAL_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
   }
 
-  // memory_ops / memory_graph — explicit CRUD over semantic memory and the
-  // knowledge graph. The extractor feeds both automatically in the
-  // background; these tools let the agent act on "remember X" / "forget Y"
-  // immediately and query what it already knows.
-  registry.register(createMemoryOpsTool(semantic));
-  registry.register(createMemoryGraphOpsTool(memoryGraph));
-
-  // P0-2: feedback_skill — refine a skill's body given user feedback.
-  // Default OFF (auto-creation is gated separately by
-  // FERAL_SKILL_AUTO_CREATE); the tool itself is always available.
-  registry.register(createFeedbackSkillTool(db.raw, router));
+  // recall — read-only on-demand semantic search over past conversations,
+  // backed by Fractal Memory Search. Capture stays reactive (MemoryExtractor);
+  // this is the explicit-search counterpart to per-turn auto-injection.
+  registry.register(
+    createRecallTool((q, limit) => fractalMemory.query(q, limit)),
+  );
 
   // P0-1: delegate_task — spawn a subagent for an isolated, bounded
   // task. The subagent inherits the parent's router / sandbox /
@@ -438,44 +544,15 @@ async function main(): Promise<void> {
     log("inner-thoughts loop enabled (opt-in via FERAL_PROACTIVE_ENABLED)");
   }
 
-  // --- Skills subsystem (P0-2) ---
-  const skillsStorage = new SkillsStorage();
-  const skillAutoCreateEnabled = process.env.FERAL_SKILL_AUTO_CREATE === "true";
-  // The auto-creator is created up front; whether it actually fires
-  // depends on `enabled` AND on MemoryExtractor wiring below. The
-  // onCreated callback emits a `skill_created` event so the React UI
-  // can prompt the user to review.
-  const skillCreator = new SkillAutoCreator({
-    storage: skillsStorage,
-    db: db.raw,
-    router,
-    enabled: skillAutoCreateEnabled,
-    onCreated: (manifest, path) => {
-      log(`skill created → ${manifest.id} (${manifest.name}) v${manifest.version}`);
-      // The transport may not be wired yet at construction time, but
-      // it's wired by the time any auto-create runs (those run AFTER
-      // the first handle, which is AFTER transport.start()).
-      if (sendHolder.current !== (() => {})) {
-        sendHolder.current({
-          type: "skill_created",
-          skillId: manifest.id,
-          name: manifest.name,
-          path,
-          version: manifest.version,
-        });
-      }
-    },
-  });
-
   // --- Memory extractor (async, fire-and-forget after each turn) ---
-  const extractor = new MemoryExtractor(router, semantic, episodic, skillCreator);
+  const extractor = new MemoryExtractor(router, semantic, episodic);
   extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---
   const agent = new AgentLoop(
     router, registry, episodic,
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
-    recall,
+    fractalMemory,
     extractor,
     soul,
     user,
@@ -575,6 +652,109 @@ async function main(): Promise<void> {
   // React UI, and `ask_user_response` messages from the UI are routed back
   // to the bridge inside the `onMessage` handler below.
   sendHolder.current = (e) => transport.send(e);
+  // Forward organism pulses as plain sidecar lines; Rust relays every line to
+  // the frontend over `feral://agent-output`, where the organism filters for
+  // `type: "fractal_activity"` (mirrors how RSI engine events travel). The
+  // kind-discriminated `OutboundEvent` member added below makes this a typed
+  // send — no `as unknown` cast needed for `recall` / `grow` / `seed`.
+  fractalActivitySink.current = (a) =>
+    transport.send({ type: "fractal_activity", ...a });
+
+  // --- RSI sidecar (Faza 1) ---
+  // The bridge writes `rsi_request` lines via transport.send; the
+  // `onMessage` switch routes `rsi_response` lines back to
+  // `bridge.onResponse`. The sidecar builds the production engine
+  // (real adapters, real taste miner, real escape tracker) and emits
+  // `rsi_engine_event` outbound events that mirror into Rust's
+  // `RsiEngineState` AND ack in-flight `rsi_start`/`rsi_stop`/
+  // `rsi_set_concurrency` requests via the `RsiRequestRegistry`.
+  const rsiBridge = new RsiBridge({
+    send: (msg) => transport.send(msg as unknown as import("./types.ts").OutboundEvent),
+  });
+  // Fractal Memory Search (Phase 0): point the embed module at the live bridge
+  // so embed(...) routes text → Rust `embed_text` → vectors. Until a model is
+  // present Rust returns an error and callers fall back to FTS5; this just
+  // makes the path available.
+  setEmbedInvoker(rsiBridgeEmbed(rsiBridge));
+  // RAPTOR tree build, in the background now that embed() can reach Rust.
+  // `rebuildIfStale` is a no-op when init() already loaded a fresh tree from
+  // disk, so we don't re-pay the (cloud) summary cost on every boot — it only
+  // builds on first run or after the corpus grows materially.
+  void fractalMemory
+    .rebuildIfStale()
+    .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
+  // Dev-only benchmark gate (FERAL_RUN_FRACTAL_BENCH=1). Runs INSIDE the live
+  // sidecar because embeddings only work here (the embed bridge needs Rust).
+  // Builds the tree if needed, scores flat FTS5 vs the fractal hybrid on a
+  // generated (or supplied) query set, writes a JSON report next to the tree,
+  // and logs the ship/no-ship verdict. Never affects normal startup.
+  if (process.env.FERAL_RUN_FRACTAL_BENCH) {
+    void (async () => {
+      try {
+        const fs = require("node:fs") as typeof import("node:fs");
+        await fractalMemory.rebuildIfStale();
+        if (!fractalMemory.hasTree) {
+          log("fractal-bench: no tree (no embedding model on disk?) — skipping");
+          return;
+        }
+        const queriesPath = process.env.FERAL_FRACTAL_BENCH_QUERIES;
+        const report = await fractalMemory.benchmark({
+          infer: routerInfer(router),
+          querySetJsonl: queriesPath ? fs.readFileSync(queriesPath, "utf8") : undefined,
+          count: Number(process.env.FERAL_FRACTAL_BENCH_COUNT) || 50,
+          seed: Number(process.env.FERAL_FRACTAL_BENCH_SEED) || 1,
+        });
+        const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
+        fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
+        const v = report.verdict;
+        log(
+          `fractal-bench: n=${report.n} k=${report.k} | ` +
+            `recall@${report.k} fractal=${report.fractal.meanRecallAtK.toFixed(3)} ` +
+            `fts=${report.fts.meanRecallAtK.toFixed(3)} | ` +
+            `p99 fractal=${report.fractal.p99Ms.toFixed(1)}ms fts=${report.fts.p99Ms.toFixed(1)}ms | ` +
+            `verdict=${v.ship ? "SHIP" : "HOLD"}${v.reasons.length ? " — " + v.reasons.join("; ") : ""} | ` +
+            `report=${outPath}`,
+        );
+      } catch (e) {
+        log(`fractal-bench: failed: ${String(e)}`);
+      }
+    })();
+  }
+  // Forward declaration: the sidecar's onIdle restarts the engine via
+  // the passive supervisor, but the supervisor needs the sidecar to
+  // start it — late-bind through this holder to break the cycle.
+  let passive: PassiveSupervisor | undefined;
+  const rsiSidecar = new RsiSidecar({
+    router,
+    db: db.raw,
+    bridge: rsiBridge,
+    send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
+    onIdle: () => passive?.onRunEnded(),
+    // The Crux: a new ratcheted-best config is applied to the LIVE agent
+    // (temperature today; the UI Controls override still wins per-session).
+    onChampion: (record) => {
+      const params = mapGenomeToAgentConfig(record.config);
+      agent.applyChampionParams(params);
+      log(`rsi champion: applied genome ${record.genomeId} (score=${record.score.toFixed(1)}) → agent ${JSON.stringify(params)}`);
+    },
+  });
+  // Boot with the last persisted champion so the agent doesn't start
+  // cold on every relaunch (resume the learned tuning immediately).
+  {
+    const champ = readChampion(defaultChampionPath());
+    if (champ) {
+      agent.applyChampionParams(mapGenomeToAgentConfig(champ.config));
+      log(`rsi champion: loaded persisted champion ${champ.genomeId} (score=${champ.score.toFixed(1)})`);
+    }
+  }
+  // Passive RSI: the evolutionary engine runs in the background by
+  // default (no UI trigger), starting itself when a real model is
+  // present and restarting on each run end for continuous evolution.
+  passive = new PassiveSupervisor({
+    start: () => rsiSidecar.start(passiveStartOptions(process.env)),
+    isRunning: () => rsiSidecar.isRunning(),
+    log,
+  });
 
   // Connector Surface (inbound): Discord/Telegram/… share this one agent.
   // The host writes ~/.feral/connectors.json and pokes us with
@@ -590,6 +770,99 @@ async function main(): Promise<void> {
       case "connectors_reload":
         void connectors.reload();
         break;
+
+      // PROVISIONAL (temporary Settings button): run the Fractal Memory Search
+      // benchmark gate on demand and emit the verdict back to the UI. Runs off
+      // the hot path; builds the tree first if needed. The whole flow is
+      // hardening-wrapped so the FE panel can NEVER spin forever:
+      //   - build phase has its own wall-clock cap (15 min default)
+      //   - bench phase delegates to `benchmarkWithProgress` which has a
+      //     separate wall-clock cap (10 min default), bounded query
+      //     generation (concurrency 4), and a default count of 12 (not 50)
+      //   - any throw or timeout emits a typed `fractal_bench_result
+      //     {ok:false, error, phase}` so the panel can show a real reason
+      //   - periodic `fractal_bench_progress` events give the panel a live
+      //     status line ("generating queries 4/12" / "running queries 4/12")
+      //     so the user can see something is happening, not just a spinner
+      case "fractal_benchmark": {
+        void (async () => {
+          const send = (event: import("./types.ts").OutboundEvent): void => {
+            transport.send(event);
+          };
+          const sendError = (error: string, phase: "build" | "queries" | "run"): void => {
+            send({ type: "fractal_bench_result", ok: false, error, phase });
+          };
+          const buildTimeoutMs = 15 * 60 * 1000;
+          try {
+            // Phase 1: ensure a tree exists. Bounded by its own wall clock
+            // (the rebuild was the previous infinite-spin path: 2.8 s/text
+            // × 2695 leaves on CPU = ~2 hours, and looked identical to the
+            // sidecar being dead).
+            send({
+              type: "fractal_bench_progress",
+              kind: "generate_queries",
+              current: 0,
+              total: 0,
+              message: "Building RAPTOR tree…",
+            });
+            await withTimeout(
+              fractalMemory.rebuildIfStale(),
+              buildTimeoutMs,
+              "build",
+            );
+            if (!fractalMemory.hasTree) {
+              sendError(
+                "No RAPTOR tree — is the embedding model present and the build finished? Try restarting after the model is on disk.",
+                "build",
+              );
+              return;
+            }
+            // Phase 2: run the benchmark through the hardening wrapper.
+            // Progress is forwarded as a typed `fractal_bench_progress`
+            // event; timeout / errors throw and are caught below.
+            const report = await fractalMemory.benchmarkWithProgress({
+              infer: routerInfer(router),
+              onProgress: (p) => {
+                send({
+                  type: "fractal_bench_progress",
+                  kind: p.kind,
+                  current: p.current,
+                  total: p.total,
+                  message: p.message,
+                });
+              },
+            });
+            const fs = require("node:fs") as typeof import("node:fs");
+            const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
+            fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
+            send({
+              type: "fractal_bench_result",
+              ok: true,
+              ship: report.verdict.ship,
+              reasons: report.verdict.reasons,
+              n: report.n,
+              k: report.k,
+              fractalRecall: report.fractal.meanRecallAtK,
+              ftsRecall: report.fts.meanRecallAtK,
+              fractalP99Ms: report.fractal.p99Ms,
+              ftsP99Ms: report.fts.p99Ms,
+              path: outPath,
+            });
+          } catch (e) {
+            // The orchestrator's timeout errors carry "at <phase>" in the
+            // message; surface that so the panel can tell the user which
+            // phase was the bottleneck.
+            const msg = String(e);
+            const phase: "build" | "queries" | "run" = /at build/.test(msg)
+              ? "build"
+              : /at queries/.test(msg)
+                ? "queries"
+                : "run";
+            sendError(msg, phase);
+          }
+        })();
+        break;
+      }
 
       case "shutdown":
         log(`shutdown requested`);
@@ -788,6 +1061,59 @@ async function main(): Promise<void> {
         log(`cron_toggle → ${m.id} enabled=${m.enabled}`);
         break;
       }
+
+      // RSI engine driver (Faza 1 production wiring). The Rust host
+      // generates a `request_id` UUID and waits on a oneshot that the
+      // matching `rsi_engine_event` line fires. The sidecar builds /
+      // drives / stops the engine; rsi_engine_event is the only ack
+      // surface the host needs.
+      case "rsi_start": {
+        const goal = msg.rsiGoal ?? "rsiautomation";
+        const maxIterations = msg.rsiMaxIterations ?? 50;
+        const maxTotalTokens = msg.rsiMaxTotalTokens ?? 5_000_000;
+        const concurrency = msg.rsiConcurrency ?? 1;
+        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} conc=${concurrency}`);
+        await rsiSidecar.start(
+          { goal, maxIterations, maxTotalTokens, concurrency },
+          msg.id,
+        );
+        break;
+      }
+      case "rsi_stop": {
+        log(`rsi_stop requested`);
+        rsiSidecar.stop(msg.id);
+        break;
+      }
+      case "rsi_set_concurrency": {
+        const n = msg.rsiNewConcurrency ?? 1;
+        log(`rsi_set_concurrency → ${n}`);
+        rsiSidecar.setConcurrency(n, msg.id);
+        break;
+      }
+      case "rsi_response": {
+        // Bridge response delivery — every `rsi_request` we emitted is
+        // paired with exactly one `rsi_response` line by Rust. Route
+        // it back to the RsiBridge so the awaiting Promise settles.
+        //
+        // Rust (`handle_rsi_request`) sends PLAIN field names — `id`, `ok`,
+        // `data`, `error` — mirroring the `rsi_request` it reads (`id`,
+        // `method`, `params`). This handler previously read the prefixed
+        // `rsiRequestId`/`rsiOk`/`rsiData`/`rsiError`, which Rust never sends,
+        // so EVERY response was "without requestId — ignored" and every
+        // bridge Promise (notably `embed_text`) hung forever — the real cause
+        // of the RAPTOR tree build never finishing. Match Rust's field names.
+        if (msg.id) {
+          rsiSidecar.onResponse({
+            id: msg.id,
+            ok: msg.ok ?? false,
+            ...(msg.data !== undefined ? { data: msg.data } : {}),
+            ...(msg.error ? { error: msg.error } : {}),
+          });
+        } else {
+          log(`rsi_response without id — ignored`);
+        }
+        break;
+      }
     }
   });
 
@@ -814,10 +1140,26 @@ async function main(): Promise<void> {
     // Start any enabled inbound connectors (Discord, …) now that the agent and
     // its tools are live. Best-effort: failures log to stderr, never crash.
     void connectors.reload();
+
+    // Passive RSI: autostart the background evolutionary engine when a
+    // real model is configured. Off when FERAL_RSI_PASSIVE=false or when
+    // only a placeholder model is present (avoids spinning on empty
+    // responses). The user never has to open /rsi — the agent improves
+    // its own configuration on its own.
+    const decision = shouldAutostartPassive(process.env);
+    if (decision.enabled) {
+      log(`rsi passive: autostarting background engine (${decision.reason})`);
+      void passive?.begin();
+    } else {
+      log(`rsi passive: not autostarting (${decision.reason})`);
+    }
   });
 
   // Persist final audit state on unexpected termination.
   const shutdown = () => {
+    // Break the passive restart loop so we don't relaunch the engine
+    // into a closing process.
+    passive?.shutdown();
     // X1 fix: only stop the inner-thoughts loop if it was actually
     // started (i.e. the proactive subsystem is on).
     innerThoughts?.stop();

@@ -17,6 +17,7 @@ mod memory_graph;
 mod models;
 mod paths;
 mod projects;
+mod rsi;
 mod settings;
 mod skills;
 mod sysinfo_mod;
@@ -76,6 +77,28 @@ pub struct AppState {
     /// MCP "Extensions" client manager (rmcp). Holds live connections to
     /// installed servers; configs persist at ~/.feral/mcp.json.
     pub mcp: Arc<mcp::McpManager>,
+    /// RSI (Fractal Memory System) state. Holds the cached SandboxBounds
+    /// and the initialised flag so every RSI command can answer "are
+    /// we bootstrapped?" without a disk round-trip. Populated by
+    /// `rsi_init`; consumed by every other rsi::* command.
+    pub rsi_state: rsi::RsiState,
+    /// Goodhart detector's rolling window. Kept as a separate Tauri
+    /// `State` so it can be re-built lazily inside the command without
+    /// contending on `rsi_state`.
+    pub rsi_goodhart: rsi::commands::GoodhartSlot,
+    /// Engine status mirror. `None` until the sidecar emits its first
+    /// engine event (Faza 7b-part2 wires this — for now the UI sees
+    /// `engine: null` in `rsi_status` and shows "engine not wired").
+    /// Populated from the `rsi_engine_event` outbound events on stdout.
+    pub rsi_engine: std::sync::Arc<parking_lot::Mutex<Option<rsi::commands::RsiEngineState>>>,
+    /// In-flight ack registry for the 3 engine-driver commands
+    /// (`rsi_start` / `rsi_stop` / `rsi_set_concurrency`). Each entry
+    /// is a oneshot whose sender is fired by `feral_agent::stdout_reader`
+    /// when the matching `rsi_engine_event` arrives on stdout, so the
+    /// command can return success only after the sidecar has actually
+    /// accepted the request. Cloned into `feral_agent::spawn` so the
+    /// reader can ack without holding the AppState mutex.
+    pub rsi_request_registry: rsi::commands::RsiRequestRegistry,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -676,6 +699,25 @@ async fn feral_stop_generation(
         payload["sessionId"] = serde_json::Value::String(sid);
     }
     let msg = payload.to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// PROVISIONAL (temporary Settings button): ask the sidecar to run the Fractal
+/// Memory Search benchmark gate against the live RAPTOR tree. The sidecar runs
+/// it off the hot path and emits a `fractal_bench_result` line (verdict +
+/// recall/latency numbers) which Rust forwards over `feral://agent-output`.
+#[tauri::command]
+#[specta::specta]
+async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "fractal_benchmark" }).to_string();
     let tx = {
         let guard = state.feral_agent_tx.lock();
         guard
@@ -1333,6 +1375,100 @@ async fn download_whisper_model(
     Ok(key)
 }
 
+/// Download the embedding model (bge-small) into the shared models dir for
+/// Fractal Memory Search. Mirrors `download_whisper_model`: dedicated events so
+/// the LLM auto-load listener never tries to load it as a chat model, a no-op
+/// when already present, and cancellable. Idempotent — the frontend can fire
+/// this at startup and it returns immediately if the model is on disk.
+/// Progress: `feral://embedding-download-progress`. Completion/failure:
+/// `feral://embedding-download-complete` / `-error`.
+#[tauri::command]
+#[specta::specta]
+async fn download_embedding_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let repo = paths::EMBED_REPO.to_string();
+    let filename = paths::EMBED_FILENAME.to_string();
+    let key = format!("embedding::{}", filename);
+
+    {
+        let map = state.downloads.lock();
+        if map.contains_key(&key) {
+            return Err(format!("Download already in progress: {}", key));
+        }
+    }
+
+    // Already present — nothing to do.
+    if paths::embedding_model_path().exists() {
+        return Ok(key);
+    }
+
+    let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
+    state.downloads.lock().insert(key.clone(), cancel.clone());
+
+    let (tx, mut rx) = mpsc::channel::<f32>(32);
+    {
+        let app = app.clone();
+        let file = filename.clone();
+        tokio::spawn(async move {
+            while let Some(p) = rx.recv().await {
+                let _ = app.emit(
+                    "feral://embedding-download-progress",
+                    events::DownloadProgressEvent {
+                        repo_id: "embedding".into(),
+                        filename: file.clone(),
+                        progress: p,
+                    },
+                );
+            }
+        });
+    }
+
+    let app_for_task = app.clone();
+    let downloads_map = state.downloads.clone();
+    let key_for_task = key.clone();
+    let file_for_task = filename.clone();
+    let cancel_for_task = cancel.clone();
+    tokio::spawn(async move {
+        let result = models::download_hf_model_to(
+            repo,
+            file_for_task.clone(),
+            paths::models_dir(),
+            tx,
+            cancel_for_task.clone(),
+        )
+        .await;
+        downloads_map.lock().remove(&key_for_task);
+        match result {
+            Ok(path) => {
+                let _ = app_for_task.emit(
+                    "feral://embedding-download-complete",
+                    events::DownloadCompleteEvent {
+                        repo_id: "embedding".into(),
+                        filename: file_for_task.clone(),
+                        path: path.to_string_lossy().into_owned(),
+                    },
+                );
+            }
+            Err(e) => {
+                let cancelled = cancel_for_task.load(Ordering::Relaxed);
+                let _ = app_for_task.emit(
+                    "feral://embedding-download-error",
+                    events::DownloadErrorEvent {
+                        repo_id: "embedding".into(),
+                        filename: file_for_task.clone(),
+                        error: e.to_string(),
+                        cancelled,
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(key)
+}
+
 /// Transcribe 16 kHz mono f32 PCM. Errors: "model-missing" | "voice-unavailable".
 #[tauri::command]
 #[specta::specta]
@@ -1504,6 +1640,30 @@ fn set_token_budget_conversation(
     match budget {
         Some(n) => std::env::set_var("FERAL_BUDGET_CONVERSATION", n.to_string()),
         None => std::env::set_var("FERAL_BUDGET_CONVERSATION", "Infinity"),
+    }
+    restart_sidecar(&state);
+    Ok(())
+}
+
+/// Set the USD spend cap for the passive RSI background engine.
+///
+/// `budget = Some(0.0)` (default) → local-only: free local runs continue, any
+/// paid cloud spend halts. `Some(n)` → allow up to $n of cloud spend. `None` →
+/// no cap. Exports `FERAL_RSI_MAX_COST_USD` and restarts the sidecar so the
+/// passive supervisor re-reads it.
+#[tauri::command]
+#[specta::specta]
+fn set_rsi_budget(
+    budget: Option<f64>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let mut s = settings::load();
+    s.rsi_max_cost_usd = budget;
+    settings::save(&s).map_err(|e| e.to_string())?;
+
+    match budget {
+        Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", n.to_string()),
+        None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
     }
     restart_sidecar(&state);
     Ok(())
@@ -2393,6 +2553,10 @@ pub fn run() {
         feral_model_config: Arc::new(Mutex::new(None)),
         local_api_token: local_api_token.clone(),
         mcp: Arc::new(mcp::McpManager::new()),
+        rsi_state: rsi::RsiState::default(),
+        rsi_goodhart: rsi::commands::GoodhartSlot::default(),
+        rsi_engine: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+        rsi_request_registry: rsi::commands::RsiRequestRegistry::default(),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -2400,6 +2564,7 @@ pub fn run() {
             get_models,
             get_loaded_model,
             download_model,
+            download_embedding_model,
             cancel_download,
             load_model,
             start_model_load,
@@ -2432,6 +2597,7 @@ pub fn run() {
             set_desktop_control_enabled,
             set_desktop_control_yolo,
             set_token_budget_conversation,
+            set_rsi_budget,
             search_hf_models,
             get_hf_model_detail,
             get_model_size_info,
@@ -2458,6 +2624,7 @@ pub fn run() {
             feral_send_message,
             feral_agent_status,
             feral_stop_generation,
+            feral_run_fractal_benchmark,
             feral_set_model,
             feral_get_model_config,
             get_local_api_token,
@@ -2490,6 +2657,22 @@ pub fn run() {
             desktop_control::take_element_action,
             desktop_control::send_keys,
             desktop_control::launch_app,
+            rsi::commands::rsi_init,
+            rsi::commands::rsi_status,
+            rsi::commands::rsi_get_bounds,
+            rsi::commands::rsi_update_bounds,
+            rsi::commands::rsi_score,
+            rsi::commands::rsi_get_tier0_specs,
+            rsi::commands::rsi_commit_genome,
+            rsi::commands::rsi_ratchet_attempt,
+            rsi::commands::rsi_log,
+            rsi::commands::rsi_lca,
+            rsi::commands::rsi_diff,
+            rsi::commands::rsi_record_goodhart_sample,
+            rsi::commands::rsi_reset_goodhart,
+            rsi::commands::rsi_start,
+            rsi::commands::rsi_stop,
+            rsi::commands::rsi_set_concurrency,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
@@ -2525,6 +2708,61 @@ pub fn run() {
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
+
+            // ── RSI substrate bootstrap (Faza 0 — Keystone) ──────────────
+            // Runs BEFORE the sidecar spawns. The sidecar's bootstrapOnce()
+            // expects the git repo + PLAN.md + SandboxBounds to already be
+            // on disk; without this the sidecar would log a missing
+            // substrate and skip the rsi_init IPC call (which is the
+            // documented ordering — see FeralAgent/src/rsi/mod.ts).
+            //
+            // Bootstrap is idempotent: if the repo exists, repo::bootstrap
+            // returns its current tip; if the bounds file exists,
+            // bootstrap_with_audit would create a duplicate genesis row, so
+            // we use SandboxBounds::load instead when the file is present.
+            match rsi::repo::bootstrap() {
+                Ok(plan_commit) => {
+                    tracing::info!(plan_commit = %plan_commit, "rsi: git substrate bootstrapped");
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "rsi: git substrate bootstrap failed");
+                }
+            }
+            let audit_path = paths::rsi_sandbox_bounds_audit_path();
+            match rsi::audit::SandboxBoundsAudit::open(&audit_path) {
+                Ok(audit) => {
+                    let bounds_result = if paths::rsi_sandbox_bounds_path().exists() {
+                        rsi::sandbox_bounds::SandboxBounds::load()
+                    } else {
+                        rsi::sandbox_bounds::SandboxBounds::bootstrap_with_audit(&audit)
+                    };
+                    match bounds_result {
+                        Ok(bounds) => {
+                            let sha = bounds.file_sha256().ok();
+                            tracing::info!(
+                                version = bounds.version,
+                                bounds_sha256 = sha.as_deref().unwrap_or("?"),
+                                "rsi: sandbox_bounds ready",
+                            );
+                            // Reflect the boot state into AppState so the
+                            // very first rsi_init call from the UI is a
+                            // no-op and the subsequent rsi_status call
+                            // returns the right values immediately.
+                            let st = app.handle().state::<AppState>();
+                            *st.rsi_state.bounds.lock() = Some(bounds);
+                            *st.rsi_state.bounds_file_sha256.lock() = sha;
+                            *st.rsi_state.initialized.lock() = true;
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "rsi: sandbox_bounds bootstrap failed");
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "rsi: audit log open failed");
+                }
+            }
+
             // Start API server in background.
             //
             // R4 fix: the Feral Agent sidecar is hardcoded to point at
@@ -2558,6 +2796,12 @@ pub fn run() {
                 Some(n) => std::env::set_var("FERAL_BUDGET_CONVERSATION", n.to_string()),
                 None => std::env::set_var("FERAL_BUDGET_CONVERSATION", "Infinity"),
             }
+            // RSI background spend cap. Some(0.0)/default = local-only; Some(n)
+            // = allow $n cloud spend; None = no cap (remove the var).
+            match cfg.rsi_max_cost_usd {
+                Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", n.to_string()),
+                None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
+            }
             if cfg.api_server_enabled {
                 let api_state = api::ApiState {
                     manager: manager.clone(),
@@ -2573,12 +2817,25 @@ pub fn run() {
             let fa_handle = app.handle().clone();
             let fa_tx_slot = app.handle().state::<AppState>().feral_agent_tx.clone();
             let fa_process_slot = app.handle().state::<AppState>().feral_agent_process.clone();
+            let fa_registry = app.handle().state::<AppState>().rsi_request_registry.clone();
+            let fa_engine_mirror = app.handle().state::<AppState>().rsi_engine.clone();
             let fa_port = api_port;
             let fa_token = local_api_token.to_string();
             // #11: supervised spawn — watches for sidecar crashes, restarts
             // with backoff, and emits `feral://agent-exit` so the UI can show
-            // an "agent offline" banner instead of going silently mute.
-            feral_agent::supervise(fa_handle, fa_tx_slot, fa_process_slot, fa_port, fa_token);
+            // an "agent offline" banner instead of going silently mute. The
+            // registry + engine mirror are cloned into every spawn generation
+            // so the stdout reader can route `rsi_engine_event` acks to the
+            // matching oneshot and keep `rsi_status.engine` fresh.
+            feral_agent::supervise(
+                fa_handle,
+                fa_tx_slot,
+                fa_process_slot,
+                fa_port,
+                fa_token,
+                fa_registry,
+                fa_engine_mirror,
+            );
 
             // Reconnect enabled MCP extensions in the background. Failures
             // are logged per-server — a broken extension never blocks launch.

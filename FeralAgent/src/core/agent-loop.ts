@@ -20,7 +20,23 @@ import {
 } from "../sandbox/inference-router.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
 import type { EpisodicMemory } from "../memory/episodic.ts";
-import type { RecallEngine } from "../memory/recall.ts";
+import type { RecallResult } from "../memory/recall.ts";
+
+/**
+ * Either the legacy synchronous `RecallEngine` or the async `FractalMemory`
+ * facade — both answer `recall()` with a `RecallResult`. The loop `await`s
+ * either (awaiting a sync value is a no-op), so the semantic path can do its
+ * single-query embedding without changing this call site again.
+ *
+ * `noteWrite` is optional and only the fractal facade implements it: the
+ * organism needs a per-memory-write pulse so a single +1 leaf on top of
+ * 2700 isn't invisible until the next 1.2× rebuild threshold. The legacy
+ * engine (and any test double) can omit it.
+ */
+export interface Recaller {
+  recall(query: string, sessionId: string): RecallResult | Promise<RecallResult>;
+  noteWrite?(leaf: { id: number; sessionId: string; ts: number }): void;
+}
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { stripPrivate } from "../memory/privacy.ts";
@@ -160,7 +176,7 @@ export class AgentLoop {
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
   readonly #episodic: EpisodicMemory;
-  readonly #recall: RecallEngine | null;
+  readonly #recall: Recaller | null;
   readonly #extractor: MemoryExtractor | null;
   readonly #config: AgentLoopConfig;
   readonly #systemPrompt: string;
@@ -237,6 +253,16 @@ export class AgentLoop {
     { temperature?: number; maxTokens?: number }
   >();
   /**
+   * RSI champion params — the ratcheted-best genome config, mapped onto
+   * the live agent (temperature today). Applied to EVERY session as a
+   * default, below the per-session UI Controls override but above the
+   * provider default. This is how the passive evolutionary engine
+   * actually improves the agent the user talks to: a non-technical user
+   * gets a better-tuned agent over time without touching any config.
+   * Set by `applyChampionParams` (on RSI ratchet + at boot).
+   */
+  #championParams: { temperature?: number; maxTokens?: number } = {};
+  /**
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
    */
@@ -275,7 +301,7 @@ export class AgentLoop {
     registry: ToolRegistry,
     episodic: EpisodicMemory,
     config: Partial<AgentLoopConfig> = {},
-    recall: RecallEngine | null = null,
+    recall: Recaller | null = null,
     extractor: MemoryExtractor | null = null,
     soul: SoulConfig | null = null,
     user: UserConfig | null = null,
@@ -355,6 +381,17 @@ export class AgentLoop {
   /** Clear a session's profile binding (reverts to the owner profile). */
   clearSessionProfile(sessionId: string): void {
     this.#sessionProfile.delete(sessionId);
+  }
+
+  /**
+   * Apply the RSI champion's inference params to every session as a
+   * default (the passive evolutionary engine's output reaching the live
+   * agent). Called on each ratchet and once at boot from the persisted
+   * champion. A per-session UI Controls override still wins; absent
+   * that, these win over the provider default. Pass `{}` to clear.
+   */
+  applyChampionParams(params: { temperature?: number; maxTokens?: number }): void {
+    this.#championParams = { ...params };
   }
 
   /** Resolve the compiled profile for a session, or null for the owner default. */
@@ -509,9 +546,11 @@ export class AgentLoop {
     const traceId = crypto.randomUUID();
 
     // Inject relevant past context before the user message lands in the prompt.
-    // This runs synchronously (no I/O — pure DB reads) and never throws.
+    // The fractal facade may embed the query (async); the legacy engine is a
+    // pure DB read. Either way recall never throws — it downgrades to FTS5 on
+    // any failure — so a missing embedding model can't break a turn.
     if (this.#recall) {
-      const result = this.#recall.recall(userText, sessionId);
+      const result = await this.#recall.recall(userText, sessionId);
       memory.setMemoryContext(result.context);
     }
 
@@ -521,7 +560,11 @@ export class AgentLoop {
     const { text: userTextClean } = stripPrivate(userText);
 
     memory.addUser(userText, images);
-    this.#episodic.record(sessionId, "user", userTextClean);
+    const userWriteTs = Date.now();
+    const userLeafId = this.#episodic.record(sessionId, "user", userTextClean);
+    if (userLeafId !== null) {
+      this.#recall?.noteWrite?.({ id: userLeafId, sessionId, ts: userWriteTs });
+    }
 
     const turnStartedAt = Date.now();
     let toolCallCount = 0;
@@ -541,7 +584,11 @@ export class AgentLoop {
       toolCallCount = runToolCount;
       memory.addAssistant(final);
       const { text: finalClean } = stripPrivate(final);
-      this.#episodic.record(sessionId, "assistant", finalClean);
+      const asstWriteTs = Date.now();
+      const asstLeafId = this.#episodic.record(sessionId, "assistant", finalClean);
+      if (asstLeafId !== null) {
+        this.#recall?.noteWrite?.({ id: asstLeafId, sessionId, ts: asstWriteTs });
+      }
       ctx.emit({ type: "done", id: messageId, content: final, stopped: ctx.stopped, traceId });
 
       // Fire-and-forget: extract durable user facts from the turn just completed.
@@ -656,7 +703,7 @@ export class AgentLoop {
     const MAX_CONTINUATIONS = 4;
     let continuations = 0;
     // Malformed tool-call recovery: when a turn contains a tool-call attempt
-    // that failed to parse (corrupted JSON like `{"name="memory_graph">`),
+    // that failed to parse (corrupted JSON like `{"name="read_skill">`),
     // the model meant to act — ending the turn there strands the task. Feed
     // back a corrective nudge and let it re-emit a valid call. Bounded so a
     // model that can never produce valid JSON doesn't loop forever.
@@ -810,7 +857,11 @@ export class AgentLoop {
 
         const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
         memory.addToolResult(call.name, rendered);
-        this.#episodic.record(sessionId, "tool", `${call.name}: ${rendered}`);
+        const toolWriteTs = Date.now();
+        const toolLeafId = this.#episodic.record(sessionId, "tool", `${call.name}: ${rendered}`);
+        if (toolLeafId !== null) {
+          this.#recall?.noteWrite?.({ id: toolLeafId, sessionId, ts: toolWriteTs });
+        }
       }
 
       if (ctx.stopped) break;
@@ -866,8 +917,9 @@ export class AgentLoop {
       const res = await this.#router.complete({
         sessionId,
         messages: memory.render(),
-        maxTokens: overrides?.maxTokens ?? this.#config.maxTokensPerCall,
-        temperature: overrides?.temperature,
+        // Precedence: explicit UI Controls override > RSI champion > config default.
+        maxTokens: overrides?.maxTokens ?? this.#championParams.maxTokens ?? this.#config.maxTokensPerCall,
+        temperature: overrides?.temperature ?? this.#championParams.temperature,
         onToken,
         cachePrompt: true,
         // A3: native tool definitions for Anthropic.
@@ -1246,10 +1298,10 @@ export function parseResponse(raw: string): ParsedResponse {
   }
 
   // Pass 1 (narrow): bare tool-call JSON in the content. Grammar-constrained
-  // local inference normally guarantees <tool_call> tags, but models on
+  // local inference normally guarantees  tool_call tags, but models on
   // plain OpenAI-compatible APIs (observed: MiniMax M3) still emit
-  // `{"name":"memory_ops","args":{…}}` — sometimes several in a row, and
-  // sometimes corrupted (`{"name="memory_ops">`). Without this pass the raw
+  // `{"name":"read_skill","args":{…}}` — sometimes several in a row, and
+  // sometimes corrupted (`{"name="read_skill">`). Without this pass the raw
   // JSON was displayed verbatim in the chat instead of executing.
   //
   // Unlike the removed legacy passes, this one only fires on objects whose

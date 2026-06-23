@@ -627,7 +627,7 @@ export interface ParsedResponse {
   toolCalls: ParsedToolCall[];
   /**
    * True when the response contained a tool-call attempt that could not be
-   * parsed (corrupted JSON, e.g. `{"name="memory_graph">`). The fragment is
+   * parsed (corrupted JSON, e.g. `{"name="read_skill">`). The fragment is
    * scrubbed from `text`, but the loop must NOT treat the turn as a final
    * answer — the model meant to act. The loop feeds back a corrective nudge
    * so the model re-emits a valid call instead of silently stopping mid-task.
@@ -855,10 +855,36 @@ export interface InboundMessage {
   type: "message" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
-    | "desktop_control_response" | "connectors_reload";
+    | "desktop_control_response" | "connectors_reload"
+    // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
+    // benchmark gate on demand. Remove with the button after the ship/hold call.
+    | "fractal_benchmark"
+    // RSI engine driver (Faza 1 production wiring) — the Rust host
+    // commands the sidecar engine via these messages; the sidecar
+    // emits `rsi_engine_event` outbound events to ack + mirror state.
+    | "rsi_start" | "rsi_stop" | "rsi_set_concurrency"
+    // Bridge response delivery — every `rsi_request` the sidecar emits
+    // is paired with exactly one `rsi_response` line by Rust. Routed
+    // to `RsiBridge.onResponse` in the sidecar.
+    | "rsi_response";
   id?: string;
   content?: string;
   sessionId?: string;
+  /** RSI start payload (type === "rsi_start"). */
+  rsiGoal?: string;
+  rsiMaxIterations?: number;
+  rsiMaxTotalTokens?: number;
+  rsiConcurrency?: number;
+  /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
+  rsiNewConcurrency?: number;
+  /**
+   * RSI response payload (type === "rsi_response") reuses the PLAIN fields
+   * `id` (above) and `ok`/`data`/`error` (declared below). Rust's
+   * `handle_rsi_request` sends exactly these, mirroring the `rsi_request`
+   * envelope. The earlier `rsiRequestId`/`rsiOk`/`rsiData`/`rsiError` names
+   * matched nothing Rust sent, so every bridge response was dropped and
+   * `embed_text` hung forever.
+   */
   /**
    * Image attachments as data URLs, forwarded by the host app alongside the
    * text content (type === "message"). Threaded into the user ChatMessage so
@@ -948,7 +974,7 @@ export type OutboundEvent =
   | { type: "done"; id: string; content: string; stopped: boolean; traceId: string }
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string }
   | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string }
-  | { type: "tool_done"; id: string; tool: string; result: unknown; traceId: string }
+  | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string }
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }
@@ -964,12 +990,66 @@ export type OutboundEvent =
   // X3: surfaced when a scheduled job throws or times out — previously cron
   // failures were logged to stderr only and invisible in the UI.
   | { type: "cron_error"; jobId: string; jobName: string; message: string; traceId?: string }
-  | { type: "skill_created"; skillId: string; name: string; path: string; version: number; traceId?: string }
-  | { type: "skill_refined"; skillId: string; version: number; traceId?: string }
   // Desktop-control bridge request. Handled in the Rust host (not the React
   // UI): the host runs the OS accessibility action behind its security gate
   // and replies on stdin with a `desktop_control_response` carrying this `id`.
-  | { type: "desktop_control_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> };
+  | { type: "desktop_control_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> }
+  // RSI engine event — emitted by the sidecar to mirror engine state into
+  // Rust (`RsiEngineState`) and to ack in-flight `rsi_start` /
+  // `rsi_stop` / `rsi_set_concurrency` commands. Rust reads
+  // `event` + `id` (when present) and updates its mirror + fires the
+  // matching `oneshot::Sender`.
+  | { type: "rsi_engine_event"; event: "started" | "stopped" | "concurrency_set" | "progress"; id?: string; iteration?: number; bestScore?: number; costSoFarUsd?: number; concurrency?: number; stopReason?: string }
+  // RSI request — emitted by the RsiBridge client. Paired with a
+  // matching `rsi_response` inbound line. Rust's `handle_rsi_request`
+  // dispatcher writes the response back on stdin.
+  | { type: "rsi_request"; id: string; method: string; params: unknown }
+  // PROVISIONAL — temporary progress + result events for the Settings
+  // Fractal Benchmark button. The sidecar emits any number of
+  // `fractal_bench_progress` lines while the bench runs (so the panel
+  // can show "generating queries 4/12" instead of an opaque spinner),
+  // and exactly ONE `fractal_bench_result` per click — `ok:false` on
+  // any error path (timeout, no tree, throw) and `ok:true` on a normal
+  // report. Remove with the button after the ship/hold decision.
+  | {
+      type: "fractal_bench_progress";
+      kind: "generate_queries" | "run_queries";
+      current: number;
+      total: number;
+      message: string;
+    }
+  | {
+      type: "fractal_bench_result";
+      ok: boolean;
+      // ok:false path — at least one of `error` / `phase` is set.
+      error?: string;
+      phase?: "build" | "queries" | "run";
+      // ok:true path — the full report payload.
+      ship?: boolean;
+      reasons?: string[];
+      n?: number;
+      k?: number;
+      fractalRecall?: number;
+      ftsRecall?: number;
+      fractalP99Ms?: number;
+      ftsP99Ms?: number;
+      path?: string;
+    }
+  // Living-organism pulses. Forwarded verbatim over `feral://agent-output`
+  // so the React `events.onFractalActivity` listener can route each kind
+  // into the Mandelbrot renderer. The sidecar never enriches these — only
+  // the `kind` discriminator + the kind-specific fields.
+  | {
+      type: "fractal_activity";
+      kind: "recall" | "grow" | "seed";
+      hits?: number;
+      leafCount?: number;
+      clusterCount?: number;
+      clusters?: { x: number; y: number; weight: number }[];
+      leafId?: number;
+      sessionId?: string;
+      ts?: number;
+    };
 
 export interface Transport {
   /** Emit an event to the host/user. */
@@ -992,4 +1072,12 @@ export interface EpisodicEvent {
   timestamp: number;
   role: ChatMessage["role"];
   content: string;
+  /**
+   * Stored 384-dim L2-normalized embedding (raw little-endian f32 bytes).
+   * Populated by `EpisodicMemory.all()` when the row already has a vector in
+   * SQLite — `undefined` for rows that haven't been embedded yet (older rows,
+   * or ones enqueued for a backfill). Optional so legacy callers don't have
+   * to change.
+   */
+  embedding?: Float32Array;
 }

@@ -36,7 +36,7 @@ const ALLOWED_TOOLS_DEFAULT: string[] = [
   "fetch_url",
   "time_date",
   "calculator",
-  "memory_ops",
+  "recall",
   "ask_user",
   "read_skill",
 ];

@@ -19,6 +19,8 @@ use tokio::sync::mpsc;
 
 use crate::events::FeralAgentOutputEvent;
 use crate::paths;
+use crate::rsi::commands::{RsiEngineState, RsiRequestRegistry};
+use crate::AppState;
 
 /// A single user answer to a single `ask_user` question.
 ///
@@ -155,11 +157,76 @@ fn binary_filename() -> String {
     }
 }
 
+/// Discover the model id the bundled engine is serving by hitting
+/// `/v1/models` on the local api server (OpenAI-compatible). Returns
+/// the first model id (the bundled llama.cpp server exposes one
+/// primary model — the `.gguf` filename minus the directory).
+///
+/// Used at sidecar-spawn time so `FERAL_MODEL` matches the real
+/// model the server returns from `/v1/models`. Previously the
+/// sidecar's `FERAL_MODEL` was hardcoded to `"feral-local"`, which
+/// never matched a real model — every `invokeAgent` call returned
+/// 404 from the api and the engine emitted `EvalComplete` with
+/// `errored: true` even though the wire format was correct.
+///
+/// On any failure (server not up yet, network blip, parse error)
+/// the function returns `None` and the caller falls back to
+/// `"feral-local"` — better than aborting the spawn, because the
+/// user might be running with an external provider where `/v1/models`
+/// isn't accessible.
+///
+/// 1-second timeout is generous: the api server is local on
+/// `127.0.0.1:{api_port}` and serves /v1/models within a few ms when
+/// the engine has finished loading. A slow first-call (engine still
+/// warming up) is still < 1s; we don't want to block Tauri startup
+/// behind model-load time.
+async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String> {
+    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()
+        .ok()?;
+    let resp = client
+        .get(&url)
+        .bearer_auth(api_token)
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    // Pick the first *chat* model, skipping the bundled embedding model
+    // (bge-small): /v1/models lists every GGUF in the models dir, and on
+    // NTFS the embedding model often sorts first (case-insensitive `b` <
+    // `v`), so a naive `data[0]` hands the sidecar a BERT model it can't
+    // generate text with — breaking RAPTOR cluster summaries and bench
+    // query generation. Falls back to the first entry if the only model
+    // present is the embedding model.
+    let arr = body.get("data").and_then(|d| d.as_array())?;
+    let pick = arr
+        .iter()
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
+        .find(|id| *id != crate::paths::EMBED_FILENAME)
+        .or_else(|| {
+            arr.first()
+                .and_then(|m| m.get("id"))
+                .and_then(|v| v.as_str())
+        })?;
+    Some(pick.to_string())
+}
+
 /// Spawn the feral-agent sidecar and wire up stdin/stdout communication.
 ///
 /// Populates `tx_slot` with a `Sender<String>`; Tauri commands clone it to
 /// write JSON messages to the agent's stdin. Stdout lines are parsed and
 /// forwarded to the React frontend as `feral://agent-output` events.
+///
+/// `rsi_registry` + `rsi_engine_mirror` are routed to the stdout reader so
+/// the engine-driver IPC round-trip works: every `rsi_engine_event` line is
+/// matched against a pending request in `rsi_registry` (acks the oneshot)
+/// AND, when the event carries engine state, mirrored into `rsi_engine` so
+/// the UI's `rsi_status` shows live progress without polling the sidecar.
 ///
 /// Returns the child process so the caller can store it in `AppState` and
 /// kill it on app exit.
@@ -168,6 +235,8 @@ pub async fn spawn(
     tx_slot: Arc<Mutex<Option<mpsc::Sender<String>>>>,
     api_port: u16,
     api_token: &str,
+    rsi_registry: RsiRequestRegistry,
+    rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
 ) -> Result<tokio::process::Child, String> {
     let binary = find_binary(&app).ok_or_else(|| {
         // D1 fix: the `beforeDevCommand` / `beforeBuildCommand` in
@@ -206,8 +275,22 @@ pub async fn spawn(
         .env("FERAL_WORKSPACE", &workspace)
         .env("FERAL_PROVIDER", "openai_compatible")
         .env("FERAL_BASE_URL", &base_url)
-        .env("FERAL_API_KEY", api_token)
-        .env("FERAL_MODEL", "feral-local");
+        .env("FERAL_API_KEY", api_token);
+    // Discover the active model id from the bundled engine BEFORE spawning
+    // the sidecar. The previous hardcoded "feral-local" was a placeholder
+    // that never matched a real model on disk — every `invokeAgent` would
+    // 404 against the api server and the run would emit errored
+    // EvalComplete events even though the sidecar's wire format was
+    // correct. The api server exposes /v1/models (OpenAI-compatible) and
+    // returns the id we should use verbatim as `model` in completion calls.
+    // Fallback to "feral-local" preserves the old behaviour for environments
+    // where /v1/models is unreachable (offline / api down) — better to spawn
+    // with a placeholder than to fail the launch outright.
+    let model_name = discover_active_model(&base_url, api_token)
+        .await
+        .unwrap_or_else(|| "feral-local".to_string());
+    cmd.env("FERAL_MODEL", &model_name);
+    tracing::info!(model = %model_name, "feral-agent: using discovered model");
 
     // At-rest encryption key (H-1) for the sidecar's sensitive DB columns. From
     // the OS keychain, generated on first use. Absent ⇒ sidecar stores plaintext
@@ -267,7 +350,13 @@ pub async fn spawn(
     };
 
     tokio::spawn(stdin_writer(stdin, rx));
-    tokio::spawn(stdout_reader(app.clone(), stdout, response_tx));
+    tokio::spawn(stdout_reader(
+        app.clone(),
+        stdout,
+        response_tx,
+        rsi_registry,
+        rsi_engine_mirror,
+    ));
     tokio::spawn(stderr_logger(app.clone(), stderr));
 
     tracing::info!("feral-agent: started (pid {:?})", child.id());
@@ -292,12 +381,20 @@ pub async fn spawn(
 /// The `Child` stays in `process_slot` (AppState) so app-exit kill-on-drop
 /// semantics are unchanged; the supervisor polls `try_wait()` through the
 /// same mutex instead of taking ownership.
+///
+/// `rsi_registry` + `rsi_engine_mirror` are cloned into every spawn so each
+/// generation of the sidecar gets fresh wiring — a stale oneshot from a
+/// previous generation would never fire anyway (the new process never sees
+/// the request), but cloning them keeps the contract "every spawn has its
+/// own readers" explicit.
 pub fn supervise(
     app: AppHandle,
     tx_slot: Arc<Mutex<Option<mpsc::Sender<String>>>>,
     process_slot: Arc<Mutex<Option<tokio::process::Child>>>,
     api_port: u16,
     api_token: String,
+    rsi_registry: RsiRequestRegistry,
+    rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
 ) {
     const MAX_QUICK_FAILURES: u32 = 5;
     const STABLE_UPTIME_SECS: u64 = 60;
@@ -306,7 +403,16 @@ pub fn supervise(
         let mut quick_failures: u32 = 0;
         loop {
             let started = std::time::Instant::now();
-            match spawn(app.clone(), tx_slot.clone(), api_port, &api_token).await {
+            match spawn(
+                app.clone(),
+                tx_slot.clone(),
+                api_port,
+                &api_token,
+                rsi_registry.clone(),
+                rsi_engine_mirror.clone(),
+            )
+            .await
+            {
                 Ok(child) => {
                     *process_slot.lock() = Some(child);
                 }
@@ -395,15 +501,24 @@ async fn stdin_writer(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Recei
 }
 
 /// Read stdout line-by-line. Most lines are protocol events forwarded verbatim
-/// to the React frontend as `feral://agent-output`. The exception is the
-/// desktop-control bridge: a `desktop_control_request` line is handled in Rust
-/// (the OS accessibility work lives there, behind the security gate) and the
-/// result is written back to the sidecar's stdin as a `desktop_control_response`
-/// — it is NOT forwarded to the frontend.
+/// to the React frontend as `feral://agent-output`. Exceptions (handled in
+/// Rust, NOT forwarded):
+///   * `desktop_control_request` — the OS accessibility work lives behind
+///     the Rust security gate; the response is written back to the sidecar's
+///     stdin as `desktop_control_response`.
+///   * `rsi_engine_event` — the engine-driver IPC ack + mirror update. The
+///     sidecar emits one of these for each `rsi_start` / `rsi_stop` /
+///     `rsi_set_concurrency` (with the matching `id`), plus optional
+///     `progress` lines that update the engine mirror without acking. After
+///     we extract what we need, we still forward the line to the UI so the
+///     React layer can render live updates if it wants (the documented path
+///     is polling `rsi_status`, but live events are useful for charts).
 async fn stdout_reader(
     app: AppHandle,
     stdout: tokio::process::ChildStdout,
     response_tx: mpsc::Sender<String>,
+    rsi_registry: RsiRequestRegistry,
+    rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
 ) {
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -412,13 +527,35 @@ async fn stdout_reader(
             continue;
         }
 
-        // Peek the `type` field cheaply; only desktop-control requests are
-        // intercepted, everything else flows straight to the UI.
+        // Peek the `type` field cheaply; route the three intercepted types,
+        // everything else flows straight to the UI.
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-            if v.get("type").and_then(|t| t.as_str()) == Some("desktop_control_request") {
-                let tx = response_tx.clone();
-                tokio::spawn(async move { handle_desktop_control_request(v, tx).await });
-                continue;
+            match v.get("type").and_then(|t| t.as_str()) {
+                Some("desktop_control_request") => {
+                    let tx = response_tx.clone();
+                    tokio::spawn(async move { handle_desktop_control_request(v, tx).await });
+                    continue;
+                }
+                Some("rsi_request") => {
+                    // Sidecar asks Rust to do something (commit_genome,
+                    // ratchet_attempt, score, etc.). Dispatch and write the
+                    // matching rsi_response back to stdin. NOT forwarded to
+                    // the UI — it's an internal request/response, like
+                    // desktop_control_request.
+                    let tx = response_tx.clone();
+                    let app_for_rsi = app.clone();
+                    tokio::spawn(async move {
+                        handle_rsi_request(v, app_for_rsi, tx).await;
+                    });
+                    continue;
+                }
+                Some("rsi_engine_event") => {
+                    handle_rsi_engine_event(&v, &rsi_registry, &rsi_engine_mirror);
+                    // Intentionally fall through to the UI forward — the
+                    // rsi_engine_event line may carry useful payload (e.g.
+                    // iteration progress) for live widgets.
+                }
+                _ => {}
             }
         }
 
@@ -426,6 +563,95 @@ async fn stdout_reader(
         let _ = app.emit("feral://agent-output", FeralAgentOutputEvent { data: line });
     }
     tracing::info!("feral-agent: stdout closed");
+}
+
+/// Apply a single `rsi_engine_event` line: ack the matching in-flight
+/// request (if any) and update the engine mirror.
+///
+/// Expected shape:
+///
+/// ```json
+/// { "type": "rsi_engine_event",
+///   "event": "started" | "stopped" | "concurrency_set" | "progress",
+///   "id": "<request_id>",           // only on ack-bearing events
+///   "iteration": 0,                  // optional, started/progress/stopped
+///   "bestScore": 73.4,               // optional
+///   "costSoFarUsd": 0.0,             // optional
+///   "concurrency": 1,                // optional, started/concurrency_set
+///   "stopReason": "UserStopped"      // only on stopped
+/// }
+/// ```
+///
+/// Missing fields fall back to whatever the mirror already holds, so a
+/// partial event (e.g. just `iteration`) doesn't wipe the rest. An
+/// unknown `event` is logged and ignored — version skew between Rust and
+/// the sidecar shouldn't be a panic.
+fn handle_rsi_engine_event(
+    v: &serde_json::Value,
+    rsi_registry: &RsiRequestRegistry,
+    rsi_engine_mirror: &Arc<Mutex<Option<RsiEngineState>>>,
+) {
+    let event_name = v.get("event").and_then(|t| t.as_str()).unwrap_or("");
+    if event_name.is_empty() {
+        tracing::warn!("feral-agent: rsi_engine_event without 'event' field: {v}");
+        return;
+    }
+
+    // Ack first (cheap, lock-free w.r.t. the engine mirror). An unknown
+    // id simply returns false — no error, the request may have already
+    // timed out and that's fine.
+    if let Some(id) = v.get("id").and_then(|t| t.as_str()) {
+        let fired = rsi_registry.ack(id);
+        if !fired && matches!(event_name, "started" | "stopped" | "concurrency_set") {
+            tracing::debug!(
+                "feral-agent: rsi_engine_event {event_name} for unknown id {id} (already timed out?)"
+            );
+        }
+    }
+
+    // Update the mirror. Seed from the previous value so partial events
+    // don't blank fields we don't know about.
+    let mut guard = rsi_engine_mirror.lock();
+    let prev = guard.clone().unwrap_or_default();
+    let next = match event_name {
+        "started" => RsiEngineState {
+            running: true,
+            iteration: v.get("iteration").and_then(|n| n.as_u64()).map(|n| n as u32).unwrap_or(prev.iteration),
+            best_score: v.get("bestScore").and_then(|n| n.as_f64()).or(prev.best_score),
+            cost_so_far_usd: v.get("costSoFarUsd").and_then(|n| n.as_f64()).unwrap_or(prev.cost_so_far_usd),
+            concurrency: v.get("concurrency").and_then(|n| n.as_u64()).map(|n| n as u32).unwrap_or(prev.concurrency),
+            stop_reason: None,
+        },
+        "stopped" => RsiEngineState {
+            running: false,
+            iteration: v.get("iteration").and_then(|n| n.as_u64()).map(|n| n as u32).unwrap_or(prev.iteration),
+            best_score: v.get("bestScore").and_then(|n| n.as_f64()).or(prev.best_score),
+            cost_so_far_usd: v.get("costSoFarUsd").and_then(|n| n.as_f64()).unwrap_or(prev.cost_so_far_usd),
+            concurrency: prev.concurrency,
+            stop_reason: v.get("stopReason").and_then(|t| t.as_str()).map(String::from).or(prev.stop_reason),
+        },
+        "concurrency_set" => RsiEngineState {
+            running: prev.running,
+            iteration: prev.iteration,
+            best_score: prev.best_score,
+            cost_so_far_usd: prev.cost_so_far_usd,
+            concurrency: v.get("concurrency").and_then(|n| n.as_u64()).map(|n| n as u32).unwrap_or(prev.concurrency),
+            stop_reason: prev.stop_reason,
+        },
+        "progress" => RsiEngineState {
+            running: prev.running,
+            iteration: v.get("iteration").and_then(|n| n.as_u64()).map(|n| n as u32).unwrap_or(prev.iteration),
+            best_score: v.get("bestScore").and_then(|n| n.as_f64()).or(prev.best_score),
+            cost_so_far_usd: v.get("costSoFarUsd").and_then(|n| n.as_f64()).unwrap_or(prev.cost_so_far_usd),
+            concurrency: prev.concurrency,
+            stop_reason: prev.stop_reason,
+        },
+        other => {
+            tracing::warn!("feral-agent: unknown rsi_engine_event '{other}', ignoring");
+            return;
+        }
+    };
+    *guard = Some(next);
 }
 
 /// Run a single desktop-control request from the sidecar and write the
@@ -455,6 +681,68 @@ async fn handle_desktop_control_request(req: serde_json::Value, tx: mpsc::Sender
 
     if tx.send(response.to_string()).await.is_err() {
         tracing::warn!("feral-agent: failed to deliver desktop_control_response (sidecar gone?)");
+    }
+}
+
+/// Run a single `rsi_request` from the sidecar and write a matching
+/// `rsi_response` back to its stdin. Mirrors `handle_desktop_control_request`:
+/// request lines are intercepted by `stdout_reader`, dispatched here, and
+/// the response is written back to the stdin writer task via `tx`.
+///
+/// Every request gets EXACTLY ONE response — even an unknown method or a
+/// missing `id` field produces an error response (or a stub with empty id),
+/// so the sidecar's pending bridge Promise never hangs. The dispatcher
+/// itself is in `rsi::commands::dispatch_rsi_request`; this function only
+/// handles the JSON envelope and AppHandle plumbing.
+async fn handle_rsi_request(
+    req: serde_json::Value,
+    app: AppHandle,
+    tx: mpsc::Sender<String>,
+) {
+    let id = req
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let method = req
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let params = req
+        .get("params")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    let response = if method.is_empty() {
+        serde_json::json!({
+            "type": "rsi_response",
+            "id": id,
+            "ok": false,
+            "error": "rsi_request: missing 'method'",
+        })
+    } else {
+        // app.state::<AppState>() returns State<'_, AppState>; .inner()
+        // gives a plain &AppState the dispatcher can use.
+        let state = app.state::<AppState>();
+        match crate::rsi::commands::dispatch_rsi_request(state.inner(), &method, params).await {
+            Ok(data) => serde_json::json!({
+                "type": "rsi_response",
+                "id": id,
+                "ok": true,
+                "data": data,
+            }),
+            Err(message) => serde_json::json!({
+                "type": "rsi_response",
+                "id": id,
+                "ok": false,
+                "error": message,
+            }),
+        }
+    };
+
+    if tx.send(response.to_string()).await.is_err() {
+        tracing::warn!("feral-agent: failed to deliver rsi_response (sidecar gone?)");
     }
 }
 

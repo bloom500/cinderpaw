@@ -11,6 +11,8 @@ vi.mock('@/lib/tauri', () => ({
         version: '0.1.0',
         desktop_control_enabled: false,
         desktop_control_yolo: false,
+        token_budget_conversation: null,
+        rsi_max_cost_usd: 0,
       }),
     },
   },

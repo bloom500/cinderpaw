@@ -162,6 +162,51 @@ describe("adaptive loop: no hard-cap message when tool calls exceed old maxItera
 });
 
 // ---------------------------------------------------------------------------
+// The Crux: the RSI champion's params reach the LIVE agent's inference call
+// ---------------------------------------------------------------------------
+
+describe("RSI champion → live agent", () => {
+  it("applies the champion temperature when the session has no UI override", async () => {
+    const originalFetch = globalThis.fetch;
+    let lastBody: Record<string, unknown> | null = null;
+    try {
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        lastBody = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(
+          JSON.stringify({ message: { content: "Hello." }, prompt_eval_count: 5, eval_count: 2 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+
+      const db = openDatabase(":memory:");
+      const audit = new AuditLog(db.raw);
+      const egress = new EgressProxy(audit.logger);
+      const router = new InferenceRouter(
+        { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+        audit.logger,
+        db.raw,
+      );
+      const episodic = new EpisodicMemory(db.raw, audit.logger);
+      const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+      const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));
+
+      const agent = new AgentLoop(router, registry, episodic, {}, recall);
+      // The evolutionary engine ratcheted a config whose temperature is 0.42.
+      agent.applyChampionParams({ temperature: 0.42 });
+      await agent.handle("s1", "hi", "m1", () => {});
+
+      expect(lastBody).not.toBeNull();
+      const opts = (lastBody as { options?: { temperature?: number } }).options;
+      expect(opts?.temperature).toBe(0.42);
+
+      db.close();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Malformed tool-call recovery: corrupted JSON must not end the turn
 // ---------------------------------------------------------------------------
 

@@ -32,7 +32,15 @@ pub struct Settings {
     /// their own inference costs on a local/BYOK setup).
     #[serde(default)]
     pub token_budget_conversation: Option<u64>,
+    /// USD spend cap for the passive RSI background engine, exported to the
+    /// sidecar as `FERAL_RSI_MAX_COST_USD`. `Some(0.0)` (default) = local-only:
+    /// the free loopback engine runs forever, any paid cloud spend halts. A
+    /// positive value allows bounded cloud spend. `None` = no cap (advanced).
+    #[serde(default = "default_rsi_budget")]
+    pub rsi_max_cost_usd: Option<f64>,
 }
+
+fn default_rsi_budget() -> Option<f64> { Some(0.0) }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -45,6 +53,7 @@ impl Default for Settings {
             desktop_control_enabled: false,
             desktop_control_yolo: false,
             token_budget_conversation: None,
+            rsi_max_cost_usd: Some(0.0),
         }
     }
 }
@@ -64,4 +73,15 @@ pub fn save(s: &Settings) -> anyhow::Result<()> {
     let path = paths::settings_path();
     std::fs::write(path, serde_json::to_vec_pretty(s)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_rsi_budget_is_local_only_zero() {
+        let s = Settings::default();
+        assert_eq!(s.rsi_max_cost_usd, Some(0.0));
+    }
 }

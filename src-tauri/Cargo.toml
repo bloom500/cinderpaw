@@ -61,6 +61,16 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sysinfo = "0.32"
 uuid = { version = "1", features = ["v4", "serde"] }
 dirs = "5"
+# SHA-256 for the hash-chained SandboxBounds audit log.
+# The agent's tool audit (audit-log.ts) uses node:crypto; the bounds audit
+# here uses the same algorithm but a separate chain so a tamper on one side
+# cannot mask a tamper on the other.
+sha2 = "0.10"
+# git2 (libgit2 bindings) for the RSI git substrate at ~/.feral/rsi/.git/.
+# Vendored so we don't depend on a system libgit2 install — the spec requires
+# "fără dependență de git instalat pe sistem". The C build is heavy; only the
+# rsi module pulls it in.
+git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
 # OS-native secret storage for BYOK API keys (V6): DPAPI/Credential Manager on
 # Windows, Keychain on macOS, Secret Service (libsecret) on Linux. Platform
 # backends are target-gated inside the crate, so only the host's backend builds.

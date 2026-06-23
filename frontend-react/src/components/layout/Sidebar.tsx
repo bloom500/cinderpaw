@@ -24,7 +24,7 @@ import { useAppVersion } from '@/hooks/useAppVersion';
 export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
 
-type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'extensions' | 'connectors' | 'memoryGraph';
+type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'extensions' | 'connectors' | 'memoryLayers';
 
 interface MenuItem {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
@@ -44,7 +44,7 @@ const MENU: MenuItem[] = [
   { icon: Sparkles,     label: 'Skills',       shortcut: null,  action: 'skills',     disabled: false },
   { icon: Puzzle,       label: 'Extensions',   shortcut: null,  action: 'extensions', disabled: false, route: '/extensions' },
   { icon: Plug,         label: 'Connectors',   shortcut: null,  action: 'connectors', disabled: false, route: '/connectors' },
-  { icon: Brain,        label: 'Memory Graph', shortcut: null,  action: 'memoryGraph', disabled: false, route: '/memory-graph' },
+  { icon: Brain,        label: 'Memory Layers', shortcut: null,  action: 'memoryLayers', disabled: false, route: '/memory-layers' },
 ];
 
 // ── Download status popover ───────────────────────────────────────────────────
