@@ -43,6 +43,10 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
 - **`project_fractal_bench_blockers.md`** — what's actually blocking the
   Fractal bench from producing live numbers on this dev box (GPU crash
   on embed, rebuild thrashing). Pipeline is correct.
+- **`project_fractal_activity_pulses.md`** — the three `fractal_activity`
+  event kinds (`grow` / `recall` / `seed`) and the regression guard
+  for the per-iteration pulse. Read before touching the organism
+  wiring.
 - **`reference_windows_vulkan_build.md`** — the Windows Vulkan build
   recipe that finally worked (cl 14.44 + Ninja + short `CARGO_TARGET_DIR`).
   Re-use when next fighting llama.cpp × MSVC.

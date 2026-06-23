@@ -129,15 +129,18 @@ pub fn whisper_model_path(size: &str) -> PathBuf {
     whisper_dir().join(whisper_filename(size))
 }
 
-/// HuggingFace repo + filename for the bundled embedding model (bge-small,
-/// Q8_0 GGUF — ~130 MB, used by Fractal Memory Search). Lives in the shared
-/// models dir like chat models.
+/// HuggingFace repo + filename for the embedding model used by Fractal Memory
+/// Search. Default: BGE-M3 (Q8_0 GGUF, ~600 MB) — multilingual, 1024-dim, an
+/// 8192-token window; markedly stronger recall than the old bge-small (384d).
+/// Lives in the shared models dir like chat models. `n_embd` is read from the
+/// model at load, so swapping the model needs no code change beyond these two
+/// constants (and a one-time re-embed, handled by FractalMemory's dim guard).
 ///
-/// NOTE: pinned from documentation, NOT verified against the live HF repo
-/// (no network at authoring time). Confirm these coordinates before shipping;
-/// a mismatch is a one-line fix.
-pub const EMBED_REPO: &str = "CompendiumLabs/bge-small-en-v1.5-gguf";
-pub const EMBED_FILENAME: &str = "bge-small-en-v1.5-q8_0.gguf";
+/// NOTE: repo coordinates pinned from documentation; confirm against the live
+/// HF repo before shipping — a mismatch is a one-line fix (the FILENAME must
+/// match what the Models tab downloads into the models dir).
+pub const EMBED_REPO: &str = "gpustack/bge-m3-GGUF";
+pub const EMBED_FILENAME: &str = "bge-m3-Q8_0.gguf";
 
 /// Absolute path where the embedding model GGUF is stored.
 pub fn embedding_model_path() -> PathBuf {

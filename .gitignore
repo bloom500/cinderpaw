@@ -82,3 +82,7 @@ src-tauri/binaries/*.old*
 
 # vitest on-disk cache (must never be tracked)
 node_modules/.vite/
+
+# Dev run / benchmark logs (never tracked)
+*.log
+*.log.err

@@ -60,16 +60,24 @@ export interface RsiEngineEventLine {
 /**
  * A Fractal Memory Search pulse, extracted from a `feral://agent-output` line.
  * The sidecar emits these so the living organism is driven by memory activity,
- * not RSI: `recall` (a semantic query traversed the tree → breathing) and
- * `grow` (a rebuild grew the tree → filament growth). Counts are per-kind.
+ * not RSI:
+ *   - `recall` (a semantic query traversed the tree → breathing focus)
+ *   - `grow`   (a rebuild grew the tree → filament growth)
+ *   - `seed`   (a single memory was written → fine per-iteration impulse
+ *               so +1 leaf on 2700 isn't invisible until the next 1.2×
+ *               rebuild threshold)
+ * Counts / ids are per-kind.
  */
 export interface FractalActivityLine {
   type: 'fractal_activity';
-  kind: 'recall' | 'grow';
+  kind: 'recall' | 'grow' | 'seed';
   hits?: number;
   leafCount?: number;
   clusterCount?: number;
   clusters?: { x: number; y: number; weight: number }[];
+  leafId?: number;
+  sessionId?: string;
+  ts?: number;
 }
 
 function wrap<T>(channel: string) {

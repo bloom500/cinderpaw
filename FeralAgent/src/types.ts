@@ -1036,6 +1036,21 @@ export type OutboundEvent =
       fractalP99Ms?: number;
       ftsP99Ms?: number;
       path?: string;
+    }
+  // Living-organism pulses. Forwarded verbatim over `feral://agent-output`
+  // so the React `events.onFractalActivity` listener can route each kind
+  // into the Mandelbrot renderer. The sidecar never enriches these — only
+  // the `kind` discriminator + the kind-specific fields.
+  | {
+      type: "fractal_activity";
+      kind: "recall" | "grow" | "seed";
+      hits?: number;
+      leafCount?: number;
+      clusterCount?: number;
+      clusters?: { x: number; y: number; weight: number }[];
+      leafId?: number;
+      sessionId?: string;
+      ts?: number;
     };
 
 export interface Transport {

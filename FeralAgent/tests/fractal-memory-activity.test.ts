@@ -100,6 +100,52 @@ describe("FractalMemory activity events", () => {
     const r = await fm.recall("something in s-a", "other-session");
     expect(typeof r.context).toBe("string");
   });
+
+  it("emits a seed pulse on every noteWrite so a single +1 leaf is visible", async () => {
+    // The whole reason this event exists: with 2700 leaves, the
+    // rebuildIfStale(1.2) gate skips the next rebuild (2701 < 3240), so
+    // `grow` never fires on a single write. Without `seed`, the organism
+    // would go silent until ~540 more memories accumulate. This test
+    // pins the contract that noteWrite fires regardless of tree state.
+    const seen: FractalActivity[] = [];
+    const fm = makeFm((a) => seen.push(a));
+    // No rebuild → no tree → noteWrite must STILL fire (it's per-write,
+    // not per-tree). This is the regression guard.
+    fm.noteWrite({ id: 42, sessionId: "s-a", ts: 1700000123456 });
+    const seed = seen.find((a) => a.kind === "seed");
+    expect(seed).toBeDefined();
+    expect(seed).toMatchObject({ kind: "seed", leafId: 42, sessionId: "s-a", ts: 1700000123456 });
+  });
+
+  it("emits a seed pulse even when a tree is loaded (independent of grow)", async () => {
+    const seen: FractalActivity[] = [];
+    const fm = makeFm((a) => seen.push(a));
+    await fm.rebuild();
+    seen.length = 0; // ignore the grow pulse
+    fm.noteWrite({ id: 7, sessionId: "s-b", ts: 1700000999999 });
+    const seed = seen.find((a) => a.kind === "seed");
+    expect(seed).toBeDefined();
+    expect(seed).toMatchObject({ kind: "seed", leafId: 7 });
+  });
+
+  it("noteWrite does NOT trigger a rebuild or a grow pulse", async () => {
+    // `seed` is the lightweight signal; it must never be confused with
+    // `grow` (which is the heavy rebuild-driven one). Without this guard,
+    // a chatty user would pay the cloud-summary cost on every turn.
+    const seen: FractalActivity[] = [];
+    const fm = makeFm((a) => seen.push(a));
+    fm.noteWrite({ id: 1, sessionId: "s-a", ts: 1 });
+    fm.noteWrite({ id: 2, sessionId: "s-a", ts: 2 });
+    fm.noteWrite({ id: 3, sessionId: "s-a", ts: 3 });
+    expect(seen.filter((a) => a.kind === "grow")).toHaveLength(0);
+    expect(seen.filter((a) => a.kind === "seed")).toHaveLength(3);
+  });
+
+  it("noteWrite never throws when the activity sink throws", async () => {
+    const fm = makeFm(() => { throw new Error("sink boom"); });
+    // Must be swallowed, just like recall/rebuild sink errors.
+    expect(() => fm.noteWrite({ id: 1, sessionId: "s-a", ts: 1 })).not.toThrow();
+  });
 });
 
 describe("buildGrowActivity", () => {

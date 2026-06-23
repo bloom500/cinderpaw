@@ -27,9 +27,15 @@ import type { RecallResult } from "../memory/recall.ts";
  * facade — both answer `recall()` with a `RecallResult`. The loop `await`s
  * either (awaiting a sync value is a no-op), so the semantic path can do its
  * single-query embedding without changing this call site again.
+ *
+ * `noteWrite` is optional and only the fractal facade implements it: the
+ * organism needs a per-memory-write pulse so a single +1 leaf on top of
+ * 2700 isn't invisible until the next 1.2× rebuild threshold. The legacy
+ * engine (and any test double) can omit it.
  */
 export interface Recaller {
   recall(query: string, sessionId: string): RecallResult | Promise<RecallResult>;
+  noteWrite?(leaf: { id: number; sessionId: string; ts: number }): void;
 }
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
@@ -554,7 +560,11 @@ export class AgentLoop {
     const { text: userTextClean } = stripPrivate(userText);
 
     memory.addUser(userText, images);
-    this.#episodic.record(sessionId, "user", userTextClean);
+    const userWriteTs = Date.now();
+    const userLeafId = this.#episodic.record(sessionId, "user", userTextClean);
+    if (userLeafId !== null) {
+      this.#recall?.noteWrite?.({ id: userLeafId, sessionId, ts: userWriteTs });
+    }
 
     const turnStartedAt = Date.now();
     let toolCallCount = 0;
@@ -574,7 +584,11 @@ export class AgentLoop {
       toolCallCount = runToolCount;
       memory.addAssistant(final);
       const { text: finalClean } = stripPrivate(final);
-      this.#episodic.record(sessionId, "assistant", finalClean);
+      const asstWriteTs = Date.now();
+      const asstLeafId = this.#episodic.record(sessionId, "assistant", finalClean);
+      if (asstLeafId !== null) {
+        this.#recall?.noteWrite?.({ id: asstLeafId, sessionId, ts: asstWriteTs });
+      }
       ctx.emit({ type: "done", id: messageId, content: final, stopped: ctx.stopped, traceId });
 
       // Fire-and-forget: extract durable user facts from the turn just completed.
@@ -843,7 +857,11 @@ export class AgentLoop {
 
         const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
         memory.addToolResult(call.name, rendered);
-        this.#episodic.record(sessionId, "tool", `${call.name}: ${rendered}`);
+        const toolWriteTs = Date.now();
+        const toolLeafId = this.#episodic.record(sessionId, "tool", `${call.name}: ${rendered}`);
+        if (toolLeafId !== null) {
+          this.#recall?.noteWrite?.({ id: toolLeafId, sessionId, ts: toolWriteTs });
+        }
       }
 
       if (ctx.stopped) break;

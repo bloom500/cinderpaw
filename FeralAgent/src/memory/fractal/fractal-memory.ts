@@ -67,6 +67,10 @@ export interface RecallFallback {
  * frontend so the Mandelbrot is driven by Fractal Memory Search, not RSI:
  *   - `recall` — a real semantic query traversed the tree → breathing focuses
  *   - `grow`   — a rebuild grew the tree → filaments extend
+ *   - `seed`   — a single memory was written → a fine impulse so the
+ *                organism feels alive per-iteration, not only on the next
+ *                big rebuild (which is gated by `rebuildIfStale` at 1.2x and
+ *                would otherwise miss the +1-memory case).
  */
 export type FractalActivity =
   | { kind: "recall"; hits: number }
@@ -75,7 +79,8 @@ export type FractalActivity =
       leafCount: number;
       clusterCount: number;
       clusters: { x: number; y: number; weight: number }[];
-    };
+    }
+  | { kind: "seed"; leafId: number; sessionId: string; ts: number };
 
 export interface FractalMemoryDeps {
   /** Pull the current episodic rows as leaves (vectors optional — `buildTree`
@@ -116,6 +121,14 @@ export interface FractalMemoryDeps {
    */
   persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
   /**
+   * Optional hook to drop ALL stored embeddings (returns rows cleared).
+   * Production wires this to `EpisodicMemory.clearEmbeddings`. The rebuild
+   * calls it when the embedding model's output dimension no longer matches the
+   * stored vectors (a model swap, e.g. bge-small 384d → bge-m3 1024d) — without
+   * it the stale-dimension vectors would crash cosine at recall time.
+   */
+  clearEmbeddings?: () => number;
+  /**
    * Optional sink for organism pulses (recall/grow). Production wires this to
    * the sidecar transport so Rust forwards the pulse to the frontend; tests
    * collect into an array. Best-effort — a throwing sink never breaks recall.
@@ -133,7 +146,7 @@ export function buildGrowActivity(tree: {
   const points = projectCentroids(tree.children.map((c) => c.centroid));
   const counts = tree.children.map((c) => c.leafIds.length);
   const maxCount = Math.max(1, ...counts);
-  const clusters = tree.children.map((c, i) => ({
+  const clusters = tree.children.map((_c, i) => ({
     x: points[i]?.x ?? 0,
     y: points[i]?.y ?? 0,
     weight: counts[i]! / maxCount,
@@ -157,6 +170,7 @@ export class FractalMemory {
   readonly #maxLeaves: number;
   readonly #log?: (msg: string) => void;
   readonly #persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
+  readonly #clearEmbeddings?: () => number;
   readonly #onActivity?: (activity: FractalActivity) => void;
 
   #tree: TreeNode | null = null;
@@ -175,6 +189,7 @@ export class FractalMemory {
     this.#maxLeaves = deps.maxLeaves && deps.maxLeaves > 0 ? deps.maxLeaves : 0;
     this.#log = deps.log;
     this.#persistEmbeddings = deps.persistEmbeddings;
+    this.#clearEmbeddings = deps.clearEmbeddings;
     this.#onActivity = deps.onActivity;
   }
 
@@ -258,10 +273,36 @@ export class FractalMemory {
   }
 
   async #doRebuild(): Promise<boolean> {
-    const leaves = this.#cappedLeaves();
+    let leaves = this.#cappedLeaves();
     if (leaves.length < this.#minLeaves) {
       this.#log?.(`fractal: ${leaves.length} leaves < min ${this.#minLeaves}; using FTS5 only`);
       return false;
+    }
+    // Embedding-model migration guard. Stored leaf vectors carry a fixed
+    // dimension from whatever model produced them; if the model now loaded
+    // emits a different dimension (e.g. bge-small 384d → bge-m3 1024d), the
+    // tree's centroids and the query vector won't share a length and cosine
+    // throws at recall — silently degrading every recall to FTS5 forever. A
+    // cheap probe embed detects the mismatch; we then drop the stale vectors
+    // and reload so the build re-embeds the whole corpus fresh at the new dim.
+    const storedDim = leaves.find((l) => l.vec.length > 0)?.vec.length ?? 0;
+    if (storedDim > 0 && this.#clearEmbeddings) {
+      try {
+        const probe = await this.#embed(["dimension probe"]);
+        const currentDim = probe[0]?.length ?? 0;
+        if (currentDim > 0 && currentDim !== storedDim) {
+          const cleared = this.#clearEmbeddings();
+          this.#log?.(
+            `fractal: embedding dimension changed (${storedDim} → ${currentDim}); ` +
+              `cleared ${cleared} stale vector(s), re-embedding the corpus from scratch`,
+          );
+          leaves = this.#cappedLeaves(); // reload without the stale vectors
+        }
+      } catch (e) {
+        // Probe failed (no model on disk) — buildTree will fail the same way
+        // below and fall back; nothing extra to do here.
+        this.#log?.(`fractal: dim-guard probe skipped (${String(e)})`);
+      }
     }
     let tree: TreeNode;
     const t0 = Date.now();
@@ -438,6 +479,23 @@ export class FractalMemory {
       this.#log?.(`fractal: query fell back to empty: ${String(e)}`);
       return [];
     }
+  }
+
+  /**
+   * Notify the organism that a single leaf was just written to episodic
+   * memory. Cheap (no rebuild — `rebuildIfStale` still gates the actual
+   * tree regrowth at 1.2× coverage), so it can fire on every turn without
+   * any LLM cost. Without this, +1 memory on top of 2700 leaves is
+   * invisible to the organism until the next 1.2× rebuild threshold —
+   * which on a corpus of 2700 means ~540 more memories must accumulate
+   * before anything visible happens. The vision is "a fine impulse at
+   * every iteration", not "a giant warp every 540 writes", so this
+   * carries the per-write signal.
+   *
+   * Best-effort: a missing or throwing sink never breaks the write.
+   */
+  noteWrite(leaf: { id: number; sessionId: string; ts: number }): void {
+    this.#emit({ kind: "seed", leafId: leaf.id, sessionId: leaf.sessionId, ts: leaf.ts });
   }
 
   /** Map current episodic rows to `leafId → Leaf`, for the recall engine. */

@@ -545,13 +545,16 @@ mod backend {
 
     static EMBED: Lazy<Mutex<Option<EmbedState>>> = Lazy::new(|| Mutex::new(None));
 
-    /// bge-small and friends top out at a 512-token sequence; cap the context
-    /// (and truncate inputs) to that — keeps KV memory tiny and matches the
-    /// model's training window. This is the per-SEQUENCE window.
-    const EMBED_CTX_LEN: u32 = 512;
+    /// Per-SEQUENCE token window. BGE-M3 trains to 8192, but episodic memories
+    /// are mostly short chat turns; 1024 captures longer tool outputs without
+    /// the long-context tail while keeping embed-KV modest. Inputs are
+    /// truncated to this. (KV ≈ n_seq_max × this × n_embd — see below.)
+    const EMBED_CTX_LEN: u32 = 1024;
     /// How many texts are embedded in ONE `llama_decode` (the batch path).
-    /// Short memories (most chat turns) pack many per decode; this is the cap.
-    const EMBED_MAX_BATCH_SEQS: u32 = 16;
+    /// Short memories pack many per decode. Halved vs the bge-small era because
+    /// M3 is a larger model with a wider window: 8 × 1024 keeps total embed-KV
+    /// in the same ballpark as the old 16 × 512 instead of growing 4×.
+    const EMBED_MAX_BATCH_SEQS: u32 = 8;
     /// Total context = per-sequence window × max sequences, so every packed
     /// sequence keeps its full 512-token window even under a strict per-seq KV
     /// split (n_ctx / n_seq_max == EMBED_CTX_LEN). bge KV at this size is tiny.

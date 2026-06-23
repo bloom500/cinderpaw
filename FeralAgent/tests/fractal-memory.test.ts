@@ -251,6 +251,54 @@ describe("FractalMemory — maxLeaves cap (dev bench subset)", () => {
   });
 });
 
+describe("FractalMemory — embedding-model migration guard", () => {
+  it("clears stale vectors + re-embeds from scratch when the dimension changed", async () => {
+    // Stored vecs are 3-dim (a previous model). The current model embeds in
+    // 2-dim (fakeEmbed). The dim mismatch would crash cosine, so the guard must
+    // clear + reload + rebuild fresh — not throw.
+    let cleared = false;
+    const clearEmbeddings = () => { cleared = true; return 12; };
+    const staleLeaves = (): Leaf[] =>
+      leaves().map((l) => ({
+        ...l,
+        vec: cleared ? new Float32Array(0) : new Float32Array([1, 0, 0]), // 3d → empty after clear
+      }));
+    const fm = new FractalMemory({
+      loadLeaves: staleLeaves,
+      embed: fakeEmbed(), // 2d
+      summarize: fakeSummarize,
+      ftsSearch: noFts,
+      fallback,
+      treePath: treePath(),
+      clearEmbeddings,
+    });
+    expect(await fm.rebuild()).toBe(true);
+    expect(cleared).toBe(true);
+    expect(fm.hasTree).toBe(true);
+  });
+
+  it("does NOT clear when the stored dimension already matches the model", async () => {
+    let cleared = false;
+    const clearEmbeddings = () => { cleared = true; return 0; };
+    const matchedLeaves = (): Leaf[] =>
+      leaves().map((l) => ({
+        ...l,
+        vec: new Float32Array(l.text.includes("s-a") ? [1, 0] : [-1, 0]), // 2d, matches fakeEmbed
+      }));
+    const fm = new FractalMemory({
+      loadLeaves: matchedLeaves,
+      embed: fakeEmbed(), // 2d
+      summarize: fakeSummarize,
+      ftsSearch: noFts,
+      fallback,
+      treePath: treePath(),
+      clearEmbeddings,
+    });
+    expect(await fm.rebuild()).toBe(true);
+    expect(cleared).toBe(false);
+  });
+});
+
 describe("FractalMemory — tiny corpus", () => {
   it("rebuild skips when fewer than minLeaves rows exist", async () => {
     const fm = new FractalMemory({

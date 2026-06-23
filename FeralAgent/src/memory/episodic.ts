@@ -24,23 +24,37 @@ export class EpisodicMemory {
     `);
   }
 
-  /** Persist a single event and audit the memory write. */
-  record(sessionId: string, role: ChatMessage["role"], content: string): void {
-    if (!content.trim()) return;
+  /**
+   * Persist a single event and audit the memory write. Returns the inserted
+   * row id (or `null` on error / empty content) so callers can wire the new
+   * leaf into other systems — most notably the FractalMemory `noteWrite`
+   * pulse that drives the organism on every memory write.
+   */
+  record(sessionId: string, role: ChatMessage["role"], content: string): number | null {
+    if (!content.trim()) return null;
     try {
+      const ts = Date.now();
       this.#insert.run({
         $sessionId: sessionId,
-        $timestamp: Date.now(),
+        $timestamp: ts,
         $role: role,
         $content: content,
       });
+      // `lastInsertRowid` exists at runtime on bun:sqlite's `Database` but
+      // isn't surfaced on the TypeScript types, so go through a one-shot
+      // query that hits SQLite's built-in function instead.
+      const row = this.#db
+        .query<{ id: number }, []>("SELECT last_insert_rowid() AS id")
+        .get();
+      const id = row?.id ?? null;
       this.#audit({
-        timestamp: Date.now(),
+        timestamp: ts,
         sessionId,
         actionType: "memory_write",
         result: "success",
         argsJson: JSON.stringify({ role, length: content.length }),
       });
+      return id;
     } catch (err) {
       this.#audit({
         timestamp: Date.now(),
@@ -49,6 +63,7 @@ export class EpisodicMemory {
         result: "error",
         blockedReason: String(err),
       });
+      return null;
     }
   }
 
@@ -119,6 +134,19 @@ export class EpisodicMemory {
       }
     });
     tx(rows);
+  }
+
+  /**
+   * Drop every stored embedding (set the column NULL), returning how many rows
+   * were cleared. Used when the embedding model changes: the stored vectors'
+   * dimensionality no longer matches the new model, so they must be discarded
+   * and re-embedded. The text is untouched — only the vectors are dropped.
+   */
+  clearEmbeddings(): number {
+    const res = this.#db
+      .query(`UPDATE episodic SET embedding = NULL WHERE embedding IS NOT NULL`)
+      .run();
+    return Number(res.changes ?? 0);
   }
 
   /**

@@ -324,6 +324,7 @@ async function main(): Promise<void> {
     maxLeaves: Number(process.env.FERAL_FRACTAL_BENCH_MAX_LEAVES) || 0,
     log,
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
+    clearEmbeddings: () => episodic.clearEmbeddings(),
     onActivity: (a) => fractalActivitySink.current(a),
   });
 
@@ -696,9 +697,11 @@ async function main(): Promise<void> {
   sendHolder.current = (e) => transport.send(e);
   // Forward organism pulses as plain sidecar lines; Rust relays every line to
   // the frontend over `feral://agent-output`, where the organism filters for
-  // `type: "fractal_activity"` (mirrors how RSI engine events travel).
+  // `type: "fractal_activity"` (mirrors how RSI engine events travel). The
+  // kind-discriminated `OutboundEvent` member added below makes this a typed
+  // send — no `as unknown` cast needed for `recall` / `grow` / `seed`.
   fractalActivitySink.current = (a) =>
-    transport.send({ type: "fractal_activity", ...a } as unknown as import("./types.ts").OutboundEvent);
+    transport.send({ type: "fractal_activity", ...a });
 
   // --- RSI sidecar (Faza 1) ---
   // The bridge writes `rsi_request` lines via transport.send; the
