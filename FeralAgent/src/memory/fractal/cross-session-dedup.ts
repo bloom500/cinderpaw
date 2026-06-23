@@ -48,14 +48,6 @@ function l2Normalize(v: Float32Array): Float32Array {
   return v;
 }
 
-/** Cosine similarity between two number arrays (L2-normalized on the fly). */
-function cosineNumberArrays(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  const fa = l2Normalize(new Float32Array(a));
-  const fb = l2Normalize(new Float32Array(b));
-  return cosine(fa, fb);
-}
-
 /**
  * Greedy grouping of near-duplicate leaves across sessions.
  *
@@ -72,10 +64,14 @@ export function dedupAcrossSessions(
   const groups: DedupGroup[] = [];
   const used = new Set<number>();
 
+  // Pre-normalize all vectors once to avoid redundant L2 normalization in cosine.
+  const normalized = leaves.map((l) => l2Normalize(new Float32Array(l.vec)));
+
   for (let i = 0; i < leaves.length; i++) {
     const a = leaves[i]!;
     if (used.has(a.id)) continue;
 
+    const aVec = normalized[i]!;
     const absorbed: DedupLeaf[] = [];
     for (let j = 0; j < leaves.length; j++) {
       if (i === j) continue;
@@ -85,7 +81,7 @@ export function dedupAcrossSessions(
       const span = Math.abs(a.first_seen_at - b.first_seen_at);
       if (span < spanThresholdMs) continue;
 
-      const sim = cosineNumberArrays(a.vec, b.vec);
+      const sim = cosine(aVec, normalized[j]!);
       if (sim >= mergeThreshold) {
         absorbed.push(b);
         used.add(b.id);
