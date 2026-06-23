@@ -399,6 +399,22 @@ pub(crate) fn do_rsi_commit_genome(
     candidate_branch: String,
 ) -> Result<String, String> {
     ensure_initialized(state)?;
+    commit_genome_inner(genome_id, genome_json, parent_commits, metadata, candidate_branch)
+}
+
+/// State-free body of the genome commit: JSON validation + the libgit2
+/// write. Split out from `do_rsi_commit_genome` so the sidecar request
+/// dispatcher can run it on a blocking thread — libgit2 is synchronous
+/// and would otherwise stall a tokio worker for the whole commit. The
+/// cheap `ensure_initialized` lock check stays on the async path; only
+/// this (git-bound) part is offloaded.
+pub(crate) fn commit_genome_inner(
+    genome_id: String,
+    genome_json: String,
+    parent_commits: Vec<String>,
+    metadata: IterationMetadata,
+    candidate_branch: String,
+) -> Result<String, String> {
     // Bounds check: parse the JSON, ensure it's an object. The
     // genome schema itself is opaque to Rust (the agent defines it);
     // we only enforce the top-level shape.
@@ -797,14 +813,14 @@ pub async fn dispatch_rsi_request(
             )
             .map_err(|e| format!("rsi_commit_genome: bad metadata: {e}"))?;
             let candidate_branch: String = require_string(params.get("candidate_branch"), "candidate_branch")?;
-            let commit_hash = do_rsi_commit_genome(
-                state,
-                genome_id,
-                genome_json,
-                parent_commits,
-                metadata,
-                candidate_branch,
-            )?;
+            // Fast lock check on the async path; the libgit2 write runs on a
+            // blocking thread so a slow commit can't stall a tokio worker.
+            ensure_initialized(state)?;
+            let commit_hash = tokio::task::spawn_blocking(move || {
+                commit_genome_inner(genome_id, genome_json, parent_commits, metadata, candidate_branch)
+            })
+            .await
+            .map_err(|e| format!("rsi_commit_genome: task panicked: {e}"))??;
             Ok(json!({ "commitHash": commit_hash }))
         }
         "rsi_score" => {
@@ -828,7 +844,10 @@ pub async fn dispatch_rsi_request(
         "rsi_ratchet_attempt" => {
             let candidate_commit: String =
                 require_string(params.get("candidate_commit"), "candidate_commit")?;
-            let result = repo::ratchet_attempt(&candidate_commit).map_err(|e| e.to_string())?;
+            let result = tokio::task::spawn_blocking(move || repo::ratchet_attempt(&candidate_commit))
+                .await
+                .map_err(|e| format!("rsi_ratchet_attempt: task panicked: {e}"))?
+                .map_err(|e| e.to_string())?;
             Ok(json!({
                 "advanced": result.advanced,
                 "previous_tip": result.previous_tip,
@@ -843,19 +862,28 @@ pub async fn dispatch_rsi_request(
                 .and_then(|v| v.as_u64())
                 .map(|n| n as usize)
                 .unwrap_or(50);
-            let commits = repo::log(max).map_err(|e| e.to_string())?;
+            let commits = tokio::task::spawn_blocking(move || repo::log(max))
+                .await
+                .map_err(|e| format!("rsi_log: task panicked: {e}"))?
+                .map_err(|e| e.to_string())?;
             Ok(json!(commits))
         }
         "rsi_lca" => {
             let a: String = require_string(params.get("a"), "a")?;
             let b: String = require_string(params.get("b"), "b")?;
-            let lca = repo::lca(&a, &b).map_err(|e| e.to_string())?;
+            let lca = tokio::task::spawn_blocking(move || repo::lca(&a, &b))
+                .await
+                .map_err(|e| format!("rsi_lca: task panicked: {e}"))?
+                .map_err(|e| e.to_string())?;
             Ok(json!({ "lca": lca }))
         }
         "rsi_diff" => {
             let a: String = require_string(params.get("a"), "a")?;
             let b: String = require_string(params.get("b"), "b")?;
-            let diff = repo::diff(&a, &b).map_err(|e| e.to_string())?;
+            let diff = tokio::task::spawn_blocking(move || repo::diff(&a, &b))
+                .await
+                .map_err(|e| format!("rsi_diff: task panicked: {e}"))?
+                .map_err(|e| e.to_string())?;
             Ok(json!({ "diff": diff }))
         }
         "rsi_get_tier0_specs" => {
@@ -1037,8 +1065,11 @@ mod tests {
         let result = run_dispatch("rsi_get_tier0_specs", serde_json::json!({}))
             .expect("dispatch must succeed");
         let arr = result.as_array().expect("tier0 specs must be an array");
-        // Tier 0 has 10 frozen specs (see tier0.rs).
-        assert_eq!(arr.len(), 10, "Tier 0 should have 10 frozen specs");
+        // Tier 0 has 13 frozen specs (see tier0.rs) — Pathway 4 PR-A Task A.1
+        // grew the list from 10 by adding identity_honesty,
+        // search_narration, and constraint_count. The kind list is
+        // still 4 (frozen); only the spec count grew.
+        assert_eq!(arr.len(), 13, "Tier 0 should have 13 frozen specs");
         // Each spec must have at least a string id field.
         for spec in arr {
             assert!(spec.get("id").and_then(|v| v.as_str()).is_some(),
