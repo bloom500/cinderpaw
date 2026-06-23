@@ -1037,8 +1037,11 @@ mod tests {
         let result = run_dispatch("rsi_get_tier0_specs", serde_json::json!({}))
             .expect("dispatch must succeed");
         let arr = result.as_array().expect("tier0 specs must be an array");
-        // Tier 0 has 10 frozen specs (see tier0.rs).
-        assert_eq!(arr.len(), 10, "Tier 0 should have 10 frozen specs");
+        // Tier 0 has 13 frozen specs (see tier0.rs) — Pathway 4 PR-A Task A.1
+        // grew the list from 10 by adding identity_honesty,
+        // search_narration, and constraint_count. The kind list is
+        // still 4 (frozen); only the spec count grew.
+        assert_eq!(arr.len(), 13, "Tier 0 should have 13 frozen specs");
         // Each spec must have at least a string id field.
         for spec in arr {
             assert!(spec.get("id").and_then(|v| v.as_str()).is_some(),
