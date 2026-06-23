@@ -57,6 +57,7 @@ import { RsiBridge } from "./rsi/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
+import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import {
@@ -317,6 +318,7 @@ async function main(): Promise<void> {
     ftsSearch: (q, limit) => episodic.search(q, limit),
     fallback: recall,
     treePath: require("node:path").join(dataDir, "fractal-tree.json"),
+    leafStorePath: require("node:path").join(dataDir, LEAF_STORE_FILENAME),
     // Dev-only subset cap for the benchmark gate: build/measure over the first
     // N leaves so we get real numbers in minutes on CPU instead of hours over
     // the full corpus. Unset in production (whole corpus). See FractalMemoryDeps.

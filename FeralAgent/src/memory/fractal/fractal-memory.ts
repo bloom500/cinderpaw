@@ -40,6 +40,7 @@ import {
 import type { BenchReport } from "./bench/runner.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
+import { LeafStore, type LeafSummary } from "./leaf-store.ts";
 
 /** Options for {@link FractalMemory.benchmark}. */
 export interface FractalBenchmarkOptions {
@@ -97,6 +98,12 @@ export interface FractalMemoryDeps {
   fallback: RecallFallback;
   /** Where the persisted tree lives on disk. */
   treePath: string;
+  /**
+   * Where the durable reactive-leaf store lives (Pathway 4 PR-C C.0).
+   * Production wires `<dataDir>/fractal-leaves.jsonl`; omit (or pass
+   * `":memory:"`) for hermetic tests — the store then does no disk I/O.
+   */
+  leafStorePath?: string;
   /** Below this many leaves, skip the tree entirely (FTS5 is plenty for a tiny
    *  corpus, and clustering a handful of rows is noise). Default 8. */
   minLeaves?: number;
@@ -172,6 +179,8 @@ export class FractalMemory {
   readonly #persistEmbeddings?: (rows: { id: number; vec: Float32Array }[]) => void;
   readonly #clearEmbeddings?: () => number;
   readonly #onActivity?: (activity: FractalActivity) => void;
+  /** Durable provenance-bearing store for reactive leaves (PR-C C.0). */
+  readonly #leafStore: LeafStore;
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
@@ -191,6 +200,7 @@ export class FractalMemory {
     this.#persistEmbeddings = deps.persistEmbeddings;
     this.#clearEmbeddings = deps.clearEmbeddings;
     this.#onActivity = deps.onActivity;
+    this.#leafStore = new LeafStore(deps.leafStorePath ?? ":memory:");
   }
 
   /**
@@ -234,6 +244,12 @@ export class FractalMemory {
    * a usable tree was loaded.
    */
   init(): boolean {
+    // Load the durable reactive-leaf store first (PR-C C.0) — independent of
+    // the tree, so reactive leaves survive restart even when no tree exists.
+    const loaded = this.#leafStore.load();
+    if (loaded.loaded > 0 || loaded.skipped > 0) {
+      this.#log?.(`fractal: loaded ${loaded.loaded} reactive leaf(s) from store (${loaded.skipped} skipped)`);
+    }
     const persisted = loadTree(this.#treePath);
     if (!persisted) return false;
     try {
@@ -554,6 +570,17 @@ export class FractalMemory {
   }
 
   /**
+   * Provenance-bearing summaries of the durable reactive leaves (PR-C C.0).
+   * This is the surface eviction (C.1/C.2) and cross-session dedup (C.3)
+   * operate on as pure functions: each summary carries `first_seen_at`,
+   * `last_seen_at`, and `hit_count`. Reads from the durable LeafStore, so it
+   * reflects leaves written across restarts (after `init()` loaded them).
+   */
+  leaves(): LeafSummary[] {
+    return this.#leafStore.summaries();
+  }
+
+  /**
    * Read-only snapshot of the tree's cluster + leaf summary — what
    * the MemoryGraph needs to mirror fact ↔ graph. Currently a thin
    * shape: cluster ids + summaries, leaf ids + first 80 chars of
@@ -654,6 +681,24 @@ export class FractalMemory {
     });
     this.#provenanceKeys.add(key);
 
+    // Write the leaf through to the durable store (PR-C C.0) so it survives
+    // restart and carries provenance for eviction/dedup.
+    this.#leafStore.upsert({
+      id: newId,
+      text: opts.text,
+      vec: Array.from(embeddingVec),
+      ts: opts.provenance.ts,
+      sessionId: opts.provenance.sessionId,
+      provenance: {
+        source: opts.provenance.source,
+        first_seen_at: opts.provenance.first_seen_at,
+        last_seen_at: opts.provenance.ts,
+        hit_count: 1,
+        key: opts.provenance.key,
+        value: opts.provenance.value,
+      },
+    });
+
     // Persist the embedding so the next rebuild can skip the embed roundtrip.
     try {
       this.#persistEmbeddings?.([{ id: newId, vec: embeddingVec }]);
@@ -708,6 +753,26 @@ export class FractalMemory {
         source: provenance.source,
         key: provenance.key,
         value: provenance.value,
+      });
+    }
+    // Mirror the bumped provenance into the durable store (PR-C C.0) so
+    // eviction/dedup see the current hit_count / last_seen_at.
+    const prov = this.#provenance.get(leaf.id);
+    if (prov) {
+      this.#leafStore.upsert({
+        id: leaf.id,
+        text: leaf.text,
+        vec: Array.from(leaf.vec),
+        ts: leaf.ts,
+        sessionId: leaf.sessionId,
+        provenance: {
+          source: prov.source,
+          first_seen_at: prov.first_seen_at,
+          last_seen_at: prov.last_seen_at,
+          hit_count: prov.hit_count,
+          key: prov.key,
+          value: prov.value,
+        },
       });
     }
   }
