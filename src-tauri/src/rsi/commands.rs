@@ -394,6 +394,141 @@ pub(crate) fn do_load_engine_state(state: &AppState) -> Result<Option<PersistedE
     Ok(loaded)
 }
 
+// ── Telemetry (Pathway 4 PR-B Task B.2) ─────────────────────────────────
+
+/// Body of `rsi_append_telemetry`. Atomic append of one
+/// `EvalOutcome` to `<dataDir>/rsi/rsi-telemetry.jsonl`. Errors are
+/// surfaced (the caller decides whether to swallow — the sidecar's
+/// per-iter call site is best-effort and never breaks the loop).
+pub(crate) fn do_append_telemetry(
+    _state: &AppState,
+    outcome: EvalOutcome,
+) -> Result<(), String> {
+    persistence::append_telemetry(&outcome)
+        .map_err(|e| format!("rsi_append_telemetry: {e}"))
+}
+
+/// Body of `rsi_get_telemetry`. Tail-read of the telemetry JSONL.
+/// `last_n == 0` is mapped to the default (100) inside
+/// `persistence::read_telemetry_tail`, so the dispatcher doesn't have
+/// to know about the default.
+pub(crate) fn do_get_telemetry(
+    _state: &AppState,
+    last_n: usize,
+) -> Result<Vec<EvalOutcome>, String> {
+    persistence::read_telemetry_tail(last_n)
+        .map_err(|e| format!("rsi_get_telemetry: {e}"))
+}
+
+// ── Blocking-path helpers (Pathway 4 PR-B Task B.2) ──────────────────────
+//
+// The dispatcher runs each file-I/O method on a blocking thread via
+// `tokio::task::spawn_blocking`. The closure must be `'static`, so
+// it can't capture `&AppState` (a borrowed reference). The helpers
+// below take the cloned `Arc<Mutex<...>>`s they actually touch —
+// ownership rather than borrowing, so the closure's lifetime
+// satisfies `'static`.
+//
+// The Tauri commands (`rsi_save_engine_state` etc.) call the `do_*`
+// helpers directly (no spawn_blocking needed — Tauri's command
+// runtime parks sync commands on its own blocking pool already).
+
+/// Blocking variant of `do_save_engine_state` for the dispatcher.
+/// Takes the cloned cache so the closure can be `'static`.
+pub(crate) fn save_engine_state_blocking(
+    cache: Arc<Mutex<Option<PersistedEngineState>>>,
+    value: PersistedEngineState,
+) -> Result<(), String> {
+    persistence::save(&value).map_err(|e| format!("rsi_save_engine_state: {e}"))?;
+    *cache.lock() = Some(value);
+    Ok(())
+}
+
+/// Blocking variant of `do_load_engine_state` for the dispatcher.
+/// Returns the loaded state AND updates the cache as a side effect.
+pub(crate) fn load_engine_state_blocking(
+    cache: Arc<Mutex<Option<PersistedEngineState>>>,
+) -> Result<Option<PersistedEngineState>, String> {
+    let loaded = persistence::load().map_err(|e| format!("rsi_load_engine_state: {e}"))?;
+    *cache.lock() = loaded.clone();
+    Ok(loaded)
+}
+
+/// Blocking variant of `do_append_telemetry` for the dispatcher. No
+/// state mutation — telemetry is append-only and the cache lives on
+/// disk. `state` is taken only for symmetry with the `do_*` API; the
+/// dispatcher doesn't need it.
+pub(crate) fn append_telemetry_blocking(
+    _state: Arc<()>,
+    outcome: EvalOutcome,
+) -> Result<(), String> {
+    persistence::append_telemetry(&outcome)
+        .map_err(|e| format!("rsi_append_telemetry: {e}"))
+}
+
+/// Blocking variant of `do_get_telemetry` for the dispatcher. Pure
+/// read — no state mutation, no cache.
+pub(crate) fn get_telemetry_blocking(
+    _state: Arc<()>,
+    last_n: usize,
+) -> Result<Vec<EvalOutcome>, String> {
+    persistence::read_telemetry_tail(last_n)
+        .map_err(|e| format!("rsi_get_telemetry: {e}"))
+}
+
+// ── Tauri commands (Pathway 4 PR-B Task B.2) ─────────────────────────────
+
+/// Persist the engine state to `<dataDir>/rsi/engine-state.json`.
+/// Callable from both the sidecar (via `dispatch_rsi_request`) and
+/// from the UI's resume flow. No `ensure_initialized` guard — saving
+/// engine state is harmless before init (init doesn't touch the
+/// state file), and the UI may want to clear stale state on a fresh
+/// install.
+#[tauri::command]
+#[specta::specta]
+pub fn rsi_save_engine_state(
+    state: State<'_, AppState>,
+    payload: PersistedEngineState,
+) -> Result<(), String> {
+    do_save_engine_state(state.inner(), payload)
+}
+
+/// Read the persisted engine state from disk. Returns `Ok(None)` on a
+/// fresh install (no file). The UI's auto-resume flow uses this to
+/// restore the panel after a restart.
+#[tauri::command]
+#[specta::specta]
+pub fn rsi_load_engine_state(
+    state: State<'_, AppState>,
+) -> Result<Option<PersistedEngineState>, String> {
+    do_load_engine_state(state.inner())
+}
+
+/// Append one eval outcome to `<dataDir>/rsi/rsi-telemetry.jsonl`.
+/// Atomic append; the file is append-only, so a torn write at the
+/// tail is recoverable on the next read (the loader skips unparsable
+/// lines).
+#[tauri::command]
+#[specta::specta]
+pub fn rsi_append_telemetry(
+    state: State<'_, AppState>,
+    outcome: EvalOutcome,
+) -> Result<(), String> {
+    do_append_telemetry(state.inner(), outcome)
+}
+
+/// Read the last `last_n` eval outcomes from the telemetry JSONL.
+/// `last_n == 0` defaults to 100 (see `TELEMETRY_DEFAULT_LAST_N`).
+/// Returns an empty Vec when the file is absent.
+#[tauri::command]
+#[specta::specta]
+pub fn rsi_get_telemetry(
+    state: State<'_, AppState>,
+    last_n: usize,
+) -> Result<Vec<EvalOutcome>, String> {
+    do_get_telemetry(state.inner(), last_n)
+}
+
 /// Return the 10 frozen Tier 0 sanity-check specs. The sidecar
 /// uses these to drive the cheap pre-filter; the agent never sees
 /// the list directly. **Stateless** — no State<AppState> handle.
@@ -950,6 +1085,67 @@ pub async fn dispatch_rsi_request(
                 .map_err(|e| format!("embed_text: {e}"))?;
             Ok(json!(vectors))
         }
+        // ── Pathway 4 PR-B engine-state persistence + telemetry ──────
+        // All four are file I/O — run on a blocking thread so the
+        // tokio worker isn't stalled while we touch disk. The
+        // `_blocking` helpers take owned Arc<Mutex<...>> values so
+        // the closure satisfies `'static` (a borrowed `&AppState`
+        // would not).
+        "rsi_save_engine_state" => {
+            let payload: PersistedEngineState = serde_json::from_value(
+                params
+                    .get("payload")
+                    .cloned()
+                    .ok_or_else(|| "rsi_save_engine_state: missing 'payload'".to_string())?,
+            )
+            .map_err(|e| format!("rsi_save_engine_state: bad payload: {e}"))?;
+            let cache = state.rsi_state.engine_persisted.clone();
+            tokio::task::spawn_blocking(move || save_engine_state_blocking(cache, payload))
+                .await
+                .map_err(|e| format!("rsi_save_engine_state: task panicked: {e}"))?
+                .map(|_| json!(null))
+        }
+        "rsi_load_engine_state" => {
+            let cache = state.rsi_state.engine_persisted.clone();
+            let loaded = tokio::task::spawn_blocking(move || load_engine_state_blocking(cache))
+                .await
+                .map_err(|e| format!("rsi_load_engine_state: task panicked: {e}"))??;
+            // serialise Option<PersistedEngineState> as JSON value (None → null).
+            serde_json::to_value(loaded)
+                .map_err(|e| format!("rsi_load_engine_state: serialise: {e}"))
+        }
+        "rsi_append_telemetry" => {
+            let outcome: EvalOutcome = serde_json::from_value(
+                params
+                    .get("outcome")
+                    .cloned()
+                    .ok_or_else(|| "rsi_append_telemetry: missing 'outcome'".to_string())?,
+            )
+            .map_err(|e| format!("rsi_append_telemetry: bad outcome: {e}"))?;
+            // No state needed — telemetry is append-only with no
+            // in-memory cache. Pass an empty Arc<()> so the closure
+            // signature stays uniform with the other `_blocking`
+            // helpers (and could grow state if a future phase adds
+            // one).
+            let state_arc: Arc<()> = Arc::new(());
+            tokio::task::spawn_blocking(move || append_telemetry_blocking(state_arc, outcome))
+                .await
+                .map_err(|e| format!("rsi_append_telemetry: task panicked: {e}"))?
+                .map(|_| json!(null))
+        }
+        "rsi_get_telemetry" => {
+            let last_n: usize = params
+                .get("last_n")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(0);
+            let state_arc: Arc<()> = Arc::new(());
+            let tail = tokio::task::spawn_blocking(move || get_telemetry_blocking(state_arc, last_n))
+                .await
+                .map_err(|e| format!("rsi_get_telemetry: task panicked: {e}"))??;
+            serde_json::to_value(tail)
+                .map_err(|e| format!("rsi_get_telemetry: serialise: {e}"))
+        }
         other => Err(format!("rsi_request: unknown method '{other}'")),
     }
 }
@@ -1266,6 +1462,119 @@ mod tests {
             let cached = state.rsi_state.engine_persisted.lock();
             assert!(cached.is_some(), "engine_persisted must be Some after save");
             assert_eq!(cached.as_ref().unwrap(), &value);
+        });
+    }
+
+    // --- Telemetry (Pathway 4 PR-B Task B.2) ----------------------------
+
+    fn sample_outcome(i: u32) -> EvalOutcome {
+        EvalOutcome {
+            task_id: format!("task-{i}"),
+            tier: 0,
+            success: i % 2 == 0,
+            latency_ms: 10 + i,
+            tokens: 100 + i,
+            errored: false,
+            error_message: None,
+        }
+    }
+
+    /// B.2 round-trip: `do_save_engine_state` + `do_load_engine_state`
+    /// exercise the same on-disk file the Tauri commands will, so a
+    /// pass here proves the wire-level command surface will work too.
+    /// Lives in commands.rs's tests mod because `fake_state` is here.
+    #[test]
+    fn save_then_load_via_commands_round_trips() {
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            let state = fake_state();
+            let payload = PersistedEngineState {
+                iteration: 7,
+                best_score: Some(91.0),
+                best_commit: Some("xyz".into()),
+                candidate_queue: vec!["a".into(), "b".into()],
+                last_updated_at: 1_700_000_001,
+            };
+            do_save_engine_state(&state, payload.clone()).unwrap();
+            let loaded = do_load_engine_state(&state).unwrap().expect("loaded");
+            assert_eq!(loaded.iteration, 7);
+            assert_eq!(loaded.best_score, Some(91.0));
+            assert_eq!(loaded.candidate_queue, vec!["a".to_string(), "b".to_string()]);
+        });
+    }
+
+    /// B.2 append contract: each call writes exactly one line to the
+    /// JSONL file. The UI's audit chain is a different surface (per-
+    /// mutation log); this file is the eval-outcome stream.
+    #[test]
+    fn append_telemetry_writes_a_line_per_call() {
+        crate::rsi::test_support::with_temp_feral_home(|root| {
+            let state = fake_state();
+            for i in 0..5 {
+                do_append_telemetry(&state, sample_outcome(i)).unwrap();
+            }
+            let path = root.join("rsi").join(crate::rsi::persistence::TELEMETRY_FILE_NAME);
+            let raw = std::fs::read_to_string(&path).unwrap();
+            let lines: Vec<&str> = raw.lines().collect();
+            assert_eq!(lines.len(), 5, "got {} lines, want 5: {raw}", lines.len());
+            // Every line must parse as JSON.
+            for (i, line) in lines.iter().enumerate() {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(line).unwrap_or_else(|e| {
+                        panic!("line {i} not valid JSON: {e}\nline: {line}\nfull:\n{raw}")
+                    });
+                assert_eq!(
+                    parsed.get("task_id").and_then(|v| v.as_str()),
+                    Some(format!("task-{i}").as_str()),
+                    "line {i} task_id mismatch: {parsed}"
+                );
+            }
+        });
+    }
+
+    /// B.2 tail-read contract: appending 10 outcomes and reading the
+    /// last 3 returns those 3 in append order (oldest first). This is
+    /// the "recent evals" view the UI uses to render the audit panel.
+    #[test]
+    fn get_telemetry_returns_last_n_in_order() {
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            let state = fake_state();
+            for i in 0..10 {
+                do_append_telemetry(&state, sample_outcome(i)).unwrap();
+            }
+            let tail = do_get_telemetry(&state, 3).unwrap();
+            assert_eq!(tail.len(), 3);
+            assert_eq!(tail[0].task_id, "task-7");
+            assert_eq!(tail[1].task_id, "task-8");
+            assert_eq!(tail[2].task_id, "task-9");
+        });
+    }
+
+    /// B.2 default-last-n contract: when the sidecar passes 0 (the
+    /// bridge's "no override" sentinel) the read returns everything up
+    /// to the default-100 ceiling. With only 5 outcomes appended, all
+    /// 5 come back — the read is bounded by what's actually there,
+    /// not by the default.
+    #[test]
+    fn get_telemetry_default_last_n_is_100() {
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            let state = fake_state();
+            for i in 0..5 {
+                do_append_telemetry(&state, sample_outcome(i)).unwrap();
+            }
+            let tail = do_get_telemetry(&state, 0).unwrap();
+            assert_eq!(tail.len(), 5, "default last_n=0 should map to 100; 5 appended, expect all 5");
+        });
+    }
+
+    /// B.2 empty-file contract: a fresh install has no telemetry. The
+    /// read returns an empty Vec — not an Err. The UI's "recent evals"
+    /// panel renders an empty list, not a crash.
+    #[test]
+    fn get_telemetry_on_empty_file_returns_empty_vec() {
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            let state = fake_state();
+            let tail = do_get_telemetry(&state, 100).unwrap();
+            assert_eq!(tail.len(), 0);
         });
     }
 }

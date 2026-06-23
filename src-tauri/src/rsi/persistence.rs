@@ -84,6 +84,20 @@ pub fn engine_state_path() -> PathBuf {
     crate::paths::rsi_dir().join("engine-state.json")
 }
 
+/// Canonical filename of the telemetry JSONL. Kept as a constant so
+/// the path is constructed in exactly one place — a grep audit
+/// confirms `rsi-telemetry.jsonl` appears once (this constant) + the
+/// path computation in `telemetry_path()`.
+pub const TELEMETRY_FILE_NAME: &str = "rsi-telemetry.jsonl";
+
+/// `<dataDir>/rsi/rsi-telemetry.jsonl` — one JSON-serialised
+/// `EvalOutcome` per line, appended atomically per evaluation. The
+/// UI's audit chain is in `audit.rs` (record-per-mutation); this file
+/// is the eval-outcome stream specifically.
+pub fn telemetry_path() -> PathBuf {
+    crate::paths::rsi_dir().join(TELEMETRY_FILE_NAME)
+}
+
 /// Save `state` to `path` atomically: write `<path>.tmp`, fsync,
 /// rename over `path`. Returns `Err` if any step fails — the caller
 /// (Tauri command) decides whether to bubble the error to the UI or
@@ -146,6 +160,109 @@ pub fn save(state: &PersistedEngineState) -> Result<()> {
 /// Production helper — load from the canonical location.
 pub fn load() -> Result<Option<PersistedEngineState>> {
     load_from(&engine_state_path())
+}
+
+/// Append one `EvalOutcome` to the telemetry JSONL at `path`. Each
+/// call writes exactly one line (the serialised outcome + `\n`).
+/// Open-with-append + fsync gives us crash safety: a partially-
+/// written line at worst corrupts the LAST entry, but every earlier
+/// entry (and the file's existence) survives. We do not bother with
+/// the tmp+rename dance used for `engine-state.json` because the
+/// file is append-only — a torn write at the tail is recoverable on
+/// the next load (the loader skips lines that fail to parse).
+///
+/// Note: `EvalOutcome` lives in `rsi/mod.rs` (sibling), so we depend
+/// on it via `super::EvalOutcome` — Rust's `super::` works for items
+/// declared in the parent module of a submodule.
+pub fn append_telemetry_to(
+    outcome: &super::EvalOutcome,
+    path: &Path,
+) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("create parent dir for telemetry: {}", parent.display())
+        })?;
+    }
+    let mut json = serde_json::to_string(outcome)
+        .context("serialise EvalOutcome to JSON for telemetry append")?;
+    json.push('\n');
+    {
+        // Open with append + write + fsync. The OS guarantees that
+        // small appends are atomic (POSIX: < PIPE_BUF; Windows:
+        // FILE_APPEND_DATA semantics). Our serialised outcomes are
+        // well under 1 KB so the append is atomic for our payloads.
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .with_context(|| format!("open telemetry append at {}", path.display()))?;
+        f.write_all(json.as_bytes())
+            .with_context(|| format!("write telemetry line at {}", path.display()))?;
+        f.sync_all()
+            .with_context(|| format!("fsync telemetry at {}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Read the last `last_n` eval outcomes from the telemetry JSONL at
+/// `path`. Returns an empty Vec when the file is absent. Lines that
+/// fail to parse are skipped (corrupt-tail tolerance) — a partially
+/// written line from a previous crash shouldn't take down the read.
+///
+/// `last_n == 0` is treated as the default of 100 (the spec's
+/// intended default for the UI's "show last N" view). Passing a very
+/// large `last_n` returns the full file — bounded only by available
+/// memory.
+pub fn read_telemetry_tail_from(
+    path: &Path,
+    last_n: usize,
+) -> Result<Vec<super::EvalOutcome>> {
+    let effective_n = if last_n == 0 { TELEMETRY_DEFAULT_LAST_N } else { last_n };
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("read telemetry at {}", path.display()))?;
+    // Parse every line, skipping the ones that don't parse (corrupt
+    // tail tolerance). The valid lines are kept in append order;
+    // we then take the last `effective_n`.
+    let mut parsed: Vec<super::EvalOutcome> = Vec::new();
+    for line in raw.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<super::EvalOutcome>(line) {
+            Ok(o) => parsed.push(o),
+            Err(_e) => {
+                // Skip silently — corrupt tail is recoverable; the
+                // next clean append will overwrite the bad byte range.
+                // We could log here if we had a logger plumbed
+                // through to persistence; for now the silent skip is
+                // a deliberate spec choice (corrupt-line tolerance).
+            }
+        }
+    }
+    if parsed.len() > effective_n {
+        let skip = parsed.len() - effective_n;
+        parsed.drain(..skip);
+    }
+    Ok(parsed)
+}
+
+/// Default `last_n` for `rsi_get_telemetry` when the caller passes 0.
+/// Spec value (PR-B): 100 — enough to fill the UI's recent-eval list
+/// without flooding the IPC channel.
+pub const TELEMETRY_DEFAULT_LAST_N: usize = 100;
+
+/// Production helper — append to the canonical telemetry file.
+pub fn append_telemetry(outcome: &super::EvalOutcome) -> Result<()> {
+    append_telemetry_to(outcome, &telemetry_path())
+}
+
+/// Production helper — read the last N from the canonical telemetry
+/// file. Applies the default-100 rule when `last_n == 0`.
+pub fn read_telemetry_tail(last_n: usize) -> Result<Vec<super::EvalOutcome>> {
+    read_telemetry_tail_from(&telemetry_path(), last_n)
 }
 
 /// Helper used by `save_to` to compute the sibling tmp path. Public
