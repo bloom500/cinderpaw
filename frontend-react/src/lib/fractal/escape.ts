@@ -7,8 +7,11 @@
 const BAIL = 256.0;
 
 /** Smooth (normalized) iteration count at complex point (cx,cy). Returns
- *  exactly `maxIter` when the point is interior (never escaped). */
-export function escapeTime(cx: number, cy: number, maxIter: number): number {
+ *  exactly `maxIter` when the point is interior (never escaped).
+ *  `shear` skews c (cx += shear*cy) before iterating; a non-zero shear breaks
+ *  the z^2+c real-axis mirror symmetry that otherwise reads as a doubled set. */
+export function escapeTime(cx: number, cy: number, maxIter: number, shear = 0): number {
+  cx += shear * cy;
   let zx = 0, zy = 0, i = 0;
   while (i < maxIter) {
     const nx = zx * zx - zy * zy + cx;

@@ -28,7 +28,9 @@ export function useOrganismImpulse(opts: { onFrame: (s: OrganismState) => void; 
         power: lerp(from.power, to.power, t),
         depthBoost: lerp(from.depthBoost, to.depthBoost, t),
         morph: Math.min(0.12, lerp(from.morph, to.morph, t) + breath),
-        warpSeeds: to.warpSeeds,
+        // Ease warp amplitude in with the structure so new clusters grow
+        // smoothly instead of popping at full strength on frame 0.
+        warpSeeds: to.warpSeeds.map((s) => ({ ...s, amp: s.amp * t })),
       });
       if (raw < 1) { rafRef.current = requestAnimationFrame(tick); }
       else { rafRef.current = null; onFrameRef.current(to); }

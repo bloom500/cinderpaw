@@ -30,6 +30,17 @@ export default function MemoryLayersPage() {
     rendererRef.current?.render(viewRef.current, stateRef.current);
   }, []);
 
+  // Pan/zoom draw at reduced quality, then settle to a full-quality frame once
+  // the gesture stops — keeps navigation smooth without a permanent loop.
+  const settleRef = useRef<number | null>(null);
+  const drawInteractive = useCallback(() => {
+    rendererRef.current?.render(viewRef.current, stateRef.current, { interacting: true });
+    if (settleRef.current != null) clearTimeout(settleRef.current);
+    settleRef.current = window.setTimeout(() => { settleRef.current = null; draw(); }, 160);
+  }, [draw]);
+
+  useEffect(() => () => { if (settleRef.current != null) clearTimeout(settleRef.current); }, []);
+
   const { impulseTo } = useOrganismImpulse({
     onFrame: (s) => { stateRef.current = s; draw(); },
   });
@@ -134,12 +145,16 @@ export default function MemoryLayersPage() {
   // Live evolution, driven by Fractal Memory Search (not RSI):
   //   grow   → derive directly from real RAPTOR payload (filament growth)
   //   recall → breathe over the just-traversed region
+  //   seed   → fine impulse on every memory write so the organism feels
+  //            alive per-iteration, not only on the next 1.2× rebuild
+  //            (reuses the recall breathing — same self-terminating
+  //            one-window morph swell; cheap, no state rebuild).
   useEffect(() => {
     let alive = true;
     const unlistenP = events.onFractalActivity.listen((e) => {
       if (!alive) return;
       if (e.kind === 'grow') void growFrom(e);
-      else if (e.kind === 'recall') startBreathing();
+      else if (e.kind === 'recall' || e.kind === 'seed') startBreathing();
     });
     return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
   }, [growFrom, startBreathing]);
@@ -168,8 +183,8 @@ export default function MemoryLayersPage() {
     const v2 = { ...v, scale };
     const after = screenToComplex(px, py, w, h, v2);
     viewRef.current = { ...v2, centerX: v2.centerX + (before.x - after.x), centerY: v2.centerY + (before.y - after.y) };
-    draw();
-  }, [draw]);
+    drawInteractive();
+  }, [drawInteractive]);
 
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => { dragRef.current = { x: e.clientX, y: e.clientY }; };
@@ -184,7 +199,7 @@ export default function MemoryLayersPage() {
       centerY: v.centerY + ((e.clientY - d.y) / canvas.clientHeight) * 2 * v.scale,
     };
     dragRef.current = { x: e.clientX, y: e.clientY };
-    draw();
+    drawInteractive();
   };
   const onPointerUp = () => { dragRef.current = null; };
 

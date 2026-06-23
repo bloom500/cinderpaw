@@ -29,8 +29,9 @@ export interface OrganismView {
   scale: number; // complex units per HALF the canvas height (smaller = deeper)
 }
 
-/** Opening view — the classic Mandelbrot framed: cardioid + head + antenna. */
-export const DEFAULT_VIEW: OrganismView = { centerX: -0.6, centerY: 0, scale: 1.25 };
+/** Opening view. centerY is offset off the real axis so the (sheared) set's
+ *  mirror line never sits dead-center — kills the perceived "doubling". */
+export const DEFAULT_VIEW: OrganismView = { centerX: -0.6, centerY: 0.18, scale: 1.25 };
 
 export function screenToComplex(px: number, py: number, width: number, height: number, v: OrganismView) {
   const aspect = width / height;
@@ -66,6 +67,11 @@ uniform vec2 u_warpSA[${MAX_WARP}];   // (sigma, amp) per seed
 
 const vec2 C_SEED = vec2(-0.8, 0.156);
 
+// Breaks the z^p+c real-axis mirror (the "doubling") WITHOUT tilting: scales the
+// upper/lower halves unequally via tanh (odd, smooth through y=0), so top and
+// bottom diverge but the form stays upright. No horizontal shear → no lean.
+const float YASYM = 0.10;
+
 vec2 warp(vec2 c) {
   vec2 d = vec2(0.0);
   for (int i = 0; i < ${MAX_WARP}; i++) {
@@ -74,13 +80,17 @@ vec2 warp(vec2 c) {
     float sigma = max(u_warpSA[i].x, 1e-3);
     float amp = u_warpSA[i].y;
     float g = exp(-dot(diff, diff) / (2.0 * sigma * sigma));
-    d += amp * g * normalize(diff + vec2(1e-6));
+    vec2 rad = normalize(diff + vec2(1e-6));
+    vec2 tang = vec2(-rad.y, rad.x);          // perpendicular → swirl handedness
+    d += amp * g * (rad * 0.72 + tang * 0.34); // radial growth + asymmetric curl
   }
   return c + d * 0.15;
 }
 
-// z^p for fractional p via polar form.
+// z^p. Cheap exact path for p==2 (the rest power) — plain complex multiply,
+// no transcendentals; polar form only for fractional powers (in-motion states).
 vec2 cpow(vec2 z, float p) {
+  if (abs(p - 2.0) < 0.001) return vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
   float r = length(z);
   if (r < 1e-12) return vec2(0.0);
   float a = atan(z.y, z.x);
@@ -101,6 +111,7 @@ vec3 palette(float t) {
 
 float escape(vec2 c) {
   vec2 ceff = mix(warp(c), C_SEED, u_morph);
+  ceff.y *= 1.0 + YASYM * tanh(ceff.y * 2.0);   // break mirror, upright (no tilt)
   vec2 z = vec2(0.0);
   int i = 0;
   const float BAIL = 256.0;
@@ -150,7 +161,9 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
 }
 
 export interface OrganismRenderer {
-  render(view: OrganismView, state: OrganismState): void;
+  /** `interacting` trades quality for speed during pan/zoom (1 sample, DPR 1,
+   *  fewer iterations); draw again without it to settle to full quality. */
+  render(view: OrganismView, state: OrganismState, opts?: { interacting?: boolean }): void;
   resize(): void;
   dispose(): void;
 }
@@ -183,8 +196,8 @@ export function createOrganismRenderer(canvas: HTMLCanvasElement): OrganismRende
   const u_maxIter = U('u_maxIter'), u_power = U('u_power'), u_morph = U('u_morph'), u_samples = U('u_samples');
   const u_warpCount = U('u_warpCount'), u_warpXY = U('u_warpXY'), u_warpSA = U('u_warpSA');
 
-  const resize = () => {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const resize = (lowRes = false) => {
+    const dpr = Math.min(window.devicePixelRatio || 1, lowRes ? 1 : 2);
     const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
     const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -193,19 +206,22 @@ export function createOrganismRenderer(canvas: HTMLCanvasElement): OrganismRende
 
   const ZOOMOUT_AA = 0.05;
 
-  const render = (view: OrganismView, state: OrganismState) => {
-    resize();
+  const render = (view: OrganismView, state: OrganismState, opts?: { interacting?: boolean }) => {
+    const interacting = opts?.interacting ?? false;
+    resize(interacting);
     gl.useProgram(prog);
     gl.bindVertexArray(vao);
     gl.uniform2f(u_res, canvas.width, canvas.height);
     gl.uniform2f(u_center, view.centerX, view.centerY);
     gl.uniform1f(u_scale, view.scale);
     const base = Math.floor(120 + 60 * Math.log2(1 / Math.max(view.scale, 1e-7)));
+    // Iteration count stays constant across interacting/settled so the set
+    // boundary never shifts — otherwise the shape visibly pulses on pan/zoom.
     const iter = Math.min(2048, Math.max(120, base + Math.max(0, Math.floor(state.depthBoost))));
     gl.uniform1i(u_maxIter, iter);
     gl.uniform1f(u_power, state.power);
     gl.uniform1f(u_morph, state.morph);
-    gl.uniform1i(u_samples, view.scale > ZOOMOUT_AA ? 4 : 1);
+    gl.uniform1i(u_samples, interacting ? 1 : (view.scale > ZOOMOUT_AA ? 4 : 1));
     const warp = packWarpUniforms(state.warpSeeds);
     gl.uniform1i(u_warpCount, warp.count);
     gl.uniform2fv(u_warpXY, warp.xy);
