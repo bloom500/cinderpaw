@@ -38,6 +38,7 @@ use tokio::sync::oneshot;
 
 use super::audit::{AuditVerifyResult, SandboxBoundsAudit};
 use super::goodhart::GoodhartDetector;
+use super::persistence::{self, PersistedEngineState};
 use super::repo::{self, IterationMetadata, RatchetResult};
 use super::sandbox_bounds::SandboxBounds;
 use super::tier0::TIER0_SPECS;
@@ -338,9 +339,9 @@ pub fn rsi_score(
 }
 
 /// Body of `rsi_score` extracted so the sidecar request dispatcher
-/// (`dispatch_rsi_request`) can call it without going through a
-/// Tauri `State<'_, AppState>` extractor — it gets a plain
-/// `&AppState` from `app.state::<AppState>().inner()`.
+/// (`dispatch_rsi_request`) can call it without going through a Tauri
+/// `State<'_, AppState>` extractor — it gets a plain `&AppState` from
+/// `app.state::<AppState>().inner()`.
 pub(crate) fn do_rsi_score(state: &AppState, outcomes: Vec<EvalOutcome>) -> Result<ScoreBreakdown, String> {
     ensure_initialized(state)?;
     // Use the bounds' weights if they exist, otherwise defaults.
@@ -352,6 +353,45 @@ pub(crate) fn do_rsi_score(state: &AppState, outcomes: Vec<EvalOutcome>) -> Resu
         .map(|b| b.scorer.weights.clone())
         .unwrap_or_default();
     Ok(super::scorer::score(&outcomes, &weights))
+}
+
+// ── Engine-state persistence (Pathway 4 PR-B Task B.1) ──────────────────
+
+/// Body of `rsi_save_engine_state`. Writes the state atomically to
+/// `<dataDir>/rsi/engine-state.json` and caches the value on
+/// `RsiState.engine_persisted` so the next read can answer without a
+/// disk round-trip. Mirrors the `do_rsi_score` shape so the sidecar
+/// dispatcher can call it without a `State<AppState>` extractor.
+///
+/// The Tauri command (`rsi_save_engine_state`) is added in B.2; this
+/// helper exists so the persistence path is testable in isolation in
+/// B.1.
+pub(crate) fn do_save_engine_state(
+    state: &AppState,
+    value: PersistedEngineState,
+) -> Result<(), String> {
+    // Atomic write to disk. A failure here is reported back to the
+    // caller — the B.2 Tauri command surfaces the error string; the
+    // sidecar's per-iteration call site swallows it (B.3 best-effort).
+    persistence::save(&value).map_err(|e| format!("rsi_save_engine_state: {e}"))?;
+    // Update the in-memory cache so the next read can answer without
+    // a disk round-trip. The cache mirrors disk on success — on a
+    // future read miss the load helper will rehydrate it.
+    *state.rsi_state.engine_persisted.lock() = Some(value);
+    Ok(())
+}
+
+/// Body of `rsi_load_engine_state`. Reads the persisted state from
+/// disk (returning `Ok(None)` if absent), and caches it on
+/// `RsiState.engine_persisted`. Mirrors `do_rsi_score` so the sidecar
+/// dispatcher can call it without `State<AppState>`.
+pub(crate) fn do_load_engine_state(state: &AppState) -> Result<Option<PersistedEngineState>, String> {
+    let loaded = persistence::load().map_err(|e| format!("rsi_load_engine_state: {e}"))?;
+    // Update the cache to match what disk said — even when `loaded` is
+    // None (file absent), so a subsequent save-then-load sees a
+    // consistent in-memory snapshot.
+    *state.rsi_state.engine_persisted.lock() = loaded.clone();
+    Ok(loaded)
 }
 
 /// Return the 10 frozen Tier 0 sanity-check specs. The sidecar
@@ -1024,6 +1064,7 @@ mod tests {
                 initialized: StdArc::new(PlMutex::new(true)),
                 bounds: StdArc::new(PlMutex::new(None)),
                 bounds_file_sha256: StdArc::new(PlMutex::new(None)),
+                engine_persisted: StdArc::new(PlMutex::new(None)),
             },
             rsi_goodhart: crate::rsi::commands::GoodhartSlot::default(),
             rsi_engine: StdArc::new(PlMutex::new(None)),
@@ -1207,5 +1248,24 @@ mod tests {
                 .get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
             Some(5_000_000),
         );
+    }
+
+    // --- Engine-state persistence (Pathway 4 PR-B Task B.1) -----------
+
+    /// PR-B B.1: after `do_save_engine_state` succeeds, the in-memory
+    /// cache (`RsiState.engine_persisted`) must be populated so a
+    /// subsequent `rsi_status` / `rsi_load_engine_state` returns the
+    /// same value without re-reading disk. This is the hot-path
+    /// invariant the resume path (B.3) relies on.
+    #[test]
+    fn do_save_engine_state_populates_rsi_state() {
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            let state = fake_state();
+            let value = crate::rsi::persistence::PersistedEngineState::default();
+            do_save_engine_state(&state, value.clone()).unwrap();
+            let cached = state.rsi_state.engine_persisted.lock();
+            assert!(cached.is_some(), "engine_persisted must be Some after save");
+            assert_eq!(cached.as_ref().unwrap(), &value);
+        });
     }
 }
