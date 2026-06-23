@@ -142,12 +142,31 @@ this order:
   a llama.cpp + Vulkan instability on this dev box.
 - Reconciler absent. Tree rebuilds are lazy on `rebuildIfStale()`.
   (Fixed in step-2.)
+- **Reactive leaves are in-memory only.** Step-2's `upsertLeaf` records
+  new leaves in `FractalMemory.#pendingLeaves` and their `last_seen_at`
+  / `hit_count` in the side-channel `#provenance` map. Both are lost on
+  restart and are never unified into a durable, queryable store. This is
+  the "Known minor item" step-2's PR called out explicitly. It is the
+  **prerequisite gap** for everything else in PR-C: eviction and dedup
+  read `last_seen_at` / `hit_count`, which today live only in that
+  volatile side map — there is nothing durable to evict or dedup.
 - Pruning policy absent. Tree grows monotonically.
 - Cross-session dedup absent. The 5 copies of the same preference
   across 5 sessions live as 5 separate facts (and after step-2, 5
   separate leaves).
 
 **Target state (Pathway 4, after step-2)**:
+- **Durable provenance-bearing leaf store (PR-C Task C.0 — prerequisite).**
+  A dedicated `LeafStore` over `<dataDir>/fractal-leaves.jsonl` is the
+  canonical home for reactively-captured leaves and their provenance
+  (`first_seen_at`, `last_seen_at`, `hit_count`, `source`, `key`,
+  `value`). `upsertLeaf` writes through to it instead of the volatile
+  in-memory maps; it loads on `init()` (survives restart); and
+  `FractalMemory.leaves()` exposes provenance-bearing summaries that
+  eviction (C.1/C.2) and cross-session dedup (C.3) operate on as pure
+  functions. A dedicated store — not the episodic conversation table —
+  keeps fact leaves cleanly separable from turn history, which is exactly
+  the surface eviction/dedup want. This task MUST land before C.1.
 - Bench scaled to 10k and 100k leaves. p99 < 100ms at 10k, < 500ms at
   100k. If the bench misses the target, the plan adjusts; if it hits,
   the README + `project_fractal_bench_blockers.md` get updated with
@@ -199,7 +218,9 @@ this order:
 
 | Path | Change |
 |---|---|
-| `FeralAgent/src/memory/fractal/eviction.ts` (new) | `EvictionPolicy` trait + `AgeAndHitCountEviction` impl + `NoEviction` test impl. Pure functions over `(leaves, now) -> leavesToEvict`. |
+| `FeralAgent/src/memory/fractal/leaf-store.ts` (new, **Task C.0 — prerequisite**) | `LeafStore` over `<dataDir>/fractal-leaves.jsonl`: `load()` (tolerant of corrupt lines), `upsert(record)` (atomic rewrite tmp + rename), `remove(ids)`, `all()`. `LeafRecord` carries the provenance fields. |
+| `FeralAgent/src/memory/fractal/fractal-memory.ts` (**Task C.0** edit) | `upsertLeaf` writes through to `LeafStore` (replacing the in-memory-only `#pendingLeaves` + `#provenance`); `init()` loads the store; new `leaves(): LeafSummary[]` exposes provenance-bearing summaries for eviction/dedup. |
+| `FeralAgent/src/memory/fractal/eviction.ts` (new) | `EvictionPolicy` trait + `AgeAndHitCountEviction` impl + `NoEviction` test impl. Pure functions over `(leaves, now) -> leavesToEvict`, where `leaves` come from `FractalMemory.leaves()` (the C.0 store). |
 | `FeralAgent/src/memory/fractal/fractal-memory.ts` | `evict(policy, now)` method. Calls eviction policy, removes leaves, persists to `fractal-evicted.jsonl`. Triggers a re-cluster of the affected cluster only. Emits a `prune` activity pulse (new FractalActivity variant — added to the union in `types.ts`). |
 | `FeralAgent/src/memory/fractal/cross-session-dedup.ts` (new) | `dedupAcrossSessions(leaves, policy, now)` — runs AFTER the reconciler's per-write cosine merge. Pure function over the leaves array. |
 | `FeralAgent/tests/eviction.test.ts`, `cross-session-dedup.test.ts`, `fractal-scale-10k.test.ts`, `fractal-scale-100k.test.ts` | TDD. The scale tests are bench-style (time-bounded); they live in `tests/` but are gated by env flag (run only when `FERAL_FMS_BENCH=1`). |
@@ -216,8 +237,9 @@ this order:
   → HookRegistry.fire("after_memory_write")
       → Reconciler.handle(...)
           → FractalMemory.upsertLeaf(...)  ← step-2
-          → FractalMemory.evict(policy, now)   ← Pathway 4 PR-C
-          → FractalMemory.dedupAcrossSessions(...)  ← Pathway 4 PR-C
+              → LeafStore.upsert(record + provenance)  ← Pathway 4 PR-C C.0 (durable)
+          → FractalMemory.evict(policy, now)   ← Pathway 4 PR-C (reads LeafStore via leaves())
+          → FractalMemory.dedupAcrossSessions(...)  ← Pathway 4 PR-C (operates on LeafStore)
           → MemoryGraph.reconcile(treeView)
   → activity pulse: grow | seed | prune  ← step-2 + PR-C
 
@@ -338,8 +360,13 @@ every commit, PR description with evidence blocks.
    `frontend-react/` or `src-tauri/src/events.rs` (event schema is
    unchanged; the new `stagnation` event rides the existing
    `rsi_engine_event` channel with a new `event` field value).
-6. **Known minor items** — budget formatter fix; baseline-comment
-   test.
+6. **Dropped tasks** (Opus review, verified against code) — A.3 budget
+   formatter: no bug (`$25` is the sandbox default `max_total_cost_usd:
+   25.0`, a different cap from the `FERAL_RSI_MAX_COST_USD` setting; the
+   panel was already correct). A.4 baseline-comment: no baseline commit
+   pin exists anywhere in `src-tauri/src/rsi/` to document. Both premises
+   were written from memory, not the code. PR-A's real content is A.1
+   (Tier 0 10→13) + A.2 (stagnation event).
 
 ## PR-B description — required sections
 
@@ -354,18 +381,24 @@ every commit, PR description with evidence blocks.
 ## PR-C description — required sections
 
 1. **Scope justification** — the 4 FMS blockers not covered by step-2
-   (GPU embedding, pruning, cross-session dedup, bench scale).
+   (GPU embedding, pruning, cross-session dedup, bench scale) PLUS the
+   step-2 "Known minor item": reactive leaves were in-memory only.
 2. **What landed** — commits.
-3. **Eviction invariants** — leaves evicted on `rebalanceTreeIfNeeded`
+3. **Persistence invariant (Task C.0)** — `upsertLeaf` writes through to
+   `fractal-leaves.jsonl`; restart round-trip test asserts a leaf
+   upserted before "restart" (fresh `FractalMemory.init()`) is present
+   afterwards with its `hit_count` / `last_seen_at` intact. Atomic write
+   (tmp + rename) test visible; corrupt-line tolerance test visible.
+4. **Eviction invariants** — leaves evicted on `rebalanceTreeIfNeeded`
    are persisted to `fractal-evicted.jsonl` (test asserts the file
    contents).
-4. **Dedup invariants** — leaf count after dedup is monotonically
+5. **Dedup invariants** — leaf count after dedup is monotonically
    <= pre-dedup count; `first_seen_at` of the survivor is the EARLIEST
    of the merged leaves (test asserts this ordering).
-5. **Scale numbers** — bench output pasted into the description
+6. **Scale numbers** — bench output pasted into the description
    (with `FERAL_FMS_BENCH=1` env); `project_fractal_bench_blockers.md`
    updated.
-6. **GPU embedding status** — fixed OR documented CPU-only.
+7. **GPU embedding status** — fixed OR documented CPU-only.
 
 ---
 

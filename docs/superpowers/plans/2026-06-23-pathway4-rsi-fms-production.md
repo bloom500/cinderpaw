@@ -231,7 +231,19 @@ Spec: docs/superpowers/specs/2026-06-23-pathway4-rsi-fms-production-design.md
 
 ---
 
-## Task A.3 — Budget display formatter fix
+## Task A.3 — Budget display formatter fix  — ❌ DROPPED (premise invalid)
+
+> **DROPPED 2026-06-23 (Opus review, verified against code).** There is no
+> formatter bug. The old `RsiEngineStatusPanel.tsx` already rendered the cap
+> as `$${max_total_cost_usd.toFixed(2)}` (no `×10` slip). The `$25` the panel
+> shows is the **default sandbox bound** `max_total_cost_usd: 25.0`
+> (`src-tauri/src/rsi/sandbox_bounds.rs:91`) — a DIFFERENT cap from the
+> `FERAL_RSI_MAX_COST_USD` setting (passive-supervisor spend cap, default
+> `0.0`, `settings.rs`). The two are distinct caps; the panel is correct.
+> `formatUsdBudget(25)` is still `"$25.00"`, so the proposed fix would not
+> have changed the displayed number — it only altered "Spent" precision
+> (4→2 decimals). WIP reverted. Surfacing the supervisor cap in the panel is
+> a separate (real) UI task, not a formatter fix.
 
 **Goal**: the UI shows the user's `FERAL_RSI_MAX_COST_USD` value
 correctly. Today the panel shows `$25` when env is `$2.50`.
@@ -294,7 +306,18 @@ Spec: docs/superpowers/specs/2026-06-23-pathway4-rsi-fms-production-design.md
 
 ---
 
-## Task A.4 — `SANDBOX_BASELINE_COMMIT` documented
+## Task A.4 — `SANDBOX_BASELINE_COMMIT` documented  — ❌ DROPPED (artifact does not exist)
+
+> **DROPPED 2026-06-23 (Opus review, verified against code).** There is no
+> hard-coded baseline commit hash anywhere in `src-tauri/src/rsi/` — grep of
+> the whole module finds no `SANDBOX_BASELINE_COMMIT`, no `6d42c2c`, no
+> pinned hash constant in `repo.rs` or `plan.rs`. The substrate baseline is
+> established dynamically by the bootstrap **genesis commit** (per install),
+> not a fixed pin, so there is nothing to "promote to a constant" or
+> document. The spec's "6d42c2c-shaped pin in repo.rs/plan.rs" was written
+> from memory, not the code. If documenting the real **scoring** baseline
+> (the floor a champion must beat) is worthwhile, that is a separate, real
+> task — it concerns the scorer/plan, not a git commit hash.
 
 **Goal**: the substrate baseline pin (currently a hard-coded commit
 hash in `repo.rs`) carries a doc-comment block explaining what the
@@ -372,18 +395,20 @@ Spec: docs/superpowers/specs/2026-06-23-pathway4-rsi-fms-production-design.md
 - `cd FeralAgent && bunx tsc --noEmit && bun test`
 - `cd src-tauri && cargo check --features inference && cargo test --features inference`
 
-Test count delta: `baseline + 16` (4 tier0 + 6 stagnation + 5 budget + 1 baseline-doc).
+Test count delta: `baseline + 10` (4 tier0 + 6 stagnation). A.3 (budget)
+and A.4 (baseline-doc) were DROPPED after Opus review — both premised on
+code artifacts that don't exist (see the DROPPED banners above).
 
 ### Push + PR
-Push branch. Open PR. Title: `feat(rsi): engine correctness (stagnation events, budget fix, tier0 10→13, baseline docs)`.
+Push branch. Open PR. Title: `feat(rsi): engine correctness (stagnation events + tier0 10→13)`.
 
 ### PR description (use the spec's PR-A template)
-- Scope justification (paste 6 blockers verbatim)
-- What landed (commits A.1-A.4)
+- Scope justification (paste the RSI blockers; note A.3/A.4 dropped as invalid premises)
+- What landed (commits A.1-A.2 + the docs-correction commit)
 - Tier-0 invariants (TIER0_SPECS grep, 10→13 test re-baseline)
-- Test count: `baseline + 16`
-- DO-NOT-TOUCH: grep showing no `frontend-react/` or `events.rs` changes
-- Known minors: budget formatter (1 line); baseline-doc regex check (no new dep)
+- Test count: `baseline + 10`
+- DO-NOT-TOUCH: grep showing no `frontend-react/` changes (A.3 revert leaves frontend-react untouched) and no `events.rs` changes (stagnation rides the existing `rsi_engine_event` channel)
+- Dropped tasks: A.3 budget (no formatter bug — two distinct caps); A.4 baseline-doc (no commit pin exists)
 
 ---
 
@@ -702,6 +727,129 @@ git log --oneline -3    # step-2 head
 git status              # clean
 ```
 If step-2 isn't on this branch yet, STOP and wait.
+
+---
+
+## Task C.0 — Durable provenance-bearing `LeafStore` (PREREQUISITE)
+
+**Goal**: close the step-2 "Known minor item" so PR-C has something real
+to evict and dedup. Step-2's `upsertLeaf` keeps reactive leaves in the
+in-memory `#pendingLeaves` map and their `last_seen_at` / `hit_count` in
+the volatile `#provenance` side map — both lost on restart, neither
+queryable. C.0 introduces a dedicated, durable `LeafStore` over
+`<dataDir>/fractal-leaves.jsonl` (mechanism (b): a separate fact-leaf
+store, NOT the episodic conversation table), makes `upsertLeaf` write
+through to it, loads it on `init()`, and exposes
+`FractalMemory.leaves(): LeafSummary[]` — the provenance-bearing surface
+C.1/C.2/C.3 operate on. **C.1 MUST NOT start until C.0 is green.**
+
+**Brief**: `.superpowers/sdd/task-C0-brief.md`.
+
+### Files to add
+- `FeralAgent/src/memory/fractal/leaf-store.ts` — exports:
+  - `export interface LeafRecord { id: number; text: string; vec: number[]; ts: number; sessionId: string; provenance: { source: string; first_seen_at: number; last_seen_at: number; hit_count: number; key?: string; value?: string } }`
+  - `export interface LeafSummary { id: number; text: string; first_seen_at: number; last_seen_at: number; hit_count: number }`
+  - `export class LeafStore`:
+    - `constructor(path: string)` — `":memory:"` (or empty) ⇒ pure in-memory, no disk I/O (keeps step-2 fixtures and unit tests fast/hermetic).
+    - `load(): { loaded: number; skipped: number }` — reads one JSON record per line into an in-memory `Map<number, LeafRecord>`; a corrupt line is skipped + counted, never throws.
+    - `upsert(rec: LeafRecord): void` — insert or replace by `id`, then persist via **atomic full rewrite** (write `<path>.tmp`, `renameSync` over `<path>`). Full rewrite (not append) because records are updated in place on merge; the store stays bounded by eviction (≤ `FERAL_FMS_MAX_LEAVES`, default 5000).
+    - `remove(ids: number[]): void` — drop ids, persist atomically. Used by C.2 eviction + C.3 dedup.
+    - `all(): LeafRecord[]` and `summaries(): LeafSummary[]`.
+
+### Files to edit
+- `FeralAgent/src/memory/fractal/fractal-memory.ts`:
+  - `FractalMemoryDeps` gains optional `leafStorePath?: string` (production wires `<dataDir>/fractal-leaves.jsonl`; tests omit it ⇒ in-memory store).
+  - Construct a `LeafStore` in the ctor; call `leafStore.load()` inside `init()`.
+  - `upsertLeaf`: on **insert** → build a `LeafRecord` (provenance `hit_count: 1`, `first_seen_at`/`last_seen_at` from the payload) and `leafStore.upsert(record)`. On **merge** → read the existing record, bump `hit_count`, set `last_seen_at = max(...)`, `leafStore.upsert(updated)`. The `#pendingLeaves` / `#provenance` maps become thin caches BACKED BY the store (or are dropped entirely — implementer's call, as long as the public behaviour and step-2 tests hold).
+  - Keep `pendingLeaves()` working (step-2 `upsert-leaf.test.ts` asserts it) — back it with the store's since-boot leaves so those tests stay green.
+  - Add `leaves(): LeafSummary[]` ⇒ `leafStore.summaries()`.
+
+### DO NOT TOUCH
+- `frontend-react/`, `src-tauri/`, `MemoryExtractor`, `MemoryGraph.addFact`,
+  `FractalMemory.query()`, `FractalMemory.recall()`. C.0 is additive on the
+  write/persist path only; recall/query behaviour is unchanged.
+
+### Tests (write first; must fail before the code)
+
+`FeralAgent/tests/leaf-store.test.ts`:
+```ts
+describe("LeafStore", () => {
+  it("upsert + all round-trips a record", () => { /* insert one, read it back */ });
+  it("upsert with an existing id replaces in place (no duplicate)", () => { /* upsert id 1 twice; all().length === 1 */ });
+  it("remove drops the given ids and persists", () => { /* remove([1]); reload; gone */ });
+  it("load tolerates a corrupt line (skips it, keeps valid records)", () => {
+    // write a file with one valid JSON line + one garbage line
+    // load(); expect { loaded: 1, skipped: 1 }
+  });
+  it("uses an atomic write (tmp + rename) — no .tmp left behind", () => { /* after upsert, <path>.tmp absent, <path> present */ });
+  it("restart round-trip: a fresh LeafStore(path).load() sees prior records", () => {
+    // store A upserts 2 records; new store B over same path; load(); all().length === 2
+  });
+  it(":memory: path does no disk I/O", () => { /* upsert; assert no file created at any path */ });
+});
+```
+
+`FeralAgent/tests/fractal-leaf-persistence.test.ts`:
+```ts
+describe("FractalMemory upsertLeaf → LeafStore write-through", () => {
+  it("a fresh FractalMemory.init() over the same path exposes the upserted leaf", async () => {
+    // fm A (leafStorePath=tmp) upserts "language: ro"
+    // fm B (same path) .init(); fm B.leaves() contains the leaf with hit_count 1
+  });
+  it("merge bumps hit_count + last_seen_at in the store", async () => {
+    // upsert, then upsert a near-duplicate (cosine >= threshold)
+    // leaves()[0].hit_count === 2, last_seen_at advanced
+  });
+  it("leaves() returns provenance summaries (first_seen_at, last_seen_at, hit_count)", async () => {
+    // assert the summary shape
+  });
+});
+```
+
+### Verify-then-grep (mandatory before commit)
+```
+grep -rn "LeafStore\|fractal-leaves.jsonl\|leafStorePath" FeralAgent/src/ FeralAgent/tests/
+```
+Expected: `leaf-store.ts` (definition + the marker filename constant,
+exactly once), `fractal-memory.ts` (construct + write-through + `leaves()`),
+the two new tests. The filename string `fractal-leaves.jsonl` MUST appear
+exactly once (a `LEAF_STORE_FILENAME` constant). STOP on any other match.
+
+### Gate
+```
+cd FeralAgent && bunx tsc --noEmit && bun test
+```
+Must be green; step-2's `upsert-leaf.test.ts` and `migration.test.ts`
+MUST still pass unchanged (back-compat proof). Test count: `baseline + 10`
+(7 leaf-store + 3 write-through).
+
+### Commit message
+```
+feat(memory): durable provenance-bearing LeafStore + upsertLeaf write-through
+
+- memory/fractal/leaf-store.ts: LeafStore over fractal-leaves.jsonl,
+  atomic rewrite, corrupt-line-tolerant load, in-memory ":memory:" mode
+- fractal-memory.ts: upsertLeaf writes through; init() loads; leaves()
+  exposes provenance summaries for eviction/dedup
+- tests: leaf-store.test.ts (7) + fractal-leaf-persistence.test.ts (3)
+
+Closes step-2's "reactive leaves in-memory only" gap. Prerequisite for
+eviction (C.1/C.2) and cross-session dedup (C.3).
+
+Spec: docs/superpowers/specs/2026-06-23-pathway4-rsi-fms-production-design.md
+```
+
+### Append to progress.md
+```
+- Pathway 4 PR-C Task C.0: complete (commits <base7>..<head7>, +10 tests, durable leaf store live)
+```
+
+> **Downstream note**: C.1's `EvictionPolicy.select(leaves, now)` takes the
+> `LeafSummary[]` from `FractalMemory.leaves()`. C.2's `evict()` calls
+> `policy.select(this.leaves(), now)` then `leafStore.remove(ids)` (not an
+> ad-hoc in-memory tree mutation). C.3's dedup likewise reads `leaves()` and
+> collapses via `leafStore.remove(...)`. The C.1-C.3 task bodies below assume
+> this store exists; the `baseline + N` counts shift by C.0's +10.
 
 ---
 
