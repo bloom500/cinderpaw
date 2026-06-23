@@ -37,6 +37,17 @@ import type { PopulationManager } from "./population-manager.ts";
 import type { EvalOutcome } from "./eval-worker.ts";
 import type { ScoreResult } from "./eval-worker.ts";
 
+/**
+ * Safety-net timeout for every bridge call. The RSI bridge ops are local
+ * (git commit/ratchet, scoring, LCA) and resolve in milliseconds, but a
+ * lost/mangled response line — interleaved stdout writes, or a write that
+ * failed and was swallowed by the transport's `.catch(() => {})` — would
+ * otherwise leave the Promise pending forever and permanently occupy an
+ * eval-pool slot (goal-mode's `refill()` never fires for a frozen launch).
+ * 30s is far above the real latency yet still frees the slot on a true loss.
+ */
+const BRIDGE_TIMEOUT_MS = 30_000;
+
 /** What `commitGenome` returns to the ratchet handler. */
 export interface CommitAck {
   /** SHA-1 hash of the new candidate commit (Rust's response). */
@@ -128,6 +139,7 @@ export function makeCommitGenomeAdapter(deps: BridgeAdapterDeps) {
         },
         candidate_branch: candidateBranch,
       },
+      BRIDGE_TIMEOUT_MS,
     );
     return { commitHash: result.commitHash };
   };
@@ -152,7 +164,7 @@ export function makeRatchetAttemptAdapter(deps: { bridge: RsiBridge }) {
       prior_score: number | null;
     }>("rsi_ratchet_attempt", {
       candidate_commit: commitHash,
-    });
+    }, BRIDGE_TIMEOUT_MS);
     return {
       advanced: result.advanced,
       previousBest: result.prior_score ?? 0,
@@ -185,7 +197,7 @@ export function makeScoreGenomeAdapter(deps: { bridge: RsiBridge }) {
     }));
     const result = await deps.bridge.request<{ score: number }>("rsi_score", {
       outcomes: wire,
-    });
+    }, BRIDGE_TIMEOUT_MS);
     return { score: result.score };
   };
 }
@@ -223,6 +235,7 @@ export function makeLcaAdapter(deps: {
       const result = await deps.bridge.request<{ lca: string | null }>(
         "rsi_lca",
         { a: hashA, b: hashB },
+        BRIDGE_TIMEOUT_MS,
       );
       return result.lca !== null;
     } catch {
