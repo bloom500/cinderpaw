@@ -283,15 +283,23 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: Decouple `MemoryExtractor` from the skill auto-creator
+### Task 3: Decouple `MemoryExtractor` from the skill auto-creator + remove its construction
 
 **Files:**
 - Modify: `FeralAgent/src/memory/extractor.ts` (drop the `skillCreator` param, field, import, and the skill branch)
-- Modify: `FeralAgent/src/index.ts` (construct the extractor without `skillCreator`)
+- Modify: `FeralAgent/src/index.ts` (construct the extractor without `skillCreator`; remove the `SkillAutoCreator`/`SkillsStorage` construction block + its import)
 
 **Interfaces:**
 - Consumes: nothing new.
 - Produces: `new MemoryExtractor(router, semantic, episodic)` — the 4th `skillCreator` argument is removed.
+
+**Why the construction removal lands here, not in Task 4:** `tsconfig` sets
+`noUnusedLocals: true` + `noUnusedParameters: true`. Dropping the `skillCreator`
+argument while leaving `const skillCreator = new SkillAutoCreator(...)` in place
+would make `skillCreator` an unused local → the per-task `tsc` gate fails. So this
+task removes both the extractor coupling AND the `skillCreator`/`skillsStorage`
+construction together. The `feedback_skill` import + registration stay (still used)
+until Task 4.
 
 - [ ] **Step 1: Edit `extractor.ts` — remove the import**
 
@@ -356,21 +364,46 @@ to:
 
 (Leave `extractor.setGraph(memoryGraph);` on the next line untouched — graph capture stays.)
 
-- [ ] **Step 5: Verify types compile**
+- [ ] **Step 5: Edit `index.ts` — remove the skills-subsystem construction block + its import**
+
+Delete the import line (~line 53):
+
+```ts
+import { SkillsStorage, SkillAutoCreator } from "./skills/index.ts";
+```
+
+Then delete the entire `// --- Skills subsystem (P0-2) ---` construction block
+(~lines 561-588): the `const skillsStorage = new SkillsStorage();`, the
+`const skillAutoCreateEnabled = process.env.FERAL_SKILL_AUTO_CREATE === "true";`
+knob, and the `const skillCreator = new SkillAutoCreator({ ... onCreated: ... });`
+construction with its `sendHolder.current({ type: "skill_created", ... })` emit.
+
+Leave the `createFeedbackSkillTool` import (~line 45) and its `registry.register(...)`
+call (~line 479) in place — they are still used; Task 4 removes them. After this edit,
+`index.ts` has no unused `skillCreator`/`skillsStorage`/`SkillsStorage`/`SkillAutoCreator`
+symbols.
+
+- [ ] **Step 6: Verify types compile**
 
 Run: `cd FeralAgent && bunx tsc --noEmit`
-Expected: At this point `skillCreator` is still declared in `index.ts` (Task 4 removes it) but is now unused/passed nowhere — that is allowed by `tsc` (no unused-locals error unless configured). If `tsc` flags `skillCreator` as unused, that is fine to leave until Task 4, which deletes it. Resolve any OTHER error before continuing.
+Expected: clean. (`auto-create.ts`/`self-improve.ts` still exist on disk and are now
+unimported, which is fine — they are deleted in Task 4. `feedback_skill` still imports
+`SkillsStorage`/`SkillSelfImprover` from `skills/index.ts`, which still exports them.)
+Resolve any error before continuing.
 
-- [ ] **Step 6: Run the extractor tests**
+- [ ] **Step 7: Run the extractor tests**
 
 Run: `cd FeralAgent && bun test tests/ 2>&1 | grep -i "extract\|memory" || bun test`
 Expected: extractor-related tests PASS (capture path unchanged).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add FeralAgent/src/memory/extractor.ts FeralAgent/src/index.ts
 git commit -m "refactor(memory): decouple MemoryExtractor from skill auto-creator
+
+Removes the skillCreator/skillsStorage construction + FERAL_SKILL_AUTO_CREATE
+knob from index.ts so no unused locals remain under noUnusedLocals.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -386,8 +419,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Delete: `FeralAgent/src/skills/storage.ts` (verify-then-delete, Step 1)
 - Delete: `FeralAgent/src/skills/index.ts` (verify-then-delete, Step 1)
 - Delete + replace: `FeralAgent/tests/skills.test.ts` → `FeralAgent/tests/read-skill.test.ts` (keep only the content-validation coverage)
-- Modify: `FeralAgent/src/index.ts` (remove imports, the `feedback_skill` registration, the `SkillsStorage`/`SkillAutoCreator` construction + `onCreated`/`sendHolder` wiring, the `FERAL_SKILL_AUTO_CREATE` knob)
-- Modify: `FeralAgent/src/types.ts` (remove `skill_created` + `skill_refined` OutboundEvent variants — verify-then-remove, Step 6)
+- Modify: `FeralAgent/src/index.ts` (remove the `createFeedbackSkillTool` import + the `feedback_skill` registration — the `SkillsStorage`/`SkillAutoCreator` construction + import were already removed in Task 3)
+- Modify: `FeralAgent/src/types.ts` (remove `skill_created` + `skill_refined` OutboundEvent variants — verify-then-remove, Step 5)
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -396,7 +429,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] **Step 1: Verify `SkillsStorage` / `skills/index.ts` are dead, then record evidence**
 
 Run: `cd FeralAgent && grep -rn "SkillsStorage\|skills/index\|skills/storage\|SkillAutoCreator\|SkillSelfImprover\|skills/auto-create\|skills/self-improve" src/ tests/`
-Expected (the ONLY references should be the files being deleted in this task): `index.ts` (skillCreator/skillsStorage wiring removed in Steps 3-4), `feedback-skill.ts`, `self-improve.ts`, `auto-create.ts`, `skills/index.ts`, and `tests/skills.test.ts`. `read-skill.ts` must NOT appear (it reads from a path, confirmed). Paste this grep output into the PR description as the verify-then-delete evidence. If anything OUTSIDE the delete set references `SkillsStorage`, STOP and reassess.
+Expected (the ONLY references should be the files being deleted in this task): `feedback-skill.ts`, `self-improve.ts`, `auto-create.ts`, `skills/index.ts`, and `tests/skills.test.ts`. `index.ts` must NOT appear (its skills wiring was removed in Task 3). `read-skill.ts` must NOT appear (it reads from a path, confirmed). Paste this grep output into the PR description as the verify-then-delete evidence. If anything OUTSIDE the delete set references `SkillsStorage`, STOP and reassess.
 
 - [ ] **Step 2: Delete the four module files**
 
@@ -410,11 +443,10 @@ git rm FeralAgent/src/skills/auto-create.ts \
 
 (If `FeralAgent/src/skills/` has no files left after this, the empty dir is fine — git does not track empty dirs.)
 
-- [ ] **Step 3: Remove imports + `feedback_skill` registration in `index.ts`**
+- [ ] **Step 3: Remove the `feedback_skill` import + registration in `index.ts`**
 
 In `FeralAgent/src/index.ts` delete:
 - the import `import { createFeedbackSkillTool } from "./tools/builtin/feedback-skill.ts";` (~line 45)
-- the import `import { SkillsStorage, SkillAutoCreator } from "./skills/index.ts";` (~line 53)
 - the `feedback_skill` registration comment + call (~line 476-479):
 
 ```ts
@@ -423,11 +455,10 @@ In `FeralAgent/src/index.ts` delete:
   registry.register(createFeedbackSkillTool(db.raw, router));
 ```
 
-- [ ] **Step 4: Remove the skills-subsystem construction block in `index.ts`**
+(The `SkillsStorage`/`SkillAutoCreator` import and construction block were already
+removed in Task 3 — do not look for them here.)
 
-Delete the entire `// --- Skills subsystem (P0-2) ---` block (~lines 561-588): the `const skillsStorage = new SkillsStorage();`, the `const skillAutoCreateEnabled = ...` knob, and the `const skillCreator = new SkillAutoCreator({ ... onCreated: ... });` construction with its `sendHolder.current({ type: "skill_created", ... })` emit.
-
-- [ ] **Step 5: Replace the skills test with a content-validation-only test**
+- [ ] **Step 4: Replace the skills test with a content-validation-only test**
 
 ```bash
 git rm FeralAgent/tests/skills.test.ts
@@ -541,12 +572,12 @@ describe("Feral-WIP #9: skill content validation", () => {
 });
 ```
 
-- [ ] **Step 6: Remove the now-orphaned OutboundEvent variants in `types.ts`**
+- [ ] **Step 5: Remove the now-orphaned OutboundEvent variants in `types.ts`**
 
 First verify nothing still emits or consumes them:
 
 Run: `cd FeralAgent && grep -rn "skill_created\|skill_refined" src/ tests/` and `cd .. && grep -rn "skill_created\|skill_refined" frontend-react/src/ src-tauri/src/`
-Expected: after Steps 2-4, the only matches are the two type declarations in `src/types.ts:993-994`. If the React frontend or Rust host consumes either event, STOP and handle that consumer first.
+Expected: the only matches are the two type declarations in `src/types.ts:993-994` (the `skill_created` emit was already removed with the construction block in Task 3). If the React frontend or Rust host consumes either event, STOP and handle that consumer first.
 
 Then delete these two lines from `FeralAgent/src/types.ts` (~993-994):
 
@@ -555,12 +586,12 @@ Then delete these two lines from `FeralAgent/src/types.ts` (~993-994):
   | { type: "skill_refined"; skillId: string; version: number; traceId?: string }
 ```
 
-- [ ] **Step 7: Verify suite + types**
+- [ ] **Step 6: Verify suite + types**
 
 Run: `cd FeralAgent && bunx tsc --noEmit && bun test`
 Expected: PASS. No unused `skillCreator`/`SkillsStorage` symbols remain; the new `read-skill.test.ts` passes; the old `skills.test.ts` is gone.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -618,7 +649,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Add read-only `recall` over RAPTOR → Task 1. ✓
 - Decouple `MemoryExtractor` from `skillCreator` → Task 3. ✓
 - Keep `read_skill` + proactive untouched → Global Constraints + Task 4 scope. ✓
-- Remove `skill_created` event → Task 4 Step 6 (plus `skill_refined`, its sibling). ✓
+- Remove `skill_created` event → emit removed in Task 3 (with the construction block); type variants removed in Task 4 Step 5 (plus `skill_refined`, its sibling). ✓
 - Tests: delete facade test (Task 2), add `recall.test.ts` (Task 1), trim skills test → `read-skill.test.ts` (Task 4), check `feral-prompt.test.ts` (Task 5), `openai-native-tools.test.ts` needs NO change (parser fixtures — noted in Task 2 Step 4). ✓
 - Non-goals (reactive engine, fact migration) → correctly absent from the plan. ✓
 
