@@ -44,6 +44,7 @@ import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createFeedbackSkillTool } from "./tools/builtin/feedback-skill.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
+import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createMemoryOpsTool } from "./tools/builtin/memory-ops.ts";
 import { createMemoryGraphOpsTool } from "./tools/builtin/memory-graph-ops.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
@@ -459,6 +460,13 @@ async function main(): Promise<void> {
     registry.register(createControlAppTool());
     log("control_app enabled (FERAL_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
   }
+
+  // recall — read-only on-demand semantic search over past conversations,
+  // backed by Fractal Memory Search. Capture stays reactive (MemoryExtractor);
+  // this is the explicit-search counterpart to per-turn auto-injection.
+  registry.register(
+    createRecallTool((q, limit) => fractalMemory.query(q, limit)),
+  );
 
   // memory_ops / memory_graph — explicit CRUD over semantic memory and the
   // knowledge graph. The extractor feeds both automatically in the
