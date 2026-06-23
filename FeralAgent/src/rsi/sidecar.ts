@@ -619,6 +619,18 @@ function boxMullerRandom(): number {
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
+/** Read the stagnation threshold from env, falling back to 10.
+ *  Default of 10 is the spec value: long enough to be a real signal
+ *  (Tier 0 alone scores ~50 with random completions) and short enough
+ *  to surface before the user gives up on the engine. */
+function readStagnationThreshold(): number {
+  const raw = process.env.FERAL_RSI_STAGNATION_THRESHOLD;
+  if (!raw) return 10;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0) return 10;
+  return Math.floor(v);
+}
+
 /** Subscribe to all engine events and forward them as `rsi_engine_event`
  *  outbound lines so Rust's mirror + UI can react in real time. The
  *  returned function detaches the subscriptions so teardown is clean. */
@@ -633,6 +645,21 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
   // EvalComplete cascade), so we tag it with the post-iteration count
   // too.
   let iterationCount = 0;
+  // ── Stagnation tracking (Pathway 4 PR-A Task A.2) ────────────────────
+  // The mirror emits a single `stagnation` event the first time the
+  // engine has run N iterations without producing a champion (where
+  // N = FERAL_RSI_STAGNATION_THRESHOLD, default 10). Subsequent
+  // iterations in the same period do NOT re-emit — the agent sees
+  // one clear signal per stagnation period, not spam. A successful
+  // ratchet resets the counter so a fresh stagnation can fire later.
+  const stagnationThreshold = readStagnationThreshold();
+  let iterationsSinceLastRatchet = 0;
+  let consecutiveErrored = 0;
+  /** Set to `true` once a stagnation has been emitted for the current
+   *  stall; cleared on every `RatchetAdvanced` so the next stall
+   *  triggers a fresh signal. Keeps the agent from seeing spam
+   *  during a long dead-end. */
+  let hasReportedStagnation = false;
 
   offs.push(bus.onDisposable("GenomeBorn", (ev) => {
     send({
@@ -654,6 +681,12 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
   }));
   offs.push(bus.onDisposable("EvalComplete", (ev) => {
     iterationCount += 1;
+    iterationsSinceLastRatchet += 1;
+    if (ev.errored) {
+      consecutiveErrored += 1;
+    } else {
+      consecutiveErrored = 0;
+    }
     send({
       type: "rsi_engine_event",
       event: "progress",
@@ -664,8 +697,13 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
       durationMs: ev.durationMs,
       errored: ev.errored,
     });
+    maybeEmitStagnation();
   }));
   offs.push(bus.onDisposable("RatchetAdvanced", (ev) => {
+    // A ratchet resets the stall counters AND clears the stagnation
+    // emission gate so a fresh stall triggers a fresh signal.
+    iterationsSinceLastRatchet = 0;
+    hasReportedStagnation = false;
     send({
       type: "rsi_engine_event",
       event: "progress",
@@ -710,6 +748,58 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
       killed: ev.killed,
     });
   }));
+
+  /** Stagnation emitter — called after every EvalComplete. Decides
+   *  whether the engine has stalled and, if so, picks the most likely
+   *  reason from three possibilities (in priority order): every
+   *  recent candidate errored; some candidates succeeded but no
+   *  ratchet fired (so the substrate baseline is the implicit ceiling);
+   *  no candidate ever beat the baseline.
+   *
+   *  Fire-once-per-stagnation-period semantics: once a stagnation has
+   *  been reported for a given stall, no further stagnation events
+   *  fire until a `RatchetAdvanced` resets the gate. The agent sees
+   *  exactly one clear signal per dead-end, not spam on every
+   *  iteration. The RatchetAdvanced handler clears the gate via
+   *  `hasReportedStagnation = false`.
+   *
+   *  Threshold is measured against `iterationsSinceLastRatchet`, not
+   *  the total `iterationCount`, so a ratchet truly resets the
+   *  stall window — N more stalled iterations after a ratchet are
+   *  needed to fire a second stagnation, not "already counted". */
+  function maybeEmitStagnation(): void {
+    if (iterationsSinceLastRatchet < stagnationThreshold) return;
+    if (hasReportedStagnation) return;
+
+    const reason = pickStagnationReason();
+    hasReportedStagnation = true;
+    send({
+      type: "rsi_engine_event",
+      event: "stagnation",
+      iteration: iterationCount,
+      reason,
+    });
+  }
+
+  function pickStagnationReason(): "all_candidates_errored" | "no_candidate_above_baseline" {
+    // Every recent candidate errored → model / harness / connectivity
+    // problem, not a search problem. Wins priority: an eval failure is
+    // louder than a search stall. The exact threshold for "all errored"
+    // is the same `stagnationThreshold` so a wall of errors produces
+    // one clear signal.
+    if (consecutiveErrored >= stagnationThreshold) {
+      return "all_candidates_errored";
+    }
+    // Default: the engine simply hasn't found a candidate above the
+    // substrate baseline yet. The user can react by waiting (more
+    // iterations), lowering the baseline, or hardening the eval
+    // suite. We keep the wording neutral on intent so the user can
+    // decide which knob to turn.
+    return "no_candidate_above_baseline";
+  }
+
+  // Track iterations since last ratchet — used by pickStagnationReason.
+  // (Incremented in EvalComplete + reset on RatchetAdvanced.)
 
   return () => {
     for (const off of offs) off();

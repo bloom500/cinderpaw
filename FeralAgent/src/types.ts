@@ -999,7 +999,7 @@ export type OutboundEvent =
   // `rsi_stop` / `rsi_set_concurrency` commands. Rust reads
   // `event` + `id` (when present) and updates its mirror + fires the
   // matching `oneshot::Sender`.
-  | { type: "rsi_engine_event"; event: "started" | "stopped" | "concurrency_set" | "progress"; id?: string; iteration?: number; bestScore?: number; costSoFarUsd?: number; concurrency?: number; stopReason?: string }
+  | { type: "rsi_engine_event"; event: "started" | "stopped" | "concurrency_set" | "progress" | "stagnation" | "pbt_sync"; id?: string; iteration?: number; bestScore?: number; costSoFarUsd?: number; concurrency?: number; stopReason?: string; reason?: string; killed?: number; creditedId?: string; nextActiveId?: string; replaced?: boolean; genomeId?: string; mutationType?: string; score?: number; tokenCost?: number; durationMs?: number; errored?: boolean; commitHash?: string; previousBest?: number; ratchet?: boolean; cause?: string; died?: boolean; extinction?: boolean; stage?: string }
   // RSI request — emitted by the RsiBridge client. Paired with a
   // matching `rsi_response` inbound line. Rust's `handle_rsi_request`
   // dispatcher writes the response back on stdin.
