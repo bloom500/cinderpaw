@@ -19,6 +19,7 @@ import { EpisodicMemory } from "./memory/episodic.ts";
 import { SemanticMemory } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
+import { Reconciler } from "./memory/reconciler.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { ToolRegistry } from "./tools/registry.ts";
@@ -379,6 +380,19 @@ async function main(): Promise<void> {
   // block tool invocations.
   const hooks = new HookRegistry();
 
+  // --- Reconciler (Pathway 3 step 2 Task 2) ---
+  // Single subscriber to `after_memory_write`. Task 3 will route the
+  // payload into `fractal.upsertLeaf(...)`; Task 4 will additionally
+  // mirror the result into `memoryGraph.reconcile(treeView)`. Started
+  // here — after `fractalMemory.init()` and after `hooks` is built —
+  // so the tree is ready before the first capture event arrives.
+  const reconciler = new Reconciler({
+    hooks,
+    fractal: fractalMemory,
+    graph: memoryGraph,
+  });
+  reconciler.start();
+
   const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
   registry.register(createReadFileTool([config.workspace]));
   registry.register(createWriteFileTool([config.workspace]));
@@ -547,9 +561,10 @@ async function main(): Promise<void> {
   // --- Memory extractor (async, fire-and-forget after each turn) ---
   // Path 3 step 2: the extractor fires `after_memory_write` to the
   // shared HookRegistry on every fact / observation persistence. The
-  // Reconciler (constructed a few lines below) subscribes to the event
-  // and keeps the fractal tree reactive. Without a registry attached,
-  // the extractor silently no-ops the fires (pre-Path-3 behaviour).
+  // Reconciler (constructed earlier in this file) subscribes to the
+  // event and keeps the fractal tree reactive. Without a registry
+  // attached, the extractor silently no-ops the fires (pre-Path-3
+  // behaviour).
   const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
   extractor.setGraph(memoryGraph);
 
