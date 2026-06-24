@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 /// editor and trivially diff-able across runs. `last_updated_at` is a
 /// `u64` Unix-millis timestamp so the resume path can detect stale
 /// state (Task B.3 uses 7 days as the freshness threshold).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct PersistedEngineState {
     /// Engine iteration count at the time of the last save.
     pub iteration: u32,
@@ -61,6 +61,7 @@ pub struct PersistedEngineState {
     pub candidate_queue: Vec<String>,
     /// Unix-millis timestamp of the last save. Used by the resume path
     /// to ignore state older than `maxPersistedAgeMs` (7 days default).
+    #[specta(type = specta_typescript::Number)]
     pub last_updated_at: u64,
 }
 

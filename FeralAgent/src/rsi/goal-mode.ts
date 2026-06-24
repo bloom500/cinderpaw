@@ -37,6 +37,11 @@ export interface GoalConfig {
   targetScore?: number;
   /** Stop after this many consecutive iterations without an improvement. */
   plateauPatience?: number;
+  /** Iteration count to resume from (PR-B engine restart). The run loop
+   *  starts its counter here instead of 0, so the `maxIterations` budget
+   *  and the reported iteration number continue across an app restart.
+   *  Defaults to 0 (cold start). */
+  startIteration?: number;
 }
 
 export type StopReason =
@@ -121,7 +126,7 @@ export class GoalMode {
    * which the existing tests depend on.
    */
   async run(): Promise<GoalResult> {
-    let iterations = 0;
+    let iterations = this.config.startIteration ?? 0;
     let lastBest = -Infinity;
     let sinceImprovement = 0;
 

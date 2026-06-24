@@ -211,12 +211,13 @@ export class RsiSidecar {
     // `loadPersistedState` returns `null` for stale or missing state.
     // When we DO resume, surface an `rsi_engine_event { event:
     // "resumed", iteration, best_score }` so the UI can show
-    // "resumed from iteration N" instead of "starting fresh". The
-    // engine itself (GoalMode) is not yet wired to consume the
-    // resume counters — that's a deliberate split: this PR ships
-    // the load + telemetry append; the engine-side seed follows in
-    // a later phase. Until then, the resume event is informational
-    // (the engine starts at iter 0 but the UI knows where it was).
+    // "resumed from iteration N" instead of "starting fresh", AND feed
+    // the iteration into `GoalConfig.startIteration` below so the engine
+    // actually continues the budget from there (not just the UI label).
+    // The champion seed (best-known config) is reloaded into the
+    // population a few lines down; together they make the restart a real
+    // resume. The save side that writes these checkpoints is
+    // `mirrorPersistence`, wired onto the engine bus after creation.
     const persisted = await this.loadPersistedState();
     if (persisted) {
       this.deps.send({
@@ -228,6 +229,12 @@ export class RsiSidecar {
         candidateQueueSize: persisted.candidate_queue.length,
       });
     }
+    // Iteration the engine resumes from. Fed into GoalConfig.startIteration
+    // so the `maxIterations` budget + reported iteration number continue
+    // across the restart instead of resetting to 0. `loadPersistedState`
+    // already dropped stale/absent state, so a non-zero value here is a
+    // fresh, in-window checkpoint.
+    const resumeIteration = persisted?.iteration ?? 0;
 
     // ── Population + seeds ────────────────────────────────────────────
     const pop = new PopulationManager({ concurrency: opts.concurrency ?? 1 });
@@ -391,6 +398,7 @@ export class RsiSidecar {
         maxTotalTokens: opts.maxTotalTokens,
         ...(opts.maxTotalCostUsd !== undefined ? { maxTotalCostUsd: opts.maxTotalCostUsd } : {}),
         pricePer1kUsd,
+        ...(resumeIteration > 0 ? { startIteration: resumeIteration } : {}),
       },
       evalDeps: { runEval, scoreGenome },
       ratchetDeps: { commitGenome, ratchetAttempt },
@@ -477,6 +485,32 @@ export class RsiSidecar {
       appendTelemetry: (outcome: EvalOutcome) =>
         this.deps.bridge.request("rsi_append_telemetry", { outcome }),
     }));
+
+    // ── Persist engine state per-iteration (PR-B B.3 save side) ───────
+    // Track the latest ratcheted commit so the persisted `best_commit`
+    // points at the genome that produced the best ratcheted score. The
+    // commit hash only lives on `RatchetAdvanced`; the population /
+    // champion records don't carry it. Seeded from the prior checkpoint
+    // so it survives a restart until the next ratchet overwrites it.
+    let bestCommit: string | null = persisted?.best_commit ?? null;
+    this.mirrors.push(
+      engine.bus.onDisposable("RatchetAdvanced", (ev) => {
+        if (typeof ev.commitHash === "string") bestCommit = ev.commitHash;
+      }),
+    );
+    // The actual save: `savePersistedState` was previously dead code —
+    // this is the only caller that closes the persist→resume loop.
+    this.mirrors.push(
+      mirrorPersistence(engine.bus, {
+        baseIteration: resumeIteration,
+        save: (state) => this.savePersistedState(state),
+        snapshot: () => ({
+          bestScore: engine.pop.best()?.score ?? persisted?.best_score ?? null,
+          bestCommit,
+          candidateQueue: engine.pop.alive().map((g) => g.id),
+        }),
+      }),
+    );
 
     // ── Ack the start ─────────────────────────────────────────────────
     this.deps.send({
@@ -948,4 +982,69 @@ export function mirrorEngineEvents(
   return () => {
     for (const off of offs) off();
   };
+}
+
+/** Live snapshot of the engine's resumable state, captured at save
+ *  time. The best score + commit + candidate queue live in the engine
+ *  (PopulationManager / champion), out of reach of the bus event
+ *  payload, so the caller injects an accessor that reads them fresh on
+ *  every save. */
+export interface PersistenceSnapshot {
+  bestScore: number | null;
+  bestCommit: string | null;
+  candidateQueue: string[];
+}
+
+export interface MirrorPersistenceOpts {
+  /** Iteration count the engine resumed from. The persisted iteration
+   *  is `baseIteration + (EvalCompletes seen this run)`, so the on-disk
+   *  counter continues across restarts instead of resetting to the
+   *  number of evals in the current session. */
+  baseIteration: number;
+  /** Persist the current engine state. Best-effort: the promise is
+   *  fire-and-forget and any rejection (disk full, bridge timeout) is
+   *  caught + swallowed so a failed save never aborts the engine
+   *  cascade — same contract as the telemetry append. */
+  save: (state: PersistedEngineState) => Promise<void>;
+  /** Read the live best score + commit + candidate queue at save time. */
+  snapshot: () => PersistenceSnapshot;
+  /** Clock injection for deterministic `last_updated_at` in tests.
+   *  Defaults to `Date.now`. */
+  now?: () => number;
+}
+
+/** Subscribe to `EvalComplete` and persist the engine-state file once
+ *  per iteration so an app restart can resume from the last completed
+ *  iteration (PR-B Task B.3 — the save side that closes the loop with
+ *  `GoalConfig.startIteration` on the consume side). The returned
+ *  function detaches the subscription.
+ *
+ *  Best-effort by design: a save failure is swallowed (see
+ *  `opts.save`). Saving per-iteration — rather than only on stop —
+ *  means a crash mid-run still leaves a resumable checkpoint from the
+ *  most recent completed iteration. */
+export function mirrorPersistence(
+  bus: EventBus,
+  opts: MirrorPersistenceOpts,
+): () => void {
+  const now = opts.now ?? Date.now;
+  let localCount = 0;
+  const off = bus.onDisposable("EvalComplete", () => {
+    localCount += 1;
+    const snap = opts.snapshot();
+    const state: PersistedEngineState = {
+      iteration: opts.baseIteration + localCount,
+      best_score: snap.bestScore,
+      best_commit: snap.bestCommit,
+      candidate_queue: snap.candidateQueue,
+      last_updated_at: now(),
+    };
+    // Fire-and-forget: never block or abort the engine cascade on a
+    // persistence failure. The explicit catch also suppresses the
+    // unhandled-rejection warning.
+    void opts.save(state).catch(() => {
+      // best-effort — see opts.save contract.
+    });
+  });
+  return off;
 }

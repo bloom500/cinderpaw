@@ -28,7 +28,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { RsiBridge, type RsiResponse } from "../src/rsi/bridge.ts";
-import { mirrorEngineEvents } from "../src/rsi/sidecar.ts";
+import { mirrorEngineEvents, mirrorPersistence, type PersistedEngineState } from "../src/rsi/sidecar.ts";
 import { EventBus } from "../src/rsi/event-bus.ts";
 import type { RsiEvent } from "../src/rsi/event-bus.ts";
 import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
@@ -299,5 +299,77 @@ describe("mirrorEngineEvents — per-iteration telemetry append", () => {
 
     expect(bridge.sent).toHaveLength(0); // no telemetry, no bridge use
     detach();
+  });
+});
+
+describe("mirrorPersistence — per-iteration engine-state save", () => {
+  function fire(bus: EventBus, ev: RsiEvent): Promise<void> {
+    return bus.emit(ev);
+  }
+
+  function evalComplete(genomeId: string, score: number): RsiEvent {
+    return { type: "EvalComplete", genomeId, score, tokenCost: 100, durationMs: 10, errored: false };
+  }
+
+  test("saves engine state once per EvalComplete, iteration resuming from baseIteration", async () => {
+    const bus = new EventBus();
+    const saved: PersistedEngineState[] = [];
+    const detach = mirrorPersistence(bus, {
+      baseIteration: 5,
+      save: async (s) => {
+        saved.push(s);
+      },
+      snapshot: () => ({ bestScore: 88, bestCommit: "abc123", candidateQueue: ["g1", "g2"] }),
+      now: () => 1000,
+    });
+
+    await fire(bus, evalComplete("g1", 50));
+    await fire(bus, evalComplete("g2", 60));
+
+    expect(saved).toHaveLength(2);
+    // Iteration continues from the resumed base (5), not from 0.
+    expect(saved[0].iteration).toBe(6);
+    expect(saved[1].iteration).toBe(7);
+    // The live snapshot (best + queue) is captured at save time.
+    expect(saved[1].best_score).toBe(88);
+    expect(saved[1].best_commit).toBe("abc123");
+    expect(saved[1].candidate_queue).toEqual(["g1", "g2"]);
+    expect(saved[1].last_updated_at).toBe(1000);
+    detach();
+  });
+
+  test("save errors are swallowed (a disk-full must never abort the cascade)", async () => {
+    const bus = new EventBus();
+    const detach = mirrorPersistence(bus, {
+      baseIteration: 0,
+      save: async () => {
+        throw new Error("disk full");
+      },
+      snapshot: () => ({ bestScore: null, bestCommit: null, candidateQueue: [] }),
+    });
+
+    let threw = false;
+    try {
+      await fire(bus, evalComplete("g1", 50));
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(false);
+    detach();
+  });
+
+  test("detach stops further saves", async () => {
+    const bus = new EventBus();
+    const saved: PersistedEngineState[] = [];
+    const detach = mirrorPersistence(bus, {
+      baseIteration: 0,
+      save: async (s) => {
+        saved.push(s);
+      },
+      snapshot: () => ({ bestScore: null, bestCommit: null, candidateQueue: [] }),
+    });
+    detach();
+    await fire(bus, evalComplete("g1", 50));
+    expect(saved).toHaveLength(0);
   });
 });
