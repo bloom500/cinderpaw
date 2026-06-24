@@ -41,4 +41,10 @@ describe('deriveTreeState', () => {
     expect(s.primaryLimbs).toBe(MIN_LIMBS);
     expect(s.trunkHeight).toBeGreaterThan(0);
   });
+
+  it('limbBias length equals clamped primaryLimbs even when clusterCount exceeds MAX_LIMBS', () => {
+    const s = deriveTreeState({ ...base, clusterCount: 99 }).state;
+    expect(s.primaryLimbs).toBe(MAX_LIMBS);
+    expect(s.limbBias).toHaveLength(MAX_LIMBS);
+  });
 });
