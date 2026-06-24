@@ -26,10 +26,10 @@ describe('skeletonToBuffers', () => {
     expect(b.leafInstanceCount).toBe(skel.leaves.length);
     expect(b.leafInstances.length).toBe(skel.leaves.length * 4);
     const leaf0 = Array.from(b.leafInstances.slice(0, 4));
-    expect(leaf0[0]).toBeCloseTo(0.6);
-    expect(leaf0[1]).toBeCloseTo(0.5);
-    expect(leaf0[2]).toBeCloseTo(0.02);
-    expect(leaf0[3]).toBeCloseTo(1.0);
+    expect(leaf0[0]).toBeCloseTo(0.6, 5);
+    expect(leaf0[1]).toBeCloseTo(0.5, 5);
+    expect(leaf0[2]).toBeCloseTo(0.02, 5);
+    expect(leaf0[3]).toBeCloseTo(1.0, 5);
   });
 
   it('deeper segments are shaded brighter (warm rim grows toward tips)', () => {
