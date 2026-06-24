@@ -133,6 +133,30 @@ describe("RSI Goal Mode", () => {
     expect(res.iterations).toBe(3); // eval 1 sets best; evals 2 & 3 don't improve
   });
 
+  test("resumes the iteration counter from startIteration (engine restart)", async () => {
+    // PR-B B.3 engine-side resume: a restart that persisted iteration 2
+    // continues the budget from there. With maxIterations=3 the engine
+    // must run exactly ONE more eval (2 → 3) and stop on MaxIterations —
+    // proving the loaded state actually advances the counter rather than
+    // restarting cold at 0 (which would run 3 evals).
+    const { gm } = buildEngine({
+      scores: [50],
+      config: {
+        goal: "x",
+        maxIterations: 3,
+        maxTotalTokens: 1e9,
+        targetScore: 99,
+        startIteration: 2,
+      },
+    });
+    const res = await gm.run();
+    expect(res.reason).toBe("MaxIterations");
+    expect(res.iterations).toBe(3);
+    // Only one eval ran (100 tokens), not three — the resume shortened
+    // the remaining budget. Cold start would report 300.
+    expect(res.totalTokens).toBe(100);
+  });
+
   test("stops with UserStopped when stop() is called mid-run", async () => {
     const { gm, bus } = buildEngine({
       scores: [50],

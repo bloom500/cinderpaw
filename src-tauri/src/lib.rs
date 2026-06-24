@@ -2673,6 +2673,10 @@ pub fn run() {
             rsi::commands::rsi_start,
             rsi::commands::rsi_stop,
             rsi::commands::rsi_set_concurrency,
+            rsi::commands::rsi_save_engine_state,
+            rsi::commands::rsi_load_engine_state,
+            rsi::commands::rsi_append_telemetry,
+            rsi::commands::rsi_get_telemetry,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,

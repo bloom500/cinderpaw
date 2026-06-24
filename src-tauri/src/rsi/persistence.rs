@@ -1,0 +1,364 @@
+//! Engine-state persistence — Pathway 4 PR-B Task B.1.
+//!
+//! On-disk format for the running RSI engine. The state file
+//! `<dataDir>/rsi/engine-state.json` lets the engine resume from the
+//! same iteration + best score + candidate queue after an app restart
+//! — without it, every boot starts at iteration 0 with an empty queue.
+//!
+//! # Atomic write
+//!
+//! `save` writes to `<file>.tmp` first, then renames over the
+//! destination. Rename on the same filesystem is atomic on POSIX
+//! (Windows: MoveFileEx with REPLACE_EXISTING), so a crash mid-write
+//! either leaves the previous file intact or produces the new one —
+//! never a torn file. This is the standard "write-then-rename"
+//! pattern; libgit2 uses the same shape.
+//!
+//! # Corrupt-file recovery
+//!
+//! `load` returns `Ok(None)` only when the file is absent (first
+//! boot). A file that exists but contains invalid JSON returns
+//! `Err(...)` so the caller can decide whether to log + ignore or
+//! surface the corruption. We do NOT silently treat a corrupt file as
+//! "absent" because that would mask real disk corruption / accidental
+//! overwrites — the caller must be told.
+//!
+//! # Test helpers
+//!
+//! `save_to` / `load_from` take an explicit path so tests don't depend
+//! on the production path resolver (`engine_state_path()` reads
+//! `FERAL_HOME` via `crate::paths::feral_dir`). Tests use
+//! `tempfile::tempdir` + explicit paths for hermeticity; the
+//! production helpers route through the real resolver.
+
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+
+/// On-disk shape of the running engine's resumable state.
+///
+/// Serialised to JSON at `<dataDir>/rsi/engine-state.json`. Fields are
+/// flat (no nested objects) so the file stays readable in a text
+/// editor and trivially diff-able across runs. `last_updated_at` is a
+/// `u64` Unix-millis timestamp so the resume path can detect stale
+/// state (Task B.3 uses 7 days as the freshness threshold).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+pub struct PersistedEngineState {
+    /// Engine iteration count at the time of the last save.
+    pub iteration: u32,
+    /// Best score seen so far, if any. `None` until the first
+    /// champion emerges.
+    pub best_score: Option<f64>,
+    /// Commit hash of the genome that produced `best_score`, if known.
+    /// `None` when no champion yet or when the score came from a
+    /// non-ratcheted source.
+    pub best_commit: Option<String>,
+    /// Candidate queue — genome IDs awaiting evaluation. Survives
+    /// restart so an in-flight population isn't lost.
+    pub candidate_queue: Vec<String>,
+    /// Unix-millis timestamp of the last save. Used by the resume path
+    /// to ignore state older than `maxPersistedAgeMs` (7 days default).
+    #[specta(type = specta_typescript::Number)]
+    pub last_updated_at: u64,
+}
+
+impl Default for PersistedEngineState {
+    fn default() -> Self {
+        Self {
+            iteration: 0,
+            best_score: None,
+            best_commit: None,
+            candidate_queue: Vec::new(),
+            last_updated_at: 0,
+        }
+    }
+}
+
+/// Canonical on-disk location for the persisted state.
+///
+/// `<dataDir>/rsi/engine-state.json`. Honoured `FERAL_HOME` env var
+/// for test hermeticity (see `crate::paths::feral_dir`).
+pub fn engine_state_path() -> PathBuf {
+    crate::paths::rsi_dir().join("engine-state.json")
+}
+
+/// Canonical filename of the telemetry JSONL. Kept as a constant so
+/// the path is constructed in exactly one place — a grep audit
+/// confirms `rsi-telemetry.jsonl` appears once (this constant) + the
+/// path computation in `telemetry_path()`.
+pub const TELEMETRY_FILE_NAME: &str = "rsi-telemetry.jsonl";
+
+/// `<dataDir>/rsi/rsi-telemetry.jsonl` — one JSON-serialised
+/// `EvalOutcome` per line, appended atomically per evaluation. The
+/// UI's audit chain is in `audit.rs` (record-per-mutation); this file
+/// is the eval-outcome stream specifically.
+pub fn telemetry_path() -> PathBuf {
+    crate::paths::rsi_dir().join(TELEMETRY_FILE_NAME)
+}
+
+/// Save `state` to `path` atomically: write `<path>.tmp`, fsync,
+/// rename over `path`. Returns `Err` if any step fails — the caller
+/// (Tauri command) decides whether to bubble the error to the UI or
+/// log + swallow (B.3's resume path swallows; the sidecar's per-iter
+/// save swallows). The write is best-effort by design.
+pub fn save_to(state: &PersistedEngineState, path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("create parent dir for engine-state.json: {}", parent.display())
+        })?;
+    }
+    let json = serde_json::to_string_pretty(state)
+        .context("serialize PersistedEngineState to JSON")?;
+    let tmp = tmp_path(path);
+    {
+        let mut f = fs::File::create(&tmp)
+            .with_context(|| format!("create tmp file {}", tmp.display()))?;
+        f.write_all(json.as_bytes())
+            .with_context(|| format!("write engine-state.json tmp at {}", tmp.display()))?;
+        f.sync_all()
+            .with_context(|| format!("fsync engine-state.json tmp at {}", tmp.display()))?;
+    }
+    // Atomic rename. On Windows, std::fs::rename uses MoveFileEx with
+    // MOVEFILE_REPLACE_EXISTING since Rust 1.5 — the destination is
+    // atomically replaced. On POSIX, rename(2) within the same
+    // filesystem is atomic by definition.
+    fs::rename(&tmp, path).with_context(|| {
+        format!(
+            "rename {} -> {}",
+            tmp.display(),
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
+/// Load state from `path`.
+///
+/// Returns:
+/// - `Ok(Some(state))` on a valid file.
+/// - `Ok(None)` when the file is absent (first boot / fresh state).
+/// - `Err(...)` when the file exists but is not valid JSON — the
+///   caller MUST be told, not silently treated as absent.
+pub fn load_from(path: &Path) -> Result<Option<PersistedEngineState>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("read engine-state.json at {}", path.display()))?;
+    let state: PersistedEngineState = serde_json::from_str(&raw)
+        .with_context(|| format!("parse engine-state.json at {}", path.display()))?;
+    Ok(Some(state))
+}
+
+/// Production helper — save to the canonical location.
+pub fn save(state: &PersistedEngineState) -> Result<()> {
+    save_to(state, &engine_state_path())
+}
+
+/// Production helper — load from the canonical location.
+pub fn load() -> Result<Option<PersistedEngineState>> {
+    load_from(&engine_state_path())
+}
+
+/// Append one `EvalOutcome` to the telemetry JSONL at `path`. Each
+/// call writes exactly one line (the serialised outcome + `\n`).
+/// Open-with-append + fsync gives us crash safety: a partially-
+/// written line at worst corrupts the LAST entry, but every earlier
+/// entry (and the file's existence) survives. We do not bother with
+/// the tmp+rename dance used for `engine-state.json` because the
+/// file is append-only — a torn write at the tail is recoverable on
+/// the next load (the loader skips lines that fail to parse).
+///
+/// Note: `EvalOutcome` lives in `rsi/mod.rs` (sibling), so we depend
+/// on it via `super::EvalOutcome` — Rust's `super::` works for items
+/// declared in the parent module of a submodule.
+pub fn append_telemetry_to(
+    outcome: &super::EvalOutcome,
+    path: &Path,
+) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("create parent dir for telemetry: {}", parent.display())
+        })?;
+    }
+    let mut json = serde_json::to_string(outcome)
+        .context("serialise EvalOutcome to JSON for telemetry append")?;
+    json.push('\n');
+    {
+        // Open with append + write + fsync. The OS guarantees that
+        // small appends are atomic (POSIX: < PIPE_BUF; Windows:
+        // FILE_APPEND_DATA semantics). Our serialised outcomes are
+        // well under 1 KB so the append is atomic for our payloads.
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .with_context(|| format!("open telemetry append at {}", path.display()))?;
+        f.write_all(json.as_bytes())
+            .with_context(|| format!("write telemetry line at {}", path.display()))?;
+        f.sync_all()
+            .with_context(|| format!("fsync telemetry at {}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Read the last `last_n` eval outcomes from the telemetry JSONL at
+/// `path`. Returns an empty Vec when the file is absent. Lines that
+/// fail to parse are skipped (corrupt-tail tolerance) — a partially
+/// written line from a previous crash shouldn't take down the read.
+///
+/// `last_n == 0` is treated as the default of 100 (the spec's
+/// intended default for the UI's "show last N" view). Passing a very
+/// large `last_n` returns the full file — bounded only by available
+/// memory.
+pub fn read_telemetry_tail_from(
+    path: &Path,
+    last_n: usize,
+) -> Result<Vec<super::EvalOutcome>> {
+    let effective_n = if last_n == 0 { TELEMETRY_DEFAULT_LAST_N } else { last_n };
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("read telemetry at {}", path.display()))?;
+    // Parse every line, skipping the ones that don't parse (corrupt
+    // tail tolerance). The valid lines are kept in append order;
+    // we then take the last `effective_n`.
+    let mut parsed: Vec<super::EvalOutcome> = Vec::new();
+    for line in raw.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<super::EvalOutcome>(line) {
+            Ok(o) => parsed.push(o),
+            Err(_e) => {
+                // Skip silently — corrupt tail is recoverable; the
+                // next clean append will overwrite the bad byte range.
+                // We could log here if we had a logger plumbed
+                // through to persistence; for now the silent skip is
+                // a deliberate spec choice (corrupt-line tolerance).
+            }
+        }
+    }
+    if parsed.len() > effective_n {
+        let skip = parsed.len() - effective_n;
+        parsed.drain(..skip);
+    }
+    Ok(parsed)
+}
+
+/// Default `last_n` for `rsi_get_telemetry` when the caller passes 0.
+/// Spec value (PR-B): 100 — enough to fill the UI's recent-eval list
+/// without flooding the IPC channel.
+pub const TELEMETRY_DEFAULT_LAST_N: usize = 100;
+
+/// Production helper — append to the canonical telemetry file.
+pub fn append_telemetry(outcome: &super::EvalOutcome) -> Result<()> {
+    append_telemetry_to(outcome, &telemetry_path())
+}
+
+/// Production helper — read the last N from the canonical telemetry
+/// file. Applies the default-100 rule when `last_n == 0`.
+pub fn read_telemetry_tail(last_n: usize) -> Result<Vec<super::EvalOutcome>> {
+    read_telemetry_tail_from(&telemetry_path(), last_n)
+}
+
+/// Helper used by `save_to` to compute the sibling tmp path. Public
+/// for test inspection (the "no .tmp left behind" assertion reads it).
+fn tmp_path(path: &Path) -> PathBuf {
+    let mut p = path.as_os_str().to_owned();
+    p.push(".tmp");
+    PathBuf::from(p)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn sample_state() -> PersistedEngineState {
+        PersistedEngineState {
+            iteration: 42,
+            best_score: Some(78.5),
+            best_commit: Some("abc123def".into()),
+            candidate_queue: vec!["g1".into(), "g2".into()],
+            last_updated_at: 1_700_000_000,
+        }
+    }
+
+    #[test]
+    fn save_then_load_round_trip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("engine-state.json");
+        let original = sample_state();
+        save_to(&original, &path).unwrap();
+        let loaded = load_from(&path).unwrap().expect("file present");
+        assert_eq!(loaded, original);
+    }
+
+    #[test]
+    fn load_returns_none_when_file_absent() {
+        let dir = tempdir().unwrap();
+        let loaded = load_from(&dir.path().join("does-not-exist.json"))
+            .expect("absent file must not error");
+        assert!(loaded.is_none());
+    }
+
+    #[test]
+    fn load_returns_err_on_corrupt_json() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("engine-state.json");
+        fs::write(&path, b"{ not json").unwrap();
+        // Must ERR — silently returning None would mask real
+        // corruption / accidental overwrite of the state file.
+        let result = load_from(&path);
+        assert!(
+            result.is_err(),
+            "corrupt engine-state.json must surface as Err, got Ok({:?})",
+            result.ok()
+        );
+    }
+
+    #[test]
+    fn save_is_atomic_writes_via_tmp_then_rename() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("engine-state.json");
+        save_to(&sample_state(), &path).unwrap();
+        // After save: .tmp must be gone, .json must be present.
+        assert!(
+            path.exists(),
+            "destination file must exist after save: {}",
+            path.display()
+        );
+        assert!(
+            !tmp_path(&path).exists(),
+            "tmp file must be cleaned up after rename: {}",
+            tmp_path(&path).display()
+        );
+    }
+
+    #[test]
+    fn save_creates_parent_dir_if_missing() {
+        // The first save on a fresh install may not have
+        // `<dataDir>/rsi/` yet — `rsi_init` creates it, but we don't
+        // want to depend on init ordering. `save` must mkdir -p.
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("rsi/engine-state.json");
+        assert!(!nested.parent().unwrap().exists());
+        save_to(&sample_state(), &nested).unwrap();
+        assert!(nested.exists(), "save must create parent dir on demand");
+    }
+
+    #[test]
+    fn default_state_is_iteration_zero_no_champion() {
+        let s = PersistedEngineState::default();
+        assert_eq!(s.iteration, 0);
+        assert_eq!(s.best_score, None);
+        assert_eq!(s.best_commit, None);
+        assert!(s.candidate_queue.is_empty());
+        assert_eq!(s.last_updated_at, 0);
+    }
+}

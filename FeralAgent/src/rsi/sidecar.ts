@@ -46,6 +46,7 @@ import { EventBus } from "./event-bus.ts";
 import { TasteMiner, makeTasteDeps } from "./taste-miner.ts";
 import type { GenomeConfig } from "./genome.ts";
 import type { EvalKind, EvalExpected } from "./eval-spec.ts";
+import type { EvalOutcome } from "./eval-worker.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
 import { blendedPricePer1kUsd } from "./rsi-cost.ts";
 import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
@@ -57,6 +58,26 @@ import {
   defaultChampionPath,
   type ChampionRecord,
 } from "./champion.ts";
+
+/** On-disk shape of the persisted engine state. Mirrors the Rust
+ *  `PersistedEngineState` struct (PR-B Task B.1). Defined here in
+ *  TS only so the sidecar has a typed handle on what crosses the
+ *  bridge — the Rust struct is the authoritative source. */
+export interface PersistedEngineState {
+  iteration: number;
+  best_score: number | null;
+  best_commit: string | null;
+  candidate_queue: string[];
+  last_updated_at: number;
+}
+
+/** Default max age for a persisted-state resume: 7 days. After this
+ *  window the persisted state is ignored and the engine starts fresh.
+ *  The number is large enough to cover "user closed the app and
+ *  reopened it a week later" (still want the iteration count and
+ *  candidate queue) and small enough that long-dead state can't
+ *  haunt a fresh install. */
+export const MAX_PERSISTED_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Tiny contract the sidecar needs from the host's transport: a
  *  function that writes one outbound event as JSON. */
@@ -129,6 +150,48 @@ export class RsiSidecar {
     return this.engine !== null;
   }
 
+  /** Read the persisted engine state from `<dataDir>/rsi/engine-state.json`
+   *  via `rsi_load_engine_state`. Applies the 7-day staleness filter
+   *  client-side (the Rust side just surfaces what disk says).
+   *
+   *  Best-effort: any bridge error, missing state, or stale state
+   *  resolves to `null` — a fresh start is always the safe default.
+   *  The Plan B.3 contract: `null` → fresh start; non-null + fresh
+   *  → resume; non-null + stale → fresh start (silently drop).
+   *
+   *  Called from `start()` (and exposed publicly so tests can drive
+   *  it directly without spinning the engine). */
+  async loadPersistedState(): Promise<PersistedEngineState | null> {
+    let raw: PersistedEngineState | null | undefined;
+    try {
+      raw = await this.deps.bridge.request<PersistedEngineState | null>(
+        "rsi_load_engine_state",
+        {},
+      );
+    } catch {
+      // Bridge error — treat as no state. Never throw on startup.
+      return null;
+    }
+    if (!raw) return null;
+    const ageMs = Date.now() - (raw.last_updated_at ?? 0);
+    if (ageMs > MAX_PERSISTED_AGE_MS) return null;
+    return raw;
+  }
+
+  /** Save the engine state to `<dataDir>/rsi/engine-state.json` via
+   *  `rsi_save_engine_state`. Best-effort: errors are swallowed
+   *  because persistence failures must never break the engine
+   *  cascade (the spec calls this out explicitly). */
+  async savePersistedState(state: PersistedEngineState): Promise<void> {
+    try {
+      await this.deps.bridge.request("rsi_save_engine_state", {
+        payload: state,
+      });
+    } catch {
+      // disk full, bridge timeout, etc. — swallow.
+    }
+  }
+
   /** Build + run the engine. Idempotent on a `restart`-style call from
    *  the host: a second start() while a run is active is rejected so
    *  a UI double-click can't fork two engines on the same substrate. */
@@ -140,6 +203,38 @@ export class RsiSidecar {
       });
       return;
     }
+
+    // ── Resume from persisted engine state (PR-B Task B.3) ──────────
+    // On boot, after rsi_init, the sidecar tries to resume the
+    // previous run from `<dataDir>/rsi/engine-state.json`. The
+    // staleness filter (7 days) lives here in TS, not Rust —
+    // `loadPersistedState` returns `null` for stale or missing state.
+    // When we DO resume, surface an `rsi_engine_event { event:
+    // "resumed", iteration, best_score }` so the UI can show
+    // "resumed from iteration N" instead of "starting fresh", AND feed
+    // the iteration into `GoalConfig.startIteration` below so the engine
+    // actually continues the budget from there (not just the UI label).
+    // The champion seed (best-known config) is reloaded into the
+    // population a few lines down; together they make the restart a real
+    // resume. The save side that writes these checkpoints is
+    // `mirrorPersistence`, wired onto the engine bus after creation.
+    const persisted = await this.loadPersistedState();
+    if (persisted) {
+      this.deps.send({
+        type: "rsi_engine_event",
+        event: "resumed",
+        iteration: persisted.iteration,
+        bestScore: persisted.best_score ?? undefined,
+        bestCommit: persisted.best_commit ?? undefined,
+        candidateQueueSize: persisted.candidate_queue.length,
+      });
+    }
+    // Iteration the engine resumes from. Fed into GoalConfig.startIteration
+    // so the `maxIterations` budget + reported iteration number continue
+    // across the restart instead of resetting to 0. `loadPersistedState`
+    // already dropped stale/absent state, so a non-zero value here is a
+    // fresh, in-window checkpoint.
+    const resumeIteration = persisted?.iteration ?? 0;
 
     // ── Population + seeds ────────────────────────────────────────────
     const pop = new PopulationManager({ concurrency: opts.concurrency ?? 1 });
@@ -303,6 +398,7 @@ export class RsiSidecar {
         maxTotalTokens: opts.maxTotalTokens,
         ...(opts.maxTotalCostUsd !== undefined ? { maxTotalCostUsd: opts.maxTotalCostUsd } : {}),
         pricePer1kUsd,
+        ...(resumeIteration > 0 ? { startIteration: resumeIteration } : {}),
       },
       evalDeps: { runEval, scoreGenome },
       ratchetDeps: { commitGenome, ratchetAttempt },
@@ -379,7 +475,42 @@ export class RsiSidecar {
     );
 
     // ── Mirror engine events → outbound (Rust state + UI) ─────────────
-    this.mirrors.push(mirrorEngineEvents(engine.bus, this.deps.send));
+    // The mirror subscribes to EvalComplete and forwards a
+    // `rsi_append_telemetry` per iteration (best-effort). A
+    // disk-full or bridge timeout MUST NOT abort the engine — the
+    // mirror catches + swallows. See `mirrorEngineEvents` for the
+    // error-handling contract.
+    this.mirrors.push(mirrorEngineEvents(engine.bus, this.deps.send, {
+      bridge: this.deps.bridge,
+      appendTelemetry: (outcome: EvalOutcome) =>
+        this.deps.bridge.request("rsi_append_telemetry", { outcome }),
+    }));
+
+    // ── Persist engine state per-iteration (PR-B B.3 save side) ───────
+    // Track the latest ratcheted commit so the persisted `best_commit`
+    // points at the genome that produced the best ratcheted score. The
+    // commit hash only lives on `RatchetAdvanced`; the population /
+    // champion records don't carry it. Seeded from the prior checkpoint
+    // so it survives a restart until the next ratchet overwrites it.
+    let bestCommit: string | null = persisted?.best_commit ?? null;
+    this.mirrors.push(
+      engine.bus.onDisposable("RatchetAdvanced", (ev) => {
+        if (typeof ev.commitHash === "string") bestCommit = ev.commitHash;
+      }),
+    );
+    // The actual save: `savePersistedState` was previously dead code —
+    // this is the only caller that closes the persist→resume loop.
+    this.mirrors.push(
+      mirrorPersistence(engine.bus, {
+        baseIteration: resumeIteration,
+        save: (state) => this.savePersistedState(state),
+        snapshot: () => ({
+          bestScore: engine.pop.best()?.score ?? persisted?.best_score ?? null,
+          bestCommit,
+          candidateQueue: engine.pop.alive().map((g) => g.id),
+        }),
+      }),
+    );
 
     // ── Ack the start ─────────────────────────────────────────────────
     this.deps.send({
@@ -633,8 +764,30 @@ function readStagnationThreshold(): number {
 
 /** Subscribe to all engine events and forward them as `rsi_engine_event`
  *  outbound lines so Rust's mirror + UI can react in real time. The
- *  returned function detaches the subscriptions so teardown is clean. */
-export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
+ *  returned function detaches the subscriptions so teardown is clean.
+ *
+ *  Optional `opts.appendTelemetry(outcome)` is called once per
+ *  EvalComplete with a synthetic `EvalOutcome` derived from the
+ *  event. Errors are SWALLOWED — a disk-full or bridge-timeout must
+ *  never abort the engine cascade. Backwards compatible: omitting
+ *  `opts` keeps the function telemetry-free (used by the legacy
+ *  `rsi-engine-stagnation.test.ts` suite). */
+export interface MirrorEngineEventsOpts {
+  /** Optional bridge handle — currently unused by the mirror logic
+   *  itself but kept on the interface for symmetry / future
+   *  direct-bridge needs (e.g. progress streaming). */
+  bridge?: RsiBridge;
+  /** Per-iteration telemetry append. Called once per EvalComplete.
+   *  The promise is fire-and-forget — rejection is caught and
+   *  swallowed inside the mirror so it never reaches the bus. */
+  appendTelemetry?: (outcome: EvalOutcome) => Promise<void>;
+}
+
+export function mirrorEngineEvents(
+  bus: EventBus,
+  send: EmitFn,
+  opts?: MirrorEngineEventsOpts,
+): () => void {
   const offs: Array<() => void> = [];
   // The Rust mirror's `iteration` field updates only when an emitted
   // `rsi_engine_event` carries an `iteration` value. The engine's
@@ -697,6 +850,31 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
       durationMs: ev.durationMs,
       errored: ev.errored,
     });
+    // Per-iteration telemetry append (PR-B B.3). Best-effort: a
+    // failing append must never abort the engine cascade. We
+    // synthesise an `EvalOutcome` from the event because the event
+    // shape (score / tokenCost / durationMs) is the *aggregate*
+    // per-genome result, not per-task — the spec's per-iteration
+    // summary outcome is sufficient for the audit panel. The full
+    // per-task breakdown lives in `EvalWorker.runEval`'s return
+    // value and is not currently surfaced on the bus.
+    if (opts?.appendTelemetry) {
+      const outcome: EvalOutcome = {
+        taskId: String(ev.genomeId ?? ""),
+        tier: 0,
+        success: !ev.errored,
+        latencyMs: Number(ev.durationMs ?? 0),
+        tokens: Number(ev.tokenCost ?? 0),
+        errored: !!ev.errored,
+        ...(typeof ev.error === "string" ? { errorMessage: ev.error } : {}),
+      };
+      // Swallow rejection explicitly. The Promise is fire-and-forget
+      // so an unhandled-rejection warning is also suppressed by the
+      // explicit .catch below.
+      opts.appendTelemetry(outcome).catch(() => {
+        // best-effort: see comment above.
+      });
+    }
     maybeEmitStagnation();
   }));
   offs.push(bus.onDisposable("RatchetAdvanced", (ev) => {
@@ -804,4 +982,69 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
   return () => {
     for (const off of offs) off();
   };
+}
+
+/** Live snapshot of the engine's resumable state, captured at save
+ *  time. The best score + commit + candidate queue live in the engine
+ *  (PopulationManager / champion), out of reach of the bus event
+ *  payload, so the caller injects an accessor that reads them fresh on
+ *  every save. */
+export interface PersistenceSnapshot {
+  bestScore: number | null;
+  bestCommit: string | null;
+  candidateQueue: string[];
+}
+
+export interface MirrorPersistenceOpts {
+  /** Iteration count the engine resumed from. The persisted iteration
+   *  is `baseIteration + (EvalCompletes seen this run)`, so the on-disk
+   *  counter continues across restarts instead of resetting to the
+   *  number of evals in the current session. */
+  baseIteration: number;
+  /** Persist the current engine state. Best-effort: the promise is
+   *  fire-and-forget and any rejection (disk full, bridge timeout) is
+   *  caught + swallowed so a failed save never aborts the engine
+   *  cascade — same contract as the telemetry append. */
+  save: (state: PersistedEngineState) => Promise<void>;
+  /** Read the live best score + commit + candidate queue at save time. */
+  snapshot: () => PersistenceSnapshot;
+  /** Clock injection for deterministic `last_updated_at` in tests.
+   *  Defaults to `Date.now`. */
+  now?: () => number;
+}
+
+/** Subscribe to `EvalComplete` and persist the engine-state file once
+ *  per iteration so an app restart can resume from the last completed
+ *  iteration (PR-B Task B.3 — the save side that closes the loop with
+ *  `GoalConfig.startIteration` on the consume side). The returned
+ *  function detaches the subscription.
+ *
+ *  Best-effort by design: a save failure is swallowed (see
+ *  `opts.save`). Saving per-iteration — rather than only on stop —
+ *  means a crash mid-run still leaves a resumable checkpoint from the
+ *  most recent completed iteration. */
+export function mirrorPersistence(
+  bus: EventBus,
+  opts: MirrorPersistenceOpts,
+): () => void {
+  const now = opts.now ?? Date.now;
+  let localCount = 0;
+  const off = bus.onDisposable("EvalComplete", () => {
+    localCount += 1;
+    const snap = opts.snapshot();
+    const state: PersistedEngineState = {
+      iteration: opts.baseIteration + localCount,
+      best_score: snap.bestScore,
+      best_commit: snap.bestCommit,
+      candidate_queue: snap.candidateQueue,
+      last_updated_at: now(),
+    };
+    // Fire-and-forget: never block or abort the engine cascade on a
+    // persistence failure. The explicit catch also suppresses the
+    // unhandled-rejection warning.
+    void opts.save(state).catch(() => {
+      // best-effort — see opts.save contract.
+    });
+  });
+  return off;
 }

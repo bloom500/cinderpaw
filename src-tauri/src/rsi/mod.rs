@@ -30,6 +30,7 @@ pub mod audit;
 pub mod commands;
 pub mod goodhart;
 pub mod paths;
+pub mod persistence;
 pub mod plan;
 pub mod repo;
 pub mod sandbox_bounds;
@@ -64,6 +65,13 @@ pub struct RsiState {
     /// until init succeeds — without the substrate there is nothing to
     /// protect.
     pub initialized: Arc<Mutex<bool>>,
+    /// Last successfully-loaded engine state, if any. Populated by
+    /// `do_load_engine_state` (called from `rsi_init` and from
+    /// `rsi_load_engine_state` on demand) so other commands can answer
+    /// "what iteration are we on?" without re-reading the file. The
+    /// on-disk canonical lives at `<dataDir>/rsi/engine-state.json`;
+    /// this field is a cache, not a separate source of truth.
+    pub engine_persisted: Arc<Mutex<Option<persistence::PersistedEngineState>>>,
 }
 
 impl Default for RsiState {
@@ -72,6 +80,7 @@ impl Default for RsiState {
             bounds: Arc::new(Mutex::new(None)),
             bounds_file_sha256: Arc::new(Mutex::new(None)),
             initialized: Arc::new(Mutex::new(false)),
+            engine_persisted: Arc::new(Mutex::new(None)),
         }
     }
 }
