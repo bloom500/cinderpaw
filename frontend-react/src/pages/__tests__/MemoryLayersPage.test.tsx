@@ -13,7 +13,6 @@ describe('MemoryLayersPage (tree)', () => {
 
   it('does not import any fractal modules', async () => {
     // Vite ?raw suffix returns the file source as a string at test time.
-    // ts-expect-error vite ?raw import has no ambient type in browser tsconfig
     const src = await import('../MemoryLayersPage?raw')
       .then((m) => m.default)
       .catch(() => '');

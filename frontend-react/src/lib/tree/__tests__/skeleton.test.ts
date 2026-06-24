@@ -65,4 +65,15 @@ describe('generateSkeleton', () => {
       expect(Math.max(...skel.segments.map((seg) => seg.depth))).toBeLessThanOrEqual(s.depth);
     }
   });
+
+  it('branch positions are append-only stable across a depth increment (no crown reshuffle)', () => {
+    const key = (s: { x0: number; y0: number; x1: number; y1: number; depth: number }) =>
+      `${s.depth}:${s.x0.toFixed(6)},${s.y0.toFixed(6)},${s.x1.toFixed(6)},${s.y1.toFixed(6)}`;
+    const shallow = generateSkeleton({ ...state, depth: 3 }, 7);
+    const deep = generateSkeleton({ ...state, depth: 4 }, 7);
+    const deepKeys = new Set(deep.segments.map(key));
+    for (const seg of shallow.segments) {
+      expect(deepKeys.has(key(seg))).toBe(true); // every shallow segment survives, position-identical, in the deeper tree
+    }
+  });
 });

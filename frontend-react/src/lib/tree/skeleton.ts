@@ -14,6 +14,15 @@ const LENGTH_DECAY = 0.7;
 const WIDTH_DECAY = 0.62;
 const SPREAD = 0.5;      // base half-angle (radians) between sibling branches
 
+/** Deterministic per-branch jitter keyed on (seed, limbIndex, localPath) so a
+ *  branch's angle depends only on its own path — increasing recursion depth
+ *  never perturbs already-existing branches (append-only growth). */
+function branchJitter(seed: number, limbIndex: number, localPath: number): number {
+  const h = (seed ^ Math.imul(limbIndex + 1, 0x85ebca6b) ^ Math.imul(localPath, 0x9e3779b1)) >>> 0;
+  const r = mulberry32(h);
+  return (r() - 0.5) * 0.25;
+}
+
 export function generateSkeleton(state: TreeState, seed: number): Skeleton {
   const rng = mulberry32(seed);
   const segments: Segment[] = [];
@@ -34,7 +43,7 @@ export function generateSkeleton(state: TreeState, seed: number): Skeleton {
     const t = state.primaryLimbs === 1 ? 0 : (i / (state.primaryLimbs - 1)) * 2 - 1; // -1..1
     const baseAngle = t * SPREAD * 1.6 + (state.limbBias[i] ?? 0);
     grow(
-      segments, terminals, rng,
+      segments, terminals, seed, i, 1,
       trunkTopX, trunkTopY, baseAngle, limbLen,
       state.trunkGirth * WIDTH_DECAY, 1, state.depth, i,
     );
@@ -61,12 +70,12 @@ export function generateSkeleton(state: TreeState, seed: number): Skeleton {
 
 function grow(
   segments: Segment[], terminals: { x: number; y: number; clusterId: number }[],
-  rng: () => number,
+  seed: number, limbIndex: number, localPath: number,
   x: number, y: number, angle: number, length: number, width: number,
   depth: number, maxDepth: number, clusterId: number,
 ): void {
   // angle: 0 = straight up; positive = lean right.
-  const jitter = (rng() - 0.5) * 0.25;
+  const jitter = branchJitter(seed, limbIndex, localPath);
   const a = angle + jitter;
   const x1 = x + Math.sin(a) * length;
   const y1 = y + Math.cos(a) * length;
@@ -79,6 +88,6 @@ function grow(
   }
   // Two children, splayed.
   const childLen = length * LENGTH_DECAY;
-  grow(segments, terminals, rng, x1, y1, a - SPREAD, childLen, w1, depth + 1, maxDepth, clusterId);
-  grow(segments, terminals, rng, x1, y1, a + SPREAD, childLen, w1, depth + 1, maxDepth, clusterId);
+  grow(segments, terminals, seed, limbIndex, localPath * 2, x1, y1, a - SPREAD, childLen, w1, depth + 1, maxDepth, clusterId);
+  grow(segments, terminals, seed, limbIndex, localPath * 2 + 1, x1, y1, a + SPREAD, childLen, w1, depth + 1, maxDepth, clusterId);
 }
