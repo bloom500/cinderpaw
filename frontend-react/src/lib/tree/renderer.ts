@@ -68,6 +68,7 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
   gl.compileShader(sh);
   if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
     console.error('tree shader compile failed:', gl.getShaderInfoLog(sh));
+    gl.deleteShader(sh);
     return null;
   }
   return sh;
@@ -76,7 +77,11 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
 function link(gl: WebGL2RenderingContext, vsSrc: string, fsSrc: string): WebGLProgram | null {
   const vs = compile(gl, gl.VERTEX_SHADER, vsSrc);
   const fs = compile(gl, gl.FRAGMENT_SHADER, fsSrc);
-  if (!vs || !fs) return null;
+  if (!vs || !fs) {
+    if (vs) gl.deleteShader(vs);
+    if (fs) gl.deleteShader(fs);
+    return null;
+  }
   const prog = gl.createProgram()!;
   gl.attachShader(prog, vs);
   gl.attachShader(prog, fs);
@@ -85,6 +90,10 @@ function link(gl: WebGL2RenderingContext, vsSrc: string, fsSrc: string): WebGLPr
     console.error('tree program link failed:', gl.getProgramInfoLog(prog));
     return null;
   }
+  gl.detachShader(prog, vs);
+  gl.deleteShader(vs);
+  gl.detachShader(prog, fs);
+  gl.deleteShader(fs);
   return prog;
 }
 
