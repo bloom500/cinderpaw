@@ -47,4 +47,22 @@ describe('generateSkeleton', () => {
     const skel = generateSkeleton(state, 7);
     expect(Math.max(...skel.segments.map((s) => s.depth))).toBeLessThanOrEqual(state.depth);
   });
+
+  it('trunk height is non-decreasing across a sweep of RSI iterations (monotonic growth)', () => {
+    let prev = -Infinity;
+    for (const iter of [0, 10, 100, 500, 2000, 10000]) {
+      const s = deriveTreeState({ ...input, rsi: { iteration: iter, boundsVersion: 0 } }).state;
+      const trunk = generateSkeleton(s, 7).segments.find((seg) => seg.depth === 0)!;
+      expect(trunk.y1).toBeGreaterThanOrEqual(prev);
+      prev = trunk.y1;
+    }
+  });
+
+  it('never emits a segment deeper than state.depth across shallow and deep states', () => {
+    for (const iter of [0, 5000]) {
+      const s = deriveTreeState({ ...input, rsi: { iteration: iter, boundsVersion: 0 } }).state;
+      const skel = generateSkeleton(s, 7);
+      expect(Math.max(...skel.segments.map((seg) => seg.depth))).toBeLessThanOrEqual(s.depth);
+    }
+  });
 });
