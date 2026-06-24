@@ -27,9 +27,11 @@ precision highp float;
 in float v_shade;
 out vec4 outColor;
 void main() {
-  vec3 darkBark = vec3(0.141, 0.102, 0.071);  // #241a12
-  vec3 warmRim  = vec3(0.353, 0.227, 0.118);  // #5a3a1e
-  outColor = vec4(mix(darkBark, warmRim, v_shade), 1.0);
+  // Silhouette fractal: cool grey trunk fading to warm white at the tips —
+  // the negative of an ink-on-paper tree, tuned for dark-mode UI.
+  vec3 trunkCore = vec3(0.78, 0.78, 0.76);  // #c7c7c2 — anchored trunk
+  vec3 tipWhite  = vec3(0.98, 0.96, 0.90);  // #faf5e6 — fine tip highlights
+  outColor = vec4(mix(trunkCore, tipWhite, v_shade), 1.0);
 }`;
 
 const LEAF_VS = `#version 300 es
@@ -52,13 +54,14 @@ precision highp float;
 in vec2 v_uv;
 out vec4 outColor;
 void main() {
-  // Round leaf mask via distance from center; alpha-test the rim.
+  // Silhouette fractal: leaves are pinpricks of warm light at the tips —
+  // tiny ember sparks, not foliage blobs. The skeleton does the talking.
   float d = distance(v_uv, vec2(0.5));
   if (d > 0.5) discard;
-  vec3 amber  = vec3(0.851, 0.541, 0.169);  // #d98a2b
-  vec3 orange = vec3(0.910, 0.329, 0.118);  // #e8541e
+  vec3 amber  = vec3(0.96, 0.82, 0.55);   // #f5d18c — soft amber core
+  vec3 orange = vec3(1.00, 0.68, 0.32);   // #ffad52 — warmer tip
   vec3 col = mix(amber, orange, v_uv.y);
-  float edge = smoothstep(0.5, 0.35, d);
+  float edge = smoothstep(0.5, 0.30, d);
   outColor = vec4(col, edge);
 }`;
 

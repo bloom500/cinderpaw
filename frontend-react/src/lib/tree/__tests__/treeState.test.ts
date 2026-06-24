@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveTreeState, MIN_LIMBS, MAX_LIMBS, MAX_LEAVES } from '../treeState';
+import { deriveTreeState, MIN_LIMBS, MAX_LIMBS, MAX_LEAVES, MIN_DEPTH, MAX_DEPTH } from '../treeState';
 import type { TreeInput } from '../contract';
 
 const base: TreeInput = { clusterCount: 3, eliteNodeCount: 40, rsi: { iteration: 100, boundsVersion: 0 }, persistedFloor: 0, clusters: [] };
@@ -46,5 +46,21 @@ describe('deriveTreeState', () => {
     const s = deriveTreeState({ ...base, clusterCount: 99 }).state;
     expect(s.primaryLimbs).toBe(MAX_LIMBS);
     expect(s.limbBias).toHaveLength(MAX_LIMBS);
+  });
+
+  it('silhouette fractal: depth reaches MIN_DEPTH at genesis and MAX_DEPTH at high floor', () => {
+    const sapling = deriveTreeState({ clusterCount: 0, eliteNodeCount: 0, rsi: null, persistedFloor: 0, clusters: [] }).state;
+    expect(sapling.depth).toBe(MIN_DEPTH);
+    const mature = deriveTreeState({ ...base, rsi: { iteration: 20000, boundsVersion: 0 } }).state;
+    expect(mature.depth).toBe(MAX_DEPTH);
+  });
+
+  it('depth grows monotonically with floor across the silhouette range', () => {
+    let prev = -Infinity;
+    for (const iter of [0, 50, 200, 600, 1500, 5000]) {
+      const s = deriveTreeState({ ...base, rsi: { iteration: iter, boundsVersion: 0 } }).state;
+      expect(s.depth).toBeGreaterThanOrEqual(prev);
+      prev = s.depth;
+    }
   });
 });

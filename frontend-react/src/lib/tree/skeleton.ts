@@ -10,8 +10,11 @@ export interface Skeleton { segments: Segment[]; leaves: Leaf[] }
 
 const TRUNK_X = 0.5;     // anchored bottom-center
 const TRUNK_Y = 0.02;    // small offset off the very bottom edge
-const LENGTH_DECAY = 0.7;
-const WIDTH_DECAY = 0.62;
+// Silhouette fractal tuning: shorter per-level length keeps the silhouette
+// inside the frame at depth=12; gentler width decay keeps sub-branches
+// visible down to the tips instead of tapering to zero.
+const LENGTH_DECAY = 0.62;
+const WIDTH_DECAY = 0.72;
 const SPREAD = 0.5;      // base half-angle (radians) between sibling branches
 
 /** Deterministic per-branch jitter keyed on (seed, limbIndex, localPath) so a
@@ -50,6 +53,8 @@ export function generateSkeleton(state: TreeState, seed: number): Skeleton {
   }
 
   // 3. Leaves on terminals, round-robin until leafCount placed.
+  // Silhouette fractal: leaves are tiny pinpricks of light, not ember-oak
+  // foliage blobs. They suggest "alive" without competing with the silhouette.
   const leaves: Leaf[] = [];
   if (terminals.length > 0) {
     for (let n = 0; n < state.leafCount; n++) {
@@ -58,7 +63,7 @@ export function generateSkeleton(state: TreeState, seed: number): Skeleton {
       const jy = (rng() - 0.5) * 0.03;
       leaves.push({
         x: term.x + jx, y: term.y + jy,
-        size: 0.012 + rng() * 0.01,
+        size: 0.0035 + rng() * 0.0025,
         angle: rng() * Math.PI * 2,
         clusterId: term.clusterId,
       });

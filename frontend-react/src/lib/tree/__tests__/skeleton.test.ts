@@ -69,8 +69,10 @@ describe('generateSkeleton', () => {
   it('branch positions are append-only stable across a depth increment (no crown reshuffle)', () => {
     const key = (s: { x0: number; y0: number; x1: number; y1: number; depth: number }) =>
       `${s.depth}:${s.x0.toFixed(6)},${s.y0.toFixed(6)},${s.x1.toFixed(6)},${s.y1.toFixed(6)}`;
-    const shallow = generateSkeleton({ ...state, depth: 3 }, 7);
-    const deep = generateSkeleton({ ...state, depth: 4 }, 7);
+    // Silhouette fractal: prove stability at a realistic depth band, not just
+    // the trivial 3→4 case — append-only must hold all the way up.
+    const shallow = generateSkeleton({ ...state, depth: 7 }, 7);
+    const deep = generateSkeleton({ ...state, depth: 9 }, 7);
     const deepKeys = new Set(deep.segments.map(key));
     for (const seg of shallow.segments) {
       expect(deepKeys.has(key(seg))).toBe(true); // every shallow segment survives, position-identical, in the deeper tree

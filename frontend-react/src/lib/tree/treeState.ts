@@ -3,6 +3,8 @@ import type { TreeInput } from './contract';
 export const MIN_LIMBS = 2;
 export const MAX_LIMBS = 7;
 export const MAX_LEAVES = 600;
+export const MIN_DEPTH = 2;
+export const MAX_DEPTH = 12;     // silhouette fractal: 10–12 subdivisions read as a full tree, 6 looked schematic
 
 const FLOOR_ITER_A = 0.02;     // floor per RSI iteration (lifetime maturity)
 const FLOOR_BOUNDS_B = 40;     // floor step per bounds_version (paradigm shift)
@@ -42,7 +44,9 @@ export function deriveTreeState(input: TreeInput): DerivedTree {
   const m = saturate(floor, 120);
   const trunkHeight = 0.18 + 0.5 * m;
   const trunkGirth = 0.012 + 0.05 * m;
-  const depth = Math.round(clamp(2 + floor / 60, 2, 6));
+  // Silhouette fractal needs many subdivisions to read as a full tree. Rate
+  // floor/40 keeps depth=2 at genesis, ~5 at floor=120, ~12 at floor=400+.
+  const depth = Math.round(clamp(2 + floor / 40, MIN_DEPTH, MAX_DEPTH));
 
   const primaryLimbs = clamp(Math.round(input.clusterCount), MIN_LIMBS, MAX_LIMBS);
   const leafCount = clamp(Math.round(input.eliteNodeCount * LEAVES_PER_NODE), 0, MAX_LEAVES);
