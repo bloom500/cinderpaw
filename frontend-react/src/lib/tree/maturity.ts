@@ -4,6 +4,9 @@
  * memory is pruned. Stored per-install in localStorage; degrades to 0 (no
  * persistence) if storage is unavailable, without throwing.
  */
+// Intentionally kept under the old `fractal` namespace so that existing
+// installs retain their earned maturity floor across the fractal→tree rename
+// (migration continuity — do NOT change this key without a data migration).
 const KEY = 'feral.fractal.maturityFloor';
 
 export const maturity = {
