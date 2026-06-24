@@ -1,5 +1,5 @@
 /**
- * Persisted monotonic "maturity floor" for the fractal's structural depth.
+ * Persisted monotonic "maturity floor" for the tree's structural depth.
  * The floor only ever increases — earned complexity is never lost, even when
  * memory is pruned. Stored per-install in localStorage; degrades to 0 (no
  * persistence) if storage is unavailable, without throwing.
@@ -7,7 +7,8 @@
 const KEY = 'feral.fractal.maturityFloor';
 
 export const maturity = {
-  current(): number {
+  /** Load the current persisted floor (0 when unset or unavailable). */
+  load(): number {
     try {
       const v = localStorage.getItem(KEY);
       const n = v == null ? 0 : parseFloat(v);
@@ -16,8 +17,9 @@ export const maturity = {
       return 0;
     }
   },
-  bump(value: number): number {
-    const next = Math.max(this.current(), value, 0);
+  /** Save a new floor value — monotonic: never decreases below current. */
+  save(value: number): number {
+    const next = Math.max(this.load(), value, 0);
     try {
       localStorage.setItem(KEY, String(next));
     } catch {
