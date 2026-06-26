@@ -8,7 +8,11 @@
  * margin area of the enlarged canvas, so the character itself never changes.
  *
  * All animation is a pure function of `tick` (deterministic, loops cleanly,
- * no per-frame allocation churn worth worrying about at 16×26 px).
+ * no per-frame allocation churn worth worrying about at 52×42 px).
+ *
+ * Coords are absolute canvas px. The 32×32 sprite sits at x[10..41], y[9..40]
+ * (FX_MARGIN_X left inset, FX_MARGIN_TOP+1 top inset), so effects play in the
+ * left margin (x<10), right margin (x>41) and top band (y<9).
  */
 
 import type { MascotState } from './frames';
@@ -19,7 +23,7 @@ export interface EffectPixel {
   color: string;
 }
 
-/** Margin around the 16×18 sprite area inside the effects canvas. */
+/** Margin around the 32×32 sprite area inside the effects canvas. */
 export const FX_MARGIN_X = 10;
 export const FX_MARGIN_TOP = 8;
 
@@ -61,11 +65,11 @@ function confetti(tick: number): EffectPixel[] {
   for (let i = 0; i < 10; i++) {
     const t = (tick + Math.floor(rand(7, i) * PERIOD)) % PERIOD;
     const left = i % 2 === 0;
-    const baseX = left ? 6 : 29;
+    const baseX = left ? 8 : 43;
     const dir = left ? -1 : 1;
     const x = baseX + dir * Math.floor(t * (0.6 + rand(11, i)));
-    const y = 14 - t + Math.floor(rand(13, i) * 6) - 3 + Math.floor(t * t * 0.12);
-    if (x < 0 || x > 35 || y < 0 || y > 24) continue;
+    const y = 24 - t + Math.floor(rand(13, i) * 6) - 3 + Math.floor(t * t * 0.12);
+    if (x < 0 || x > 51 || y < 0 || y > 41) continue;
     out.push({ x, y, color: CONFETTI_COLORS[i % CONFETTI_COLORS.length] });
   }
   return out;
@@ -74,7 +78,7 @@ function confetti(tick: number): EffectPixel[] {
 /** Gentle sparkles twinkling above the shoulders. */
 function sparkles(tick: number, colors: string[]): EffectPixel[] {
   const spots: Array<[number, number]> = [
-    [4, 6], [31, 8], [7, 14], [29, 16], [17, 2],
+    [5, 5], [46, 7], [7, 16], [45, 18], [26, 2],
   ];
   const out: EffectPixel[] = [];
   spots.forEach(([x, y], i) => {
@@ -91,8 +95,8 @@ function hearts(tick: number): EffectPixel[] {
   const PERIOD = 8;
   for (let i = 0; i < 3; i++) {
     const t = (tick + i * 3) % PERIOD;
-    const x = (i % 2 === 0 ? 6 : 28) + (i === 2 ? 2 : 0);
-    const y = 14 - t;
+    const x = (i % 2 === 0 ? 5 : 44) + (i === 2 ? 2 : 0);
+    const y = 22 - t;
     if (y < 1) continue;
     // 3×2 pixel heart
     out.push(
@@ -113,9 +117,9 @@ function zs(tick: number): EffectPixel[] {
   const PERIOD = 12;
   for (let i = 0; i < 3; i++) {
     const t = (tick + i * 4) % PERIOD;
-    const x = 27 + Math.floor(t / 3);
-    const y = 10 - t;
-    if (y < 0 || x > 33) continue;
+    const x = 43 + Math.floor(t / 3);
+    const y = 14 - t;
+    if (y < 0 || x > 51) continue;
     // 3×3 pixel Z
     out.push(
       { x, y, color: SLATE }, { x: x + 1, y, color: SLATE }, { x: x + 2, y, color: SLATE },
@@ -132,7 +136,7 @@ function thoughtDots(tick: number): EffectPixel[] {
   const out: EffectPixel[] = [];
   for (let i = 0; i < 3; i++) {
     if (i > lit) break;
-    out.push({ x: 22 + i * 3, y: 4 - i, color: i === 2 ? LIME : SLATE });
+    out.push({ x: 26 + i * 4, y: 6 - i, color: i === 2 ? LIME : SLATE });
   }
   return out;
 }
@@ -140,13 +144,13 @@ function thoughtDots(tick: number): EffectPixel[] {
 /** Cyan pixels orbiting the body (searching). */
 function orbit(tick: number): EffectPixel[] {
   const out: EffectPixel[] = [];
-  const cx = 18;
-  const cy = 14;
+  const cx = 25;
+  const cy = 24;
   for (let i = 0; i < 3; i++) {
     const a = ((tick * 0.8 + i * 2.1) % 6.283);
-    const x = Math.round(cx + Math.cos(a) * 13);
-    const y = Math.round(cy + Math.sin(a) * 7);
-    if (x < 0 || x > 35 || y < 0 || y > 25) continue;
+    const x = Math.round(cx + Math.cos(a) * 21);
+    const y = Math.round(cy + Math.sin(a) * 15);
+    if (x < 0 || x > 51 || y < 0 || y > 41) continue;
     out.push({ x, y, color: CYAN });
   }
   return out;
@@ -155,8 +159,8 @@ function orbit(tick: number): EffectPixel[] {
 /** Red cross flashing beside the head (error). */
 function errorCross(tick: number): EffectPixel[] {
   if (tick % 4 >= 3) return []; // blink off
-  const x = 29;
-  const y = 3;
+  const x = 44;
+  const y = 2;
   return [
     { x, y, color: RED }, { x: x + 2, y, color: RED },
     { x: x + 1, y: y + 1, color: RED },
@@ -167,20 +171,20 @@ function errorCross(tick: number): EffectPixel[] {
 /** Work sparks alternating sides (calling / building / writing). */
 function workSparks(tick: number, color: string): EffectPixel[] {
   const left = tick % 2 === 0;
-  const x = left ? 6 : 29;
-  const y = 8 + (tick % 3);
+  const x = left ? 6 : 44;
+  const y = 12 + (tick % 3);
   return sparkle(x, y, color, tick % 2);
 }
 
 /** Green check drawn pixel by pixel, then sparkle (done). */
 function doneCheck(tick: number): EffectPixel[] {
   const CHECK: Array<[number, number]> = [
-    [27, 7], [28, 8], [29, 7], [30, 6], [31, 5], [32, 4],
+    [40, 7], [41, 8], [42, 7], [43, 6], [44, 5], [45, 4],
   ];
   const t = tick % 10;
   const visible = Math.min(CHECK.length, t + 2);
   const out: EffectPixel[] = CHECK.slice(0, visible).map(([x, y]) => ({ x, y, color: LIME }));
-  if (t > 6) out.push(...sparkle(4, 6, GOLD, t % 2));
+  if (t > 6) out.push(...sparkle(5, 5, GOLD, t % 2));
   return out;
 }
 
@@ -199,5 +203,8 @@ export const EFFECTS: Partial<Record<MascotState, (tick: number) => EffectPixel[
   building: (t) => workSparks(t, GOLD),
   writing: (t) => workSparks(t, WHITE),
   spawning: (t) => sparkles(t, [LIME, CYAN, LIME, CYAN, LIME]),
-  surprised: (t) => (t % 3 === 0 ? sparkle(28, 3, GOLD, 1) : []),
+  // Dreaming = sleeping Z's plus drifting dream wisps so it reads as
+  // "evolving in its sleep", not just napping.
+  dreaming: (t) => [...zs(t), ...sparkles(t, [LAVENDER, CYAN, GOLD, LAVENDER, CYAN])],
+  surprised: (t) => (t % 3 === 0 ? sparkle(44, 2, GOLD, 1) : []),
 };

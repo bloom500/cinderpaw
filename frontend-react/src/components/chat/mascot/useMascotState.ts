@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { StreamStatus, AgentPhase } from '@/stores/chat';
 import { useAskUser } from '@/stores/askUser';
 import { useFeralStore } from '@/stores/feral';
+import { useDream } from '@/stores/dream';
 import type { MascotState } from './frames';
 
 export const DONE_HOLD_MS = 1200;
@@ -24,6 +25,9 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
   // user) and "my agent process is down" (sidecar offline → asleep).
   const askPending = useAskUser((s) => s.pending !== null);
   const agentOffline = useFeralStore((s) => s.offline);
+  // A Dream Cycle is running in the background (RSI self-improvement). When the
+  // user isn't actively doing anything, the mascot shows the dreaming pose.
+  const dreaming = useDream((s) => s.dreaming);
 
   const isExcitedTransition = streamStatus === 'streaming' && prevStatus.current !== 'streaming' && idleTier.current > 0;
 
@@ -64,5 +68,6 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
     }
   }
   if (isUserTyping) return 'typing';
+  if (dreaming) return 'dreaming';
   return 'idle';
 }

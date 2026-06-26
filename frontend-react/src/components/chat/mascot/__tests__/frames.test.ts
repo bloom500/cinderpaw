@@ -6,7 +6,7 @@ const ALL_STATES: MascotState[] = [
   'wave', 'sleep', 'surprised', 'curious', 'celebrate',
   'reading', 'searching', 'building', 'writing',
   'stretching', 'gaming', 'love', 'cool', 'error', 'excited',
-  'spawning',
+  'spawning', 'dreaming',
 ];
 
 describe('mascot frames', () => {
@@ -110,7 +110,7 @@ describe('mascot variants', () => {
       wave: 4, sleep: 3, surprised: 4, curious: 3, celebrate: 5,
       reading: 1, searching: 1, building: 1, writing: 1,
       stretching: 1, gaming: 2, love: 1, cool: 2, error: 3, excited: 1,
-      spawning: 1,
+      spawning: 1, dreaming: 1,
     };
     for (const s of ALL_STATES) {
       expect(VARIANTS[s].length, `variants for ${s}`).toBe(expected[s]);
