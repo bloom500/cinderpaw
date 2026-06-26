@@ -247,6 +247,26 @@ export interface RsiStopAck {
   delivered: boolean;
 }
 
+/** One completed Dream Cycle episode (Rust `DreamEpisode`, camelCase wire). */
+export interface DreamEpisode {
+  startedAt: number;
+  endedAt: number;
+  trigger: 'idle' | 'error';
+  iterations: number;
+  tokens: number;
+  ratchets: number;
+  stopReason: string;
+}
+
+/** Lifetime Dream Cycle totals + the most recent episodes (newest first). */
+export interface DreamTelemetrySummary {
+  episodes: number;
+  ratchets: number;
+  tokens: number;
+  iterations: number;
+  last: DreamEpisode[];
+}
+
 /** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
@@ -469,6 +489,8 @@ const raw = {
   rsiStop:            () => invoke<RsiStopAck>('rsi_stop'),
   rsiSetConcurrency:  (concurrency: number) =>
     invoke<void>('rsi_set_concurrency', { concurrency }),
+  rsiDreamTelemetry:  (limit: number) =>
+    invoke<DreamTelemetrySummary>('rsi_dream_telemetry', { limit }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -610,6 +632,7 @@ export const tauri = {
       raw.rsiStart(goal, budgetUsd, maxIterations, concurrency),
     stop:            async () => raw.rsiStop(),
     setConcurrency:  async (concurrency: number) => raw.rsiSetConcurrency(concurrency),
+    dreamTelemetry:  async (limit = 12) => raw.rsiDreamTelemetry(limit),
   },
 
   agents: {

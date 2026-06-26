@@ -57,6 +57,11 @@ import {
   defaultChampionPath,
   type ChampionRecord,
 } from "./champion.ts";
+import {
+  readPopulationSnapshot,
+  writePopulationSnapshot,
+  defaultPopulationSnapshotPath,
+} from "./population-snapshot.ts";
 
 /** Tiny contract the sidecar needs from the host's transport: a
  *  function that writes one outbound event as JSON. */
@@ -70,6 +75,27 @@ export interface RsiStartOptions {
   /** USD spend cap. 0 = local-only. undefined ⇒ no cost cap (manual runs). */
   maxTotalCostUsd?: number;
   concurrency?: number;
+  /** Dream Cycle episode cap: hard wall-clock bound (ms) so an episode
+   *  cannot hang or burn past its window. undefined ⇒ no wall-clock cap
+   *  (manual/continuous runs). Threaded into GoalConfig.maxWallClockMs. */
+  maxWallClockMs?: number;
+  /** Dream Cycle episode cap: stop early after this many consecutive
+   *  iterations with no new ratchet. undefined ⇒ no plateau stop.
+   *  Threaded into GoalConfig.plateauPatience. */
+  plateauIterations?: number;
+}
+
+/** Slim run-end stats the host uses for Dream Cycle telemetry. Carried
+ *  on `onIdle` so the host can append one JSONL line per episode without
+ *  re-deriving anything from the engine. */
+export interface RsiRunStats {
+  iterations: number;
+  tokens: number;
+  stopReason: string;
+  /** RatchetAdvanced events during this episode — the count of real
+   *  improvements committed to main. The number that lets telemetry prove
+   *  the Dream Cycle is improving (not just spinning). */
+  ratchets: number;
 }
 
 export interface RsiSidecarDeps {
@@ -85,6 +111,11 @@ export interface RsiSidecarDeps {
   bridge: RsiBridge;
   /** Outbound sink — writes one JSON line per call. */
   send: EmitFn;
+  /** Optional log sink (host's `log`). Background (Dream Cycle) episode
+   *  failures are written here instead of being pushed to the user-facing
+   *  `error` channel — an idle self-improvement run that fails must not
+   *  surface as a chat error the user never asked for. */
+  log?: (msg: string) => void;
   /** Optional: extra engine seeds to merge with the defaults. Used
    *  by tests; production relies on the embedded seeds. */
   extraSeeds?: GenomeSpec[];
@@ -97,9 +128,10 @@ export interface RsiSidecarDeps {
    *  `~/.feral/meta/`. */
   fsRoot?: string;
   /** Optional: called when a run ends (resolve OR reject), after the
-   *  engine is torn down. The passive supervisor uses this to restart
-   *  the engine for continuous background evolution. */
-  onIdle?: () => void;
+   *  engine is torn down. The Dream Cycle scheduler uses this to enter
+   *  its sleep/cooldown window; `stats` (present on a normal stop) lets
+   *  the host append per-episode telemetry. */
+  onIdle?: (stats?: RsiRunStats) => void;
   /** Optional: called when the engine ratchets a new best genome (the
    *  Crux). The host maps the record's config onto the live agent so
    *  the evolved configuration actually reaches the agent the user
@@ -108,6 +140,9 @@ export interface RsiSidecarDeps {
   /** Optional: where to persist `champion.json`. Default
    *  `~/.feral/rsi/champion.json`. */
   championPath?: string;
+  /** Optional: where to persist the full population snapshot (Dream Cycle
+   *  evolutionary continuity). Default `~/.feral/rsi/population.json`. */
+  populationSnapshotPath?: string;
 }
 
   /** Sidecar singleton — one per process. */
@@ -134,10 +169,17 @@ export class RsiSidecar {
    *  a UI double-click can't fork two engines on the same substrate. */
   async start(opts: RsiStartOptions, ackId?: string): Promise<void> {
     if (this.engine !== null) {
-      this.deps.send({
-        type: "error",
-        message: "rsi_start: engine already running — stop it first",
-      });
+      // Same background-vs-user split as the run-failure handler below: a UI
+      // start (ackId) that collides with a live run is a real error the user
+      // should see; a background Dream Cycle start that arrives while an
+      // episode is still running is routine contention — log it, never surface
+      // it as a chat error.
+      const msg = "rsi_start: engine already running — stop it first";
+      if (ackId !== undefined) {
+        this.deps.send({ type: "error", message: msg });
+      } else {
+        this.deps.log?.(`rsi dream: skipped background start (${msg})`);
+      }
       return;
     }
 
@@ -302,6 +344,8 @@ export class RsiSidecar {
         maxIterations: opts.maxIterations,
         maxTotalTokens: opts.maxTotalTokens,
         ...(opts.maxTotalCostUsd !== undefined ? { maxTotalCostUsd: opts.maxTotalCostUsd } : {}),
+        ...(opts.maxWallClockMs !== undefined ? { maxWallClockMs: opts.maxWallClockMs } : {}),
+        ...(opts.plateauIterations !== undefined ? { plateauPatience: opts.plateauIterations } : {}),
         pricePer1kUsd,
       },
       evalDeps: { runEval, scoreGenome },
@@ -315,6 +359,18 @@ export class RsiSidecar {
     // selection construction).
     escapeTrackerHolder.current = engine.escapeTracker;
     this.engine = engine;
+
+    // ── Dream Cycle resume cascade ────────────────────────────────────
+    // Full evolutionary continuity: if a prior episode left a population
+    // snapshot, restore the engine's population (genomes + lineage +
+    // fitness + path-dependent Hall of Fame) so this episode resumes
+    // exactly where the last one stopped. Cascade: snapshot (superset) →
+    // champion (already merged into `seeds` above) → cold seeds. A
+    // missing/corrupt/version-mismatched snapshot returns null and we
+    // keep the champion-seeded population — never throws.
+    const snapshotPath = this.deps.populationSnapshotPath ?? defaultPopulationSnapshotPath();
+    const snap = readPopulationSnapshot(snapshotPath);
+    if (snap) engine.pop.restore(snap);
 
     // ── Taste miner on the ENGINE bus ─────────────────────────────────
     // Built here (not before createRsiEngine) so it subscribes to the
@@ -354,8 +410,12 @@ export class RsiSidecar {
     // failure must never abort the engine cascade. (championPath is
     // hoisted above where the resume seed is built.)
     const onChampion = this.deps.onChampion;
+    // Count real improvements this episode → carried on the run-end stats so
+    // telemetry records the number that proves the Dream Cycle is ratcheting.
+    let ratchetCount = 0;
     this.mirrors.push(
       engine.bus.onDisposable("RatchetAdvanced", (ev) => {
+        ratchetCount += 1;
         const genomeId = ev.genomeId as string;
         const config = pop.get(genomeId)?.config;
         if (!config) return;
@@ -401,20 +461,38 @@ export class RsiSidecar {
           stopReason: result.reason,
           emptyResponses,
         });
+        // Persist the full population so the next episode resumes exactly
+        // here (best-effort + atomic; a disk error never aborts the
+        // cascade). Done before tearing down `engine` so we snapshot the
+        // final evolved state. Also mkdir's ~/.feral/rsi/, so the
+        // telemetry append below lands even on the first cold episode.
+        writePopulationSnapshot(snapshotPath, engine.pop.snapshot());
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.();
+        this.deps.onIdle?.({
+          iterations: result.iterations,
+          tokens: result.totalTokens,
+          stopReason: result.reason,
+          ratchets: ratchetCount,
+        });
       },
       (err) => {
-        this.deps.send({
-          type: "error",
-          message: `rsi engine run failed: ${err instanceof Error ? err.message : String(err)}`,
-        });
+        const detail = err instanceof Error ? err.message : String(err);
+        // A user-initiated run (started with an ackId from the UI) surfaces its
+        // failure to the user who asked for it. A background Dream Cycle episode
+        // (no ackId — armed by the idle scheduler) must NOT: route its failure
+        // to the log only, so an idle self-improvement run that dies never pops
+        // up as an error in the middle of a casual chat.
+        if (ackId !== undefined) {
+          this.deps.send({ type: "error", message: `rsi engine run failed: ${detail}` });
+        } else {
+          this.deps.log?.(`rsi dream: background episode failed (logged, not surfaced): ${detail}`);
+        }
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.();
+        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount });
       },
     );
   }

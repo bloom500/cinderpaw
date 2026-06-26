@@ -70,7 +70,7 @@ export interface RsiEngineEventLine {
  */
 export interface FractalActivityLine {
   type: 'fractal_activity';
-  kind: 'recall' | 'grow' | 'seed';
+  kind: 'recall' | 'grow' | 'seed' | 'prune';
   hits?: number;
   leafCount?: number;
   clusterCount?: number;
@@ -78,6 +78,30 @@ export interface FractalActivityLine {
   leafId?: number;
   sessionId?: string;
   ts?: number;
+  /** `prune`: which cluster the fallen leaf belonged to (best-effort). */
+  clusterIndex?: number;
+}
+
+/** Drill-down reply: the real member memories of one top-level cluster. */
+export interface FractalClusterLeavesLine {
+  type: 'fractal_cluster_leaves_result';
+  id: string;
+  leaves: { leafId: number; text: string; ts: number }[];
+}
+
+/**
+ * Dream Cycle lifecycle pulse — emitted when an evolutionary episode starts
+ * (`phase:"started"`) and ends (`phase:"ended"`). Drives the dream toast and
+ * the typing-bar mascot's `dreaming` pose. Mirrors the `dream_cycle` arm of the
+ * sidecar's OutboundEvent union.
+ */
+export interface DreamCycleLine {
+  type: 'dream_cycle';
+  phase: 'started' | 'ended';
+  trigger: 'idle' | 'error';
+  iterations?: number;
+  ratchets?: number;
+  stopReason?: string;
 }
 
 function wrap<T>(channel: string) {
@@ -97,6 +121,17 @@ export const events = {
   downloadCompleteEvent:  wrap<DownloadCompleteEvent>('feral://download-complete'),
   downloadErrorEvent:     wrap<DownloadErrorEvent>('feral://download-error'),
   modelLoadProgressEvent: wrap<ModelLoadProgressEvent>('model-load-progress'),
+  /**
+   * Fractal Memory Search embedding-model download (the ~130 MB bge-small
+   * model the sidecar needs at runtime). Same `Download*Event` payload shape
+   * as the general-purpose HF download channel — only the channel name and
+   * `repo_id` discriminator change. Always filter by `e.repoId === 'embedding'`
+   * before applying state, since the sidecar can emit other repo downloads on
+   * the same channels in the future.
+   */
+  onEmbeddingDownloadProgress: wrap<DownloadProgressEvent>('feral://embedding-download-progress'),
+  onEmbeddingDownloadComplete: wrap<DownloadCompleteEvent>('feral://embedding-download-complete'),
+  onEmbeddingDownloadError:    wrap<DownloadErrorEvent>('feral://embedding-download-error'),
   agentStreamEvent:       wrap<AgentStreamEvent>('feral://agent-event'),
   /**
    * The Feral Agent sidecar's raw stdout forwarded by Rust. The
@@ -147,6 +182,52 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'fractal_activity'
           ) {
             cb(parsed as FractalActivityLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
+   * Reactive-tree drill-down responses — the sidecar's member-memory reply to a
+   * `feral_fractal_cluster_leaves` request, paired by `id`. Same filtered shape
+   * as `onFractalActivity`.
+   */
+  onFractalClusterLeaves: {
+    listen: (cb: (e: FractalClusterLeavesLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'fractal_cluster_leaves_result'
+          ) {
+            cb(parsed as FractalClusterLeavesLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
+   * Dream Cycle lifecycle (`started` / `ended`), filtered out of the raw
+   * sidecar line stream. Drives the dream toast + mascot pose. Same
+   * `.listen(cb)` shape as every other event here.
+   */
+  onDreamCycle: {
+    listen: (cb: (e: DreamCycleLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'dream_cycle'
+          ) {
+            cb(parsed as DreamCycleLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

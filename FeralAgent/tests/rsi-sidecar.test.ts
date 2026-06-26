@@ -96,8 +96,9 @@ function buildSidecar(opts: {
   bridge: FakeBridge;
   router?: InvokeRouter;
   historyWindow?: number;
-}): { sidecar: RsiSidecar; emitted: Array<Record<string, unknown>> } {
+}): { sidecar: RsiSidecar; emitted: Array<Record<string, unknown>>; logs: string[] } {
   const emitted: Array<Record<string, unknown>> = [];
+  const logs: string[] = [];
   const send = (e: Record<string, unknown>) => {
     emitted.push(e);
   };
@@ -106,12 +107,13 @@ function buildSidecar(opts: {
     db: makeDb(),
     router: opts.router ?? new FakeRouter(),
     send,
+    log: (m) => logs.push(m),
     // Hermetic: point at a nonexistent champion path so tests never read
     // the real ~/.feral/rsi/champion.json (resume seed) from the dev box.
     championPath: resolve(import.meta.dir, `../.tmp-nochampion-${Math.random()}.json`),
     ...(opts.historyWindow != null ? { historyWindow: opts.historyWindow } : {}),
   });
-  return { sidecar, emitted };
+  return { sidecar, emitted, logs };
 }
 
 /** Helper: build a synthetic `rsi_get_tier0_specs` response. */
@@ -203,6 +205,26 @@ describe("RsiSidecar — lifecycle", () => {
     const errs = emitted.filter((e) => e.type === "error");
     expect(errs.length).toBeGreaterThan(0);
     expect(errs[0]!.message).toContain("already running");
+
+    sidecar.stop();
+  });
+
+  test("a background (no-ackId) start while running logs instead of surfacing a chat error", async () => {
+    const bridge = new FakeBridge();
+    bridge.enqueue(TIER0_RESPONSE);
+    bridge.enqueue(COMMIT_RESPONSE);
+    bridge.enqueue(RATCHET_NOADV);
+    const { sidecar, emitted, logs } = buildSidecar({ bridge });
+
+    // User starts a run (engine now live)...
+    await sidecar.start({ goal: "x", maxIterations: 1, maxTotalTokens: 1_000 }, "ack-1");
+    // ...then the Dream Cycle (no ackId) tries to start an idle episode.
+    await sidecar.start({ goal: "x", maxIterations: 1, maxTotalTokens: 1_000 });
+
+    // The background collision must NOT become a user-facing error event.
+    expect(emitted.filter((e) => e.type === "error")).toHaveLength(0);
+    // It goes to the log instead.
+    expect(logs.some((m) => /already running/.test(m))).toBe(true);
 
     sidecar.stop();
   });

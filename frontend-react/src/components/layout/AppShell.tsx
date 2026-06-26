@@ -6,6 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUI, useSystemThemeSync } from '@/stores/ui';
 import { useUpdater } from '@/stores/updater';
 import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
+import { useDreamCycle } from '@/hooks/useDreamCycle';
 import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
@@ -51,6 +52,7 @@ function WinControls() {
 export function AppShell() {
   useSystemThemeSync();
   useGlobalHotkeys();
+  useDreamCycle();
 
   const collapsed   = useUI((s) => s.sidebarCollapsed);
   const searchOpen  = useUI((s) => s.searchOpen);

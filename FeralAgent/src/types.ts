@@ -859,6 +859,10 @@ export interface InboundMessage {
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
     // benchmark gate on demand. Remove with the button after the ship/hold call.
     | "fractal_benchmark"
+    // Reactive-tree drill-down: the host requests the member memories of one
+    // top-level cluster; the sidecar replies with a `fractal_cluster_leaves_result`
+    // paired by `id`. Reuses the plain `id` field as the request correlator.
+    | "fractal_cluster_leaves"
     // RSI engine driver (Faza 1 production wiring) — the Rust host
     // commands the sidecar engine via these messages; the sidecar
     // emits `rsi_engine_event` outbound events to ack + mirror state.
@@ -877,6 +881,8 @@ export interface InboundMessage {
   rsiConcurrency?: number;
   /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
   rsiNewConcurrency?: number;
+  /** Reactive-tree drill-down payload (type === "fractal_cluster_leaves"). */
+  clusterIndex?: number;
   /**
    * RSI response payload (type === "rsi_response") reuses the PLAIN fields
    * `id` (above) and `ok`/`data`/`error` (declared below). Rust's
@@ -1041,7 +1047,7 @@ export type OutboundEvent =
   // the `kind` discriminator + the kind-specific fields.
   | {
       type: "fractal_activity";
-      kind: "recall" | "grow" | "seed";
+      kind: "recall" | "grow" | "seed" | "prune";
       hits?: number;
       leafCount?: number;
       clusterCount?: number;
@@ -1049,6 +1055,27 @@ export type OutboundEvent =
       leafId?: number;
       sessionId?: string;
       ts?: number;
+      clusterIndex?: number;
+    }
+  // Reactive-tree drill-down response: the real member memories of one
+  // top-level cluster, paired by `id` with the `fractal_cluster_leaves`
+  // request Rust forwarded. Feeds the zoom-reveal + leaf card.
+  | {
+      type: "fractal_cluster_leaves_result";
+      id: string;
+      leaves: { leafId: number; text: string; ts: number }[];
+    }
+  // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
+  // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim
+  // over `feral://agent-output` so the React `events.onDreamCycle` listener can
+  // raise a toast and put the typing-bar mascot into its `dreaming` pose.
+  | {
+      type: "dream_cycle";
+      phase: "started" | "ended";
+      trigger: "idle" | "error";
+      iterations?: number;
+      ratchets?: number;
+      stopReason?: string;
     };
 
 export interface Transport {

@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn } from '@/lib/utils';
 import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
+import { FeralDreamsPanel } from './FeralDreamsPanel';
 import { FractalBenchmarkPanel } from './FractalBenchmarkPanel'; // PROVISIONAL — remove after ship/hold decision
 
 export function AgentSettingsTab() {
@@ -54,6 +55,7 @@ export function AgentSettingsTab() {
       <TokenBudgetToggle />
       <RsiBudgetControl />
       <RsiEngineStatusPanel />
+      <FeralDreamsPanel />
       <FractalBenchmarkPanel />{/* PROVISIONAL — remove after ship/hold decision */}
       <DesktopControlToggle />
 

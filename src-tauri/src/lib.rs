@@ -729,6 +729,35 @@ async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> Result<(), S
     Ok(())
 }
 
+/// Reactive-tree drill-down: ask the sidecar for the real member memories of a
+/// top-level RAPTOR cluster. Fire-and-forget like the benchmark — the sidecar
+/// replies with a `fractal_cluster_leaves_result` line (paired by `request_id`)
+/// which Rust forwards over `feral://agent-output`; the React tree correlates by
+/// id. Returns once the request is queued.
+#[tauri::command]
+#[specta::specta]
+async fn feral_fractal_cluster_leaves(
+    state: State<'_, AppState>,
+    request_id: String,
+    cluster_index: u32,
+) -> Result<(), String> {
+    let msg = serde_json::json!({
+        "type": "fractal_cluster_leaves",
+        "id": request_id,
+        "clusterIndex": cluster_index,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Forward the user's `ask_user` selection back to the Feral Agent sidecar.
 ///
 /// The React side calls this after the user picks an option in the
@@ -2625,6 +2654,7 @@ pub fn run() {
             feral_agent_status,
             feral_stop_generation,
             feral_run_fractal_benchmark,
+            feral_fractal_cluster_leaves,
             feral_set_model,
             feral_get_model_config,
             get_local_api_token,
@@ -2673,6 +2703,7 @@ pub fn run() {
             rsi::commands::rsi_start,
             rsi::commands::rsi_stop,
             rsi::commands::rsi_set_concurrency,
+            rsi::commands::rsi_dream_telemetry,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
