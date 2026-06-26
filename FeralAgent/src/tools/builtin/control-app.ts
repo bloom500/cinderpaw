@@ -17,7 +17,10 @@
  *     ask_user, is the correct fit and still routes through ToolRegistry.)
  *   - State-changing actions (click / type / perform_action) are confirmed with
  *     the user through `ask_user` before they run, unless
- *     FERAL_DESKTOP_CONTROL_CONFIRM=false. Read actions never prompt.
+ *     FERAL_DESKTOP_CONTROL_CONFIRM=false. Read actions never prompt. When a
+ *     transport has no askUser bridge, a required confirmation fails CLOSED
+ *     (action denied) unless FERAL_DESKTOP_CONTROL_NO_PROMPT_OK=true opts into
+ *     prompt-less execution for trusted/headless setups.
  *   - Any value that could be a secret typed into a password field is redacted
  *     (`[REDACTED]`) in this tool's own audit entries; the host independently
  *     refuses to read secure-field values back to the model.
@@ -87,22 +90,40 @@ function structuredError(message: string, recoverable: boolean): ToolResult {
   };
 }
 
-/** Heuristic: which inbound failures from the host are worth retrying. */
-function isRecoverable(message: string): boolean {
+/**
+ * Heuristic: which inbound failures from the host are worth retrying.
+ *
+ * Inverted default: control_app failures are overwhelmingly transient UI-timing
+ * issues (the tree wasn't ready, the element moved, the window wasn't focused
+ * yet), so the safe default is "recoverable — let the agent retry". Only
+ * DETERMINISTIC failures — policy refusals, bad args, config errors, things a
+ * retry can never fix — are marked unrecoverable. The previous allowlist of
+ * recoverable substrings was both too narrow (transient errors with no matching
+ * keyword fell through to unrecoverable) and too broad in its refusal check
+ * (`"not in"` wrongly matched `"not invokable"`), so the agent gave up on
+ * failures it should have retried — the bulk of the reported "unrecoverable".
+ */
+export function isRecoverable(message: string): boolean {
   const m = message.toLowerCase();
-  if (m.includes("denylist") || m.includes("not in") || m.includes("disabled")) {
-    // Policy refusals are deterministic — not recoverable by retry.
-    return false;
-  }
-  return (
-    m.includes("element_not_found") ||
-    m.includes("not found") ||
-    m.includes("closed") ||
-    m.includes("changed") ||
-    m.includes("timed out") ||
-    m.includes("com") ||
-    m.includes("failed")
-  );
+  const PERMANENT = [
+    "denylist", // security denylist — never controllable
+    "allowlist", // not in FERAL_DESKTOP_CONTROL_ALLOWED_APPS
+    "is not in feral",
+    "control is disabled", // FERAL_ENABLE_DESKTOP_CONTROL not set
+    "requires", // missing required arg (model error)
+    "unknown action",
+    "unsupported action",
+    "does not support", // element lacks the requested pattern
+    "not invokable",
+    "malformed element id",
+    "illegal characters",
+    "declined", // user said no
+    "no resolvable app name",
+  ];
+  if (PERMANENT.some((p) => m.includes(p))) return false;
+  // element_not_found, window closed/changed, focus race, COM hiccup, timeout,
+  // partial SendInput, etc. → transient, worth a retry.
+  return true;
 }
 
 export function createControlAppTool(): Tool {
@@ -356,9 +377,11 @@ async function confirmWrite(
   ctx: Parameters<Tool["execute"]>[1],
 ): Promise<boolean> {
   if (!ctx.askUser) {
-    // No way to ask — rely on the host's app allow/deny gate and proceed. The
-    // host still blocks denylisted apps regardless.
-    return true;
+    // No way to ask the user → fail CLOSED. Confirmation was required for this
+    // state-changing action and we cannot obtain it; the host denylist is a
+    // separate gate, not a substitute for per-action consent. A trusted/headless
+    // transport that genuinely has no askUser bridge can opt out explicitly.
+    return process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK === "true";
   }
   const target = typeof args.element_id === "string" ? args.element_id : "(focused element)";
   const detail =

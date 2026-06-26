@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { createControlAppTool, redactArgsForAudit } from "../src/tools/builtin/control-app.ts";
+import { createControlAppTool, redactArgsForAudit, isRecoverable } from "../src/tools/builtin/control-app.ts";
 import { DesktopControlBridgeImpl } from "../src/core/desktop-control-bridge.ts";
 import type {
   AuditEntry,
@@ -198,6 +198,30 @@ describe("control_app tool", () => {
     expect(denied.requests).toHaveLength(0);
   });
 
+  it("fails CLOSED on a required confirmation when there is no askUser bridge", async () => {
+    const tool = createControlAppTool();
+    // makeCtx without askUserAnswer → no askUser bridge.
+    const { ctx, requests } = makeCtx({ onRequest: () => ({ ok: true }) });
+    const res = await tool.execute({ action: "click", element_id: "1:2.3" }, ctx);
+    expect(res.ok).toBe(false);
+    expect(requests).toHaveLength(0); // host never reached without consent
+  });
+
+  it("allows prompt-less execution only with the explicit env opt-out", async () => {
+    const tool = createControlAppTool();
+    const prev = process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK;
+    process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK = "true";
+    try {
+      const { ctx, requests } = makeCtx({ onRequest: () => ({ ok: true }) });
+      const res = await tool.execute({ action: "click", element_id: "1:2.3" }, ctx);
+      expect(res.ok).toBe(true);
+      expect(requests).toHaveLength(1);
+    } finally {
+      if (prev === undefined) delete process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK;
+      else process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK = prev;
+    }
+  });
+
   it("rejects unknown actions and missing required params", async () => {
     const tool = createControlAppTool();
     const { ctx } = makeCtx({ onRequest: () => ({}) });
@@ -239,6 +263,40 @@ describe("redactArgsForAudit", () => {
     const out = redactArgsForAudit({ element_id: "1:2", keys: "p4ssw0rd{Enter}" });
     expect(out.keys).toBe("[REDACTED]");
     expect(out.element_id).toBe("1:2");
+  });
+});
+
+describe("isRecoverable", () => {
+  it("treats transient UI/timing failures as recoverable", () => {
+    for (const msg of [
+      "desktop control: element_not_found (it may have changed or its window closed)",
+      "desktop control: could not bring the target window to the foreground before typing",
+      "desktop control: GetFocusedElement failed: COM error",
+      "desktop control: SendInput dispatched only 0/6 events",
+      "some unexpected error with no keyword at all",
+    ]) {
+      expect(isRecoverable(msg)).toBe(true);
+    }
+  });
+
+  it("treats deterministic refusals / config / arg errors as unrecoverable", () => {
+    for (const msg of [
+      'desktop control: "cmd.exe" is on the security denylist',
+      "desktop control: \"foo\" is not in FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
+      "desktop control is disabled. Set FERAL_ENABLE_DESKTOP_CONTROL=true",
+      'control_app: action "get_tree" requires a numeric "pid".',
+      "desktop control: element does not support setting a value",
+      "control_app: the user declined the \"click\" action.",
+    ]) {
+      expect(isRecoverable(msg)).toBe(false);
+    }
+  });
+
+  it("no longer misclassifies 'not invokable' as a policy refusal", () => {
+    // Regression: the old `"not in"` substring matched "not invokable" and
+    // wrongly marked a transient element state as a permanent refusal.
+    expect(isRecoverable("desktop control: element is not invokable (no Invoke or Toggle pattern)")).toBe(false);
+    // ^ correctly unrecoverable now via the explicit "not invokable" entry, not by accident.
   });
 });
 

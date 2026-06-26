@@ -16,8 +16,32 @@
 
 import type { Tool, ToolManifest, ProcessRunResult } from "../../types.ts";
 import { resolveExecutables } from "../../core/executables.ts";
+import { firstAllowedPath } from "../../sandbox/tool-permissions.ts";
 
 const GIT_ALLOWED = resolveExecutables(["git"]);
+
+/**
+ * Resolve the repo path: use the caller's `path` when given, otherwise fall
+ * back to the first configured workspace root. Models routinely call git_*
+ * with no path or a relative `.` — both used to surface as `spawn_error`
+ * (the sandbox rejects a relative/out-of-root cwd). Defaulting to the
+ * workspace root makes the common "git status of my project" call just work.
+ */
+function repoPath(
+  args: Record<string, unknown>,
+  manifest: ToolManifest,
+): string | null {
+  const p = args.path;
+  if (typeof p === "string" && p.trim()) return p;
+  return firstAllowedPath(manifest) ?? null;
+}
+
+const PATH_PARAM = {
+  type: "string" as const,
+  description:
+    "Absolute path to a git repo (root or any subdir). Optional — defaults to the workspace root.",
+  required: false,
+};
 
 interface ProcessCtx {
   process?: import("../../types.ts").ProcessSandbox;
@@ -81,12 +105,12 @@ export function createGitStatusTool(allowedPaths: string[]): Tool {
   return {
     manifest,
     parameters: {
-      path: { type: "string", description: "Absolute path to a git repo (root or any subdir).", required: true },
+      path: PATH_PARAM,
     },
     async execute(args, ctx) {
-      const path = args.path;
-      if (typeof path !== "string" || !path.trim()) {
-        return badArgs("git_status requires a non-empty 'path' string.");
+      const path = repoPath(args, ctx.manifest);
+      if (!path) {
+        return badArgs("git_status: no 'path' given and no workspace root configured.");
       }
       try {
         const r = await runGit(ctx, ["status", "--porcelain", "--branch"], path);
@@ -116,14 +140,14 @@ export function createGitDiffTool(allowedPaths: string[]): Tool {
   return {
     manifest,
     parameters: {
-      path: { type: "string", description: "Absolute path to a git repo.", required: true },
+      path: PATH_PARAM,
       staged: { type: "boolean", description: "When true, show staged changes (`--cached`).", required: false },
       file: { type: "string", description: "Optional path within the repo to limit the diff to.", required: false },
       max_lines: { type: "number", description: "Cap on the number of diff lines (default 1000).", required: false },
     },
     async execute(args, ctx) {
-      const path = args.path;
-      if (typeof path !== "string" || !path.trim()) return badArgs("git_diff requires a non-empty 'path' string.");
+      const path = repoPath(args, ctx.manifest);
+      if (!path) return badArgs("git_diff: no 'path' given and no workspace root configured.");
       const staged = args.staged === true;
       const file = typeof args.file === "string" && args.file.trim() ? args.file : null;
       const maxLines = typeof args.max_lines === "number" ? Math.max(1, Math.floor(args.max_lines)) : 1000;
@@ -170,14 +194,14 @@ export function createGitLogTool(allowedPaths: string[]): Tool {
   return {
     manifest,
     parameters: {
-      path: { type: "string", description: "Absolute path to a git repo.", required: true },
+      path: PATH_PARAM,
       max: { type: "number", description: "Number of commits to show (default 20, max 200).", required: false },
       branch: { type: "string", description: "Branch or ref to show (default: HEAD).", required: false },
       path_filter: { type: "string", description: "Optional path within the repo to limit history to.", required: false },
     },
     async execute(args, ctx) {
-      const path = args.path;
-      if (typeof path !== "string" || !path.trim()) return badArgs("git_log requires a non-empty 'path' string.");
+      const path = repoPath(args, ctx.manifest);
+      if (!path) return badArgs("git_log: no 'path' given and no workspace root configured.");
       const max = Math.min(Math.max(typeof args.max === "number" ? Math.floor(args.max) : 20, 1), 200);
       const branch = typeof args.branch === "string" && args.branch.trim() ? args.branch : "HEAD";
       const pathFilter = typeof args.path_filter === "string" && args.path_filter.trim() ? args.path_filter : null;
@@ -223,14 +247,14 @@ export function createGitCommitTool(allowedPaths: string[]): Tool {
   return {
     manifest,
     parameters: {
-      path: { type: "string", description: "Absolute path to a git repo.", required: true },
+      path: PATH_PARAM,
       message: { type: "string", description: "Commit message. Multi-line messages supported.", required: true },
       add_all: { type: "boolean", description: "When true, run `git add -A` first (default: only commit already-staged).", required: false },
     },
     async execute(args, ctx) {
-      const path = args.path;
+      const path = repoPath(args, ctx.manifest);
       const message = args.message;
-      if (typeof path !== "string" || !path.trim()) return badArgs("git_commit requires a non-empty 'path' string.");
+      if (!path) return badArgs("git_commit: no 'path' given and no workspace root configured.");
       if (typeof message !== "string" || !message.trim()) return badArgs("git_commit requires a non-empty 'message' string.");
 
       // Defense in depth: refuse if the message itself contains any of the
@@ -289,7 +313,7 @@ export function createGitBranchTool(allowedPaths: string[]): Tool {
   return {
     manifest,
     parameters: {
-      path: { type: "string", description: "Absolute path to a git repo.", required: true },
+      path: PATH_PARAM,
       action: {
         type: "string",
         description: "One of: 'list' (default), 'create', 'switch', 'delete'.",
@@ -299,8 +323,8 @@ export function createGitBranchTool(allowedPaths: string[]): Tool {
       force: { type: "boolean", description: "When deleting, allow deletion of unmerged branches (`-D` instead of `-d`).", required: false },
     },
     async execute(args, ctx) {
-      const path = args.path;
-      if (typeof path !== "string" || !path.trim()) return badArgs("git_branch requires a non-empty 'path' string.");
+      const path = repoPath(args, ctx.manifest);
+      if (!path) return badArgs("git_branch: no 'path' given and no workspace root configured.");
       const action = typeof args.action === "string" && args.action.trim() ? args.action : "list";
       const name = typeof args.name === "string" && args.name.trim() ? args.name : null;
       const force = args.force === true;
