@@ -1,77 +1,143 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { tauri, events } from '@/lib/tauri';
-import { useOrganismImpulse } from '@/hooks/useOrganismImpulse';
+import { layoutTree, type ClusterInput, type TreeLayout } from '@/lib/tree/layout';
+import { deriveTreeSignal } from '@/lib/tree/signal';
 import {
-  createOrganismRenderer,
-  DEFAULT_VIEW,
-  screenToComplex,
-  type OrganismRenderer,
-  type OrganismView,
-} from '@/lib/fractal/organism';
-import { deriveOrganismState, type OrganismState } from '@/lib/fractal/signal';
-import { breathingMorph, BREATH_WINDOW_MS } from '@/lib/fractal/breathing';
-import { maturity } from '@/lib/fractal/maturity';
+  createTreeRenderer,
+  DEFAULT_TREE_VIEW,
+  type TreeRenderer,
+  type TreeView,
+  type RenderAnim,
+} from '@/lib/tree/render';
 
-const REST_STATE: OrganismState = { power: 2, depthBoost: 0, morph: 0, warpSeeds: [] };
+/**
+ * Memory Layers — the reactive pixel tree. Maps 1:1 to the RAPTOR substrate
+ * (clusters = branches, memories = leaves) and consumes the Fractal Memory
+ * Search pulses: `seed` sprouts a leaf, `grow` extends a branch, `recall`
+ * lights the traversed path, `prune` drops a leaf (never below the maturity
+ * floor). Idle = a fine ambient sway, the tree's only permanent animation.
+ */
+
+/** Monotonic min-branch floor, persisted per-install. Distinct key from the
+ *  retired Mandelbrot maturity store so old depth values can't contaminate it. */
+const FLOOR_KEY = 'feral.tree.minBranchFloor';
+const treeFloor = {
+  current(): number {
+    try {
+      const v = localStorage.getItem(FLOOR_KEY);
+      const n = v == null ? 0 : parseFloat(v);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch {
+      return 0;
+    }
+  },
+  bump(value: number): number {
+    const next = Math.max(this.current(), value, 0);
+    try {
+      localStorage.setItem(FLOOR_KEY, String(next));
+    } catch {
+      /* storage unavailable — session-only floor */
+    }
+    return next;
+  },
+};
+
+const RECALL_DECAY_MS = 1200;
+const SEED_POP_MS = 250;
+const PRUNE_FALL_MS = 500;
+
+interface LeafCard {
+  clusterIndex: number;
+  leaves: { leafId: number; text: string; ts: number }[];
+}
 
 export default function MemoryLayersPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rendererRef = useRef<OrganismRenderer | null>(null);
-  const viewRef = useRef<OrganismView>({ ...DEFAULT_VIEW });
-  const stateRef = useRef<OrganismState>(REST_STATE);
+  const rendererRef = useRef<TreeRenderer | null>(null);
+  const viewRef = useRef<TreeView>({ ...DEFAULT_TREE_VIEW });
+  const layoutRef = useRef<TreeLayout>({ trunk: { x0: 0, y0: 0, x1: 0, y1: 0, thickness: 12 }, branches: [] });
+  const clustersRef = useRef<ClusterInput[]>([]);
+  const minBranchesRef = useRef<number>(treeFloor.current());
+
+  // Active pulse state, mutated by events and read each animation frame.
+  const litRef = useRef<Map<number, { start: number }>>(new Map());
+  const seedRef = useRef<Map<number, { start: number }>>(new Map());
+  const fallRef = useRef<{ x: number; y: number; start: number }[]>([]);
+  const rafRef = useRef<number | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
-  // Active breath: a self-terminating RAF started by a `recall` pulse. null
-  // when the organism is at rest (no idle animation).
-  const breathRef = useRef<{ raf: number; start: number; base: OrganismState } | null>(null);
+  const [card, setCard] = useState<LeafCard | null>(null);
+  const cardReqRef = useRef<string>('');
 
-  const draw = useCallback(() => {
-    rendererRef.current?.render(viewRef.current, stateRef.current);
+  const relayout = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    layoutRef.current = layoutTree(clustersRef.current, {
+      width: canvas.clientWidth || 800,
+      height: canvas.clientHeight || 600,
+      minBranches: minBranchesRef.current,
+    });
   }, []);
 
-  // Pan/zoom draw at reduced quality, then settle to a full-quality frame once
-  // the gesture stops — keeps navigation smooth without a permanent loop.
-  const settleRef = useRef<number | null>(null);
-  const drawInteractive = useCallback(() => {
-    rendererRef.current?.render(viewRef.current, stateRef.current, { interacting: true });
-    if (settleRef.current != null) clearTimeout(settleRef.current);
-    settleRef.current = window.setTimeout(() => { settleRef.current = null; draw(); }, 160);
-  }, [draw]);
+  // The single continuous loop: ambient sway + decaying pulses. Cheap (Canvas2D
+  // + LOD-bounded sprite count), so unlike the Mandelbrot it runs at rest.
+  const loop = useCallback((now: number) => {
+    const r = rendererRef.current;
+    if (r) {
+      const branchLit = new Map<number, number>();
+      for (const [idx, p] of litRef.current) {
+        const k = 1 - (now - p.start) / RECALL_DECAY_MS;
+        if (k <= 0) litRef.current.delete(idx);
+        else branchLit.set(idx, k);
+      }
+      const seedPop = new Map<number, number>();
+      for (const [idx, p] of seedRef.current) {
+        const k = (now - p.start) / SEED_POP_MS;
+        if (k >= 1) seedRef.current.delete(idx);
+        else seedPop.set(idx, Math.max(0.1, k));
+      }
+      const falling = fallRef.current
+        .map((f) => ({ x: f.x, y: f.y, t: (now - f.start) / PRUNE_FALL_MS }))
+        .filter((f) => f.t < 1);
+      fallRef.current = fallRef.current.filter((f) => (now - f.start) / PRUNE_FALL_MS < 1);
 
-  useEffect(() => () => { if (settleRef.current != null) clearTimeout(settleRef.current); }, []);
+      const anim: RenderAnim = { timeMs: now, branchLit, seedPop, falling };
+      r.render(layoutRef.current, viewRef.current, anim);
+    }
+    rafRef.current = requestAnimationFrame(loop);
+  }, []);
 
-  const { impulseTo } = useOrganismImpulse({
-    onFrame: (s) => { stateRef.current = s; draw(); },
-  });
-
-  // One-time renderer setup.
+  // One-time renderer + loop setup.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const r = createOrganismRenderer(canvas);
+    const r = createTreeRenderer(canvas);
     if (!r) { setUnsupported(true); return; }
     rendererRef.current = r;
-    draw();
-    const onLost = (ev: Event) => { ev.preventDefault(); rendererRef.current = null; };
-    const onRestored = () => {
-      const r2 = createOrganismRenderer(canvas);
-      if (r2) { rendererRef.current = r2; draw(); }
-    };
-    canvas.addEventListener('webglcontextlost', onLost as EventListener);
-    canvas.addEventListener('webglcontextrestored', onRestored as EventListener);
-    const onResize = () => { r.resize(); draw(); };
+    relayout();
+    rafRef.current = requestAnimationFrame(loop);
+    const onResize = () => { r.resize(); relayout(); };
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
-      canvas.removeEventListener('webglcontextlost', onLost as EventListener);
-      canvas.removeEventListener('webglcontextrestored', onRestored as EventListener);
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       r.dispose();
       rendererRef.current = null;
     };
-  }, [draw]);
+  }, [loop, relayout]);
 
-  // Pull memory + RSI state and recompute the organism form.
+  const branchCount = () => layoutRef.current.branches.length;
+  const branchForLeaf = (leafId?: number, clusterIndex?: number): number => {
+    const n = branchCount();
+    if (n === 0) return 0;
+    if (clusterIndex != null) return clusterIndex % n;
+    return Math.abs(leafId ?? 0) % n;
+  };
+
+  // Pull memory + RSI and recompute the tree form.
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -79,94 +145,74 @@ export default function MemoryLayersPage() {
         tauri.memory.getGraph(),
         tauri.rsi.status().catch(() => null),
       ]);
+      void rsi;
       const eliteNodeCount = graph.nodes.length;
-      const clusterCount = new Set(graph.nodes.map((n) => n.type)).size; // diversity proxy (3a)
-      const { state, floor } = deriveOrganismState({
+      const clusterCount = new Set(graph.nodes.map((n) => n.type)).size; // diversity proxy
+      const { signal, floor } = deriveTreeSignal({
         clusterCount,
         eliteNodeCount,
-        rsi,
-        persistedFloor: maturity.current(),
+        persistedFloor: treeFloor.current(),
       });
-      maturity.bump(floor);
-      impulseTo(stateRef.current, state);
+      treeFloor.bump(floor);
+      minBranchesRef.current = signal.minBranches;
+      relayout();
     } catch (err) {
       console.error('[MemoryLayersPage] refresh failed', err);
     } finally {
       setLoading(false);
     }
-  }, [impulseTo]);
-
-  // Derive directly from a `grow` event's real RAPTOR payload — no node-type proxy.
-  const growFrom = useCallback(async (line: { leafCount?: number; clusterCount?: number; clusters?: { x: number; y: number; weight: number }[] }) => {
-    const rsi = await tauri.rsi.status().catch(() => null);
-    const { state, floor } = deriveOrganismState({
-      clusterCount: line.clusterCount ?? 0,
-      eliteNodeCount: line.leafCount ?? 0,
-      rsi,
-      persistedFloor: maturity.current(),
-      clusters: line.clusters ?? [],
-    });
-    maturity.bump(floor);
-    impulseTo(stateRef.current, state);
-  }, [impulseTo]);
+  }, [relayout]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Breathing: a `recall` pulse makes the organism breathe over the active
-  // region for one window, then it goes perfectly still again. The loop reads
-  // the current resting state as its base and overlays the morph swell on top,
-  // restoring the base and stopping itself once the window elapses.
-  const startBreathing = useCallback(() => {
-    if (breathRef.current) cancelAnimationFrame(breathRef.current.raf);
-    const base = stateRef.current;
-    const start = performance.now();
-    const tick = () => {
-      const elapsed = performance.now() - start;
-      if (elapsed >= BREATH_WINDOW_MS) {
-        stateRef.current = base;       // back to rest
-        draw();
-        breathRef.current = null;      // loop stops — no idle animation
-        return;
-      }
-      const m = breathingMorph(elapsed);
-      stateRef.current = { ...base, morph: Math.max(base.morph, m) };
-      draw();
-      breathRef.current = { raf: requestAnimationFrame(tick), start, base };
-    };
-    breathRef.current = { raf: requestAnimationFrame(tick), start, base };
-  }, [draw]);
-
-  // Stop any in-flight breath on unmount.
-  useEffect(() => () => {
-    if (breathRef.current) cancelAnimationFrame(breathRef.current.raf);
-    breathRef.current = null;
-  }, []);
-
-  // Live evolution, driven by Fractal Memory Search (not RSI):
-  //   grow   → derive directly from real RAPTOR payload (filament growth)
-  //   recall → breathe over the just-traversed region
-  //   seed   → fine impulse on every memory write so the organism feels
-  //            alive per-iteration, not only on the next 1.2× rebuild
-  //            (reuses the recall breathing — same self-terminating
-  //            one-window morph swell; cheap, no state rebuild).
+  // Live evolution from Fractal Memory Search.
   useEffect(() => {
     let alive = true;
     const unlistenP = events.onFractalActivity.listen((e) => {
       if (!alive) return;
-      if (e.kind === 'grow') void growFrom(e);
-      else if (e.kind === 'recall' || e.kind === 'seed') startBreathing();
+      if (e.kind === 'grow') {
+        clustersRef.current = (e.clusters ?? []).map((c) => ({ weight: c.weight }));
+        if (e.clusterCount != null) {
+          minBranchesRef.current = treeFloor.bump(Math.max(minBranchesRef.current, e.clusterCount));
+        }
+        relayout();
+      } else if (e.kind === 'seed') {
+        seedRef.current.set(branchForLeaf(e.leafId, e.clusterIndex), { start: performance.now() });
+      } else if (e.kind === 'recall') {
+        // Light the highest-density branches in proportion to the hit count
+        // (an approximation of "where it searched" — exact per-leaf is a
+        // follow-up that needs recall to carry leafIds).
+        const ranked = [...layoutRef.current.branches]
+          .sort((a, b) => b.leaves.length - a.leaves.length)
+          .slice(0, Math.max(1, Math.min(e.hits ?? 1, layoutRef.current.branches.length)));
+        for (const b of ranked) litRef.current.set(b.index, { start: performance.now() });
+      } else if (e.kind === 'prune') {
+        const idx = branchForLeaf(e.leafId, e.clusterIndex);
+        const b = layoutRef.current.branches[idx];
+        if (b) fallRef.current.push({ x: b.x1, y: b.y1, start: performance.now() });
+      }
     });
     return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
-  }, [growFrom, startBreathing]);
+  }, [relayout]);
 
-  // Live evolution: re-pull + pulse whenever the RSI engine reports progress.
+  // RSI progress → re-pull (mirrors the old behavior).
   useEffect(() => {
     let alive = true;
     const unlistenP = events.onRsiEngineEvent.listen(() => { if (alive) void refresh(); });
     return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
   }, [refresh]);
 
-  // Pan / zoom — pure vector navigation of the organism.
+  // Drill-down responses → fill the leaf card.
+  useEffect(() => {
+    let alive = true;
+    const unlistenP = events.onFractalClusterLeaves.listen((e) => {
+      if (!alive || e.id !== cardReqRef.current) return;
+      setCard((c) => (c ? { ...c, leaves: e.leaves } : c));
+    });
+    return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
+  }, []);
+
+  // Pan / zoom.
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const canvas = canvasRef.current;
@@ -174,60 +220,122 @@ export default function MemoryLayersPage() {
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
     const v = viewRef.current;
-    const before = screenToComplex(px, py, w, h, v);
-    const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1;
-    const scale = Math.max(1e-7, v.scale * factor);
-    const v2 = { ...v, scale };
-    const after = screenToComplex(px, py, w, h, v2);
-    viewRef.current = { ...v2, centerX: v2.centerX + (before.x - after.x), centerY: v2.centerY + (before.y - after.y) };
-    drawInteractive();
-  }, [drawInteractive]);
+    const factor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
+    const zoom = Math.max(0.3, Math.min(8, v.zoom * factor));
+    // Keep the cursor anchored over the same world point while zooming.
+    const wx = (px - v.offsetX) / v.zoom;
+    const wy = (py - v.offsetY) / v.zoom;
+    viewRef.current = { zoom, offsetX: px - wx * zoom, offsetY: py - wy * zoom };
+  }, []);
 
-  const dragRef = useRef<{ x: number; y: number } | null>(null);
-  const onPointerDown = (e: React.PointerEvent) => { dragRef.current = { x: e.clientX, y: e.clientY }; };
+  const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const onPointerDown = (e: React.PointerEvent) => { dragRef.current = { x: e.clientX, y: e.clientY, moved: false }; };
   const onPointerMove = (e: React.PointerEvent) => {
-    const d = dragRef.current; if (!d) return;
-    const canvas = canvasRef.current; if (!canvas) return;
+    const d = dragRef.current;
+    if (!d) return;
     const v = viewRef.current;
-    const aspect = canvas.clientWidth / canvas.clientHeight;
-    viewRef.current = {
-      ...v,
-      centerX: v.centerX - ((e.clientX - d.x) / canvas.clientWidth) * 2 * v.scale * aspect,
-      centerY: v.centerY + ((e.clientY - d.y) / canvas.clientHeight) * 2 * v.scale,
-    };
-    dragRef.current = { x: e.clientX, y: e.clientY };
-    drawInteractive();
+    viewRef.current = { ...v, offsetX: v.offsetX + (e.clientX - d.x), offsetY: v.offsetY + (e.clientY - d.y) };
+    dragRef.current = { x: e.clientX, y: e.clientY, moved: true };
   };
-  const onPointerUp = () => { dragRef.current = null; };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || d.moved) return; // a drag, not a click
+    const canvas = canvasRef.current;
+    const r = rendererRef.current;
+    if (!canvas || !r) return;
+    const rect = canvas.getBoundingClientRect();
+    const idx = r.hitTestBranch(e.clientX - rect.left, e.clientY - rect.top, layoutRef.current, viewRef.current);
+    if (idx == null) { setCard(null); return; }
+    const reqId = `cl-${Date.now()}-${idx}`;
+    cardReqRef.current = reqId;
+    setCard({ clusterIndex: idx, leaves: [] });
+    void invoke('feral_fractal_cluster_leaves', { requestId: reqId, clusterIndex: idx }).catch((err) => {
+      console.error('[MemoryLayersPage] drill-down failed', err);
+    });
+  };
 
   if (unsupported) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-black">
-        <p className="text-xs text-text-muted">WebGL2 unavailable — organism view disabled.</p>
+        <p className="text-xs text-text-muted">Canvas2D unavailable — tree view disabled.</p>
       </div>
     );
   }
+
+  // Cold-start empty state — the user has no memories yet so the tree has
+  // a bare trunk and nothing else. Without this overlay the page would
+  // show a near-black canvas with a thin vertical line and no explanation
+  // for why (the recurring "spinner / nothing happens" cold-start pattern
+  // the audit flagged). Surface a clear call-to-action instead.
+  const hasNoMemories =
+    !loading && layoutRef.current.branches.length === 0;
 
   return (
     <div className="fixed inset-0 bg-black">
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 h-full w-full touch-none"
+        className="absolute inset-0 h-full w-full touch-none [image-rendering:pixelated]"
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={onPointerUp}
+        onPointerLeave={() => { dragRef.current = null; }}
       />
+
+      {hasNoMemories && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="pointer-events-auto max-w-md rounded-lg border border-[#e8731c]/30 bg-black/80 px-6 py-5 text-center backdrop-blur">
+            <h2 className="text-base font-semibold text-[#e8731c] mb-1">
+              Your memory tree is empty
+            </h2>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Every fact Feral learns from your chats sprouts a leaf here.
+              Start a conversation in{' '}
+              <button
+                type="button"
+                onClick={() => window.history.back()}
+                className="text-brand hover:underline"
+              >
+                Chat
+              </button>{' '}
+              and come back — the tree grows as you talk.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {card && (
+        <div className="absolute left-4 top-4 z-10 max-h-[70vh] w-80 overflow-auto rounded-lg border border-[#e8731c]/40 bg-black/85 p-3 backdrop-blur">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[#e8731c]">
+              Cluster {card.clusterIndex}
+            </span>
+            <button type="button" onClick={() => setCard(null)} aria-label="Close" className="text-text-muted hover:text-text-primary">
+              <X size={14} />
+            </button>
+          </div>
+          {card.leaves.length === 0 ? (
+            <p className="text-xs text-text-muted">Loading memories…</p>
+          ) : (
+            <ul className="space-y-2">
+              {card.leaves.map((l) => (
+                <li key={l.leafId} className="border-l-2 border-[#e8731c]/50 pl-2 text-xs text-text-secondary">
+                  {l.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       <button
         type="button"
         onClick={() => void refresh()}
         disabled={loading}
-        aria-label="Refresh organism"
-        className="absolute bottom-4 right-4 z-10 rounded-lg border border-border-subtle bg-bg-surface/70 backdrop-blur p-2 text-text-secondary hover:text-text-primary disabled:opacity-50"
+        aria-label="Refresh tree"
+        className="absolute bottom-4 right-4 z-10 rounded-lg border border-border-subtle bg-bg-surface/70 p-2 text-text-secondary backdrop-blur hover:text-text-primary disabled:opacity-50"
       >
         <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
       </button>
