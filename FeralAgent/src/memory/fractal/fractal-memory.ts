@@ -71,6 +71,9 @@ export interface RecallFallback {
  *                organism feels alive per-iteration, not only on the next
  *                big rebuild (which is gated by `rebuildIfStale` at 1.2x and
  *                would otherwise miss the +1-memory case).
+ *   - `prune`  — a leaf that was in the tree disappeared on the latest rebuild
+ *                (deleted memory / cap eviction) → its leaf blackens and falls.
+ *                The only real prune source today; no fabricated trigger.
  */
 export type FractalActivity =
   | { kind: "recall"; hits: number }
@@ -80,7 +83,8 @@ export type FractalActivity =
       clusterCount: number;
       clusters: { x: number; y: number; weight: number }[];
     }
-  | { kind: "seed"; leafId: number; sessionId: string; ts: number };
+  | { kind: "seed"; leafId: number; sessionId: string; ts: number }
+  | { kind: "prune"; leafId: number; clusterIndex?: number };
 
 export interface FractalMemoryDeps {
   /** Pull the current episodic rows as leaves (vectors optional — `buildTree`
@@ -324,8 +328,19 @@ export class FractalMemory {
       // just won't survive a restart.
       this.#log?.(`fractal: tree persist failed (serving in-memory): ${String(e)}`);
     }
+    // Prune diff: any leaf that was in the previous tree but is gone from the
+    // freshly built corpus (deleted memory / cap eviction) gets a `prune` pulse
+    // so the living tree drops the matching leaf. Skipped on the first build
+    // (no prior tree → nothing could have disappeared).
+    const prevById = this.#leavesById;
+    const nextById = new Map(leaves.map((l) => [l.id, l]));
+    if (prevById) {
+      for (const id of prevById.keys()) {
+        if (!nextById.has(id)) this.#emit({ kind: "prune", leafId: id });
+      }
+    }
     this.#tree = tree;
-    this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
+    this.#leavesById = nextById;
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
     this.#emit(buildGrowActivity(tree));
@@ -496,6 +511,22 @@ export class FractalMemory {
    */
   noteWrite(leaf: { id: number; sessionId: string; ts: number }): void {
     this.#emit({ kind: "seed", leafId: leaf.id, sessionId: leaf.sessionId, ts: leaf.ts });
+  }
+
+  /**
+   * Drill-down for the reactive tree's zoom-reveal + leaf card: the real member
+   * memories of a top-level cluster (`tree.children[clusterIndex]`), best-effort
+   * and never throwing. Returns `[]` when there is no tree or the index is out
+   * of range. Leaf order follows the cluster's sorted `leafIds`.
+   */
+  clusterLeaves(clusterIndex: number): { leafId: number; text: string; ts: number }[] {
+    const byId = this.#leavesById;
+    const child = this.#tree?.children[clusterIndex];
+    if (!byId || !child) return [];
+    return child.leafIds.flatMap((id) => {
+      const leaf = byId.get(id);
+      return leaf ? [{ leafId: id, text: leaf.text, ts: leaf.ts }] : [];
+    });
   }
 
   /** Map current episodic rows to `leafId → Leaf`, for the recall engine. */

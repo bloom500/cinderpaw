@@ -148,6 +148,43 @@ describe("FractalMemory activity events", () => {
   });
 });
 
+describe("FractalMemory prune events", () => {
+  it("emits a prune pulse for each leaf that disappears on a rebuild", async () => {
+    const all = leaves(); // ids 1..12
+    const dynamic: Leaf[] = [...all];
+    const seen: FractalActivity[] = [];
+    const fm = new FractalMemory({
+      loadLeaves: () => dynamic, embed: groupEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(), onActivity: (a) => seen.push(a),
+    });
+    await fm.rebuild(); // first build establishes the tree — no prune
+    expect(seen.filter((a) => a.kind === "prune")).toHaveLength(0);
+    seen.length = 0;
+    // Two memories deleted / evicted from the corpus.
+    const removed = new Set([3, 7]);
+    dynamic.splice(0, dynamic.length, ...all.filter((l) => !removed.has(l.id)));
+    await fm.rebuild();
+    const pruned = seen.filter((a) => a.kind === "prune") as Extract<FractalActivity, { kind: "prune" }>[];
+    expect(pruned.map((p) => p.leafId).sort((a, b) => a - b)).toEqual([3, 7]);
+  });
+
+  it("does NOT emit prune on the very first rebuild (no prior tree)", async () => {
+    const seen: FractalActivity[] = [];
+    const fm = makeFm((a) => seen.push(a));
+    await fm.rebuild();
+    expect(seen.filter((a) => a.kind === "prune")).toHaveLength(0);
+  });
+
+  it("emits no prune when nothing disappeared between rebuilds", async () => {
+    const seen: FractalActivity[] = [];
+    const fm = makeFm((a) => seen.push(a));
+    await fm.rebuild();
+    seen.length = 0;
+    await fm.rebuild();
+    expect(seen.filter((a) => a.kind === "prune")).toHaveLength(0);
+  });
+});
+
 describe("buildGrowActivity", () => {
   it("emits normalized weights and one cluster point per top-level child", () => {
     const tree = {

@@ -1,0 +1,64 @@
+{"query":"At start of the week, which Irish site does the product listing backend get shipped to?","relevant":[1]}
+{"query":"At midweek, which Irish site does the login backend get shipped to?","relevant":[2]}
+{"query":"At start of the week, which US west coast site does the reporting backend get shipped to?","relevant":[3]}
+{"query":"At start of the week, which Irish site does the login backend get shipped to?","relevant":[4]}
+{"query":"At end of the work week, which Southeast Asian site does the reporting backend get shipped to?","relevant":[5]}
+{"query":"At midweek, which German site does the lookup backend get shipped to?","relevant":[6]}
+{"query":"At start of the week, which German site does the alerts backend get shipped to?","relevant":[7]}
+{"query":"At start of the week, which German site does the login backend get shipped to?","relevant":[8]}
+{"query":"When I need to handle keeping credentials safe, do I favor the fast workspace installer?","relevant":[41]}
+{"query":"When I need to handle keeping packages in sync, do I favor the encrypted secrets store?","relevant":[42]}
+{"query":"When I need to handle keeping credentials safe, do I favor the encrypted secrets store?","relevant":[43]}
+{"query":"When I need to handle evolving the database, do I favor the scripting load runner?","relevant":[44]}
+{"query":"When I need to handle evolving the database, do I favor the migration framework?","relevant":[45]}
+{"query":"When I need to handle digging through logs, do I favor the scripting load runner?","relevant":[46]}
+{"query":"When I need to handle digging through logs, do I favor the recursive grep tool?","relevant":[47]}
+{"query":"When I need to handle stress checks, do I favor the fast workspace installer?","relevant":[48]}
+{"query":"In the mail dispatcher incident from running out of database handles, did we put in a failure cutoff to prevent a repeat?","relevant":[66]}
+{"query":"In the mail dispatcher incident from a lapsed encryption cert, did we put in a retry ceiling to prevent a repeat?","relevant":[67]}
+{"query":"In the mail dispatcher incident from uncontrolled retries, did we put in an expiry reminder to prevent a repeat?","relevant":[68]}
+{"query":"In the edge cache incident from uncontrolled retries, did we put in a failure cutoff to prevent a repeat?","relevant":[69]}
+{"query":"In the data intake incident from uncontrolled retries, did we put in an expiry reminder to prevent a repeat?","relevant":[70]}
+{"query":"In the mail dispatcher incident from uncontrolled retries, did we put in a failure cutoff to prevent a repeat?","relevant":[71]}
+{"query":"In the data intake incident from uncontrolled retries, did we put in a failure cutoff to prevent a repeat?","relevant":[72]}
+{"query":"In the edge cache incident from running out of database handles, did we put in a failure cutoff to prevent a repeat?","relevant":[73]}
+{"query":"Is Dana the person to ask to look over edits in the account access area?","relevant":[102]}
+{"query":"Is Marco the person to ask to look over edits in the phone app area?","relevant":[103]}
+{"query":"Is Dana the person to ask to look over edits in the analytics storage area?","relevant":[104]}
+{"query":"Is Wei the person to ask to look over edits in the phone app area?","relevant":[105]}
+{"query":"Is Priya the person to ask to look over edits in the money movement area?","relevant":[106]}
+{"query":"Is Marco the person to ask to look over edits in the account access area?","relevant":[107]}
+{"query":"Is Marco the person to ask to look over edits in the analytics storage area?","relevant":[108]}
+{"query":"Is Dana the person to ask to look over edits in the phone app area?","relevant":[109]}
+{"query":"Does the SQL statement call give up after half a minute in our live environment?","relevant":[118]}
+{"query":"Does the third-party request call give up after half a minute in our live environment?","relevant":[119]}
+{"query":"Does the callback push call give up after five seconds in our live environment?","relevant":[120]}
+{"query":"Does the memory store read call give up after 120 seconds in our live environment?","relevant":[121]}
+{"query":"Does the memory store read call give up after five seconds in our live environment?","relevant":[122]}
+{"query":"Does the SQL statement call give up after 120 seconds in our live environment?","relevant":[123]}
+{"query":"Does the callback push call give up after 120 seconds in our live environment?","relevant":[124]}
+{"query":"Does the memory store read call give up after half a minute in our live environment?","relevant":[125]}
+{"query":"Did we pick the systems language instead of the other backend language for safer correctness under load?","relevant":[130]}
+{"query":"Did we pick the log broker instead of plain HTTP endpoints for safer correctness under load?","relevant":[131]}
+{"query":"Did we pick the systems language instead of plain HTTP endpoints for safer correctness under load?","relevant":[132]}
+{"query":"Did we pick the log broker instead of plain HTTP endpoints for faster firehose handling?","relevant":[133]}
+{"query":"Did we pick the binary RPC layer instead of the document store for safer correctness under load?","relevant":[134]}
+{"query":"Did we pick the log broker instead of the document store for safer correctness under load?","relevant":[135]}
+{"query":"Did we pick the log broker instead of the classic queue for faster firehose handling?","relevant":[136]}
+{"query":"Did we pick the binary RPC layer instead of the classic queue for safer correctness under load?","relevant":[137]}
+{"query":"Do I send my monthly signup summary to accounting?","relevant":[170]}
+{"query":"Do I send my quarterly reliability summary to accounting?","relevant":[171]}
+{"query":"Do I send my quarterly spend summary to accounting?","relevant":[172]}
+{"query":"Do I send my monthly spend summary to the duty engineers?","relevant":[173]}
+{"query":"Do I send my weekly sales summary to the duty engineers?","relevant":[174]}
+{"query":"Do I send my quarterly signup summary to accounting?","relevant":[175]}
+{"query":"Do I send my quarterly spend summary to the duty engineers?","relevant":[176]}
+{"query":"Do I send my quarterly spend summary to the exec group?","relevant":[177]}
+{"query":"Can I find the keyword search backup inside the recall subsystem in the codebase?","relevant":[206]}
+{"query":"Can I find the idle evolution trigger inside the recall subsystem in the codebase?","relevant":[207]}
+{"query":"Can I find the keyword search backup inside the self-improvement area in the codebase?","relevant":[208]}
+{"query":"Can I find the vector encoder glue inside the builtin actions in the codebase?","relevant":[209]}
+{"query":"Can I find the action recorder inside the IO boundary in the codebase?","relevant":[210]}
+{"query":"Can I find the action recorder inside the recall subsystem in the codebase?","relevant":[211]}
+{"query":"Can I find the action recorder inside the self-improvement area in the codebase?","relevant":[212]}
+{"query":"Can I find the vector encoder glue inside the IO boundary in the codebase?","relevant":[213]}

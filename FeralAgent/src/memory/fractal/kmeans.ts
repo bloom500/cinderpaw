@@ -15,25 +15,10 @@
  * expected exit path.
  */
 import { cosine } from "./cosine.ts";
+import { mulberry32 } from "./prng.ts";
 
 /** Hard cap on Lloyd iterations. The spec calls for 50; do not raise silently. */
 const MAX_ITERATIONS = 50;
-
-/**
- * Small, fast, deterministic 32-bit PRNG. Same shape used by `splitmix32`'s
- * downstream cousin — good enough for k-means++ seeding and unit-test
- * reproducibility.
- */
-function mulberry32(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** L2-normalize a Float32Array in place. Returns the same array. */
 function normalize(v: Float32Array): Float32Array {
