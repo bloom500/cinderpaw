@@ -1814,8 +1814,7 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
     };
 
     let url = base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let models_endpoint = url_join(&url, "models");
-    let chat_endpoint   = url_join(&url, "chat/completions");
+    let chat_endpoint = url_join(&url, provider.chat_endpoint_path());
 
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -1827,56 +1826,82 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
     let header_prefix = provider.api_key_prefix();
     let auth_value    = format!("{}{}", header_prefix, api_key);
 
-    // First try GET /models (OpenAI-compatible providers expose this)
-    let models_resp = client
-        .get(&models_endpoint)
-        .header(header_key, &auth_value)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    // Anthropic does NOT publish a `/v1/models` endpoint, so the GET /models
+    // probe only applies to OpenAI-compatible providers. For Anthropic we
+    // skip straight to the chat-completion probe with the right headers.
+    let probe_status: Option<reqwest::Response> = if !provider.is_openai_compatible() {
+        None
+    } else {
+        let models_endpoint = url_join(&url, "models");
+        let resp = client
+            .get(&models_endpoint)
+            .header(header_key, &auth_value)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        Some(resp)
+    };
 
-    let models_status = models_resp.status();
+    if let Some(models_resp) = probe_status {
+        let models_status = models_resp.status();
 
-    if models_status.is_success() {
-        #[derive(serde::Deserialize)]
-        struct ModelList { data: Option<Vec<serde_json::Value>> }
-        let models: Vec<String> = models_resp.json::<ModelList>().await
-            .ok()
-            .and_then(|r| r.data)
-            .map(|items| items.iter()
-                .filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
-                .collect())
-            .unwrap_or_default();
-        return Ok(byok::TestProviderResponse {
-            success: true,
-            message: "Connection successful".to_string(),
-            models,
-        });
+        if models_status.is_success() {
+            #[derive(serde::Deserialize)]
+            struct ModelList { data: Option<Vec<serde_json::Value>> }
+            let models: Vec<String> = models_resp.json::<ModelList>().await
+                .ok()
+                .and_then(|r| r.data)
+                .map(|items| items.iter()
+                    .filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
+                    .collect())
+                .unwrap_or_default();
+            return Ok(byok::TestProviderResponse {
+                success: true,
+                message: "Connection successful".to_string(),
+                models,
+            });
+        }
+
+        // If /models returned 401/403 the key is wrong — report immediately.
+        if models_status == 401 || models_status == 403 {
+            let body = models_resp.text().await.unwrap_or_default();
+            return Ok(byok::TestProviderResponse {
+                success: false,
+                message: format!("Auth failed (HTTP {}): {}", models_status.as_u16(), body),
+                models: vec![],
+            });
+        }
+        // /models returned 404 or another non-auth error — fall through to the
+        // chat-endpoint probe below.
     }
 
-    // If /models returned 401/403 the key is wrong — report immediately.
-    if models_status == 401 || models_status == 403 {
-        let body = models_resp.text().await.unwrap_or_default();
-        return Ok(byok::TestProviderResponse {
-            success: false,
-            message: format!("Auth failed (HTTP {}): {}", models_status.as_u16(), body),
-            models: vec![],
-        });
-    }
-
-    // /models returned 404 or another non-auth error — provider may not expose it.
-    // Fall back: send a minimal non-streaming chat completion to verify credentials.
-    let probe = serde_json::json!({
-        "model": "__probe__",
-        "messages": [{ "role": "user", "content": "Hi" }],
-        "max_tokens": 1,
-        "stream": false,
-    });
-    let chat_resp = client
+    // /models unavailable (or provider doesn't expose it). Send a minimal
+    // non-streaming completion to verify credentials. Anthropic uses a
+    // different request shape: `system` is a top-level field, the model id is
+    // required, and `max_tokens` is mandatory.
+    let probe = if provider.is_openai_compatible() {
+        serde_json::json!({
+            "model": "__probe__",
+            "messages": [{ "role": "user", "content": "Hi" }],
+            "max_tokens": 1,
+            "stream": false,
+        })
+    } else {
+        serde_json::json!({
+            "model": "__probe__",
+            "messages": [{ "role": "user", "content": "Hi" }],
+            "max_tokens": 1,
+        })
+    };
+    let mut chat_req = client
         .post(&chat_endpoint)
         .header(header_key, &auth_value)
         .header("Content-Type", "application/json")
-        .json(&probe)
+        .json(&probe);
+    for (name, value) in provider.extra_headers() {
+        chat_req = chat_req.header(name, value);
+    }
+    let chat_resp = chat_req
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1961,7 +1986,7 @@ async fn chat_cloud_complete(
         _            => byok::Provider::Custom,
     };
     let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let endpoint = url_join(&base_url, "chat/completions");
+    let endpoint = url_join(&base_url, provider.chat_endpoint_path());
     let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
 
     let client = reqwest::Client::builder()
@@ -1970,29 +1995,53 @@ async fn chat_cloud_complete(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut ctx: Vec<serde_json::Value> = Vec::new();
-    if let Some(sys) = &params.system_prompt {
-        if !sys.is_empty() {
-            ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+    // Anthropic's Messages API expects `system` as a top-level field, not
+    // inside the messages array. Split it out so OpenAI-shaped callers keep
+    // working unchanged while Anthropic gets the right shape.
+    let (system, ctx): (Option<String>, Vec<serde_json::Value>) = if !provider.is_openai_compatible() {
+        let mut ctx: Vec<serde_json::Value> = Vec::new();
+        let mut sys: Option<String> = None;
+        for m in &messages {
+            if m.role == "system" && sys.is_none() {
+                sys = Some(m.content.clone());
+            } else {
+                ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+            }
         }
-    }
-    for m in &messages {
-        ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
-    }
+        (sys, ctx)
+    } else {
+        let mut ctx: Vec<serde_json::Value> = Vec::new();
+        if let Some(sys) = &params.system_prompt {
+            if !sys.is_empty() {
+                ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+            }
+        }
+        for m in &messages {
+            ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+        }
+        (None, ctx)
+    };
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "messages": ctx,
         "stream": false,
         "temperature": params.temperature,
         "max_tokens": params.max_tokens,
     });
+    if let Some(sys) = system {
+        body["system"] = serde_json::Value::String(sys);
+    }
 
-    let resp = client
+    let mut req = client
         .post(&endpoint)
         .header(provider.api_key_header(), &auth_value)
         .header("Content-Type", "application/json")
-        .json(&body)
+        .json(&body);
+    for (name, value) in provider.extra_headers() {
+        req = req.header(name, value);
+    }
+    let resp = req
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -2003,6 +2052,16 @@ async fn chat_cloud_complete(
         return Err(format!("HTTP {}: {}", status, body_text));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    // Anthropic responses live under `content[0].text` (not `choices[0].message.content`).
+    if !provider.is_openai_compatible() {
+        let text = v["content"]
+            .as_array()
+            .and_then(|arr| arr.iter().find(|c| c.get("type").and_then(|t| t.as_str()) == Some("text")))
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or_default();
+        return Ok(text.to_string());
+    }
     Ok(v["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or_default()
@@ -2058,8 +2117,9 @@ async fn chat_cloud_stream(
     };
 
     let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let endpoint = url_join(&base_url, "chat/completions");
+    let endpoint = url_join(&base_url, provider.chat_endpoint_path());
     let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
+    let anthropic = !provider.is_openai_compatible();
 
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -2067,41 +2127,60 @@ async fn chat_cloud_stream(
         .build()
         .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
 
-    // Build tool definitions from the enabled tool IDs passed in params
+    // Build tool definitions from the enabled tool IDs passed in params.
+    // Anthropic's tool shape differs from OpenAI: no `type: "function"`
+    // wrapper and the parameters object is `input_schema`.
     let tool_defs: Vec<serde_json::Value> = params.tools
         .as_ref()
         .map(|ids| ids.iter()
             .filter_map(|id| tools::ToolType::from_name(id))
-            .map(|t| t.to_openai_definition())
+            .map(|t| if anthropic { t.to_anthropic_definition() } else { t.to_openai_definition() })
             .collect())
         .unwrap_or_default();
 
-    // Build initial message context
+    // Build initial message context. Anthropic pulls `system` out of the
+    // messages array and into a top-level field; OpenAI keeps it inline.
     let mut ctx: Vec<serde_json::Value> = Vec::new();
-    if let Some(sys) = &params.system_prompt {
-        if !sys.is_empty() {
-            ctx.push(serde_json::json!({ "role": "system", "content": sys }));
-        }
-    }
-    for m in &messages {
-        // Vision: messages carrying image data URLs use the OpenAI
-        // content-parts array so multimodal models receive real pixels.
-        // Plain messages keep the string shape for maximum compatibility.
-        match m.images.as_ref().filter(|imgs| !imgs.is_empty()) {
-            Some(imgs) => {
-                let mut parts: Vec<serde_json::Value> = Vec::new();
-                if !m.content.is_empty() {
-                    parts.push(serde_json::json!({ "type": "text", "text": m.content }));
-                }
-                for url in imgs {
-                    parts.push(serde_json::json!({
-                        "type": "image_url",
-                        "image_url": { "url": url },
-                    }));
-                }
-                ctx.push(serde_json::json!({ "role": m.role, "content": parts }));
+    let mut system_prompt: Option<String> = None;
+    if anthropic {
+        if let Some(sys) = &params.system_prompt {
+            if !sys.is_empty() {
+                system_prompt = Some(sys.clone());
             }
-            None => ctx.push(serde_json::json!({ "role": m.role, "content": m.content })),
+        }
+        for m in &messages {
+            if m.role == "system" && system_prompt.is_none() {
+                system_prompt = Some(m.content.clone());
+                continue;
+            }
+            ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+        }
+    } else {
+        if let Some(sys) = &params.system_prompt {
+            if !sys.is_empty() {
+                ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+            }
+        }
+        for m in &messages {
+            // Vision: messages carrying image data URLs use the OpenAI
+            // content-parts array so multimodal models receive real pixels.
+            // Plain messages keep the string shape for maximum compatibility.
+            match m.images.as_ref().filter(|imgs| !imgs.is_empty()) {
+                Some(imgs) => {
+                    let mut parts: Vec<serde_json::Value> = Vec::new();
+                    if !m.content.is_empty() {
+                        parts.push(serde_json::json!({ "type": "text", "text": m.content }));
+                    }
+                    for url in imgs {
+                        parts.push(serde_json::json!({
+                            "type": "image_url",
+                            "image_url": { "url": url },
+                        }));
+                    }
+                    ctx.push(serde_json::json!({ "role": m.role, "content": parts }));
+                }
+                None => ctx.push(serde_json::json!({ "role": m.role, "content": m.content })),
+            }
         }
     }
 
@@ -2119,21 +2198,38 @@ async fn chat_cloud_stream(
             "model": model,
             "messages": ctx,
             "stream": true,
-            "stream_options": { "include_usage": true },
             "temperature": params.temperature,
             "top_p": params.top_p,
             "max_tokens": params.max_tokens,
         });
+        if anthropic {
+            if let Some(sys) = system_prompt.as_ref() {
+                body["system"] = serde_json::Value::String(sys.clone());
+            }
+        } else {
+            // OpenAI's stream_options include_usage is a no-op on Anthropic.
+            body["stream_options"] = serde_json::json!({ "include_usage": true });
+        }
         if !tool_defs.is_empty() {
             body["tools"] = serde_json::json!(tool_defs);
-            body["tool_choice"] = serde_json::json!("auto");
+            if !anthropic {
+                body["tool_choice"] = serde_json::json!("auto");
+            }
         }
 
-        let resp = client
+        // TEMP-DEBUG: dump the exact outbound request so we can see model id +
+        // sampling params + endpoint going to the provider. Remove after triage.
+        tracing::warn!(target: "cloud_debug", endpoint = %endpoint, body = %body, "outbound cloud chat request");
+
+        let mut req = client
             .post(&endpoint)
             .header(provider.api_key_header(), &auth_value)
             .header("Content-Type", "application/json")
-            .json(&body)
+            .json(&body);
+        for (name, value) in provider.extra_headers() {
+            req = req.header(name, value);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
@@ -2155,6 +2251,9 @@ async fn chat_cloud_stream(
         let mut finish_reason = String::new();
         let mut usage_prompt_tokens: u32 = 0;
         let mut usage_completion_tokens: u32 = 0;
+        // Anthropic SSE uses event types per record; we track the most recent
+        // `event:` line so the next `data:` line knows how to interpret itself.
+        let mut current_event = String::new();
 
         'sse: while let Some(chunk) = byte_stream.next().await {
             if stop.load(Ordering::SeqCst) {
@@ -2163,15 +2262,101 @@ async fn chat_cloud_stream(
             }
             let bytes = chunk.map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
             let text = String::from_utf8_lossy(&bytes);
+            // TEMP-DEBUG: raw SSE chunk as received from the provider. Remove after triage.
+            tracing::warn!(target: "cloud_debug", raw = %text, "inbound cloud chunk");
 
             for ch in text.chars() {
                 if ch == '\n' {
                     let line = line_buf.trim().to_string();
                     line_buf.clear();
                     if line.is_empty() { continue; }
-                    if line == "data: [DONE]" { break 'sse; }
+                    if !anthropic && line == "data: [DONE]" { break 'sse; }
 
-                    if let Some(json_str) = line.strip_prefix("data: ") {
+                    if anthropic {
+                        // Anthropic SSE: "event: <name>" sets the type for
+                        // the following "data: <json>" line. A blank line
+                        // delimits one event record (we reset on each blank
+                        // line above).
+                        if let Some(ev) = line.strip_prefix("event: ") {
+                            current_event = ev.to_string();
+                            continue;
+                        }
+                        if let Some(json_str) = line.strip_prefix("data: ") {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                match current_event.as_str() {
+                                    "message_start" => {
+                                        // Anthropic reports initial usage
+                                        // (input_tokens). Capture it.
+                                        if let Some(u) = val.get("message")
+                                            .and_then(|m| m.get("usage"))
+                                        {
+                                            if let Some(pt) = u.get("input_tokens").and_then(|v| v.as_u64()) {
+                                                usage_prompt_tokens = pt as u32;
+                                            }
+                                        }
+                                    }
+                                    "content_block_start" => {
+                                        // A new tool_use block — register it
+                                        // in `pending_calls` so the following
+                                        // input_json_delta fragments land in
+                                        // the right slot.
+                                        if let Some(block) = val.get("content_block") {
+                                            if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                                                let idx = val.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                                let id   = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                let initial_args = block.get("input")
+                                                    .map(|v| v.to_string())
+                                                    .unwrap_or_default();
+                                                pending_calls.insert(idx, (id, name, initial_args));
+                                            }
+                                        }
+                                    }
+                                    "content_block_delta" => {
+                                        if let Some(delta) = val.get("delta") {
+                                            let idx = val.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                            let entry = pending_calls.entry(idx)
+                                                .or_insert_with(|| (String::new(), String::new(), String::new()));
+                                            match delta.get("type").and_then(|t| t.as_str()) {
+                                                Some("text_delta") => {
+                                                    if let Some(tok) = delta.get("text").and_then(|v| v.as_str()) {
+                                                        if !tok.is_empty() {
+                                                            content_acc.push_str(tok);
+                                                            let _ = app.emit("feral://token", events::TokenEvent {
+                                                                session_id: session_id.clone(),
+                                                                text: tok.to_string(),
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                                Some("input_json_delta") => {
+                                                    if let Some(frag) = delta.get("partial_json").and_then(|v| v.as_str()) {
+                                                        entry.2.push_str(frag);
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    "message_delta" => {
+                                        // stop_reason + final usage (output_tokens).
+                                        if let Some(delta) = val.get("delta") {
+                                            if let Some(fr) = delta.get("stop_reason").and_then(|v| v.as_str()) {
+                                                finish_reason = fr.to_string();
+                                            }
+                                        }
+                                        if let Some(u) = val.get("usage") {
+                                            if let Some(ct) = u.get("output_tokens").and_then(|v| v.as_u64()) {
+                                                usage_completion_tokens = ct as u32;
+                                            }
+                                        }
+                                    }
+                                    "message_stop" => break 'sse,
+                                    _ => {}
+                                }
+                            }
+                        }
+                    } else if let Some(json_str) = line.strip_prefix("data: ") {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
                             // Capture usage stats from the final SSE chunk (when stream_options.include_usage is set)
                             if let Some(usage) = val.get("usage") {
@@ -2227,6 +2412,13 @@ async fn chat_cloud_stream(
             }
         }
 
+        // For Anthropic, an empty finish_reason with no tool calls means
+        // end_turn (natural stop) — surface that to the agentic loop so it
+        // knows to break out.
+        if anthropic && finish_reason.is_empty() && pending_calls.is_empty() {
+            finish_reason = "stop".to_string();
+        }
+
         // If the provider reported that we hit its server-side token cap,
         // emit a `stream-truncated` event so the frontend can mark the
         // message and surface a hint. The partial `content_acc` is still
@@ -2253,8 +2445,11 @@ async fn chat_cloud_stream(
         // usage_prompt_tokens / usage_completion_tokens are re-declared at the top
         // of each loop iteration, so no explicit reset is needed here.
 
-        // If no tool calls, we're done
-        if finish_reason != "tool_calls" || pending_calls.is_empty() {
+        // If no tool calls, we're done. Anthropic reports stop_reason as
+        // "tool_use" when it wants the host to run a tool; OpenAI uses
+        // "tool_calls" on the last delta choice.
+        let tool_marker = if anthropic { "tool_use" } else { "tool_calls" };
+        if finish_reason != tool_marker || pending_calls.is_empty() {
             break;
         }
 
@@ -2262,35 +2457,79 @@ async fn chat_cloud_stream(
         let mut sorted: Vec<(usize, (String, String, String))> = pending_calls.into_iter().collect();
         sorted.sort_by_key(|(idx, _)| *idx);
 
-        // Append assistant turn with tool_calls to context
-        let asst_tool_calls: Vec<serde_json::Value> = sorted.iter()
-            .map(|(_, (id, name, args))| serde_json::json!({
-                "id": id,
-                "type": "function",
-                "function": { "name": name, "arguments": args }
-            }))
-            .collect();
-
-        ctx.push(serde_json::json!({
-            "role": "assistant",
-            "content": serde_json::Value::Null,
-            "tool_calls": asst_tool_calls,
-        }));
-
-        // Execute each tool and append its result to context
-        for (_, (id, name, args_str)) in &sorted {
-            let args: serde_json::Value = serde_json::from_str(args_str)
-                .unwrap_or(serde_json::json!({}));
-            let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
-                tools::execute(tool_type, args).await
-            } else {
-                tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
-            };
+        if anthropic {
+            // Anthropic history: the assistant turn is a list of tool_use
+            // content blocks; the tool result is a `tool_result` content
+            // block on the FOLLOWING user turn (not a separate role).
+            let tool_use_blocks: Vec<serde_json::Value> = sorted.iter()
+                .map(|(_, (id, name, args))| {
+                    let input: serde_json::Value = serde_json::from_str(args)
+                        .unwrap_or(serde_json::json!({}));
+                    serde_json::json!({
+                        "type": "tool_use",
+                        "id": id,
+                        "name": name,
+                        "input": input,
+                    })
+                })
+                .collect();
             ctx.push(serde_json::json!({
-                "role": "tool",
-                "tool_call_id": id,
-                "content": result.output,
+                "role": "assistant",
+                "content": tool_use_blocks,
             }));
+
+            // Execute each tool and append ALL results to a single user turn.
+            let mut tool_results: Vec<serde_json::Value> = Vec::new();
+            for (_, (id, name, args_str)) in &sorted {
+                let args: serde_json::Value = serde_json::from_str(args_str)
+                    .unwrap_or(serde_json::json!({}));
+                let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
+                    tools::execute(tool_type, args).await
+                } else {
+                    tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
+                };
+                tool_results.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": result.output,
+                    "is_error": !result.ok,
+                }));
+            }
+            ctx.push(serde_json::json!({
+                "role": "user",
+                "content": tool_results,
+            }));
+        } else {
+            // OpenAI history: tool_calls on the assistant turn, then a
+            // separate `role: "tool"` message per result.
+            let asst_tool_calls: Vec<serde_json::Value> = sorted.iter()
+                .map(|(_, (id, name, args))| serde_json::json!({
+                    "id": id,
+                    "type": "function",
+                    "function": { "name": name, "arguments": args }
+                }))
+                .collect();
+
+            ctx.push(serde_json::json!({
+                "role": "assistant",
+                "content": serde_json::Value::Null,
+                "tool_calls": asst_tool_calls,
+            }));
+
+            for (_, (id, name, args_str)) in &sorted {
+                let args: serde_json::Value = serde_json::from_str(args_str)
+                    .unwrap_or(serde_json::json!({}));
+                let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
+                    tools::execute(tool_type, args).await
+                } else {
+                    tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
+                };
+                ctx.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": id,
+                    "content": result.output,
+                }));
+            }
         }
         // Loop continues — model will now generate a response using the tool results
     }

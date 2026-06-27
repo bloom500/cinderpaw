@@ -28,7 +28,11 @@ impl Provider {
         match self {
             Provider::Openai => "https://api.openai.com/v1",
             Provider::Anthropic => "https://api.anthropic.com/v1",
-            Provider::Google => "https://generativelanguage.googleapis.com/v1beta",
+            // Google Gemini's OpenAI-compatible surface lives under
+            // /v1beta/openai/. Without the `/openai/` segment, requests to
+            // `/chat/completions` hit the native Gemini endpoint and 404 —
+            // /v1beta/openai/chat/completions is the path the docs publish.
+            Provider::Google => "https://generativelanguage.googleapis.com/v1beta/openai",
             Provider::Kimi => "https://api.kimi.com/coding/v1",
             Provider::Glm => "https://api.z.ai/api/coding/paas/v4",
             Provider::Minimax => "https://api.minimax.io/v1",
@@ -70,6 +74,27 @@ impl Provider {
     #[allow(dead_code)]
     pub fn chat_endpoint(&self) -> &'static str {
         "/chat/completions"
+    }
+
+    /// Returns the path (relative to `default_base_url()`) used for a chat
+    /// completion call. Anthropic uses `/v1/messages` — its protocol is
+    /// similar to OpenAI but the endpoint is different, so the legacy
+    /// `url_join(base_url, "chat/completions")` produced a 404.
+    pub fn chat_endpoint_path(&self) -> &'static str {
+        match self {
+            Provider::Anthropic => "messages",
+            _ => "chat/completions",
+        }
+    }
+
+    /// Extra HTTP headers required by the provider. Anthropic requires
+    /// `anthropic-version` on every Messages API request; the others use
+    /// OpenAI's standard `Authorization: Bearer …` only.
+    pub fn extra_headers(&self) -> Vec<(&'static str, &'static str)> {
+        match self {
+            Provider::Anthropic => vec![("anthropic-version", "2023-06-01")],
+            _ => Vec::new(),
+        }
     }
 
     /// Returns whether this provider uses OpenAI-compatible format.
@@ -324,4 +349,76 @@ fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
     let path = crate::paths::feral_dir().join("byok.json");
     std::fs::write(path, serde_json::to_vec_pretty(settings)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn google_default_base_url_uses_openai_compat_path() {
+        // The OpenAI-compatible surface for Gemini is published at
+        // /v1beta/openai/. The previous default `/v1beta` was the native
+        // Gemini endpoint and 404'd on every chat-completions call.
+        assert_eq!(
+            Provider::Google.default_base_url(),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+    }
+
+    #[test]
+    fn anthropic_uses_messages_endpoint_and_x_api_key() {
+        // Anthropic's protocol is similar to OpenAI but the path is `/v1/messages`
+        // (not `/v1/chat/completions`), the auth header is `x-api-key` without a
+        // `Bearer ` prefix, and `anthropic-version` is mandatory.
+        assert_eq!(Provider::Anthropic.chat_endpoint_path(), "messages");
+        assert_eq!(Provider::Anthropic.api_key_header(), "x-api-key");
+        assert_eq!(Provider::Anthropic.api_key_prefix(), "");
+        assert_eq!(
+            Provider::Anthropic.extra_headers(),
+            vec![("anthropic-version", "2023-06-01")]
+        );
+        assert!(!Provider::Anthropic.is_openai_compatible());
+    }
+
+    #[test]
+    fn openai_uses_chat_completions_and_bearer() {
+        // OpenAI and the OpenAI-compatible providers route through
+        // `/v1/chat/completions` with `Authorization: Bearer …` and no extra
+        // headers.
+        for p in [
+            Provider::Openai,
+            Provider::Kimi,
+            Provider::Glm,
+            Provider::Minimax,
+            Provider::Groq,
+            Provider::Mistral,
+            Provider::Deepseek,
+            Provider::Openrouter,
+            Provider::Nvidia,
+        ] {
+            assert_eq!(p.chat_endpoint_path(), "chat/completions", "endpoint for {p:?}");
+            assert_eq!(p.api_key_header(), "Authorization", "header for {p:?}");
+            assert_eq!(p.api_key_prefix(), "Bearer ", "prefix for {p:?}");
+            assert!(p.extra_headers().is_empty(), "no extras for {p:?}");
+            assert!(p.is_openai_compatible(), "{p:?} should be OpenAI-compat");
+        }
+        // Custom is OpenAI-shaped but sends the key verbatim (empty prefix) so
+        // users can paste a full `Bearer …`/`Basic …`/raw token themselves.
+        assert_eq!(Provider::Custom.chat_endpoint_path(), "chat/completions");
+        assert_eq!(Provider::Custom.api_key_header(), "Authorization");
+        assert_eq!(Provider::Custom.api_key_prefix(), "");
+        assert!(Provider::Custom.is_openai_compatible());
+    }
+
+    #[test]
+    fn google_uses_openai_compat_path() {
+        // Gemini follows the OpenAI shape (after the /openai/ fix above) —
+        // /chat/completions, Bearer, no extras.
+        assert_eq!(Provider::Google.chat_endpoint_path(), "chat/completions");
+        assert_eq!(Provider::Google.api_key_header(), "Authorization");
+        assert_eq!(Provider::Google.api_key_prefix(), "Bearer ");
+        assert!(Provider::Google.extra_headers().is_empty());
+        assert!(Provider::Google.is_openai_compatible());
+    }
 }

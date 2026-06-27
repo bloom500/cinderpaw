@@ -91,6 +91,55 @@ impl ToolType {
             }
         })
     }
+
+    /// Anthropic Messages API tool definition. Unlike OpenAI, Anthropic
+    /// wraps each tool as a flat `{name, description, input_schema}` object
+    /// — no `type: "function"` envelope and `parameters` is renamed to
+    /// `input_schema`. Same field semantics, different shape.
+    #[allow(clippy::wrong_self_convention)] // reads `&self`; mirrors to_openai_definition
+    pub fn to_anthropic_definition(&self) -> serde_json::Value {
+        let (properties, required) = match self {
+            Self::WebSearch => (
+                serde_json::json!({ "query": { "type": "string", "description": "The search query" } }),
+                serde_json::json!(["query"]),
+            ),
+            Self::FileRead => (
+                serde_json::json!({ "path": { "type": "string", "description": "Absolute or relative file path" } }),
+                serde_json::json!(["path"]),
+            ),
+            Self::FileWrite => (
+                serde_json::json!({
+                    "path":    { "type": "string", "description": "File path to write" },
+                    "content": { "type": "string", "description": "Text content to write" }
+                }),
+                serde_json::json!(["path", "content"]),
+            ),
+            Self::CodeExecute => (
+                serde_json::json!({
+                    "lang": { "type": "string", "enum": ["python"], "description": "Language (only python supported)" },
+                    "code": { "type": "string", "description": "Code to execute" }
+                }),
+                serde_json::json!(["lang", "code"]),
+            ),
+            Self::HttpRequest => (
+                serde_json::json!({
+                    "method": { "type": "string", "enum": ["GET", "POST"], "description": "HTTP method" },
+                    "url":    { "type": "string", "description": "Full URL" },
+                    "body":   { "type": "string", "description": "Request body for POST" }
+                }),
+                serde_json::json!(["method", "url"]),
+            ),
+        };
+        serde_json::json!({
+            "name": self.name(),
+            "description": self.description(),
+            "input_schema": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            }
+        })
+    }
 }
 
 /// Parsed tool call. Retained for the in-progress local-model tool-calling path;
