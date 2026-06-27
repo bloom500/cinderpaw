@@ -173,6 +173,10 @@ export interface ProfileOptions {
 }
 
 export class AgentLoop {
+  // ponytail: 4096 = pre-raise default; keeps cloud reasoning models from burning
+  // the full 16384 budget on chain-of-thought. User Controls override takes priority.
+  static readonly CLOUD_DEFAULT_MAX_TOKENS = 4096;
+
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
   readonly #episodic: EpisodicMemory;
@@ -534,7 +538,12 @@ export class AgentLoop {
     }
 
     const memory = this.#memoryFor(sessionId);
-    memory.setSkillMenu(skillsContext ?? []);
+    // Drawers model: skills are NOT dumped into the prompt. The model discovers
+    // them on demand via the `list_skills` tool and loads bodies with
+    // `read_skill`. (skillsContext is still accepted for host/API compat but no
+    // longer injected — the full menu cost tokens every turn even when no skill
+    // was used.)
+    void skillsContext;
 
     // P2-#3: traceId — a unique identifier for this handle() invocation.
     // Threaded into every OutboundEvent the agent emits during the turn
@@ -545,14 +554,11 @@ export class AgentLoop {
     // probability is negligible at the scale of a single user session.
     const traceId = crypto.randomUUID();
 
-    // Inject relevant past context before the user message lands in the prompt.
-    // The fractal facade may embed the query (async); the legacy engine is a
-    // pure DB read. Either way recall never throws — it downgrades to FTS5 on
-    // any failure — so a missing embedding model can't break a turn.
-    if (this.#recall) {
-      const result = await this.#recall.recall(userText, sessionId);
-      memory.setMemoryContext(result.context);
-    }
+    // Drawers model: past context is NOT auto-injected. Wholesale recall ran an
+    // embedding query every turn and dumped all semantic facts + graph + the top
+    // episodic hits into the prompt — thousands of tokens on a trivial "Test",
+    // and it defeated the whole point of FMS being an on-demand store. The model
+    // now pulls only what it needs via the `recall` tool (same FMS query path).
 
     // Strip <private>...</private> blocks before persisting to episodic memory.
     // The model still sees the full text during the current turn — only storage
@@ -715,6 +721,9 @@ export class AgentLoop {
     // plus the terminating completion's text — mirroring what the user saw
     // stream into the chat bubble.
     const answerParts: string[] = [];
+    // M1: no-progress detector — consecutive identical (name+args) tool calls.
+    let lastToolKey: string | null = null;
+    let toolRepeatCount = 0;
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
       // Stream tokens live. We optimistically stream every completion; if the
@@ -741,7 +750,13 @@ export class AgentLoop {
       if (parsed.toolCalls.length === 0 && parsed.malformedToolCall) {
         if (malformedRetries < MAX_MALFORMED_RETRIES) {
           malformedRetries++;
-          memory.addAssistant(completion);
+          // Store the turn WITHOUT its <think> reasoning. The chain-of-thought was
+      // already streamed live to the UI and billed once as completion tokens;
+      // persisting it means every later turn re-sends it as prompt tokens,
+      // turning a multi-step task into quadratic token growth (a trivial shell
+      // test burned ~18k tokens this way). Reasoning is ephemeral — only the
+      // visible answer + any <tool_call> tags belong in re-sent history.
+      memory.addAssistant(stripThinking(completion));
           memory.addUser(
             "(system: your previous message contained a tool call with invalid " +
               "JSON, so it was NOT executed. Re-emit the call as a single valid " +
@@ -772,7 +787,13 @@ export class AgentLoop {
         if (answer && finishReason === "length" && continuations < MAX_CONTINUATIONS) {
           continuations++;
           answerParts.push(answer);
-          memory.addAssistant(completion);
+          // Store the turn WITHOUT its <think> reasoning. The chain-of-thought was
+      // already streamed live to the UI and billed once as completion tokens;
+      // persisting it means every later turn re-sends it as prompt tokens,
+      // turning a multi-step task into quadratic token growth (a trivial shell
+      // test burned ~18k tokens this way). Reasoning is ephemeral — only the
+      // visible answer + any <tool_call> tags belong in re-sent history.
+      memory.addAssistant(stripThinking(completion));
           memory.addUser(
             "(system: your previous reply was cut off by the per-call token " +
               "limit mid-answer. Continue EXACTLY from where you stopped — do " +
@@ -790,7 +811,13 @@ export class AgentLoop {
           if (hadThinking) {
             if (continuations < MAX_CONTINUATIONS) {
               continuations++;
-              memory.addAssistant(completion);
+              // Store the turn WITHOUT its <think> reasoning. The chain-of-thought was
+      // already streamed live to the UI and billed once as completion tokens;
+      // persisting it means every later turn re-sends it as prompt tokens,
+      // turning a multi-step task into quadratic token growth (a trivial shell
+      // test burned ~18k tokens this way). Reasoning is ephemeral — only the
+      // visible answer + any <tool_call> tags belong in re-sent history.
+      memory.addAssistant(stripThinking(completion));
               memory.addUser(
                 "(system: your previous reply hit the per-call token limit while you " +
                   "were still reasoning. Do NOT restart your reasoning from scratch — " +
@@ -821,7 +848,13 @@ export class AgentLoop {
       }
 
       // Model called tools → process them, then loop for the next turn.
-      memory.addAssistant(completion);
+      // Store the turn WITHOUT its <think> reasoning. The chain-of-thought was
+      // already streamed live to the UI and billed once as completion tokens;
+      // persisting it means every later turn re-sends it as prompt tokens,
+      // turning a multi-step task into quadratic token growth (a trivial shell
+      // test burned ~18k tokens this way). Reasoning is ephemeral — only the
+      // visible answer + any <tool_call> tags belong in re-sent history.
+      memory.addAssistant(stripThinking(completion));
 
       // Profiled (connector) sessions may only call tools on their whitelist.
       // The model isn't even shown the others, but a hallucinated call is
@@ -857,8 +890,30 @@ export class AgentLoop {
 
         const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
         memory.addToolResult(call.name, rendered);
+
+        // M1: detect stuck model — same tool + same args N times in a row.
+        const callKey = `${call.name}:${JSON.stringify(call.args)}`;
+        if (callKey === lastToolKey) {
+          toolRepeatCount++;
+          if (toolRepeatCount >= 3) {
+            memory.addUser(
+              `(system: you have called "${call.name}" with the same arguments ${toolRepeatCount} times consecutively. ` +
+              "Try a different approach or provide a final answer.)"
+            );
+            toolRepeatCount = 0;
+          }
+        } else {
+          lastToolKey = callKey;
+          toolRepeatCount = 1;
+        }
+
         const toolWriteTs = Date.now();
-        const toolLeafId = this.#episodic.record(sessionId, "tool", `${call.name}: ${rendered}`);
+        // Truncate before episodic storage: tool results can be up to 64 KB
+        // (read_file), but recall only needs the identifying gist to surface
+        // this event in future sessions. Store at most 400 chars so large
+        // file reads don't bloat the FTS5 index and flood recall results.
+        const episodicContent = `${call.name}: ${rendered}`.slice(0, 400);
+        const toolLeafId = this.#episodic.record(sessionId, "tool", episodicContent);
         if (toolLeafId !== null) {
           this.#recall?.noteWrite?.({ id: toolLeafId, sessionId, ts: toolWriteTs });
         }
@@ -914,11 +969,18 @@ export class AgentLoop {
       // Controls-panel overrides for this session (UX: the user's Max Tokens
       // / Temperature sliders were previously silently ignored by the agent).
       const overrides = this.#sessionInferParams.get(sessionId);
+      // ponytail: cloud reasoning models (NIM, DeepSeek, stepfun…) burn the full
+      // max_tokens budget on chain-of-thought before answering. 16384 = 14k tokens
+      // on "Test" with Step 3.7 Flash. Use the pre-raise default (4096) for cloud
+      // unless the user explicitly set a value via the Controls panel.
+      const defaultMaxTokens = this.#router.isPrimaryLocal
+        ? this.#config.maxTokensPerCall
+        : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS;
       const res = await this.#router.complete({
         sessionId,
         messages: memory.render(),
-        // Precedence: explicit UI Controls override > RSI champion > config default.
-        maxTokens: overrides?.maxTokens ?? this.#championParams.maxTokens ?? this.#config.maxTokensPerCall,
+        // Precedence: explicit UI Controls override > RSI champion > cloud/local default.
+        maxTokens: overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens,
         temperature: overrides?.temperature ?? this.#championParams.temperature,
         onToken,
         cachePrompt: true,
@@ -947,7 +1009,7 @@ export class AgentLoop {
           const res = await this.#router.complete({
             sessionId,
             messages: memory.render(),
-            maxTokens: overrides?.maxTokens ?? this.#config.maxTokensPerCall,
+            maxTokens: overrides?.maxTokens ?? (this.#router.isPrimaryLocal ? this.#config.maxTokensPerCall : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS),
             temperature: overrides?.temperature,
             onToken,
             cachePrompt: true,
@@ -971,6 +1033,13 @@ export class AgentLoop {
 
   /** Summarize older turns into a compact note (used by working-memory). */
   async #summarize(sessionId: string, msgs: ChatMessage[]): Promise<string> {
+    if (!this.#router.isPrimaryLocal) {
+      console.warn(
+        "[feral:privacy] working-memory compression is sending transcript to cloud model:",
+        this.#router.currentModel.model,
+        "— set primary to a local engine to keep compression on-device",
+      );
+    }
     const transcript = msgs
       .map((m) => `${m.role}: ${m.content}`)
       .join("\n")
@@ -1138,6 +1207,11 @@ export function buildSystemPrompt(
     "You may call multiple tools in sequence across turns.",
     "After each tool result is returned, continue reasoning and either call another",
     "tool or write your final answer as plain text with no tool block.",
+    "",
+    "## Memory & skills (on demand)",
+    "Past conversations and installed skills are NOT preloaded — keep the context lean.",
+    "- Need continuity or a fact from a previous chat? Call `recall` with a query.",
+    "- A task may have a matching skill? Call `list_skills` to find one, then `read_skill` to load it before applying.",
     "",
     "## Rules",
     "- Be concise and direct.",

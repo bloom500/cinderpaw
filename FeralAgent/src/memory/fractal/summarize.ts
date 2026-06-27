@@ -110,6 +110,14 @@ export async function summarizeCluster(
  */
 export function routerInfer(router: InferenceRouter): InferFn {
   return async (prompt) => {
+    if (!router.isPrimaryLocal) {
+      // ponytail: warn each call; deduplicate in logs if noise — local-first means users should know
+      console.warn(
+        "[feral:privacy] cluster summarization is sending local memory to cloud model:",
+        router.currentModel.model,
+        "— set primary to a local engine to keep summaries on-device",
+      );
+    }
     const res = await router.complete({
       sessionId: SUMMARY_SESSION_ID,
       messages: [{ role: "user", content: prompt }],

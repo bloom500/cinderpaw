@@ -31,6 +31,12 @@ class InferenceError extends Error {
   }
 }
 
+// Idle-stream timeout for cloud (non-loopback) targets. Local engines can be
+// slow on first-token (cold KV-cache load); cloud APIs should respond in seconds.
+// ponytail: fixed env read at module load; set FERAL_CLOUD_IDLE_TIMEOUT_MS to override
+const _cit = process.env.FERAL_CLOUD_IDLE_TIMEOUT_MS;
+const CLOUD_IDLE_MS: number = _cit && Number.isFinite(+_cit) && +_cit > 0 ? +_cit : 60_000;
+
 // ---------------------------------------------------------------------------
 // Provider interface
 // ---------------------------------------------------------------------------
@@ -100,7 +106,7 @@ export class OllamaProvider implements InferenceProvider {
       body.tools = req.openAITools;
     }
 
-    const raw = await postJson(url, body, undefined, req.signal);
+    const raw = await postJson(url, body, undefined, req.signal, isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS);
     let content: string =
       (raw as { message?: { content?: string } }).message?.content ?? "";
 
@@ -171,7 +177,8 @@ export class OllamaProvider implements InferenceProvider {
       body.tools = req.openAITools;
     }
 
-    const { controller, cleanup } = idleAbortController(300_000, req.signal);
+    const idleMs = isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS;
+    const { controller, cleanup } = idleAbortController(idleMs, req.signal);
     let content = "";
     let promptTokens = 0;
     let completionTokens = 0;
@@ -310,7 +317,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     const body: Record<string, any> = {
       model: target.model,
       messages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...feralExtensionBody(target, req),
       stream: false,
@@ -320,7 +327,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       body.tool_choice = "auto";
     }
 
-    const raw = (await postJson(url, body, authHeaders, req.signal)) as {
+    const raw = (await postJson(url, body, authHeaders, req.signal, isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS)) as {
       choices?: {
         message?: {
           content?: string;
@@ -391,7 +398,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     const body: Record<string, any> = {
       model: target.model,
       messages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...feralExtensionBody(target, req),
       stream: true,
@@ -404,7 +411,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     const authHeaders: Record<string, string> = target.apiKey
       ? { Authorization: `Bearer ${target.apiKey}` }
       : {};
-    const { controller, cleanup } = idleAbortController(300_000, req.signal);
+    const idleMs = isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS;
+    const { controller, cleanup } = idleAbortController(idleMs, req.signal);
     let content = "";
     let promptTokens = 0;
     let completionTokens = 0;
@@ -570,7 +578,7 @@ export class AnthropicProvider implements InferenceProvider {
       model: target.model,
       max_tokens: req.maxTokens ?? 4096,
       messages: userMessages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
@@ -579,7 +587,7 @@ export class AnthropicProvider implements InferenceProvider {
     const authHeaders: Record<string, string> = { "anthropic-version": "2023-06-01" };
     if (target.apiKey) authHeaders["x-api-key"] = target.apiKey;
 
-    const raw = (await postJson(url, body, authHeaders, req.signal)) as {
+    const raw = (await postJson(url, body, authHeaders, req.signal, CLOUD_IDLE_MS)) as {
       content?: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
       usage?: { input_tokens?: number; output_tokens?: number };
       stop_reason?: string;
@@ -620,7 +628,7 @@ export class AnthropicProvider implements InferenceProvider {
       model: target.model,
       max_tokens: req.maxTokens ?? 4096,
       messages: userMessages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
       stream: true,
     };
     if (systemText) body.system = systemText;
@@ -632,7 +640,7 @@ export class AnthropicProvider implements InferenceProvider {
       ...(target.apiKey ? { "x-api-key": target.apiKey } : {}),
     };
 
-    const { controller, cleanup } = idleAbortController(300_000, req.signal);
+    const { controller, cleanup } = idleAbortController(CLOUD_IDLE_MS, req.signal);
     let content = "";
     let inputTokens = 0;
     let outputTokens = 0;
@@ -892,9 +900,10 @@ export async function postJson(
   body: unknown,
   extraHeaders?: Record<string, string>,
   externalSignal?: AbortSignal,
+  timeoutMs: number = 300_000,
 ): Promise<unknown> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 300_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let onExt: (() => void) | null = null;
   if (externalSignal) {
     onExt = () => { clearTimeout(timer); controller.abort(externalSignal.reason); };
@@ -1017,6 +1026,23 @@ function trimSlash(url: string): string {
  */
 function trimDanglingToolCallTag(content: string): string {
   return content.replace(/(?:\s*<tool_call>\s*)+$/, "");
+}
+
+/**
+ * Effective sampling temperature for a target.
+ *
+ * Cloud reasoning models (NVIDIA NIM, DeepSeek, stepfun, QwQ, …) degrade
+ * catastrophically above ~1.0: they emit unbounded incoherent
+ * `reasoning_content`, fill the whole `max_tokens` budget with chain-of-thought,
+ * and return an EMPTY visible answer — the turn looks like "no output" while
+ * the rate limit is spent, and the loop's empty-response retries multiply it.
+ * A stray slider value (the UI Controls panel allows up to 2.0, persisted) is
+ * enough to trigger it. Clamp cloud targets to 1.0; the bundled local engine
+ * (loopback) keeps the full range for RSI diversity exploration.
+ */
+function cloudTemperature(target: ModelTarget, req: InferenceRequest): number {
+  const t = req.temperature ?? 0.7;
+  return isLoopbackTarget(target) ? t : Math.min(t, 1.0);
 }
 
 /** True when the target is the bundled local engine (loopback address). */

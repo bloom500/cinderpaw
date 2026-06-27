@@ -41,6 +41,7 @@ import { createDeepResearchTool } from "./tools/builtin/deep-research.ts";
 import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
+import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
@@ -79,7 +80,7 @@ import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
 import { createScheduleMeetingTool } from "./tools/builtin/schedule-meeting.ts";
-import type { InferenceConfig, Transport } from "./types.ts";
+import type { InferenceConfig, ModelTarget, Transport } from "./types.ts";
 
 interface AppConfig {
   transport: "tauri";
@@ -149,6 +150,16 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
     return true;
   });
   return [...new Set(guarded)];
+}
+
+/** True when a base URL points at a loopback (local) host. */
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
 }
 
 function loadConfig(): AppConfig {
@@ -310,6 +321,22 @@ async function main(): Promise<void> {
   // Node `process` object (which we still need below for process.env).
   const processSandbox = new RealProcessSandbox(audit.logger);
   const router = new InferenceRouter(config.inference, audit.logger, db.raw);
+
+  // Bundled local engine used as an automatic fallback when the user hot-swaps
+  // to a cloud model. A transient cloud failure (e.g. MiniMax 429 rate-limit)
+  // then degrades to the on-device model instead of hard-failing the turn.
+  // Prefer the boot primary when it is itself local; otherwise the default
+  // bundled-engine target (always on 11435). ponytail: if no local model is
+  // loaded the fallback also fails — same "both failed" error, no worse.
+  const localFallbackTarget: ModelTarget = isLoopbackUrl(
+    config.inference.primary.baseUrl,
+  )
+    ? config.inference.primary
+    : {
+        provider: "openai_compatible",
+        model: process.env.FERAL_MODEL ?? "qwen2.5:7b",
+        baseUrl: process.env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
+      };
 
   // --- Layer 2: Memory ---
   const episodic = new EpisodicMemory(db.raw, audit.logger);
@@ -494,6 +521,9 @@ async function main(): Promise<void> {
   // skills. The system prompt only carries a short menu; the LLM calls this
   // tool to load the full SKILL.md body of any skill it wants to apply.
   registry.register(createReadSkillTool(`${homedir()}/.feral/skills`));
+  // list_skills: the drawer index. Skills are no longer dumped into every
+  // prompt; the model calls this to discover ids, then read_skill to load one.
+  registry.register(createListSkillsTool(`${homedir()}/.feral/skills`));
 
   // F7 — code-quality tools. Auto-detect project type and run the
   // appropriate command (npm test, cargo test, pytest, go test, make test,
@@ -1021,9 +1051,18 @@ async function main(): Promise<void> {
           return;
         }
         try {
-          router.reconfigure({ provider, model, baseUrl, apiKey: msg.apiKey });
+          const primary: ModelTarget = { provider, model, baseUrl, apiKey: msg.apiKey };
+          // Keep the bundled local engine as fallback when switching to a
+          // cloud (non-loopback) model, so a 429/transient cloud failure
+          // degrades to on-device inference instead of a hard error. Switching
+          // BACK to a local primary needs no fallback (it IS the safe target).
+          const fallback = isLoopbackUrl(baseUrl) ? undefined : localFallbackTarget;
+          router.reconfigure(primary, fallback);
           transport.send({ type: "model_set", provider, model });
-          log(`model hot-swapped → ${provider}/${model} @ ${baseUrl}`);
+          log(
+            `model hot-swapped → ${provider}/${model} @ ${baseUrl}` +
+              (fallback ? ` (fallback → ${fallback.baseUrl})` : ""),
+          );
         } catch (err) {
           transport.send({
             type: "model_error",

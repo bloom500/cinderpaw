@@ -172,6 +172,16 @@ export class InferenceRouter {
     };
   }
 
+  /** True when the active primary target is a local loopback address. */
+  get isPrimaryLocal(): boolean {
+    try {
+      const host = new URL(this.#primary.baseUrl).hostname;
+      return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Abort an in-flight completion for the given session. The next `complete()`
    * call's underlying fetch receives an AbortError. Safe to call when no

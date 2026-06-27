@@ -3,7 +3,6 @@ import { renderHook, act } from '@testing-library/react';
 import { useMascotState, DONE_HOLD_MS, COOL_HOLD_MS, EXCITED_HOLD_MS } from '../useMascotState';
 import type { StreamStatus } from '@/stores/chat';
 import type { AgentPhase } from '@/stores/chat';
-import { useDream } from '@/stores/dream';
 
 function run(args: { streamStatus: StreamStatus; agentPhase: AgentPhase; isUserTyping: boolean }) {
   return renderHook((p: typeof args) => useMascotState(p), { initialProps: args });
@@ -35,28 +34,6 @@ describe('useMascotState', () => {
   it('typing is ignored while streaming', () => {
     const { result } = run({ streamStatus: 'streaming', agentPhase: null, isUserTyping: true });
     expect(result.current).toBe('thinking');
-  });
-
-  describe('dreaming', () => {
-    afterEach(() => useDream.getState().setDreaming(false));
-
-    it('dreaming when idle and a dream cycle is running', () => {
-      useDream.getState().setDreaming(true);
-      const { result } = run({ streamStatus: 'idle', agentPhase: null, isUserTyping: false });
-      expect(result.current).toBe('dreaming');
-    });
-
-    it('typing wins over dreaming', () => {
-      useDream.getState().setDreaming(true);
-      const { result } = run({ streamStatus: 'idle', agentPhase: null, isUserTyping: true });
-      expect(result.current).toBe('typing');
-    });
-
-    it('streaming wins over dreaming', () => {
-      useDream.getState().setDreaming(true);
-      const { result } = run({ streamStatus: 'streaming', agentPhase: null, isUserTyping: false });
-      expect(result.current).toBe('thinking');
-    });
   });
 
   describe('new agent phases', () => {

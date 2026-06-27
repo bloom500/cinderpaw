@@ -4,10 +4,9 @@ import { EFFECTS, FX_MARGIN_X, FX_MARGIN_TOP } from './effects';
 
 const FRAME_MS = 160;
 const SPRITE_H = FRAME_H + 2; // body rows + 1px bob headroom
-// Keep the on-screen footprint at 48px (same perch size as the old 16px sprite)
-// while the source is now 32px — 2× the detail, same space. SCALE lands at 1.5;
-// the slight non-integer nearest-neighbour unevenness is invisible on the fuzzy
-// body. ponytail: 1.5× scale, bump DISPLAY to 64 (clean 2×) if crispness matters.
+// 3× integer scale: big enough that every state/effect reads clearly, small
+// enough to perch on the input without stealing space. Integer scale keeps
+// the pixel-art crisp (non-integer scales smear pixel boundaries).
 const DISPLAY = 48;
 const SCALE = DISPLAY / FRAME_W;
 
