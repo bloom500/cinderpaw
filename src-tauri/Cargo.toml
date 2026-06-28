@@ -94,13 +94,17 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 default = ["inference"]
 # CPU-only baseline (works everywhere; slow for larger models).
 inference = ["dep:llama-cpp-2"]
-# GPU backends — additive on top of `inference`. CI selects one per platform:
-#   Windows/Linux → inference-vulkan   (needs the Vulkan SDK at build time)
-#   macOS         → inference-metal    (Metal ships with Xcode; no extra SDK)
+# GPU backends — additive on top of `inference`. Pick at most ONE per build
+# (enabling two GPU features simultaneously is untested and likely produces
+# duplicate symbols in llama-cpp-sys-2). CI selects one per platform:
+#   Windows/Linux NVIDIA → inference-cuda     (needs CUDA Toolkit 12.x + nvcc)
+#   Windows/Linux AMD/Intel → inference-vulkan (needs the Vulkan SDK at build time)
+#   macOS                → inference-metal    (Metal ships with Xcode; no extra SDK)
 # A GPU build still falls back to CPU at runtime if GPU init fails (see
 # inference.rs::backend::load), so a missing/broken driver degrades gracefully.
+inference-cuda   = ["dep:llama-cpp-2", "llama-cpp-2/cuda"]
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
-inference-metal = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
+inference-metal  = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
 whisper = ["dep:whisper-rs"]
 
 # Desktop control (OS accessibility tree). Windows-only for now — UIA via the

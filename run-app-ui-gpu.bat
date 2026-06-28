@@ -21,6 +21,10 @@ set "CARGO_TARGET_DIR=D:\fb"
 REM (Embed layers are NOT preset here — the host auto-forces CPU on
 REM  AMD GPUs at startup. To override manually, set FERAL_EMBED_GPU_LAYERS.)
 
+REM Context pool auto-caps at 1 on GPU (each context = full KV cache in
+REM VRAM; 2 contexts on 8GB cards explodes with "null reference" from
+REM llama.cpp). Set FERAL_MAX_LOCAL_CONTEXTS=N to opt into more.
+
 echo [launcher] GPU/Vulkan dev ^|^| default_gpu_layers=%FERAL_DEFAULT_GPU_LAYERS% ^|^| embed auto-CPU on AMD
 cd /d "D:\FeralLocalAI\src-tauri"
 cargo tauri dev --features inference-vulkan

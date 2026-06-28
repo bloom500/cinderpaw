@@ -29,6 +29,46 @@ main checkout) unless otherwise noted.
 
 ## Active
 
+### `run-app-ui-cuda.bat`  (repo root)
+
+CUDA dev launcher — builds with `--features inference-cuda` so chat
+inference uses NVIDIA CUDA via cuBLAS/cuDNN (faster than Vulkan on
+NVIDIA hardware, typically 2-5× throughput). Needs CUDA Toolkit 12.x +
+nvcc + matching MSVC toolchain + NVIDIA driver ≥ 535. Embedding is NOT
+auto-forced to CPU on CUDA — the AMDVLK crash that affects Vulkan on
+RX 580 doesn't apply here.
+
+Unlike the Vulkan launcher, this one does NOT source vcvars64 itself —
+invoke from a developer prompt or after `vcvars64` is sourced manually,
+because CUDA's `vcvarsall.bat` chains awkwardly with VS BuildTools'
+`vcvars64.bat`. Compile arch list is configurable via
+`FERAL_CUDA_ARCHS` (default `75;86;89` for Turing/Ampere/Ada — trim to
+your card to cut compile time).
+
+**Context pool auto-caps at 1 on GPU** (each pooled context = full KV
+cache in VRAM; the 2nd context on small cards OOMs with
+`create context: null reference from llama.cpp`). The default is safe
+for any GPU. Users with 24 GB+ cards can opt into 2 parallel decode
+contexts via `FERAL_MAX_LOCAL_CONTEXTS=2` (see
+`docs/agents-memory/project_local_models_gpu.md`).
+
+**Env:**
+
+```
+CARGO_TARGET_DIR=D:\fb
+FERAL_CUDA_ARCHS=75;86;89
+CMAKE_GENERATOR=Ninja
+```
+
+**Command:**
+
+```bat
+cd /d "D:\FeralLocalAI\src-tauri"
+cargo tauri dev --features inference-cuda
+```
+
+---
+
 ### `run-app-ui-gpu.bat`  (repo root)
 
 GPU dev launcher — builds with `--features inference-vulkan` so chat
@@ -38,6 +78,13 @@ auto-detects fragile AMD GPUs (RX 580 / Polaris / early-Vega) at startup
 and forces the embedding path to CPU, so embeddings won't crash on this
 class of card — see `project_local_models_gpu.md`. Chat (VibeThinker-3B,
 ~1.8 GB) DOES use the GPU fine.
+
+**Context pool auto-caps at 1 on GPU** (each pooled context = full KV
+cache in VRAM; the 2nd context on small cards OOMs with
+`create context: null reference from llama.cpp`). The default is safe
+for any GPU. Users with 24 GB+ cards can opt into 2 parallel decode
+contexts via `FERAL_MAX_LOCAL_CONTEXTS=2` (see
+`docs/agents-memory/project_local_models_gpu.md`).
 
 **Env:**
 

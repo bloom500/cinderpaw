@@ -314,8 +314,15 @@ impl ModelManager {
 /// while this is "cpu" (the binary was built without `inference-vulkan`), in
 /// which case llama.cpp silently ignores `n_gpu_layers` and runs on CPU. The
 /// UI needs this to tell the user the truth about why inference is slow.
+///
+/// CUDA is checked first because on Linux/Windows dev boxes both `cuda` and
+/// `vulkan` may be enabled (e.g. CI matrix parallelism) — in that case the
+/// first matching `cfg!` wins. Pick at most one GPU feature per build (see
+/// Cargo.toml comments).
 pub fn compiled_backend() -> &'static str {
-    if cfg!(feature = "inference-vulkan") {
+    if cfg!(feature = "inference-cuda") {
+        "cuda"
+    } else if cfg!(feature = "inference-vulkan") {
         "vulkan"
     } else if cfg!(feature = "inference-metal") {
         "metal"
@@ -345,7 +352,7 @@ pub fn gpu_active() -> bool {
 /// actually being used.
 pub fn active_backend_label() -> String {
     match compiled_backend() {
-        b @ ("vulkan" | "metal") => {
+        b @ ("cuda" | "vulkan" | "metal") => {
             if gpu_active() {
                 format!("GPU ({b})")
             } else {
@@ -556,11 +563,45 @@ mod backend {
     /// stays small; contexts beyond the first are only created when
     /// generations actually overlap. Override with FERAL_MAX_LOCAL_CONTEXTS.
     fn max_contexts() -> usize {
+        max_contexts_env().unwrap_or(2)
+    }
+
+    /// Read FERAL_MAX_LOCAL_CONTEXTS without applying a default. Tests use
+    /// this via `effective_pool_cap_with_env` so they don't race on the
+    /// process-global env var. Production callers go through
+    /// `effective_pool_cap`.
+    fn max_contexts_env() -> Option<usize> {
         std::env::var("FERAL_MAX_LOCAL_CONTEXTS")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n >= 1)
-            .unwrap_or(2)
+    }
+
+    /// Effective pool cap for a freshly-loaded model. User override via
+    /// `FERAL_MAX_LOCAL_CONTEXTS` always wins — power users with a beefy
+    /// card (RTX 4090 24 GB) explicitly set 2 to overlap generations.
+    ///
+    /// Auto-cap when GPU is active: each pooled context allocates its own
+    /// KV cache in VRAM, so a second context on an 8 GB card (e.g. RX 580
+    /// + Qwen3.5-4B-Q6_K at 8 K ctx) tries to allocate ~3.4 GB on top of
+    /// the model + first context that's already at ~6.7 GB and explodes
+    /// with `create context: null reference from llama.cpp`. There is no
+    /// graceful GPU→CPU fallback for additional contexts (the model is
+    /// already loaded with full GPU offload; switching backends means a
+    /// full reload), so the safer default is 1 — generations serialize
+    /// through the single context instead of OOM-ing. CPU builds keep the
+    /// historical default of 2 since RAM is plentiful and two parallel
+    /// decodes don't blow up.
+    pub(super) fn effective_pool_cap(gpu_active: bool) -> usize {
+        effective_pool_cap_with_env(gpu_active, max_contexts_env())
+    }
+
+    /// Pure-function variant for tests — no env-var read, so parallel-safe.
+    pub(super) fn effective_pool_cap_with_env(gpu_active: bool, env_override: Option<usize>) -> usize {
+        if let Some(n) = env_override {
+            return n;
+        }
+        if gpu_active { 1 } else { 2 }
     }
 
     /// Allocate one pooled context for `model`, sized to `ctx_len`.
@@ -893,8 +934,9 @@ mod backend {
         // GPU is genuinely active only when this is a GPU-compiled build AND we
         // requested + kept GPU offload. In a CPU-only build llama.cpp ignores
         // `n_gpu_layers`, so `offloaded` alone would lie.
-        let is_gpu_build = matches!(super::compiled_backend(), "vulkan" | "metal");
-        *GPU_ACTIVE.lock() = is_gpu_build && offloaded;
+        let is_gpu_build = matches!(super::compiled_backend(), "cuda" | "vulkan" | "metal");
+        let gpu_active_now = is_gpu_build && offloaded;
+        *GPU_ACTIVE.lock() = gpu_active_now;
 
         // The model's real training window — the ceiling the UI offers and the
         // value `ctx_len` was already clamped against inside `attempt`.
@@ -907,7 +949,14 @@ mod backend {
         // A4: prefer the template the model itself declares over anything
         // guessed from the filename.
         let chat_template = model.chat_template(None).ok();
-        let max = max_contexts();
+        let gpu_active_now = is_gpu_build && offloaded;
+        let max = effective_pool_cap(gpu_active_now);
+        if gpu_active_now && max == 1 && std::env::var_os("FERAL_MAX_LOCAL_CONTEXTS").is_none() {
+            tracing::info!(
+                "GPU offload active — capping context pool at 1 (each context = full KV cache in VRAM; \
+                 set FERAL_MAX_LOCAL_CONTEXTS=N to override for cards with enough VRAM for parallel decodes)"
+            );
+        }
         tracing::info!(
             path = ?path,
             ctx_len,
@@ -1404,5 +1453,42 @@ mod tests {
         let path = std::path::PathBuf::from("/models/Ministral-3-3B.Q6_K.gguf");
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("model").to_string();
         assert_eq!(name, "Ministral-3-3B.Q6_K.gguf");
+    }
+
+    // ── effective_pool_cap ───────────────────────────────────────────────────
+    // The pool cap dictates how many KV caches are kept warm simultaneously.
+    // On GPU each context = full KV in VRAM, so 2 contexts on an 8 GB card
+    // blows up mid-generation with `create context: null reference`. The
+    // user override (FERAL_MAX_LOCAL_CONTEXTS) must always win — power users
+    // with 24 GB cards want 2 for overlapping generations.
+
+    #[test]
+    fn pool_cap_gpu_default_is_one() {
+        // No env override, GPU active → 1 (each context = full KV cache in VRAM).
+        assert_eq!(backend::effective_pool_cap_with_env(true, None), 1);
+    }
+
+    #[test]
+    fn pool_cap_cpu_default_is_two() {
+        // No env override, CPU only → 2 (RAM is plentiful, parallel decodes fine).
+        assert_eq!(backend::effective_pool_cap_with_env(false, None), 2);
+    }
+
+    #[test]
+    fn pool_cap_env_override_wins_on_gpu() {
+        // Power user with 24 GB card opts into 2 parallel decodes.
+        assert_eq!(backend::effective_pool_cap_with_env(true, Some(2)), 2);
+    }
+
+    #[test]
+    fn pool_cap_env_override_wins_on_cpu() {
+        // Single-context user (laptop, RAM-tight) overrides to 1.
+        assert_eq!(backend::effective_pool_cap_with_env(false, Some(1)), 1);
+    }
+
+    #[test]
+    fn pool_cap_env_override_higher_than_two_works() {
+        // RTX 3090/4090 user with plenty of VRAM opts into 3 — passes through.
+        assert_eq!(backend::effective_pool_cap_with_env(true, Some(3)), 3);
     }
 }
