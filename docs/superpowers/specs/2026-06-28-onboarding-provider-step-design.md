@@ -107,20 +107,20 @@ the recommended models change.
 ```ts
 // ponytail: pinned curated models per hardware tier. Calibration knob —
 // re-verify these repos/files exist on HF before each release; swap when a
-// better small model ships.
-const TIER_MODELS: Record<string, { repoId: string; filename: string; label: string }> = {
-  '1–2B':   { repoId: 'bartowski/Qwen2.5-1.5B-Instruct-GGUF', filename: 'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf', label: 'Qwen2.5 1.5B' },
-  '3–4B':   { repoId: 'bartowski/Qwen2.5-3B-Instruct-GGUF',   filename: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf',   label: 'Qwen2.5 3B' },
-  '7–8B':   { repoId: 'bartowski/Qwen2.5-7B-Instruct-GGUF',   filename: 'Qwen2.5-7B-Instruct-Q4_K_M.gguf',   label: 'Qwen2.5 7B' },
-  '13–14B': { repoId: 'bartowski/Qwen2.5-14B-Instruct-GGUF',  filename: 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',  label: 'Qwen2.5 14B' },
+// better small model ships. Qwen3.5 sizes (2/4/9/27B) don't line up with the
+// recommendModel size-class keys, which is fine — the key is a hardware budget,
+// the model it maps to can be any size. `approxSize` is the real Q4_K_M size.
+const TIER_MODELS: Record<string, { repoId: string; filename: string; label: string; approxSize: string }> = {
+  '1–2B':   { repoId: 'bartowski/Qwen_Qwen3.5-2B-GGUF',  filename: 'Qwen_Qwen3.5-2B-Q4_K_M.gguf',  label: 'Qwen3.5 2B',  approxSize: '~1.5 GB' },
+  '3–4B':   { repoId: 'bartowski/Qwen_Qwen3.5-4B-GGUF',  filename: 'Qwen_Qwen3.5-4B-Q4_K_M.gguf',  label: 'Qwen3.5 4B',  approxSize: '~2.5 GB' },
+  '7–8B':   { repoId: 'bartowski/Qwen_Qwen3.5-9B-GGUF',  filename: 'Qwen_Qwen3.5-9B-Q4_K_M.gguf',  label: 'Qwen3.5 9B',  approxSize: '~5.5 GB' },
+  '13–14B': { repoId: 'bartowski/Qwen_Qwen3.5-27B-GGUF', filename: 'Qwen_Qwen3.5-27B-Q4_K_M.gguf', label: 'Qwen3.5 27B', approxSize: '~16.5 GB' },
 };
 ```
 
-> **Pre-ship verification (required):** the four repo IDs and filenames above
-> are best-guess and MUST be confirmed against Hugging Face (exact repo owner,
-> casing, and GGUF filename) before this ships. If a repo/file does not resolve,
-> the one-click download silently fails. Verify against the same source the
-> Models page uses to download.
+> **Verified 2026-06-28:** all four repos + Q4_K_M filenames confirmed live on
+> the HF API. Re-verify before each release — an unresolvable repo makes the
+> one-click download silently fail.
 
 ### `CURATED_PROVIDERS`
 
