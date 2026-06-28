@@ -343,9 +343,13 @@ async fn start_model_load(
                 status_text: format!("Model Loaded! · {}", inference::active_backend_label()),
             });
 
-            // Persist so next launch auto-reloads without user interaction.
+            // Persist so next launch auto-reloads without user interaction —
+            // including the user's chosen context window, so the auto-reload
+            // task doesn't shrink their KV cache back to the conservative
+            // default on next start.
             let mut s = settings::load();
             s.last_loaded_model = Some(path.clone());
+            s.last_loaded_ctx = Some(model.ctx_len);
             let _ = settings::save(&s);
 
             Ok(model)
@@ -380,8 +384,16 @@ fn delete_model(state: State<AppState>, path: String) -> Result<(), String> {
     // Force-unload on the Rust side if this model is currently loaded.
     // The frontend already calls unload(), but a failed-load can leave
     // an llama.cpp file handle open without putting anything in the manager.
-    // Unconditional unload + retry gives the OS time to release mmap handles.
+    // Unconditional unload + initial wait + retry loop gives the OS time
+    // to release mmap handles (the C++ cleanup is asynchronous on Windows
+    // — see `remove_file_with_retry` for the retry details).
     state.manager.unload();
+    // Initial sleep before the first delete attempt: llama.cpp's
+    // background cleanup needs a moment to start releasing the mmap.
+    // The retry loop in `remove_file_with_retry` only fires AFTER the
+    // first attempt fails — without this head-start sleep the loop is
+    // chasing an unmoved release deadline.
+    std::thread::sleep(std::time::Duration::from_millis(500));
     models::delete_model(&target).map_err(|e| e.to_string())
 }
 
@@ -3456,22 +3468,37 @@ pub fn run() {
             // Auto-reload last model in background so the user doesn't have
             // to pick it again after every restart. Silent fail — if the file
             // moved or was deleted the user selects manually as usual.
+            //
+            // Race guard: if the user is already mid-load (e.g. clicked Apply
+            // during startup), `manager.current()` is non-None — skip the
+            // auto-reload so we don't overwrite their in-flight choice (and
+            // don't shrink their context window back to the default cap).
             {
                 let auto_manager = manager.clone();
                 let auto_app = app.handle().clone();
                 let auto_layers = startup_gpu_layers;
                 tauri::async_runtime::spawn(async move {
-                    let last = settings::load().last_loaded_model;
+                    let s = settings::load();
+                    let last = s.last_loaded_model;
+                    let last_ctx = s.last_loaded_ctx;
                     if let Some(p) = last {
+                        if auto_manager.current().is_some() {
+                            tracing::info!("auto-reload skipped: a model is already loaded");
+                            return;
+                        }
                         let pb = std::path::PathBuf::from(&p);
                         if pb.exists() {
-                            tracing::info!(path = %p, "auto-reloading last model");
+                            tracing::info!(
+                                path = %p,
+                                ctx = ?last_ctx,
+                                "auto-reloading last model"
+                            );
                             let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
                                 percentage: 0.0,
                                 status_text: "Auto-loading last model…".into(),
                             });
                             let result = tokio::task::spawn_blocking(move || {
-                                auto_manager.load(pb, auto_layers, None).map_err(|e| e.to_string())
+                                auto_manager.load(pb, auto_layers, last_ctx).map_err(|e| e.to_string())
                             }).await;
                             match result {
                                 Ok(Ok(_)) => {

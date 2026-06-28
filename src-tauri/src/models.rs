@@ -101,6 +101,9 @@ pub fn delete_model(path: &Path) -> Result<()> {
 /// open on Windows. llama.cpp's C++ cleanup is correct but asynchronous —
 /// the OS releases the mapping a few hundred ms after the Rust error returns.
 /// Retrying with backoff lets that window close without requiring an app restart.
+/// On a slow or contended disk (or right after a failed 9B-class load) the
+/// original 200/500/1000 ms schedule wasn't always enough — bumped to
+/// 500/1000/2000/3000 ms (6.5 s cumulative) so this rarely needs a restart.
 fn remove_file_with_retry(path: &Path) -> Result<()> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -108,7 +111,7 @@ fn remove_file_with_retry(path: &Path) -> Result<()> {
             // os error 32 = ERROR_SHARING_VIOLATION on Windows
             #[cfg(windows)]
             if e.raw_os_error() == Some(32) {
-                for delay_ms in [200u64, 500, 1000] {
+                for delay_ms in [500u64, 1000, 2000, 3000] {
                     std::thread::sleep(std::time::Duration::from_millis(delay_ms));
                     match std::fs::remove_file(path) {
                         Ok(()) => return Ok(()),
@@ -117,7 +120,7 @@ fn remove_file_with_retry(path: &Path) -> Result<()> {
                     }
                 }
                 return Err(anyhow::anyhow!(
-                    "File is still locked after retries. \
+                    "File is still locked after ~7 s of retries. \
                      Restart the app and try again — this happens when a model \
                      failed to load and Windows has not yet released the file handle."
                 ));

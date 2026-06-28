@@ -34,13 +34,16 @@ export function ContextRing() {
       isLocal = true;
     }
 
-    // Real context window: whenever a local model is loaded its `ctx_len` is the
-    // authoritative KV-cache size (the user-chosen window from Controls) — in
-    // agent mode too, since the local agent loops back to that same model.
-    // Only fall back to the name heuristic for cloud, or when nothing is loaded.
-    const ctxWindow = (isLocal && loaded?.ctx_len)
-      ? loaded.ctx_len
-      : contextWindowFor(model, isLocal);
+    // Real context window: whenever a local model is loaded its `ctx_len` is
+    // the authoritative KV-cache size — the user picks it from Controls and
+    // it persists across reloads. The old gate `(isLocal && loaded?.ctx_len)`
+    // excluded cloud-mode agent sessions where the local model is still loaded
+    // for fallback; the user's intent ("ring should reflect the actual KV
+    // cache I'm using") only really depends on whether a local model is loaded.
+    // Fall back to the name heuristic only when nothing is loaded — that's
+    // the cloud-only path, where the agent routes straight to a cloud API
+    // and there is no local KV cache to size against.
+    const ctxWindow = loaded?.ctx_len ?? contextWindowFor(model, isLocal);
 
     // Real token usage: use live counts from backend when available.
     // For local models, livePromptTokens is the exact count from llama.cpp tokenization.
