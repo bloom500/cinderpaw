@@ -3291,6 +3291,33 @@ pub fn run() {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
 
+            // ── Auto CPU-offload for embedding on fragile AMD GPUs ─────────
+            // On RX 580 / Polaris / early-Vega cards, llama.cpp's Vulkan embed
+            // (bge-small) crashes at model load — a known llama.cpp × AMDVLK
+            // driver bug that no Feral-side work-around fixes (see
+            // docs/agents-memory/project_local_models_gpu.md). The chat
+            // inference path on the same GPU is fine; only the embed path is
+            // the problem. We set FERAL_EMBED_GPU_LAYERS=0 BEFORE the embed
+            // model is lazily loaded (inference.rs::load_embedding reads it
+            // via std::env at first use), so the crash never happens. Only
+            // active on a Vulkan build (inference-vulkan feature) — a CPU
+            // build ignores the env anyway. Honors an explicit user override
+            // (we never overwrite a pre-set env var).
+            #[cfg(feature = "inference-vulkan")]
+            {
+                if std::env::var_os("FERAL_EMBED_GPU_LAYERS").is_none() {
+                    let info = crate::gpu_detect::detect();
+                    if crate::gpu_detect::looks_like_fragile_amd_gpu(&info) {
+                        std::env::set_var("FERAL_EMBED_GPU_LAYERS", "0");
+                        tracing::info!(
+                            gpu = %info.name,
+                            "fragile AMD GPU detected — forcing CPU offload for embeddings \
+                             (FERAL_EMBED_GPU_LAYERS=0); chat inference still uses GPU"
+                        );
+                    }
+                }
+            }
+
             // ── RSI substrate bootstrap (Faza 0 — Keystone) ──────────────
             // Runs BEFORE the sidecar spawns. The sidecar's bootstrapOnce()
             // expects the git repo + PLAN.md + SandboxBounds to already be

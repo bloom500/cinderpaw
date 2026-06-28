@@ -1,18 +1,33 @@
 # Local Models & GPU
 
-**Status:** Active — RX 580 Vulkan path is unstable; CPU offload is the
-default for embeddings.
-**Date:** 2026-06-22
-**Branch / worktree:** `feat/rsi-fractal-memory` @ `D:\FeralLocalAI\.worktrees\wt-29286b1b`
+**Status:** Active — chat inference runs on GPU via the Vulkan build
+(`run-app-ui-gpu.bat`); embeddings are auto-forced to CPU on fragile AMD
+GPUs at startup so they don't crash.
+**Date:** 2026-06-28
+**Branch / worktree:** `feat/reactive-pixel-tree` @ `D:\FeralLocalAI`
 
 ## TL;DR
 
 - The sidecar **detects** the GPU and offers it as the embedding target.
 - On RX 580 + Vulkan, **bge-small crashes at model load**
   (`STATUS_ACCESS_VIOLATION`) — this is an env bug, not a code bug.
-- Workaround: `FERAL_EMBED_GPU_LAYERS=0` forces CPU offload for embeddings.
+- Workaround (manual): `FERAL_EMBED_GPU_LAYERS=0` forces CPU offload.
+- Workaround (automatic, since 2026-06-28): the host detects fragile AMD
+  GPUs at startup and sets `FERAL_EMBED_GPU_LAYERS=0` for you. Honors
+  any user preset env var.
 - Chat inference (VibeThinker-3B) on the same GPU is stable enough for
   RSI to run; it's the embed-only path that breaks.
+
+## How to run a GPU dev session
+
+```bat
+run-app-ui-gpu.bat
+```
+
+(from repo root) — the launcher handles vcvars64, Ninja, short
+`CARGO_TARGET_DIR=D:\fb`, and passes `--features inference-vulkan` to
+`cargo tauri dev`. Recipe details:
+`docs/agents-memory/reference_windows_vulkan_build.md`.
 
 ## Models on disk (this dev box)
 
@@ -54,9 +69,23 @@ something we can patch from the Feral side.
 
 | Env var                       | What it does                              | Default |
 |-------------------------------|-------------------------------------------|---------|
-| `FERAL_EMBED_GPU_LAYERS=0`    | CPU-only embedding (bypasses Vulkan bug)  | (unset) |
+| `FERAL_EMBED_GPU_LAYERS=0`    | CPU-only embedding (bypasses Vulkan bug). Auto-set on fragile AMD GPUs by the host at startup; pre-setting it explicitly wins over the auto-detect. | auto (AMD) |
 | `FERAL_RUN_FRACTAL_BENCH=1`   | Auto-run the Fractal bench on startup     | (unset) |
 | `FERAL_FRACTAL_BENCH_QUERIES` | Path to a hand-authored JSONL query set   | (unset) |
+
+## Auto-detection (added 2026-06-28)
+
+`gpu_detect::looks_like_fragile_amd_gpu` matches the GPU names that have
+crashed in this dev env (RX 580 / 570 / 560 / 550 / 480 / 470 / 460,
+Polaris, gfx803) plus the broader AMD families that share the legacy
+AMDVLK / Mesa RADV driver path (Vega / RDNA / gfx8 / gfx9 / gfx10). The
+heuristic is conservative: unknown names and non-AMD vendors are never
+flagged. NVIDIA and Intel GPUs are never affected.
+
+The check runs once in `setup()` on a Vulkan build (`cfg!(feature =
+"inference-vulkan")`). If matched and the env var isn't already set,
+`FERAL_EMBED_GPU_LAYERS=0` is applied and a tracing log line records the
+reason — visible in the dev terminal.
 
 ## What this blocks
 

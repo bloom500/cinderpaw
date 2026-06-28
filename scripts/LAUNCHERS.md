@@ -29,6 +29,35 @@ main checkout) unless otherwise noted.
 
 ## Active
 
+### `run-app-ui-gpu.bat`  (repo root)
+
+GPU dev launcher — builds with `--features inference-vulkan` so chat
+inference uses the GPU. Same Windows toolchain recipe as the other
+launchers (cl 14.44, Ninja, short `CARGO_TARGET_DIR=D:\fb`). The host
+auto-detects fragile AMD GPUs (RX 580 / Polaris / early-Vega) at startup
+and forces the embedding path to CPU, so embeddings won't crash on this
+class of card — see `project_local_models_gpu.md`. Chat (VibeThinker-3B,
+~1.8 GB) DOES use the GPU fine.
+
+**Env:**
+
+```
+CARGO_TARGET_DIR=D:\fb
+```
+
+**Command:**
+
+```bat
+cd /d "D:\FeralLocalAI\src-tauri"
+cargo tauri dev --features inference-vulkan
+```
+
+The launcher does NOT preset `FERAL_EMBED_GPU_LAYERS` — let the host's
+auto-detection decide. To override manually, set it before invoking the
+launcher and the host will leave it alone.
+
+---
+
 ### `run-dream-test.bat`  (repo root)
 
 The Dream Cycle dev launcher. Builds + runs the app from `D:\FeralLocalAI`
