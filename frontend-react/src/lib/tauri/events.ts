@@ -28,6 +28,21 @@ export interface AgentStreamEvent { sessionId: string; data: string }
 export interface StreamStartEvent  { sessionId: string; promptTokens: number }
 /** Emitted at the end of a cloud stream when the provider returns usage stats. */
 export interface StreamUsageEvent  { sessionId: string; promptTokens: number; completionTokens: number }
+/**
+ * Heartbeat for in-flight inference — emitted by the local Rust watchdog on
+ * `feral://stream-progress` and by the sidecar (agent path) as a
+ * `stream_progress` line on `feral://agent-output`. The React
+ * `streamProgressEvent` (raw Rust) + `onStreamProgress` (filtered sidecar)
+ * listeners fan this into the `streamProgress` zustand store.
+ */
+export interface StreamProgressEvent {
+  sessionId: string;
+  phase: 'prefill' | 'generating';
+  elapsedMs: number;
+  promptTokens: number;
+  tokensGenerated: number;
+  tokensPerSec: number;
+}
 
 /**
  * One raw line from the Feral Agent sidecar, forwarded by Rust over
@@ -117,6 +132,13 @@ export const events = {
   streamTruncatedEvent:   wrap<StreamTruncatedEvent>('feral://stream-truncated'),
   streamStartEvent:       wrap<StreamStartEvent>('feral://stream-start'),
   streamUsageEvent:       wrap<StreamUsageEvent>('feral://stream-usage'),
+  /**
+   * Live progress heartbeat for the local Rust inference path — emitted on
+   * `feral://stream-progress` by the watchdog in `chat_stream`. The
+   * sidecar's equivalent (`stream_progress` OutboundEvent) arrives on
+   * `feral://agent-output` and is filtered by `onStreamProgress` below.
+   */
+  streamProgressEvent:    wrap<StreamProgressEvent>('feral://stream-progress'),
   downloadProgressEvent:  wrap<DownloadProgressEvent>('feral://download-progress'),
   downloadCompleteEvent:  wrap<DownloadCompleteEvent>('feral://download-complete'),
   downloadErrorEvent:     wrap<DownloadErrorEvent>('feral://download-error'),
@@ -212,11 +234,11 @@ export const events = {
       }),
   },
 
-  /**
-   * Dream Cycle lifecycle (`started` / `ended`), filtered out of the raw
-   * sidecar line stream. Drives the dream toast + mascot pose. Same
-   * `.listen(cb)` shape as every other event here.
-   */
+/**
+ * Dream Cycle lifecycle (`started` / `ended`), filtered out of the raw
+ * sidecar line stream. Drives the dream toast + mascot pose. Same
+ * `.listen(cb)` shape as every other event here.
+ */
   onDreamCycle: {
     listen: (cb: (e: DreamCycleLine) => void): Promise<UnlistenFn> =>
       listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
@@ -228,6 +250,29 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'dream_cycle'
           ) {
             cb(parsed as DreamCycleLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
+   * Heartbeat for the agent (sidecar) inference path. Filters the raw
+   * `feral://agent-output` stream for `type === "stream_progress"` lines.
+   * Same `.listen(cb)` shape as every other event here.
+   */
+  onStreamProgress: {
+    listen: (cb: (e: StreamProgressEvent) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'stream_progress'
+          ) {
+            cb(parsed as StreamProgressEvent);
           }
         } catch {
           // non-JSON sidecar lines — ignore

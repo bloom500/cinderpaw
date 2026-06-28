@@ -502,6 +502,16 @@ export interface OpenAIToolDef {
   };
 }
 
+export interface StreamProgressEvent {
+  type: "stream_progress";
+  sessionId: string;
+  phase: "prefill" | "generating";
+  elapsedMs: number;
+  promptTokens: number;
+  tokensGenerated: number;
+  tokensPerSec: number;
+}
+
 export interface InferenceRequest {
   sessionId: string;
   messages: ChatMessage[];
@@ -522,6 +532,18 @@ export interface InferenceRequest {
    * is still returned in InferenceResponse at the end.
    */
   onToken?: (token: string) => void;
+  /**
+   * Heartbeat progress callback fired by the sidecar's
+   * `deadlineController` on a ~750 ms cadence (and once at start so the
+   * UI sees activity immediately, even during prefill silence). The
+   * agent loop wires this to a `stream_progress` OutboundEvent so the
+   * React `events.onStreamProgress` listener can update the live
+   * thinking-splitter. Optional — providers no-op when absent.
+   *
+   * The provider fires this from the deadline controller, NOT from
+   * each token: a 200-tok/s model would otherwise spam the UI.
+   */
+  onProgress?: (event: StreamProgressEvent) => void;
   /**
    * Internal maintenance calls (e.g. the working-memory summarizer) set this to
    * skip the pre-call budget check. Without it, compress-and-continue is a dead
@@ -995,6 +1017,21 @@ export type OutboundEvent =
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
+  // Heartbeat for in-flight agent inference (mirrors Rust
+  // `events::StreamProgressEvent`). Emitted on a ~750 ms cadence so the
+  // UI can show live progress instead of a static "Thinking…" black box.
+  // The React `events.onStreamProgress` listener filters this kind out of
+  // the raw `feral://agent-output` stream. `promptTokens` is set once the
+  // provider reports it (cloud: in the final SSE chunk; local: n/a here).
+  | {
+      type: "stream_progress";
+      sessionId: string;
+      phase: "prefill" | "generating";
+      elapsedMs: number;
+      promptTokens?: number;
+      tokensGenerated?: number;
+      tokensPerSec?: number;
+    }
   | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }
   // X3: surfaced when a scheduled job throws or times out — previously cron
   // failures were logged to stderr only and invisible in the UI.

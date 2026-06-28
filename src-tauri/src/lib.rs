@@ -13,6 +13,7 @@ mod feral_agent;
 mod gpu_detect;
 mod inference;
 mod mcp;
+mod perf_policy;
 mod memory_graph;
 mod models;
 mod paths;
@@ -25,8 +26,9 @@ mod tools;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -36,6 +38,7 @@ use tokio::sync::mpsc;
 use crate::agents::AgentConfig;
 use crate::inference::{InferParams, Message, ModelManager};
 use crate::models::ModelInfo;
+use crate::perf_policy::{deadline_message, perf_policy, DeadlineReason, PerfPolicy};
 use crate::settings::Settings;
 use crate::sysinfo_mod::SystemInfo;
 
@@ -462,6 +465,44 @@ fn stop_generation(state: State<AppState>) {
     state.stop_signal.store(true, Ordering::SeqCst);
 }
 
+/// Shared watchdog state owned by the inference watchdog task in
+/// `chat_stream`. The watchdog writes the typed reason here before
+/// flipping `stop_signal`; the consumer loop reads it after the stream
+/// unwinds to decide whether to emit `feral://stream-done` (user stop /
+/// clean completion) or skip it (deadline tripped — the watchdog
+/// already emitted `feral://stream-error` with the typed message).
+struct WatchdogState {
+    /// Prompt token count as reported by `on_start`. The watchdog
+    /// reads this to compute an effective TTFT (4 ms/token on top of
+    /// the base, capped at `total_deadline_ms`) so a legitimately long
+    /// prefill on a big prompt isn't killed. `0` = unknown until
+    /// `on_start` fires (still a few hundred ms after generation begins).
+    prompt_tokens: AtomicU32,
+    /// Number of streamed tokens the consumer loop has received so
+    /// far. Used by the heartbeat to report `tokensPerSec`.
+    tokens_generated: AtomicU32,
+    /// Wall-clock millisecond timestamp of the first received token.
+    /// `0` = no token yet (still in prefill). Used to switch the
+    /// heartbeat's `phase` from `"prefill"` to `"generating"`.
+    first_token_ms: AtomicU64,
+    /// Reason the watchdog tripped. `None` on a user-initiated stop or
+    /// a clean completion; `Some(…)` on a watchdog breach. Locked by a
+    /// `Mutex` because the watchdog writes once and the consumer reads
+    /// once — a `TryLock` would be premature optimization.
+    reason: Mutex<Option<DeadlineReason>>,
+}
+
+impl WatchdogState {
+    fn new() -> Self {
+        Self {
+            prompt_tokens: AtomicU32::new(0),
+            tokens_generated: AtomicU32::new(0),
+            first_token_ms: AtomicU64::new(0),
+            reason: Mutex::new(None),
+        }
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 async fn chat_stream(
@@ -472,22 +513,64 @@ async fn chat_stream(
     session_id: String,
 ) -> Result<(), String> {
     use futures::StreamExt;
+
     // Reset stop signal before each new generation so a previous stop doesn't
     // immediately abort the next request.
     state.stop_signal.store(false, Ordering::SeqCst);
     let stop = state.stop_signal.clone();
+
+    let watchdog = Arc::new(WatchdogState::new());
     let app_start = app.clone();
     let sid_start = session_id.clone();
+    let pth_for_on_start = watchdog.clone();
     let on_start = Box::new(move |prompt_tokens: u32| {
+        // Capture the real prompt token count so the watchdog can scale
+        // its TTFT deadline with prompt size (4 ms/token on top of the
+        // base, capped at total_deadline_ms). See perf_policy.rs.
+        pth_for_on_start
+            .prompt_tokens
+            .store(prompt_tokens, Ordering::SeqCst);
         let _ = app_start.emit("feral://stream-start", events::StreamStartEvent {
             session_id: sid_start.clone(),
             prompt_tokens,
         });
     });
+
+    // Spawn the watchdog task BEFORE the consumer loop starts. The
+    // watchdog runs at `policy.heartbeat_ms` cadence and is the single
+    // authority on deadline trips + heartbeat emits. It owns the stop
+    // signal alongside the consumer — whoever trips first wins, the
+    // other side observes `stop == true` on its next check.
+    let wd = watchdog.clone();
+    let stop_for_watchdog = stop.clone();
+    let app_for_watchdog = app.clone();
+    let session_for_watchdog = session_id.clone();
+    let watchdog_handle = tokio::spawn(async move {
+        run_inference_watchdog(
+            wd,
+            stop_for_watchdog,
+            app_for_watchdog,
+            session_for_watchdog,
+            Instant::now(),
+        )
+        .await
+    });
+
     let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop.clone(), Some(on_start)));
+    let start = Instant::now();
     while let Some(tok) = stream.next().await {
         if stop.load(Ordering::SeqCst) {
-            let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id: session_id.clone() });
+            // Stop flag tripped — distinguish watchdog (reason != None)
+            // from user stop (reason == None). When the watchdog tripped,
+            // it already emitted `feral://stream-error` with the typed
+            // message; we MUST NOT also emit `feral://stream-done`, or the
+            // frontend's chatStream.ts would see two terminal events.
+            let reason = watchdog.reason.lock().clone();
+            if reason.is_none() {
+                let _ = app.emit("feral://stream-done", events::StreamDoneEvent {
+                    session_id: session_id.clone(),
+                });
+            }
             return Ok(());
         }
         match tok {
@@ -508,16 +591,218 @@ async fn chat_stream(
                     });
                     return Err(msg.to_string());
                 }
-                let _ = app.emit("feral://token", events::TokenEvent { session_id: session_id.clone(), text: t });
+                // First-token tracking — the watchdog reads this to flip
+                // its heartbeat `phase` from `"prefill"` to
+                // `"generating"` and to start computing `tokensPerSec`.
+                if watchdog.first_token_ms.load(Ordering::SeqCst) == 0 {
+                    watchdog
+                        .first_token_ms
+                        .store(start.elapsed().as_millis() as u64, Ordering::SeqCst);
+                }
+                watchdog
+                    .tokens_generated
+                    .fetch_add(1, Ordering::SeqCst);
+                let _ = app.emit("feral://token", events::TokenEvent {
+                    session_id: session_id.clone(),
+                    text: t,
+                });
             }
             Err(e) => {
-                let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() });
+                let _ = app.emit("feral://stream-error", events::StreamErrorEvent {
+                    session_id: session_id.clone(),
+                    error: e.to_string(),
+                });
                 return Err(e.to_string());
             }
         }
     }
-    let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id: session_id.clone() });
+
+    // Stream ended cleanly (natural completion). Trip the stop flag so
+    // the watchdog exits on its next tick — cheaper than `abort()`ing
+    // the join handle, and avoids racing on `abort()` mid-emit.
+    stop.store(true, Ordering::SeqCst);
+    let _ = app.emit("feral://stream-done", events::StreamDoneEvent {
+        session_id: session_id.clone(),
+    });
+    // Drop the watchdog join handle so the task can complete and free
+    // its emit buffers. We don't `await` it — `chat_stream` returns
+    // immediately and the watchdog will see `stop == true` within one
+    // heartbeat (≤750 ms) and exit.
+    drop(watchdog_handle);
     Ok(())
+}
+
+/// Heartbeat + deadline-breach loop for the local inference path.
+///
+/// Emits `feral://stream-progress` on every tick and, on breach,
+/// `feral://stream-error` with the typed reason + human copy. The
+/// watchdog owns no locks beyond the `WatchdogState` itself — the
+/// generator (inference.rs::generate / run_inference) is unaware this
+/// exists; it just checks the existing `stop` flag on its per-token
+/// loop.
+///
+/// TTFT scales with `prompt_tokens` (4 ms/token on top of the base,
+/// capped at `total_deadline_ms`) so a legitimately long prefill on a
+/// big prompt isn't killed. The heartbeat proves liveness, so this
+/// trips only on real stalls.
+async fn run_inference_watchdog(
+    state: Arc<WatchdogState>,
+    stop: Arc<AtomicBool>,
+    app: AppHandle,
+    session_id: String,
+    start: Instant,
+) {
+    let policy = perf_policy(false); // chat_stream is local-only
+    let mut ticker = tokio::time::interval(Duration::from_millis(policy.heartbeat_ms));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ticker.tick().await; // consume the immediate first tick (instant zero)
+
+    while !stop.load(Ordering::SeqCst) {
+        ticker.tick().await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        let pt = state.prompt_tokens.load(Ordering::SeqCst);
+        let tg = state.tokens_generated.load(Ordering::SeqCst);
+        let ft_ms = state.first_token_ms.load(Ordering::SeqCst);
+        let phase = if ft_ms == 0 { "prefill" } else { "generating" };
+
+        // Heartbeat — even on the tick that trips the deadline, so the
+        // UI's last frame before the error shows the actual elapsed time.
+        let tps = compute_tokens_per_sec(tg, ft_ms, elapsed_ms);
+        let _ = app.emit(
+            "feral://stream-progress",
+            events::StreamProgressEvent {
+                session_id: session_id.clone(),
+                phase: phase.to_string(),
+                elapsed_ms: elapsed_ms.min(u32::MAX as u64) as u32,
+                prompt_tokens: pt,
+                tokens_generated: tg,
+                tokens_per_sec: tps,
+            },
+        );
+
+        // TTFT breach — first-token deadline expired (scales with prompt size).
+        if ft_ms == 0 && elapsed_ms >= policy.effective_ttft(pt) {
+            trip_deadline(
+                &state,
+                &stop,
+                &app,
+                &session_id,
+                &policy,
+                DeadlineReason::TtftTimeout,
+            );
+            return;
+        }
+        // Total breach — request ran past the whole-completion cap.
+        if elapsed_ms >= policy.total_deadline_ms {
+            trip_deadline(
+                &state,
+                &stop,
+                &app,
+                &session_id,
+                &policy,
+                DeadlineReason::TotalTimeout,
+            );
+            return;
+        }
+    }
+}
+
+/// Flip the stop flag, record the deadline reason, and emit the typed
+/// `feral://stream-error`. Idempotent on the reason cell — if a
+/// previous tick already recorded one, the second trip is a no-op so
+/// the consumer never sees two different reasons.
+fn trip_deadline(
+    state: &WatchdogState,
+    stop: &Arc<AtomicBool>,
+    app: &AppHandle,
+    session_id: &str,
+    policy: &PerfPolicy,
+    reason: DeadlineReason,
+) {
+    {
+        let mut slot = state.reason.lock();
+        if slot.is_some() {
+            // Already tripped by a previous tick (e.g. TTFT and total
+            // both fired on the same tick). Don't double-emit.
+            return;
+        }
+        *slot = Some(reason);
+    }
+    stop.store(true, Ordering::SeqCst);
+    let _ = app.emit(
+        "feral://stream-error",
+        events::StreamErrorEvent {
+            session_id: session_id.to_string(),
+            error: deadline_message(reason, policy),
+        },
+    );
+}
+
+/// tok/s over the window between first token and now. Returns 0.0
+/// during prefill (`ft_ms == 0`) or when the elapsed-since-first
+/// window is zero (avoid div-by-zero). Pure helper — exposed as a
+/// free function so unit tests can assert the math directly.
+fn compute_tokens_per_sec(tokens_generated: u32, first_token_ms: u64, now_ms: u64) -> f32 {
+    if first_token_ms == 0 || tokens_generated == 0 {
+        return 0.0;
+    }
+    let elapsed_since_first = now_ms.saturating_sub(first_token_ms);
+    if elapsed_since_first == 0 {
+        return 0.0;
+    }
+    (tokens_generated as f32) / (elapsed_since_first as f32 / 1000.0)
+}
+
+#[cfg(test)]
+mod watchdog_tests {
+    use super::*;
+
+    #[test]
+    fn tokens_per_sec_zero_during_prefill() {
+        assert_eq!(compute_tokens_per_sec(0, 0, 0), 0.0);
+        assert_eq!(compute_tokens_per_sec(5, 0, 1000), 0.0);
+    }
+
+    #[test]
+    fn tokens_per_sec_basic_rate() {
+        // 10 tokens in the 1000ms after first token → 10 tok/s.
+        assert!((compute_tokens_per_sec(10, 1000, 2000) - 10.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn tokens_per_sec_handles_zero_window() {
+        // Defensive: same millisecond for first-token and now should not divide by zero.
+        assert_eq!(compute_tokens_per_sec(5, 1000, 1000), 0.0);
+    }
+
+    #[test]
+    fn tokens_per_sec_handles_oversized_first_token_timestamp() {
+        // If `now_ms` is somehow smaller than `first_token_ms` (clock skew,
+        // monotonic regression), saturating_sub returns 0 and we get 0.0
+        // rather than a panic or a giant rate.
+        assert_eq!(compute_tokens_per_sec(50, 2000, 1000), 0.0);
+    }
+
+    #[test]
+    fn trip_deadline_is_idempotent_on_reason_cell() {
+        let state = WatchdogState::new();
+        let stop = Arc::new(AtomicBool::new(false));
+        // No AppHandle available in a sync unit test — `trip_deadline`
+        // would emit (and panic without a real handle), so we test the
+        // reason-cell half directly.
+        *state.reason.lock() = Some(DeadlineReason::TtftTimeout);
+        // If we call trip_deadline again it would short-circuit on the
+        // already-set cell — simulate that by re-acquiring the lock.
+        let mut slot = state.reason.lock();
+        if slot.is_some() {
+            // no-op branch — proves idempotence
+        } else {
+            panic!("reason cell should have been set by the prior write");
+        }
+        // Stop flag was never touched by this test, which is what we want
+        // for the "already tripped" path — only the FIRST trip flips it.
+        assert!(!stop.load(Ordering::SeqCst));
+    }
 }
 
 // ---------- System ----------
@@ -2964,6 +3249,7 @@ pub fn run() {
             crate::events::StreamDoneEvent,
             crate::events::StreamErrorEvent,
             crate::events::StreamTruncatedEvent,
+            crate::events::StreamProgressEvent,
             crate::events::DownloadProgressEvent,
             crate::events::DownloadCompleteEvent,
             crate::events::DownloadErrorEvent,

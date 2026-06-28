@@ -120,3 +120,27 @@ pub struct AgentStreamEvent {
     pub session_id: String,
     pub data: String,
 }
+
+/// Heartbeat for in-flight inference — emitted on a ~750 ms cadence so the
+/// UI can show live progress ("prefill", then "generating • 12.3 tok/s")
+/// instead of a static "Thinking…" black box. The watchdog in `chat_stream`
+/// emits this; the sidecar's `stream_progress` OutboundEvent is the
+/// equivalent for the agent path and is forwarded through the existing
+/// `feral://agent-output` channel (not a separate channel — the sidecar
+/// emits structured JSON lines and React filters by `type`).
+///
+/// All timing fields are milliseconds since the inference call's start.
+/// `prompt_tokens` is set once `on_start` fires; `tokens_generated` and
+/// `tokens_per_sec` populate only after the first sampled token.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamProgressEvent {
+    pub session_id: String,
+    pub phase: String, // "prefill" | "generating"
+    pub elapsed_ms: u32,
+    pub prompt_tokens: u32,
+    pub tokens_generated: u32,
+    /// Rolling tok/s, updated on each heartbeat after the first token.
+    /// Zero during prefill and before the first token lands.
+    pub tokens_per_sec: f32,
+}
