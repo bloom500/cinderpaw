@@ -59,7 +59,7 @@ function ParamRow({
           const v = decimals === 0 ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
           onChange(v);
         }}
-        className="w-full h-1 rounded-full appearance-none bg-white/10 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/80 [&::-webkit-slider-thumb]:cursor-pointer"
+        className="w-full h-1 rounded-full appearance-none bg-border-subtle cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-secondary [&::-webkit-slider-thumb]:cursor-pointer"
       />
     </div>
   );
@@ -97,7 +97,7 @@ function ContextWindowRow() {
 
   if (!loaded) {
     return (
-      <p className="pt-3 border-t border-white/10 text-[10px] text-text-muted leading-snug">
+        <p className="pt-3 border-t border-border-subtle text-[10px] text-text-muted leading-snug">
         Context window is auto-managed for cloud models. Load a local model to choose it.
       </p>
     );
@@ -111,7 +111,7 @@ function ContextWindowRow() {
   const dirty = value !== loaded.ctx_len;
 
   return (
-    <div className="pt-3 border-t border-white/10">
+    <div className="pt-3 border-t border-border-subtle">
       <div className="flex justify-between items-center mb-1.5">
         <span className="text-xs text-text-secondary">Context window</span>
         <span className="text-xs text-text-primary tabular-nums">
@@ -124,7 +124,7 @@ function ContextWindowRow() {
         value={value}
         disabled={isLoading}
         onChange={(e) => setDraft(Number(e.target.value))}
-        className="w-full h-1 rounded-full appearance-none bg-white/10 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/80 [&::-webkit-slider-thumb]:cursor-pointer disabled:opacity-50"
+        className="w-full h-1 rounded-full appearance-none bg-border-subtle cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-secondary [&::-webkit-slider-thumb]:cursor-pointer disabled:opacity-50"
       />
       <p className="text-[10px] text-text-muted mt-1.5 leading-snug">
         Auto-detected from {loaded.name}. Bigger = longer memory but more VRAM/RAM.
@@ -134,7 +134,7 @@ function ContextWindowRow() {
           type="button"
           disabled={isLoading}
           onClick={() => { void setContext(loaded.path, value); setDraft(null); }}
-          className="mt-2 px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/15 text-text-primary text-xs disabled:opacity-50 transition-colors"
+          className="mt-2 px-2.5 py-1 rounded-md bg-bg-hover hover:bg-bg-active text-text-primary text-xs disabled:opacity-50 transition-colors"
         >
           {isLoading ? 'Reloading…' : `Apply ${(value / 1024).toFixed(0)}k & reload`}
         </button>
