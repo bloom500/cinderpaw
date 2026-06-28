@@ -58,6 +58,8 @@ import {
   FERAL_AGENT_BASE_PROMPT,
 } from "./feral-prompt.ts";
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
+import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
+import { isCoreTool } from "../tools/tiers.ts";
 
 export interface AgentLoopConfig {
   /** Soft token cap passed to each completion. */
@@ -176,6 +178,10 @@ export class AgentLoop {
   // ponytail: 4096 = pre-raise default; keeps cloud reasoning models from burning
   // the full 16384 budget on chain-of-thought. User Controls override takes priority.
   static readonly CLOUD_DEFAULT_MAX_TOKENS = 4096;
+
+  // Cloud models have huge contexts; bound the transcript only to control cost
+  // and latency, not to avoid a crash. Override via FERAL_CLOUD_TRANSCRIPT_BUDGET.
+  static readonly CLOUD_TRANSCRIPT_BUDGET = 32_000;
 
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
@@ -300,6 +306,15 @@ export class AgentLoop {
    */
   readonly #sessionProfile = new Map<string, string>();
 
+  /**
+   * Per-session set of extended tools the model pulled in via `load_tool`
+   * (the tool drawer). Unioned with the core set when building each owner
+   * turn's advertised tool schemas; profiled sessions ignore it (they carry
+   * their own explicit tool list). Shared by reference with the drawer tools
+   * registered in the constructor.
+   */
+  readonly #loadedTools = new Map<string, Set<string>>();
+
   constructor(
     router: InferenceRouter,
     registry: ToolRegistry,
@@ -321,6 +336,13 @@ export class AgentLoop {
     }
     this.#config = { ...DEFAULT_CONFIG, ...config };
     this.#hooks = hooks;
+    // Tool drawer: register list_tools/load_tool BEFORE the snapshots below so
+    // they appear in the grammar + native tool lists (they're core, always
+    // advertised). They share #loadedTools by reference so load_tool's effect
+    // is visible when #complete builds the owner's per-turn tool set.
+    const [listTools, loadTool] = createToolDrawerTools(registry, this.#loadedTools);
+    registry.register(listTools);
+    registry.register(loadTool);
     this.#systemPrompt = buildSystemPrompt(registry, soul, user);
     // Build the tool-call grammar once. Tool registration is complete before
     // the loop runs, so the tool-name set is stable for the process lifetime.
@@ -940,6 +962,37 @@ export class AgentLoop {
     };
   }
 
+  /**
+   * Token budget for the live transcript, sized to the model's REAL context.
+   *
+   * Local engines load with a small KV cache — Rust caps it at FERAL_MAX_CONTEXT
+   * (default 8192, see inference.rs `DEFAULT_MAX_CONTEXT`) — and the prompt that
+   * actually hits the model is system + tool schemas + drawers + transcript +
+   * this turn's output. The tool schemas are NOT counted by
+   * `WorkingMemory.estimatedTokens()`, so we subtract an explicit margin for
+   * them plus the output reserve. Without compacting to THIS budget before each
+   * call, the transcript grows unbounded until it overflows the KV cache — the
+   * "local model crashes every 5-10 prompts / on complex tasks" failure.
+   *
+   * For sub-8K-context models, lower FERAL_MAX_CONTEXT to match (calibration
+   * knob — the real model context isn't always the cap).
+   */
+  #transcriptBudget(): number {
+    if (!this.#router.isPrimaryLocal) {
+      return Number(process.env.FERAL_CLOUD_TRANSCRIPT_BUDGET) || AgentLoop.CLOUD_TRANSCRIPT_BUDGET;
+    }
+    // Prefer the engine's real active window (forwarded by Rust on set_model);
+    // fall back to the env / conservative default before the first set_model.
+    const ctx = this.#router.contextWindow || Number(process.env.FERAL_MAX_CONTEXT) || 8192;
+    const outputReserve = Math.min(this.#config.maxTokensPerCall, 2048);
+    // ponytail: covers the CORE advertised tool schemas (~2-3K) plus headroom
+    // for a few drawer-loaded tools — not counted by estimatedTokens(). Was
+    // 1536, which under-reserved the old full ~28-tool set (~5-8K) and let the
+    // prompt overflow small local KV caches. Bump if the core set grows.
+    const toolSchemaMargin = 3072;
+    return Math.max(1024, ctx - outputReserve - toolSchemaMargin);
+  }
+
   /** One completion with budget handling (compress-and-retry or stop). */
   async #complete(
     sessionId: string,
@@ -963,8 +1016,26 @@ export class AgentLoop {
     // Profiled (connector) sessions advertise only their restricted tool
     // subset; the owner default sees the full set.
     const profile = this.#profileFor(sessionId);
-    const nativeTools = profile?.nativeTools ?? this.#nativeTools;
-    const openAITools = profile?.openAITools ?? this.#openAITools;
+    // Owner default advertises CORE tools only; extended tools are added once
+    // the model pulls them in via the drawer (load_tool → #loadedTools). This
+    // is the token-economy lever: ~28 schemas (~5-8K tokens) every turn drops
+    // to the core set (~2-3K). Profiled sessions keep their explicit list.
+    const loaded = this.#loadedTools.get(sessionId);
+    const advertise = (name: string): boolean => isCoreTool(name) || !!loaded?.has(name);
+    const nativeTools = profile?.nativeTools ?? this.#nativeTools.filter((t) => advertise(t.name));
+    const openAITools = profile?.openAITools ?? this.#openAITools.filter((t) => advertise(t.function.name));
+
+    // Proactive context-window management: keep the transcript within the
+    // model's real context BEFORE sending. The reactive cost-budget path in the
+    // catch below only fires at millions of tokens — far past the local KV-cache
+    // wall — so without this the prompt overflows the engine and the run crashes
+    // after a handful of turns. Cheap: a no-op until the transcript exceeds the
+    // budget, then one summarizer call amortized over many subsequent turns.
+    await memory.maybeCompress(
+      (msgs) => this.#summarize(sessionId, msgs),
+      this.#transcriptBudget(),
+    );
+
     try {
       // Controls-panel overrides for this session (UX: the user's Max Tokens
       // / Temperature sliders were previously silently ignored by the agent).
@@ -1001,8 +1072,9 @@ export class AgentLoop {
         err instanceof BudgetExhaustedError &&
         this.#config.onBudgetExhausted === "compress_and_continue"
       ) {
-        const compressed = await memory.maybeCompress((msgs) =>
-          this.#summarize(sessionId, msgs),
+        const compressed = await memory.maybeCompress(
+          (msgs) => this.#summarize(sessionId, msgs),
+          this.#transcriptBudget(),
         );
         if (compressed) {
           const overrides = this.#sessionInferParams.get(sessionId);
@@ -1208,10 +1280,11 @@ export function buildSystemPrompt(
     "After each tool result is returned, continue reasoning and either call another",
     "tool or write your final answer as plain text with no tool block.",
     "",
-    "## Memory & skills (on demand)",
-    "Past conversations and installed skills are NOT preloaded — keep the context lean.",
+    "## Memory, skills & tools (on demand)",
+    "Past conversations, installed skills, and optional tools are NOT preloaded — keep the context lean.",
     "- Need continuity or a fact from a previous chat? Call `recall` with a query.",
     "- A task may have a matching skill? Call `list_skills` to find one, then `read_skill` to load it before applying.",
+    "- Need a capability that's not in your current tools (desktop control, deep research, code-quality runners, scanners…)? Call `list_tools`, then `load_tool` with the names you need.",
     "",
     "## Rules",
     "- Be concise and direct.",
