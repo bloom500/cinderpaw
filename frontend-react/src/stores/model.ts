@@ -94,3 +94,4 @@ export const useModel = create<ModelStore>()(persist((set) => ({
   name: 'feral-model',
   partialize: (s) => ({ cloudModel: s.cloudModel, inferParams: s.inferParams, contextByModel: s.contextByModel }),
 }));
+

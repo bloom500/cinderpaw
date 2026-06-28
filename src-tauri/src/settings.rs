@@ -38,6 +38,11 @@ pub struct Settings {
     /// positive value allows bounded cloud spend. `None` = no cap (advanced).
     #[serde(default = "default_rsi_budget")]
     pub rsi_max_cost_usd: Option<f64>,
+    /// Path of the last successfully loaded local model. Written on every
+    /// successful load; cleared on unload. Used by the startup task to
+    /// auto-reload the model so the user doesn't have to pick it again.
+    #[serde(default)]
+    pub last_loaded_model: Option<String>,
 }
 
 fn default_rsi_budget() -> Option<f64> { Some(0.0) }
@@ -54,6 +59,7 @@ impl Default for Settings {
             desktop_control_yolo: false,
             token_budget_conversation: None,
             rsi_max_cost_usd: Some(0.0),
+            last_loaded_model: None,
         }
     }
 }

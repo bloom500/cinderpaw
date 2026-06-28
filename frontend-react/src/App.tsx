@@ -2,9 +2,10 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { router } from './router';
-import { tauri } from './lib/tauri';
+import { tauri, events } from './lib/tauri';
 import { useEmbeddingDownloadStatus } from '@/hooks/useEmbeddingDownloadStatus';
 import { useNotifications } from '@/stores/notifications';
+import { useModel } from '@/stores/model';
 
 /**
  * Top-of-window banner for the in-flight embedding download. Pinned across
@@ -63,6 +64,18 @@ export default function App() {
   // in the right place. (Idempotent — no-op when the model is already on disk.)
   useEffect(() => {
     void tauri.raw.downloadEmbeddingModel().catch(() => {});
+  }, []);
+
+  // Auto-reload: when the Rust startup task finishes loading the last model,
+  // it emits model-load-progress at 100% while isLoading=false. Sync the store.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    events.modelLoadProgressEvent.listen((e) => {
+      if (e.payload.percentage >= 100 && !useModel.getState().isLoading) {
+        void useModel.getState().refresh();
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
   }, []);
 
   return (

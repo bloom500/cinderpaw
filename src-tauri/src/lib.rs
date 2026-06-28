@@ -343,6 +343,11 @@ async fn start_model_load(
                 status_text: format!("Model Loaded! · {}", inference::active_backend_label()),
             });
 
+            // Persist so next launch auto-reloads without user interaction.
+            let mut s = settings::load();
+            s.last_loaded_model = Some(path.clone());
+            let _ = settings::save(&s);
+
             Ok(model)
         }
         Err(e) => Err(e),
@@ -353,6 +358,11 @@ async fn start_model_load(
 #[specta::specta]
 fn unload_model(state: State<AppState>) {
     state.manager.unload();
+    // Clear the persisted auto-reload path so a restart doesn't reload a
+    // model the user just deliberately unloaded.
+    let mut s = settings::load();
+    s.last_loaded_model = None;
+    let _ = settings::save(&s);
 }
 
 #[tauri::command]
@@ -3110,6 +3120,7 @@ pub fn run() {
         });
     }
 
+    let startup_gpu_layers = settings.default_gpu_layers;
     let state = AppState {
         manager: manager.clone(),
         downloads: Arc::new(Mutex::new(HashMap::new())),
@@ -3414,6 +3425,49 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 mcp_manager.start_enabled().await;
             });
+
+            // Auto-reload last model in background so the user doesn't have
+            // to pick it again after every restart. Silent fail — if the file
+            // moved or was deleted the user selects manually as usual.
+            {
+                let auto_manager = manager.clone();
+                let auto_app = app.handle().clone();
+                let auto_layers = startup_gpu_layers;
+                tauri::async_runtime::spawn(async move {
+                    let last = settings::load().last_loaded_model;
+                    if let Some(p) = last {
+                        let pb = std::path::PathBuf::from(&p);
+                        if pb.exists() {
+                            tracing::info!(path = %p, "auto-reloading last model");
+                            let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
+                                percentage: 0.0,
+                                status_text: "Auto-loading last model…".into(),
+                            });
+                            let result = tokio::task::spawn_blocking(move || {
+                                auto_manager.load(pb, auto_layers, None).map_err(|e| e.to_string())
+                            }).await;
+                            match result {
+                                Ok(Ok(_)) => {
+                                    let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
+                                        percentage: 100.0,
+                                        status_text: format!("Ready"),
+                                    });
+                                }
+                                Ok(Err(e)) => {
+                                    tracing::warn!(error = %e, "auto-reload failed");
+                                    let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
+                                        percentage: 0.0,
+                                        status_text: String::new(),
+                                    });
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "auto-reload task failed");
+                                }
+                            }
+                        }
+                    }
+                });
+            }
 
             Ok(())
         })
