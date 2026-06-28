@@ -20,6 +20,7 @@ import type {
 export type { TokenEvent, StreamDoneEvent, StreamErrorEvent, StreamTruncatedEvent };
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
+export type { StreamProgressEvent } from './events';
 
 export interface Message       { role: string; content: string; images?: string[] }
 export interface InferParams   {
