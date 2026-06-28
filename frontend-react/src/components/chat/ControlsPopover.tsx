@@ -75,8 +75,73 @@ const ROWS: Array<{
 }> = [
   { key: 'temperature', label: 'Temperature', min: 0,    max: 2,    step: 0.01,  decimals: 2 },
   { key: 'top_p',       label: 'Top-P',        min: 0.01, max: 1,    step: 0.01,  decimals: 2 },
-  { key: 'max_tokens',  label: 'Max Tokens',   min: 128,  max: 8192, step: 128,   decimals: 0 },
 ];
+
+/** Round n down to the nearest multiple of `step`, clamped to [min, max]. */
+function snap(n: number, min: number, max: number, step: number): number {
+  return Math.min(max, Math.max(min, Math.round(n / step) * step));
+}
+
+/**
+ * Per-local-model context window. The ceiling is auto-detected from the loaded
+ * model's real training window (`n_ctx_train`) — Qwen 64k, Gemma 32k, etc. —
+ * so the slider only ever offers what the model can actually do. Cloud models
+ * have no `loaded` (their window is provider-fixed) → a short note instead.
+ */
+function ContextWindowRow() {
+  const loaded     = useModel((s) => s.loaded);
+  const isLoading  = useModel((s) => s.isLoading);
+  const chosenMap  = useModel((s) => s.contextByModel);
+  const setContext = useModel((s) => s.setModelContext);
+  const [draft, setDraft] = useState<number | null>(null);
+
+  if (!loaded) {
+    return (
+      <p className="pt-3 border-t border-white/10 text-[10px] text-text-muted leading-snug">
+        Context window is auto-managed for cloud models. Load a local model to choose it.
+      </p>
+    );
+  }
+
+  const MIN = 2048;
+  const STEP = 1024;
+  const max = Math.max(MIN, loaded.n_ctx_train || loaded.ctx_len || MIN);
+  const active = chosenMap[loaded.path] ?? loaded.ctx_len;
+  const value = draft ?? snap(active, MIN, max, STEP);
+  const dirty = value !== loaded.ctx_len;
+
+  return (
+    <div className="pt-3 border-t border-white/10">
+      <div className="flex justify-between items-center mb-1.5">
+        <span className="text-xs text-text-secondary">Context window</span>
+        <span className="text-xs text-text-primary tabular-nums">
+          {(value / 1024).toFixed(0)}k / {(max / 1024).toFixed(0)}k
+        </span>
+      </div>
+      <input
+        type="range"
+        min={MIN} max={max} step={STEP}
+        value={value}
+        disabled={isLoading}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        className="w-full h-1 rounded-full appearance-none bg-white/10 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/80 [&::-webkit-slider-thumb]:cursor-pointer disabled:opacity-50"
+      />
+      <p className="text-[10px] text-text-muted mt-1.5 leading-snug">
+        Auto-detected from {loaded.name}. Bigger = longer memory but more VRAM/RAM.
+      </p>
+      {dirty && (
+        <button
+          type="button"
+          disabled={isLoading}
+          onClick={() => { void setContext(loaded.path, value); setDraft(null); }}
+          className="mt-2 px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/15 text-text-primary text-xs disabled:opacity-50 transition-colors"
+        >
+          {isLoading ? 'Reloading…' : `Apply ${(value / 1024).toFixed(0)}k & reload`}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function ControlsPopover() {
   const inferParams    = useModel((s) => s.inferParams);
@@ -103,6 +168,7 @@ export function ControlsPopover() {
             onChange={(v) => setInferParams({ [key]: v })}
           />
         ))}
+        <ContextWindowRow />
       </PopoverContent>
     </Popover>
   );

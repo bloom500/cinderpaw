@@ -9,17 +9,14 @@ export const COOL_HOLD_MS = DONE_HOLD_MS * 2;
 export const EXCITED_HOLD_MS = 800;
 export const ERROR_HOLD_MS = 1600;
 
-// Idle personality. The state machine only ever resolves a handful of states
-// during real use (idle/typing/thinking/calling/done), so the dozen expressive
-// hand-drawn states never got seen. While the mascot is genuinely at rest it
-// now plays a random one of these for a beat, then settles back to idle — the
-// creature feels alive instead of looping the same 5 frames.
-const AMBIENT: MascotState[] = [
-  'wave', 'stretching', 'gaming', 'love', 'cool', 'curious', 'surprised', 'celebrate', 'running',
-];
-const AMBIENT_HOLD_MS = 2600;          // how long a personality beat plays
-const AMBIENT_GAP_MIN_MS = 6000;       // rest between beats (randomised)
-const AMBIENT_GAP_MAX_MS = 13000;
+// Idle personality lives in MascotPerch, NOT here. This hook used to fire random
+// "ambient" beats by overriding the at-rest state every 6-13s — but MascotPerch
+// owns the idle choreography (curious → run ACROSS the input → sleep → stretch →
+// gaming → expressive beat), and its run-travel only starts after the base state
+// stays `idle` uninterrupted for ~18s. The ambient overrides kept knocking the
+// base off `idle`, so the run never triggered (the mascot animated "running" in
+// place but never moved — the reported bug). At rest this hook now returns a
+// stable `idle` and lets Perch run the whole show.
 
 export interface MascotInputs {
   streamStatus: StreamStatus;
@@ -31,7 +28,6 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
   const [doneActive, setDoneActive] = useState(false);
   const [excitedActive, setExcitedActive] = useState(false);
   const [errorActive, setErrorActive] = useState(false);
-  const [ambient, setAmbient] = useState<MascotState | null>(null);
   const prevStatus = useRef<StreamStatus>(streamStatus);
   const idleTier = useRef<number>(0);
   // #23: the two moments the mascot previously had nothing to say about —
@@ -72,28 +68,6 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
     return () => clearTimeout(id);
   }, [streamStatus]);
 
-  // Only fire personality beats when nothing else has something to say.
-  const restful =
-    !agentOffline && !askPending && !isUserTyping &&
-    streamStatus !== 'streaming' && streamStatus !== 'error' &&
-    !doneActive && !excitedActive && !errorActive;
-
-  useEffect(() => {
-    if (!restful) { setAmbient(null); return; }
-    let live = true;
-    let t: ReturnType<typeof setTimeout>;
-    const rest = () => {
-      t = setTimeout(play, AMBIENT_GAP_MIN_MS + Math.random() * (AMBIENT_GAP_MAX_MS - AMBIENT_GAP_MIN_MS));
-    };
-    const play = () => {
-      if (!live) return;
-      setAmbient(AMBIENT[Math.floor(Math.random() * AMBIENT.length)]);
-      t = setTimeout(() => { setAmbient(null); rest(); }, AMBIENT_HOLD_MS);
-    };
-    rest();
-    return () => { live = false; clearTimeout(t); };
-  }, [restful]);
-
   if (agentOffline) return 'sleep';
   if (errorActive) return 'error';
   if (doneActive) return 'done';
@@ -110,6 +84,5 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
     }
   }
   if (isUserTyping) return 'typing';
-  if (ambient) return ambient;
   return 'idle';
 }

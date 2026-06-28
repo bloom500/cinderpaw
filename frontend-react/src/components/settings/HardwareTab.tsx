@@ -14,8 +14,16 @@ export function HardwareTab() {
   const fetch = useSystemInfo((s) => s.fetch);
   useEffect(() => { void fetch(); }, [fetch]);
 
-  const gpuOn = (settings?.default_gpu_layers ?? 100) !== 0;
-  const gpuPct = Math.min(100, Math.max(0, settings?.default_gpu_layers ?? 100));
+  // `default_gpu_layers` convention (matches src-tauri inference.rs):
+  //   -1 = auto / offload ALL layers to GPU (the backend default)
+  //    0 = CPU only
+  //    N = offload N layers
+  // The slider is a 0–100% view, so the auto sentinel (-1) reads as 100% (full
+  // offload) instead of the old Math.max(0,-1)=0% that made the default look
+  // like "GPU off" even though it was the full-GPU default.
+  const layers = settings?.default_gpu_layers ?? -1;
+  const gpuOn = layers !== 0;
+  const gpuPct = layers < 0 ? 100 : Math.min(100, layers);
 
   return (
     <div className="space-y-6">
@@ -35,7 +43,7 @@ export function HardwareTab() {
           type="button"
           role="switch"
           aria-checked={gpuOn}
-          onClick={() => update({ default_gpu_layers: gpuOn ? 0 : 100 })}
+          onClick={() => update({ default_gpu_layers: gpuOn ? 0 : -1 })}
           className={cn(
             'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden',
             gpuOn ? 'bg-blue-500' : 'bg-neutral-600',

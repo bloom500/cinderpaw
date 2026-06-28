@@ -917,6 +917,9 @@ export interface InboundMessage {
   baseUrl?: string;
   /** API key injected by Rust from the BYOK store — never touches React. */
   apiKey?: string;
+  /** Active context window (tokens) for a LOCAL model, forwarded by Rust so the
+   *  agent compacts to the engine's real KV-cache size. Absent for cloud. */
+  contextWindow?: number;
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
   requestId?: string;

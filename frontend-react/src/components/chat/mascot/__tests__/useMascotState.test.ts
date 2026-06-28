@@ -95,6 +95,20 @@ describe('useMascotState', () => {
     });
   });
 
+  describe('at rest stays idle (no ambient flips — lets MascotPerch run)', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('remains idle over a long rest so the perch run-travel can trigger', () => {
+      const { result } = run({ streamStatus: 'idle', agentPhase: null, isUserTyping: false });
+      expect(result.current).toBe('idle');
+      // The old ambient loop would have flipped this to wave/running/etc within
+      // ~6-13s, resetting MascotPerch's 18s run window. It must stay put now.
+      act(() => { vi.advanceTimersByTime(30_000); });
+      expect(result.current).toBe('idle');
+    });
+  });
+
   describe('constants', () => {
     it('DONE_HOLD_MS is 1200', () => {
       expect(DONE_HOLD_MS).toBe(1200);

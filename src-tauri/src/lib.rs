@@ -253,11 +253,12 @@ fn cancel_download(state: State<AppState>, model_id: String) -> Result<(), Strin
 async fn load_model(
     state: State<'_, AppState>,
     path: String,
+    max_context: Option<u32>,
 ) -> Result<inference::LoadedModel, String> {
     let manager = state.manager.clone();
     let n_gpu_layers = state.settings.default_gpu_layers;
     tokio::task::spawn_blocking(move || {
-        manager.load(PathBuf::from(path), n_gpu_layers).map_err(|e| e.to_string())
+        manager.load(PathBuf::from(path), n_gpu_layers, max_context).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -272,6 +273,7 @@ async fn start_model_load(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
+    max_context: Option<u32>,
 ) -> Result<inference::LoadedModel, String> {
     use std::time::Duration;
 
@@ -322,7 +324,7 @@ async fn start_model_load(
     });
 
     let result = tokio::task::spawn_blocking(move || {
-        manager.load(path_buf, n_gpu_layers).map_err(|e| e.to_string())
+        manager.load(path_buf, n_gpu_layers, max_context).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -331,9 +333,11 @@ async fn start_model_load(
 
     match result {
         Ok(model) => {
+            // Surface the REAL backend so a user can tell whether their GPU is
+            // actually being used or inference silently fell back to CPU.
             let _ = app.emit("model-load-progress", events::ModelLoadProgressEvent {
                 percentage: 100.0,
-                status_text: "Model Loaded!".into(),
+                status_text: format!("Model Loaded! · {}", inference::active_backend_label()),
             });
 
             Ok(model)
@@ -899,12 +903,23 @@ async fn feral_set_model(
         api_key
     };
 
+    // For a local (loopback) model, tell the sidecar the active context window
+    // so its transcript-compaction budget matches the KV cache the engine
+    // actually allocated (Hardware can raise this well past the old 8192). Cloud
+    // models omit it — the sidecar uses its generous cloud budget.
+    let context_window = if is_local_api_url(&resolved_url, state.settings.api_port) {
+        state.manager.current().map(|m| m.ctx_len)
+    } else {
+        None
+    };
+
     let msg = serde_json::json!({
         "type": "set_model",
         "provider": provider,
         "model": model,
         "baseUrl": resolved_url,
         "apiKey": api_key,
+        "contextWindow": context_window,
     })
     .to_string();
 

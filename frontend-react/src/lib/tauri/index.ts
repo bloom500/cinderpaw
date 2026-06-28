@@ -30,7 +30,7 @@ export interface InferParams   {
   system_prompt?: string | null;
   tools?: string[] | null;
 }
-export interface LoadedModel   { path: string; name: string; ctx_len: number }
+export interface LoadedModel   { path: string; name: string; ctx_len: number; n_ctx_train: number }
 export interface ModelInfo     {
   id: string; name: string; path: string; size_bytes: number;
   quant?: string | null; ctx_len?: number | null; loaded: boolean;
@@ -374,8 +374,8 @@ export type FeralModelSelection =
 const raw = {
   getModels:             ()    => invoke<ModelInfo[]>('get_models'),
   getLoadedModel:        ()    => invoke<LoadedModel | null>('get_loaded_model'),
-  loadModel:             (path: string) => invoke<LoadedModel>('load_model', { path }),
-  startModelLoad:        (path: string) => invoke<LoadedModel>('start_model_load', { path }),
+  loadModel:             (path: string, maxContext?: number) => invoke<LoadedModel>('load_model', { path, maxContext }),
+  startModelLoad:        (path: string, maxContext?: number) => invoke<LoadedModel>('start_model_load', { path, maxContext }),
   unloadModel:           ()    => invoke<void>('unload_model'),
   deleteModel:           (path: string) => invoke<void>('delete_model', { path }),
   chatStream:            (messages: Message[], params: InferParams, sessionId: string) =>
@@ -539,8 +539,8 @@ export const tauri = {
   models: {
     list:      async () => raw.getModels(),
     loaded:    async () => raw.getLoadedModel(),
-    load:      async (path: string) => raw.loadModel(path),
-    startLoad: async (path: string) => raw.startModelLoad(path),
+    load:      async (path: string, maxContext?: number) => raw.loadModel(path, maxContext),
+    startLoad: async (path: string, maxContext?: number) => raw.startModelLoad(path, maxContext),
     unload:    async () => raw.unloadModel(),
     delete:    async (path: string) => raw.deleteModel(path),
   },

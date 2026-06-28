@@ -34,8 +34,11 @@ export function ContextRing() {
       isLocal = true;
     }
 
-    // Real context window: prefer ctx_len from the loaded model file over heuristic.
-    const ctxWindow = (!isAgentMode && isLocal && loaded?.ctx_len)
+    // Real context window: whenever a local model is loaded its `ctx_len` is the
+    // authoritative KV-cache size (the user-chosen window from Controls) — in
+    // agent mode too, since the local agent loops back to that same model.
+    // Only fall back to the name heuristic for cloud, or when nothing is loaded.
+    const ctxWindow = (isLocal && loaded?.ctx_len)
       ? loaded.ctx_len
       : contextWindowFor(model, isLocal);
 

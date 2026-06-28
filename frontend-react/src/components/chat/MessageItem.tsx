@@ -194,9 +194,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
           <div className="text-xs leading-relaxed">
             <span className="font-medium">{t('chat.truncated.title')}</span>{' '}
-            {t('chat.truncated.body')} ({message.truncatedReason ?? 'length'}).{' '}
-            {t('chat.truncated.hint.pre')} <code className="px-1 py-0.5 rounded bg-amber-500/15 font-mono text-[11px]">max_tokens</code>{' '}
-            {t('chat.truncated.hint.post')}
+            {t('chat.truncated.body')} ({message.truncatedReason ?? 'length'}).
           </div>
         </div>
       )}

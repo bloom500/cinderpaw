@@ -1058,6 +1058,10 @@ async function main(): Promise<void> {
           // BACK to a local primary needs no fallback (it IS the safe target).
           const fallback = isLoopbackUrl(baseUrl) ? undefined : localFallbackTarget;
           router.reconfigure(primary, fallback);
+          // Local models forward their active context window so the agent loop
+          // compacts to the real KV-cache size (Hardware can raise it well past
+          // the old 8192); cloud models send none and use the cloud budget.
+          router.setContextWindow(msg.contextWindow);
           transport.send({ type: "model_set", provider, model });
           log(
             `model hot-swapped → ${provider}/${model} @ ${baseUrl}` +

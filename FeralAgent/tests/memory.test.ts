@@ -254,3 +254,64 @@ describe("WorkingMemory.render — P1 prompt-cache layout", () => {
     expect(tokens).toBeGreaterThan(0);
   });
 });
+
+describe("WorkingMemory.maybeCompress — context-window safety", () => {
+  const summarize = async (msgs: { content: string }[]) =>
+    `(${msgs.length} earlier turns)`;
+
+  test("no-op while under the target budget", async () => {
+    const mem = new WorkingMemory("sys");
+    mem.addUser("hi");
+    mem.addAssistant("hello");
+    const changed = await mem.maybeCompress(summarize, 10_000);
+    expect(changed).toBe(false);
+    expect(mem.turns).toHaveLength(2);
+  });
+
+  test("compacts to fit a small budget: older turns summarized, recent kept", async () => {
+    const mem = new WorkingMemory("sys");
+    for (let i = 0; i < 20; i++) {
+      mem.addUser(`question ${i} ` + "w".repeat(200));
+      mem.addAssistant(`answer ${i} ` + "a".repeat(200));
+    }
+    const before = mem.estimatedTokens();
+    const budget = 800;
+    const changed = await mem.maybeCompress(summarize, budget);
+    expect(changed).toBe(true);
+    // Result fits the budget (this is the whole point — no KV overflow).
+    expect(mem.estimatedTokens()).toBeLessThanOrEqual(budget);
+    expect(mem.estimatedTokens()).toBeLessThan(before);
+    // A summary system note was prepended.
+    expect(mem.turns[0]?.role).toBe("system");
+    expect(mem.turns[0]?.content).toContain("Summary of earlier conversation");
+  });
+
+  test("a single fat tool output can't survive into an overflowing prompt", async () => {
+    // The complex-task crash: one huge tool result keeps the prompt over the
+    // model context even after older turns are summarized. Token-bounded
+    // retention must truncate it so the prompt still fits.
+    const mem = new WorkingMemory("sys");
+    mem.addUser("run the thing");
+    mem.addAssistant("ok");
+    mem.addToolResult("read_file", "DATA ".repeat(5_000)); // ~thousands of tokens
+    const budget = 600;
+    const changed = await mem.maybeCompress(summarize, budget);
+    expect(changed).toBe(true);
+    expect(mem.estimatedTokens()).toBeLessThanOrEqual(budget);
+  });
+
+  test("falls back to a truncation note when the summarizer throws", async () => {
+    const mem = new WorkingMemory("sys");
+    for (let i = 0; i < 10; i++) {
+      mem.addUser("q " + "w".repeat(200));
+      mem.addAssistant("a " + "a".repeat(200));
+    }
+    const boom = async () => {
+      throw new Error("summarizer down");
+    };
+    const changed = await mem.maybeCompress(boom, 700);
+    expect(changed).toBe(true);
+    expect(mem.estimatedTokens()).toBeLessThanOrEqual(700);
+    expect(mem.turns[0]?.content).toContain("earlier turns omitted");
+  });
+});

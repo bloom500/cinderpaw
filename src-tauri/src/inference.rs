@@ -71,7 +71,12 @@ impl Default for InferParams {
 pub struct LoadedModel {
     pub path: PathBuf,
     pub name: String,
+    /// Active context window the KV cache was sized to (clamped to n_ctx_train).
     pub ctx_len: u32,
+    /// The model's real training context window — the max a user may select.
+    /// The active `ctx_len` defaults conservatively below this; the Hardware
+    /// UI uses it as the slider ceiling so a user can opt into the full window.
+    pub n_ctx_train: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,7 +220,11 @@ impl ModelManager {
         Self::default()
     }
 
-    pub fn load(&self, path: PathBuf, n_gpu_layers: i32) -> Result<LoadedModel> {
+    /// Load a model. `max_context` (when `Some`) is the user-chosen context
+    /// window from Hardware settings — the active context is clamped to the
+    /// model's real `n_ctx_train`. `None` falls back to FERAL_MAX_CONTEXT / the
+    /// conservative 8192 default (see `backend::load`).
+    pub fn load(&self, path: PathBuf, n_gpu_layers: i32, max_context: Option<u32>) -> Result<LoadedModel> {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -223,11 +232,11 @@ impl ModelManager {
             .to_string();
 
         #[cfg(feature = "inference")]
-        let ctx_len = backend::load(&path, n_gpu_layers)?;
+        let (ctx_len, n_ctx_train) = backend::load(&path, n_gpu_layers, max_context)?;
         #[cfg(not(feature = "inference"))]
-        let ctx_len = 4096u32;
+        let (ctx_len, n_ctx_train) = (max_context.unwrap_or(4096), 4096u32);
 
-        let loaded = LoadedModel { path, name, ctx_len };
+        let loaded = LoadedModel { path, name, ctx_len, n_ctx_train };
         *self.current.lock() = Some(loaded.clone());
         Ok(loaded)
     }
@@ -297,6 +306,54 @@ impl ModelManager {
                 }
             }
         }
+    }
+}
+
+/// The GPU backend this binary was COMPILED with — NOT what the driver
+/// reports. `gpu_detect` can say "Vulkan available" (the card supports it)
+/// while this is "cpu" (the binary was built without `inference-vulkan`), in
+/// which case llama.cpp silently ignores `n_gpu_layers` and runs on CPU. The
+/// UI needs this to tell the user the truth about why inference is slow.
+pub fn compiled_backend() -> &'static str {
+    if cfg!(feature = "inference-vulkan") {
+        "vulkan"
+    } else if cfg!(feature = "inference-metal") {
+        "metal"
+    } else if cfg!(feature = "inference") {
+        "cpu"
+    } else {
+        "stub"
+    }
+}
+
+/// Whether the last model load actually offloaded to the GPU (vs. fell back to
+/// CPU because the GPU build's KV cache didn't fit, or this is a CPU build).
+pub fn gpu_active() -> bool {
+    #[cfg(feature = "inference")]
+    {
+        backend::gpu_active()
+    }
+    #[cfg(not(feature = "inference"))]
+    {
+        false
+    }
+}
+
+/// Human-readable backend status for the model-load UI. Distinguishes a real
+/// GPU run from a GPU-capable build that silently fell back to CPU, and from a
+/// plain CPU build — so a user with an expensive card can see whether it's
+/// actually being used.
+pub fn active_backend_label() -> String {
+    match compiled_backend() {
+        b @ ("vulkan" | "metal") => {
+            if gpu_active() {
+                format!("GPU ({b})")
+            } else {
+                "CPU (GPU build, but offload unavailable)".to_string()
+            }
+        }
+        "cpu" => "CPU".to_string(),
+        _ => "stub (no inference backend)".to_string(),
     }
 }
 
@@ -484,6 +541,15 @@ mod backend {
     }
 
     static STATE: Lazy<Mutex<Option<Arc<LoadedState>>>> = Lazy::new(|| Mutex::new(None));
+
+    /// Set by `load()` to whether the last load actually ran layers on the GPU
+    /// (a GPU build whose GPU attempt succeeded) vs. fell back to CPU. Read via
+    /// the module-level `inference::gpu_active()`.
+    static GPU_ACTIVE: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+
+    pub(super) fn gpu_active() -> bool {
+        *GPU_ACTIVE.lock()
+    }
 
     /// P6: pool cap. Each context allocates a full `n_ctx`-sized KV cache
     /// (potentially gigabytes for large-context models), so the default
@@ -736,7 +802,11 @@ mod backend {
         Ok(out)
     }
 
-    pub fn load(path: &Path, n_gpu_layers: i32) -> Result<u32> {
+    /// Returns `(active_ctx_len, n_ctx_train)`. `max_context` (when `Some`) is
+    /// the user's chosen window from Hardware settings; it takes precedence over
+    /// the FERAL_MAX_CONTEXT env and the conservative 8192 default. The active
+    /// context is always clamped to the model's real `n_ctx_train`.
+    pub fn load(path: &Path, n_gpu_layers: i32, max_context: Option<u32>) -> Result<(u32, u32)> {
         let backend = BACKEND.get_or_try_init(|| {
             LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
         })?;
@@ -763,13 +833,21 @@ mod backend {
         // only a few GB — it's the unbounded context that kills the box.
         //
         // Cap the load-time context at a safe default (8192 — ample for chat +
-        // the agent's compressed transcripts), clamped to the model's own max;
-        // power users can raise it via FERAL_MAX_CONTEXT.
+        // the agent's compressed transcripts), clamped to the model's own max.
+        // Precedence: explicit Hardware choice (`max_context`) > FERAL_MAX_CONTEXT
+        // env > 8192. The eager-KV crash hazard above is why the DEFAULT stays
+        // conservative: a user who opts into a bigger window does so knowingly
+        // (the UI shows the memory cost), and the GPU→CPU fallback below catches
+        // a VRAM-too-small allocation instead of crashing.
         const DEFAULT_MAX_CONTEXT: u32 = 8192;
-        let cap = std::env::var("FERAL_MAX_CONTEXT")
-            .ok()
-            .and_then(|v| v.trim().parse::<u32>().ok())
+        let cap = max_context
             .filter(|v| *v >= 512)
+            .or_else(|| {
+                std::env::var("FERAL_MAX_CONTEXT")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<u32>().ok())
+                    .filter(|v| *v >= 512)
+            })
             .unwrap_or(DEFAULT_MAX_CONTEXT);
 
         // One load attempt at a given GPU-layer count: load weights, size the
@@ -797,6 +875,7 @@ mod backend {
         // big for the GPU) — fall back to CPU so the model still loads (slower)
         // instead of erroring out. A hard GPU *driver crash* can't be caught
         // here, but a clean error can.
+        let mut offloaded = requested > 0;
         let (model, ctx_len, first) = match attempt(requested) {
             Ok(v) => v,
             Err(e) if requested > 0 => {
@@ -805,11 +884,21 @@ mod backend {
                     requested_gpu_layers = requested,
                     "GPU load failed (weights or KV cache) — falling back to CPU"
                 );
+                offloaded = false; // CPU fallback — GPU is NOT active for this load
                 attempt(0)
                     .map_err(|e2| anyhow!("load {:?} on CPU after GPU failure: {}", path, e2))?
             }
             Err(e) => return Err(anyhow!("load {:?}: {}", path, e)),
         };
+        // GPU is genuinely active only when this is a GPU-compiled build AND we
+        // requested + kept GPU offload. In a CPU-only build llama.cpp ignores
+        // `n_gpu_layers`, so `offloaded` alone would lie.
+        let is_gpu_build = matches!(super::compiled_backend(), "vulkan" | "metal");
+        *GPU_ACTIVE.lock() = is_gpu_build && offloaded;
+
+        // The model's real training window — the ceiling the UI offers and the
+        // value `ctx_len` was already clamped against inside `attempt`.
+        let n_ctx_train = model.n_ctx_train();
 
         let name = path.file_name()
             .and_then(|n| n.to_str())
@@ -838,7 +927,7 @@ mod backend {
             },
             chat_template,
         }));
-        Ok(ctx_len)
+        Ok((ctx_len, n_ctx_train))
     }
 
     pub fn unload() {

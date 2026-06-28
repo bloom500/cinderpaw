@@ -39,11 +39,11 @@ describe('HardwareTab', () => {
     expect(mockUpdate).toHaveBeenCalledWith({ default_gpu_layers: 0 });
   });
 
-  it('toggle ON (when currently 0) calls updateSettings with 100', async () => {
+  it('toggle ON (when currently 0) calls updateSettings with -1 (auto/all layers)', async () => {
     setupStore({ default_gpu_layers: 0 });
     render(<HardwareTab />);
     await userEvent.click(screen.getByRole('switch'));
-    expect(mockUpdate).toHaveBeenCalledWith({ default_gpu_layers: 100 });
+    expect(mockUpdate).toHaveBeenCalledWith({ default_gpu_layers: -1 });
   });
 
   it('Save button calls store.save', async () => {
