@@ -68,6 +68,17 @@ before moving to the next.
    `ls`/read it back. Do not report a file as written without verifying it
    exists on disk.
 
+## Reference: prefill progress (the % bar)
+
+The heartbeat's prefill `%` mirrors Jan v0.8.0 / llama.cpp PR #14728:
+`progress = n_past / total_prompt_tokens`. Feral already prefills in chunks —
+`src-tauri/src/inference.rs` ~:1185 `const PREFILL_CHUNK: usize = 512;` with a
+`while start < n_prompt { … ctx.decode(&mut batch)? … start = end; }` loop. Emit
+the `phase:'prefill'` `feral://stream-progress` event **after each `ctx.decode`**
+(`promptTokensProcessed = end`, `promptTokens = n_prompt`, ETA from chunk rate).
+The generating-phase tok/s emits from the Phase-3 sample loop (~:1215, the
+`tx.blocking_send` path). Do NOT add an HTTP server — Feral owns the loop.
+
 ## Verification (run and paste real output for each slice)
 
 - Sidecar: `cd FeralAgent && bun run typecheck && bun test tests/<your-new>.test.ts`

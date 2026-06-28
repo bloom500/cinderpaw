@@ -80,16 +80,29 @@ interface StreamProgressEvent {
   sessionId: string;
   phase: 'prefill' | 'generating';
   elapsedMs: number;
-  promptTokens?: number;      // known after tokenization
-  tokensGenerated?: number;   // generating phase
-  tokensPerSec?: number;      // generating phase
+  promptTokens?: number;          // total prompt tokens (known after tokenization)
+  promptTokensProcessed?: number; // prefill phase: n_past so far (for the % bar)
+  tokensGenerated?: number;       // generating phase
+  tokensPerSec?: number;          // generating phase
+  etaMs?: number;                 // best-effort remaining time
 }
 ```
 
-- **Rust (`run_inference`)**: emit `phase:'prefill'` right after `on_start`
-  (tokens counted) and on a ~`heartbeatMs` timer until the first sampled token;
-  then `phase:'generating'` with running tok/s on the same cadence. Reuse the
-  existing per-token loop; a cheap `Instant`-based throttle gates emission.
+This mirrors how Jan v0.8.0 / llama.cpp PR #14728 surface prefill progress
+(`progress = n_past / total_prompt_tokens`, e.g. the server log
+`prompt processing progress, n_past=19200, n_tokens=256, progress=0.827836`).
+The reference UI is "Reading: 37% · 2.0k / 5.3k tokens · ~1s left".
+
+- **Rust (`run_inference`)**: Feral embeds llama.cpp directly and already
+  prefills in chunks — `inference.rs` ~:1185 `const PREFILL_CHUNK: usize = 512;`
+  with a `while start < n_prompt { … ctx.decode(&mut batch)? … }` loop. Emit a
+  `phase:'prefill'` progress event **after each `ctx.decode`** with
+  `promptTokensProcessed = end`, `promptTokens = n_prompt`, and
+  `etaMs = (n_prompt - end) / chunkTokensPerSec` (derive `chunkTokensPerSec`
+  from the chunk's wall-clock). Then in the Phase-3 sample loop (~:1215, the
+  `tx.blocking_send` path) emit `phase:'generating'` with running tok/s, gated
+  by a cheap `Instant`-based `heartbeatMs` throttle. No server round-trip — we
+  own the loop, so this is a few lines inside existing loops.
 - **Sidecar (agent path)**: emit an equivalent `OutboundEvent` (`type:
   "stream_progress"`) on the same cadence from the streaming providers in
   `inference-providers.ts` (it already has the token callback + `resetIdle`).
