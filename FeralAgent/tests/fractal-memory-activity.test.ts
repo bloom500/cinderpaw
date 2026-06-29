@@ -148,24 +148,33 @@ describe("FractalMemory activity events", () => {
   });
 });
 
-describe("FractalMemory prune events", () => {
-  it("emits a prune pulse for each leaf that disappears on a rebuild", async () => {
-    const all = leaves(); // ids 1..12
+describe("FractalMemory prune emission contract", () => {
+  // Prune events moved out of `rebuild()` into two explicit paths after the
+  // pathway4 PR-C C.4 refactor (PR-C C.4 split eviction into its own
+  // pipeline so rebuild cost stays independent of how many leaves are
+  // pruned). The contract we pin here:
+  //
+  //   rebuild()     → no prune pulses (even when corpus shrinks)
+  //   evict(policy) → one prune pulse per call, shape { evictedLeafIds, ts }
+  //
+  // Eviction itself is exercised in fractal-memory-evict.test.ts.
+
+  it("rebuild() does NOT emit prune events even when leaves disappear", async () => {
+    const all = leaves();
     const dynamic: Leaf[] = [...all];
     const seen: FractalActivity[] = [];
     const fm = new FractalMemory({
       loadLeaves: () => dynamic, embed: groupEmbed(), summarize: fakeSummarize,
       ftsSearch: noFts, fallback, treePath: treePath(), onActivity: (a) => seen.push(a),
     });
-    await fm.rebuild(); // first build establishes the tree — no prune
+    await fm.rebuild(); // baseline tree
     expect(seen.filter((a) => a.kind === "prune")).toHaveLength(0);
     seen.length = 0;
-    // Two memories deleted / evicted from the corpus.
+    // Two leaves gone from the corpus, then rebuild — still no prune.
     const removed = new Set([3, 7]);
     dynamic.splice(0, dynamic.length, ...all.filter((l) => !removed.has(l.id)));
     await fm.rebuild();
-    const pruned = seen.filter((a) => a.kind === "prune") as Extract<FractalActivity, { kind: "prune" }>[];
-    expect(pruned.map((p) => p.leafId).sort((a, b) => a - b)).toEqual([3, 7]);
+    expect(seen.filter((a) => a.kind === "prune")).toHaveLength(0);
   });
 
   it("does NOT emit prune on the very first rebuild (no prior tree)", async () => {
@@ -175,7 +184,7 @@ describe("FractalMemory prune events", () => {
     expect(seen.filter((a) => a.kind === "prune")).toHaveLength(0);
   });
 
-  it("emits no prune when nothing disappeared between rebuilds", async () => {
+  it("emits no prune when the corpus is identical between rebuilds", async () => {
     const seen: FractalActivity[] = [];
     const fm = makeFm((a) => seen.push(a));
     await fm.rebuild();
