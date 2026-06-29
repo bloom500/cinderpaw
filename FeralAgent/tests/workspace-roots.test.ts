@@ -69,8 +69,15 @@ test("a crafted list pointing INTO ~/.feral is dropped (descendant bypass)", () 
 });
 
 test("empty/whitespace segments never resolve to a root escape", () => {
-  // `;;` or `; ;` must not inject cwd/root via an empty segment.
-  const roots = loadWorkspaceRoots({ FERAL_WORKSPACE: " ; ;; " } as NodeJS.ProcessEnv);
-  // Only scratch survives (all segments were blank → filtered out).
+  // `;;` or `; ;` must not inject cwd/root via an empty segment. The
+  // expected literal uses PATH-LIST SEPARATORS CORRECT FOR THE PLATFORM —
+  // loadWorkspaceRoots splits by `path.delimiter`, which is `;` on Windows
+  // and `:` on POSIX. A hard-coded `;` would split into a single element
+  // on POSIX and the trailing whitespace would resolve() to cwd + garbage,
+  // producing a phantom root that bypasses the wall. (Found by GitHub CI:
+  // macos-latest + ubuntu-latest both failed because of this.)
+  const blank = [delimiter, delimiter].join(" ");
+  const roots = loadWorkspaceRoots({ FERAL_WORKSPACE: ` ${blank} ` } as NodeJS.ProcessEnv);
+  // Only scratch survives (every path-list segment was blank → filtered out).
   expect(roots).toEqual([SCRATCH]);
 });
