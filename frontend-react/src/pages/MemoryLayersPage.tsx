@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { Brain, RefreshCw, X } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { tauri, events } from '@/lib/tauri';
 import { layoutTree, type ClusterInput, type TreeLayout } from '@/lib/tree/layout';
@@ -11,17 +11,20 @@ import {
   type TreeView,
   type RenderAnim,
 } from '@/lib/tree/render';
+import { PALETTE } from '@/lib/tree/sprites';
+import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
- * Memory Layers — the reactive pixel tree. Maps 1:1 to the RAPTOR substrate
+ * Memory Layers — the painterly reactive tree. Maps 1:1 to the RAPTOR substrate
  * (clusters = branches, memories = leaves) and consumes the Fractal Memory
  * Search pulses: `seed` sprouts a leaf, `grow` extends a branch, `recall`
- * lights the traversed path, `prune` drops a leaf (never below the maturity
- * floor). Idle = a fine ambient sway, the tree's only permanent animation.
+ * lights the traversed crown, `prune` drops a leaf (never below the maturity
+ * floor). The trunk's ambient aura and season tint come from the RSI engine
+ * (dreaming → warm autumn glow, ratcheted → white flash that fades, error →
+ * crimson wash). Idle = a fine ambient sway, the only permanent animation.
  */
 
-/** Monotonic min-branch floor, persisted per-install. Distinct key from the
- *  retired Mandelbrot maturity store so old depth values can't contaminate it. */
+/** Monotonic min-branch floor, persisted per-install. */
 const FLOOR_KEY = 'feral.tree.minBranchFloor';
 const treeFloor = {
   current(): number {
@@ -44,13 +47,71 @@ const treeFloor = {
   },
 };
 
-const RECALL_DECAY_MS = 1200;
-const SEED_POP_MS = 250;
-const PRUNE_FALL_MS = 500;
+const RECALL_DECAY_MS = 1400;
+const SEED_POP_MS = 380;
+const PRUNE_FALL_MS = 700;
+const RATCHET_FLASH_MS = 1200;
 
 interface LeafCard {
+  branch: number;
+  leaf: number;
   clusterIndex: number;
   leaves: { leafId: number; text: string; ts: number }[];
+}
+
+/** Map an RSI phase → additive trunk aura + global season tint. */
+function phaseTints(phase: RsiPhase, ratcheted: boolean): {
+  rsiAura: string;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+} {
+  if (phase === 'error') return { rsiAura: PALETTE.rsiAuraError, season: 'winter' };
+  if (phase === 'dreaming') return { rsiAura: PALETTE.rsiAuraDream, season: 'autumn' };
+  if (phase === 'ratcheted' || ratcheted) return { rsiAura: PALETTE.rsiAuraRatchet, season: 'spring' };
+  return { rsiAura: PALETTE.rsiAuraIdle, season: 'summer' };
+}
+
+/** HUD pill — sits in the top-right corner, mirrors the dream-cycle toast. */
+function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
+  const phase = snapshot.phase;
+  const tone =
+    phase === 'dreaming' ? 'border-[#e8731c] text-[#e8731c]'
+    : phase === 'ratcheted' ? 'border-[#ffe7a8] text-[#ffe7a8]'
+    : phase === 'error'    ? 'border-red-500 text-red-400'
+                            : 'border-border-subtle text-text-secondary';
+  const dot =
+    phase === 'dreaming' ? 'bg-[#e8731c] animate-pulse'
+    : phase === 'ratcheted' ? 'bg-[#ffe7a8]'
+    : phase === 'error'    ? 'bg-red-500'
+                            : 'bg-text-muted';
+  const label =
+    phase === 'dreaming' ? 'dreaming…'
+    : phase === 'ratcheted' ? 'ratcheted'
+    : phase === 'error'    ? 'error'
+                            : 'idle';
+  const detail =
+    phase === 'dreaming' ? 'Feral is exploring new params'
+    : phase === 'ratcheted' ? snapshot.lastRatchetScore != null
+        ? `champion score ${snapshot.lastRatchetScore.toFixed(1)}`
+        : 'new champion applied'
+    : snapshot.lastRatchetAt
+      ? `last ratchet ${formatAgo(snapshot.lastRatchetAt)}`
+      : 'no ratchets yet';
+  return (
+    <div className={`pointer-events-auto flex items-center gap-2 rounded-full border bg-black/70 px-3 py-1.5 text-[11px] backdrop-blur ${tone}`}>
+      <span className={`h-2 w-2 rounded-full ${dot}`} />
+      <Brain size={11} className="opacity-70" />
+      <span className="font-medium uppercase tracking-wide">RSI · {label}</span>
+      <span className="opacity-70">· {detail}</span>
+    </div>
+  );
+}
+
+function formatAgo(ms: number): string {
+  const dt = Math.max(0, Date.now() - ms);
+  if (dt < 60_000) return `${Math.floor(dt / 1000)}s ago`;
+  if (dt < 3_600_000) return `${Math.floor(dt / 60_000)}m ago`;
+  if (dt < 86_400_000) return `${Math.floor(dt / 3_600_000)}h ago`;
+  return `${Math.floor(dt / 86_400_000)}d ago`;
 }
 
 export default function MemoryLayersPage() {
@@ -66,6 +127,10 @@ export default function MemoryLayersPage() {
   const seedRef = useRef<Map<number, { start: number }>>(new Map());
   const fallRef = useRef<{ x: number; y: number; start: number }[]>([]);
   const rafRef = useRef<number | null>(null);
+  const rsiSnapRef = useRef<RsiSnapshot>(rsiState.snapshot());
+  // Forcing a render re-read while the page is mounted (so the HUD pill
+  // updates without us re-running the whole effect graph).
+  const [, setTick] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
@@ -82,8 +147,7 @@ export default function MemoryLayersPage() {
     });
   }, []);
 
-  // The single continuous loop: ambient sway + decaying pulses. Cheap (Canvas2D
-  // + LOD-bounded sprite count), so unlike the Mandelbrot it runs at rest.
+  // The single continuous loop: ambient sway + decaying pulses.
   const loop = useCallback((now: number) => {
     const r = rendererRef.current;
     if (r) {
@@ -104,7 +168,22 @@ export default function MemoryLayersPage() {
         .filter((f) => f.t < 1);
       fallRef.current = fallRef.current.filter((f) => (now - f.start) / PRUNE_FALL_MS < 1);
 
-      const anim: RenderAnim = { timeMs: now, branchLit, seedPop, falling };
+      // RSI phase → trunk aura + season wash. Ratchet pulses the white
+      // aura briefly even after the snapshot flips back to idle so the
+      // user actually sees the ratcheted notification.
+      const snap = rsiSnapRef.current;
+      const ratcheted = snap.lastRatchetAt != null &&
+        now - snap.lastRatchetAt < RATCHET_FLASH_MS;
+      const { rsiAura, season } = phaseTints(snap.phase, ratcheted);
+
+      const anim: RenderAnim = {
+        timeMs: now,
+        branchLit,
+        seedPop,
+        falling,
+        season,
+        rsiAura,
+      };
       r.render(layoutRef.current, viewRef.current, anim);
     }
     rafRef.current = requestAnimationFrame(loop);
@@ -129,9 +208,23 @@ export default function MemoryLayersPage() {
     };
   }, [loop, relayout]);
 
-  const branchCount = () => layoutRef.current.branches.length;
+  // RSI snapshot subscription — feeds the HUD pill + the render tints.
+  useEffect(() => {
+    return rsiState.subscribe((snap) => {
+      rsiSnapRef.current = snap;
+      setTick((n) => (n + 1) % 1024);
+    });
+  }, []);
+
+  // Tick the HUD pill once a second so the "last ratchet 12s ago" stays
+  // accurate even when no RSI events are firing.
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => (n + 1) % 1024), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
   const branchForLeaf = (leafId?: number, clusterIndex?: number): number => {
-    const n = branchCount();
+    const n = layoutRef.current.branches.length;
     if (n === 0) return 0;
     if (clusterIndex != null) return clusterIndex % n;
     return Math.abs(leafId ?? 0) % n;
@@ -147,7 +240,7 @@ export default function MemoryLayersPage() {
       ]);
       void rsi;
       const eliteNodeCount = graph.nodes.length;
-      const clusterCount = new Set(graph.nodes.map((n) => n.type)).size; // diversity proxy
+      const clusterCount = new Set(graph.nodes.map((n) => n.type)).size;
       const { signal, floor } = deriveTreeSignal({
         clusterCount,
         eliteNodeCount,
@@ -179,9 +272,6 @@ export default function MemoryLayersPage() {
       } else if (e.kind === 'seed') {
         seedRef.current.set(branchForLeaf(e.leafId, e.clusterIndex), { start: performance.now() });
       } else if (e.kind === 'recall') {
-        // Light the highest-density branches in proportion to the hit count
-        // (an approximation of "where it searched" — exact per-leaf is a
-        // follow-up that needs recall to carry leafIds).
         const ranked = [...layoutRef.current.branches]
           .sort((a, b) => b.leaves.length - a.leaves.length)
           .slice(0, Math.max(1, Math.min(e.hits ?? 1, layoutRef.current.branches.length)));
@@ -195,7 +285,8 @@ export default function MemoryLayersPage() {
     return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
   }, [relayout]);
 
-  // RSI progress → re-pull (mirrors the old behavior).
+  // RSI engine events still drive a re-pull; the snapshot store handles
+  // the live "dreaming"/"ratcheted" phase on its own.
   useEffect(() => {
     let alive = true;
     const unlistenP = events.onRsiEngineEvent.listen(() => { if (alive) void refresh(); });
@@ -223,7 +314,6 @@ export default function MemoryLayersPage() {
     const v = viewRef.current;
     const factor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
     const zoom = Math.max(0.3, Math.min(8, v.zoom * factor));
-    // Keep the cursor anchored over the same world point while zooming.
     const wx = (px - v.offsetX) / v.zoom;
     const wy = (py - v.offsetY) / v.zoom;
     viewRef.current = { zoom, offsetX: px - wx * zoom, offsetY: py - wy * zoom };
@@ -241,16 +331,18 @@ export default function MemoryLayersPage() {
   const onPointerUp = (e: React.PointerEvent) => {
     const d = dragRef.current;
     dragRef.current = null;
-    if (!d || d.moved) return; // a drag, not a click
+    if (!d || d.moved) return;
     const canvas = canvasRef.current;
     const r = rendererRef.current;
     if (!canvas || !r) return;
     const rect = canvas.getBoundingClientRect();
-    const idx = r.hitTestBranch(e.clientX - rect.left, e.clientY - rect.top, layoutRef.current, viewRef.current);
+    // Prefer leaf-level hit, fall back to branch.
+    const leaf = r.hitTestLeaf(e.clientX - rect.left, e.clientY - rect.top, layoutRef.current, viewRef.current);
+    const idx = leaf?.branch ?? r.hitTestBranch(e.clientX - rect.left, e.clientY - rect.top, layoutRef.current, viewRef.current);
     if (idx == null) { setCard(null); return; }
     const reqId = `cl-${Date.now()}-${idx}`;
     cardReqRef.current = reqId;
-    setCard({ clusterIndex: idx, leaves: [] });
+    setCard({ branch: idx, leaf: leaf?.leaf ?? -1, clusterIndex: idx, leaves: [] });
     void invoke('feral_fractal_cluster_leaves', { requestId: reqId, clusterIndex: idx }).catch((err) => {
       console.error('[MemoryLayersPage] drill-down failed', err);
     });
@@ -264,25 +356,26 @@ export default function MemoryLayersPage() {
     );
   }
 
-  // Cold-start empty state — the user has no memories yet so the tree has
-  // a bare trunk and nothing else. Without this overlay the page would
-  // show a near-black canvas with a thin vertical line and no explanation
-  // for why (the recurring "spinner / nothing happens" cold-start pattern
-  // the audit flagged). Surface a clear call-to-action instead.
   const hasNoMemories =
     !loading && layoutRef.current.branches.length === 0;
+
+  const rsiSnapshot = rsiSnapRef.current;
 
   return (
     <div className="fixed inset-0 bg-black">
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 h-full w-full touch-none [image-rendering:pixelated]"
+        className="absolute inset-0 h-full w-full touch-none"
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={() => { dragRef.current = null; }}
       />
+
+      <div className="absolute right-4 top-4 z-10">
+        <RsiHud snapshot={rsiSnapshot} />
+      </div>
 
       {hasNoMemories && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -311,6 +404,7 @@ export default function MemoryLayersPage() {
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-[#e8731c]">
               Cluster {card.clusterIndex}
+              {card.leaf >= 0 && <span className="ml-1 opacity-70">· leaf {card.leaf}</span>}
             </span>
             <button type="button" onClick={() => setCard(null)} aria-label="Close" className="text-text-muted hover:text-text-primary">
               <X size={14} />

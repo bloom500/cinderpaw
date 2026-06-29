@@ -1,14 +1,23 @@
 /**
- * Canvas2D immediate-mode renderer for the reactive pixel tree. A single canvas
- * draws the trunk + branch segments + leaf sprites each frame. RAF is owned by
- * the page and runs only during ambient sway + active pulses; this module is a
- * pure draw + hit-test surface over a {@link TreeLayout}.
+ * Memory Layers — painterly renderer. Single Canvas2D pass drawing a stylized
+ * tree (see Download/001-005.png references) over a {@link TreeLayout}.
  *
- * Not pixel-tested in jsdom (Canvas2D is a no-op there) — visual confirmation is
- * the GPU smoke test. The geometry it consumes is unit-tested in `layout.ts`.
+ * The legacy pixel-skeleton is preserved as a path in this file; the active
+ * render uses radial-gradient foliage + smooth-curved trunk/branches so the
+ * output reads like the orange-canopy tree painted on a black void, not the
+ * 8-bit dots that came before. Pure draw helpers — no RAF, no event handle.
  */
-import type { TreeLayout, BranchGeom } from './layout';
-import { PALETTE, drawPixelLine, drawLeaf, leafColor } from './sprites';
+import type { TreeLayout, BranchGeom, LeafGeom } from './layout';
+import {
+  PALETTE,
+  drawTrunk,
+  drawBranch,
+  drawFoliageCrown,
+  drawFoliageBlob,
+  seasonTint,
+  clearFoliageCache,
+  type Season,
+} from './sprites';
 
 export interface TreeView {
   offsetX: number;
@@ -27,21 +36,26 @@ export interface RenderAnim {
   seedPop?: Map<number, number>;
   /** Prune leaves falling: world position + progress 0..1 (1 = gone). */
   falling?: { x: number; y: number; t: number }[];
+  /** Optional season tint overlay — defaults to summer (no overlay). */
+  season?: Season;
+  /** Optional RSI trunk aura — see {@link PALETTE.rsiAuraDream} etc. */
+  rsiAura?: string;
 }
 
 export interface TreeRenderer {
   render(layout: TreeLayout, view: TreeView, anim?: RenderAnim): void;
   /** Screen point → the branch index whose crown was hit, or null. */
   hitTestBranch(sx: number, sy: number, layout: TreeLayout, view: TreeView): number | null;
+  /** Screen point → (branchIndex, leafIndex) for the nearest leaf within
+   *  the branch's canopy, or null when no leaf is close enough. */
+  hitTestLeaf(sx: number, sy: number, layout: TreeLayout, view: TreeView): { branch: number; leaf: number } | null;
   resize(): void;
   dispose(): void;
 }
 
-/** Pixel block size in CSS px (kept constant for crisp 8-bit blocks). */
-const PX = 3;
 /** Ambient sway amplitude (CSS px) and angular frequency. */
-const SWAY_AMP = 2.2;
-const SWAY_FREQ = 0.0011;
+const SWAY_AMP = 3.4;
+const SWAY_FREQ = 0.0009;
 
 export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | null {
   const ctx = canvas.getContext('2d');
@@ -55,6 +69,8 @@ export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | nu
     const h = canvas.clientHeight || 1;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
+    // Reset gradient cache — radii scale with the new canvas size.
+    clearFoliageCache();
   }
   resize();
 
@@ -68,59 +84,105 @@ export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | nu
     Math.sin(timeMs * SWAY_FREQ + (wx + wy) * 0.05) * SWAY_AMP;
 
   function render(layout: TreeLayout, view: TreeView, anim?: RenderAnim): void {
-    const px = PX * dpr;
     const t = anim?.timeMs ?? 0;
+    const rsiAura = anim?.rsiAura ?? PALETTE.rsiAuraIdle;
+    const tint = seasonTint(anim?.season ?? 'summer');
+
+    // Background: black void + subtle season tint wash.
     ctx!.fillStyle = PALETTE.bg;
     ctx!.fillRect(0, 0, canvas.width, canvas.height);
+    if (tint !== PALETTE.seasonSummer) {
+      ctx!.fillStyle = tint;
+      ctx!.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
-    // Trunk.
-    const t0 = toScreen(layout.trunk.x0, layout.trunk.y0, view);
-    const t1 = toScreen(layout.trunk.x1, layout.trunk.y1, view);
-    drawPixelLine(ctx!, t0.x, t0.y, t1.x, t1.y, layout.trunk.thickness, px, PALETTE.trunkLight);
+    // Trunk (bottom → fork).
+    const tBase = toScreen(layout.trunk.x0, layout.trunk.y0, view);
+    const tTop = toScreen(layout.trunk.x1, layout.trunk.y1, view);
+    drawTrunk(ctx!, layout.trunk.x0 * view.zoom + view.offsetX, tBase.y, tTop.y, layout.trunk.thickness * view.zoom * dpr, rsiAura);
 
     for (const branch of layout.branches) {
       const lit = anim?.branchLit?.get(branch.index) ?? 0;
+      const pop = anim?.seedPop?.get(branch.index) ?? 1;
+
+      // Branch curve from fork to tip.
       const b0 = toScreen(branch.x0, branch.y0, view);
       const b1 = toScreen(branch.x1, branch.y1, view);
-      drawPixelLine(ctx!, b0.x, b0.y, b1.x, b1.y, Math.max(1, branch.thickness * 0.6), px, PALETTE.branch);
+      drawBranch(
+        ctx!,
+        b0.x, b0.y,
+        b1.x, b1.y,
+        branch.thickness * view.zoom * dpr,
+        lit,
+      );
 
-      const pop = anim?.seedPop?.get(branch.index) ?? 1;
-      branch.leaves.forEach((leaf, k) => {
-        const swayX = sway(leaf.x, leaf.y, t);
-        const p = toScreen(leaf.x + swayX, leaf.y, view);
-        // The newest leaf in a branch scales up on a seed pulse.
-        const isNewest = k === branch.leaves.length - 1;
-        const scale = isNewest ? pop : 1;
-        const size = Math.max(1, leaf.size * scale);
-        drawLeaf(ctx!, p.x, p.y, size, px, leafColor(lit));
-        if (lit > 0.6 && isNewest) {
-          drawLeaf(ctx!, p.x, p.y - px, 2, px, PALETTE.spark);
-        }
-      });
+      // Foliage crown — painterly cluster of overlapping blobs at the tip.
+      const foliageR = (10 + Math.max(8, branch.leaves.length) * 1.6) * view.zoom * dpr;
+      const swayX = sway(branch.x1, branch.y1, t);
+      drawFoliageCrown(
+        ctx!,
+        b1.x + swayX * 0.4, b1.y,
+        foliageR,
+        branch.leaves.length,
+        lit,
+        branch.index * 31 + 7,
+        swayX,
+      );
+
+      // On a fresh seed, scale a tiny gold spark at the tip.
+      if (pop < 1) {
+        ctx!.globalAlpha = 1 - pop;
+        drawFoliageBlob(ctx!, b1.x + swayX * 0.4, b1.y - foliageR * 0.2, foliageR * (0.45 + pop * 0.5), 1);
+        ctx!.globalAlpha = 1;
+      }
     }
 
-    // Pruned leaves falling under gravity, blackening as they go.
+    // Pruned leaves — single small blob falling under gravity.
     for (const f of anim?.falling ?? []) {
-      const drop = f.t * f.t * 90; // ease-in gravity in world px
+      const drop = f.t * f.t * 90;
       const p = toScreen(f.x, f.y + drop, view);
-      const color = f.t > 0.6 ? PALETTE.leafDead : PALETTE.leafDim;
-      drawLeaf(ctx!, p.x, p.y, 3 * (1 - f.t * 0.5), px, color);
+      drawFoliageBlob(ctx!, p.x, p.y, 6 * view.zoom * dpr * (1 - f.t * 0.4), 0);
     }
   }
 
   function hitTestBranch(sx: number, sy: number, layout: TreeLayout, view: TreeView): number | null {
-    // Find the branch whose crown center is nearest the click, within radius.
     let best: { idx: number; d: number } | null = null;
     for (const branch of layout.branches) {
       const c = toScreen(branch.x1, branch.y1, view);
       const d = Math.hypot(c.x / dpr - sx, c.y / dpr - sy);
       if (best === null || d < best.d) best = { idx: branch.index, d };
     }
-    const radius = 40 * view.zoom;
+    const radius = 56 * view.zoom;
     return best && best.d <= radius ? best.idx : null;
   }
 
-  return { render, hitTestBranch, resize, dispose: () => {} };
+  function hitTestLeaf(
+    sx: number,
+    sy: number,
+    layout: TreeLayout,
+    view: TreeView,
+  ): { branch: number; leaf: number } | null {
+    let best: { branch: number; leaf: number; d: number } | null = null;
+    for (const branch of layout.branches) {
+      const foliageR = (10 + Math.max(8, branch.leaves.length) * 1.6) * view.zoom;
+      for (let k = 0; k < branch.leaves.length; k++) {
+        const lx = branch.leaves[k]!.x;
+        const ly = branch.leaves[k]!.y;
+        const p = toScreen(lx, ly, view);
+        const d = Math.hypot(p.x / dpr - sx, p.y / dpr - sy);
+        if (best === null || d < best.d) best = { branch: branch.index, leaf: k, d };
+      }
+      // also include the tip itself as a virtual leaf
+      const tip = toScreen(branch.x1, branch.y1, view);
+      const dt = Math.hypot(tip.x / dpr - sx, tip.y / dpr - sy);
+      if (best === null || dt < best.d) best = { branch: branch.index, leaf: branch.leaves.length - 1, d: dt };
+      void foliageR;
+    }
+    const radius = 22 * view.zoom;
+    return best && best.d <= radius ? { branch: best.branch, leaf: best.leaf } : null;
+  }
+
+  return { render, hitTestBranch, hitTestLeaf, resize, dispose: () => {} };
 }
 
-export type { BranchGeom };
+export type { BranchGeom, LeafGeom };
