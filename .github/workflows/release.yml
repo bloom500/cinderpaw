@@ -37,14 +37,9 @@ jobs:
           - name: macOS Apple Silicon
             os: macos-latest
             features: inference-metal
-          - name: macOS Intel (x86_64)
-            # Cross-compile x86_64 from the ARM `macos-14` runner. Standard
-            # Intel runners (`macos-13`) are gone. `rustup target add` happens
-            # in the Setup Rust step, and `--target x86_64-apple-darwin` is
-            # appended to the tauri args below.
+          - name: macOS Intel
             os: macos-14
             features: inference-metal
-            target: x86_64-apple-darwin
           - name: Linux x64
             os: ubuntu-22.04
             features: inference-vulkan
@@ -146,14 +141,6 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Cross-compile target for macOS Intel. Only added on macOS runners —
-      # the matrix entry "macOS Intel (x86_64)" passes `target: x86_64-apple-darwin`
-      # and gets picked up by `--target` in the tauri args below. Apple Silicon,
-      # Linux, and Windows runners skip this (~5s on a hot cache).
-      - name: Add macOS cross-compile target
-        if: runner.os == 'macOS'
-        run: rustup target add x86_64-apple-darwin
-
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
@@ -230,11 +217,7 @@ jobs:
           # `--features` is additive on top of the default `inference` (CPU),
           # so the build gets CPU + the platform GPU backend; inference.rs falls
           # back to CPU at runtime if GPU init fails.
-          # `--target` is appended only when the matrix entry declares one
-          # (currently only macOS Intel cross-compiles from the ARM runner).
-          args: >-
-            --features ${{ matrix.features }}
-            ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          args: --features ${{ matrix.features }}
           # Uploads the bundles AND latest.json (updater manifest) to the
           # release. With a matrix, tauri-action merges each platform into
           # the same latest.json on the shared release.
