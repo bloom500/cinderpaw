@@ -1491,4 +1491,53 @@ mod tests {
         // RTX 3090/4090 user with plenty of VRAM opts into 3 — passes through.
         assert_eq!(backend::effective_pool_cap_with_env(true, Some(3)), 3);
     }
+
+    // ── Real-GGUF load smoke ─────────────────────────────────────────────
+    // Gated on `FERAL_SMOKE_GGUF=/path/to/file.gguf` so CI without a model
+    // file on disk stays green. When set, this test loads the GGUF through
+    // the real `backend::load` path (CPU, n_gpu_layers=0) and asserts the
+    // three guarantees the user-noted ctx-window changes promise:
+    //   1. ctx_len > 0
+    //   2. ctx_len <= n_ctx_train      (no eager-KV overflow crash)
+    //   3. ctx_len >= 2048             (the floor)
+    // Runs in `cargo test --features inference --lib -- --nocapture
+    // load_smoke_real_gguf`. Skipped otherwise.
+
+    #[test]
+    fn load_smoke_real_gguf() {
+        let path = match std::env::var("FERAL_SMOKE_GGUF").ok() {
+            Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
+            _ => {
+                eprintln!("[load_smoke_real_gguf] FERAL_SMOKE_GGUF not set — skipping");
+                return;
+            }
+        };
+        if !path.exists() {
+            eprintln!(
+                "[load_smoke_real_gguf] GGUF not present at {} — skipping",
+                path.display()
+            );
+            return;
+        }
+        let manager = ModelManager::new();
+        let loaded = manager
+            .load(path.clone(), 0, None)
+            .expect("real-GGUF load via ModelManager::load");
+        assert!(loaded.ctx_len > 0, "ctx_len must be > 0 (got {})", loaded.ctx_len);
+        assert!(
+            loaded.ctx_len <= loaded.n_ctx_train,
+            "ctx_len ({}) must be <= n_ctx_train ({})",
+            loaded.ctx_len,
+            loaded.n_ctx_train
+        );
+        assert!(
+            loaded.ctx_len >= 2048,
+            "ctx_len ({}) must be >= 2048 floor",
+            loaded.ctx_len
+        );
+        eprintln!(
+            "[load_smoke_real_gguf] {} loaded: ctx_len={} n_ctx_train={}",
+            loaded.name, loaded.ctx_len, loaded.n_ctx_train
+        );
+    }
 }
