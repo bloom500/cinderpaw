@@ -96,23 +96,23 @@ function TierPanel({
                        : 'bg-[#3a210f]';
   const share = total === 0 ? 0 : (nodes.length / total) * 100;
   return (
-    <section className={`rounded-lg border bg-black/50 ${saturation} p-4`}>
+    <section className={`rounded-lg border bg-zinc-900/60 ${saturation} p-4`}>
       <header className="mb-3 flex items-baseline justify-between">
         <div className="flex items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-full ${headerDot}`} />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-100">
             {TIER_LABELS[tier]}
           </h2>
-          <span className="text-xs text-text-muted">
+          <span className="text-xs text-zinc-400">
             {nodes.length} {nodes.length === 1 ? 'memory' : 'memories'}
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="text-[10px] uppercase tracking-wide text-zinc-500">
           {share.toFixed(0)}% of all
         </span>
       </header>
       {nodes.length === 0 ? (
-        <p className="text-xs text-text-muted">
+        <p className="text-xs text-zinc-500">
           {tier === 'today'
             ? 'Nothing yet today — chat with Feral to fill this tier.'
             : `No memories in this tier yet.`}
@@ -125,15 +125,15 @@ function TierPanel({
               <li
                 key={n.id}
                 onClick={() => setExpandedIdx(expanded ? null : i)}
-                className={`cursor-pointer rounded border border-border-subtle/60 bg-bg-surface/40 px-3 py-2 transition hover:border-[#e8731c]/60 hover:bg-bg-surface/70 ${expanded ? 'border-[#e8731c]/50' : ''}`}
+                className={`cursor-pointer rounded border border-zinc-800 bg-zinc-950/50 px-3 py-2 transition hover:border-[#e8731c]/60 hover:bg-zinc-900 ${expanded ? 'border-[#e8731c]/50' : ''}`}
               >
                 <div className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="font-mono text-[#e8731c]">{formatClock(n.touched_at)}</span>
-                  <span className="text-text-muted">{formatTimeAgo(now, n.touched_at)}</span>
+                  <span className="text-zinc-500">{formatTimeAgo(now, n.touched_at)}</span>
                 </div>
-                <div className="mt-1 text-xs text-text-primary">{n.label}</div>
+                <div className="mt-1 text-xs text-zinc-100">{n.label}</div>
                 {expanded && (
-                  <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px] text-text-muted">
+                  <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px] text-zinc-500">
                     <span>type</span><span>{n.type}</span>
                     <span>id</span><span className="font-mono">{n.id}</span>
                   </div>
@@ -151,21 +151,21 @@ function TierPanel({
 function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; bestScore: number | null }) {
   const improve = bestScore !== null && ep.ratchets > 0;
   return (
-    <div className="rounded border border-border-subtle/60 bg-bg-surface/40 px-3 py-2">
+    <div className="rounded border border-zinc-800 bg-zinc-950/50 px-3 py-2">
       <div className="flex items-baseline justify-between gap-3 text-xs">
         <span className="font-mono text-[#e8731c]">
           {ep.iterations} {ep.iterations === 1 ? 'iteration' : 'iterations'}
         </span>
-        <span className="text-text-muted">{formatTimeAgo(now, ep.startedAt)}</span>
+        <span className="text-zinc-500">{formatTimeAgo(now, ep.startedAt)}</span>
       </div>
-      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-[10px] text-text-secondary">
-        <span className="text-text-muted">trigger</span><span>{ep.trigger}</span>
-        <span className="text-text-muted">stop</span><span>{describeStop(ep.stopReason)}</span>
-        <span className="text-text-muted">tokens</span><span>{ep.tokens}</span>
-        <span className="text-text-muted">ratchets</span><span className={ep.ratchets > 0 ? 'text-[#ffe7a8]' : ''}>{ep.ratchets}</span>
+      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-[10px] text-zinc-400">
+        <span className="text-zinc-500">trigger</span><span>{ep.trigger}</span>
+        <span className="text-zinc-500">stop</span><span>{describeStop(ep.stopReason)}</span>
+        <span className="text-zinc-500">tokens</span><span>{ep.tokens}</span>
+        <span className="text-zinc-500">ratchets</span><span className={ep.ratchets > 0 ? 'text-[#ffe7a8]' : ''}>{ep.ratchets}</span>
         {improve && (
           <>
-            <span className="text-text-muted">best</span>
+            <span className="text-zinc-500">best</span>
             <span className="text-[#ffe7a8]">{bestScore?.toFixed(1)}</span>
           </>
         )}
@@ -182,12 +182,12 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
     phase === 'dreaming' ? 'border-[#e8731c] text-[#e8731c]'
     : phase === 'ratcheted' ? 'border-[#ffe7a8] text-[#ffe7a8]'
     : phase === 'error'    ? 'border-red-500 text-red-400'
-                            : 'border-border-subtle text-text-secondary';
+                            : 'border-zinc-700 text-zinc-400';
   const dot =
     phase === 'dreaming' ? 'bg-[#e8731c] animate-pulse'
     : phase === 'ratcheted' ? 'bg-[#ffe7a8]'
     : phase === 'error'    ? 'bg-red-500'
-                            : 'bg-text-muted';
+                            : 'bg-zinc-500';
   const label =
     phase === 'dreaming' ? 'dreaming'
     : phase === 'ratcheted' ? 'ratcheted'
@@ -202,7 +202,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
       ? `last ratchet ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
       : 'no ratchets yet';
   return (
-    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-black/70 px-3 py-1.5 text-[11px] backdrop-blur ${tone}`}>
+    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-zinc-950 px-3 py-1.5 text-[11px] backdrop-blur ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       <Brain size={11} className="opacity-70" />
       <span className="font-medium uppercase tracking-wide">RSI · {label}</span>
@@ -285,7 +285,7 @@ export default function MemoryLayersPage() {
     : '';
 
   return (
-    <div className="min-h-full bg-black text-text-primary">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-8">
         {/* ── HEADER ──────────────────────────────────────────────── */}
         <header className="flex flex-col gap-2">
@@ -293,10 +293,10 @@ export default function MemoryLayersPage() {
             <Layers size={14} />
             <span>Feral · Memory Layers</span>
           </div>
-          <h1 className="text-2xl font-semibold leading-tight">
+          <h1 className="text-2xl font-semibold leading-tight text-zinc-100">
             Everything Feral remembers.
           </h1>
-          <p className="max-w-2xl text-sm text-text-secondary">
+          <p className="max-w-2xl text-sm text-zinc-400">
             Facts Feral learned from your conversations, grouped by how long ago. New
             memories land in <span className="text-[#e8731c]">Today</span>; older ones
             stay searchable so Feral can recall them when context demands.
@@ -308,7 +308,7 @@ export default function MemoryLayersPage() {
               onClick={() => void refresh()}
               disabled={loading}
               aria-label="Refresh memory layers"
-              className="ml-auto rounded-lg border border-border-subtle bg-bg-surface/60 p-2 text-text-secondary hover:text-text-primary disabled:opacity-50"
+              className="ml-auto rounded-lg border border-zinc-800 bg-zinc-900 p-2 text-zinc-400 hover:text-zinc-100 disabled:opacity-50"
             >
               <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -317,13 +317,13 @@ export default function MemoryLayersPage() {
 
         {/* ── HERO STATS ─────────────────────────────────────────── */}
         {stats.total === 0 ? (
-          <section className="rounded-lg border border-[#e8731c]/30 bg-bg-elevated/60 px-5 py-6 text-center">
+          <section className="rounded-lg border border-[#e8731c]/30 bg-zinc-900 px-5 py-6 text-center">
             <h2 className="text-base font-semibold text-[#e8731c]">
               Feral hasn't remembered anything yet.
             </h2>
-            <p className="mt-1 text-xs text-text-secondary">
+            <p className="mt-1 text-xs text-zinc-400">
               As you chat, facts you mention begin to fill the layers below.
-              Start a conversation in <span className="text-brand">Chat</span>{' '}
+              Start a conversation in <span className="text-[#e8731c]">Chat</span>{' '}
               and come back — memories land in real time.
             </p>
           </section>
@@ -335,9 +335,9 @@ export default function MemoryLayersPage() {
               ['This Week', stats.week],
               ['This Month', stats.month],
             ] as const).map(([label, value]) => (
-              <div key={label} className="rounded-lg border border-border-subtle/60 bg-bg-elevated/40 px-4 py-3">
-                <div className="text-[10px] uppercase tracking-wide text-text-muted">{label}</div>
-                <div className="mt-1 text-2xl font-semibold leading-none">
+              <div key={label} className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
+                <div className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</div>
+                <div className="mt-1 text-2xl font-semibold leading-none text-zinc-100">
                   {value}
                 </div>
               </div>
@@ -353,18 +353,18 @@ export default function MemoryLayersPage() {
           ))}
 
         {/* ── FERAL'S DREAMS ────────────────────────────────────── */}
-        <section className={`rounded-lg border border-border-subtle/60 bg-black/50 p-4 transition-shadow ${panelGlow}`}>
+        <section className={`rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 transition-shadow ${panelGlow}`}>
           <header className="mb-3 flex items-center gap-2">
             <Sparkles size={14} className="text-[#e8731c]" />
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-100">
               Feral's Dreams
             </h2>
-            <span className="text-xs text-text-muted">
+            <span className="text-xs text-zinc-400">
               {dreamLast.length} {dreamLast.length === 1 ? 'cycle' : 'cycles'}
             </span>
           </header>
           {dreamLast.length === 0 ? (
-            <p className="text-xs text-text-muted">
+            <p className="text-xs text-zinc-400">
               No dream cycles yet. Feral tunes its own parameters while you're away —
               leave the app for ~5 minutes and the first dream will land here.
             </p>
