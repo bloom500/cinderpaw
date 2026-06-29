@@ -483,7 +483,7 @@ export class FractalMemory {
    * replace. No tree, an embedding failure, or an empty query → `[]`, so the
    * calling tool simply falls back to its own (non-fractal) results.
    */
-  async query(pattern: string, limit: number): Promise<FractalQueryHit[]> {
+   async query(pattern: string, limit: number): Promise<FractalQueryHit[]> {
     if (!this.#tree || !this.#leavesById || !pattern.trim() || limit <= 0) return [];
     const leavesById = this.#leavesById;
     try {
@@ -502,6 +502,32 @@ export class FractalMemory {
       this.#log?.(`fractal: query fell back to empty: ${String(e)}`);
       return [];
     }
+  }
+
+  /**
+   * Cluster drill-down — every episodic id under a top-level cluster, paired
+   * with the leaf metadata the UI shows in the per-cluster card. Returns
+   * `[]` when there is no tree or the index is out of range; never throws.
+   *
+   * `TreeNode.leafIds` is documented as `every episodic id that sits under
+   * this node (union of children)`, so the cluster's leafIds already gives us
+   * the full membership — no recursion.
+   */
+  clusterLeaves(clusterIndex: number): { leafId: number; text: string; ts: number }[] {
+    if (!this.#tree || !this.#leavesById) return [];
+    const tree = this.#tree;
+    if (clusterIndex < 0 || clusterIndex >= tree.children.length) return [];
+    const root = tree.children[clusterIndex]!;
+    const out: { leafId: number; text: string; ts: number }[] = [];
+    for (const leafId of root.leafIds) {
+      const leaf = this.#leavesById.get(leafId);
+      out.push({
+        leafId,
+        text: leaf?.text ?? "",
+        ts: leaf?.ts ?? 0,
+      });
+    }
+    return out;
   }
 
   /**
