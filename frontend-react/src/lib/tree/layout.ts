@@ -75,14 +75,15 @@ function angleForIndex(index: number): number {
   return (hash01(index) * 2 - 1) * MAX_SPREAD;
 }
 
-/** Fork height ratio along the trunk (0 = at base, 1 = at top). Index-driven
- *  so each branch stays in its lane across rebuilds, but staggered so the
- *  canopy opens naturally instead of crowding one fork point. */
+/** Fork height ratio along the trunk. The trunk only goes up to ~62% of the
+ *  canvas; branches fork in the upper half so the canopy reads as the upper
+ *  third of the picture (reference 002 has crown occupying ~30% of the
+ *  height starting at ~62% from the bottom, trunk 65-70%). */
 function forkHeightRatioForIndex(index: number): number {
-  // Two rings of forks — alternating high/low by index parity — give us
-  // branches from 4 distinct heights on the trunk instead of 1.
+  // Stagger fork heights in the upper trunk band so the canopy opens from
+  // multiple points, not one tuft.
   const ring = (index >> 1) % 4;
-  return 0.55 + ring * 0.085;
+  return 0.32 + ring * 0.06;
 }
 
 function buildBranch(
@@ -95,20 +96,20 @@ function buildBranch(
   width: number,
   maxLeaves: number,
 ): BranchGeom {
-  // Defensive: a corrupt feed could ship NaN / non-finite weights. Clamp
-  // non-finite to 0 so the tree still renders SOMETHING.
   const safeWeight = Number.isFinite(weight) ? weight : 0;
   const w = Math.max(0, Math.min(1, safeWeight));
   const angle = angleForIndex(index);
-  // Branches fork at staggered heights along the trunk so the crown isn't
-  // a single tuft on top.
+  // Branches fork in the upper ~38% of the trunk so the canopy sits above
+  // the trunk, not on top of a single fork point.
   const ratio = forkHeightRatioForIndex(index);
   const forkY = trunkBaseY + (trunkTopY - trunkBaseY) * ratio;
-  // Length scales with the *smaller* of the two canvas dimensions so the
-  // tree fills its container whether the sidebar is open or not.
+  // Length scales with the smaller canvas dimension; bumped harder so the
+  // canopy can spread wider than the trunk (3-4×) like reference 002.
   const baseSpan = Math.min(height, width);
-  const length = baseSpan * 0.16 + w * baseSpan * 0.30;
-  const thickness = 3 + w * 11;
+  const length = baseSpan * 0.22 + w * baseSpan * 0.42;
+  // Thinner branches — the trunk is the visual anchor, branches are
+  // connectors to the foliage bulbs.
+  const thickness = 2 + w * 6;
   const x1 = forkX + Math.sin(angle) * length;
   const y1 = forkY - Math.cos(angle) * length;
 
@@ -133,12 +134,13 @@ export function layoutTree(clusters: ClusterInput[], opts: LayoutOptions): TreeL
   const minBranches = Math.max(0, opts.minBranches ?? 0);
 
   const cx = width / 2;
-  // Trunk goes from the ground (5% from bottom) up to ~12% from the top so the
-  // canopy has room above and a clean base below. The thickness is bumped to
-  // ~32 so the trunk carries visual weight against a wide canopy.
+  // Trunk: 95% (base) → 62% (top) — the top is INSIDE where the canopy
+  // starts so no bare trunk pokes out above the foliage. Thickness scales
+  // at ~2% of minSpan so it's clearly subordinate to the canopy.
   const baseY = height * 0.95;
-  const trunkTopY = height * 0.12;
-  const trunkThickness = Math.max(28, Math.min(width, height) * 0.05);
+  const trunkTopY = height * 0.62;
+  const minSpan = Math.min(width, height);
+  const trunkThickness = Math.max(14, minSpan * 0.022);
   const trunk = { x0: cx, y0: baseY, x1: cx, y1: trunkTopY, thickness: trunkThickness };
 
   const branches: BranchGeom[] = clusters.map((c, i) =>

@@ -80,18 +80,18 @@ describe('layoutTree — edge cases', () => {
     const layout = layoutTree(clusters([0]), OPTS);
     expect(layout.branches).toHaveLength(1);
     const b = layout.branches[0];
-    expect(b.thickness).toBeGreaterThanOrEqual(3); // floor of 3 + w*11
+    expect(b.thickness).toBeGreaterThanOrEqual(2); // floor of 2 + w*6
     expect(b.length).toBeGreaterThanOrEqual(0);
   });
 
   it('a weight of exactly 1 produces the thickest, longest, most-leafy branch (cap respected)', () => {
     const layout = layoutTree(clusters([1]), OPTS);
     const b = layout.branches[0];
-    // Bumped for the painterly renderer: max thickness = 3 + 1*11 = 14; max
-    // length scales with minSpan (= min(height, width)) as 0.16 + 1*0.30.
-    // OPTS sets width=height=800, so length → 0.46*800 = 368.
-    expect(b.thickness).toBeCloseTo(14, 5);
-    expect(b.length).toBeCloseTo(OPTS.height * 0.46, 5);
+    // Bumped for the painterly renderer: max thickness = 2 + 1*6 = 8; max
+    // length scales with minSpan (= min(height, width)) as 0.22 + 1*0.42.
+    // OPTS sets width=height=800, so length → 0.64*800 ≈ 512.
+    expect(b.thickness).toBeCloseTo(8, 5);
+    expect(b.length).toBeCloseTo(OPTS.height * 0.64, 5);
     // Max leaves = 14 by default; round(1*14) = 14.
     expect(b.leaves.length).toBeLessThanOrEqual(14);
   });
@@ -100,14 +100,14 @@ describe('layoutTree — edge cases', () => {
     const layout = layoutTree(clusters([5]), OPTS);
     const b = layout.branches[0];
     // Same shape as weight=1 because Math.min(1, w) clamps.
-    expect(b.thickness).toBeCloseTo(14, 5);
+    expect(b.thickness).toBeCloseTo(8, 5);
     expect(b.leaves.length).toBeLessThanOrEqual(14);
   });
 
   it('weight < 0 is clamped to 0 (no negative thickness from a corrupt feed)', () => {
     const layout = layoutTree(clusters([-0.5]), OPTS);
     const b = layout.branches[0];
-    expect(b.thickness).toBeGreaterThanOrEqual(3);
+    expect(b.thickness).toBeGreaterThanOrEqual(2);
     expect(b.leaves.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -141,6 +141,6 @@ describe('layoutTree — edge cases', () => {
   it('a NaN weight is treated as 0 (defensive — corrupt feeds must not crash the renderer)', () => {
     const layout = layoutTree([{ weight: NaN }], OPTS);
     expect(layout.branches).toHaveLength(1);
-    expect(layout.branches[0].thickness).toBeGreaterThanOrEqual(3);
+    expect(layout.branches[0].thickness).toBeGreaterThanOrEqual(2);
   });
 });
