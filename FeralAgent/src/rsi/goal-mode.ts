@@ -63,6 +63,8 @@ export interface GoalResult {
   best: BestRecord | null;
   totalTokens: number;
   totalCostUsd: number;
+  /** Error messages from failed evals (capped at 5 to avoid unbounded growth). */
+  errors: string[];
 }
 
 /** Pure cost-cap decision. `cap` undefined ⇒ never; `cap === 0` ⇒ stop on any
@@ -92,6 +94,7 @@ export class GoalMode {
   private totalTokens = 0;
   private totalCostUsd = 0;
   private userStopped = false;
+  private readonly errors: string[] = [];
   /** Wall-clock deadline (epoch-ms per config.now), set at run() start
    *  when config.maxWallClockMs is given. null ⇒ no wall-clock cap. */
   private deadline: number | null = null;
@@ -113,6 +116,9 @@ export class GoalMode {
       const tokens = (e.tokenCost as number) ?? 0;
       this.totalTokens += tokens;
       this.totalCostUsd += estimateUsd(tokens, this.config.pricePer1kUsd ?? 0);
+      if (e.errored === true && e.error && this.errors.length < 5) {
+        this.errors.push(String(e.error));
+      }
     });
   }
 
@@ -262,6 +268,7 @@ export class GoalMode {
       best: this.pop.best(),
       totalTokens: this.totalTokens,
       totalCostUsd: this.totalCostUsd,
+      errors: this.errors,
     };
   }
 }

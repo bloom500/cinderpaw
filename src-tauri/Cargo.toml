@@ -87,7 +87,7 @@ urlencoding = "2"
 getrandom = "0.2"
 
 # Chat attachment text extraction (PDF + OOXML/ODF containers)
-pdf-extract = "0.7"
+pdf-extract = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]

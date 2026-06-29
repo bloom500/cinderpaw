@@ -22,6 +22,10 @@ export interface DreamEpisodeRecord {
   tokens: number;
   ratchets: number;
   stopReason: string;
+  /** Error messages from failed evals (capped at 5). */
+  errors: string[];
+  /** Number of empty model responses during this episode. */
+  emptyResponses: number;
 }
 
 /** Append one JSON line to `path`. Swallows ALL errors — telemetry is a

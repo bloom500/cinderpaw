@@ -115,13 +115,14 @@ export function makeCommitGenomeAdapter(deps: BridgeAdapterDeps) {
     const parentLineage = g.lineage;
     const configJson = g.config ?? {};
 
-    // Candidate branch per genome — convention: `genome/<short-id>`.
+    // Candidate branch per genome — convention: `genome-<short-id>`.
     // Short id = first 8 hex chars of the UUID (same shape Rust's
     // `short_id_for_filename` uses, so a future commit-history
     // inspector can find both the snapshot file and the branch by
     // the same key).
+    // NOTE: Rust's git validator requires single-segment branch names (no '/').
     const shortId = req.genomeId.replace(/-/g, "").slice(0, 8);
-    const candidateBranch = `genome/${shortId}`;
+    const candidateBranch = `genome-${shortId}`;
 
     const result = await deps.bridge.request<{ commitHash: string }>(
       "rsi_commit_genome",
@@ -184,7 +185,7 @@ export function makeRatchetAttemptAdapter(deps: { bridge: RsiBridge }) {
  * `errorMessage` is normalised to `null` (not `undefined`) so the wire
  * payload always carries the field — matching Rust's `Option<String>`.
  */
-export function makeScoreGenomeAdapter(deps: { bridge: RsiBridge }) {
+export function makeScoreGenomeAdapter(deps: { bridge: RsiBridge; log?: (msg: string) => void }) {
   return async (outcomes: EvalOutcome[]): Promise<ScoreResult> => {
     const wire = outcomes.map((o) => ({
       task_id: o.taskId,
@@ -195,10 +196,16 @@ export function makeScoreGenomeAdapter(deps: { bridge: RsiBridge }) {
       errored: o.errored,
       error_message: o.errorMessage ?? null,
     }));
-    const result = await deps.bridge.request<{ score: number }>("rsi_score", {
-      outcomes: wire,
-    }, BRIDGE_TIMEOUT_MS);
-    return { score: result.score };
+    try {
+      const result = await deps.bridge.request<{ score: number }>("rsi_score", {
+        outcomes: wire,
+      }, BRIDGE_TIMEOUT_MS);
+      return { score: result.score };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      deps.log?.(`rsi_score bridge error: ${detail} (${outcomes.length} outcomes)`);
+      throw err;
+    }
   };
 }
 

@@ -29,18 +29,18 @@ Feral is a desktop app that runs AI on your machine. With local GGUF models, eve
 
 ---
 
-## What's new in v0.2.0
+## What's new in v2026.06.29
 
-- 🖼️ **Vision** — paste or drop screenshots and image files; the model sees real pixels, not filenames (BYOK cloud + agent sidecar)
-- 🧠 **Memory that carries over** — a shared knowledge graph feeds every new conversation, and "remember X" / "forget Y" work instantly
-- 🕸️ **Memory Graph page** — explore everything Feral knows about you in a glowing, filterable graph visualization
-- 🔌 **MCP Extensions** — app-store style page for Model Context Protocol servers: one-click install, on/off toggles, zero config files
-- 👹 **The real Feral mascot** — the pixel companion is now the brand monster itself (black fur, orange horns, orange belly): 50+ animated variants across 22 states, plus per-state particle effects, at a bigger, crisper size
-- 🗣️ **Friendlier agent voice** — rewritten SOUL.md, user-overridable identity files
-- 📎 **Attach any file** — drag & drop or paste anything into the chat: PDFs and Office docs are parsed natively, text files of any extension just work, and binaries reach the agent as a path it can open with its tools
-- 🍎🐧 **macOS & Linux** — installers for macOS (Apple Silicon + Intel) and Linux (.deb/.rpm) now ship alongside Windows, faster startup, stop button that actually stops, and a pile of stability fixes
+*Power-user preview — we're looking for testers and contributors.*
 
-Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
+- 🧠 **Memory Layers** — a clean, non-technical view of everything Feral remembers about you: Today, This Week, This Month, Older. Live RSI status and dream cycle history included.
+- 🔄 **RSI (Recursive Self-Improvement)** — Feral tunes its own parameters while you're away. An evolutionary algorithm tests configurations against a frozen eval suite and keeps what works. Early-stage but functional.
+- 🖥️ **GPU acceleration** — Vulkan on Windows/Linux, Metal on macOS. Auto-fallback to CPU when GPU isn't available.
+- ⚡ **Inference deadlines** — TTFT, total, and stall timers with live progress. No more wondering if the model is stuck.
+- 🔑 **BYOK (Bring Your Own Key)** — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
+- 🛡️ **Security hardening** — sandboxed tools, encrypted memory, tamper-evident audit log, CVE-2026-0187 fix.
+
+Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDADER_KEY_MIGRATION.md) first.
 
 ---
 
@@ -84,9 +84,9 @@ Every model card shows a **0–100 fitness score** for *your* hardware before yo
 
 For deep research, ask the agent something like *"Research the current state of open-source LLMs"* — it calls `deep_research` on its own and comes back with a cited Markdown report.
 
-| Local models, scored for your hardware | Browse HuggingFace in-app | Bring your own keys |
+| Dark mode | Connectors (Discord, Slack, …) | Memory Layers |
 |---|---|---|
-| ![Local models](frontend-react/public/READMEdemo2.png) | ![Browse HuggingFace](frontend-react/public/READMEdemo3.png) | ![Cloud keys](frontend-react/public/READMEdemo5.png) |
+| ![Dark theme](frontend-react/public/READMEdemo2.png) | ![Connectors](frontend-react/public/READMEdemo3.png) | ![Memory Layers](frontend-react/public/READMEdemo5.png) |
 
 ## Privacy, honestly
 
@@ -106,6 +106,8 @@ For deep research, ask the agent something like *"Research the current state of 
 |---|---|
 | **Chat** | Persistent conversations with any local or cloud model. Projects keep related chats grouped and sane. |
 | **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, and an agentic loop. It thinks. Sometimes too much. |
+| **Memory Layers** | See everything Feral remembers about you — grouped by recency (Today / This Week / This Month / Older). Live RSI status and dream cycle history. |
+| **RSI (Self-Improvement)** | Feral tunes its own parameters while you're away. Evolutionary algorithm tests configs, keeps what works. Early-stage, functional. |
 | **Deep Research** | Multi-step autonomous web research: searches, reads pages, extracts findings, synthesizes a cited Markdown report. Like having a very caffeinated research assistant who never sleeps. |
 | **Local Models** | Load GGUF models from disk. One-click load/unload with live Active status and hardware fitness scoring. |
 | **Model Fitness Scoring** | Every local model gets a 0–100 score across memory fit, quality, speed, and context window — so you stop loading models that make your CPU cry. |

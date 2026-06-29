@@ -96,6 +96,10 @@ export interface RsiRunStats {
    *  improvements committed to main. The number that lets telemetry prove
    *  the Dream Cycle is improving (not just spinning). */
   ratchets: number;
+  /** Error messages from failed evals (capped at 5). */
+  errors: string[];
+  /** Number of empty model responses during this episode. */
+  emptyResponses: number;
 }
 
 export interface RsiSidecarDeps {
@@ -206,19 +210,25 @@ export class RsiSidecar {
     const ratchetAttempt = makeRatchetAttemptAdapter({
       bridge: this.deps.bridge,
     });
-    const scoreGenome = makeScoreGenomeAdapter({ bridge: this.deps.bridge });
+    const scoreGenome = makeScoreGenomeAdapter({ bridge: this.deps.bridge, log: this.deps.log });
     const fetchTier0 = async () => {
-      const wire = await this.deps.bridge.request<
-        Array<{
-          id: string;
-          name: string;
-          description: string;
-          prompt: string;
-          kind: EvalKind;
-          expected: EvalExpected;
-        }>
-      >("rsi_get_tier0_specs", {});
-      return wire;
+      try {
+        const wire = await this.deps.bridge.request<
+          Array<{
+            id: string;
+            name: string;
+            description: string;
+            prompt: string;
+            kind: EvalKind;
+            expected: EvalExpected;
+          }>
+        >("rsi_get_tier0_specs", {});
+        return wire;
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        this.deps.log?.(`rsi_get_tier0_specs bridge error: ${detail}`);
+        throw err;
+      }
     };
     const getSpecs = makeGetSpecs({ fetchTier0 });
 
@@ -237,12 +247,14 @@ export class RsiSidecar {
         this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT,
     });
     const invokeAgent: typeof baseInvokeAgent = async (prompt, genome) => {
-      const res = await baseInvokeAgent(prompt, genome);
-      if (res.response.trim() === "") {
-        emptyResponses += 1;
-        if (!emptyWarned) {
-          emptyWarned = true;
-          this.deps.send({
+      try {
+        const res = await baseInvokeAgent(prompt, genome);
+        if (res.response.trim() === "") {
+          emptyResponses += 1;
+          if (!emptyWarned) {
+            emptyWarned = true;
+            this.deps.log?.(`rsi eval: model returned empty response for genome ${genome.id}`);
+            this.deps.send({
             type: "rsi_engine_event",
             event: "warning",
             warning: "empty_response",
@@ -252,7 +264,12 @@ export class RsiSidecar {
           });
         }
       }
-      return res;
+        return res;
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        this.deps.log?.(`rsi eval: invokeAgent failed for genome ${genome.id}: ${detail}`);
+        throw err;
+      }
     };
     const runEval = makeRunEval({ getSpecs, invokeAgent });
 
@@ -475,6 +492,8 @@ export class RsiSidecar {
           tokens: result.totalTokens,
           stopReason: result.reason,
           ratchets: ratchetCount,
+          errors: result.errors,
+          emptyResponses,
         });
       },
       (err) => {
@@ -492,7 +511,7 @@ export class RsiSidecar {
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount });
+        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, errors: [detail], emptyResponses });
       },
     );
   }

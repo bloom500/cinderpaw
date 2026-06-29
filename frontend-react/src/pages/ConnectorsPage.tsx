@@ -58,8 +58,8 @@ export function ConnectorsPage() {
 
           {/* Security banner */}
           <div className="mb-8 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 flex items-start gap-2.5">
-            <ShieldAlert size={15} className="text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[12px] text-amber-200/90 leading-relaxed">
+            <ShieldAlert size={15} className="text-amber-800 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-[12px] text-amber-800 dark:text-amber-200/90 leading-relaxed">
               Anyone you add to a connector's allowed list can command your assistant — and everything it can do — on this
               computer. Add only people you trust. Leave the list empty and no one but you can reach it.
             </p>

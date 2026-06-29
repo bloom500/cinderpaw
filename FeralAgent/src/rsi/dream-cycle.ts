@@ -77,6 +77,8 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
         tokens: stats?.tokens ?? 0,
         ratchets: stats?.ratchets ?? 0,
         stopReason: stats?.stopReason ?? "unknown",
+        errors: stats?.errors ?? [],
+        emptyResponses: stats?.emptyResponses ?? 0,
       });
       send({
         type: "dream_cycle",
