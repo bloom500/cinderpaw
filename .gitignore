@@ -86,3 +86,9 @@ node_modules/.vite/
 # Dev run / benchmark logs (never tracked)
 *.log
 *.log.err
+
+# Scratch / draft scratchpad (mascot bases, worktree salvage) — never tracked
+.drafts/
+
+# Locally-installed Claude Code plugin skills (.claude/ config IS tracked, these aren't)
+.claude/skills/

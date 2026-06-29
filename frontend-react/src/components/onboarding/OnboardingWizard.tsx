@@ -23,10 +23,13 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, Sparkles, X, FileText, Search, Terminal, Cpu, ShieldCheck, ShieldAlert, Shield } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Sparkles, X, FileText, Search, Terminal, Cloud, HardDrive, Download, Check, ExternalLink, Loader2, ChevronRight, ShieldCheck, ShieldAlert, Shield } from 'lucide-react';
 import { useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
+import { useDownload } from '@/stores/download';
+import { useSettings } from '@/stores/settings';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus } from '@/lib/tauri';
 import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
@@ -81,8 +84,9 @@ export function OnboardingWizard() {
             >
               {step === 0 && <WelcomeStep />}
               {step === 1 && <PersonalizeStep />}
-              {step === 2 && <ShowcaseStep />}
-              {step === 3 && <DoneStep />}
+              {step === 2 && <ProviderStep />}
+              {step === 3 && <ShowcaseStep />}
+              {step === 4 && <DoneStep />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -121,6 +125,7 @@ function ProgressDots({ step, total }: { step: number; total: number }) {
 }
 
 function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number }) {
+  const navigate = useNavigate();
   const next = useOnboarding((s) => s.next);
   const finish = useOnboarding((s) => s.finish);
   const userName = useOnboarding((s) => s.userName);
@@ -132,7 +137,10 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
     return (
       <button
         type="button"
-        onClick={() => void finish()}
+        // Navigate to /chat explicitly rather than relying on it being the
+        // route behind the overlay — the provider step can leave the router
+        // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
+        onClick={() => { navigate('/chat'); void finish(); }}
         className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors"
       >
         Open chat <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
@@ -331,6 +339,312 @@ function ShowcaseCard({
   );
 }
 
+// ── Step 3: Provider — "Choose your brain" ──────────────────────────────────
+
+// ponytail: pinned curated GGUFs per hardware tier (keys match
+// recommendModel().sizeClass exactly — the key describes the hardware budget,
+// the model it maps to can be any size). Calibration knob — re-verify these
+// repos/files resolve on Hugging Face before each release; swap when a better
+// small model ships. An unresolvable repo makes the one-click download fail.
+// `approxSize` is the real Q4_K_M download size (shown on the button) — keep it
+// in sync when swapping models. Qwen3.5 verified live on HF 2026-06-28.
+const TIER_MODELS: Record<string, { repoId: string; filename: string; label: string; approxSize: string }> = {
+  '1–2B':   { repoId: 'bartowski/Qwen_Qwen3.5-2B-GGUF',  filename: 'Qwen_Qwen3.5-2B-Q4_K_M.gguf',  label: 'Qwen3.5 2B',  approxSize: '~1.5 GB' },
+  '3–4B':   { repoId: 'bartowski/Qwen_Qwen3.5-4B-GGUF',  filename: 'Qwen_Qwen3.5-4B-Q4_K_M.gguf',  label: 'Qwen3.5 4B',  approxSize: '~2.5 GB' },
+  '7–8B':   { repoId: 'bartowski/Qwen_Qwen3.5-9B-GGUF',  filename: 'Qwen_Qwen3.5-9B-Q4_K_M.gguf',  label: 'Qwen3.5 9B',  approxSize: '~5.5 GB' },
+  '13–14B': { repoId: 'bartowski/Qwen_Qwen3.5-27B-GGUF', filename: 'Qwen_Qwen3.5-27B-Q4_K_M.gguf', label: 'Qwen3.5 27B', approxSize: '~16.5 GB' },
+};
+
+// A short, friendly subset of ByokTab's PROVIDER_DEFS — the rest stay in
+// Settings → Cloud Keys. `id` MUST match a PROVIDER_DEFS id so the saved key
+// lines up. Gemini + OpenRouter have free tiers (zero-budget friendly).
+const CURATED_PROVIDERS: {
+  id: string;
+  name: string;
+  console: string;
+  keyPlaceholder: string;
+  free?: boolean;
+  /** Cost/availability caveat shown under the steps — saves the user from a
+   *  confusing "quota exceeded" on the paid providers. */
+  note: string;
+  steps: string[];
+}[] = [
+  {
+    id: 'openai', name: 'OpenAI', console: 'https://platform.openai.com/api-keys',
+    keyPlaceholder: 'sk-...',
+    note: 'New accounts get ~$5 free credit (no card, 3-month expiry); after that, add a prepaid balance under Billing. A ChatGPT Plus/Pro subscription does not cover API keys.',
+    steps: [
+      'Sign in at platform.openai.com',
+      'Settings → API keys → "Create new secret key"',
+      'Copy the key now (it\'s shown only once) and paste it below',
+    ],
+  },
+  {
+    id: 'anthropic', name: 'Anthropic (Claude)', console: 'https://console.anthropic.com/settings/keys',
+    keyPlaceholder: 'sk-ant-...',
+    note: 'Paid — add ~$5 credit under Billing before the key will work.',
+    steps: [
+      'Sign in at console.anthropic.com',
+      'Settings → API keys → "Create Key"',
+      'Copy the key now (it\'s shown only once) and paste it below',
+    ],
+  },
+  {
+    id: 'google', name: 'Google Gemini', console: 'https://aistudio.google.com/apikey', free: true,
+    keyPlaceholder: 'AIza...',
+    note: 'Free tier — no credit card needed.',
+    steps: [
+      'Sign in at aistudio.google.com with any Google account',
+      'Click "Get API key" → "Create API key"',
+      'Copy the key and paste it below',
+    ],
+  },
+  {
+    id: 'openrouter', name: 'OpenRouter', console: 'https://openrouter.ai/keys', free: true,
+    keyPlaceholder: 'sk-or-...',
+    note: 'Free models available (look for ":free") — no credit card needed.',
+    steps: [
+      'Sign in at openrouter.ai (Google or email)',
+      'Profile menu → Keys → "Create Key"',
+      'Copy the key now (it\'s shown only once) and paste it below',
+    ],
+  },
+];
+
+export function ProviderStep() {
+  const [choice, setChoice] = useState<'local' | 'cloud' | null>(null);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-semibold text-text-primary mb-2">Choose your brain</h2>
+        <p className="text-sm text-text-muted">
+          I need a model to think with. Run one privately on your machine, or plug in a cloud key.
+          You can skip this and set it up later in Settings.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <ForkCard
+          icon={<HardDrive size={18} />}
+          title="Run locally"
+          subtitle="Private · free · on your machine"
+          selected={choice === 'local'}
+          onClick={() => setChoice('local')}
+        />
+        <ForkCard
+          icon={<Cloud size={18} />}
+          title="Use a cloud key"
+          subtitle="Instant · stronger · some free tiers"
+          selected={choice === 'cloud'}
+          onClick={() => setChoice('cloud')}
+        />
+      </div>
+
+      {choice === 'local' && <LocalBranch />}
+      {choice === 'cloud' && <CloudBranch />}
+    </div>
+  );
+}
+
+function ForkCard({
+  icon, title, subtitle, selected, onClick,
+}: {
+  icon: React.ReactNode; title: string; subtitle: string; selected: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={cn(
+        'text-left p-4 rounded-xl border transition-colors',
+        selected
+          ? 'border-brand bg-brand/10'
+          : 'border-border-subtle bg-bg-primary/30 hover:bg-bg-primary/60',
+      )}
+    >
+      <div className={cn('w-9 h-9 rounded-md flex items-center justify-center mb-2', selected ? 'bg-brand/20 text-brand' : 'bg-bg-hover text-text-secondary')}>
+        {icon}
+      </div>
+      <p className="text-sm font-medium text-text-primary">{title}</p>
+      <p className="text-xs text-text-muted mt-0.5">{subtitle}</p>
+    </button>
+  );
+}
+
+function LocalBranch() {
+  const navigate = useNavigate();
+  const finish = useOnboarding((s) => s.finish);
+  const sysInfo = useSystemInfo((s) => s.info);
+  const fetchSysInfo = useSystemInfo((s) => s.fetch);
+  useEffect(() => { void fetchSysInfo(); }, [fetchSysInfo]);
+
+  const rec = recommendModel(sysInfo);
+  // recommendModel().sizeClass keys map 1:1 to TIER_MODELS. Fall back to the
+  // mid tier when detection isn't ready yet so the button is never dead.
+  const model = (rec && TIER_MODELS[rec.sizeClass]) ?? TIER_MODELS['3–4B'];
+
+  const active = useDownload((s) => s.active);
+  const done = useDownload((s) => s.done);
+  const error = useDownload((s) => s.error);
+  const start = useDownload((s) => s.start);
+  const isThisDownloading = active?.repoId === model.repoId;
+
+  return (
+    <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-3">
+      {rec && <p className="text-sm text-text-secondary leading-relaxed">{rec.rationale}</p>}
+
+      {done ? (
+        <p className="flex items-center gap-2 text-sm text-green-400">
+          <Check size={16} /> {model.label} is ready — I'll use it automatically.
+        </p>
+      ) : isThisDownloading ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-text-muted">
+            <span className="flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Downloading {model.label}…</span>
+            <span>{Math.round((active?.progress ?? 0) * 100)}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-bg-hover overflow-hidden">
+            <div className="h-full bg-brand transition-all" style={{ width: `${Math.round((active?.progress ?? 0) * 100)}%` }} />
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void start(model.repoId, model.filename)}
+          disabled={!!active}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+        >
+          <Download size={15} /> Download {model.label} ({model.approxSize})
+        </button>
+      )}
+
+      {error && <p className="text-xs text-red-400">Download failed: {error}</p>}
+
+      <button
+        type="button"
+        onClick={() => { void finish(); navigate('/models'); }}
+        className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+      >
+        Browse other models <ChevronRight size={12} />
+      </button>
+    </div>
+  );
+}
+
+function CloudBranch() {
+  const navigate = useNavigate();
+  const finish = useOnboarding((s) => s.finish);
+  const [selected, setSelected] = useState<string | null>(null);
+  const def = CURATED_PROVIDERS.find((p) => p.id === selected) ?? null;
+
+  return (
+    <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-4">
+      <div className="grid grid-cols-2 gap-2">
+        {CURATED_PROVIDERS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setSelected(p.id)}
+            className={cn(
+              'flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors',
+              selected === p.id ? 'border-brand bg-brand/10 text-text-primary' : 'border-border-subtle text-text-secondary hover:bg-bg-hover',
+            )}
+          >
+            <span>{p.name}</span>
+            {p.free && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+          </button>
+        ))}
+      </div>
+
+      {def && <CloudProviderForm def={def} />}
+
+      <button
+        type="button"
+        onClick={() => { void finish(); navigate('/settings'); }}
+        className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+      >
+        More providers in Settings → Cloud Keys <ChevronRight size={12} />
+      </button>
+    </div>
+  );
+}
+
+function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
+  const saveByokProvider = useSettings((s) => s.saveByokProvider);
+  const testByokProvider = useSettings((s) => s.testByokProvider);
+  const [apiKey, setApiKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleTest = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await testByokProvider({ providerId: def.id, apiKey, baseUrl: null });
+      setMsg(r.ok ? { ok: true, text: '✓ Connected' } : { ok: false, text: r.error ?? 'Connection failed' });
+    } catch (e) {
+      setMsg({ ok: false, text: String(e) });
+    } finally { setBusy(false); }
+  };
+
+  const handleSave = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      await saveByokProvider({ providerId: def.id, enabled: true, apiKey, baseUrl: null, defaultModel: null });
+      setMsg({ ok: true, text: `✓ ${def.name} saved` });
+    } catch {
+      setMsg({ ok: false, text: 'Save failed' });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-3 pt-1">
+      <ol className="space-y-1.5 text-xs text-text-muted list-decimal list-inside">
+        {def.steps.map((s, i) => <li key={i}>{s}</li>)}
+      </ol>
+      <p className={cn('text-xs', def.free ? 'text-green-400/80' : 'text-amber-400/90')}>{def.note}</p>
+      <a
+        href={def.console}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline"
+      >
+        <ExternalLink size={12} /> Open {def.name} console
+      </a>
+
+      <input
+        type="password"
+        value={apiKey}
+        onChange={(e) => setApiKey(e.target.value)}
+        placeholder={def.keyPlaceholder}
+        className="w-full px-3 py-2 rounded-lg border border-border-default bg-bg-primary text-sm text-text-primary font-mono placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+        aria-label={`${def.name} API key`}
+      />
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void handleTest()}
+          disabled={busy || !apiKey}
+          className="px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
+        >
+          Test
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={busy || !apiKey}
+          className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+        >
+          Save
+        </button>
+        {msg && <span className={cn('text-xs', msg.ok ? 'text-green-400' : 'text-red-400')}>{msg.text}</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── Step 4: Done ────────────────────────────────────────────────────────────
 
 function DoneStep() {
@@ -338,13 +652,6 @@ function DoneStep() {
   const agentName = useOnboarding((s) => s.agentName);
   const safeName = userName.trim() || 'you';
   const safeAgent = agentName.trim() || 'Feral';
-  // #15: turn the hardware detection (SystemBar already has it) into a
-  // concrete "what model should I download" hint at the exact moment the
-  // user is about to face an empty Models page.
-  const sysInfo = useSystemInfo((s) => s.info);
-  const fetchSysInfo = useSystemInfo((s) => s.fetch);
-  useEffect(() => { void fetchSysInfo(); }, [fetchSysInfo]);
-  const rec = recommendModel(sysInfo);
 
   return (
     <div className="text-center space-y-6">
@@ -364,20 +671,6 @@ function DoneStep() {
         I'm <span className="text-brand font-medium">{safeAgent}</span>, ready to go.
         Ask me anything and we'll see what I can do.
       </p>
-      {rec && (
-        <div className="mx-auto max-w-md text-left rounded-lg border border-border-subtle bg-bg-primary/50 p-4 space-y-1.5">
-          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider font-medium text-text-muted">
-            <Cpu size={12} /> For your hardware
-          </p>
-          <p className="text-sm text-text-primary leading-relaxed">{rec.rationale}</p>
-          <p className="text-xs text-text-muted">
-            In <span className="text-text-secondary">Models → Browse</span>, look for{' '}
-            <span className="text-brand font-medium">{rec.sizeClass}</span> models with a{' '}
-            <span className="text-brand font-medium">{rec.quant}</span> file ({rec.approxFileSize}) —
-            the download button preselects the best-fitting variant automatically.
-          </p>
-        </div>
-      )}
       <DiskEncryptionNotice />
 
       <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">

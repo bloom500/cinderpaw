@@ -8,7 +8,8 @@
  * router exist before any tool is registered or any message is handled.
  */
 
-import { resolve } from "node:path";
+import { resolve, delimiter, sep } from "node:path";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { AuditLog } from "./sandbox/audit-log.ts";
@@ -42,6 +43,7 @@ import { createDeepResearchTool } from "./tools/builtin/deep-research.ts";
 import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
+import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
@@ -60,11 +62,11 @@ import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-me
 import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
-import {
-  PassiveSupervisor,
-  shouldAutostartPassive,
-  passiveStartOptions,
-} from "./rsi/passive-supervisor.ts";
+import { shouldAutostartPassive } from "./rsi/passive-supervisor.ts";
+import { createDreamCycle } from "./rsi/dream-cycle.ts";
+import { ActivityMonitor } from "./rsi/activity-monitor.ts";
+import { resolveDreamConfig, dreamCloudGate } from "./rsi/dream-config.ts";
+import { episodeStartOptions } from "./rsi/episode-options.ts";
 import {
   mapGenomeToAgentConfig,
   readChampion,
@@ -81,18 +83,91 @@ import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
 import { createScheduleMeetingTool } from "./tools/builtin/schedule-meeting.ts";
-import type { InferenceConfig, Transport } from "./types.ts";
+import type { InferenceConfig, ModelTarget, Transport } from "./types.ts";
 
 interface AppConfig {
   transport: "tauri";
   dbPath: string;
-  workspace: string;
+  /**
+   * Every fs/shell/git tool is scoped to these roots. Multiple roots so the
+   * agent can work across the project, a scratch dir, and any extra paths the
+   * user whitelists — without re-configuring per project.
+   */
+  workspaceRoots: string[];
   inference: InferenceConfig;
+}
+
+/** The agent's own home: RSI git substrate, SQLite db, SOUL/identity. */
+const FERAL_HOME = resolve(homedir(), ".feral");
+
+/**
+ * Resolve the agent's filesystem sandbox roots.
+ *
+ * - `FERAL_WORKSPACE` is a path-list (`;` on Windows, `:` elsewhere). When
+ *   unset it defaults to the launch cwd, so "work in the project I opened"
+ *   keeps working.
+ * - A dedicated scratch dir under ~/.feral/workspace is ALWAYS added, so a
+ *   task always has somewhere it fully owns to read/write even if cwd is
+ *   read-only.
+ * - Self-protection wall: the agent gets broad file + shell access, but never
+ *   to its own brain. Any root that OVERLAPS ~/.feral — whether it contains it
+ *   (an ancestor, including the filesystem root) or sits inside it (RSI repo,
+ *   db, SOUL) — is dropped with a warning. The scratch subtree is the one
+ *   allowed exception. This is the "can't modify its own code/state" guarantee.
+ */
+
+/** True iff `child` is `parent` or lies beneath it. Appends a separator before
+ *  the prefix test so a filesystem root (`"/"` / `"C:\\"`, which already ends
+ *  in a separator) doesn't produce a double-separator prefix that never
+ *  matches — the trailing-separator bug that let `FERAL_WORKSPACE=/` slip the
+ *  self-protection wall. */
+function isWithin(child: string, parent: string): boolean {
+  if (child === parent) return true;
+  const base = parent.endsWith(sep) ? parent : parent + sep;
+  return child.startsWith(base);
+}
+
+export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
+  const raw = env.FERAL_WORKSPACE;
+  const requested = raw && raw.trim()
+    ? raw.split(delimiter).map((s) => s.trim()).filter(Boolean)
+    : [process.cwd()];
+  const roots = requested.map((p) => resolve(p));
+
+  const scratch = resolve(FERAL_HOME, "workspace");
+  try { mkdirSync(scratch, { recursive: true }); } catch { /* best effort */ }
+  roots.push(scratch);
+
+  const guarded = roots.filter((r) => {
+    if (isWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.feral
+    // Drop any root that overlaps the brain in EITHER direction: an ancestor
+    // that contains ~/.feral (isWithin(FERAL_HOME, r)) OR a path inside ~/.feral
+    // that isn't scratch (isWithin(r, FERAL_HOME)). Both would expose RSI/db/SOUL.
+    if (isWithin(FERAL_HOME, r) || isWithin(r, FERAL_HOME)) {
+      console.warn(
+        `[config] dropping workspace root "${r}" — it would expose ${FERAL_HOME} ` +
+          `(agent state/identity). Point FERAL_WORKSPACE at a project dir instead.`,
+      );
+      return false;
+    }
+    return true;
+  });
+  return [...new Set(guarded)];
+}
+
+/** True when a base URL points at a loopback (local) host. */
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
 }
 
 function loadConfig(): AppConfig {
   const env = process.env;
-  const workspace = resolve(env.FERAL_WORKSPACE ?? process.cwd());
+  const workspaceRoots = loadWorkspaceRoots(env);
 
   // ":memory:" is a SQLite sentinel and must not be path-resolved.
   const dbEnv = env.FERAL_DB ?? "data/feral.db";
@@ -101,7 +176,7 @@ function loadConfig(): AppConfig {
   return {
     transport: "tauri", // only transport wired in V1
     dbPath,
-    workspace,
+    workspaceRoots,
     inference: {
       primary: {
         // Default to the bundled Rust/llama.cpp engine (OpenAI-compatible API on
@@ -249,6 +324,22 @@ async function main(): Promise<void> {
   // Node `process` object (which we still need below for process.env).
   const processSandbox = new RealProcessSandbox(audit.logger);
   const router = new InferenceRouter(config.inference, audit.logger, db.raw);
+
+  // Bundled local engine used as an automatic fallback when the user hot-swaps
+  // to a cloud model. A transient cloud failure (e.g. MiniMax 429 rate-limit)
+  // then degrades to the on-device model instead of hard-failing the turn.
+  // Prefer the boot primary when it is itself local; otherwise the default
+  // bundled-engine target (always on 11435). ponytail: if no local model is
+  // loaded the fallback also fails — same "both failed" error, no worse.
+  const localFallbackTarget: ModelTarget = isLoopbackUrl(
+    config.inference.primary.baseUrl,
+  )
+    ? config.inference.primary
+    : {
+        provider: "openai_compatible",
+        model: process.env.FERAL_MODEL ?? "qwen2.5:7b",
+        baseUrl: process.env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
+      };
 
   // --- Layer 2: Memory ---
   const episodic = new EpisodicMemory(db.raw, audit.logger);
@@ -421,28 +512,27 @@ async function main(): Promise<void> {
   });
 
   const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
-  registry.register(createReadFileTool([config.workspace]));
-  registry.register(createWriteFileTool([config.workspace]));
-  registry.register(createListDirectoryTool([config.workspace]));
+  registry.register(createReadFileTool(config.workspaceRoots));
+  registry.register(createWriteFileTool(config.workspaceRoots));
+  registry.register(createListDirectoryTool(config.workspaceRoots));
   // edit_file: in-place string replacement (safer than overwriting)
-  registry.register(createEditFileTool([config.workspace]));
+  registry.register(createEditFileTool(config.workspaceRoots));
   // file_search: glob-style file finder under the workspace
-  registry.register(createFileSearchTool([config.workspace]));
+  registry.register(createFileSearchTool(config.workspaceRoots));
   // grep: regex content search under the workspace
-  registry.register(createGrepTool([config.workspace]));
-  // shell_exec: generic program runner (argv-only, no shell). Opt-in — a
-  // host program runner is too broad to register by default. Enable with
-  // FERAL_ENABLE_SHELL_EXEC=true. git_* / run_tests / format_code below are
-  // always available and cover the common cases without it.
-  if (process.env.FERAL_ENABLE_SHELL_EXEC === "true") {
-    registry.register(createShellExecTool([config.workspace]));
+  registry.register(createGrepTool(config.workspaceRoots));
+  // shell_exec: argv-only program runner (NO shell — no injection surface),
+  // scoped to the workspace roots and a binary whitelist. On by default so the
+  // agent can actually run things; set FERAL_ENABLE_SHELL_EXEC=false to disable.
+  if (process.env.FERAL_ENABLE_SHELL_EXEC !== "false") {
+    registry.register(createShellExecTool(config.workspaceRoots));
   }
   // git_*: process-spawn tools for the workspace
-  registry.register(createGitStatusTool([config.workspace]));
-  registry.register(createGitDiffTool([config.workspace]));
-  registry.register(createGitLogTool([config.workspace]));
-  registry.register(createGitCommitTool([config.workspace]));
-  registry.register(createGitBranchTool([config.workspace]));
+  registry.register(createGitStatusTool(config.workspaceRoots));
+  registry.register(createGitDiffTool(config.workspaceRoots));
+  registry.register(createGitLogTool(config.workspaceRoots));
+  registry.register(createGitCommitTool(config.workspaceRoots));
+  registry.register(createGitBranchTool(config.workspaceRoots));
   // http_request: only registered when at least one domain is whitelisted
   const httpDomains = (process.env.FERAL_HTTP_DOMAINS ?? "")
     .split(",").map((d) => d.trim()).filter(Boolean);
@@ -467,21 +557,24 @@ async function main(): Promise<void> {
   // tool_health: ECC-style health report — agent can diagnose its own tool reliability
   registry.register(createToolHealthTool(observations));
   // scan_workspace: ECC AgentShield — detect secrets + code security issues in workspace
-  registry.register(createScanWorkspaceTool(config.workspace));
+  registry.register(createScanWorkspaceTool(config.workspaceRoots[0]!));
   // read_skill: Claude Code-style on-demand body loader for locally-installed
   // skills. The system prompt only carries a short menu; the LLM calls this
   // tool to load the full SKILL.md body of any skill it wants to apply.
   registry.register(createReadSkillTool(`${homedir()}/.feral/skills`));
+  // list_skills: the drawer index. Skills are no longer dumped into every
+  // prompt; the model calls this to discover ids, then read_skill to load one.
+  registry.register(createListSkillsTool(`${homedir()}/.feral/skills`));
 
   // F7 — code-quality tools. Auto-detect project type and run the
   // appropriate command (npm test, cargo test, pytest, go test, make test,
   // etc.). All five share the same factory and the same exec allowlist
   // (resolved at module load time per F0.5 hardening).
-  registry.register(createCodeQualityTool("run_tests", [config.workspace]));
-  registry.register(createCodeQualityTool("format_code", [config.workspace]));
-  registry.register(createCodeQualityTool("lint_code", [config.workspace]));
-  registry.register(createCodeQualityTool("install_deps", [config.workspace]));
-  registry.register(createCodeQualityTool("build_project", [config.workspace]));
+  registry.register(createCodeQualityTool("run_tests", config.workspaceRoots));
+  registry.register(createCodeQualityTool("format_code", config.workspaceRoots));
+  registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));
+  registry.register(createCodeQualityTool("install_deps", config.workspaceRoots));
+  registry.register(createCodeQualityTool("build_project", config.workspaceRoots));
 
   // ask_user — interactive questions (Claude.ai-style). No permissions;
   // pure event emission through the AskUserBridge in the tool context.
@@ -767,16 +860,35 @@ async function main(): Promise<void> {
       }
     })();
   }
-  // Forward declaration: the sidecar's onIdle restarts the engine via
-  // the passive supervisor, but the supervisor needs the sidecar to
-  // start it — late-bind through this holder to break the cycle.
-  let passive: PassiveSupervisor | undefined;
+  // Dream Cycle: event-driven scheduler replaces the old continuous
+  // PassiveSupervisor loop. Config + activity monitor are built here so
+  // the sidecar's onIdle can both feed telemetry and drive the scheduler's
+  // sleep/cooldown. Late-bind `dream` through this holder (the scheduler
+  // needs the sidecar to start it — break the cycle the same way passive did).
+  const dreamCfg = resolveDreamConfig(process.env);
+  const activityMonitor = new ActivityMonitor({ errorWindowMs: dreamCfg.errorWindowMs });
+  const dreamTelemetryPath =
+    process.env.FERAL_RSI_TELEMETRY ??
+    require("node:path").join(homedir(), ".feral", "rsi", "dream.jsonl");
+  // Carries the in-flight episode's start time + trigger from the
+  // scheduler's `start` callback to the run-end telemetry append.
+  // Dream Cycle glue (telemetry + started/ended events + cooldown threading)
+  // lives in createDreamCycle so the full idle→episode→telemetry→ended path is
+  // exercised end-to-end in a test (audit D2), not just inline here.
+  const dreamCycle = createDreamCycle({
+    send: (e) => transport.send(e),
+    telemetryPath: dreamTelemetryPath,
+    activityMonitor,
+    config: dreamCfg,
+    log,
+  });
   const rsiSidecar = new RsiSidecar({
     router,
     db: db.raw,
     bridge: rsiBridge,
     send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
-    onIdle: () => passive?.onRunEnded(),
+    log,
+    onIdle: dreamCycle.onEpisodeEnd,
     // The Crux: a new ratcheted-best config is applied to the LIVE agent
     // (temperature today; the UI Controls override still wins per-session).
     onChampion: (record) => {
@@ -794,14 +906,12 @@ async function main(): Promise<void> {
       log(`rsi champion: loaded persisted champion ${champ.genomeId} (score=${champ.score.toFixed(1)})`);
     }
   }
-  // Passive RSI: the evolutionary engine runs in the background by
-  // default (no UI trigger), starting itself when a real model is
-  // present and restarting on each run end for continuous evolution.
-  passive = new PassiveSupervisor({
-    start: () => rsiSidecar.start(passiveStartOptions(process.env)),
-    isRunning: () => rsiSidecar.isRunning(),
-    log,
-  });
+  // Dream Cycle: the evolutionary engine runs ONE bounded episode per
+  // trigger (idle / error), then sleeps until the next trigger. The
+  // engine math is untouched — only the *when* changed. The standing
+  // goal + bounded budgets come from episodeStartOptions; the trigger
+  // signals from the activity monitor.
+  const dream = dreamCycle.arm(rsiSidecar, episodeStartOptions(process.env));
 
   // Connector Surface (inbound): Discord/Telegram/… share this one agent.
   // The host writes ~/.feral/connectors.json and pokes us with
@@ -836,7 +946,11 @@ async function main(): Promise<void> {
           const send = (event: import("./types.ts").OutboundEvent): void => {
             transport.send(event);
           };
-          const sendError = (error: string, phase: "build" | "queries" | "run"): void => {
+          // `phase` is set ONLY for genuine wall-clock timeouts (the orchestrator
+          // tags those "at <phase>"). Non-timeout failures — empty query set, no
+          // model loaded, no tree — leave it undefined so the panel shows the
+          // self-explanatory message without a misleading "blew its budget" hint.
+          const sendError = (error: string, phase?: "build" | "queries" | "run"): void => {
             send({ type: "fractal_bench_result", ok: false, error, phase });
           };
           const buildTimeoutMs = 15 * 60 * 1000;
@@ -860,7 +974,6 @@ async function main(): Promise<void> {
             if (!fractalMemory.hasTree) {
               sendError(
                 "No RAPTOR tree — is the embedding model present and the build finished? Try restarting after the model is on disk.",
-                "build",
               );
               return;
             }
@@ -900,14 +1013,35 @@ async function main(): Promise<void> {
             // message; surface that so the panel can tell the user which
             // phase was the bottleneck.
             const msg = String(e);
-            const phase: "build" | "queries" | "run" = /at build/.test(msg)
+            // Only a real timeout carries "at <phase>" (see orchestrator's
+            // withTimeout). Everything else (empty set, no model, no tree) gets
+            // no phase → no misleading budget hint.
+            const phase = /at build/.test(msg)
               ? "build"
               : /at queries/.test(msg)
                 ? "queries"
-                : "run";
+                : /at run/.test(msg)
+                  ? "run"
+                  : undefined;
             sendError(msg, phase);
           }
         })();
+        break;
+      }
+
+      // Reactive-tree drill-down: return the real member memories of one
+      // top-level cluster so the UI can unfold a branch / show a leaf card.
+      // Best-effort — an out-of-range index or no tree yields `leaves: []`.
+      case "fractal_cluster_leaves": {
+        const id = msg.id ?? "";
+        const clusterIndex = msg.clusterIndex ?? 0;
+        let leaves: { leafId: number; text: string; ts: number }[] = [];
+        try {
+          leaves = fractalMemory.clusterLeaves(clusterIndex);
+        } catch (e) {
+          log(`fractal_cluster_leaves failed: ${String(e)}`);
+        }
+        transport.send({ type: "fractal_cluster_leaves_result", id, leaves });
         break;
       }
 
@@ -964,9 +1098,22 @@ async function main(): Promise<void> {
           return;
         }
         try {
-          router.reconfigure({ provider, model, baseUrl, apiKey: msg.apiKey });
+          const primary: ModelTarget = { provider, model, baseUrl, apiKey: msg.apiKey };
+          // Keep the bundled local engine as fallback when switching to a
+          // cloud (non-loopback) model, so a 429/transient cloud failure
+          // degrades to on-device inference instead of a hard error. Switching
+          // BACK to a local primary needs no fallback (it IS the safe target).
+          const fallback = isLoopbackUrl(baseUrl) ? undefined : localFallbackTarget;
+          router.reconfigure(primary, fallback);
+          // Local models forward their active context window so the agent loop
+          // compacts to the real KV-cache size (Hardware can raise it well past
+          // the old 8192); cloud models send none and use the cloud budget.
+          router.setContextWindow(msg.contextWindow);
           transport.send({ type: "model_set", provider, model });
-          log(`model hot-swapped → ${provider}/${model} @ ${baseUrl}`);
+          log(
+            `model hot-swapped → ${provider}/${model} @ ${baseUrl}` +
+              (fallback ? ` (fallback → ${fallback.baseUrl})` : ""),
+          );
         } catch (err) {
           transport.send({
             type: "model_error",
@@ -1014,6 +1161,9 @@ async function main(): Promise<void> {
         // Cheap (single Date.now() write). Only meaningful when the
         // proactive subsystem is on.
         innerThoughts?.noteUserActivity();
+        // Dream Cycle activity clock: an inbound user message means the
+        // user is here, so the idle trigger resets. Cheap single write.
+        activityMonitor.recordActivity(Date.now());
         // skillsContext is the per-turn roster of locally-installed skills
         // (metadata only) sent by Rust. Rendered as a short "Available
         // skills" menu in the system prompt; the LLM loads any skill's body
@@ -1038,7 +1188,14 @@ async function main(): Promise<void> {
             const r = event.result as { ok?: boolean } | null;
             mood?.applyEvent(r?.ok === false ? "tool_error" : "tool_success");
           }
-          if (event.type === "error")      mood?.applyEvent("inference_error");
+          if (event.type === "error") {
+            mood?.applyEvent("inference_error");
+            // Dream Cycle error trigger: a real agent failure feeds the
+            // monitor's rolling window. Enough failures wake an episode
+            // (the literature's "error" trigger — improve when something
+            // is actually going wrong).
+            activityMonitor.recordError(Date.now());
+          }
         }, skillsContext, images, inferParams);
         break;
       }
@@ -1167,7 +1324,7 @@ async function main(): Promise<void> {
   transport.onReady(() => {
     log(
       `ready — transport=${config.transport} model=${config.inference.primary.model} ` +
-        `workspace=${config.workspace}`,
+        `workspace=${config.workspaceRoots.join(", ")}`,
     );
     // X1 fix: inner-thoughts is opt-in via FERAL_PROACTIVE_ENABLED.
     if (innerThoughts) {
@@ -1188,25 +1345,40 @@ async function main(): Promise<void> {
     // its tools are live. Best-effort: failures log to stderr, never crash.
     void connectors.reload();
 
-    // Passive RSI: autostart the background evolutionary engine when a
-    // real model is configured. Off when FERAL_RSI_PASSIVE=false or when
-    // only a placeholder model is present (avoids spinning on empty
-    // responses). The user never has to open /rsi — the agent improves
-    // its own configuration on its own.
+    // Dream Cycle: arm the event-driven scheduler when a real model is
+    // configured. Off when FERAL_RSI_PASSIVE=false or only a placeholder
+    // model is present (avoids spinning on empty responses). On a cloud
+    // (non-loopback) endpoint, dreaming is additionally refused unless
+    // FERAL_RSI_ALLOW_CLOUD is explicitly set (anti-burn). `start()` only
+    // arms the trigger poll — it does NOT launch an episode immediately.
     const decision = shouldAutostartPassive(process.env);
-    if (decision.enabled) {
-      log(`rsi passive: autostarting background engine (${decision.reason})`);
-      void passive?.begin();
+    if (!decision.enabled) {
+      log(`rsi dream: not arming scheduler (${decision.reason})`);
     } else {
-      log(`rsi passive: not autostarting (${decision.reason})`);
+      const baseUrl = process.env.FERAL_BASE_URL ?? "";
+      let isLoopback = baseUrl === "";
+      try {
+        const h = new URL(baseUrl).hostname;
+        isLoopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
+      } catch {
+        // Unparseable/empty baseUrl → keep the `baseUrl === ""` default
+        // (empty means the in-process loopback default).
+      }
+      const gate = dreamCloudGate(process.env, { isLoopback });
+      if (!gate.enabled) {
+        log(`rsi dream: not arming scheduler (${gate.reason})`);
+      } else {
+        log(`rsi dream: arming event-driven scheduler (${decision.reason}; ${gate.reason})`);
+        dream?.start();
+      }
     }
   });
 
   // Persist final audit state on unexpected termination.
   const shutdown = () => {
-    // Break the passive restart loop so we don't relaunch the engine
+    // Break the Dream Cycle trigger loop so we don't launch an episode
     // into a closing process.
-    passive?.shutdown();
+    dream?.shutdown();
     // X1 fix: only stop the inner-thoughts loop if it was actually
     // started (i.e. the proactive subsystem is on).
     innerThoughts?.stop();
@@ -1246,9 +1418,13 @@ function log(message: string): void {
   process.stderr.write(`[feral] ${message}\n`);
 }
 
-main().catch((err) => {
-  // Startup misconfiguration (e.g. a target outside trustedBaseUrls) should
-  // fail fast with a clear, single-line reason rather than a raw stack trace.
-  log(`fatal: failed to start — ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+// Only auto-start when run as the entry point — importing this module (e.g.
+// from a test) must not boot the whole app.
+if (import.meta.main) {
+  main().catch((err) => {
+    // Startup misconfiguration (e.g. a target outside trustedBaseUrls) should
+    // fail fast with a clear, single-line reason rather than a raw stack trace.
+    log(`fatal: failed to start — ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}

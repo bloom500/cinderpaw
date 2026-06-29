@@ -20,6 +20,7 @@ import type {
 export type { TokenEvent, StreamDoneEvent, StreamErrorEvent, StreamTruncatedEvent };
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
+export type { StreamProgressEvent } from './events';
 
 export interface Message       { role: string; content: string; images?: string[] }
 export interface InferParams   {
@@ -30,7 +31,7 @@ export interface InferParams   {
   system_prompt?: string | null;
   tools?: string[] | null;
 }
-export interface LoadedModel   { path: string; name: string; ctx_len: number }
+export interface LoadedModel   { path: string; name: string; ctx_len: number; n_ctx_train: number }
 export interface ModelInfo     {
   id: string; name: string; path: string; size_bytes: number;
   quant?: string | null; ctx_len?: number | null; loaded: boolean;
@@ -247,6 +248,26 @@ export interface RsiStopAck {
   delivered: boolean;
 }
 
+/** One completed Dream Cycle episode (Rust `DreamEpisode`, camelCase wire). */
+export interface DreamEpisode {
+  startedAt: number;
+  endedAt: number;
+  trigger: 'idle' | 'error';
+  iterations: number;
+  tokens: number;
+  ratchets: number;
+  stopReason: string;
+}
+
+/** Lifetime Dream Cycle totals + the most recent episodes (newest first). */
+export interface DreamTelemetrySummary {
+  episodes: number;
+  ratchets: number;
+  tokens: number;
+  iterations: number;
+  last: DreamEpisode[];
+}
+
 /** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
@@ -354,8 +375,8 @@ export type FeralModelSelection =
 const raw = {
   getModels:             ()    => invoke<ModelInfo[]>('get_models'),
   getLoadedModel:        ()    => invoke<LoadedModel | null>('get_loaded_model'),
-  loadModel:             (path: string) => invoke<LoadedModel>('load_model', { path }),
-  startModelLoad:        (path: string) => invoke<LoadedModel>('start_model_load', { path }),
+  loadModel:             (path: string, maxContext?: number) => invoke<LoadedModel>('load_model', { path, maxContext }),
+  startModelLoad:        (path: string, maxContext?: number) => invoke<LoadedModel>('start_model_load', { path, maxContext }),
   unloadModel:           ()    => invoke<void>('unload_model'),
   deleteModel:           (path: string) => invoke<void>('delete_model', { path }),
   chatStream:            (messages: Message[], params: InferParams, sessionId: string) =>
@@ -469,6 +490,8 @@ const raw = {
   rsiStop:            () => invoke<RsiStopAck>('rsi_stop'),
   rsiSetConcurrency:  (concurrency: number) =>
     invoke<void>('rsi_set_concurrency', { concurrency }),
+  rsiDreamTelemetry:  (limit: number) =>
+    invoke<DreamTelemetrySummary>('rsi_dream_telemetry', { limit }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -517,8 +540,8 @@ export const tauri = {
   models: {
     list:      async () => raw.getModels(),
     loaded:    async () => raw.getLoadedModel(),
-    load:      async (path: string) => raw.loadModel(path),
-    startLoad: async (path: string) => raw.startModelLoad(path),
+    load:      async (path: string, maxContext?: number) => raw.loadModel(path, maxContext),
+    startLoad: async (path: string, maxContext?: number) => raw.startModelLoad(path, maxContext),
     unload:    async () => raw.unloadModel(),
     delete:    async (path: string) => raw.deleteModel(path),
   },
@@ -610,6 +633,7 @@ export const tauri = {
       raw.rsiStart(goal, budgetUsd, maxIterations, concurrency),
     stop:            async () => raw.rsiStop(),
     setConcurrency:  async (concurrency: number) => raw.rsiSetConcurrency(concurrency),
+    dreamTelemetry:  async (limit = 12) => raw.rsiDreamTelemetry(limit),
   },
 
   agents: {

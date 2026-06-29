@@ -31,6 +31,24 @@ const DEFAULT_CONFIG: WorkingMemoryConfig = {
   keepRecent: 8,
 };
 
+/** Tokens reserved for the summary note maybeCompress prepends, so the kept
+ *  recent transcript + the summary still fit under the target budget. */
+const SUMMARY_RESERVE_TOKENS = 512;
+
+/** Last-resort truncation of a single message larger than the whole recent
+ *  budget (e.g. one giant tool output). Keeps head + tail (where the useful
+ *  bits usually are) with a marker. Approximate char↔token ratio — fine
+ *  because this only runs on the pathological oversized-message path.
+ *  ponytail: blunt middle-cut; a smarter summarizer pass is overkill here. */
+function truncateToBudget(text: string, budgetTokens: number): string {
+  const total = countTokens(text);
+  if (total <= budgetTokens) return text;
+  const keepChars = Math.max(0, Math.floor(text.length * (budgetTokens / total)) - 32);
+  const head = Math.floor(keepChars * 0.7);
+  const tail = keepChars - head;
+  return text.slice(0, head) + "\n…[truncated for context]…\n" + text.slice(text.length - tail);
+}
+
 export class WorkingMemory {
   readonly #system: string;
   readonly #config: WorkingMemoryConfig;
@@ -220,13 +238,51 @@ export class WorkingMemory {
    */
   async maybeCompress(
     summarize: (messages: ChatMessage[]) => Promise<string>,
+    targetTokens: number = this.#config.maxTokens,
   ): Promise<boolean> {
-    if (this.estimatedTokens() <= this.#config.maxTokens) return false;
-    if (this.#messages.length <= this.#config.keepRecent) return false;
+    if (this.estimatedTokens() <= targetTokens) return false;
+    if (this.#messages.length === 0) return false;
 
-    const cut = this.#messages.length - this.#config.keepRecent;
+    // Overhead that SURVIVES compaction and still counts against the model's
+    // context: the static system prompt, the per-turn drawers, and the summary
+    // note we're about to prepend. The local KV cache overflows on the full
+    // prompt, not just the transcript, so reserve it before sizing "recent".
+    const fixedOverhead =
+      countTokens(this.#system) +
+      countTokens(this.#skillMenu) +
+      countTokens(this.#memoryContext) +
+      SUMMARY_RESERVE_TOKENS;
+    const recentBudget = Math.max(0, targetTokens - fixedOverhead);
+
+    // Keep newest-first until the next message would blow the recent budget.
+    // Token-bounded (not a fixed message COUNT like the old keepRecent): a
+    // handful of fat tool outputs can no longer survive verbatim into a prompt
+    // that overflows the model context — the "crashes on complex tasks" case.
+    // Always keep at least the most recent message (the live turn).
+    const kept: ChatMessage[] = [];
+    let keptTokens = 0;
+    for (let i = this.#messages.length - 1; i >= 0; i--) {
+      const msg = this.#messages[i]!;
+      const t = countTokens(msg.content);
+      if (kept.length > 0 && keptTokens + t > recentBudget) break;
+      kept.unshift(msg);
+      keptTokens += t;
+    }
+
+    // Last resort: a single message larger than the whole recent budget would
+    // still overflow. Truncate it so the prompt fits no matter what.
+    if (kept.length === 1 && keptTokens > recentBudget && recentBudget > 64) {
+      kept[0] = { ...kept[0]!, content: truncateToBudget(kept[0]!.content, recentBudget) };
+    }
+
+    const cut = this.#messages.length - kept.length;
+    if (cut <= 0) {
+      // Nothing older to summarize, but we were over budget — the lone-huge
+      // message was truncated above. Persist that and stop.
+      this.#messages = kept;
+      return true;
+    }
     const older = this.#messages.slice(0, cut);
-    const recent = this.#messages.slice(cut);
 
     let summary: string;
     try {
@@ -239,7 +295,7 @@ export class WorkingMemory {
 
     this.#messages = [
       { role: "system", content: `Summary of earlier conversation: ${summary}` },
-      ...recent,
+      ...kept,
     ];
     return true;
   }

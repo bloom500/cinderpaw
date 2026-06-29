@@ -58,6 +58,10 @@ export class InferenceRouter {
   #primary: ModelTarget;
   #fallback: ModelTarget | undefined;
   #trusted: Set<string>;
+  /** Active local-model context window (tokens), forwarded by Rust on set_model.
+   *  Drives the agent's transcript-compaction budget so it matches the KV cache
+   *  the engine actually allocated. 0 = unknown (fall back to env/default). */
+  #contextWindow = 0;
 
   // Provider instances — one per protocol family. Stateless, so shared.
   readonly #providers: Record<string, InferenceProvider> = {
@@ -163,6 +167,16 @@ export class InferenceRouter {
     this.#trusted = newTrusted;
   }
 
+  /** Active local-model context window in tokens, or 0 when unknown. Set by the
+   *  transport on `set_model`; read by the agent loop to size its compaction
+   *  budget to the model's real window instead of a fixed cap. */
+  get contextWindow(): number {
+    return this.#contextWindow;
+  }
+  setContextWindow(tokens: number | undefined): void {
+    this.#contextWindow = Number.isFinite(tokens) && (tokens ?? 0) > 0 ? Math.floor(tokens!) : 0;
+  }
+
   /** Display-safe view of the currently active model (no API keys). */
   get currentModel(): { provider: string; model: string; baseUrl: string } {
     return {
@@ -170,6 +184,16 @@ export class InferenceRouter {
       model: this.#primary.model,
       baseUrl: this.#primary.baseUrl,
     };
+  }
+
+  /** True when the active primary target is a local loopback address. */
+  get isPrimaryLocal(): boolean {
+    try {
+      const host = new URL(this.#primary.baseUrl).hostname;
+      return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+    } catch {
+      return false;
+    }
   }
 
   /**

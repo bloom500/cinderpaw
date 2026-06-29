@@ -55,8 +55,8 @@ const DEFAULTS = {
   completedAt: null,
   active: false,
   step: 0,
-  // Welcome → Personalize → Showcase → Done
-  totalSteps: 4,
+  // Welcome → Personalize → Provider → Showcase → Done
+  totalSteps: 5,
 } as const;
 
 export const useOnboarding = create<OnboardingState>((set, get) => ({

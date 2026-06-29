@@ -37,6 +37,14 @@ export interface GoalConfig {
   targetScore?: number;
   /** Stop after this many consecutive iterations without an improvement. */
   plateauPatience?: number;
+  /** Optional hard stop on wall-clock time (ms) since run() started. The
+   *  Dream Cycle's primary episode cap: bounds an episode in time so it
+   *  cannot hang and can't burn tokens past its window. undefined ⇒ no
+   *  wall-clock cap. */
+  maxWallClockMs?: number;
+  /** Clock source for the wall-clock cap. Injectable so the cap is
+   *  deterministic in tests. Default: Date.now. */
+  now?: () => number;
 }
 
 export type StopReason =
@@ -45,6 +53,7 @@ export type StopReason =
   | "CostBudgetExhausted"
   | "MaxIterations"
   | "PlateauPersistent"
+  | "WallClockExhausted"
   | "UserStopped"
   | "Converged";
 
@@ -83,6 +92,9 @@ export class GoalMode {
   private totalTokens = 0;
   private totalCostUsd = 0;
   private userStopped = false;
+  /** Wall-clock deadline (epoch-ms per config.now), set at run() start
+   *  when config.maxWallClockMs is given. null ⇒ no wall-clock cap. */
+  private deadline: number | null = null;
 
   constructor(
     private readonly bus: EventBus,
@@ -124,6 +136,12 @@ export class GoalMode {
     let iterations = 0;
     let lastBest = -Infinity;
     let sinceImprovement = 0;
+
+    // Arm the wall-clock deadline relative to the start of this run, using
+    // the injected clock so the cap is deterministic in tests.
+    if (this.config.maxWallClockMs != null) {
+      this.deadline = (this.config.now ?? Date.now)() + this.config.maxWallClockMs;
+    }
 
     // Event-driven iteration + best-score tracking. Registered here
     // (rather than in the constructor) so it doesn't fire for evals
@@ -227,6 +245,9 @@ export class GoalMode {
     }
     if (this.totalTokens >= this.config.maxTotalTokens) return "BudgetExhausted";
     if (costStop(this.totalCostUsd, this.config.maxTotalCostUsd)) return "CostBudgetExhausted";
+    if (this.deadline !== null && (this.config.now ?? Date.now)() >= this.deadline) {
+      return "WallClockExhausted";
+    }
     if (iterations >= this.config.maxIterations) return "MaxIterations";
     if (this.config.plateauPatience != null && sinceImprovement >= this.config.plateauPatience) {
       return "PlateauPersistent";

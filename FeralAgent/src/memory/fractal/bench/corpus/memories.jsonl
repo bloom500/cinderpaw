@@ -1,0 +1,221 @@
+{"id":1,"text":"The catalog service is rolled out to the Dublin datacenter every Monday morning."}
+{"id":2,"text":"The auth service is rolled out to the Dublin datacenter every Wednesday."}
+{"id":3,"text":"The analytics service is rolled out to the Oregon datacenter every Monday morning."}
+{"id":4,"text":"The auth service is rolled out to the Dublin datacenter every Monday morning."}
+{"id":5,"text":"The analytics service is rolled out to the Singapore datacenter every Friday afternoon."}
+{"id":6,"text":"The search service is rolled out to the Frankfurt datacenter every Wednesday."}
+{"id":7,"text":"The notifications service is rolled out to the Frankfurt datacenter every Monday morning."}
+{"id":8,"text":"The auth service is rolled out to the Frankfurt datacenter every Monday morning."}
+{"id":9,"text":"The analytics service is rolled out to the Dublin datacenter every Monday morning."}
+{"id":10,"text":"The auth service is rolled out to the Frankfurt datacenter every Friday afternoon."}
+{"id":11,"text":"The catalog service is rolled out to the Frankfurt datacenter every Friday afternoon."}
+{"id":12,"text":"The auth service is rolled out to the Singapore datacenter every Wednesday."}
+{"id":13,"text":"The notifications service is rolled out to the Singapore datacenter every Monday morning."}
+{"id":14,"text":"The search service is rolled out to the Singapore datacenter every Wednesday."}
+{"id":15,"text":"The search service is rolled out to the Oregon datacenter every Wednesday."}
+{"id":16,"text":"The catalog service is rolled out to the Oregon datacenter every Friday afternoon."}
+{"id":17,"text":"The billing service is rolled out to the Dublin datacenter every Wednesday."}
+{"id":18,"text":"The search service is rolled out to the Oregon datacenter every Friday afternoon."}
+{"id":19,"text":"The auth service is rolled out to the Singapore datacenter every Friday afternoon."}
+{"id":20,"text":"The search service is rolled out to the Singapore datacenter every Friday afternoon."}
+{"id":21,"text":"The notifications service is rolled out to the Frankfurt datacenter every Friday afternoon."}
+{"id":22,"text":"The auth service is rolled out to the Dublin datacenter every Friday afternoon."}
+{"id":23,"text":"The catalog service is rolled out to the Singapore datacenter every Monday morning."}
+{"id":24,"text":"The notifications service is rolled out to the Oregon datacenter every Friday afternoon."}
+{"id":25,"text":"The billing service is rolled out to the Frankfurt datacenter every Monday morning."}
+{"id":26,"text":"The billing service is rolled out to the Singapore datacenter every Friday afternoon."}
+{"id":27,"text":"The notifications service is rolled out to the Singapore datacenter every Friday afternoon."}
+{"id":28,"text":"The catalog service is rolled out to the Oregon datacenter every Monday morning."}
+{"id":29,"text":"The notifications service is rolled out to the Oregon datacenter every Wednesday."}
+{"id":30,"text":"The billing service is rolled out to the Oregon datacenter every Monday morning."}
+{"id":31,"text":"The notifications service is rolled out to the Oregon datacenter every Monday morning."}
+{"id":32,"text":"The analytics service is rolled out to the Dublin datacenter every Wednesday."}
+{"id":33,"text":"The billing service is rolled out to the Dublin datacenter every Monday morning."}
+{"id":34,"text":"The billing service is rolled out to the Oregon datacenter every Wednesday."}
+{"id":35,"text":"The auth service is rolled out to the Frankfurt datacenter every Wednesday."}
+{"id":36,"text":"The notifications service is rolled out to the Singapore datacenter every Wednesday."}
+{"id":37,"text":"The analytics service is rolled out to the Dublin datacenter every Friday afternoon."}
+{"id":38,"text":"The analytics service is rolled out to the Frankfurt datacenter every Friday afternoon."}
+{"id":39,"text":"The catalog service is rolled out to the Oregon datacenter every Wednesday."}
+{"id":40,"text":"The search service is rolled out to the Singapore datacenter every Monday morning."}
+{"id":41,"text":"For secret storage I always reach for pnpm rather than the defaults."}
+{"id":42,"text":"For dependency management I always reach for Vault rather than the defaults."}
+{"id":43,"text":"For secret storage I always reach for Vault rather than the defaults."}
+{"id":44,"text":"For schema migrations I always reach for k6 rather than the defaults."}
+{"id":45,"text":"For schema migrations I always reach for Atlas rather than the defaults."}
+{"id":46,"text":"For log analysis I always reach for k6 rather than the defaults."}
+{"id":47,"text":"For log analysis I always reach for ripgrep rather than the defaults."}
+{"id":48,"text":"For load testing I always reach for pnpm rather than the defaults."}
+{"id":49,"text":"For dependency management I always reach for ripgrep rather than the defaults."}
+{"id":50,"text":"For load testing I always reach for k6 rather than the defaults."}
+{"id":51,"text":"For schema migrations I always reach for ripgrep rather than the defaults."}
+{"id":52,"text":"For log analysis I always reach for Vault rather than the defaults."}
+{"id":53,"text":"For dependency management I always reach for pnpm rather than the defaults."}
+{"id":54,"text":"For schema migrations I always reach for Vault rather than the defaults."}
+{"id":55,"text":"For load testing I always reach for Atlas rather than the defaults."}
+{"id":56,"text":"For schema migrations I always reach for pnpm rather than the defaults."}
+{"id":57,"text":"For log analysis I always reach for pnpm rather than the defaults."}
+{"id":58,"text":"For load testing I always reach for Vault rather than the defaults."}
+{"id":59,"text":"For dependency management I always reach for Atlas rather than the defaults."}
+{"id":60,"text":"For log analysis I always reach for Atlas rather than the defaults."}
+{"id":61,"text":"For secret storage I always reach for k6 rather than the defaults."}
+{"id":62,"text":"For secret storage I always reach for ripgrep rather than the defaults."}
+{"id":63,"text":"For dependency management I always reach for k6 rather than the defaults."}
+{"id":64,"text":"For secret storage I always reach for Atlas rather than the defaults."}
+{"id":65,"text":"For load testing I always reach for ripgrep rather than the defaults."}
+{"id":66,"text":"The email worker outage was caused by a connection pool exhaustion; we added a circuit breaker afterward."}
+{"id":67,"text":"The email worker outage was caused by an expired TLS certificate; we added a backoff cap afterward."}
+{"id":68,"text":"The email worker outage was caused by a runaway retry storm; we added a renewal alarm afterward."}
+{"id":69,"text":"The CDN outage was caused by a runaway retry storm; we added a circuit breaker afterward."}
+{"id":70,"text":"The ingest pipeline outage was caused by a runaway retry storm; we added a renewal alarm afterward."}
+{"id":71,"text":"The email worker outage was caused by a runaway retry storm; we added a circuit breaker afterward."}
+{"id":72,"text":"The ingest pipeline outage was caused by a runaway retry storm; we added a circuit breaker afterward."}
+{"id":73,"text":"The CDN outage was caused by a connection pool exhaustion; we added a circuit breaker afterward."}
+{"id":74,"text":"The ingest pipeline outage was caused by an expired TLS certificate; we added a renewal alarm afterward."}
+{"id":75,"text":"The checkout outage was caused by a runaway retry storm; we added a renewal alarm afterward."}
+{"id":76,"text":"The checkout outage was caused by a runaway retry storm; we added a backoff cap afterward."}
+{"id":77,"text":"The ingest pipeline outage was caused by a connection pool exhaustion; we added a renewal alarm afterward."}
+{"id":78,"text":"The CDN outage was caused by an expired TLS certificate; we added a renewal alarm afterward."}
+{"id":79,"text":"The checkout outage was caused by a connection pool exhaustion; we added a renewal alarm afterward."}
+{"id":80,"text":"The ingest pipeline outage was caused by an expired TLS certificate; we added a circuit breaker afterward."}
+{"id":81,"text":"The ingest pipeline outage was caused by a connection pool exhaustion; we added a backoff cap afterward."}
+{"id":82,"text":"The CDN outage was caused by a runaway retry storm; we added a backoff cap afterward."}
+{"id":83,"text":"The ingest pipeline outage was caused by a runaway retry storm; we added a backoff cap afterward."}
+{"id":84,"text":"The CDN outage was caused by a runaway retry storm; we added a renewal alarm afterward."}
+{"id":85,"text":"The email worker outage was caused by a connection pool exhaustion; we added a backoff cap afterward."}
+{"id":86,"text":"The checkout outage was caused by a connection pool exhaustion; we added a circuit breaker afterward."}
+{"id":87,"text":"The CDN outage was caused by a connection pool exhaustion; we added a renewal alarm afterward."}
+{"id":88,"text":"The email worker outage was caused by an expired TLS certificate; we added a renewal alarm afterward."}
+{"id":89,"text":"The CDN outage was caused by an expired TLS certificate; we added a backoff cap afterward."}
+{"id":90,"text":"The checkout outage was caused by a runaway retry storm; we added a circuit breaker afterward."}
+{"id":91,"text":"The email worker outage was caused by an expired TLS certificate; we added a circuit breaker afterward."}
+{"id":92,"text":"The checkout outage was caused by an expired TLS certificate; we added a backoff cap afterward."}
+{"id":93,"text":"The email worker outage was caused by a connection pool exhaustion; we added a renewal alarm afterward."}
+{"id":94,"text":"The ingest pipeline outage was caused by an expired TLS certificate; we added a backoff cap afterward."}
+{"id":95,"text":"The checkout outage was caused by an expired TLS certificate; we added a circuit breaker afterward."}
+{"id":96,"text":"The CDN outage was caused by a connection pool exhaustion; we added a backoff cap afterward."}
+{"id":97,"text":"The CDN outage was caused by an expired TLS certificate; we added a circuit breaker afterward."}
+{"id":98,"text":"The ingest pipeline outage was caused by a connection pool exhaustion; we added a circuit breaker afterward."}
+{"id":99,"text":"The checkout outage was caused by a connection pool exhaustion; we added a backoff cap afterward."}
+{"id":100,"text":"The email worker outage was caused by a runaway retry storm; we added a backoff cap afterward."}
+{"id":101,"text":"The checkout outage was caused by an expired TLS certificate; we added a renewal alarm afterward."}
+{"id":102,"text":"Dana owns the identity domain and reviews all changes to it."}
+{"id":103,"text":"Marco owns the mobile client domain and reviews all changes to it."}
+{"id":104,"text":"Dana owns the data warehouse domain and reviews all changes to it."}
+{"id":105,"text":"Wei owns the mobile client domain and reviews all changes to it."}
+{"id":106,"text":"Priya owns the payments domain and reviews all changes to it."}
+{"id":107,"text":"Marco owns the identity domain and reviews all changes to it."}
+{"id":108,"text":"Marco owns the data warehouse domain and reviews all changes to it."}
+{"id":109,"text":"Dana owns the mobile client domain and reviews all changes to it."}
+{"id":110,"text":"Priya owns the identity domain and reviews all changes to it."}
+{"id":111,"text":"Priya owns the mobile client domain and reviews all changes to it."}
+{"id":112,"text":"Marco owns the payments domain and reviews all changes to it."}
+{"id":113,"text":"Priya owns the data warehouse domain and reviews all changes to it."}
+{"id":114,"text":"Wei owns the identity domain and reviews all changes to it."}
+{"id":115,"text":"Dana owns the payments domain and reviews all changes to it."}
+{"id":116,"text":"Wei owns the payments domain and reviews all changes to it."}
+{"id":117,"text":"Wei owns the data warehouse domain and reviews all changes to it."}
+{"id":118,"text":"The database query timeout is set to 30 seconds in production."}
+{"id":119,"text":"The upstream API timeout is set to 30 seconds in production."}
+{"id":120,"text":"The webhook delivery timeout is set to 5 seconds in production."}
+{"id":121,"text":"The cache fetch timeout is set to 2 minutes in production."}
+{"id":122,"text":"The cache fetch timeout is set to 5 seconds in production."}
+{"id":123,"text":"The database query timeout is set to 2 minutes in production."}
+{"id":124,"text":"The webhook delivery timeout is set to 2 minutes in production."}
+{"id":125,"text":"The cache fetch timeout is set to 30 seconds in production."}
+{"id":126,"text":"The upstream API timeout is set to 5 seconds in production."}
+{"id":127,"text":"The upstream API timeout is set to 2 minutes in production."}
+{"id":128,"text":"The database query timeout is set to 5 seconds in production."}
+{"id":129,"text":"The webhook delivery timeout is set to 30 seconds in production."}
+{"id":130,"text":"We chose Rust over Go mainly because of stronger consistency guarantees."}
+{"id":131,"text":"We chose Kafka over REST mainly because of stronger consistency guarantees."}
+{"id":132,"text":"We chose Rust over REST mainly because of stronger consistency guarantees."}
+{"id":133,"text":"We chose Kafka over REST mainly because of better streaming throughput."}
+{"id":134,"text":"We chose gRPC over MongoDB mainly because of stronger consistency guarantees."}
+{"id":135,"text":"We chose Kafka over MongoDB mainly because of stronger consistency guarantees."}
+{"id":136,"text":"We chose Kafka over RabbitMQ mainly because of better streaming throughput."}
+{"id":137,"text":"We chose gRPC over RabbitMQ mainly because of stronger consistency guarantees."}
+{"id":138,"text":"We chose Rust over MongoDB mainly because of better streaming throughput."}
+{"id":139,"text":"We chose Postgres over REST mainly because of lower memory overhead."}
+{"id":140,"text":"We chose Postgres over Go mainly because of lower memory overhead."}
+{"id":141,"text":"We chose Rust over RabbitMQ mainly because of stronger consistency guarantees."}
+{"id":142,"text":"We chose gRPC over REST mainly because of lower memory overhead."}
+{"id":143,"text":"We chose Postgres over RabbitMQ mainly because of stronger consistency guarantees."}
+{"id":144,"text":"We chose Kafka over REST mainly because of lower memory overhead."}
+{"id":145,"text":"We chose gRPC over Go mainly because of stronger consistency guarantees."}
+{"id":146,"text":"We chose Kafka over RabbitMQ mainly because of lower memory overhead."}
+{"id":147,"text":"We chose Rust over RabbitMQ mainly because of lower memory overhead."}
+{"id":148,"text":"We chose Postgres over RabbitMQ mainly because of lower memory overhead."}
+{"id":149,"text":"We chose Postgres over Go mainly because of better streaming throughput."}
+{"id":150,"text":"We chose Rust over MongoDB mainly because of lower memory overhead."}
+{"id":151,"text":"We chose Postgres over REST mainly because of stronger consistency guarantees."}
+{"id":152,"text":"We chose gRPC over REST mainly because of stronger consistency guarantees."}
+{"id":153,"text":"We chose Kafka over Go mainly because of lower memory overhead."}
+{"id":154,"text":"We chose Rust over REST mainly because of better streaming throughput."}
+{"id":155,"text":"We chose Kafka over Go mainly because of stronger consistency guarantees."}
+{"id":156,"text":"We chose Postgres over Go mainly because of stronger consistency guarantees."}
+{"id":157,"text":"We chose Rust over Go mainly because of better streaming throughput."}
+{"id":158,"text":"We chose gRPC over Go mainly because of better streaming throughput."}
+{"id":159,"text":"We chose Kafka over MongoDB mainly because of lower memory overhead."}
+{"id":160,"text":"We chose gRPC over Go mainly because of lower memory overhead."}
+{"id":161,"text":"We chose Postgres over MongoDB mainly because of stronger consistency guarantees."}
+{"id":162,"text":"We chose Rust over REST mainly because of lower memory overhead."}
+{"id":163,"text":"We chose gRPC over RabbitMQ mainly because of lower memory overhead."}
+{"id":164,"text":"We chose Kafka over MongoDB mainly because of better streaming throughput."}
+{"id":165,"text":"We chose Rust over RabbitMQ mainly because of better streaming throughput."}
+{"id":166,"text":"We chose gRPC over REST mainly because of better streaming throughput."}
+{"id":167,"text":"We chose Rust over Go mainly because of lower memory overhead."}
+{"id":168,"text":"We chose Rust over MongoDB mainly because of stronger consistency guarantees."}
+{"id":169,"text":"We chose Postgres over MongoDB mainly because of lower memory overhead."}
+{"id":170,"text":"I run the growth report at month end and send it to the finance team."}
+{"id":171,"text":"I run the error budget report each quarter and send it to the finance team."}
+{"id":172,"text":"I run the cost report each quarter and send it to the finance team."}
+{"id":173,"text":"I run the cost report at month end and send it to the on-call rotation."}
+{"id":174,"text":"I run the revenue report every Monday and send it to the on-call rotation."}
+{"id":175,"text":"I run the growth report each quarter and send it to the finance team."}
+{"id":176,"text":"I run the cost report each quarter and send it to the on-call rotation."}
+{"id":177,"text":"I run the cost report each quarter and send it to the leadership channel."}
+{"id":178,"text":"I run the revenue report each quarter and send it to the finance team."}
+{"id":179,"text":"I run the cost report every Monday and send it to the on-call rotation."}
+{"id":180,"text":"I run the growth report each quarter and send it to the leadership channel."}
+{"id":181,"text":"I run the growth report every Monday and send it to the on-call rotation."}
+{"id":182,"text":"I run the cost report at month end and send it to the leadership channel."}
+{"id":183,"text":"I run the error budget report every Monday and send it to the on-call rotation."}
+{"id":184,"text":"I run the error budget report every Monday and send it to the leadership channel."}
+{"id":185,"text":"I run the error budget report every Monday and send it to the finance team."}
+{"id":186,"text":"I run the revenue report each quarter and send it to the leadership channel."}
+{"id":187,"text":"I run the growth report every Monday and send it to the finance team."}
+{"id":188,"text":"I run the growth report each quarter and send it to the on-call rotation."}
+{"id":189,"text":"I run the revenue report every Monday and send it to the leadership channel."}
+{"id":190,"text":"I run the error budget report at month end and send it to the leadership channel."}
+{"id":191,"text":"I run the error budget report at month end and send it to the on-call rotation."}
+{"id":192,"text":"I run the revenue report at month end and send it to the leadership channel."}
+{"id":193,"text":"I run the revenue report at month end and send it to the on-call rotation."}
+{"id":194,"text":"I run the cost report every Monday and send it to the leadership channel."}
+{"id":195,"text":"I run the cost report at month end and send it to the finance team."}
+{"id":196,"text":"I run the revenue report every Monday and send it to the finance team."}
+{"id":197,"text":"I run the error budget report each quarter and send it to the leadership channel."}
+{"id":198,"text":"I run the error budget report each quarter and send it to the on-call rotation."}
+{"id":199,"text":"I run the cost report every Monday and send it to the finance team."}
+{"id":200,"text":"I run the revenue report each quarter and send it to the on-call rotation."}
+{"id":201,"text":"I run the revenue report at month end and send it to the finance team."}
+{"id":202,"text":"I run the growth report at month end and send it to the on-call rotation."}
+{"id":203,"text":"I run the error budget report at month end and send it to the finance team."}
+{"id":204,"text":"I run the growth report every Monday and send it to the leadership channel."}
+{"id":205,"text":"I run the growth report at month end and send it to the leadership channel."}
+{"id":206,"text":"The FTS5 fallback lives under the memory module in the repository."}
+{"id":207,"text":"The dream scheduler lives under the memory module in the repository."}
+{"id":208,"text":"The FTS5 fallback lives under the rsi folder in the repository."}
+{"id":209,"text":"The embedding bridge lives under the tools directory in the repository."}
+{"id":210,"text":"The audit logger lives under the transports layer in the repository."}
+{"id":211,"text":"The audit logger lives under the memory module in the repository."}
+{"id":212,"text":"The audit logger lives under the rsi folder in the repository."}
+{"id":213,"text":"The embedding bridge lives under the transports layer in the repository."}
+{"id":214,"text":"The dream scheduler lives under the transports layer in the repository."}
+{"id":215,"text":"The audit logger lives under the tools directory in the repository."}
+{"id":216,"text":"The FTS5 fallback lives under the transports layer in the repository."}
+{"id":217,"text":"The dream scheduler lives under the tools directory in the repository."}
+{"id":218,"text":"The embedding bridge lives under the memory module in the repository."}
+{"id":219,"text":"The dream scheduler lives under the rsi folder in the repository."}
+{"id":220,"text":"The FTS5 fallback lives under the tools directory in the repository."}
+{"id":221,"text":"The embedding bridge lives under the rsi folder in the repository."}

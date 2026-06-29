@@ -69,6 +69,26 @@ export interface BestRecord {
   score: number;
 }
 
+/**
+ * A serializable snapshot of the entire population state — the unit of
+ * "full evolutionary continuity" the Dream Cycle persists across sleeps.
+ * Carries the path-dependent Hall of Fame explicitly because a public-API
+ * replay cannot reconstruct it (induction happens at the running-best of
+ * each recordEval, not just at the final max). `version` guards the
+ * on-disk format so an incompatible snapshot is rejected and degrades to
+ * the champion fallback rather than corrupting a run.
+ */
+export interface PopulationSnapshot {
+  version: 1;
+  concurrency: number;
+  nicheThreshold: number;
+  genomes: Genome[];
+  bestRecord: BestRecord | null;
+  hallOfFameIds: string[];
+  commitHashes: Array<[string, string]>;
+  commitConfigs: Array<[string, GenomeConfig]>;
+}
+
 export interface PopulationOptions {
   /** Concurrent evals. Starts at 1; raised once the engine is validated. */
   concurrency?: number;
@@ -104,7 +124,10 @@ export class PopulationManager {
 
   /** How many evals may run at once. Mutated via `rsi_set_concurrency`. */
   concurrency: number;
-  private readonly nicheThreshold: number;
+  /** Cosine-similarity niche threshold. Mutable only so `restore` can
+   *  bring a fresh manager to a snapshot's exact sharing behaviour;
+   *  normal operation never reassigns it. */
+  private nicheThreshold: number;
 
   constructor(opts: PopulationOptions = {}) {
     this.concurrency = opts.concurrency ?? 1;
@@ -305,6 +328,52 @@ export class PopulationManager {
   /** The config committed at `hash`, or undefined if never recorded. */
   getConfigByCommit(hash: string): GenomeConfig | undefined {
     return this.commitConfigs.get(hash);
+  }
+
+  /**
+   * Capture the full population state as a serializable snapshot. Deep-
+   * copies every record so later mutation of the live population can't
+   * alias the snapshot (and vice-versa). The Hall of Fame and best-record
+   * are carried verbatim — that is the path-dependent state a replay
+   * would lose.
+   */
+  snapshot(): PopulationSnapshot {
+    return {
+      version: 1,
+      concurrency: this.concurrency,
+      nicheThreshold: this.nicheThreshold,
+      genomes: structuredClone([...this.genomes.values()]),
+      bestRecord: this.bestRecord ? { ...this.bestRecord } : null,
+      hallOfFameIds: [...this.hallOfFameIds],
+      commitHashes: [...this.commitHashes.entries()],
+      commitConfigs: structuredClone([...this.commitConfigs.entries()]),
+    };
+  }
+
+  /**
+   * Rebuild this manager's state from a snapshot, replacing whatever it
+   * currently holds. Used to resume a dream cycle exactly where the prior
+   * episode stopped. Deep-copies in so the snapshot stays an immutable
+   * record. The caller is responsible for version-checking the snapshot
+   * before passing it (see population-snapshot.ts).
+   */
+  restore(snap: PopulationSnapshot): void {
+    this.genomes.clear();
+    this.commitHashes.clear();
+    this.commitConfigs.clear();
+    this.hallOfFameIds.clear();
+
+    this.concurrency = snap.concurrency;
+    this.nicheThreshold = snap.nicheThreshold;
+    for (const g of structuredClone(snap.genomes)) {
+      this.genomes.set(g.id, g);
+    }
+    this.bestRecord = snap.bestRecord ? { ...snap.bestRecord } : null;
+    for (const id of snap.hallOfFameIds) this.hallOfFameIds.add(id);
+    for (const [id, hash] of snap.commitHashes) this.commitHashes.set(id, hash);
+    for (const [hash, config] of structuredClone(snap.commitConfigs)) {
+      this.commitConfigs.set(hash, config);
+    }
   }
 }
 

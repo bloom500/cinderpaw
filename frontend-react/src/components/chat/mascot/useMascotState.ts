@@ -7,6 +7,16 @@ import type { MascotState } from './frames';
 export const DONE_HOLD_MS = 1200;
 export const COOL_HOLD_MS = DONE_HOLD_MS * 2;
 export const EXCITED_HOLD_MS = 800;
+export const ERROR_HOLD_MS = 1600;
+
+// Idle personality lives in MascotPerch, NOT here. This hook used to fire random
+// "ambient" beats by overriding the at-rest state every 6-13s — but MascotPerch
+// owns the idle choreography (curious → run ACROSS the input → sleep → stretch →
+// gaming → expressive beat), and its run-travel only starts after the base state
+// stays `idle` uninterrupted for ~18s. The ambient overrides kept knocking the
+// base off `idle`, so the run never triggered (the mascot animated "running" in
+// place but never moved — the reported bug). At rest this hook now returns a
+// stable `idle` and lets Perch run the whole show.
 
 export interface MascotInputs {
   streamStatus: StreamStatus;
@@ -17,6 +27,7 @@ export interface MascotInputs {
 export function useMascotState({ streamStatus, agentPhase, isUserTyping }: MascotInputs): MascotState {
   const [doneActive, setDoneActive] = useState(false);
   const [excitedActive, setExcitedActive] = useState(false);
+  const [errorActive, setErrorActive] = useState(false);
   const prevStatus = useRef<StreamStatus>(streamStatus);
   const idleTier = useRef<number>(0);
   // #23: the two moments the mascot previously had nothing to say about —
@@ -49,7 +60,16 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
     else idleTier.current = 0;
   }, [streamStatus, isExcitedTransition]);
 
+  // A failed run gets a brief "uh-oh" instead of silently going idle.
+  useEffect(() => {
+    if (streamStatus !== 'error') { setErrorActive(false); return; }
+    setErrorActive(true);
+    const id = setTimeout(() => setErrorActive(false), ERROR_HOLD_MS);
+    return () => clearTimeout(id);
+  }, [streamStatus]);
+
   if (agentOffline) return 'sleep';
+  if (errorActive) return 'error';
   if (doneActive) return 'done';
   if (excitedActive) return 'excited';
   if (askPending) return 'curious';

@@ -300,6 +300,46 @@ describe("runFractalBenchmarkWithProgress — hard timeout", () => {
   });
 });
 
+describe("runFractalBenchmarkWithProgress — empty-set diagnostics", () => {
+  it("blames the missing chat model when generation yields nothing from real memories", async () => {
+    // No model loaded → router.complete returns empty content (not a throw),
+    // so every paraphrase comes back "" and the set is empty. The error must
+    // point at the real cause (load a chat model), not the bare "empty query
+    // set" that used to send users chasing the embedding model or the tree.
+    await expect(
+      runFractalBenchmarkWithProgress({
+        loadLeaves: () => LEAVES.map((l) => ({ id: l.id, text: l.text })),
+        ftsSearch: () => [],
+        tree: await tree(),
+        leavesById: leavesById(),
+        embed: (texts) => texts.map(() => new Float32Array([1, 0, 0])),
+        infer: async () => "", // model not loaded → empty completion
+        count: 3,
+        seed: 1,
+        k: 10,
+        budgetMs: 80,
+      }),
+    ).rejects.toThrow(/chat model/i);
+  });
+
+  it("names the real shortfall when no memory is long enough to seed a query", async () => {
+    await expect(
+      runFractalBenchmarkWithProgress({
+        loadLeaves: () => [{ id: 1, text: "short" }], // < 20 chars → not eligible
+        ftsSearch: () => [],
+        tree: await tree(),
+        leavesById: leavesById(),
+        embed: (texts) => texts.map(() => new Float32Array([1, 0, 0])),
+        infer: async () => "a question",
+        count: 3,
+        seed: 1,
+        k: 10,
+        budgetMs: 80,
+      }),
+    ).rejects.toThrow(/memories ≥20 chars|no memories long enough/i);
+  });
+});
+
 describe("runFractalBenchmarkWithProgress — default count", () => {
   it("uses a sane default (≤ 20) when `count` is omitted and no JSONL is given", async () => {
     // We can't easily count generated queries here without forcing them all to

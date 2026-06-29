@@ -11,7 +11,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   tauri,
   type McpCatalogEntry,
@@ -322,13 +323,22 @@ function CatalogCard({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // Install gate: catalog extensions run third-party code on the user's machine
+  // outside Feral's sandbox (S1 supply-chain). Make that an informed, conscious
+  // choice — never a silent one-click — before the install actually spawns it.
   const install = async () => {
     // Needs config the user hasn't provided yet → expand the inline form.
     if (entry.fields.length > 0 && !configOpen) {
       setConfigOpen(true);
       return;
     }
+    setConfirmOpen(true);
+  };
+
+  const doInstall = async () => {
+    setConfirmOpen(false);
     setBusy(true);
     setErr(null);
     try {
@@ -415,6 +425,45 @@ function CatalogCard({
           {installed ? '✓ Installed' : configOpen ? 'Confirm & Install' : 'Install'}
         </button>
       </div>
+
+      {/* S1: informed-consent gate. Plain language (no "npm/npx" jargon per the
+          non-technical-first rule), but honest that third-party code runs. */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert size={16} className="text-amber-400" />
+              Add “{entry.name}”?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-text-secondary">
+            <p>
+              This extension runs third-party software made by its publisher on your
+              computer to do its job. It runs with your account’s access — outside
+              Feral’s protected area.
+            </p>
+            <p className="text-text-muted">
+              Only add extensions from publishers you trust.
+            </p>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-bg-hover text-text-secondary hover:text-text-primary"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void doInstall()}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand/90"
+            >
+              Add it
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

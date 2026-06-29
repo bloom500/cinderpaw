@@ -924,6 +924,82 @@ fn require_string(v: Option<&serde_json::Value>, field: &str) -> Result<String, 
         .ok_or_else(|| format!("rsi_request: missing or non-string '{field}'"))
 }
 
+// ── Dream Cycle telemetry (read path for the Feral's Dreams panel) ──────────
+
+/// One completed Dream Cycle episode, mirroring the sidecar's
+/// `DreamEpisodeRecord` (`dream-telemetry.ts`). Field names are camelCase on
+/// the wire to match the JSONL the sidecar writes and the TS UI that reads it.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamEpisode {
+    pub started_at: i64,
+    pub ended_at: i64,
+    pub trigger: String,
+    pub iterations: u64,
+    pub tokens: u64,
+    pub ratchets: u64,
+    pub stop_reason: String,
+}
+
+/// Aggregated Dream Cycle telemetry for the UI: lifetime totals plus the most
+/// recent episodes (newest first, capped at the requested limit).
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamTelemetrySummary {
+    /// Total completed episodes across all sessions.
+    pub episodes: u64,
+    /// Sum of ratchet advances — the count of real self-improvements.
+    pub ratchets: u64,
+    pub tokens: u64,
+    pub iterations: u64,
+    /// Most recent episodes, newest first (up to the requested limit).
+    pub last: Vec<DreamEpisode>,
+}
+
+/// Parse the dream JSONL body into a summary. Tolerant by design: blank lines
+/// and unparseable rows are skipped (telemetry is a soft audit trail, never a
+/// correctness surface — one poisoned line must not blank the whole panel).
+fn parse_dream_telemetry(body: &str, limit: usize) -> DreamTelemetrySummary {
+    let mut summary = DreamTelemetrySummary::default();
+    let mut recent: Vec<DreamEpisode> = Vec::new();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(ep) = serde_json::from_str::<DreamEpisode>(line) else {
+            continue; // skip malformed rows
+        };
+        summary.episodes += 1;
+        summary.ratchets += ep.ratchets;
+        summary.tokens += ep.tokens;
+        summary.iterations += ep.iterations;
+        recent.push(ep);
+    }
+    // Newest first, capped at `limit`.
+    recent.reverse();
+    recent.truncate(limit);
+    summary.last = recent;
+    summary
+}
+
+/// Read `~/.feral/rsi/dream.jsonl` and return lifetime totals + the most recent
+/// `limit` episodes. A missing file yields an empty summary (the Dream Cycle
+/// simply hasn't run yet) rather than an error, so the panel renders a clean
+/// "no dreams yet" state. **Stateless.**
+#[tauri::command]
+#[specta::specta]
+pub fn rsi_dream_telemetry(limit: usize) -> Result<DreamTelemetrySummary, String> {
+    let path = paths::rsi_dream_telemetry_path();
+    match std::fs::read_to_string(&path) {
+        Ok(body) => Ok(parse_dream_telemetry(&body, limit)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(DreamTelemetrySummary::default())
+        }
+        Err(e) => Err(format!("read dream telemetry: {e}")),
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -940,6 +1016,34 @@ mod tests {
         // Receiver should now resolve with Ok.
         let result = rx.blocking_recv();
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn parse_dream_telemetry_aggregates_and_skips_bad_lines() {
+        let body = "\
+{\"startedAt\":1000,\"endedAt\":2000,\"trigger\":\"idle\",\"iterations\":3,\"tokens\":100,\"ratchets\":1,\"stopReason\":\"MaxIterations\"}
+not json — must be skipped
+
+{\"startedAt\":3000,\"endedAt\":4000,\"trigger\":\"error\",\"iterations\":2,\"tokens\":50,\"ratchets\":0,\"stopReason\":\"BudgetExhausted\"}
+{\"missing\":\"fields\"}
+{\"startedAt\":5000,\"endedAt\":6000,\"trigger\":\"idle\",\"iterations\":4,\"tokens\":200,\"ratchets\":2,\"stopReason\":\"Converged\"}";
+        let s = parse_dream_telemetry(body, 2);
+        // Three valid rows; two junk lines skipped.
+        assert_eq!(s.episodes, 3);
+        assert_eq!(s.ratchets, 3);
+        assert_eq!(s.tokens, 350);
+        assert_eq!(s.iterations, 9);
+        // Newest-first, capped at the limit.
+        assert_eq!(s.last.len(), 2);
+        assert_eq!(s.last[0].started_at, 5000);
+        assert_eq!(s.last[1].started_at, 3000);
+    }
+
+    #[test]
+    fn parse_dream_telemetry_empty_is_zeroed() {
+        let s = parse_dream_telemetry("", 10);
+        assert_eq!(s.episodes, 0);
+        assert!(s.last.is_empty());
     }
 
     #[test]

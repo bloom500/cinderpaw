@@ -43,15 +43,24 @@ import { resolveExecutables } from "../../core/executables.ts";
  * names are resolved to absolute paths at module load so the ProcessSandbox
  * matches by path and PATH-hijack is impossible.
  *
- * Default allowlist: common dev toolchain binaries. Extend with
- * FERAL_SHELL_WHITELIST="git,node,python,cargo,npm,pip,make,go".
+ * Default allowlist: the OS shells PLUS the common dev toolchain. The shells
+ * (`cmd`, `powershell`, `pwsh`, `bash`, `sh`) are what give the agent COMPLETE
+ * shell access: invoked as `["sh","-c","<cmdline>"]` / `["cmd","/c","<cmdline>"]`
+ * the shell interprets the full command line (pipes, &&, redirects, globbing)
+ * and can launch ANY program — so whitelisting the shells is, by design,
+ * unrestricted execution. The narrower dev binaries are kept so the agent can
+ * also call them directly without spinning up a shell.
+ *
+ * Override the whole set with FERAL_SHELL_WHITELIST="git,node,…" to RESTRICT
+ * the agent (e.g. drop the shells to go back to a locked-down toolchain).
  */
 function loadShellWhitelist(): string[] {
   const env = process.env.FERAL_SHELL_WHITELIST;
   const raw = env && env.trim().length > 0
     ? env.split(",").map((s) => s.trim()).filter(Boolean)
-    : ["git", "node", "python", "python3", "cargo", "npm", "npx",
-       "pip", "pip3", "make", "go"];
+    : ["cmd", "powershell", "pwsh", "bash", "sh", // full shell access
+       "git", "node", "python", "python3", "cargo", "npm", "npx",
+       "pip", "pip3", "make", "go", "bun", "deno"];
   return resolveExecutables(raw);
 }
 
@@ -132,12 +141,16 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
   const manifest: ToolManifest = {
     name: "shell_exec",
     description:
-      "Run a single program on the host (NO shell). Provide `argv` as an " +
-      "array: [\"git\", \"status\"]. Shell features like pipes, &&, ;, " +
-      "redirects and globbing are NOT available — they are passed as literal " +
-      "arguments. Only whitelisted binaries can run. Output is capped at 1 MB; " +
-      "processes are hard-killed after the timeout; cwd must be inside the " +
-      "allowed paths. Prefer the narrower git_* / run_tests / format_code tools.",
+      "Run a program on the host. Provide `argv` as an array: [\"git\", \"status\"]. " +
+      "argv[0] is spawned DIRECTLY (no shell), so pipes/&&/;/redirects/globbing in " +
+      "argv are literal arguments, not shell operators. " +
+      "FULL SHELL ACCESS: to use pipes, redirects, chaining or globbing — or to run " +
+      "ANY program — invoke a shell explicitly: on Windows argv=[\"cmd\",\"/c\",\"dir | findstr foo\"] " +
+      "or [\"powershell\",\"-Command\",\"...\"]; elsewhere argv=[\"sh\",\"-c\",\"ls | grep foo\"]. " +
+      "The shell then interprets the whole command line. Set `cwd` to run inside a " +
+      "specific directory. Output is capped at 1 MB; processes are hard-killed after the " +
+      "timeout (default 30s, max 5min). The git_* / run_tests / format_code tools are " +
+      "convenient shortcuts but this tool can do anything a terminal can.",
     permissions: ["process:spawn", "fs:read"],
     networkAccess: false,
     allowedPaths,

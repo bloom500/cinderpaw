@@ -36,6 +36,46 @@ pub fn detect() -> GpuInfo {
     }
 }
 
+/// Conservative AMD GPU fingerprint used to auto-force CPU offload for the
+/// embedding path on hosts with known driver-level issues.
+///
+/// Background: on RX 580 / Polaris / early-Vega AMD cards, llama.cpp's
+/// Vulkan embed (bge-small, ~130 MB) crashes at model load with
+/// `STATUS_ACCESS_VIOLATION` — a confirmed `llama.cpp × AMDVLK` driver bug
+/// that no work-around on the Feral side has fixed (see
+/// `docs/agents-memory/project_local_models_gpu.md`). Chat inference on the
+/// same GPU is fine — only the embedding path is the problem.
+///
+/// The heuristic matches the names that have crashed in this dev env plus
+/// the broader AMD/ATI families that share the legacy AMDVLK/Mesa RADV
+/// drivers. NVIDIA and Intel GPUs are never flagged — the issue is
+/// AMD-specific. Unknown names are NOT flagged (conservative: better to
+/// attempt GPU and let the user set `FERAL_EMBED_GPU_LAYERS=0` themselves
+/// than to silently disable a working GPU).
+pub fn looks_like_fragile_amd_gpu(info: &GpuInfo) -> bool {
+    let n = info.name.to_ascii_lowercase();
+    if n.is_empty() || n == "unknown gpu" {
+        return false;
+    }
+    // The exact names confirmed to crash on this dev box.
+    let confirmed_crashes = [
+        "rx 580", "rx 570", "rx 560", "rx 550", "rx 480", "rx 470", "rx 460",
+        "radeon rx 580", "radeon rx 570", "radeon rx 560", "radeon rx 480",
+        "polaris", "gfx803",
+    ];
+    for needle in &confirmed_crashes {
+        if n.contains(needle) {
+            return true;
+        }
+    }
+    // Broader AMD families that share the legacy driver path. Still
+    // conservative — only AMD vendor strings, never NVIDIA/Intel.
+    let is_amd_vendor = n.contains("amd") || n.contains("radeon") || n.contains("ati ");
+    let is_known_amd_arch = n.contains("vega") || n.contains("polaris") || n.contains("navi")
+        || n.contains("rdna") || n.contains("gfx8") || n.contains("gfx9") || n.contains("gfx10");
+    is_amd_vendor && is_known_amd_arch
+}
+
 // ── Vulkan runtime probe ─────────────────────────────────────────────
 
 #[cfg(windows)]

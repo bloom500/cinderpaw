@@ -154,6 +154,7 @@ const INBOUND_TYPES = [
   "connectors_reload",
   // PROVISIONAL — temporary Settings button for the benchmark gate.
   "fractal_benchmark",
+  "fractal_cluster_leaves",
   "rsi_start",
   "rsi_stop",
   "rsi_set_concurrency",

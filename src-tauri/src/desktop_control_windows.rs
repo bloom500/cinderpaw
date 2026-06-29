@@ -663,12 +663,45 @@ fn expand_collapse(el: &IUIAutomationElement, expand: bool) -> Result<(), String
 /// Max keystroke-spec length, bounding the SendInput batch we will dispatch.
 const MAX_KEYS_LEN: usize = 2000;
 
+/// Focus `el` and CONFIRM the OS focus actually landed on the target process
+/// before any synthetic input is dispatched.
+///
+/// Why this exists: `SetFocus()` is asynchronous and subject to Windows'
+/// foreground-lock — the focused window does not change the instant the call
+/// returns. `SendInput` always delivers to whatever window currently holds the
+/// foreground, so firing it immediately after `SetFocus` raced: keystrokes
+/// landed in the *previous* foreground window (often Feral itself), and the
+/// tool still reported success. That is the "focus lost / wrong window" class
+/// of failures. We now retry SetFocus with a short settle, then verify via the
+/// system-wide `GetFocusedElement` that the focused element belongs to the
+/// target pid. If it never does, we fail SAFE (recoverable) instead of typing
+/// into the wrong place.
+fn ensure_focused(auto: &IUIAutomation, el: &IUIAutomationElement, pid: u32) -> Result<(), String> {
+    for attempt in 0..3u64 {
+        let _ = unsafe { el.SetFocus() };
+        // Linear backoff: 50ms, 100ms, 150ms. Generous enough for a window to
+        // come to the foreground; cheap enough not to stall the agent.
+        std::thread::sleep(std::time::Duration::from_millis(50 * (attempt + 1)));
+        if let Ok(focused) = unsafe { auto.GetFocusedElement() } {
+            if process_id(&focused).map(|p| p == pid).unwrap_or(false) {
+                return Ok(());
+            }
+        }
+    }
+    Err(
+        "desktop control: could not bring the target window to the foreground before typing \
+         (another window holds focus — input would have gone to the wrong place). Recoverable: \
+         retry, or click/activate the window first."
+            .into(),
+    )
+}
+
 /// Send a keystroke spec to `handle` after focusing it. See [`parse_keys`] for
 /// the spec syntax. Refuses secure fields (no synthetic typing into passwords).
 pub fn send_keys(handle: &str, keys: &str) -> Result<(), String> {
     let _com = ComGuard::new();
     let auto = automation()?;
-    let (_pid, el) = locate_by_handle(&auto, handle)?;
+    let (pid, el) = locate_by_handle(&auto, handle)?;
     if is_secure(&el) {
         return Err("desktop control: refusing to send keystrokes to a secure/password field".into());
     }
@@ -676,8 +709,9 @@ pub fn send_keys(handle: &str, keys: &str) -> Result<(), String> {
     if inputs.is_empty() {
         return Ok(());
     }
-    // Focus so the keystrokes land in the intended control.
-    unsafe { el.SetFocus() }.map_err(|e| format!("desktop control: SetFocus failed: {e}"))?;
+    // Focus AND verify the foreground actually moved before dispatching input —
+    // otherwise SendInput races and types into the wrong (previous) window.
+    ensure_focused(&auto, &el, pid)?;
     // SAFETY: `inputs` is a valid, fully-initialized slice of INPUT for the
     // lifetime of the call; cbsize is the per-record size as the API requires.
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };

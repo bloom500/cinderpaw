@@ -107,11 +107,16 @@ export class SemanticMemory {
   }
 
   /**
-   * Render all facts as a compact block suitable for injection into a prompt.
-   * Returns an empty string when there are no facts.
+   * Render the N most-recently-updated facts as a compact block for prompt
+   * injection. Capped so that a long-running agent with hundreds of
+   * accumulated facts never silently burns thousands of tokens on context.
+   * The facts are already returned by `all()` in updated_at DESC order, so
+   * slicing to MAX_PROMPT_FACTS gives the most relevant recent knowledge.
    */
+  static readonly MAX_PROMPT_FACTS = 30;
+
   renderForPrompt(): string {
-    const facts = this.all();
+    const facts = this.all().slice(0, SemanticMemory.MAX_PROMPT_FACTS);
     if (facts.length === 0) return "";
     const lines = facts.map((f) => `- ${f.key}: ${f.value}`).join("\n");
     return `Known facts about the user:\n${lines}`;

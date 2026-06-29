@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { VARIANTS, PALETTE, FRAME_W, FRAME_H, type MascotState, type Frame } from './frames';
+import { VARIANTS, PALETTE, BODY_SHADE, BODY_CHAR, FRAME_W, FRAME_H, type MascotState, type Frame } from './frames';
 import { EFFECTS, FX_MARGIN_X, FX_MARGIN_TOP } from './effects';
 
 const FRAME_MS = 160;
@@ -94,7 +94,8 @@ export function FeralMascot({ state, flip = false }: { state: MascotState; flip?
     for (let r = 0; r < frame.length; r++) {
       const row = frame[r];
       for (let c = 0; c < row.length; c++) {
-        const color = PALETTE[row[c]];
+        const ch = row[c];
+        const color = ch === BODY_CHAR ? BODY_SHADE[r] : PALETTE[ch];
         if (!color) continue;
         ctx.fillStyle = color;
         ctx.fillRect(FX_MARGIN_X + c, y0 + r, 1, 1);

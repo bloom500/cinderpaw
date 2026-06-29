@@ -81,6 +81,29 @@ pub struct RatchetResult {
     pub prior_score: Option<f64>,
 }
 
+/// Report from a `gc` run. Sizes are loose-object counts, not bytes —
+/// a single object's compressed size depends on its kind and content.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct GcReport {
+    /// Number of loose object files in `.git/objects/xx/yyyy...` before GC.
+    pub loose_before: usize,
+    /// Number of loose object files that survived the prune.
+    pub loose_after: usize,
+    /// `loose_before - loose_after` — the number of loose files removed.
+    pub loose_pruned: usize,
+    /// Number of distinct refs walked while computing reachability
+    /// (HEAD + every local branch).
+    pub refs_visited: usize,
+    /// Total reachable objects counted across all visited refs (commits +
+    /// trees + blobs — same objects can be reachable from multiple refs
+    /// and are de-duplicated by OID).
+    pub reachable_objects: usize,
+    /// Wall-clock duration of the prune phase. Tracked separately so a
+    /// regression that turns the loop into a quadratic scan is visible
+    /// without touching object counts.
+    pub elapsed_ms: u128,
+}
+
 /// Open the RSI repo. Errors if the directory is not a git repo
 /// (i.e. bootstrap has not been run).
 pub fn open() -> Result<Repository> {
@@ -467,6 +490,187 @@ fn _unused_path_assertion() -> PathBuf {
     p
 }
 
+// ---------------------------------------------------------------------------
+// Garbage collection (B6)
+//
+// The RSI layer adds one commit per iteration, each one writing a new
+// `genomes/<id>.json` snapshot and a fresh loose-object blob. The repo
+// itself stays bounded (commits are tiny, packs are coalesced by libgit2),
+// but any code path that calls `repo.odb().write(...)` for an ephemeral
+// scratch object leaves a loose file behind forever — those pile up.
+//
+// `gc` reclaims those by walking every ref (HEAD + all local branches),
+// collecting the reachable OID set, then deleting loose files in
+// `.git/objects/xx/yyyy...` whose OID is NOT in that set. Pack files
+// are NEVER touched: their contents are by definition referenced by
+// `.idx` and the pack is one read-only blob, so removing it would be
+// the actual corruption risk we want to avoid.
+//
+// Async wrapper runs the inner sync work on `spawn_blocking` so a large
+// prune (10k+ loose objects) never stalls the tokio executor. The hot
+// path — `commit_genome` / `ratchet_attempt` — does NOT call gc inline;
+// it's triggered from the scheduled maintenance task.
+// ---------------------------------------------------------------------------
+
+/// Async wrapper around `gc_sync`. Always runs the sync work on the
+/// blocking pool, even when the prune set is empty, so the call site
+/// pays nothing for being off the executor.
+pub async fn gc() -> Result<GcReport> {
+    tokio::task::spawn_blocking(gc_sync)
+        .await
+        .map_err(|e| anyhow!("gc task join: {e}"))?
+}
+
+/// Sync prune. Walks every local ref + HEAD, builds the reachable OID
+/// set, then removes any loose-object file under `.git/objects/` whose
+/// OID is unreachable. Pack files are left alone.
+fn gc_sync() -> Result<GcReport> {
+    use std::collections::HashSet;
+    use std::time::Instant;
+
+    let started = Instant::now();
+    let repo = open()?;
+    let objects_dir = repo.path().join("objects");
+
+    // 1. Walk every local ref (HEAD + branches) and collect the OIDs
+    //    that any of them can reach. The set is shared across refs so
+    //    reachable counts aren't inflated by branches that share commits.
+    let mut reachable: HashSet<Oid> = HashSet::new();
+    let mut refs_visited: usize = 0;
+
+    // Always include HEAD, even on an unborn repo (HEAD may point at a
+    // branch that has no commits yet — that's fine, the walk will be empty).
+    if let Ok(head) = repo.head() {
+        if let Some(target) = head.target() {
+            reachable.insert(target);
+        }
+        refs_visited += 1;
+    }
+    for branch in repo.branches(Some(git2::BranchType::Local))? {
+        let (branch, _) = branch?;
+        if let Some(target) = branch.get().target() {
+            reachable.insert(target);
+        }
+        refs_visited += 1;
+    }
+
+    // Expand each ref-tip into its full reachable closure via a revwalk.
+    let mut walk = repo.revwalk()?;
+    walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
+    let tips: Vec<Oid> = reachable.iter().copied().collect();
+    for tip in &tips {
+        // push(tip) is safe even when tip isn't reachable from any
+        // existing walk; revwalk pushes onto the pending frontier.
+        let _ = walk.push(*tip);
+    }
+    for oid in walk {
+        let oid = oid?;
+        // Walk commits + their trees/blobs via the object peel.
+        // `repo.find_commit(...).tree()` walks the tree; for full coverage
+        // we use revwalk's hide/prune patterns or fetch_object(). We do
+        // it manually: every commit pulls in a tree, every tree pulls in
+        // blobs/sub-trees.
+        if let Ok(commit) = repo.find_commit(oid) {
+            if let Ok(tree) = commit.tree() {
+                expand_tree(&repo, tree.id(), &mut reachable);
+            }
+        }
+        reachable.insert(oid);
+    }
+
+    // 2. Walk loose-object files. Each is at `<objects>/xx/yyyy...`,
+    //    where `xx` is the first two hex chars and `yyyy...` is the rest.
+    //    We compute the OID from the path and delete the file iff the OID
+    //    is not in the reachable set.
+    let mut loose_before: usize = 0;
+    let mut loose_after: usize = 0;
+    let mut loose_pruned: usize = 0;
+
+    let entries = match std::fs::read_dir(&objects_dir) {
+        Ok(e) => e,
+        Err(e) => return Err(anyhow!("read loose-object dir {}: {e}", objects_dir.display())),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = match name.to_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        // Only consider 2-hex-char subdirectories — that's the git layout
+        // for loose objects (`ab`, `cd`, …). Anything else (e.g. `pack/`,
+        // `info/`) is structural and we skip it deliberately.
+        if name_str.len() != 2 || !name_str.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        let prefix = name_str.to_ascii_lowercase();
+        for inner in std::fs::read_dir(entry.path())? {
+            let inner = inner?;
+            let inner_name = inner.file_name();
+            let inner_str = match inner_name.to_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            // Loose object basenames are 38 hex chars (SHA-1 minus the
+            // 2-char prefix). Anything else — `.tmp` from an in-flight
+            // write, `pack/` siblings, etc. — is left alone.
+            if inner_str.len() != 38 || !inner_str.chars().all(|c| c.is_ascii_hexdigit()) {
+                continue;
+            }
+            loose_before += 1;
+            let hex = format!("{prefix}{inner_str}");
+            let Ok(oid) = Oid::from_str(&hex) else { continue };
+            if reachable.contains(&oid) {
+                loose_after += 1;
+                continue;
+            }
+            // Use remove_file (not unlink) so the failure mode is the same
+            // on Windows where unlink has stricter semantics.
+            match std::fs::remove_file(inner.path()) {
+                Ok(()) => loose_pruned += 1,
+                Err(e) => {
+                    // Lock contention or transient I/O error: skip this
+                    // file and keep going. Refusing the whole prune over
+                    // one file would amplify the GC latency cost on
+                    // Windows where AV scanners briefly hold .git/ open.
+                    tracing::warn!("gc: could not prune {}: {e}", inner.path().display());
+                    loose_after += 1;
+                }
+            }
+        }
+    }
+
+    Ok(GcReport {
+        loose_before,
+        loose_after,
+        loose_pruned,
+        refs_visited,
+        reachable_objects: reachable.len(),
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+/// Recursively add a tree's blobs + sub-trees to `reachable`. A revwalk
+/// over commits only gives us the commit graph; without this, a blob
+/// reachable through the working tree but with no currently-checked-out
+/// HEAD would look unreachable and get pruned.
+fn expand_tree(repo: &Repository, tree_oid: Oid, reachable: &mut std::collections::HashSet<Oid>) {
+    let Ok(tree) = repo.find_tree(tree_oid) else {
+        return;
+    };
+    reachable.insert(tree_oid);
+    for entry in tree.iter() {
+        let id = entry.id();
+        match entry.kind() {
+            Some(git2::ObjectType::Tree) => expand_tree(repo, id, reachable),
+            Some(git2::ObjectType::Blob) | Some(git2::ObjectType::Commit) => {
+                reachable.insert(id);
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,6 +764,148 @@ mod tests {
             // does not create a duplicate genesis.
             let head2 = bootstrap().expect("second bootstrap is a no-op");
             assert_eq!(head, head2, "bootstrap is idempotent");
+        });
+    }
+
+    /// GC sanity: bootstrap → commit a handful of ratchet-advanced
+    /// iterations → seed two unreferenced loose blobs → run `gc` →
+    /// assert the seeded blobs are pruned, every reachable commit is
+    /// still resolvable, and HEAD still points at `refs/heads/main`.
+    /// This is the regression guard for the "RSI substrate grows
+    /// unbounded" footgun: a bug that turned `gc` into a no-op (or, worse,
+    /// pruned reachable objects) would only surface as missing iteration
+    /// data days later, so the test pins the *outcome* rather than the
+    /// implementation.
+    #[test]
+    fn gc_prunes_unreachable_loose_objects_and_keeps_reachable_intact() {
+        crate::rsi::test_support::with_temp_feral_home(|_root| {
+            // Bootstrap + a small chain of ratchet-advanced iterations.
+            // Each iteration advances `main` strictly, so every committed
+            // object ends up reachable from main by the end.
+            let genesis = bootstrap().expect("bootstrap");
+            let mut prev = genesis.clone();
+            for i in 0..4 {
+                let meta = IterationMetadata {
+                    score: 50.0 + i as f64,
+                    strategy: "gc-test".into(),
+                    parent_lineage: vec![prev.clone()],
+                    mutation_type: "noop".into(),
+                    cost_tokens: 100,
+                    duration_ms: 10,
+                };
+                let genome_id = format!("gen-gc-{i}");
+                let genome_json = serde_json::json!({"i": i, "id": genome_id});
+                let new_commit = commit_genome(
+                    &genome_id,
+                    &genome_json,
+                    &[&prev],
+                    &meta,
+                    &format!("genome/{genome_id}"),
+                )
+                .expect("commit iteration");
+                ratchet_attempt(&new_commit).expect("ratchet advance");
+                prev = new_commit;
+            }
+
+            // Seed two unreferenced loose blobs straight into the ODB.
+            // These simulate the real-world case where a tool writes a
+            // scratch object (e.g. an LFS blob, an ephemeral stat cache)
+            // and never references it from any commit.
+            let repo = open().expect("open");
+            let blob_a = repo
+                .odb()
+                .expect("odb")
+                .write(git2::ObjectType::Blob, b"ephemeral-scratch-A")
+                .expect("write blob A");
+            let blob_b = repo
+                .odb()
+                .expect("odb")
+                .write(git2::ObjectType::Blob, b"ephemeral-scratch-B")
+                .expect("write blob B");
+
+            // Sanity: both loose files actually exist on disk before GC.
+            let objects_dir = std::path::Path::new(repo.path()).join("objects");
+            for oid in [blob_a, blob_b] {
+                let hex = oid.to_string();
+                let (prefix, rest) = hex.split_at(2);
+                let path = objects_dir.join(prefix).join(rest);
+                assert!(
+                    path.exists(),
+                    "loose blob {} should exist at {} before gc",
+                    hex,
+                    path.display()
+                );
+            }
+
+            // Run the prune. We do it via the sync inner so the test
+            // doesn't depend on a tokio runtime; the async wrapper is
+            // tested separately by the lib's normal compile/test cycle.
+            let report = gc_sync().expect("gc_sync");
+            assert!(
+                report.loose_pruned >= 2,
+                "gc should have pruned at least the two seeded blobs, got report={:?}",
+                report
+            );
+            assert!(
+                report.refs_visited >= 1,
+                "gc should have visited at least HEAD, got report={:?}",
+                report
+            );
+
+            // Post-conditions: the unreachable blobs are gone, every
+            // reachable commit (genesis + the 4 iterations) is still
+            // resolvable, and HEAD still names `refs/heads/main`.
+            for oid in [blob_a, blob_b] {
+                let hex = oid.to_string();
+                let (prefix, rest) = hex.split_at(2);
+                let path = objects_dir.join(prefix).join(rest);
+                assert!(
+                    !path.exists(),
+                    "loose blob {} should be gone after gc, still at {}",
+                    hex,
+                    path.display()
+                );
+            }
+            let repo = open().expect("reopen after gc");
+            assert_eq!(
+                repo.head().unwrap().name().unwrap(),
+                "refs/heads/main",
+                "HEAD must still point at main after gc"
+            );
+            let head_oid = repo.head().unwrap().target().expect("HEAD has target");
+            let head_commit = repo.find_commit(head_oid).expect("HEAD commit resolves");
+            assert!(
+                parse_iteration_metadata(&head_commit).is_some(),
+                "tip commit must still parse as an RSI iteration after gc"
+            );
+            // Walk the lineage backwards from HEAD; every parent commit
+            // must still resolve, including the genesis.
+            let mut cursor = Some(head_commit);
+            let mut depth = 0usize;
+            while let Some(c) = cursor {
+                assert!(
+                    repo.find_commit(c.id()).is_ok(),
+                    "commit {} must resolve after gc",
+                    c.id()
+                );
+                cursor = c.parents().next();
+                depth += 1;
+                assert!(depth < 100, "walk depth guard");
+            }
+            assert!(
+                depth >= 5,
+                "lineage should walk genesis + 4 iterations, walked only {depth}"
+            );
+
+            // A second GC is a no-op (everything reachable is already
+            // accounted for, nothing to prune). This pins that the
+            // function is idempotent and doesn't accumulate work.
+            let report2 = gc_sync().expect("gc_sync idempotent");
+            assert_eq!(
+                report2.loose_pruned, 0,
+                "second gc should prune nothing, got {:?}",
+                report2
+            );
         });
     }
 }

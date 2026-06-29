@@ -502,6 +502,16 @@ export interface OpenAIToolDef {
   };
 }
 
+export interface StreamProgressEvent {
+  type: "stream_progress";
+  sessionId: string;
+  phase: "prefill" | "generating";
+  elapsedMs: number;
+  promptTokens: number;
+  tokensGenerated: number;
+  tokensPerSec: number;
+}
+
 export interface InferenceRequest {
   sessionId: string;
   messages: ChatMessage[];
@@ -522,6 +532,18 @@ export interface InferenceRequest {
    * is still returned in InferenceResponse at the end.
    */
   onToken?: (token: string) => void;
+  /**
+   * Heartbeat progress callback fired by the sidecar's
+   * `deadlineController` on a ~750 ms cadence (and once at start so the
+   * UI sees activity immediately, even during prefill silence). The
+   * agent loop wires this to a `stream_progress` OutboundEvent so the
+   * React `events.onStreamProgress` listener can update the live
+   * thinking-splitter. Optional — providers no-op when absent.
+   *
+   * The provider fires this from the deadline controller, NOT from
+   * each token: a 200-tok/s model would otherwise spam the UI.
+   */
+  onProgress?: (event: StreamProgressEvent) => void;
   /**
    * Internal maintenance calls (e.g. the working-memory summarizer) set this to
    * skip the pre-call budget check. Without it, compress-and-continue is a dead
@@ -887,6 +909,10 @@ export interface InboundMessage {
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
     // benchmark gate on demand. Remove with the button after the ship/hold call.
     | "fractal_benchmark"
+    // Reactive-tree drill-down: the host requests the member memories of one
+    // top-level cluster; the sidecar replies with a `fractal_cluster_leaves_result`
+    // paired by `id`. Reuses the plain `id` field as the request correlator.
+    | "fractal_cluster_leaves"
     // RSI engine driver (Faza 1 production wiring) — the Rust host
     // commands the sidecar engine via these messages; the sidecar
     // emits `rsi_engine_event` outbound events to ack + mirror state.
@@ -905,6 +931,8 @@ export interface InboundMessage {
   rsiConcurrency?: number;
   /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
   rsiNewConcurrency?: number;
+  /** Reactive-tree drill-down payload (type === "fractal_cluster_leaves"). */
+  clusterIndex?: number;
   /**
    * RSI response payload (type === "rsi_response") reuses the PLAIN fields
    * `id` (above) and `ok`/`data`/`error` (declared below). Rust's
@@ -939,6 +967,9 @@ export interface InboundMessage {
   baseUrl?: string;
   /** API key injected by Rust from the BYOK store — never touches React. */
   apiKey?: string;
+  /** Active context window (tokens) for a LOCAL model, forwarded by Rust so the
+   *  agent compacts to the engine's real KV-cache size. Absent for cloud. */
+  contextWindow?: number;
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
   requestId?: string;
@@ -1014,6 +1045,21 @@ export type OutboundEvent =
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
+  // Heartbeat for in-flight agent inference (mirrors Rust
+  // `events::StreamProgressEvent`). Emitted on a ~750 ms cadence so the
+  // UI can show live progress instead of a static "Thinking…" black box.
+  // The React `events.onStreamProgress` listener filters this kind out of
+  // the raw `feral://agent-output` stream. `promptTokens` is set once the
+  // provider reports it (cloud: in the final SSE chunk; local: n/a here).
+  | {
+      type: "stream_progress";
+      sessionId: string;
+      phase: "prefill" | "generating";
+      elapsedMs: number;
+      promptTokens?: number;
+      tokensGenerated?: number;
+      tokensPerSec?: number;
+    }
   | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }
   // X3: surfaced when a scheduled job throws or times out — previously cron
   // failures were logged to stderr only and invisible in the UI.
@@ -1078,6 +1124,27 @@ export type OutboundEvent =
       sessionId?: string;
       evictedLeafIds?: number[];
       ts?: number;
+      clusterIndex?: number;
+    }
+  // Reactive-tree drill-down response: the real member memories of one
+  // top-level cluster, paired by `id` with the `fractal_cluster_leaves`
+  // request Rust forwarded. Feeds the zoom-reveal + leaf card.
+  | {
+      type: "fractal_cluster_leaves_result";
+      id: string;
+      leaves: { leafId: number; text: string; ts: number }[];
+    }
+  // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
+  // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim
+  // over `feral://agent-output` so the React `events.onDreamCycle` listener can
+  // raise a toast and put the typing-bar mascot into its `dreaming` pose.
+  | {
+      type: "dream_cycle";
+      phase: "started" | "ended";
+      trigger: "idle" | "error";
+      iterations?: number;
+      ratchets?: number;
+      stopReason?: string;
     };
 
 export interface Transport {

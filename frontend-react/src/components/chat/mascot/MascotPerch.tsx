@@ -14,6 +14,11 @@ const SLEEP_AFTER_RUN_MS     = 15_000;
 const STRETCHING_MS          = 2_000;
 const GAMING_MS              = 10_000;
 const GAMING_TRIGGER_CYCLES  = 2;
+// Expressive hand-drawn states that aren't part of the core travel choreography.
+// One plays at the end of each idle cycle so the creature shows its full range
+// (these used to live in useMascotState's ambient loop, which broke the run).
+const EXPRESSIVE: MascotState[] = ['wave', 'love', 'cool', 'surprised', 'celebrate'];
+const EXPRESSIVE_MS          = 2_200;
 const LEFT_OFFSET            = 20;
 const MASCOT_W               = 48; // keep in sync with DISPLAY in FeralMascot
 const PUFF_EVERY_MS          = 380;
@@ -139,11 +144,18 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
               timers.current.push(window.setTimeout(() => {
                 setRenderState('stretching');
 
-                // Step 6: back to idle, loop
+                // Step 6: a random expressive beat, then loop. Surfaces the
+                // wave/love/cool/surprised/celebrate states that the old ambient
+                // loop used to show — without overriding the base idle state, so
+                // the run-travel above still fires every cycle.
                 timers.current.push(window.setTimeout(() => {
                   idleCycleCount.current += 1;
-                  setRenderState('idle');
-                  startIdleSequence();
+                  const beat = EXPRESSIVE[Math.floor(Math.random() * EXPRESSIVE.length)]!;
+                  setRenderState(beat);
+                  timers.current.push(window.setTimeout(() => {
+                    setRenderState('idle');
+                    startIdleSequence();
+                  }, EXPRESSIVE_MS));
                 }, STRETCHING_MS));
               }, SLEEP_AFTER_RUN_MS));
             }, LEG_MS));

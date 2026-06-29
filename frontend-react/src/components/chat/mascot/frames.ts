@@ -8,13 +8,35 @@ export type MascotState =
 export const FRAME_W = 16;
 export const FRAME_H = 16;
 
-const MASCOT_ORANGE = '#F57A1F';
+// Terracotta-orange mid tone. The body used to be flat neon #F57A1F; it now
+// reads as warm clay so the creature looks natural like the reference art.
+const MASCOT_ORANGE = '#cf7740';
 export const PALETTE: Record<string, string | null> = {
   '.': null,
   k: '#1c1c1e', o: MASCOT_ORANGE, w: '#ffffff', r: '#c0392b',
   y: '#f1c40f', g: '#27ae60', b: '#2980b9', p: '#8e44ad',
   c: '#16a085', s: '#7f8c8d', n: '#e67e22', m: '#e91e63',
 };
+
+// Body volume. The body char ('o') is the only large flat region; shading it by
+// row fakes a top-lit, round body with a warm orange belly — so every one of
+// the 127 frames gets dimension from one place instead of hand-painted shadows.
+// ponytail: row ramp, not per-frame; the renderer swaps 'o' for BODY_SHADE[row].
+export const BODY_CHAR = 'o';
+function mix(a: string, b: string, t: number): string {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
+  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * Math.max(0, Math.min(1, t))));
+  return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+export const BODY_SHADE: string[] = Array.from({ length: FRAME_H }, (_, row) => {
+  const t = Math.max(0, Math.min(1, (row - 2) / 11)); // 0 = top .. 1 = feet line
+  let col = mix(MASCOT_ORANGE, '#f4c285', Math.max(0, 0.30 - t * 0.34)); // upper highlight
+  col = mix(col, '#7a3d1a', Math.max(0, t - 0.45) * 0.55);              // lower core shadow
+  const belly = 1 - Math.abs(row - 8) / 5;                              // peak mid-body
+  if (belly > 0) col = mix(col, '#ec8a33', belly * 0.30);              // warm orange belly
+  return col;
+});
 
 export type Frame = string[];
 
@@ -1491,7 +1513,7 @@ const SAA: Frame = [
   '.kkookkkwkkookk.',
   '.kkooowrrwoookk.',
   'kkkooooooooookkk',
-  'kkpp..ppoookkkkk',
+  'kkkkkooooookkkkk',
   'kkkkooooooookkkk',
   'kkkkooooooookkkk',
   'kkkkkooooookkkkk',
@@ -1510,7 +1532,7 @@ const SAB: Frame = [
   '.kkookkkwkkookk.',
   '.kkooowrrwoookk.',
   'kkkooooooooookkk',
-  'kkpp..ppoookkkkk',
+  'kkkkkooooookkkkk',
   'kkkkooooooookkkk',
   'kkkkooooooookkkk',
   'kkkkkooooookkkkk',

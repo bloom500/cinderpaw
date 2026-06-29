@@ -113,6 +113,15 @@ pub fn rsi_plan_path() -> PathBuf {
     rsi_dir().join("PLAN.md")
 }
 
+/// `~/.feral/rsi/dream.jsonl` — one JSONL line per completed Dream Cycle
+/// episode. Written by the sidecar (`dream-telemetry.ts`); read back by the
+/// `rsi_dream_telemetry` command for the Feral's Dreams UI panel. NOTE: the
+/// sidecar honors a `FERAL_RSI_TELEMETRY` override (dev/test only); the host
+/// reads the default path here, which is correct for normal installs.
+pub fn rsi_dream_telemetry_path() -> PathBuf {
+    rsi_dir().join("dream.jsonl")
+}
+
 /// HuggingFace repo hosting whisper.cpp ggml models.
 pub const WHISPER_REPO: &str = "ggerganov/whisper.cpp";
 

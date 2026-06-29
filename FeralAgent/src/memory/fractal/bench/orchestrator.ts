@@ -27,6 +27,7 @@
  */
 import { runFractalBenchmark } from "./run-benchmark.ts";
 import { parseQuerySet, type GenLeaf } from "./query-gen.ts";
+import { sample } from "../prng.ts";
 import type { BenchQuery } from "./runner.ts";
 import type { BenchReport } from "./runner.ts";
 import type { EmbedInvoker } from "../embed.ts";
@@ -153,16 +154,18 @@ export async function runFractalBenchmarkWithProgress(
 
   // === Phase 1: build the query set ===
   let queries: BenchQuery[];
+  // How many memories were paraphrasable (generation path only). Drives the
+  // diagnostic below so an empty result names its real cause instead of the
+  // bare "empty query set" that sent users hunting the wrong thing.
+  let generationAttempted = 0;
   if (opts.querySetJsonl) {
     queries = parseQuerySet(opts.querySetJsonl);
   } else {
     const leaves = opts.loadLeaves();
     const minLen = 20;
     const eligible = leaves.filter((l) => l.text.trim().length >= minLen);
-    // We don't reach into `sample` from query-gen (it isn't exported), so we
-    // re-implement the seed-deterministic shuffle locally — the same logic
-    // the sampler uses, with the same mulberry32 + Fisher-Yates.
-    const picked = deterministicShuffle(eligible, count, opts.seed ?? 1);
+    const picked = sample(eligible, count, opts.seed ?? 1);
+    generationAttempted = picked.length;
     queries = await withTimeout(
       generateQuerySetWithProgress(picked, opts.infer, genConcurrency, safeProgress),
       timeoutMs,
@@ -171,9 +174,24 @@ export async function runFractalBenchmarkWithProgress(
   }
 
   if (queries.length === 0) {
-    // Mirror runBenchmark's empty-set error so callers (including the
-    // dev-only env path in index.ts) can rely on the same failure shape.
-    throw new Error("runBenchmark: empty query set");
+    // Distinguish the two empty-set causes so the panel/log is actionable.
+    // When we DID have memories to paraphrase but `infer` returned nothing for
+    // every one, the overwhelmingly common cause is that no local chat model is
+    // loaded — `router.complete` logs "no model loaded" and yields empty
+    // content rather than throwing, so each paraphrase comes back blank. Saying
+    // so beats the old cryptic "empty query set".
+    if (generationAttempted > 0) {
+      throw new Error(
+        "runBenchmark: query generation produced no queries from " +
+          `${generationAttempted} memories — is a local chat model loaded? ` +
+          "The benchmark paraphrases memories into queries via the local model; " +
+          "load one (or supply a hand-authored JSONL query set) and retry.",
+      );
+    }
+    throw new Error(
+      "runBenchmark: empty query set — no memories long enough to generate " +
+        "queries from (need some memories ≥20 chars), and no JSONL query set was supplied.",
+    );
   }
 
   // === Phase 1.5: pre-embed all queries in one batched bge call ===
@@ -271,28 +289,4 @@ async function generateQuerySetWithProgress(
     return { query, relevant: new Set([leaf.id]) };
   });
   return out.filter((q): q is BenchQuery => q !== null);
-}
-
-/** mulberry32 — same PRNG as `query-gen.ts`. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Seeded partial Fisher–Yates: same as query-gen.ts sample(). */
-function deterministicShuffle<T>(items: T[], count: number, seed: number): T[] {
-  const rand = mulberry32(seed);
-  const arr = [...items];
-  const n = Math.min(count, arr.length);
-  for (let i = 0; i < n; i++) {
-    const j = i + Math.floor(rand() * (arr.length - i));
-    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
-  }
-  return arr.slice(0, n);
 }

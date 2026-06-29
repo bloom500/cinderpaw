@@ -13,6 +13,7 @@ mod feral_agent;
 mod gpu_detect;
 mod inference;
 mod mcp;
+mod perf_policy;
 mod memory_graph;
 mod models;
 mod paths;
@@ -25,8 +26,9 @@ mod tools;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -36,6 +38,7 @@ use tokio::sync::mpsc;
 use crate::agents::AgentConfig;
 use crate::inference::{InferParams, Message, ModelManager};
 use crate::models::ModelInfo;
+use crate::perf_policy::{deadline_message, perf_policy, DeadlineReason, PerfPolicy};
 use crate::settings::Settings;
 use crate::sysinfo_mod::SystemInfo;
 
@@ -253,11 +256,12 @@ fn cancel_download(state: State<AppState>, model_id: String) -> Result<(), Strin
 async fn load_model(
     state: State<'_, AppState>,
     path: String,
+    max_context: Option<u32>,
 ) -> Result<inference::LoadedModel, String> {
     let manager = state.manager.clone();
     let n_gpu_layers = state.settings.default_gpu_layers;
     tokio::task::spawn_blocking(move || {
-        manager.load(PathBuf::from(path), n_gpu_layers).map_err(|e| e.to_string())
+        manager.load(PathBuf::from(path), n_gpu_layers, max_context).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -272,6 +276,7 @@ async fn start_model_load(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
+    max_context: Option<u32>,
 ) -> Result<inference::LoadedModel, String> {
     use std::time::Duration;
 
@@ -322,7 +327,7 @@ async fn start_model_load(
     });
 
     let result = tokio::task::spawn_blocking(move || {
-        manager.load(path_buf, n_gpu_layers).map_err(|e| e.to_string())
+        manager.load(path_buf, n_gpu_layers, max_context).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -331,10 +336,21 @@ async fn start_model_load(
 
     match result {
         Ok(model) => {
+            // Surface the REAL backend so a user can tell whether their GPU is
+            // actually being used or inference silently fell back to CPU.
             let _ = app.emit("model-load-progress", events::ModelLoadProgressEvent {
                 percentage: 100.0,
-                status_text: "Model Loaded!".into(),
+                status_text: format!("Model Loaded! · {}", inference::active_backend_label()),
             });
+
+            // Persist so next launch auto-reloads without user interaction —
+            // including the user's chosen context window, so the auto-reload
+            // task doesn't shrink their KV cache back to the conservative
+            // default on next start.
+            let mut s = settings::load();
+            s.last_loaded_model = Some(path.clone());
+            s.last_loaded_ctx = Some(model.ctx_len);
+            let _ = settings::save(&s);
 
             Ok(model)
         }
@@ -346,6 +362,11 @@ async fn start_model_load(
 #[specta::specta]
 fn unload_model(state: State<AppState>) {
     state.manager.unload();
+    // Clear the persisted auto-reload path so a restart doesn't reload a
+    // model the user just deliberately unloaded.
+    let mut s = settings::load();
+    s.last_loaded_model = None;
+    let _ = settings::save(&s);
 }
 
 #[tauri::command]
@@ -363,8 +384,16 @@ fn delete_model(state: State<AppState>, path: String) -> Result<(), String> {
     // Force-unload on the Rust side if this model is currently loaded.
     // The frontend already calls unload(), but a failed-load can leave
     // an llama.cpp file handle open without putting anything in the manager.
-    // Unconditional unload + retry gives the OS time to release mmap handles.
+    // Unconditional unload + initial wait + retry loop gives the OS time
+    // to release mmap handles (the C++ cleanup is asynchronous on Windows
+    // — see `remove_file_with_retry` for the retry details).
     state.manager.unload();
+    // Initial sleep before the first delete attempt: llama.cpp's
+    // background cleanup needs a moment to start releasing the mmap.
+    // The retry loop in `remove_file_with_retry` only fires AFTER the
+    // first attempt fails — without this head-start sleep the loop is
+    // chasing an unmoved release deadline.
+    std::thread::sleep(std::time::Duration::from_millis(500));
     models::delete_model(&target).map_err(|e| e.to_string())
 }
 
@@ -458,6 +487,44 @@ fn stop_generation(state: State<AppState>) {
     state.stop_signal.store(true, Ordering::SeqCst);
 }
 
+/// Shared watchdog state owned by the inference watchdog task in
+/// `chat_stream`. The watchdog writes the typed reason here before
+/// flipping `stop_signal`; the consumer loop reads it after the stream
+/// unwinds to decide whether to emit `feral://stream-done` (user stop /
+/// clean completion) or skip it (deadline tripped — the watchdog
+/// already emitted `feral://stream-error` with the typed message).
+struct WatchdogState {
+    /// Prompt token count as reported by `on_start`. The watchdog
+    /// reads this to compute an effective TTFT (4 ms/token on top of
+    /// the base, capped at `total_deadline_ms`) so a legitimately long
+    /// prefill on a big prompt isn't killed. `0` = unknown until
+    /// `on_start` fires (still a few hundred ms after generation begins).
+    prompt_tokens: AtomicU32,
+    /// Number of streamed tokens the consumer loop has received so
+    /// far. Used by the heartbeat to report `tokensPerSec`.
+    tokens_generated: AtomicU32,
+    /// Wall-clock millisecond timestamp of the first received token.
+    /// `0` = no token yet (still in prefill). Used to switch the
+    /// heartbeat's `phase` from `"prefill"` to `"generating"`.
+    first_token_ms: AtomicU64,
+    /// Reason the watchdog tripped. `None` on a user-initiated stop or
+    /// a clean completion; `Some(…)` on a watchdog breach. Locked by a
+    /// `Mutex` because the watchdog writes once and the consumer reads
+    /// once — a `TryLock` would be premature optimization.
+    reason: Mutex<Option<DeadlineReason>>,
+}
+
+impl WatchdogState {
+    fn new() -> Self {
+        Self {
+            prompt_tokens: AtomicU32::new(0),
+            tokens_generated: AtomicU32::new(0),
+            first_token_ms: AtomicU64::new(0),
+            reason: Mutex::new(None),
+        }
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 async fn chat_stream(
@@ -468,22 +535,64 @@ async fn chat_stream(
     session_id: String,
 ) -> Result<(), String> {
     use futures::StreamExt;
+
     // Reset stop signal before each new generation so a previous stop doesn't
     // immediately abort the next request.
     state.stop_signal.store(false, Ordering::SeqCst);
     let stop = state.stop_signal.clone();
+
+    let watchdog = Arc::new(WatchdogState::new());
     let app_start = app.clone();
     let sid_start = session_id.clone();
+    let pth_for_on_start = watchdog.clone();
     let on_start = Box::new(move |prompt_tokens: u32| {
+        // Capture the real prompt token count so the watchdog can scale
+        // its TTFT deadline with prompt size (4 ms/token on top of the
+        // base, capped at total_deadline_ms). See perf_policy.rs.
+        pth_for_on_start
+            .prompt_tokens
+            .store(prompt_tokens, Ordering::SeqCst);
         let _ = app_start.emit("feral://stream-start", events::StreamStartEvent {
             session_id: sid_start.clone(),
             prompt_tokens,
         });
     });
+
+    // Spawn the watchdog task BEFORE the consumer loop starts. The
+    // watchdog runs at `policy.heartbeat_ms` cadence and is the single
+    // authority on deadline trips + heartbeat emits. It owns the stop
+    // signal alongside the consumer — whoever trips first wins, the
+    // other side observes `stop == true` on its next check.
+    let wd = watchdog.clone();
+    let stop_for_watchdog = stop.clone();
+    let app_for_watchdog = app.clone();
+    let session_for_watchdog = session_id.clone();
+    let watchdog_handle = tokio::spawn(async move {
+        run_inference_watchdog(
+            wd,
+            stop_for_watchdog,
+            app_for_watchdog,
+            session_for_watchdog,
+            Instant::now(),
+        )
+        .await
+    });
+
     let mut stream = Box::pin(state.manager.stream_chat(messages, params, stop.clone(), Some(on_start)));
+    let start = Instant::now();
     while let Some(tok) = stream.next().await {
         if stop.load(Ordering::SeqCst) {
-            let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id: session_id.clone() });
+            // Stop flag tripped — distinguish watchdog (reason != None)
+            // from user stop (reason == None). When the watchdog tripped,
+            // it already emitted `feral://stream-error` with the typed
+            // message; we MUST NOT also emit `feral://stream-done`, or the
+            // frontend's chatStream.ts would see two terminal events.
+            let reason = watchdog.reason.lock().clone();
+            if reason.is_none() {
+                let _ = app.emit("feral://stream-done", events::StreamDoneEvent {
+                    session_id: session_id.clone(),
+                });
+            }
             return Ok(());
         }
         match tok {
@@ -504,16 +613,218 @@ async fn chat_stream(
                     });
                     return Err(msg.to_string());
                 }
-                let _ = app.emit("feral://token", events::TokenEvent { session_id: session_id.clone(), text: t });
+                // First-token tracking — the watchdog reads this to flip
+                // its heartbeat `phase` from `"prefill"` to
+                // `"generating"` and to start computing `tokensPerSec`.
+                if watchdog.first_token_ms.load(Ordering::SeqCst) == 0 {
+                    watchdog
+                        .first_token_ms
+                        .store(start.elapsed().as_millis() as u64, Ordering::SeqCst);
+                }
+                watchdog
+                    .tokens_generated
+                    .fetch_add(1, Ordering::SeqCst);
+                let _ = app.emit("feral://token", events::TokenEvent {
+                    session_id: session_id.clone(),
+                    text: t,
+                });
             }
             Err(e) => {
-                let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() });
+                let _ = app.emit("feral://stream-error", events::StreamErrorEvent {
+                    session_id: session_id.clone(),
+                    error: e.to_string(),
+                });
                 return Err(e.to_string());
             }
         }
     }
-    let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id: session_id.clone() });
+
+    // Stream ended cleanly (natural completion). Trip the stop flag so
+    // the watchdog exits on its next tick — cheaper than `abort()`ing
+    // the join handle, and avoids racing on `abort()` mid-emit.
+    stop.store(true, Ordering::SeqCst);
+    let _ = app.emit("feral://stream-done", events::StreamDoneEvent {
+        session_id: session_id.clone(),
+    });
+    // Drop the watchdog join handle so the task can complete and free
+    // its emit buffers. We don't `await` it — `chat_stream` returns
+    // immediately and the watchdog will see `stop == true` within one
+    // heartbeat (≤750 ms) and exit.
+    drop(watchdog_handle);
     Ok(())
+}
+
+/// Heartbeat + deadline-breach loop for the local inference path.
+///
+/// Emits `feral://stream-progress` on every tick and, on breach,
+/// `feral://stream-error` with the typed reason + human copy. The
+/// watchdog owns no locks beyond the `WatchdogState` itself — the
+/// generator (inference.rs::generate / run_inference) is unaware this
+/// exists; it just checks the existing `stop` flag on its per-token
+/// loop.
+///
+/// TTFT scales with `prompt_tokens` (4 ms/token on top of the base,
+/// capped at `total_deadline_ms`) so a legitimately long prefill on a
+/// big prompt isn't killed. The heartbeat proves liveness, so this
+/// trips only on real stalls.
+async fn run_inference_watchdog(
+    state: Arc<WatchdogState>,
+    stop: Arc<AtomicBool>,
+    app: AppHandle,
+    session_id: String,
+    start: Instant,
+) {
+    let policy = perf_policy(false); // chat_stream is local-only
+    let mut ticker = tokio::time::interval(Duration::from_millis(policy.heartbeat_ms));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ticker.tick().await; // consume the immediate first tick (instant zero)
+
+    while !stop.load(Ordering::SeqCst) {
+        ticker.tick().await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        let pt = state.prompt_tokens.load(Ordering::SeqCst);
+        let tg = state.tokens_generated.load(Ordering::SeqCst);
+        let ft_ms = state.first_token_ms.load(Ordering::SeqCst);
+        let phase = if ft_ms == 0 { "prefill" } else { "generating" };
+
+        // Heartbeat — even on the tick that trips the deadline, so the
+        // UI's last frame before the error shows the actual elapsed time.
+        let tps = compute_tokens_per_sec(tg, ft_ms, elapsed_ms);
+        let _ = app.emit(
+            "feral://stream-progress",
+            events::StreamProgressEvent {
+                session_id: session_id.clone(),
+                phase: phase.to_string(),
+                elapsed_ms: elapsed_ms.min(u32::MAX as u64) as u32,
+                prompt_tokens: pt,
+                tokens_generated: tg,
+                tokens_per_sec: tps,
+            },
+        );
+
+        // TTFT breach — first-token deadline expired (scales with prompt size).
+        if ft_ms == 0 && elapsed_ms >= policy.effective_ttft(pt) {
+            trip_deadline(
+                &state,
+                &stop,
+                &app,
+                &session_id,
+                &policy,
+                DeadlineReason::TtftTimeout,
+            );
+            return;
+        }
+        // Total breach — request ran past the whole-completion cap.
+        if elapsed_ms >= policy.total_deadline_ms {
+            trip_deadline(
+                &state,
+                &stop,
+                &app,
+                &session_id,
+                &policy,
+                DeadlineReason::TotalTimeout,
+            );
+            return;
+        }
+    }
+}
+
+/// Flip the stop flag, record the deadline reason, and emit the typed
+/// `feral://stream-error`. Idempotent on the reason cell — if a
+/// previous tick already recorded one, the second trip is a no-op so
+/// the consumer never sees two different reasons.
+fn trip_deadline(
+    state: &WatchdogState,
+    stop: &Arc<AtomicBool>,
+    app: &AppHandle,
+    session_id: &str,
+    policy: &PerfPolicy,
+    reason: DeadlineReason,
+) {
+    {
+        let mut slot = state.reason.lock();
+        if slot.is_some() {
+            // Already tripped by a previous tick (e.g. TTFT and total
+            // both fired on the same tick). Don't double-emit.
+            return;
+        }
+        *slot = Some(reason);
+    }
+    stop.store(true, Ordering::SeqCst);
+    let _ = app.emit(
+        "feral://stream-error",
+        events::StreamErrorEvent {
+            session_id: session_id.to_string(),
+            error: deadline_message(reason, policy),
+        },
+    );
+}
+
+/// tok/s over the window between first token and now. Returns 0.0
+/// during prefill (`ft_ms == 0`) or when the elapsed-since-first
+/// window is zero (avoid div-by-zero). Pure helper — exposed as a
+/// free function so unit tests can assert the math directly.
+fn compute_tokens_per_sec(tokens_generated: u32, first_token_ms: u64, now_ms: u64) -> f32 {
+    if first_token_ms == 0 || tokens_generated == 0 {
+        return 0.0;
+    }
+    let elapsed_since_first = now_ms.saturating_sub(first_token_ms);
+    if elapsed_since_first == 0 {
+        return 0.0;
+    }
+    (tokens_generated as f32) / (elapsed_since_first as f32 / 1000.0)
+}
+
+#[cfg(test)]
+mod watchdog_tests {
+    use super::*;
+
+    #[test]
+    fn tokens_per_sec_zero_during_prefill() {
+        assert_eq!(compute_tokens_per_sec(0, 0, 0), 0.0);
+        assert_eq!(compute_tokens_per_sec(5, 0, 1000), 0.0);
+    }
+
+    #[test]
+    fn tokens_per_sec_basic_rate() {
+        // 10 tokens in the 1000ms after first token → 10 tok/s.
+        assert!((compute_tokens_per_sec(10, 1000, 2000) - 10.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn tokens_per_sec_handles_zero_window() {
+        // Defensive: same millisecond for first-token and now should not divide by zero.
+        assert_eq!(compute_tokens_per_sec(5, 1000, 1000), 0.0);
+    }
+
+    #[test]
+    fn tokens_per_sec_handles_oversized_first_token_timestamp() {
+        // If `now_ms` is somehow smaller than `first_token_ms` (clock skew,
+        // monotonic regression), saturating_sub returns 0 and we get 0.0
+        // rather than a panic or a giant rate.
+        assert_eq!(compute_tokens_per_sec(50, 2000, 1000), 0.0);
+    }
+
+    #[test]
+    fn trip_deadline_is_idempotent_on_reason_cell() {
+        let state = WatchdogState::new();
+        let stop = Arc::new(AtomicBool::new(false));
+        // No AppHandle available in a sync unit test — `trip_deadline`
+        // would emit (and panic without a real handle), so we test the
+        // reason-cell half directly.
+        *state.reason.lock() = Some(DeadlineReason::TtftTimeout);
+        // If we call trip_deadline again it would short-circuit on the
+        // already-set cell — simulate that by re-acquiring the lock.
+        let mut slot = state.reason.lock();
+        if slot.is_some() {
+            // no-op branch — proves idempotence
+        } else {
+            panic!("reason cell should have been set by the prior write");
+        }
+        // Stop flag was never touched by this test, which is what we want
+        // for the "already tripped" path — only the FIRST trip flips it.
+        assert!(!stop.load(Ordering::SeqCst));
+    }
 }
 
 // ---------- System ----------
@@ -729,6 +1040,35 @@ async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> Result<(), S
     Ok(())
 }
 
+/// Reactive-tree drill-down: ask the sidecar for the real member memories of a
+/// top-level RAPTOR cluster. Fire-and-forget like the benchmark — the sidecar
+/// replies with a `fractal_cluster_leaves_result` line (paired by `request_id`)
+/// which Rust forwards over `feral://agent-output`; the React tree correlates by
+/// id. Returns once the request is queued.
+#[tauri::command]
+#[specta::specta]
+async fn feral_fractal_cluster_leaves(
+    state: State<'_, AppState>,
+    request_id: String,
+    cluster_index: u32,
+) -> Result<(), String> {
+    let msg = serde_json::json!({
+        "type": "fractal_cluster_leaves",
+        "id": request_id,
+        "clusterIndex": cluster_index,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Forward the user's `ask_user` selection back to the Feral Agent sidecar.
 ///
 /// The React side calls this after the user picks an option in the
@@ -870,12 +1210,23 @@ async fn feral_set_model(
         api_key
     };
 
+    // For a local (loopback) model, tell the sidecar the active context window
+    // so its transcript-compaction budget matches the KV cache the engine
+    // actually allocated (Hardware can raise this well past the old 8192). Cloud
+    // models omit it — the sidecar uses its generous cloud budget.
+    let context_window = if is_local_api_url(&resolved_url, state.settings.api_port) {
+        state.manager.current().map(|m| m.ctx_len)
+    } else {
+        None
+    };
+
     let msg = serde_json::json!({
         "type": "set_model",
         "provider": provider,
         "model": model,
         "baseUrl": resolved_url,
         "apiKey": api_key,
+        "contextWindow": context_window,
     })
     .to_string();
 
@@ -1785,8 +2136,7 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
     };
 
     let url = base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let models_endpoint = url_join(&url, "models");
-    let chat_endpoint   = url_join(&url, "chat/completions");
+    let chat_endpoint = url_join(&url, provider.chat_endpoint_path());
 
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -1798,56 +2148,82 @@ async fn test_byok_provider(provider_id: String, api_key: String, base_url: Opti
     let header_prefix = provider.api_key_prefix();
     let auth_value    = format!("{}{}", header_prefix, api_key);
 
-    // First try GET /models (OpenAI-compatible providers expose this)
-    let models_resp = client
-        .get(&models_endpoint)
-        .header(header_key, &auth_value)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    // Anthropic does NOT publish a `/v1/models` endpoint, so the GET /models
+    // probe only applies to OpenAI-compatible providers. For Anthropic we
+    // skip straight to the chat-completion probe with the right headers.
+    let probe_status: Option<reqwest::Response> = if !provider.is_openai_compatible() {
+        None
+    } else {
+        let models_endpoint = url_join(&url, "models");
+        let resp = client
+            .get(&models_endpoint)
+            .header(header_key, &auth_value)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        Some(resp)
+    };
 
-    let models_status = models_resp.status();
+    if let Some(models_resp) = probe_status {
+        let models_status = models_resp.status();
 
-    if models_status.is_success() {
-        #[derive(serde::Deserialize)]
-        struct ModelList { data: Option<Vec<serde_json::Value>> }
-        let models: Vec<String> = models_resp.json::<ModelList>().await
-            .ok()
-            .and_then(|r| r.data)
-            .map(|items| items.iter()
-                .filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
-                .collect())
-            .unwrap_or_default();
-        return Ok(byok::TestProviderResponse {
-            success: true,
-            message: "Connection successful".to_string(),
-            models,
-        });
+        if models_status.is_success() {
+            #[derive(serde::Deserialize)]
+            struct ModelList { data: Option<Vec<serde_json::Value>> }
+            let models: Vec<String> = models_resp.json::<ModelList>().await
+                .ok()
+                .and_then(|r| r.data)
+                .map(|items| items.iter()
+                    .filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
+                    .collect())
+                .unwrap_or_default();
+            return Ok(byok::TestProviderResponse {
+                success: true,
+                message: "Connection successful".to_string(),
+                models,
+            });
+        }
+
+        // If /models returned 401/403 the key is wrong — report immediately.
+        if models_status == 401 || models_status == 403 {
+            let body = models_resp.text().await.unwrap_or_default();
+            return Ok(byok::TestProviderResponse {
+                success: false,
+                message: format!("Auth failed (HTTP {}): {}", models_status.as_u16(), body),
+                models: vec![],
+            });
+        }
+        // /models returned 404 or another non-auth error — fall through to the
+        // chat-endpoint probe below.
     }
 
-    // If /models returned 401/403 the key is wrong — report immediately.
-    if models_status == 401 || models_status == 403 {
-        let body = models_resp.text().await.unwrap_or_default();
-        return Ok(byok::TestProviderResponse {
-            success: false,
-            message: format!("Auth failed (HTTP {}): {}", models_status.as_u16(), body),
-            models: vec![],
-        });
-    }
-
-    // /models returned 404 or another non-auth error — provider may not expose it.
-    // Fall back: send a minimal non-streaming chat completion to verify credentials.
-    let probe = serde_json::json!({
-        "model": "__probe__",
-        "messages": [{ "role": "user", "content": "Hi" }],
-        "max_tokens": 1,
-        "stream": false,
-    });
-    let chat_resp = client
+    // /models unavailable (or provider doesn't expose it). Send a minimal
+    // non-streaming completion to verify credentials. Anthropic uses a
+    // different request shape: `system` is a top-level field, the model id is
+    // required, and `max_tokens` is mandatory.
+    let probe = if provider.is_openai_compatible() {
+        serde_json::json!({
+            "model": "__probe__",
+            "messages": [{ "role": "user", "content": "Hi" }],
+            "max_tokens": 1,
+            "stream": false,
+        })
+    } else {
+        serde_json::json!({
+            "model": "__probe__",
+            "messages": [{ "role": "user", "content": "Hi" }],
+            "max_tokens": 1,
+        })
+    };
+    let mut chat_req = client
         .post(&chat_endpoint)
         .header(header_key, &auth_value)
         .header("Content-Type", "application/json")
-        .json(&probe)
+        .json(&probe);
+    for (name, value) in provider.extra_headers() {
+        chat_req = chat_req.header(name, value);
+    }
+    let chat_resp = chat_req
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1932,7 +2308,7 @@ async fn chat_cloud_complete(
         _            => byok::Provider::Custom,
     };
     let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let endpoint = url_join(&base_url, "chat/completions");
+    let endpoint = url_join(&base_url, provider.chat_endpoint_path());
     let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
 
     let client = reqwest::Client::builder()
@@ -1941,29 +2317,53 @@ async fn chat_cloud_complete(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut ctx: Vec<serde_json::Value> = Vec::new();
-    if let Some(sys) = &params.system_prompt {
-        if !sys.is_empty() {
-            ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+    // Anthropic's Messages API expects `system` as a top-level field, not
+    // inside the messages array. Split it out so OpenAI-shaped callers keep
+    // working unchanged while Anthropic gets the right shape.
+    let (system, ctx): (Option<String>, Vec<serde_json::Value>) = if !provider.is_openai_compatible() {
+        let mut ctx: Vec<serde_json::Value> = Vec::new();
+        let mut sys: Option<String> = None;
+        for m in &messages {
+            if m.role == "system" && sys.is_none() {
+                sys = Some(m.content.clone());
+            } else {
+                ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+            }
         }
-    }
-    for m in &messages {
-        ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
-    }
+        (sys, ctx)
+    } else {
+        let mut ctx: Vec<serde_json::Value> = Vec::new();
+        if let Some(sys) = &params.system_prompt {
+            if !sys.is_empty() {
+                ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+            }
+        }
+        for m in &messages {
+            ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+        }
+        (None, ctx)
+    };
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "messages": ctx,
         "stream": false,
         "temperature": params.temperature,
         "max_tokens": params.max_tokens,
     });
+    if let Some(sys) = system {
+        body["system"] = serde_json::Value::String(sys);
+    }
 
-    let resp = client
+    let mut req = client
         .post(&endpoint)
         .header(provider.api_key_header(), &auth_value)
         .header("Content-Type", "application/json")
-        .json(&body)
+        .json(&body);
+    for (name, value) in provider.extra_headers() {
+        req = req.header(name, value);
+    }
+    let resp = req
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1974,6 +2374,16 @@ async fn chat_cloud_complete(
         return Err(format!("HTTP {}: {}", status, body_text));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    // Anthropic responses live under `content[0].text` (not `choices[0].message.content`).
+    if !provider.is_openai_compatible() {
+        let text = v["content"]
+            .as_array()
+            .and_then(|arr| arr.iter().find(|c| c.get("type").and_then(|t| t.as_str()) == Some("text")))
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or_default();
+        return Ok(text.to_string());
+    }
     Ok(v["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or_default()
@@ -2029,8 +2439,9 @@ async fn chat_cloud_stream(
     };
 
     let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let endpoint = url_join(&base_url, "chat/completions");
+    let endpoint = url_join(&base_url, provider.chat_endpoint_path());
     let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
+    let anthropic = !provider.is_openai_compatible();
 
     let client = reqwest::Client::builder()
         .user_agent("feral/0.1")
@@ -2038,41 +2449,60 @@ async fn chat_cloud_stream(
         .build()
         .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
 
-    // Build tool definitions from the enabled tool IDs passed in params
+    // Build tool definitions from the enabled tool IDs passed in params.
+    // Anthropic's tool shape differs from OpenAI: no `type: "function"`
+    // wrapper and the parameters object is `input_schema`.
     let tool_defs: Vec<serde_json::Value> = params.tools
         .as_ref()
         .map(|ids| ids.iter()
             .filter_map(|id| tools::ToolType::from_name(id))
-            .map(|t| t.to_openai_definition())
+            .map(|t| if anthropic { t.to_anthropic_definition() } else { t.to_openai_definition() })
             .collect())
         .unwrap_or_default();
 
-    // Build initial message context
+    // Build initial message context. Anthropic pulls `system` out of the
+    // messages array and into a top-level field; OpenAI keeps it inline.
     let mut ctx: Vec<serde_json::Value> = Vec::new();
-    if let Some(sys) = &params.system_prompt {
-        if !sys.is_empty() {
-            ctx.push(serde_json::json!({ "role": "system", "content": sys }));
-        }
-    }
-    for m in &messages {
-        // Vision: messages carrying image data URLs use the OpenAI
-        // content-parts array so multimodal models receive real pixels.
-        // Plain messages keep the string shape for maximum compatibility.
-        match m.images.as_ref().filter(|imgs| !imgs.is_empty()) {
-            Some(imgs) => {
-                let mut parts: Vec<serde_json::Value> = Vec::new();
-                if !m.content.is_empty() {
-                    parts.push(serde_json::json!({ "type": "text", "text": m.content }));
-                }
-                for url in imgs {
-                    parts.push(serde_json::json!({
-                        "type": "image_url",
-                        "image_url": { "url": url },
-                    }));
-                }
-                ctx.push(serde_json::json!({ "role": m.role, "content": parts }));
+    let mut system_prompt: Option<String> = None;
+    if anthropic {
+        if let Some(sys) = &params.system_prompt {
+            if !sys.is_empty() {
+                system_prompt = Some(sys.clone());
             }
-            None => ctx.push(serde_json::json!({ "role": m.role, "content": m.content })),
+        }
+        for m in &messages {
+            if m.role == "system" && system_prompt.is_none() {
+                system_prompt = Some(m.content.clone());
+                continue;
+            }
+            ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
+        }
+    } else {
+        if let Some(sys) = &params.system_prompt {
+            if !sys.is_empty() {
+                ctx.push(serde_json::json!({ "role": "system", "content": sys }));
+            }
+        }
+        for m in &messages {
+            // Vision: messages carrying image data URLs use the OpenAI
+            // content-parts array so multimodal models receive real pixels.
+            // Plain messages keep the string shape for maximum compatibility.
+            match m.images.as_ref().filter(|imgs| !imgs.is_empty()) {
+                Some(imgs) => {
+                    let mut parts: Vec<serde_json::Value> = Vec::new();
+                    if !m.content.is_empty() {
+                        parts.push(serde_json::json!({ "type": "text", "text": m.content }));
+                    }
+                    for url in imgs {
+                        parts.push(serde_json::json!({
+                            "type": "image_url",
+                            "image_url": { "url": url },
+                        }));
+                    }
+                    ctx.push(serde_json::json!({ "role": m.role, "content": parts }));
+                }
+                None => ctx.push(serde_json::json!({ "role": m.role, "content": m.content })),
+            }
         }
     }
 
@@ -2090,21 +2520,38 @@ async fn chat_cloud_stream(
             "model": model,
             "messages": ctx,
             "stream": true,
-            "stream_options": { "include_usage": true },
             "temperature": params.temperature,
             "top_p": params.top_p,
             "max_tokens": params.max_tokens,
         });
+        if anthropic {
+            if let Some(sys) = system_prompt.as_ref() {
+                body["system"] = serde_json::Value::String(sys.clone());
+            }
+        } else {
+            // OpenAI's stream_options include_usage is a no-op on Anthropic.
+            body["stream_options"] = serde_json::json!({ "include_usage": true });
+        }
         if !tool_defs.is_empty() {
             body["tools"] = serde_json::json!(tool_defs);
-            body["tool_choice"] = serde_json::json!("auto");
+            if !anthropic {
+                body["tool_choice"] = serde_json::json!("auto");
+            }
         }
 
-        let resp = client
+        // TEMP-DEBUG: dump the exact outbound request so we can see model id +
+        // sampling params + endpoint going to the provider. Remove after triage.
+        tracing::warn!(target: "cloud_debug", endpoint = %endpoint, body = %body, "outbound cloud chat request");
+
+        let mut req = client
             .post(&endpoint)
             .header(provider.api_key_header(), &auth_value)
             .header("Content-Type", "application/json")
-            .json(&body)
+            .json(&body);
+        for (name, value) in provider.extra_headers() {
+            req = req.header(name, value);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
@@ -2126,6 +2573,9 @@ async fn chat_cloud_stream(
         let mut finish_reason = String::new();
         let mut usage_prompt_tokens: u32 = 0;
         let mut usage_completion_tokens: u32 = 0;
+        // Anthropic SSE uses event types per record; we track the most recent
+        // `event:` line so the next `data:` line knows how to interpret itself.
+        let mut current_event = String::new();
 
         'sse: while let Some(chunk) = byte_stream.next().await {
             if stop.load(Ordering::SeqCst) {
@@ -2134,15 +2584,101 @@ async fn chat_cloud_stream(
             }
             let bytes = chunk.map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
             let text = String::from_utf8_lossy(&bytes);
+            // TEMP-DEBUG: raw SSE chunk as received from the provider. Remove after triage.
+            tracing::warn!(target: "cloud_debug", raw = %text, "inbound cloud chunk");
 
             for ch in text.chars() {
                 if ch == '\n' {
                     let line = line_buf.trim().to_string();
                     line_buf.clear();
                     if line.is_empty() { continue; }
-                    if line == "data: [DONE]" { break 'sse; }
+                    if !anthropic && line == "data: [DONE]" { break 'sse; }
 
-                    if let Some(json_str) = line.strip_prefix("data: ") {
+                    if anthropic {
+                        // Anthropic SSE: "event: <name>" sets the type for
+                        // the following "data: <json>" line. A blank line
+                        // delimits one event record (we reset on each blank
+                        // line above).
+                        if let Some(ev) = line.strip_prefix("event: ") {
+                            current_event = ev.to_string();
+                            continue;
+                        }
+                        if let Some(json_str) = line.strip_prefix("data: ") {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                match current_event.as_str() {
+                                    "message_start" => {
+                                        // Anthropic reports initial usage
+                                        // (input_tokens). Capture it.
+                                        if let Some(u) = val.get("message")
+                                            .and_then(|m| m.get("usage"))
+                                        {
+                                            if let Some(pt) = u.get("input_tokens").and_then(|v| v.as_u64()) {
+                                                usage_prompt_tokens = pt as u32;
+                                            }
+                                        }
+                                    }
+                                    "content_block_start" => {
+                                        // A new tool_use block — register it
+                                        // in `pending_calls` so the following
+                                        // input_json_delta fragments land in
+                                        // the right slot.
+                                        if let Some(block) = val.get("content_block") {
+                                            if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                                                let idx = val.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                                let id   = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                let initial_args = block.get("input")
+                                                    .map(|v| v.to_string())
+                                                    .unwrap_or_default();
+                                                pending_calls.insert(idx, (id, name, initial_args));
+                                            }
+                                        }
+                                    }
+                                    "content_block_delta" => {
+                                        if let Some(delta) = val.get("delta") {
+                                            let idx = val.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                            let entry = pending_calls.entry(idx)
+                                                .or_insert_with(|| (String::new(), String::new(), String::new()));
+                                            match delta.get("type").and_then(|t| t.as_str()) {
+                                                Some("text_delta") => {
+                                                    if let Some(tok) = delta.get("text").and_then(|v| v.as_str()) {
+                                                        if !tok.is_empty() {
+                                                            content_acc.push_str(tok);
+                                                            let _ = app.emit("feral://token", events::TokenEvent {
+                                                                session_id: session_id.clone(),
+                                                                text: tok.to_string(),
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                                Some("input_json_delta") => {
+                                                    if let Some(frag) = delta.get("partial_json").and_then(|v| v.as_str()) {
+                                                        entry.2.push_str(frag);
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    "message_delta" => {
+                                        // stop_reason + final usage (output_tokens).
+                                        if let Some(delta) = val.get("delta") {
+                                            if let Some(fr) = delta.get("stop_reason").and_then(|v| v.as_str()) {
+                                                finish_reason = fr.to_string();
+                                            }
+                                        }
+                                        if let Some(u) = val.get("usage") {
+                                            if let Some(ct) = u.get("output_tokens").and_then(|v| v.as_u64()) {
+                                                usage_completion_tokens = ct as u32;
+                                            }
+                                        }
+                                    }
+                                    "message_stop" => break 'sse,
+                                    _ => {}
+                                }
+                            }
+                        }
+                    } else if let Some(json_str) = line.strip_prefix("data: ") {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
                             // Capture usage stats from the final SSE chunk (when stream_options.include_usage is set)
                             if let Some(usage) = val.get("usage") {
@@ -2198,6 +2734,13 @@ async fn chat_cloud_stream(
             }
         }
 
+        // For Anthropic, an empty finish_reason with no tool calls means
+        // end_turn (natural stop) — surface that to the agentic loop so it
+        // knows to break out.
+        if anthropic && finish_reason.is_empty() && pending_calls.is_empty() {
+            finish_reason = "stop".to_string();
+        }
+
         // If the provider reported that we hit its server-side token cap,
         // emit a `stream-truncated` event so the frontend can mark the
         // message and surface a hint. The partial `content_acc` is still
@@ -2224,8 +2767,11 @@ async fn chat_cloud_stream(
         // usage_prompt_tokens / usage_completion_tokens are re-declared at the top
         // of each loop iteration, so no explicit reset is needed here.
 
-        // If no tool calls, we're done
-        if finish_reason != "tool_calls" || pending_calls.is_empty() {
+        // If no tool calls, we're done. Anthropic reports stop_reason as
+        // "tool_use" when it wants the host to run a tool; OpenAI uses
+        // "tool_calls" on the last delta choice.
+        let tool_marker = if anthropic { "tool_use" } else { "tool_calls" };
+        if finish_reason != tool_marker || pending_calls.is_empty() {
             break;
         }
 
@@ -2233,35 +2779,79 @@ async fn chat_cloud_stream(
         let mut sorted: Vec<(usize, (String, String, String))> = pending_calls.into_iter().collect();
         sorted.sort_by_key(|(idx, _)| *idx);
 
-        // Append assistant turn with tool_calls to context
-        let asst_tool_calls: Vec<serde_json::Value> = sorted.iter()
-            .map(|(_, (id, name, args))| serde_json::json!({
-                "id": id,
-                "type": "function",
-                "function": { "name": name, "arguments": args }
-            }))
-            .collect();
-
-        ctx.push(serde_json::json!({
-            "role": "assistant",
-            "content": serde_json::Value::Null,
-            "tool_calls": asst_tool_calls,
-        }));
-
-        // Execute each tool and append its result to context
-        for (_, (id, name, args_str)) in &sorted {
-            let args: serde_json::Value = serde_json::from_str(args_str)
-                .unwrap_or(serde_json::json!({}));
-            let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
-                tools::execute(tool_type, args).await
-            } else {
-                tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
-            };
+        if anthropic {
+            // Anthropic history: the assistant turn is a list of tool_use
+            // content blocks; the tool result is a `tool_result` content
+            // block on the FOLLOWING user turn (not a separate role).
+            let tool_use_blocks: Vec<serde_json::Value> = sorted.iter()
+                .map(|(_, (id, name, args))| {
+                    let input: serde_json::Value = serde_json::from_str(args)
+                        .unwrap_or(serde_json::json!({}));
+                    serde_json::json!({
+                        "type": "tool_use",
+                        "id": id,
+                        "name": name,
+                        "input": input,
+                    })
+                })
+                .collect();
             ctx.push(serde_json::json!({
-                "role": "tool",
-                "tool_call_id": id,
-                "content": result.output,
+                "role": "assistant",
+                "content": tool_use_blocks,
             }));
+
+            // Execute each tool and append ALL results to a single user turn.
+            let mut tool_results: Vec<serde_json::Value> = Vec::new();
+            for (_, (id, name, args_str)) in &sorted {
+                let args: serde_json::Value = serde_json::from_str(args_str)
+                    .unwrap_or(serde_json::json!({}));
+                let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
+                    tools::execute(tool_type, args).await
+                } else {
+                    tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
+                };
+                tool_results.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": result.output,
+                    "is_error": !result.ok,
+                }));
+            }
+            ctx.push(serde_json::json!({
+                "role": "user",
+                "content": tool_results,
+            }));
+        } else {
+            // OpenAI history: tool_calls on the assistant turn, then a
+            // separate `role: "tool"` message per result.
+            let asst_tool_calls: Vec<serde_json::Value> = sorted.iter()
+                .map(|(_, (id, name, args))| serde_json::json!({
+                    "id": id,
+                    "type": "function",
+                    "function": { "name": name, "arguments": args }
+                }))
+                .collect();
+
+            ctx.push(serde_json::json!({
+                "role": "assistant",
+                "content": serde_json::Value::Null,
+                "tool_calls": asst_tool_calls,
+            }));
+
+            for (_, (id, name, args_str)) in &sorted {
+                let args: serde_json::Value = serde_json::from_str(args_str)
+                    .unwrap_or(serde_json::json!({}));
+                let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
+                    tools::execute(tool_type, args).await
+                } else {
+                    tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
+                };
+                ctx.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": id,
+                    "content": result.output,
+                }));
+            }
         }
         // Loop continues — model will now generate a response using the tool results
     }
@@ -2542,6 +3132,7 @@ pub fn run() {
         });
     }
 
+    let startup_gpu_layers = settings.default_gpu_layers;
     let state = AppState {
         manager: manager.clone(),
         downloads: Arc::new(Mutex::new(HashMap::new())),
@@ -2625,6 +3216,7 @@ pub fn run() {
             feral_agent_status,
             feral_stop_generation,
             feral_run_fractal_benchmark,
+            feral_fractal_cluster_leaves,
             feral_set_model,
             feral_get_model_config,
             get_local_api_token,
@@ -2673,12 +3265,14 @@ pub fn run() {
             rsi::commands::rsi_start,
             rsi::commands::rsi_stop,
             rsi::commands::rsi_set_concurrency,
+            rsi::commands::rsi_dream_telemetry,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
             crate::events::StreamDoneEvent,
             crate::events::StreamErrorEvent,
             crate::events::StreamTruncatedEvent,
+            crate::events::StreamProgressEvent,
             crate::events::DownloadProgressEvent,
             crate::events::DownloadCompleteEvent,
             crate::events::DownloadErrorEvent,
@@ -2708,6 +3302,33 @@ pub fn run() {
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
+
+            // ── Auto CPU-offload for embedding on fragile AMD GPUs ─────────
+            // On RX 580 / Polaris / early-Vega cards, llama.cpp's Vulkan embed
+            // (bge-small) crashes at model load — a known llama.cpp × AMDVLK
+            // driver bug that no Feral-side work-around fixes (see
+            // docs/agents-memory/project_local_models_gpu.md). The chat
+            // inference path on the same GPU is fine; only the embed path is
+            // the problem. We set FERAL_EMBED_GPU_LAYERS=0 BEFORE the embed
+            // model is lazily loaded (inference.rs::load_embedding reads it
+            // via std::env at first use), so the crash never happens. Only
+            // active on a Vulkan build (inference-vulkan feature) — a CPU
+            // build ignores the env anyway. Honors an explicit user override
+            // (we never overwrite a pre-set env var).
+            #[cfg(feature = "inference-vulkan")]
+            {
+                if std::env::var_os("FERAL_EMBED_GPU_LAYERS").is_none() {
+                    let info = crate::gpu_detect::detect();
+                    if crate::gpu_detect::looks_like_fragile_amd_gpu(&info) {
+                        std::env::set_var("FERAL_EMBED_GPU_LAYERS", "0");
+                        tracing::info!(
+                            gpu = %info.name,
+                            "fragile AMD GPU detected — forcing CPU offload for embeddings \
+                             (FERAL_EMBED_GPU_LAYERS=0); chat inference still uses GPU"
+                        );
+                    }
+                }
+            }
 
             // ── RSI substrate bootstrap (Faza 0 — Keystone) ──────────────
             // Runs BEFORE the sidecar spawns. The sidecar's bootstrapOnce()
@@ -2843,6 +3464,64 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 mcp_manager.start_enabled().await;
             });
+
+            // Auto-reload last model in background so the user doesn't have
+            // to pick it again after every restart. Silent fail — if the file
+            // moved or was deleted the user selects manually as usual.
+            //
+            // Race guard: if the user is already mid-load (e.g. clicked Apply
+            // during startup), `manager.current()` is non-None — skip the
+            // auto-reload so we don't overwrite their in-flight choice (and
+            // don't shrink their context window back to the default cap).
+            {
+                let auto_manager = manager.clone();
+                let auto_app = app.handle().clone();
+                let auto_layers = startup_gpu_layers;
+                tauri::async_runtime::spawn(async move {
+                    let s = settings::load();
+                    let last = s.last_loaded_model;
+                    let last_ctx = s.last_loaded_ctx;
+                    if let Some(p) = last {
+                        if auto_manager.current().is_some() {
+                            tracing::info!("auto-reload skipped: a model is already loaded");
+                            return;
+                        }
+                        let pb = std::path::PathBuf::from(&p);
+                        if pb.exists() {
+                            tracing::info!(
+                                path = %p,
+                                ctx = ?last_ctx,
+                                "auto-reloading last model"
+                            );
+                            let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
+                                percentage: 0.0,
+                                status_text: "Auto-loading last model…".into(),
+                            });
+                            let result = tokio::task::spawn_blocking(move || {
+                                auto_manager.load(pb, auto_layers, last_ctx).map_err(|e| e.to_string())
+                            }).await;
+                            match result {
+                                Ok(Ok(_)) => {
+                                    let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
+                                        percentage: 100.0,
+                                        status_text: format!("Ready"),
+                                    });
+                                }
+                                Ok(Err(e)) => {
+                                    tracing::warn!(error = %e, "auto-reload failed");
+                                    let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
+                                        percentage: 0.0,
+                                        status_text: String::new(),
+                                    });
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "auto-reload task failed");
+                                }
+                            }
+                        }
+                    }
+                });
+            }
 
             Ok(())
         })

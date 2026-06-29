@@ -19,7 +19,9 @@ import type {
   InferenceRequest,
   InferenceResponse,
   ModelTarget,
+  StreamProgressEvent,
 } from "../types.ts";
+import { resolvePerfPolicy, type PerfPolicy } from "./perf-policy.ts";
 
 // Defined here (not imported from inference-router) to avoid a circular dep.
 // inference-router re-exports its own InferenceError class; both throw the
@@ -30,6 +32,15 @@ class InferenceError extends Error {
     this.name = "InferenceError";
   }
 }
+
+// Idle-stream timeout for cloud (non-loopback) targets. Local engines can be
+// slow on first-token (cold KV-cache load); cloud APIs should respond in seconds.
+// ponytail: fixed env read at module load; set FERAL_CLOUD_IDLE_TIMEOUT_MS to override.
+// Kept for back-compat with the old idleAbortController — the new
+// `deadlineController` honors it via the resolver's
+// `FERAL_CLOUD_IDLE_TIMEOUT_MS` env override (see perf-policy.ts).
+const _cit = process.env.FERAL_CLOUD_IDLE_TIMEOUT_MS;
+const CLOUD_IDLE_MS: number = _cit && Number.isFinite(+_cit) && +_cit > 0 ? +_cit : 60_000;
 
 // ---------------------------------------------------------------------------
 // Provider interface
@@ -100,7 +111,7 @@ export class OllamaProvider implements InferenceProvider {
       body.tools = req.openAITools;
     }
 
-    const raw = await postJson(url, body, undefined, req.signal);
+    const raw = await postJson(url, body, undefined, req.signal, resolvePerfPolicy({ isCloud: !isLoopbackTarget(target) }).totalDeadlineMs);
     let content: string =
       (raw as { message?: { content?: string } }).message?.content ?? "";
 
@@ -171,7 +182,18 @@ export class OllamaProvider implements InferenceProvider {
       body.tools = req.openAITools;
     }
 
-    const { controller, cleanup } = idleAbortController(300_000, req.signal);
+    const isCloud = !isLoopbackTarget(target);
+    const policy = resolvePerfPolicy({ isCloud });
+    const dc = deadlineController({
+      policy,
+      externalSignal: req.signal,
+      onProgress: req.onProgress,
+      sessionId: req.sessionId,
+      // Prompt token count isn't known until the first NDJSON chunk
+      // arrives (Ollama reports it as `prompt_eval_count`); TTFT scaling
+      // therefore kicks in on the second chunk onward via resetIdle()
+      // bookkeeping. Same trade-off the cloud paths use.
+    });
     let content = "";
     let promptTokens = 0;
     let completionTokens = 0;
@@ -184,7 +206,7 @@ export class OllamaProvider implements InferenceProvider {
     let ollamaFinishReason: string | undefined;
 
     try {
-      const res = await fetchStream(url, body, {}, controller.signal);
+      const res = await fetchStream(url, body, {}, dc.signal);
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -230,7 +252,7 @@ export class OllamaProvider implements InferenceProvider {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        controller.resetIdle();
+        dc.resetIdle();
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
@@ -256,7 +278,7 @@ export class OllamaProvider implements InferenceProvider {
         }
       }
     } finally {
-      cleanup();
+      dc.cleanup();
     }
 
     if (!promptTokens) promptTokens = estimateTokens(req.messages);
@@ -310,7 +332,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     const body: Record<string, any> = {
       model: target.model,
       messages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...feralExtensionBody(target, req),
       stream: false,
@@ -320,7 +342,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       body.tool_choice = "auto";
     }
 
-    const raw = (await postJson(url, body, authHeaders, req.signal)) as {
+    const raw = (await postJson(url, body, authHeaders, req.signal, isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS)) as {
       choices?: {
         message?: {
           content?: string;
@@ -391,7 +413,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     const body: Record<string, any> = {
       model: target.model,
       messages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...feralExtensionBody(target, req),
       stream: true,
@@ -404,7 +426,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     const authHeaders: Record<string, string> = target.apiKey
       ? { Authorization: `Bearer ${target.apiKey}` }
       : {};
-    const { controller, cleanup } = idleAbortController(300_000, req.signal);
+    const idleMs = isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS;
+    const { controller, cleanup } = idleAbortController(idleMs, req.signal);
     let content = "";
     let promptTokens = 0;
     let completionTokens = 0;
@@ -570,7 +593,7 @@ export class AnthropicProvider implements InferenceProvider {
       model: target.model,
       max_tokens: req.maxTokens ?? 4096,
       messages: userMessages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
@@ -579,7 +602,7 @@ export class AnthropicProvider implements InferenceProvider {
     const authHeaders: Record<string, string> = { "anthropic-version": "2023-06-01" };
     if (target.apiKey) authHeaders["x-api-key"] = target.apiKey;
 
-    const raw = (await postJson(url, body, authHeaders, req.signal)) as {
+    const raw = (await postJson(url, body, authHeaders, req.signal, CLOUD_IDLE_MS)) as {
       content?: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
       usage?: { input_tokens?: number; output_tokens?: number };
       stop_reason?: string;
@@ -620,7 +643,7 @@ export class AnthropicProvider implements InferenceProvider {
       model: target.model,
       max_tokens: req.maxTokens ?? 4096,
       messages: userMessages,
-      temperature: req.temperature ?? 0.7,
+      temperature: cloudTemperature(target, req),
       stream: true,
     };
     if (systemText) body.system = systemText;
@@ -632,7 +655,7 @@ export class AnthropicProvider implements InferenceProvider {
       ...(target.apiKey ? { "x-api-key": target.apiKey } : {}),
     };
 
-    const { controller, cleanup } = idleAbortController(300_000, req.signal);
+    const { controller, cleanup } = idleAbortController(CLOUD_IDLE_MS, req.signal);
     let content = "";
     let inputTokens = 0;
     let outputTokens = 0;
@@ -816,18 +839,16 @@ function readOllamaNumCtx(): number {
  * Idle-timeout AbortController. Resets on each resetIdle() call; fires only
  * when no progress arrives for `idleMs` milliseconds. The caller MUST call
  * cleanup() in a finally block to avoid leaking the timer.
+ *
+ * **Deprecated.** Replaced by `deadlineController` which adds TTFT + total
+ * deadlines plus a heartbeat. Kept as a thin shim so any caller that hasn't
+ * migrated still compiles — internal call sites are migrated below.
  */
 function idleAbortController(
   idleMs: number,
   externalSignal?: AbortSignal,
 ): { controller: AbortController & { resetIdle(): void }; cleanup(): void } {
   const ac = new AbortController() as AbortController & { resetIdle(): void };
-  // #13: abort with a typed error, NOT a bare string. fetch rejects with
-  // `signal.reason`; a string reason surfaced upstream as a generic
-  // AbortError-ish failure that the agent loop misread as a user-initiated
-  // stop — the stream just ended "stopped" with no explanation. The named
-  // error lets the loop tell "engine went silent" apart from "user clicked
-  // stop" and show the user why the generation died.
   const idleError = () => {
     const e = new Error(
       `inference stream stalled: no data received for ${Math.round(idleMs / 1000)}s`,
@@ -865,6 +886,183 @@ function idleAbortController(
   return { controller: ac, cleanup };
 }
 
+/**
+ * `deadlineController` generalizes `idleAbortController` with three timers:
+ *
+ *   1. **TTFT** — armed at construction. Cleared the first time `resetIdle()`
+ *      is called (i.e. the first SSE chunk / NDJSON line arrives). If it
+ *      fires, the controller aborts with `TtftTimeoutError`.
+ *   2. **Total** — armed at construction, never cleared. Fires
+ *      `totalDeadlineMs` regardless of activity. Aborts with
+ *      `TotalTimeoutError`.
+ *   3. **Stall** — armed on the first `resetIdle()` call, re-armed on each
+ *      subsequent call. Fires `stallMs` of silence between chunks. Aborts
+ *      with `IdleTimeoutError` (the existing typed error, kept stable so
+ *      the router's pre-existing mapping still works).
+ *
+ * Plus a heartbeat timer (every `heartbeatMs`) that calls `onProgress` so
+ * the UI sees live progress even during prefill silence — without this, a
+ * 60-second prefill on a big prompt would look identical to a hang.
+ *
+ * The caller MUST call `cleanup()` in a finally block to avoid leaking the
+ * heartbeat timer (TTFT/total/stall auto-clear on abort).
+ *
+ * The external signal (if provided) is honored: when it aborts, the
+ * controller mirrors its reason — typically a user-initiated stop, where the
+ * cause is `externalSignal.reason` and the UI is responsible for showing it.
+ */
+export interface DeadlineController {
+  readonly signal: AbortSignal;
+  /**
+   * Call on every chunk arrival (BEFORE processing it). The first call
+   * clears the TTFT timer + marks first-token timestamp; subsequent calls
+   * re-arm the stall timer. Cheap; idempotent.
+   */
+  resetIdle(): void;
+  /**
+   * Cleanup all timers + external-signal listener. MUST be called in a
+   * finally block. Idempotent.
+   */
+  cleanup(): void;
+}
+
+export interface DeadlineControllerOptions {
+  policy: PerfPolicy;
+  externalSignal?: AbortSignal;
+  /** Fires on every heartbeat tick. Required for the UI to see progress. */
+  onProgress?: (event: StreamProgressEvent) => void;
+  /**
+   * Session id for the heartbeat payload. Required when `onProgress`
+   * is set (otherwise the UI can't route the event to its store).
+   */
+  sessionId?: string;
+  /**
+   * Known prompt token count, when available. Used to scale TTFT so a
+   * legitimately long prefill on a big prompt isn't killed (4 ms/token
+   * on top of the base, capped at totalDeadlineMs).
+   */
+  promptTokens?: number;
+}
+
+export function deadlineController(
+  opts: DeadlineControllerOptions,
+): DeadlineController {
+  const { policy, externalSignal, onProgress, sessionId, promptTokens } = opts;
+  const ac = new AbortController();
+  const startedAt = Date.now();
+  let firstTokenAt: number | null = null;
+  let tokensGenerated = 0;
+  let ttftTimer: ReturnType<typeof setTimeout> | null = null;
+  let totalTimer: ReturnType<typeof setTimeout> | null = null;
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let cleanedUp = false;
+
+  const effectiveTtft = promptTokens !== undefined && promptTokens > 0
+    ? Math.min(
+        policy.ttftDeadlineMs + promptTokens * 4,
+        policy.totalDeadlineMs,
+      )
+    : policy.ttftDeadlineMs;
+
+  const trip = (name: string, message: string): void => {
+    if (cleanedUp || ac.signal.aborted) return;
+    const err = new Error(message);
+    err.name = name;
+    ac.abort(err);
+  };
+
+  const armStall = (): void => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(
+      () => trip(
+        "IdleTimeoutError",
+        `inference stream stalled: no data received for ${Math.round(policy.stallMs / 1000)}s`,
+      ),
+      policy.stallMs,
+    );
+  };
+
+  // ── TTFT: armed at construction, cleared on first token ────────────
+  ttftTimer = setTimeout(
+    () => trip(
+      "TtftTimeoutError",
+      `[ttft_timeout] The model didn't start responding within ${Math.round(effectiveTtft / 1000)}s. The prompt may be too long or the model too large for this hardware — try a shorter prompt, a smaller model, or a cloud key.`,
+    ),
+    effectiveTtft,
+  );
+
+  // ── Total: armed at construction, never cleared ────────────────────
+  totalTimer = setTimeout(
+    () => trip(
+      "TotalTimeoutError",
+      `[total_timeout] Generation ran past the ${Math.round(policy.totalDeadlineMs / 1000)}s limit and was stopped. Try a smaller model or shorter output.`,
+    ),
+    policy.totalDeadlineMs,
+  );
+
+  // ── Heartbeat: armed at construction, fires every heartbeatMs ─────
+  // Fire an initial one immediately so the UI sees "prefill" right away
+  // rather than waiting heartbeatMs for the first paint.
+  const fireHeartbeat = (): void => {
+    if (cleanedUp || ac.signal.aborted) return;
+    if (!onProgress) return;
+    const now = Date.now();
+    const elapsedMs = now - startedAt;
+    const phase = firstTokenAt === null ? "prefill" : "generating";
+    const tokensPerSec = firstTokenAt !== null && tokensGenerated > 0
+      ? (tokensGenerated / Math.max(1, now - firstTokenAt)) * 1000
+      : 0;
+    onProgress({
+      type: "stream_progress",
+      sessionId: sessionId ?? "",
+      phase,
+      elapsedMs,
+      promptTokens: promptTokens ?? 0,
+      tokensGenerated,
+      tokensPerSec,
+    });
+  };
+  fireHeartbeat();
+  heartbeatTimer = setInterval(fireHeartbeat, policy.heartbeatMs);
+
+  // ── External signal: mirror on abort ──────────────────────────────
+  let onExt: (() => void) | null = null;
+  if (externalSignal) {
+    onExt = () => {
+      if (cleanedUp) return;
+      ac.abort(externalSignal.reason);
+    };
+    if (externalSignal.aborted) {
+      onExt();
+    } else {
+      externalSignal.addEventListener("abort", onExt, { once: true });
+    }
+  }
+
+  return {
+    signal: ac.signal,
+    resetIdle() {
+      if (cleanedUp) return;
+      if (firstTokenAt === null) {
+        firstTokenAt = Date.now();
+        if (ttftTimer) { clearTimeout(ttftTimer); ttftTimer = null; }
+      }
+      tokensGenerated++;
+      armStall();
+    },
+    cleanup() {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      if (ttftTimer) { clearTimeout(ttftTimer); ttftTimer = null; }
+      if (totalTimer) { clearTimeout(totalTimer); totalTimer = null; }
+      if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+      if (externalSignal && onExt) externalSignal.removeEventListener("abort", onExt);
+    },
+  };
+}
+
 async function fetchStream(
   url: string,
   body: unknown,
@@ -892,9 +1090,10 @@ export async function postJson(
   body: unknown,
   extraHeaders?: Record<string, string>,
   externalSignal?: AbortSignal,
+  timeoutMs: number = 300_000,
 ): Promise<unknown> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 300_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let onExt: (() => void) | null = null;
   if (externalSignal) {
     onExt = () => { clearTimeout(timer); controller.abort(externalSignal.reason); };
@@ -1017,6 +1216,23 @@ function trimSlash(url: string): string {
  */
 function trimDanglingToolCallTag(content: string): string {
   return content.replace(/(?:\s*<tool_call>\s*)+$/, "");
+}
+
+/**
+ * Effective sampling temperature for a target.
+ *
+ * Cloud reasoning models (NVIDIA NIM, DeepSeek, stepfun, QwQ, …) degrade
+ * catastrophically above ~1.0: they emit unbounded incoherent
+ * `reasoning_content`, fill the whole `max_tokens` budget with chain-of-thought,
+ * and return an EMPTY visible answer — the turn looks like "no output" while
+ * the rate limit is spent, and the loop's empty-response retries multiply it.
+ * A stray slider value (the UI Controls panel allows up to 2.0, persisted) is
+ * enough to trigger it. Clamp cloud targets to 1.0; the bundled local engine
+ * (loopback) keeps the full range for RSI diversity exploration.
+ */
+function cloudTemperature(target: ModelTarget, req: InferenceRequest): number {
+  const t = req.temperature ?? 0.7;
+  return isLoopbackTarget(target) ? t : Math.min(t, 1.0);
 }
 
 /** True when the target is the bundled local engine (loopback address). */
