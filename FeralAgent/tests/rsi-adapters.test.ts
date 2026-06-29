@@ -127,7 +127,7 @@ describe("RSI bridge adapters", () => {
     expect(req.method).toBe("rsi_commit_genome");
     expect(req.params).toMatchObject({
       genome_id: "11111111-2222-4333-8444-555555555555",
-      candidate_branch: "genome/11111111", // short-id convention
+      candidate_branch: "genome-11111111", // short-id convention (dash, not slash — Rust rejects '/')
       metadata: {
         score: 73.4,
         strategy: "test-strategy",
