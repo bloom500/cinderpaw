@@ -5,6 +5,21 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.06.29.1
+
+Hotfix for the v2026.06.29 release — completes the macOS Intel build that was
+queued forever because the `macos-13` runner image is no longer available.
+
+### Added
+
+- **macOS Intel bundle** (`Feral_x64.dmg` + `Feral_x64.app.tar.gz`) — the
+  `macos-13` runner image was deprecated; this hotfix bumps the Intel matrix
+  entry to `macos-14` so the build picks up a current runner.
+
+This release is otherwise identical to v2026.06.29. If you already have
+v2026.06.29 installed on Linux, macOS Apple Silicon, or Windows, you do not
+need to update — only macOS Intel users are affected.
+
 ## 2026.06.29
 
 **Power-user preview — Windows, macOS (Apple Silicon + Intel), Linux.**
