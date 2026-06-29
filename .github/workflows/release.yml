@@ -62,12 +62,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
+          # bindgen (llama-cpp-sys-2 build dep) needs libclang at compile time —
+          # the Ubuntu runner image only ships clang (compiler), not the
+          # libclang runtime that bindgen links against.
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
             wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev cmake \
             libfuse2 \
             gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-            # bindgen (llama-cpp-sys-2 build dep) needs libclang at compile time.
             libclang-dev clang
 
       # Vulkan SDK — required to COMPILE the llama.cpp Vulkan backend
@@ -116,12 +118,16 @@ jobs:
       # llama.cpp C API) panics at startup if it can't find libclang. Install
       # LLVM via Homebrew and point bindgen at it. The runner image already
       # has Homebrew preinstalled; this is cheap (~30s on a warm cache).
+      # No `shell:` is set, so this runs under bash on macOS — `$GITHUB_ENV`
+      # is the bash-style env var, NOT the PowerShell `$env:GITHUB_ENV`
+      # (a previous version of this step used the PowerShell syntax and
+      # silently failed to export the env var, so bindgen still panicked).
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install llvm
-          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $env:GITHUB_ENV
-          echo "PATH=$(brew --prefix llvm)/bin:$env:PATH" >> $env:GITHUB_ENV
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+          echo "PATH=$(brew --prefix llvm)/bin:$PATH" >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
         working-directory: frontend-react
