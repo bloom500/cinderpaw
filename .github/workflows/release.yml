@@ -66,7 +66,9 @@ jobs:
             wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev cmake \
             libfuse2 \
-            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+            # bindgen (llama-cpp-sys-2 build dep) needs libclang at compile time.
+            libclang-dev clang
 
       # Vulkan SDK — required to COMPILE the llama.cpp Vulkan backend
       # (inference-vulkan). Provides headers, libvulkan, and glslc (the shader
@@ -109,6 +111,18 @@ jobs:
         shell: pwsh
         run: echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
 
+      # macOS runners ship Xcode CLT (clang) but no `libclang.dylib`, and
+      # bindgen (used by llama-cpp-sys-2 to generate Rust bindings for the
+      # llama.cpp C API) panics at startup if it can't find libclang. Install
+      # LLVM via Homebrew and point bindgen at it. The runner image already
+      # has Homebrew preinstalled; this is cheap (~30s on a warm cache).
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $env:GITHUB_ENV
+          echo "PATH=$(brew --prefix llvm)/bin:$env:PATH" >> $env:GITHUB_ENV
+
       - name: Install frontend dependencies
         working-directory: frontend-react
         run: npm ci
@@ -135,26 +149,35 @@ jobs:
         id: changelog
         shell: pwsh
         run: |
-          $content = Get-Content CHANGELOG.md -Raw
           # CalVer tags are vYYYY.MM.DD (padded); CHANGELOG headers are
-          # `## YYYY.MM.DD` (no `v`). Match the padded date and stop at the next
-          # `## ` header.
+          # `## YYYY.MM.DD` (no `v`). Find the matching header, then capture
+          # everything up to the next `## ` header (or EOF).
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
-          $escaped = [regex]::Escape($version)
-          $pattern = "(?m)^## $escaped\s*\r?\n([\s\S]*?)(?=\r?\n^## |\Z)"
-          $match = [regex]::Match($content, $pattern)
-          if ($match.Success) {
-            $notes = $match.Groups[1].Value.Trim()
-            $delimiter = "CHANGELOG_EOF_$(Get-Random)"
-            "NOTES<<$delimiter" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-            $notes          | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-            "$delimiter"    | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-            Write-Host "Release notes extracted for v$version"
-          } else {
+          $content = Get-Content CHANGELOG.md -Raw
+          $lines = $content -split "`r?`n"
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match "^##\s+$([regex]::Escape($version))\s*$") {
+              $start = $i + 1
+              break
+            }
+          }
+          if ($start -lt 0) {
             Write-Warning "No CHANGELOG entry for v$version — release body will be empty"
             "NOTES=" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
           }
+          $end = $lines.Count
+          for ($i = $start; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match "^##\s+") { $end = $i; break }
+          }
+          $notes = ($lines[$start..($end - 1)] -join "`n").Trim()
+          $delimiter = "CHANGELOG_EOF_$(Get-Random)"
+          "NOTES<<$delimiter" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $notes               | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "$delimiter"         | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Release notes extracted for v$version ($($notes.Length) chars, $end-$start lines)"
 
       - name: Build, sign and publish release
         uses: tauri-apps/tauri-action@v0

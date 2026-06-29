@@ -7,112 +7,125 @@
 
 ## 2026.06.29
 
-*Power-user preview release — Windows, macOS (Apple Silicon + Intel), and Linux.*
+**Power-user preview — Windows, macOS (Apple Silicon + Intel), Linux.**
 
-> **Status:** We are looking for power users to test and contributors to help.
-> This release ships RSI (Recursive Self-Improvement), Memory Layers, and a
-> pile of stability fixes. RSI is early-stage — it tunes Feral's own parameters
-> automatically while you're away. Memory Layers shows everything Feral
-> remembers about you in a clean, non-technical view.
+> **Looking for testers and contributors.** This is the first public preview
+> of Feral's self-improvement engine (RSI) and the redesigned Memory view.
+> Both are early-stage — see "Known issues" below for what to expect.
+
+### Highlights
+
+- **Memory Layers** — a clean, non-technical view of everything Feral
+  remembers about you, grouped by recency (Today / This Week / This Month /
+  Older). Live dream-cycle history and a status pill for the self-improvement
+  engine live on the same page.
+- **RSI — Recursive Self-Improvement (Faza 1).** Feral tunes its own
+  parameters (temperature, system prompt, tool preferences, context budget)
+  while you're away. An evolutionary algorithm evaluates candidate
+  configurations against a frozen test suite and ratchets improvements to a
+  git branch. Dream cycles run automatically during idle periods.
+- **GPU acceleration that's actually reliable.** Vulkan on Windows/Linux and
+  Metal on macOS, with automatic CPU fallback when the GPU is unavailable.
+  CUDA detection on NVIDIA, Vulkan dev-launcher with auto-CPU-offload for
+  embedding on AMD, and auto-reload of the last model on startup.
+- **Inference deadlines.** Time-to-first-token, total, and stall timers with
+  heartbeat progress. The streaming indicator now shows the prefill phase and
+  live tok/s, so you always know if the model is loading or stuck.
+- **Onboarding "Choose your brain".** Pick a provider during setup: OpenAI,
+  Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM,
+  MiniMax, or any custom OpenAI-compatible endpoint. BYOK keys are stored
+  locally and never proxied.
+- **Token economy.** Tools are advertised only when needed (on-demand memory
+  and skill drawers), so the system prompt doesn't waste tokens on capability
+  you'll never invoke. Cloud fallback when no local model is available.
 
 ### Added
 
-- **Memory Layers page.** A new page (`/memory-layers`) that shows everything
-  Feral remembers about you, grouped by recency: Today, This Week, This Month,
-  Older. Stats hero at the top, live RSI status pill, and a "Feral's Dreams"
-  panel showing recent self-improvement episodes with token counts and ratchet
-  progress. Non-technical-friendly — no jargon, no graph overload.
-- **RSI (Recursive Self-Improvement) — Faza 1.** Feral now tunes its own
-  parameters (temperature, system prompt, tool preferences, context window
-  usage) while you're away. An evolutionary algorithm evaluates configurations
-  against a frozen test suite and ratchets improvements to a git branch. Dream
-  cycles run automatically during idle periods. Visible in the Memory Layers
-  page and via the `dream.jsonl` telemetry file.
-- **GPU acceleration improvements.** CUDA feature auto-cap on context pool,
-  Vulkan dev launcher with auto-CPU-offload for embed, and model auto-reload
-  on startup.
-- **Inference deadline enforcement.** TTFT (time-to-first-token), total, and
-  stall deadlines with heartbeat progress indicators. The streaming indicator
-  now shows the prefill phase and tok/s from heartbeat.
-- **Onboarding "Choose your brain" step.** Provider selection during onboarding
-  with BYOK (Bring Your Own Key) support for OpenAI, Anthropic, Google Gemini,
-  DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, and custom
-  OpenAI-compatible endpoints.
-- **Token economy.** On-demand memory and skill drawers — tools are advertised
-  only when needed, reducing prompt token waste. Cloud fallback for inference
-  when local models are unavailable.
-- **Workspace scanner improvements.** Detect hardcoded secrets, API keys, and
-  code security anti-patterns.
-- **`load_smoke_real_gguf` test.** New inference test gated on
-  `FERAL_SMOKE_GGUF` environment variable — loads a real GGUF model and
-  validates context window parameters.
-- **D2 Dream Cycle live smoke.** End-to-end test harness for dream cycles with
-  a fake host bridge, validating the full pipeline from idle trigger to
-  telemetry write.
-- **Boot stability observation.** Automated probe that monitors Feral's startup
-  for panics, errors, and steady-state stability.
+- **Memory Layers page** (`/memory-layers`) with recency grouping, a stats
+  hero, an RSI status pill, and a "Feral's Dreams" panel showing recent
+  self-improvement episodes with token counts and ratchet progress.
+- **RSI engine (Faza 1)** — event bus, population manager, eval worker,
+  ratchet handler, mutation grammar, selection handler, recalcitrance
+  tracker, and GoalMode orchestrator, wired sidecar → Rust → UI.
+- **Inference deadline enforcement** — TTFT, total, and stall timers with
+  heartbeat progress; streaming indicator now shows prefill phase + tok/s.
+- **GPU detection improvements** — CUDA feature auto-cap on the context
+  pool, Vulkan dev launcher with auto-CPU-offload for the embedding model,
+  auto-reload of the last model on startup.
+- **Onboarding "Choose your brain" step** with provider selection (BYOK or
+  local model).
+- **On-demand tool drawers** for memory and skills — tools advertised only
+  when needed, reducing prompt token waste.
+- **Cloud fallback for inference** when local models aren't available.
+- **Workspace scanner improvements** — detect hardcoded secrets, API keys,
+  and code security anti-patterns.
+- **Live smoke tests** for the dream-cycle pipeline and real-GGUF model
+  load (`FERAL_SMOKE_GGUF`-gated).
+- **Boot stability probe** — automated observation of startup panics and
+  steady-state health.
 
 ### Fixed
 
-- **RSI branch naming.** The candidate branch format `genome/<short-id>` was
-  rejected by Rust's git validator (single-segment name required). Changed to
-  `genome-<short-id>` (dash instead of slash). Ratchet commits now succeed.
-- **Security audit: lopdf CVE-2026-0187.** Upgraded `pdf-extract` from 0.7.12 to
+- **lopdf CVE-2026-0187** (severity 7.5 high) — upgraded `pdf-extract` to
   0.12.0, which pulls `lopdf` 0.42.0 (fixes stack overflow in deeply nested
-  PDF objects, severity 7.5 high). `cargo audit` now passes clean.
-- **Memory Layers scrollbar.** The scrollable content area extended into the
-  titlebar, overlapping the minimize/maximize/close window controls. Added a
-  `data-tauri-drag-region` titlebar spacer matching the AppShell convention.
-- **Memory Layers theme.** Previously forced a dark palette that clashed with
-  the user's light theme. Now uses project theme tokens (`bg-bg-primary`,
-  `text-text-primary`, etc.) and adapts automatically to light/dark mode.
-- **FractalMemory.clusterLeaves.** Restored after the `feat/reactive-pixel-tree`
-  merge accidentally dropped it. Drill-down tests pass again.
-- **Prune-emission contract.** Aligned the test with the post-Pathway4
-  architecture — `rebuild()` no longer emits prune events; eviction is a
-  separate path.
-- **workspace-roots.test.ts.** Fixed hardcoded semicolon path separator that
+  PDF objects). `cargo audit` is now clean.
+- **Memory Layers scrollbar** — the scroll area used to extend into the
+  titlebar and overlap the window controls; now respects the AppShell
+  titlebar spacer.
+- **Memory Layers theme** — was hardcoded to a dark palette that clashed
+  with light mode; now uses the project's theme tokens and adapts to
+  light/dark automatically.
+- **ControlsPopover visibility on light theme** — `bg-white/alpha` made it
+  invisible; switched to theme tokens.
+- **FractalMemory.clusterLeaves** — was silently dropped by the
+  `feat/reactive-pixel-tree` merge; restored. Drill-down tests pass again.
+- **Prune-emission contract** — `rebuild()` no longer emits prune events
+  (eviction is a separate path); test aligned to match.
+- **workspace-roots.test.ts** — fixed hardcoded `;` path separator that
   only worked on Windows; now uses `delimiter` from `node:path`.
-- **ControlsPopover visibility.** Was invisible on light theme due to
-  `bg-white/alpha` hardcoded colors.
 
 ### Changed
 
-- **Memory Layers: dropped painterly tree visualization.** Three iterations of
-  a stylized tree rendering failed to match the hand-painted reference images.
-  Replaced with a clean, non-technical tiered list view that surfaces the data
-  users actually care about: what Feral remembers, when, and how much it's
-  improving. Net negative 1,184 lines.
-- **Version bump.** 2026.6.17 → 2026.6.29 across all manifests (tauri.conf.json,
-  Cargo.toml, package.json × 2, Cargo.lock).
+- **Memory Layers visualization simplified.** Three iterations of a
+  painterly tree didn't match the hand-painted references, so we replaced
+  the whole renderer with a clean tiered list view that surfaces what users
+  actually care about: what Feral remembers, when, and how much it's
+  improving. **Net −1,184 lines.**
 
 ### Known issues
 
-- **Empty model responses during RSI evals.** Some models (particularly
-  cloud-hosted inference endpoints) return empty content for certain eval
-  prompts. This is tracked as `emptyResponses` in `dream.jsonl` telemetry. It
-  does not block RSI — evals with empty responses score ~0 and the engine moves
-  on. Local GGUF models (Qwen, Llama instruct) are not affected.
-- **RSI improvements are subtle.** The evolutionary algorithm tunes
-  configuration parameters (temperature, system prompt selection, tool
-  preferences), not model weights. Visible improvements accumulate over many
-  dream cycles. The eval suite is intentionally basic (fact lookups, simple
-  math, JSON format checks) — a future release will expand it.
-- **macOS not signed.** The app is not Apple-notarized yet. First launch
-  requires `xattr -cr /Applications/Feral.app` in Terminal.
+- **RSI evals can return empty content** on cloud-hosted endpoints. Tracked
+  as `emptyResponses` in `dream.jsonl`; the engine scores these as 0 and
+  moves on, so RSI itself is not blocked. Local GGUF models (Qwen, Llama
+  instruct) are unaffected.
+- **RSI improves configuration, not weights.** Visible gains accumulate
+  over many dream cycles, not overnight. The eval suite is intentionally
+  basic (fact lookups, simple math, JSON format checks) — it will be
+  expanded in a future release.
+- **macOS is not Apple-notarized yet.** First launch on macOS requires
+  `xattr -cr /Applications/Feral.app` from Terminal to clear the
+  quarantine flag. We'll fix this once we have a Developer ID.
+- **Windows ships `.exe` (NSIS) only** in this release. The `.msi` target
+  is paused because WiX 3 rejects any product version whose major component
+  exceeds 255, and our CalVer year (`2026`) trips that limit. We'll restore
+  the `.msi` alongside a WiX 4 upgrade or a custom ProductVersion fragment.
 
 ### Internal
 
-- **Diagnostic telemetry.** `dream.jsonl` now includes `errors` (array of error
-  messages from failed evals, capped at 5) and `emptyResponses` (count of empty
-  model responses). Previously these were silently lost.
-- **Bridge error logging.** The `scoreGenome`, `fetchTier0`, and `invokeAgent`
-  adapters now log bridge errors to stderr with context (method name, outcome
-  count, genome ID). Previously bridge failures were swallowed.
-- **GoalMode error propagation.** Failed evals' error messages are collected in
-  `GoalResult.errors` and carried through the sidecar → dream-cycle → telemetry
-  chain.
-- **Sidecar rebuild.** Binary rebuilt with all fixes. Tests: 1255/1255 pass.
+For contributors and reviewers:
+
+- **`dream.jsonl` telemetry** now records `errors` (capped at 5 per cycle)
+  and `emptyResponses` counts. Previously both were silently lost.
+- **Bridge error logging** — `scoreGenome`, `fetchTier0`, and `invokeAgent`
+  adapters log bridge failures to stderr with method, outcome count, and
+  genome ID. Previously swallowed.
+- **GoalMode error propagation** — failed-eval error messages are collected
+  in `GoalResult.errors` and carried through the sidecar → dream-cycle →
+  telemetry chain.
+- **RSI candidate branch format** — `genome/<id>` was rejected by Rust's
+  git validator (single-segment name required); now `genome-<id>` (dash).
+- **Sidecar rebuild** — bundles the new engine modules and all fixes.
+  Tests: 1255/1255 pass.
 
 ## 2026.06.17
 
