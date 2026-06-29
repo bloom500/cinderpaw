@@ -71,6 +71,11 @@ jobs:
             libfuse2 \
             gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
             libclang-dev clang
+          # libclang-dev on Ubuntu 22.04 puts libclang.so.14 in
+          # /usr/lib/llvm-14/lib/, NOT in /usr/lib/x86_64-linux-gnu/ where
+          # bindgen looks by default. Point it at the right path so
+          # bindgen doesn't panic at compile time. Mirrors the macOS step.
+          echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> "$GITHUB_ENV"
 
       # Vulkan SDK — required to COMPILE the llama.cpp Vulkan backend
       # (inference-vulkan). Provides headers, libvulkan, and glslc (the shader
