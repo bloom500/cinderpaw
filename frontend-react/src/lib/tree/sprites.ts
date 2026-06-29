@@ -303,6 +303,41 @@ export function drawBranch(
   ctx.lineCap = 'butt';
 }
 
+/**
+ * Ground mound at the trunk base — a soft horizontal ellipse that anchors the
+ * tree visually when the canvas is mostly empty (sidebar eating the viewport).
+ * The RSI aura flows out of this disc into the black void so a dreaming tree
+ * literally "lights up the ground around it".
+ */
+export function drawGround(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  baseY: number,
+  width: number,
+  rsiAura: string,
+): void {
+  const ry = Math.max(8, width * 0.18);
+  const ellipse = ctx.createRadialGradient(x, baseY, 0, x, baseY, width * 0.55);
+  ellipse.addColorStop(0, 'rgba(74, 41, 18, 0.85)');
+  ellipse.addColorStop(0.6, 'rgba(42, 22, 10, 0.55)');
+  ellipse.addColorStop(1, 'rgba(42, 22, 10, 0)');
+  ctx.fillStyle = ellipse;
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + ry * 0.3, width * 0.55, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (rsiAura !== PALETTE.rsiAuraIdle) {
+    ctx.globalCompositeOperation = 'screen';
+    const aura = ctx.createRadialGradient(x, baseY, 0, x, baseY, width * 1.2);
+    aura.addColorStop(0, rsiAura);
+    aura.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.ellipse(x, baseY + ry * 0.3, width * 1.2, ry * 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
 /** Mix two CSS colours by weight ∈ [0,1] — small utility used by callers
  *  that want a custom-season tint rather than the four presets exported
  *  above. Returns `a` when `w ≤ 0`, `b` when `w ≥ 1`. */

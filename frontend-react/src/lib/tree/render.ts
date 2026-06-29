@@ -12,6 +12,7 @@ import {
   PALETTE,
   drawTrunk,
   drawBranch,
+  drawGround,
   drawFoliageCrown,
   drawFoliageBlob,
   seasonTint,
@@ -96,10 +97,14 @@ export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | nu
       ctx!.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    // Trunk (bottom → fork).
+    // Trunk (bottom → top). We draw a soft "ground" mound at the base first
+    // so the tree isn't standing on nothing — gives the silhouette visual
+    // weight in narrow viewports where the canvas is mostly empty.
     const tBase = toScreen(layout.trunk.x0, layout.trunk.y0, view);
     const tTop = toScreen(layout.trunk.x1, layout.trunk.y1, view);
-    drawTrunk(ctx!, layout.trunk.x0 * view.zoom + view.offsetX, tBase.y, tTop.y, layout.trunk.thickness * view.zoom * dpr, rsiAura);
+    const trunkThicknessPx = layout.trunk.thickness * view.zoom * dpr;
+    drawTrunk(ctx!, layout.trunk.x0 * view.zoom + view.offsetX, tBase.y, tTop.y, trunkThicknessPx, rsiAura);
+    drawGround(ctx!, layout.trunk.x0 * view.zoom + view.offsetX, tBase.y, trunkThicknessPx * 4, rsiAura);
 
     for (const branch of layout.branches) {
       const lit = anim?.branchLit?.get(branch.index) ?? 0;
@@ -117,7 +122,11 @@ export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | nu
       );
 
       // Foliage crown — painterly cluster of overlapping blobs at the tip.
-      const foliageR = (10 + Math.max(8, branch.leaves.length) * 1.6) * view.zoom * dpr;
+      // Crown size scales with the smaller canvas dimension so a tree on a
+      // narrow viewport (sidebar open) still has a readable canopy.
+      const minSpan = Math.min(canvas.clientWidth || 1, canvas.clientHeight || 1);
+      const baseR = (22 + Math.max(10, branch.leaves.length) * 2.4);
+      const foliageR = baseR * Math.min(1.6, minSpan / 600) * view.zoom * dpr;
       const swayX = sway(branch.x1, branch.y1, t);
       drawFoliageCrown(
         ctx!,
@@ -152,7 +161,7 @@ export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | nu
       const d = Math.hypot(c.x / dpr - sx, c.y / dpr - sy);
       if (best === null || d < best.d) best = { idx: branch.index, d };
     }
-    const radius = 56 * view.zoom;
+    const radius = 64 * view.zoom;
     return best && best.d <= radius ? best.idx : null;
   }
 
@@ -163,8 +172,10 @@ export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | nu
     view: TreeView,
   ): { branch: number; leaf: number } | null {
     let best: { branch: number; leaf: number; d: number } | null = null;
+    const minSpan = Math.min(canvas.clientWidth || 1, canvas.clientHeight || 1);
     for (const branch of layout.branches) {
-      const foliageR = (10 + Math.max(8, branch.leaves.length) * 1.6) * view.zoom;
+      const baseR = (22 + Math.max(10, branch.leaves.length) * 2.4);
+      const foliageR = baseR * Math.min(1.6, minSpan / 600) * view.zoom;
       for (let k = 0; k < branch.leaves.length; k++) {
         const lx = branch.leaves[k]!.x;
         const ly = branch.leaves[k]!.y;
@@ -178,7 +189,7 @@ export function createTreeRenderer(canvas: HTMLCanvasElement): TreeRenderer | nu
       if (best === null || dt < best.d) best = { branch: branch.index, leaf: branch.leaves.length - 1, d: dt };
       void foliageR;
     }
-    const radius = 22 * view.zoom;
+    const radius = 28 * view.zoom;
     return best && best.d <= radius ? { branch: best.branch, leaf: best.leaf } : null;
   }
 
