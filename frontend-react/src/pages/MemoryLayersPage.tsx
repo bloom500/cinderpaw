@@ -282,8 +282,8 @@ export default function MemoryLayersPage() {
     : '';
 
   return (
-    <div className="min-h-screen bg-bg-primary text-text-primary">
-      <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-8">
+    <div className="flex h-full flex-col overflow-y-auto bg-bg-primary text-text-primary">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
         {/* ── HEADER ──────────────────────────────────────────────── */}
         <header className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-brand">
