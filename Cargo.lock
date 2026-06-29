@@ -1362,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "feral"
-version = "2026.6.17"
+version = "2026.6.29"
 dependencies = [
  "anyhow",
  "async-stream",

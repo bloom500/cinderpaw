@@ -1,7 +1,7 @@
 {
   "name": "feral-frontend-react",
   "private": true,
-  "version": "2026.6.17",
+  "version": "2026.6.29",
   "type": "module",
   "scripts": {
     "dev": "vite",
