@@ -343,14 +343,8 @@ async fn start_model_load(
                 status_text: format!("Model Loaded! · {}", inference::active_backend_label()),
             });
 
-            // Persist so next launch auto-reloads without user interaction —
-            // including the user's chosen context window, so the auto-reload
-            // task doesn't shrink their KV cache back to the conservative
-            // default on next start.
-            let mut s = settings::load();
-            s.last_loaded_model = Some(path.clone());
-            s.last_loaded_ctx = Some(model.ctx_len);
-            let _ = settings::save(&s);
+            // No auto-reload persistence. Each load is explicit (user clicks "Load" in
+            // the UI). Removed 2026-06-30 along with the startup auto-load.
 
             Ok(model)
         }
@@ -362,11 +356,6 @@ async fn start_model_load(
 #[specta::specta]
 fn unload_model(state: State<AppState>) {
     state.manager.unload();
-    // Clear the persisted auto-reload path so a restart doesn't reload a
-    // model the user just deliberately unloaded.
-    let mut s = settings::load();
-    s.last_loaded_model = None;
-    let _ = settings::save(&s);
 }
 
 #[tauri::command]
@@ -3132,7 +3121,6 @@ pub fn run() {
         });
     }
 
-    let startup_gpu_layers = settings.default_gpu_layers;
     let state = AppState {
         manager: manager.clone(),
         downloads: Arc::new(Mutex::new(HashMap::new())),
@@ -3466,63 +3454,11 @@ pub fn run() {
                 mcp_manager.start_enabled().await;
             });
 
-            // Auto-reload last model in background so the user doesn't have
-            // to pick it again after every restart. Silent fail — if the file
-            // moved or was deleted the user selects manually as usual.
-            //
-            // Race guard: if the user is already mid-load (e.g. clicked Apply
-            // during startup), `manager.current()` is non-None — skip the
-            // auto-reload so we don't overwrite their in-flight choice (and
-            // don't shrink their context window back to the default cap).
-            {
-                let auto_manager = manager.clone();
-                let auto_app = app.handle().clone();
-                let auto_layers = startup_gpu_layers;
-                tauri::async_runtime::spawn(async move {
-                    let s = settings::load();
-                    let last = s.last_loaded_model;
-                    let last_ctx = s.last_loaded_ctx;
-                    if let Some(p) = last {
-                        if auto_manager.current().is_some() {
-                            tracing::info!("auto-reload skipped: a model is already loaded");
-                            return;
-                        }
-                        let pb = std::path::PathBuf::from(&p);
-                        if pb.exists() {
-                            tracing::info!(
-                                path = %p,
-                                ctx = ?last_ctx,
-                                "auto-reloading last model"
-                            );
-                            let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
-                                percentage: 0.0,
-                                status_text: "Auto-loading last model…".into(),
-                            });
-                            let result = tokio::task::spawn_blocking(move || {
-                                auto_manager.load(pb, auto_layers, last_ctx).map_err(|e| e.to_string())
-                            }).await;
-                            match result {
-                                Ok(Ok(_)) => {
-                                    let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
-                                        percentage: 100.0,
-                                        status_text: format!("Ready"),
-                                    });
-                                }
-                                Ok(Err(e)) => {
-                                    tracing::warn!(error = %e, "auto-reload failed");
-                                    let _ = auto_app.emit("model-load-progress", events::ModelLoadProgressEvent {
-                                        percentage: 0.0,
-                                        status_text: String::new(),
-                                    });
-                                }
-                                Err(e) => {
-                                    tracing::warn!(error = %e, "auto-reload task failed");
-                                }
-                            }
-                        }
-                    }
-                });
-            }
+            // No model auto-load. The user picks a model explicitly from the UI
+            // (Local Models tab / Onboarding). Auto-loading on every startup
+            // caused lag (model mmap takes seconds and several GB of RAM/VRAM)
+            // and crashed the host for non-technical users who didn't know
+            // why their machine froze. Removal: 2026-06-30, per user report.
 
             Ok(())
         })
