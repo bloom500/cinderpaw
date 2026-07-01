@@ -5,6 +5,36 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## Unreleased
+
+### Removed
+
+- **Auto-load of the last model on startup.** The Tauri host used to
+  spawn a background task at app launch that read `settings.last_loaded_model`
+  and reloaded the local model into RAM/VRAM before the user picked
+  anything. For non-technical users this caused:
+  - **Visible lag** at every app launch (model mmap takes seconds
+    and consumes several GB; the machine visibly freezes).
+  - **Random crashes** downstream — once the model was loaded at
+    startup, PDF ingestion and longer messages had less RAM/VRAM
+    headroom and hit OOM or Vulkan driver crashes.
+  - **Panic + close** UX — users did not know why the app was frozen,
+    so they killed it and reported Feral as unusable.
+
+  Now: **the user picks a model explicitly from the Local Models tab
+  (or the Onboarding wizard on first run).** No background load at
+  startup. No automatic persistence of the last-loaded path. The
+  `last_loaded_model` and `last_loaded_ctx` fields are removed from
+  `Settings`; the startup `auto-reload` task is removed from `lib.rs`;
+  the persistence write in `start_model_load` is removed; the
+  clearing write in `unload_model` is removed. Files touched:
+  `src-tauri/src/lib.rs`, `src-tauri/src/settings.rs`.
+
+  This is a deliberate departure from the "remember so we don't bother
+  the user" UX. For non-technical users, surprise is worse than
+  friction: pick a model once per session, click Load, watch the
+  progress bar.
+
 ## 2026.06.29.1
 
 Hotfix for the v2026.06.29 release — completes the macOS Intel build that was

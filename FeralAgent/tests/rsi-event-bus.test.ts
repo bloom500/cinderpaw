@@ -66,4 +66,39 @@ describe("RSI event bus", () => {
     // The whole chain must have run by the time the outer emit resolves.
     expect(seen).toEqual(["pbt"]);
   });
+
+  // INVARIANT I15 (ADR-0011) — EvalHalted requires a non-empty reason.
+  describe("EvalHalted requires a reason (INVARIANT I15)", () => {
+    test("emit rejects an EvalHalted with no reason", async () => {
+      const bus = new EventBus();
+      const seen: RsiEvent[] = [];
+      bus.on("EvalHalted", (e) => { seen.push(e); });
+
+      expect(bus.emit({ type: "EvalHalted", genomeId: "g1" })).rejects.toThrow("INVARIANT I15");
+      // The bad event never entered the queue → the handler never ran.
+      expect(seen).toEqual([]);
+    });
+
+    test("emit rejects an EvalHalted with an empty/whitespace reason", async () => {
+      const bus = new EventBus();
+      expect(bus.emit({ type: "EvalHalted", reason: "" })).rejects.toThrow("INVARIANT I15");
+      expect(bus.emit({ type: "EvalHalted", reason: "   " })).rejects.toThrow("INVARIANT I15");
+    });
+
+    test("emit accepts an EvalHalted with a non-empty reason", async () => {
+      const bus = new EventBus();
+      const seen: RsiEvent[] = [];
+      bus.on("EvalHalted", (e) => { seen.push(e); });
+
+      await bus.emit({ type: "EvalHalted", genomeId: "g1", stage: "static_analysis", reason: "budget breach" });
+
+      expect(seen.map((e) => e.reason)).toEqual(["budget breach"]);
+    });
+
+    test("the reason guard applies only to EvalHalted, not other events", async () => {
+      const bus = new EventBus();
+      // A reason-less EvalComplete is fine — the guard is scoped to EvalHalted.
+      await bus.emit({ type: "EvalComplete", genomeId: "g1" });
+    });
+  });
 });

@@ -28,6 +28,17 @@ import { DreamScheduler, type DreamTrigger } from "./dream-scheduler.ts";
 import type { ActivityMonitor } from "./activity-monitor.ts";
 import type { DreamConfig } from "./dream-config.ts";
 import { appendDreamTelemetry } from "./dream-telemetry.ts";
+import {
+  appendJournal,
+  type JournalDecision,
+  type JournalEntry,
+} from "./journal.ts";
+import {
+  DEFAULT_BUDGET_CAPS,
+  remaining,
+  zeroSpend,
+  type BudgetCaps,
+} from "./budget.ts";
 import type { RsiRunStats } from "./sidecar.ts";
 import type { EpisodeOptions } from "./episode-options.ts";
 import type { OutboundEvent } from "../types.ts";
@@ -43,6 +54,15 @@ export interface DreamCycleDeps {
   send: (event: OutboundEvent) => void;
   /** JSONL path for per-episode telemetry. */
   telemetryPath: string;
+  /** Where the Evolution Journal (BRSI §2.9) lands. A function because
+   *  the journal file rotates per UTC day; resolved at each write. Absent
+   *  → no journal is written (Faza 1 behaviour). The host supplies
+   *  `() => defaultJournalPath()`. */
+  journalPath?: () => string;
+  /** The episode's resource caps (BRSI §2.5) for honest `budgetRemaining`
+   *  reporting in the journal. Absent → §2.5 defaults. The host derives
+   *  it from the episode options via `episodeBudgetCaps`. */
+  budgetCaps?: BudgetCaps;
   /** Supplies idle/error trigger signals. */
   activityMonitor: ActivityMonitor;
   /** Thresholds + poll/cooldown timings. */
@@ -61,7 +81,7 @@ export interface DreamCycle {
 }
 
 export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
-  const { send, telemetryPath, activityMonitor, config, log } = deps;
+  const { send, telemetryPath, journalPath, budgetCaps, activityMonitor, config, log } = deps;
   // Carries the in-flight episode's start time + trigger from the scheduler's
   // `start` callback to the run-end telemetry append.
   let currentEpisode: { startedAt: number; trigger: DreamTrigger } | null = null;
@@ -69,9 +89,10 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
 
   const onEpisodeEnd = (stats?: RsiRunStats): void => {
     if (currentEpisode) {
+      const endedAt = Date.now();
       appendDreamTelemetry(telemetryPath, {
         startedAt: currentEpisode.startedAt,
-        endedAt: Date.now(),
+        endedAt,
         trigger: currentEpisode.trigger,
         iterations: stats?.iterations ?? 0,
         tokens: stats?.tokens ?? 0,
@@ -80,6 +101,17 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
         errors: stats?.errors ?? [],
         emptyResponses: stats?.emptyResponses ?? 0,
       });
+      // BRSI §2.9: the semantic lab-notebook row for this episode — what
+      // was observed and decided, distinct from the flat ops telemetry
+      // above. This is what the journal viewer and Layer-5 meta-evolution
+      // read. One row per episode (correct granularity); per-candidate
+      // rows arrive when the Contract FSM journals each candidate.
+      if (journalPath) {
+        appendJournal(
+          journalPath(),
+          makeCycleSummary(currentEpisode, stats, endedAt, budgetCaps ?? DEFAULT_BUDGET_CAPS),
+        );
+      }
       send({
         type: "dream_cycle",
         phase: "ended",
@@ -116,4 +148,84 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
   };
 
   return { onEpisodeEnd, arm };
+}
+
+/** Map an ended dream episode to one Evolution Journal row (BRSI §2.9).
+ *  Episode-grained: `experimented` / `result` are null because an episode
+ *  spans many candidates, not one — those fields fill in per-candidate
+ *  once the Contract FSM journals each candidate. The value here is the
+ *  `decided` outcome + `observed` summary, honestly derived from the run
+ *  stats. Pure + deterministic given `endedAt`; exported for testing. */
+export function makeCycleSummary(
+  episode: { startedAt: number; trigger: DreamTrigger },
+  stats: RsiRunStats | undefined,
+  endedAt: number,
+  caps: BudgetCaps = DEFAULT_BUDGET_CAPS,
+): JournalEntry {
+  const iterations = stats?.iterations ?? 0;
+  const ratchets = stats?.ratchets ?? 0;
+  const rejections = stats?.confidenceRejections ?? 0;
+  const stopReason = stats?.stopReason ?? "unknown";
+  const errors = stats?.errors ?? [];
+
+  // Honest budget accounting (BRSI §2.5): the episode spent this many
+  // tokens over this much wall-clock; `remaining` gives the truth the
+  // journal used to fake with zeros. CPU/RAM/disk/energy are not measured
+  // at the episode level yet, so their spend stays 0 (full cap remaining).
+  const wallClockMin = (endedAt - episode.startedAt) / 60_000;
+  const spend = { ...zeroSpend(), tokens: stats?.tokens ?? 0, wallClockMin };
+  const rem = remaining(caps, spend);
+  const clamp0 = (n: number): number => (n > 0 ? n : 0);
+
+  const observed: string[] = [
+    `trigger: ${episode.trigger}`,
+    `${iterations} evaluation(s), ${ratchets} promoted to main`,
+    `stop reason: ${stopReason}`,
+    `budget left: ${clamp0(rem.tokens)} tokens, ${clamp0(rem.wallClockMin).toFixed(1)} min`,
+  ];
+  if (rejections > 0) {
+    observed.push(
+      `${rejections} candidate(s) beat the score but were blocked by a promotion gate (confidence / Tier 0 floor)`,
+    );
+  }
+  if (errors.length > 0) {
+    observed.push(`${errors.length} eval error(s): ${errors.slice(0, 3).join("; ")}`);
+  }
+
+  const decided: JournalDecision =
+    stopReason === "error"
+      ? { action: "halt", reason: errors[0] ?? "episode errored", stage: "evaluate" }
+      : ratchets > 0
+        ? {
+            action: "accept",
+            reason: `${ratchets} candidate(s) cleared the confidence gate and ratcheted main`,
+          }
+        : {
+            action: "reject",
+            reason: "no candidate cleared the bar this episode",
+            nextStep: "more mutation / lower selection pressure next cycle",
+          };
+
+  return {
+    cycleId: `c-${new Date(episode.startedAt).toISOString()}`,
+    timestamp: endedAt,
+    durationMin: (endedAt - episode.startedAt) / 60_000,
+    observed,
+    // ponytail: no hypothesis engine yet — filled by the Dream stage of the
+    // 7-stage cycle rewrite. Empty is honest, not a stub.
+    hypothesized: [],
+    experimented: null,
+    result: null,
+    decided,
+    // Real remaining budget (BRSI §2.5). Clamped at 0 — a "remaining" field
+    // floors at empty; overshoot (rare — GoalConfig stops at the cap) is
+    // captured by stopReason, not a negative here.
+    budgetRemaining: {
+      wallClockMin: clamp0(rem.wallClockMin),
+      tokens: clamp0(rem.tokens),
+      cpuPct: clamp0(rem.cpuPct),
+      ramMb: clamp0(rem.ramMb),
+      diskMb: clamp0(rem.diskMb),
+    },
+  };
 }

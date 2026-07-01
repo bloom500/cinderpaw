@@ -29,6 +29,7 @@ describe('FeralDreamsPanel', () => {
   it('renders lifetime totals and the last dream summary', async () => {
     stubListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
 
     render(<FeralDreamsPanel />);
 
@@ -41,11 +42,38 @@ describe('FeralDreamsPanel', () => {
     expect(screen.getByText(/Converged/)).toBeInTheDocument();
   });
 
+  it('renders journal receipts with the decision and observed lines', async () => {
+    stubListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([
+      {
+        cycleId: 'c-2026-07-01T12:00:00.000Z',
+        timestamp: Date.UTC(2026, 6, 1, 12, 0, 0),
+        durationMin: 1.5,
+        observed: [
+          '12 evaluation(s), 2 promoted to main',
+          '3 candidate(s) beat the score but were blocked by a promotion gate (confidence / Tier 0 floor)',
+          'budget left: 18000 tokens, 6.0 min',
+        ],
+        decided: { action: 'accept', reason: '2 candidate(s) cleared the confidence gate and ratcheted main' },
+      },
+    ]);
+
+    render(<FeralDreamsPanel />);
+
+    expect(await screen.findByText('Receipts')).toBeInTheDocument();
+    expect(screen.getByText('promoted')).toBeInTheDocument();
+    expect(screen.getByText(/cleared the confidence gate/)).toBeInTheDocument();
+    expect(screen.getByText(/blocked by a promotion gate/)).toBeInTheDocument();
+    expect(screen.getByText(/budget left: 18000 tokens/)).toBeInTheDocument();
+  });
+
   it('shows a clean empty state when no dreams have run', async () => {
     stubListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue({
       episodes: 0, ratchets: 0, tokens: 0, iterations: 0, last: [],
     });
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
 
     render(<FeralDreamsPanel />);
 
@@ -55,6 +83,7 @@ describe('FeralDreamsPanel', () => {
   it('surfaces a read error without crashing', async () => {
     stubListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockRejectedValue('disk gone');
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
 
     render(<FeralDreamsPanel />);
 

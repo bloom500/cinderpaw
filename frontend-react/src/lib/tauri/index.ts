@@ -268,6 +268,19 @@ export interface DreamTelemetrySummary {
   last: DreamEpisode[];
 }
 
+/** The terminal decision of a journal row (BRSI §2.9). */
+export interface JournalDecisionRow { action: string; reason: string }
+
+/** One Evolution Journal row (BRSI §2.9), flattened for the receipts UI.
+ *  `observed` lines are already human-readable receipt copy. */
+export interface JournalRow {
+  cycleId: string;
+  timestamp: number;
+  durationMin: number;
+  observed: string[];
+  decided: JournalDecisionRow;
+}
+
 /** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
@@ -492,6 +505,8 @@ const raw = {
     invoke<void>('rsi_set_concurrency', { concurrency }),
   rsiDreamTelemetry:  (limit: number) =>
     invoke<DreamTelemetrySummary>('rsi_dream_telemetry', { limit }),
+  rsiJournalRecent:   (limit: number) =>
+    invoke<JournalRow[]>('rsi_journal_recent', { limit }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -634,6 +649,7 @@ export const tauri = {
     stop:            async () => raw.rsiStop(),
     setConcurrency:  async (concurrency: number) => raw.rsiSetConcurrency(concurrency),
     dreamTelemetry:  async (limit = 12) => raw.rsiDreamTelemetry(limit),
+    journalRecent:   async (limit = 12) => raw.rsiJournalRecent(limit),
   },
 
   agents: {

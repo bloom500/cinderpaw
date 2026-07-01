@@ -48,6 +48,7 @@ import type { GenomeConfig } from "./genome.ts";
 import type { EvalKind, EvalExpected } from "./eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
 import { blendedPricePer1kUsd } from "./rsi-cost.ts";
+import { evaluateGate } from "./confidence.ts";
 import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
 import { PbtHandler } from "./pbt-handler.ts";
 import {
@@ -96,6 +97,13 @@ export interface RsiRunStats {
    *  improvements committed to main. The number that lets telemetry prove
    *  the Dream Cycle is improving (not just spinning). */
   ratchets: number;
+  /** ConfidenceFailed events during this episode — candidates that beat
+   *  main's prior score but were blocked by a pre-ratchet gate: the
+   *  statistical confidence gate (BRSI §2.7) or the Tier 0 sanity floor
+   *  (INVARIANT I8). The count that proves the gates are filtering noise
+   *  and gaming, not rubber-stamping. Optional for back-compat with stats
+   *  literals that predate the gate. */
+  confidenceRejections?: number;
   /** Error messages from failed evals (capped at 5). */
   errors: string[];
   /** Number of empty model responses during this episode. */
@@ -366,7 +374,15 @@ export class RsiSidecar {
         pricePer1kUsd,
       },
       evalDeps: { runEval, scoreGenome },
-      ratchetDeps: { commitGenome, ratchetAttempt },
+      // BRSI §2.7: gate ratchet promotion on statistical significance
+      // (strict locked thresholds via evaluateGate's defaults). The full
+      // suite (Tier 0+1/2 ≈ 28 tasks) clears MIN_SAMPLES; the first
+      // candidate bootstraps the baseline and bypasses the gate.
+      ratchetDeps: {
+        commitGenome,
+        ratchetAttempt,
+        evaluateGate: (samples) => evaluateGate(samples),
+      },
       selection,
       // taste is wired below on engine.bus, not here — see tasteHolder.
       ...(opts.concurrency != null ? { concurrency: opts.concurrency } : {}),
@@ -429,6 +445,13 @@ export class RsiSidecar {
     const onChampion = this.deps.onChampion;
     // Count real improvements this episode → carried on the run-end stats so
     // telemetry records the number that proves the Dream Cycle is ratcheting.
+    let confidenceRejections = 0;
+    this.mirrors.push(
+      engine.bus.onDisposable("ConfidenceFailed", () => {
+        confidenceRejections += 1;
+      }),
+    );
+
     let ratchetCount = 0;
     this.mirrors.push(
       engine.bus.onDisposable("RatchetAdvanced", (ev) => {
@@ -492,6 +515,7 @@ export class RsiSidecar {
           tokens: result.totalTokens,
           stopReason: result.reason,
           ratchets: ratchetCount,
+          confidenceRejections,
           errors: result.errors,
           emptyResponses,
         });
@@ -511,7 +535,7 @@ export class RsiSidecar {
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, errors: [detail], emptyResponses });
+        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses });
       },
     );
   }
@@ -795,6 +819,19 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
       errored: ev.errored,
     });
     maybeEmitStagnation();
+  }));
+  offs.push(bus.onDisposable("ConfidenceFailed", (ev) => {
+    // Surface the gate's reject to the UI as a progress event so the user
+    // sees the receipt live (ADR-0012): "this candidate beat the score but
+    // not the significance bar, and here's why".
+    send({
+      type: "rsi_engine_event",
+      event: "progress",
+      iteration: iterationCount,
+      genomeId: ev.genomeId,
+      stage: "confidence_rejected",
+      reason: ev.reason,
+    });
   }));
   offs.push(bus.onDisposable("RatchetAdvanced", (ev) => {
     // A ratchet resets the stall counters AND clears the stagnation
