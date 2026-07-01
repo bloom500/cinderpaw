@@ -42,7 +42,7 @@ describe("makeCycleSummary", () => {
       END,
     );
     expect(entry.observed).toContain(
-      "3 candidate(s) beat the score but failed the confidence gate",
+      "3 candidate(s) beat the score but were blocked by a promotion gate (confidence / Tier 0 floor)",
     );
   });
 

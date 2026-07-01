@@ -17,15 +17,19 @@ import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
 import {
   RatchetHandler,
   buildPairedSamples,
+  tier0FloorBreach,
 } from "../src/rsi/ratchet-handler.ts";
 import type { GateDecision } from "../src/rsi/confidence.ts";
 
-function outcome(taskId: string, success: boolean): EvalOutcome {
-  return { taskId, tier: 0, success, latencyMs: 1, tokens: 1, errored: false };
+/** Default tier is 1 (a normal task), NOT 0 — a tier-0 failure trips the
+ *  sanity floor (INVARIANT I8) and blocks promotion regardless of the gate,
+ *  which is a separate concern from the confidence-gate paths below. */
+function outcome(taskId: string, success: boolean, tier = 1): EvalOutcome {
+  return { taskId, tier, success, latencyMs: 1, tokens: 1, errored: false };
 }
 
-/** A fixed set of per-task outcomes; every eval in these tests uses the
- *  same task ids so the pairing lines up. */
+/** A fixed set of per-task tier-1 outcomes; every eval in these tests uses
+ *  the same task ids so the pairing lines up. */
 function outcomes(successes: boolean[]): EvalOutcome[] {
   return successes.map((s, i) => outcome(`t${i}`, s));
 }
@@ -209,6 +213,60 @@ describe("RSI ratchet handler + confidence gate", () => {
 
     expect(attempts).toBe(3); // no gate → every candidate reaches ratchet
     expect(advanced.length).toBe(3);
+  });
+});
+
+describe("tier0FloorBreach (INVARIANT I8)", () => {
+  test("null when every tier-0 task passed", () => {
+    expect(
+      tier0FloorBreach([outcome("a", true, 0), outcome("b", false, 1), outcome("c", true, 0)]),
+    ).toBeNull();
+  });
+
+  test("reports a breach when any tier-0 task failed", () => {
+    const reason = tier0FloorBreach([outcome("a", true, 0), outcome("b", false, 0)]);
+    expect(reason).toContain("Tier 0 floor breached");
+    expect(reason).toContain("1");
+  });
+
+  test("an errored tier-0 task also breaks the floor", () => {
+    const errored: EvalOutcome = { taskId: "a", tier: 0, success: false, latencyMs: 1, tokens: 1, errored: true };
+    expect(tier0FloorBreach([errored])).toContain("Tier 0 floor breached");
+  });
+});
+
+describe("RatchetHandler + Tier 0 floor", () => {
+  test("a candidate that breaks Tier 0 never ratchets — even as the first candidate", async () => {
+    const bus = new EventBus();
+    const advanced: RsiEvent[] = [];
+    const failed: RsiEvent[] = [];
+    bus.on("RatchetAdvanced", async (e) => advanced.push(e));
+    bus.on("ConfidenceFailed", async (e) => failed.push(e));
+
+    let attempts = 0;
+    new RatchetHandler(bus, {
+      commitGenome: async () => ({ commitHash: "f".repeat(40) }),
+      ratchetAttempt: async () => {
+        attempts += 1;
+        return { advanced: true, previousBest: 0 };
+      },
+      evaluateGate: () => ACCEPT,
+    });
+
+    // First candidate (no baseline → confidence gate would bypass) but it
+    // fails a tier-0 sanity task: the floor blocks it regardless.
+    await bus.emit({
+      type: "EvalComplete",
+      genomeId: "broken",
+      score: 99,
+      outcomes: [outcome("t0", false, 0), outcome("t1", true, 1)],
+      errored: false,
+    });
+
+    expect(attempts).toBe(0); // never reached ratchetAttempt
+    expect(advanced.length).toBe(0);
+    expect(failed.length).toBe(1);
+    expect((failed[0] as { reason: string }).reason).toContain("Tier 0 floor");
   });
 });
 

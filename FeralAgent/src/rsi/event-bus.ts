@@ -11,9 +11,11 @@
  */
 
 /** The fundamental events of the RSI engine (PLAN.md "Async RSI Engine").
- *  `ConfidenceFailed` (BRSI §2.7, ADR-0012) is the confidence gate's reject
- *  verdict — the acceptance verdict needs no event because it is already
- *  observable as the subsequent `RatchetAdvanced`. */
+ *  `ConfidenceFailed` (BRSI §2.7, ADR-0012) is a pre-ratchet promotion
+ *  rejection — the statistical confidence gate OR the Tier 0 sanity floor
+ *  (INVARIANT I8) blocked the candidate; `reason` discriminates. The
+ *  acceptance verdict needs no event because it is already observable as
+ *  the subsequent `RatchetAdvanced`. */
 export type RsiEventType =
   | "GenomeBorn"
   | "EvalStarted"

@@ -98,10 +98,11 @@ export interface RsiRunStats {
    *  the Dream Cycle is improving (not just spinning). */
   ratchets: number;
   /** ConfidenceFailed events during this episode — candidates that beat
-   *  main's prior score but did NOT clear the statistical confidence gate
-   *  (BRSI §2.7). The count that proves the gate is filtering noise, not
-   *  rubber-stamping. Optional for back-compat with stats literals that
-   *  predate the gate. */
+   *  main's prior score but were blocked by a pre-ratchet gate: the
+   *  statistical confidence gate (BRSI §2.7) or the Tier 0 sanity floor
+   *  (INVARIANT I8). The count that proves the gates are filtering noise
+   *  and gaming, not rubber-stamping. Optional for back-compat with stats
+   *  literals that predate the gate. */
   confidenceRejections?: number;
   /** Error messages from failed evals (capped at 5). */
   errors: string[];

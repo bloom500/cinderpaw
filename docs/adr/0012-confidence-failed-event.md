@@ -43,6 +43,14 @@ before returning. Consumers:
 - `dream-cycle.ts:makeCycleSummary` folds the count into the journal row's
   `observed`.
 
+**Update (2026-07-01, same day):** the event was broadened to cover the
+Tier 0 sanity floor (INVARIANT I8) as well as the statistical gate. Both
+are pre-ratchet promotion rejections; the `reason` string discriminates
+("Tier 0 floor breached: …" vs the confidence-gate reasons). A separate
+event kind per gate was considered (per the ADR-0011 precedent) but not
+worth the union churn while `reason` carries the distinction — if metrics
+later need per-gate counts, add a `gate` field then.
+
 We do **not** add a symmetric `ConfidencePassed`. Acceptance is already
 observable as the subsequent `RatchetAdvanced`; a second event for the
 same fact would be redundant (YAGNI). If a future consumer needs an

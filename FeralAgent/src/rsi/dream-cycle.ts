@@ -161,7 +161,7 @@ export function makeCycleSummary(
   ];
   if (rejections > 0) {
     observed.push(
-      `${rejections} candidate(s) beat the score but failed the confidence gate`,
+      `${rejections} candidate(s) beat the score but were blocked by a promotion gate (confidence / Tier 0 floor)`,
     );
   }
   if (errors.length > 0) {

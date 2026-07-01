@@ -46,6 +46,23 @@ export interface RatchetDeps {
   evaluateGate?: (samples: readonly PairedSample[]) => GateDecision;
 }
 
+/** Tier 0 is the frozen sanity floor (INVARIANT I8, BRSI §2.7 accept
+ *  criterion "Tier 0 floor intact"). The Rust scorer folds every task into
+ *  one aggregate success rate, so a candidate can fail a Tier 0 task yet
+ *  still out-score the champion on cost/latency — exactly the gaming the
+ *  spec forbids. This is the absolute check the aggregate can't express:
+ *  ANY tier-0 task that failed or errored breaks the floor. Returns a
+ *  human-readable reason, or null if the floor holds. Pure + deterministic;
+ *  exported for testing. */
+export function tier0FloorBreach(outcomes: readonly EvalOutcome[]): string | null {
+  let failed = 0;
+  for (const o of outcomes) {
+    if (o.tier === 0 && (!o.success || o.errored)) failed += 1;
+  }
+  if (failed === 0) return null;
+  return `Tier 0 floor breached: ${failed} frozen sanity task(s) failed`;
+}
+
 /** Pair the current candidate's per-task outcomes against the champion's,
  *  matched by `taskId`. Each task contributes a paired sample with the
  *  per-task binary score (1 on success, 0 otherwise) — the same scalar
@@ -116,6 +133,18 @@ export class RatchetHandler {
       const g = this.pop.get(genomeId);
       if (g?.config) {
         this.pop.setCommitConfig(commitHash, g.config);
+      }
+    }
+
+    // Tier 0 floor (INVARIANT I8): a hard reject that applies to EVERY
+    // candidate, including the first — unlike the confidence gate below it
+    // has no baseline dependency. A candidate that broke a frozen sanity
+    // test must never promote, however significant its aggregate gain.
+    if (outcomes) {
+      const breach = tier0FloorBreach(outcomes);
+      if (breach) {
+        await this.bus.emit({ type: "ConfidenceFailed", genomeId, reason: breach });
+        return;
       }
     }
 
