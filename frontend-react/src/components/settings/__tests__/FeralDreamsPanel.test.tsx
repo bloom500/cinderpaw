@@ -59,15 +59,33 @@ describe('FeralDreamsPanel', () => {
         ],
         decided: { action: 'accept', reason: '2 candidate(s) cleared the confidence gate and ratcheted main' },
       },
+      // A per-candidate Contract FSM row: same cycleId (key must tolerate the
+      // collision), non-null result → renders the fitness receipt line.
+      {
+        cycleId: 'c-2026-07-01T12:00:00.000Z',
+        timestamp: Date.UTC(2026, 6, 1, 12, 1, 0),
+        durationMin: 0.1,
+        observed: [],
+        decided: { action: 'accept', reason: 'all contract stages passed' },
+        result: {
+          aggregate: 0.73,
+          tier0: 'passed',
+          fitnessVector: { accuracy: 0.73, userSatisfaction: 0.62 },
+        },
+      },
     ]);
 
     render(<FeralDreamsPanel />);
 
     expect(await screen.findByText('Receipts')).toBeInTheDocument();
-    expect(screen.getByText('promoted')).toBeInTheDocument();
+    expect(screen.getAllByText('promoted').length).toBe(2);
     expect(screen.getByText(/cleared the confidence gate/)).toBeInTheDocument();
     expect(screen.getByText(/blocked by a promotion gate/)).toBeInTheDocument();
     expect(screen.getByText(/budget left: 18000 tokens/)).toBeInTheDocument();
+    // The per-candidate fitness receipt.
+    expect(screen.getByText(/fitness 0\.73/)).toBeInTheDocument();
+    expect(screen.getByText(/satisfaction 0\.62/)).toBeInTheDocument();
+    expect(screen.getByText(/tier0 passed/)).toBeInTheDocument();
   });
 
   it('shows a clean empty state when no dreams have run', async () => {

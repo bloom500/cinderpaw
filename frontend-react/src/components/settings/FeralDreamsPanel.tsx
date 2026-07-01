@@ -209,8 +209,10 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <span className="text-[11px] font-medium text-text-secondary">Receipts</span>
       <ul className="space-y-2">
-        {rows.map((r) => (
-          <li key={r.cycleId} className="text-[11px]">
+        {rows.map((r, i) => (
+          // Per-candidate Contract rows share the episode's cycleId, so the
+          // key needs the index to stay unique.
+          <li key={`${r.cycleId}:${i}`} className="text-[11px]">
             <div className="flex items-center gap-1.5">
               <DecisionBadge action={r.decided.action} />
               <span className="text-text-muted tabular-nums">
@@ -220,6 +222,14 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
               </span>
             </div>
             <p className="mt-0.5 text-text-secondary">{r.decided.reason}</p>
+            {r.result && (
+              // Per-candidate fitness receipt (Contract FSM rows only).
+              <p className="mt-0.5 text-text-muted tabular-nums">
+                fitness {r.result.aggregate.toFixed(2)}
+                {' · '}satisfaction {r.result.fitnessVector.userSatisfaction.toFixed(2)}
+                {' · '}tier0 {r.result.tier0}
+              </p>
+            )}
             {r.observed.length > 0 && (
               <ul className="mt-0.5 space-y-0.5 pl-3 text-text-muted">
                 {r.observed.map((line, i) => (

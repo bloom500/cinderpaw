@@ -271,6 +271,14 @@ export interface DreamTelemetrySummary {
 /** The terminal decision of a journal row (BRSI §2.9). */
 export interface JournalDecisionRow { action: string; reason: string }
 
+/** Per-candidate fitness receipt (Contract FSM rows). Null on episode
+ *  summary rows. Only the components the receipts UI renders. */
+export interface JournalResultRow {
+  aggregate: number;
+  tier0: string;
+  fitnessVector: { accuracy: number; userSatisfaction: number };
+}
+
 /** One Evolution Journal row (BRSI §2.9), flattened for the receipts UI.
  *  `observed` lines are already human-readable receipt copy. */
 export interface JournalRow {
@@ -279,6 +287,7 @@ export interface JournalRow {
   durationMin: number;
   observed: string[];
   decided: JournalDecisionRow;
+  result?: JournalResultRow | null;
 }
 
 /** One niche's reigning champion from the Tree of Champions (§7.4), flattened

@@ -1012,11 +1012,31 @@ pub struct JournalDecisionRow {
     pub reason: String,
 }
 
+/// The measured slice of a per-candidate row's fitness vector. Only the
+/// components the receipts UI renders — serde skips the rest.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalFitnessRow {
+    pub accuracy: f64,
+    pub user_satisfaction: f64,
+}
+
+/// Evaluate-stage result of a journal row. Present on per-candidate Contract
+/// FSM rows; episode summary rows carry `result: null`.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalResultRow {
+    pub aggregate: f64,
+    pub tier0: String,
+    pub fitness_vector: JournalFitnessRow,
+}
+
 /// One Evolution Journal row, flattened for the receipts UI. The `observed`
 /// lines are already human-readable (trigger, N promoted, gate-blocked count,
 /// budget left), so the UI renders them verbatim. Extra journal fields
-/// (`hypothesized`, `experimented`, `result`, `budgetRemaining`) are ignored
-/// here — they are episode-internal, not receipt copy.
+/// (`hypothesized`, `experimented`, `budgetRemaining`) are ignored here —
+/// they are episode-internal, not receipt copy. `result` is the per-candidate
+/// fitness receipt (Contract FSM rows); null on episode summary rows.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct JournalRow {
@@ -1025,6 +1045,8 @@ pub struct JournalRow {
     pub duration_min: f64,
     pub observed: Vec<String>,
     pub decided: JournalDecisionRow,
+    #[serde(default)]
+    pub result: Option<JournalResultRow>,
 }
 
 /// Parse a journal JSONL body into rows, oldest-first. Tolerant: blank lines
@@ -1234,6 +1256,21 @@ not json — skipped
     #[test]
     fn parse_journal_rows_empty_is_empty() {
         assert!(parse_journal_rows("").is_empty());
+    }
+
+    #[test]
+    fn parse_journal_rows_carries_per_candidate_fitness_result() {
+        // A per-candidate Contract FSM row: non-null `result` with the full
+        // 6-component fitness vector — the receipts UI reads aggregate +
+        // tier0 + accuracy/userSatisfaction; the rest is skipped by serde.
+        let body = "{\"cycleId\":\"c-1\",\"timestamp\":1000,\"durationMin\":0.1,\"observed\":[],\"hypothesized\":[],\"experimented\":{\"candidateId\":\"g1\",\"change\":\"\",\"layer\":\"L1\"},\"result\":{\"fitnessVector\":{\"accuracy\":0.73,\"latency\":0.27,\"cost\":0.27,\"toolSuccess\":0.73,\"hallucination\":0.5,\"userSatisfaction\":0.62},\"aggregate\":0.73,\"confidence\":0.95,\"tier0\":\"passed\",\"tier1\":\"no_regression\"},\"decided\":{\"action\":\"accept\",\"reason\":\"all contract stages passed\"},\"budgetRemaining\":{\"wallClockMin\":6,\"tokens\":18000,\"cpuPct\":50,\"ramMb\":2048,\"diskMb\":5120}}";
+        let rows = parse_journal_rows(body);
+        assert_eq!(rows.len(), 1);
+        let result = rows[0].result.as_ref().expect("per-candidate result");
+        assert!((result.aggregate - 0.73).abs() < 1e-9);
+        assert_eq!(result.tier0, "passed");
+        assert!((result.fitness_vector.user_satisfaction - 0.62).abs() < 1e-9);
+        assert!((result.fitness_vector.accuracy - 0.73).abs() < 1e-9);
     }
 
     #[test]
