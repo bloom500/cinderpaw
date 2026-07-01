@@ -24,6 +24,7 @@ export function useDreamCycle(): void {
         );
       } else {
         useDream.getState().setDreaming(false);
+        useDream.getState().setStage(null); // cycle over — clear the stage
         const iters = e.iterations ?? 0;
         useNotifications.getState().push(
           'success',
@@ -32,6 +33,15 @@ export function useDreamCycle(): void {
         );
       }
     });
-    return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
+    // The fine §2.8 stage pulses drive the live stage indicator in the Dreams
+    // panel — separate stream so the mascot/toast path above stays untouched.
+    const unlistenStageP = events.onDreamStage.listen((e) => {
+      if (alive && e.stage) useDream.getState().setStage(e.stage);
+    });
+    return () => {
+      alive = false;
+      void unlistenP.then((u) => u()).catch(() => {});
+      void unlistenStageP.then((u) => u()).catch(() => {});
+    };
   }, []);
 }

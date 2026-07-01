@@ -8,12 +8,22 @@
  */
 import { create } from 'zustand';
 
+/** The BRSI §2.8 Dream Cycle stages the sidecar emits as `dream_cycle` pulses.
+ *  `dream` / `mutate` are reserved (subsumed by the opaque engine episode in
+ *  Faza 1), so only wake/observe/evaluate/remember/sleep fire today. */
+export type DreamStage = 'wake' | 'observe' | 'dream' | 'mutate' | 'evaluate' | 'remember' | 'sleep';
+
 interface DreamStore {
   dreaming: boolean;
+  /** The current §2.8 stage while a cycle runs; null between cycles. */
+  stage: DreamStage | null;
   setDreaming(v: boolean): void;
+  setStage(s: DreamStage | null): void;
 }
 
 export const useDream = create<DreamStore>((set) => ({
   dreaming: false,
+  stage: null,
   setDreaming: (v) => set({ dreaming: v }),
+  setStage: (s) => set({ stage: s }),
 }));

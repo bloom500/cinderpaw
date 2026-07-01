@@ -267,6 +267,32 @@ export const events = {
   },
 
   /**
+   * Fine-grained Dream Cycle stage pulses (BRSI §2.8): every `dream_cycle`
+   * event that carries a `stage` field — wake → observe → evaluate → remember
+   * → sleep. Separate from `onDreamCycle` (which forwards only the coarse
+   * started/ended envelope for the toast + mascot) so a per-stage indicator can
+   * subscribe without touching the mascot path.
+   */
+  onDreamStage: {
+    listen: (cb: (e: DreamCycleLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'dream_cycle' &&
+            typeof (parsed as Record<string, unknown>)['stage'] === 'string'
+          ) {
+            cb(parsed as DreamCycleLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
    * Heartbeat for the agent (sidecar) inference path. Filters the raw
    * `feral://agent-output` stream for `type === "stream_progress"` lines.
    * Same `.listen(cb)` shape as every other event here.

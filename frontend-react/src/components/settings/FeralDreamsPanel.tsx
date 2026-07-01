@@ -2,6 +2,48 @@ import { useEffect, useState } from 'react';
 import { Moon, Sparkles, Check, X, AlertTriangle } from 'lucide-react';
 import { tauri, type DreamTelemetrySummary, type JournalRow } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
+import { useDream, type DreamStage } from '@/stores/dream';
+
+/** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
+ *  opaque engine episode in Faza 1). The live indicator walks these in order. */
+const STAGE_STEPS: { key: DreamStage; label: string }[] = [
+  { key: 'wake', label: 'Wake' },
+  { key: 'observe', label: 'Observe' },
+  { key: 'evaluate', label: 'Evaluate' },
+  { key: 'remember', label: 'Remember' },
+  { key: 'sleep', label: 'Sleep' },
+];
+
+/** Live Dream Cycle stage indicator — lights up wake→observe→evaluate→remember
+ *  →sleep as the sidecar emits `dream_cycle` stage pulses. Shown only while a
+ *  cycle is running. The `evaluate` step spans the whole episode (the engine's
+ *  proposal/eval loop is opaque in Faza 1), so it dwells there the longest. */
+function DreamStageStepper({ stage }: { stage: DreamStage | null }) {
+  const activeIdx = STAGE_STEPS.findIndex((s) => s.key === stage);
+  return (
+    <div className="flex items-center gap-1.5 text-[10px]" aria-label="Dream cycle stage">
+      {STAGE_STEPS.map((s, i) => {
+        const state = activeIdx < 0 ? 'idle' : i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'todo';
+        return (
+          <span key={s.key} className="flex items-center gap-1">
+            <span
+              className={
+                state === 'active'
+                  ? 'text-brand font-medium'
+                  : state === 'done'
+                    ? 'text-text-secondary'
+                    : 'text-text-muted'
+              }
+            >
+              {s.label}
+            </span>
+            {i < STAGE_STEPS.length - 1 && <span className="text-text-muted">›</span>}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * "Feral's Dreams" — lifetime view of the Dream Cycle (RSI self-improvement
@@ -21,6 +63,8 @@ export function FeralDreamsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [receipts, setReceipts] = useState<JournalRow[]>([]);
   const [requested, setRequested] = useState(false);
+  const dreaming = useDream((s) => s.dreaming);
+  const stage = useDream((s) => s.stage);
 
   // BRSI §2.8 `user` Wake trigger: ask the Dream Cycle to run one episode now
   // instead of waiting for the idle gate. Best-effort — a failure (sidecar not
@@ -75,6 +119,13 @@ export function FeralDreamsPanel() {
           {requested ? 'Dreaming soon…' : 'Dream now'}
         </button>
       </header>
+
+      {dreaming && (
+        <div className="flex items-center gap-2 rounded border border-brand/30 bg-brand/5 px-2.5 py-1.5">
+          <Moon size={11} className="shrink-0 animate-pulse text-brand" />
+          <DreamStageStepper stage={stage} />
+        </div>
+      )}
 
       {error ? (
         <p className="text-[11px] text-text-muted">Couldn&apos;t read dream history ({error}).</p>

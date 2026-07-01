@@ -3,9 +3,11 @@ import { render, screen } from '@testing-library/react';
 import { FeralDreamsPanel } from '@/components/settings/FeralDreamsPanel';
 import { tauri, type DreamTelemetrySummary } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
+import { useDream } from '@/stores/dream';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  useDream.setState({ dreaming: false, stage: null }); // don't leak dream state across tests
 });
 
 function stubListener() {
@@ -78,6 +80,33 @@ describe('FeralDreamsPanel', () => {
     render(<FeralDreamsPanel />);
 
     expect(await screen.findByText(/No dreams yet/)).toBeInTheDocument();
+  });
+
+  it('shows the live §2.8 stage indicator while a cycle is dreaming', async () => {
+    stubListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    useDream.setState({ dreaming: true, stage: 'evaluate' });
+
+    render(<FeralDreamsPanel />);
+
+    // The stepper renders all five emitted stages; Evaluate is the active one.
+    expect(await screen.findByText('Evaluate')).toBeInTheDocument();
+    expect(screen.getByText('Observe')).toBeInTheDocument();
+    expect(screen.getByText('Remember')).toBeInTheDocument();
+    expect(screen.getByText('Sleep')).toBeInTheDocument();
+  });
+
+  it('hides the stage indicator when not dreaming', async () => {
+    stubListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    useDream.setState({ dreaming: false, stage: null });
+
+    render(<FeralDreamsPanel />);
+
+    await screen.findByText('12'); // panel loaded
+    expect(screen.queryByText('Evaluate')).not.toBeInTheDocument();
   });
 
   it('surfaces a read error without crashing', async () => {
