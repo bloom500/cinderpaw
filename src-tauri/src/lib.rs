@@ -1048,6 +1048,56 @@ async fn feral_dream_now(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Faza 2 Slice 5 — approval gate: ask the sidecar for the pending code-patch
+/// queue. Fire-and-forget; the sidecar replies with one `code_patches` line
+/// (full queue + first-10 window state) forwarded over `feral://agent-output`.
+#[tauri::command]
+#[specta::specta]
+async fn feral_code_patches_list(state: State<'_, AppState>) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "rsi_code_patches_list" }).to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Faza 2 Slice 5 — approval gate: approve or reject one pending code patch.
+/// `action` is validated HERE so a compromised webview cannot smuggle another
+/// verb; an approval also live-applies in the sidecar when the source repo is
+/// configured. The sidecar acks with `code_patch_resolved` + a refreshed
+/// `code_patches` line.
+#[tauri::command]
+#[specta::specta]
+async fn feral_code_patch_resolve(
+    state: State<'_, AppState>,
+    patch_id: String,
+    action: String,
+) -> Result<(), String> {
+    if action != "approve" && action != "reject" {
+        return Err(format!("invalid action '{action}' — approve|reject"));
+    }
+    let msg = serde_json::json!({
+        "type": "rsi_code_patch_resolve",
+        "id": patch_id,
+        "patchAction": action,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Reactive-tree drill-down: ask the sidecar for the real member memories of a
 /// top-level RAPTOR cluster. Fire-and-forget like the benchmark — the sidecar
 /// replies with a `fractal_cluster_leaves_result` line (paired by `request_id`)
@@ -3224,6 +3274,8 @@ pub fn run() {
             feral_stop_generation,
             feral_run_fractal_benchmark,
             feral_dream_now,
+            feral_code_patches_list,
+            feral_code_patch_resolve,
             feral_fractal_cluster_leaves,
             feral_set_model,
             feral_get_model_config,

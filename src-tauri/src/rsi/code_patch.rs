@@ -43,6 +43,7 @@ const DENYLIST_BASENAMES: &[&str] = &[
     // TS-side additions that talk to this wall / the scorer:
     "code-leaves.ts",
     "code-rsi.ts",
+    "pending-patches.ts",
 ];
 
 /// Raw measurements the sandbox eval runner (TS, `code-sandbox.ts`)

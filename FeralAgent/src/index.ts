@@ -930,6 +930,42 @@ async function main(): Promise<void> {
   // tools are fully wired.
   const connectors = new ConnectorManager(agent, log, leadDesk);
 
+  // Faza 2 Slice 5: the code-patch approval gate, created lazily on first
+  // IPC touch (installs that never use code-RSI pay nothing). One store per
+  // process, persisted next to the journal.
+  let codePatchGatePromise: Promise<{
+    store: import("./rsi/pending-patches.ts").PendingPatchStore;
+    sendCodePatches: () => void;
+  }> | null = null;
+  const codePatchGate = () => {
+    codePatchGatePromise ??= (async () => {
+      const { PendingPatchStore, defaultPendingPatchesPath } = await import(
+        "./rsi/pending-patches.ts"
+      );
+      const store = new PendingPatchStore(defaultPendingPatchesPath());
+      const sendCodePatches = (): void => {
+        transport.send({
+          type: "code_patches",
+          patches: store.list().map((p) => ({
+            id: p.id,
+            status: p.status,
+            score: p.score,
+            rationale: p.genome.proposal.rationale,
+            affectedFiles: p.genome.affectedFiles,
+            patch: p.genome.patch,
+            commitHash: p.commitHash,
+            createdAt: p.createdAt,
+            ...(p.note ? { note: p.note } : {}),
+          })),
+          manualWindowOpen: store.requiresManualApproval(),
+          appliedCount: store.appliedCount(),
+        });
+      };
+      return { store, sendCodePatches };
+    })();
+    return codePatchGatePromise;
+  };
+
   transport.onMessage(async (msg) => {
     switch (msg.type) {
       case "ping":
@@ -943,6 +979,49 @@ async function main(): Promise<void> {
       case "rsi_dream_now":
         dream.requestUserDream();
         break;
+
+      // Faza 2 Slice 5 — the code-patch approval gate. Store + apply live in
+      // `pending-patches.ts`; this is only the IPC seam. Live apply needs the
+      // real source repo (dev-mode knob FERAL_CODE_RSI_REPO); without it an
+      // approval is recorded but the patch stays un-applied.
+      case "rsi_code_patches_list": {
+        const { sendCodePatches } = await codePatchGate();
+        sendCodePatches();
+        break;
+      }
+      case "rsi_code_patch_resolve": {
+        void (async () => {
+          const { store, sendCodePatches } = await codePatchGate();
+          const patchId = msg.id ?? "";
+          const action = msg.patchAction;
+          const ack = (status: string, error?: string): void => {
+            transport.send({ type: "code_patch_resolved", id: patchId, status, ...(error ? { error } : {}) });
+            sendCodePatches();
+          };
+          try {
+            if (action !== "approve" && action !== "reject") {
+              ack("error", `invalid patchAction '${String(action)}'`);
+              return;
+            }
+            const resolved = store.resolve(patchId, action);
+            if (action === "reject") {
+              ack(resolved.status);
+              return;
+            }
+            const repoRoot = process.env.FERAL_CODE_RSI_REPO;
+            if (!repoRoot) {
+              ack("approved", "live apply unavailable: set FERAL_CODE_RSI_REPO to the source repo");
+              return;
+            }
+            const { applyPatchLive } = await import("./rsi/pending-patches.ts");
+            const r = await applyPatchLive({ store, id: patchId, repoRoot });
+            ack(store.get(patchId)?.status ?? "error", r.ok ? undefined : r.reason);
+          } catch (err) {
+            ack("error", err instanceof Error ? err.message : String(err));
+          }
+        })();
+        break;
+      }
 
       // PROVISIONAL (temporary Settings button): run the Fractal Memory Search
       // benchmark gate on demand and emit the verdict back to the UI. Runs off

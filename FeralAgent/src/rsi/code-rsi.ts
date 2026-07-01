@@ -39,6 +39,7 @@ import { runContract } from "./contract-runner.ts";
 import { makeInitialState, type ContractState } from "./contract.ts";
 import { DEFAULT_BUDGET_CAPS } from "./budget.ts";
 import type { PopulationManager } from "./population-manager.ts";
+import type { PendingPatchStore } from "./pending-patches.ts";
 
 /** Same safety-net timeout as `adapters.ts` — a lost bridge line must
  *  free the slot, not hang the candidate forever. */
@@ -145,6 +146,10 @@ export interface CodeCandidateArgs {
   /** Journal linkage — same knobs as `RatchetDeps`. */
   cycleId?: string;
   journalPath?: () => string;
+  /** Slice 5: when supplied, a ratchet-winning candidate is queued for
+   *  the approval gate (live apply NEVER happens here — see
+   *  `pending-patches.ts`). */
+  pendingStore?: PendingPatchStore;
 }
 
 export interface CodeCandidateResult {
@@ -193,6 +198,16 @@ export async function runCodeCandidate(args: CodeCandidateArgs): Promise<CodeCan
 
   if (args.pop && run.commitHash) {
     args.pop.setCommitHash(args.genomeId, run.commitHash);
+  }
+
+  // Promotion won the substrate ratchet — queue it for the human gate.
+  if (args.pendingStore && run.advanced && run.commitHash && run.score !== undefined) {
+    args.pendingStore.add({
+      id: args.genomeId,
+      genome: args.genome,
+      score: run.score,
+      commitHash: run.commitHash,
+    });
   }
 
   return {

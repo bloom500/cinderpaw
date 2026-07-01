@@ -364,6 +364,7 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     // (`src-tauri/src/rsi/code_patch.rs` DENYLIST_BASENAMES).
     "code-leaves.ts",
     "code-rsi.ts",
+    "pending-patches.ts", // Slice 5: the approval gate itself
   ],
 };
 

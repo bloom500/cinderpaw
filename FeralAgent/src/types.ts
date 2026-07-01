@@ -920,6 +920,12 @@ export interface InboundMessage {
     // BRSI §2.8 `user` Wake trigger — the host asks the Dream Cycle to run one
     // episode now, bypassing the idle/cooldown gate (explicit user intent).
     | "rsi_dream_now"
+    // Faza 2 Slice 5 — the code-patch approval gate. `list` asks for the
+    // pending queue (sidecar replies with one `code_patches` event);
+    // `resolve` approves/rejects patch `id` (payload `patchAction`), and an
+    // approval also live-applies when FERAL_CODE_RSI_REPO is set. The
+    // sidecar replies with `code_patch_resolved` + a refreshed `code_patches`.
+    | "rsi_code_patches_list" | "rsi_code_patch_resolve"
     // Bridge response delivery — every `rsi_request` the sidecar emits
     // is paired with exactly one `rsi_response` line by Rust. Routed
     // to `RsiBridge.onResponse` in the sidecar.
@@ -936,6 +942,9 @@ export interface InboundMessage {
   rsiNewConcurrency?: number;
   /** Reactive-tree drill-down payload (type === "fractal_cluster_leaves"). */
   clusterIndex?: number;
+  /** Approval-gate payload (type === "rsi_code_patch_resolve"); the patch
+   *  id rides the plain `id` field. */
+  patchAction?: "approve" | "reject";
   /**
    * RSI response payload (type === "rsi_response") reuses the PLAIN fields
    * `id` (above) and `ok`/`data`/`error` (declared below). Rust's
@@ -1111,6 +1120,39 @@ export type OutboundEvent =
       fractalP99Ms?: number;
       ftsP99Ms?: number;
       path?: string;
+    }
+  // Faza 2 Slice 5 — the code-patch approval gate (frozen IPC for the
+  // Dreams-panel "Pending patches" card). `code_patches` is the full queue
+  // (sent on `rsi_code_patches_list` and after every resolution);
+  // `code_patch_resolved` acks one `rsi_code_patch_resolve`. `status`
+  // values: pending | approved | rejected | applied | apply_failed |
+  // reverted — an approval auto-applies when the host repo is configured,
+  // so the ack usually reports "applied" or "apply_failed", and "approved"
+  // only when live apply is unavailable (no FERAL_CODE_RSI_REPO).
+  | {
+      type: "code_patches";
+      patches: Array<{
+        id: string;
+        status: string;
+        score: number;
+        rationale: string;
+        affectedFiles: string[];
+        /** The unified diff itself — the card renders it for review. */
+        patch: string;
+        commitHash: string;
+        createdAt: number;
+        note?: string;
+      }>;
+      /** True while the first-10 window is open (spec §2.5): every apply
+       *  needs an explicit human approval. */
+      manualWindowOpen: boolean;
+      appliedCount: number;
+    }
+  | {
+      type: "code_patch_resolved";
+      id: string;
+      status: string;
+      error?: string;
     }
   // Living-organism pulses. Forwarded verbatim over `feral://agent-output`
   // so the React `events.onFractalActivity` listener can route each kind
