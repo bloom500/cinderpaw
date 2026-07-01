@@ -7,7 +7,7 @@
  * host; this probe prints the score the locked Rust formula WOULD produce,
  * clearly labelled as a local reconstruction for display.
  *
- * Run: bun tools/code-rsi-smoke.ts   (from FeralAgent/; ~2-5 min)
+ * Run: bun scripts/code-rsi-smoke.ts   (from FeralAgent/; ~2-5 min)
  */
 
 import { readFileSync } from "node:fs";
