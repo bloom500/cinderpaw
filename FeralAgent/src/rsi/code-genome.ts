@@ -122,6 +122,11 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     "contract.ts",
     "ratchet-handler.ts",
     "confidence.ts",
+    // Slice 4 additions — the code-aware leaves + the runner that wires
+    // the walls together. Kept in sync BY HAND with the Rust mirror
+    // (`src-tauri/src/rsi/code_patch.rs` DENYLIST_BASENAMES).
+    "code-leaves.ts",
+    "code-rsi.ts",
   ],
 };
 

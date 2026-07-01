@@ -17,6 +17,7 @@
  */
 
 import type { GenomeConfig } from "./genome.ts";
+import type { CodeGenome } from "./code-genome.ts";
 
 /** A genome's in-memory record. Mirrors the `rsi_genome` table shape. */
 export interface Genome {
@@ -27,6 +28,10 @@ export interface Genome {
   /** The evolving agent configuration (strategy_dna). Optional on the
    *  record because the manager never interprets it — handlers do. */
   config?: GenomeConfig;
+  /** Faza 2: the code patch this genome carries. A genome is config-RSI
+   *  or code-RSI by which field is set (spec §1: one population, one
+   *  bus, one FSM). Opaque to the manager, like `config`. */
+  code?: CodeGenome;
   /** How this genome was produced. `"seed"` for the four bootstrap seeds
    *  (no parent mutation); `"parametric"` (and later `"crossover"`,
    *  `"llm_mutation"`) for selection-handler births. Captured at
@@ -50,6 +55,8 @@ export interface GenomeSpec {
   generation: number;
   lineage: string[];
   config?: GenomeConfig;
+  /** See `Genome.code`. */
+  code?: CodeGenome;
   /** See `Genome.mutationType`. The selection handler passes the
    *  `"parametric"` (etc.) value returned by `mutateConfig`; bootstrap
    *  paths set `"seed"`. The commit adapter reads it back when
@@ -141,6 +148,7 @@ export class PopulationManager {
       generation: spec.generation,
       lineage: spec.lineage,
       config: spec.config,
+      code: spec.code,
       mutationType: spec.mutationType,
       fitnessScore: null,
       behavioralFingerprint: null,
