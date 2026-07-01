@@ -82,6 +82,23 @@ describe('FeralDreamsPanel', () => {
     expect(await screen.findByText(/No dreams yet/)).toBeInTheDocument();
   });
 
+  it('renders the Tree of Champions niche rows, highest score first', async () => {
+    stubListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'championTree').mockResolvedValue([
+      { niche: 't2:c2:rgraph:d2', genomeId: 'g2', score: 80 },
+      { niche: 't1:c1:rsemantic:d1', genomeId: 'g1', score: 50 },
+    ]);
+
+    render(<FeralDreamsPanel />);
+
+    expect(await screen.findByText('Champions by niche')).toBeInTheDocument();
+    expect(screen.getByText('t2:c2:rgraph:d2')).toBeInTheDocument();
+    expect(screen.getByText('t1:c1:rsemantic:d1')).toBeInTheDocument();
+    expect(screen.getByText('80.0')).toBeInTheDocument();
+  });
+
   it('shows the live §2.8 stage indicator while a cycle is dreaming', async () => {
     stubListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);

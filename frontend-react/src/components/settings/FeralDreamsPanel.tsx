@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Moon, Sparkles, Check, X, AlertTriangle } from 'lucide-react';
-import { tauri, type DreamTelemetrySummary, type JournalRow } from '@/lib/tauri';
+import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 
@@ -62,6 +62,7 @@ export function FeralDreamsPanel() {
   const [summary, setSummary] = useState<DreamTelemetrySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [receipts, setReceipts] = useState<JournalRow[]>([]);
+  const [champions, setChampions] = useState<ChampionTreeRow[]>([]);
   const [requested, setRequested] = useState(false);
   const dreaming = useDream((s) => s.dreaming);
   const stage = useDream((s) => s.stage);
@@ -93,6 +94,13 @@ export function FeralDreamsPanel() {
         if (alive) setReceipts(rows);
       } catch {
         if (alive) setReceipts([]);
+      }
+      // Tree of Champions (§7.4) — its own guard, same soft-add-on discipline.
+      try {
+        const tree = await tauri.rsi.championTree();
+        if (alive) setChampions(tree);
+      } catch {
+        if (alive) setChampions([]);
       }
     };
     void load();
@@ -161,8 +169,32 @@ export function FeralDreamsPanel() {
           )}
 
           <Receipts rows={receipts} />
+          <ChampionsByNiche rows={champions} />
         </>
       )}
+    </div>
+  );
+}
+
+/** Tree of Champions (§7.4) — the best config per behavioural niche. Shows that
+ *  Feral keeps DIVERSITY, not just the single global best: each row is a
+ *  distinct region (`t:c:r:d` — temperature / context / retrieval / depth) that
+ *  won on its own terms. Empty until the engine has ratcheted a niche. */
+function ChampionsByNiche({ rows }: { rows: ChampionTreeRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
+      <span className="text-[11px] font-medium text-text-secondary">
+        Champions by niche <span className="text-text-muted">({rows.length})</span>
+      </span>
+      <ul className="space-y-1">
+        {rows.map((c) => (
+          <li key={c.niche} className="flex items-center gap-2 text-[11px]">
+            <span className="font-mono text-text-muted">{c.niche}</span>
+            <span className="ml-auto tabular-nums text-text-secondary">{c.score.toFixed(1)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

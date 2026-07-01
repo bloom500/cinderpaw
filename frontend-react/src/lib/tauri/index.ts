@@ -281,6 +281,14 @@ export interface JournalRow {
   decided: JournalDecisionRow;
 }
 
+/** One niche's reigning champion from the Tree of Champions (§7.4), flattened
+ *  for the receipts UI. `niche` is the escape-time behavioural region key. */
+export interface ChampionTreeRow {
+  niche: string;
+  genomeId: string;
+  score: number;
+}
+
 /** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
@@ -507,6 +515,7 @@ const raw = {
     invoke<DreamTelemetrySummary>('rsi_dream_telemetry', { limit }),
   rsiJournalRecent:   (limit: number) =>
     invoke<JournalRow[]>('rsi_journal_recent', { limit }),
+  rsiChampionTree:    () => invoke<ChampionTreeRow[]>('rsi_champion_tree'),
   rsiDreamNow:        () => invoke<void>('feral_dream_now'),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
@@ -651,6 +660,8 @@ export const tauri = {
     setConcurrency:  async (concurrency: number) => raw.rsiSetConcurrency(concurrency),
     dreamTelemetry:  async (limit = 12) => raw.rsiDreamTelemetry(limit),
     journalRecent:   async (limit = 12) => raw.rsiJournalRecent(limit),
+    /** §7.4 Tree of Champions — per-niche champions, highest score first. */
+    championTree:    async () => raw.rsiChampionTree(),
     /** BRSI §2.8 `user` Wake trigger — run one dream episode now. */
     dreamNow:        async () => raw.rsiDreamNow(),
   },

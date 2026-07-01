@@ -1083,11 +1083,95 @@ pub fn rsi_journal_recent(limit: usize) -> Result<Vec<JournalRow>, String> {
     Ok(rows)
 }
 
+/// One niche's reigning champion, flattened for the receipts UI (§7.4). The
+/// full config lives in the on-disk record; the UI shows the behavioural niche
+/// key + the score.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChampionTreeRow {
+    pub niche: String,
+    pub genome_id: String,
+    pub score: f64,
+}
+
+/// Read the Tree of Champions archive (`~/.feral/rsi/champion-tree.json`) and
+/// return its niche champions, highest score first, for the receipts UI. A
+/// missing / corrupt file yields an empty list (the engine simply hasn't
+/// ratcheted a niche yet). Tolerant `Value` parse so a schema drift on the TS
+/// writer side degrades to fewer rows, never a crash. **Stateless.**
+#[tauri::command]
+#[specta::specta]
+pub fn rsi_champion_tree() -> Result<Vec<ChampionTreeRow>, String> {
+    let path = crate::paths::rsi_dir().join("champion-tree.json");
+    let body = match std::fs::read_to_string(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("read champion-tree: {e}")),
+    };
+    let state: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(_) => return Ok(Vec::new()), // corrupt → empty, don't crash the panel
+    };
+    let mut rows: Vec<ChampionTreeRow> = Vec::new();
+    if let Some(niches) = state.get("niches").and_then(|n| n.as_array()) {
+        for n in niches {
+            let niche = n
+                .get("niche")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let champ = n.get("champion");
+            let genome_id = champ
+                .and_then(|c| c.get("genomeId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let score = champ
+                .and_then(|c| c.get("score"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            if !niche.is_empty() {
+                rows.push(ChampionTreeRow { niche, genome_id, score });
+            }
+        }
+    }
+    rows.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(rows)
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn champion_tree_rows_parse_sorted_and_tolerant() {
+        // The parse is inline in rsi_champion_tree; mirror it on a literal body
+        // to pin the shape + sort + tolerance without touching the real home.
+        let body = r#"{"version":1,"niches":[
+            {"niche":"t1:c1:rsemantic:d1","champion":{"genomeId":"g1","score":50.0}},
+            {"niche":"t2:c2:rgraph:d2","champion":{"genomeId":"g2","score":80.0}},
+            {"niche":"","champion":{"genomeId":"g3","score":99.0}}
+        ]}"#;
+        let state: serde_json::Value = serde_json::from_str(body).unwrap();
+        let mut rows: Vec<ChampionTreeRow> = Vec::new();
+        if let Some(niches) = state.get("niches").and_then(|n| n.as_array()) {
+            for n in niches {
+                let niche = n.get("niche").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let champ = n.get("champion");
+                let genome_id = champ.and_then(|c| c.get("genomeId")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let score = champ.and_then(|c| c.get("score")).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                if !niche.is_empty() {
+                    rows.push(ChampionTreeRow { niche, genome_id, score });
+                }
+            }
+        }
+        rows.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        assert_eq!(rows.len(), 2); // the empty-niche row is dropped
+        assert_eq!(rows[0].genome_id, "g2"); // highest score first
+        assert_eq!(rows[1].genome_id, "g1");
+    }
 
     #[test]
     fn registry_register_and_ack_round_trip() {

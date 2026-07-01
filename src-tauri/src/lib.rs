@@ -3275,6 +3275,7 @@ pub fn run() {
             rsi::commands::rsi_set_concurrency,
             rsi::commands::rsi_dream_telemetry,
             rsi::commands::rsi_journal_recent,
+            rsi::commands::rsi_champion_tree,
         ])
         .events(tauri_specta::collect_events![
             crate::events::TokenEvent,
