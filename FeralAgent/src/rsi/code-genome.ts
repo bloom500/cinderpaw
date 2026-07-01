@@ -114,6 +114,7 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
   maxChangedLines: 200,
   denylistBasenames: [
     "code-genome.ts", // this wall
+    "code-sandbox.ts", // the measurement runner — patching it = lying to the scorer
     "contract-runner.ts",
     "contract-stages.ts",
     "contract-deps.ts",
