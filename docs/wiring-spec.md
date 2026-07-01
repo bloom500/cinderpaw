@@ -375,7 +375,7 @@ I6 (confidence precedence).
 
 Currently `RsiEventType` has 9 members. The wiring adds:
 
-- `EvalHalted` — for contract pre-checks that halt BEFORE eval (audit landmine #2).
+- ~~`EvalHalted`~~ **LANDED 2026-07-01** — added to `RsiEventType` per ADR-0011; the bus throws on a reason-less `EvalHalted` at emit time (INVARIANT I15 runtime guard). Emitter (Contract FSM) still pending.
 - `ConfidencePassed` / `ConfidenceFailed` — for the confidence gate verdict.
 - `BudgetExceeded` / `BudgetFailOpen` — for the budget gate verdict.
 - `MutationCreated` / `MutationRejected` / `MutationApplied` — for the candidate lifecycle.

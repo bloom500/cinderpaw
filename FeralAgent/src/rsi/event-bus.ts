@@ -15,7 +15,16 @@
  *  rejection — the statistical confidence gate OR the Tier 0 sanity floor
  *  (INVARIANT I8) blocked the candidate; `reason` discriminates. The
  *  acceptance verdict needs no event because it is already observable as
- *  the subsequent `RatchetAdvanced`. */
+ *  the subsequent `RatchetAdvanced`.
+ *
+ *  `EvalHalted` (ADR-0011) is the sibling of `EvalComplete` for "the eval
+ *  never STARTED" — a Contract FSM pre-check (budget breach, invariant
+ *  violation) decided not to run the candidate at all. It is distinct from
+ *  `EvalComplete{errored:true}` ("started, then crashed"): the two map to
+ *  different downstream behaviour (ratchet skipped vs ratchet never
+ *  invoked). Only the Contract FSM / a pre-check wrapper emits it — never
+ *  `eval-worker.ts`. INVARIANT I15: it MUST carry a non-empty `reason`
+ *  (enforced at emit time below). */
 export type RsiEventType =
   | "GenomeBorn"
   | "EvalStarted"
@@ -26,7 +35,8 @@ export type RsiEventType =
   | "ExtinctionTriggered"
   | "PBTSyncTriggered"
   | "GoodhartDetected"
-  | "RecalcitranceHigh";
+  | "RecalcitranceHigh"
+  | "EvalHalted";
 
 /** Base event shape: a discriminant `type` plus arbitrary payload fields. */
 export interface RsiEvent {
@@ -84,6 +94,17 @@ export class EventBus {
    * EvalComplete → RatchetAdvanced → PBTSyncTriggered deterministic.
    */
   async emit(event: RsiEvent): Promise<void> {
+    // INVARIANT I15 — an `EvalHalted` MUST carry a non-empty `reason`. A halt
+    // with no explanation is a silent rejection (the exact failure mode BRSI
+    // forbids) and would write a reason-less halt row to the Journal. Reject it
+    // at the bus, before it enters the queue, so a bad emit fails loudly at the
+    // caller (the Contract FSM) rather than corrupting the audit trail. HARD.
+    if (
+      event.type === "EvalHalted" &&
+      !(typeof event.reason === "string" && event.reason.trim() !== "")
+    ) {
+      throw new Error("EvalHalted requires a non-empty `reason` (INVARIANT I15)");
+    }
     this.queue.push(event);
     if (this.pumping) return;
 

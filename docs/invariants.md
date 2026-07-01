@@ -56,7 +56,7 @@ four are present.
 | I12 | Provenance graph acyclic            | HARD | `repo.rs` (git substrate) | ACTIVE |
 | I13 | Per-instance data isolation         | HARD | `paths.rs`, per-instance split (PENDING) | PENDING |
 | I14 | Human approval gate for L3+ changes | HARD | Contract FSM (Opus) | PENDING |
-| I15 | EvalHalted requires reason          | HARD | `event-bus.ts` + Contract FSM (Opus) | ACTIVE (type) / PENDING (emitter) |
+| I15 | EvalHalted requires reason          | HARD | `event-bus.ts` + Contract FSM (Opus) | ACTIVE (type + runtime) / PENDING (emitter) |
 | S1  | Average confidence ≥ 0.95           | SOFT | `confidence.ts`, Journal | ACTIVE |
 | S2  | Niche count ≥ 3                     | SOFT | `population-manager.ts` | PENDING |
 | S3  | Per-cycle observations ≥ 1          | SOFT | Contract FSM (Opus) | PENDING |
@@ -491,9 +491,9 @@ provide a reason; the audit trail stays honest.
 
 **Recovery:** Caller-side: provide a reason and re-emit.
 
-**Introduced:** v0.9.0 (type-level ACTIVE; emitter-level PENDING until
-Contract FSM lands)
-**Status:** ACTIVE (type) / PENDING (emitter)
+**Introduced:** v0.9.0 (type-level ACTIVE; runtime guard ACTIVE 2026-07-01
+at the bus; emitter-level PENDING until the Contract FSM emits it live)
+**Status:** ACTIVE (type + runtime) / PENDING (emitter)
 
 **Related:** ADR-0011 (EvalHalted event semantics), `docs/wiring-spec.md`
 §6.2, INVARIANTS.md I3 (Journal append-only — the reason is persisted
