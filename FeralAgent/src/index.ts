@@ -893,13 +893,86 @@ async function main(): Promise<void> {
     config: dreamCfg,
     log,
   });
+  // Faza 2 code-RSI round, piggybacked on the Dream Cycle: after each
+  // dream episode ends, propose ONE patch over the agent's own rsi/
+  // sources and run it through the full contract (walls → worktree →
+  // Rust score → substrate ratchet → approval queue). Dev-mode: requires
+  // FERAL_CODE_RSI_REPO (the source monorepo) and a LOCAL primary model
+  // (spec §2.5: no network during proposal). At most one round in flight.
+  let codeRsiBusy = false;
+  const maybeCodeRsiRound = async (): Promise<void> => {
+    const repoRoot = process.env.FERAL_CODE_RSI_REPO;
+    if (!repoRoot || codeRsiBusy) return;
+    if (!router.isPrimaryLocal) {
+      log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5)");
+      return;
+    }
+    codeRsiBusy = true;
+    try {
+      const { proposeCodePatch } = await import("./rsi/code-proposer.ts");
+      const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/code-rsi.ts");
+      const { bunExec } = await import("./rsi/code-sandbox.ts");
+      const { readdir, readFile } = await import("node:fs/promises");
+      const rsiDir = require("node:path").join(repoRoot, "FeralAgent", "src", "rsi");
+
+      const genome = await proposeCodePatch({
+        completeLocal: async ({ system, user, maxTokens }) => {
+          const res = await router.complete({
+            sessionId: "code-rsi-proposer",
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            maxTokens,
+            temperature: 0.4,
+            cachePrompt: false,
+            skipBudgetCheck: false,
+          });
+          return res.content;
+        },
+        listRsiFiles: () => readdir(rsiDir),
+        readRsiFile: (basename) => readFile(require("node:path").join(rsiDir, basename), "utf8"),
+        baseCommit: async () =>
+          (await bunExec(["git", "rev-parse", "HEAD"], { cwd: repoRoot, timeoutMs: 30_000 }))
+            .stdout.trim(),
+      });
+      if (!genome) {
+        log("code-rsi: proposer declined (SKIP / nothing diff-shaped) — no candidate this round");
+        return;
+      }
+
+      const { store, sendCodePatches } = await codePatchGate();
+      const genomeId = crypto.randomUUID();
+      log(`code-rsi: candidate ${genomeId.slice(0, 8)} targets ${genome.affectedFiles.join(", ")}`);
+      const result = await runCodeCandidate({
+        genomeId,
+        genome,
+        deps: makeCodeStageAdapters({ bridge: rsiBridge, repoRoot }),
+        cycleId: `c-code-${new Date().toISOString()}`,
+        pendingStore: store,
+      });
+      log(
+        `code-rsi: ${result.decided?.action ?? "?"} (${result.decided?.reason ?? "no reason"})` +
+          (result.advanced ? ` — PROMOTED score=${result.score?.toFixed(1)}, queued for approval` : ""),
+      );
+      if (result.advanced) sendCodePatches();
+    } catch (e) {
+      log(`code-rsi: round failed: ${String(e)}`);
+    } finally {
+      codeRsiBusy = false;
+    }
+  };
+
   const rsiSidecar = new RsiSidecar({
     router,
     db: db.raw,
     bridge: rsiBridge,
     send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
     log,
-    onIdle: dreamCycle.onEpisodeEnd,
+    onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
+      dreamCycle.onEpisodeEnd(...args);
+      void maybeCodeRsiRound();
+    },
     // The Crux: a new ratcheted-best config is applied to the LIVE agent
     // (temperature today; the UI Controls override still wins per-session).
     onChampion: (record) => {

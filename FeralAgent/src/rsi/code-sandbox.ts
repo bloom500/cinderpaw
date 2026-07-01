@@ -231,6 +231,17 @@ function firstLine(s: string): string {
   return s.split("\n", 1)[0]?.trim() ?? "";
 }
 
+/** Resolve `bun`/`bunx` to the real executable path. Windows `uv_spawn`
+ *  does not apply PATHEXT, so a bare "bun" that works in a shell is
+ *  ENOENT from Bun.spawn; `Bun.which` finds bun.exe properly. `bunx` is
+ *  sugar for `bun x`. Everything else spawns as-is. */
+function resolveCmd(cmd: string[]): string[] {
+  const [head, ...rest] = cmd;
+  if (head !== "bun" && head !== "bunx") return cmd;
+  const bun = Bun.which("bun") ?? head;
+  return head === "bunx" ? [bun, "x", ...rest] : [bun, ...rest];
+}
+
 /** Production ExecFn: Bun.spawn with a kill timer. timedOut → exitCode -2
  *  (same convention as process-sandbox.ts). */
 export async function bunExec(
@@ -238,7 +249,7 @@ export async function bunExec(
   opts: { cwd: string; timeoutMs: number; stdin?: string },
 ): Promise<ExecResult> {
   const proc = Bun.spawn({
-    cmd,
+    cmd: resolveCmd(cmd),
     cwd: opts.cwd,
     env: { ...process.env },
     stdin: opts.stdin != null ? "pipe" : "ignore",
