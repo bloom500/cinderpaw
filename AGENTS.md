@@ -53,6 +53,11 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
 - **`project_local_models_gpu.md`** — the on-disk models, the bge-small
   Vulkan crash, the `FERAL_EMBED_GPU_LAYERS=0` knob, and the
   `discover_active_model` "wrong chat model" footgun (now fixed).
+- **`project_brsi_evolution.md`** — the BRSI (Bounded RSI) work: locked
+  decisions (D1-D10), audit summary of the existing engine, refactor
+  sequence (10 steps), landmines for any contract / dream-cycle work,
+  and the opencode-vs-Opus division of labor. **Read before touching
+  any file in `FeralAgent/src/rsi/` or `src-tauri/src/rsi/`.**
 
 ## Things that are pinned at the type level (don't break these)
 
