@@ -87,8 +87,245 @@ export function isDiffParseError(v: ParsedDiff | DiffParseError): v is DiffParse
 //     (`+++ /dev/null`), rename header pair, binary marker, CRLF, malformed
 //     hunk → error. Fixtures inline, no fs.
 // ─────────────────────────────────────────────────────────────────────────────
-export function parseUnifiedDiff(_patch: string): ParsedDiff | DiffParseError {
-  throw new Error("parseUnifiedDiff: not implemented (MiniMax leaf — see contract above)");
+export function parseUnifiedDiff(patch: string): ParsedDiff | DiffParseError {
+  if (typeof patch !== "string" || patch.trim() === "") {
+    return { error: "empty patch" };
+  }
+
+  // CRLF → LF; split on \n. A trailing newline produces a final empty
+  // element we explicitly skip below.
+  const lines = patch.replace(/\r\n/g, "\n").split("\n");
+
+  const files: ParsedDiffFile[] = [];
+  let i = 0;
+  let cur: MutableFile | null = null;
+  let hunk: MutableHunk | null = null;
+
+  const finaliseCurrent = (): void => {
+    if (!cur) return;
+    files.push({
+      oldPath: cur.oldPath ?? null,
+      newPath: cur.newPath ?? null,
+      addedLines: cur.addedLines,
+      removedLines: cur.removedLines,
+      binary: cur.binary,
+    });
+    cur = null;
+  };
+
+  const closeHunk = (lineIdx: number): DiffParseError | null => {
+    if (!hunk) return null;
+    if (hunk.oldSeen !== hunk.oldCount || hunk.newSeen !== hunk.newCount) {
+      return {
+        error:
+          `hunk @@ at line ${lineIdx}: counts mismatch ` +
+          `(expected -${hunk.oldCount}/+${hunk.newCount}, ` +
+          `got -${hunk.oldSeen}/+${hunk.newSeen})`,
+      };
+    }
+    hunk = null;
+    return null;
+  };
+
+  while (i < lines.length) {
+    const raw = lines[i]!;
+    const line = raw.replace(/\r$/, "");
+
+    // Trailing newline artefact — skip the empty element at the end.
+    if (i === lines.length - 1 && line === "") {
+      i++;
+      continue;
+    }
+
+    // Hunk body: classify the line as + / - / space / continuation.
+    // File headers (`--- a/path`, `+++ b/path`) also start with `-`/`+`,
+    // so we MUST recognise them as headers BEFORE classifying as body —
+    // otherwise a new file section immediately following a hunk gets eaten
+    // as a removed/added line.
+    if (hunk) {
+      if (line === "\\ No newline at end of file") {
+        i++;
+        continue;
+      }
+      const isOldHeader = /^--- (?:[ab]\/)?/.test(line);
+      const isNewHeader = /^\+\+\+ (?:[ab]\/)?/.test(line);
+      if (!isOldHeader && !isNewHeader) {
+        if (line.startsWith("+")) {
+          cur!.addedLines++;
+          hunk.newSeen++;
+          i++;
+          continue;
+        }
+        if (line.startsWith("-")) {
+          cur!.removedLines++;
+          hunk.oldSeen++;
+          i++;
+          continue;
+        }
+        if (line.startsWith(" ")) {
+          hunk.oldSeen++;
+          hunk.newSeen++;
+          i++;
+          continue;
+        }
+      }
+      // Either a file header or something else — close the hunk first.
+      const err = closeHunk(i + 1);
+      if (err) return err;
+    }
+
+    // Hunk header `@@ -a[,b] +c[,d] @@`. Anything after the second `@@`
+    // (the optional section heading) is irrelevant.
+    const hm = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hm) {
+      if (!cur) {
+        return { error: `hunk @@ at line ${i + 1} with no preceding file section` };
+      }
+      if (cur.oldPath === undefined || cur.newPath === undefined) {
+        return {
+          error: `hunk @@ at line ${i + 1}: file section missing +++/--- pair`,
+        };
+      }
+      if (cur.binary) {
+        return {
+          error: `binary file has hunks: ${cur.newPath ?? cur.oldPath}`,
+        };
+      }
+      const oldCount = hm[2] !== undefined ? parseInt(hm[2], 10) : 1;
+      const newCount = hm[4] !== undefined ? parseInt(hm[4], 10) : 1;
+      hunk = { oldCount, newCount, oldSeen: 0, newSeen: 0 };
+      i++;
+      continue;
+    }
+
+    // `Binary files a/X and b/Y differ` — completes the file inline.
+    const bm = /^Binary files (.+) and (.+) differ$/.exec(line);
+    if (bm) {
+      if (cur && cur.oldPath !== undefined && cur.newPath !== undefined) {
+        finaliseCurrent();
+      }
+      files.push({
+        oldPath: parseHeaderPath(bm[1]!),
+        newPath: parseHeaderPath(bm[2]!),
+        addedLines: 0,
+        removedLines: 0,
+        binary: true,
+      });
+      cur = null;
+      i++;
+      continue;
+    }
+
+    // `GIT binary patch` — body is base85; the wall rejects binaries
+    // outright, so we don't validate counts. Skip the literal/delta block.
+    if (line === "GIT binary patch") {
+      if (!cur) {
+        return { error: `GIT binary patch at line ${i + 1} with no preceding file section` };
+      }
+      if (cur.oldPath === undefined || cur.newPath === undefined) {
+        return {
+          error: `GIT binary patch at line ${i + 1}: file section missing +++/--- pair`,
+        };
+      }
+      cur.binary = true;
+      finaliseCurrent();
+      while (i < lines.length) {
+        const next = lines[i]!.replace(/\r$/, "");
+        if (next.startsWith("diff --git ") || /^--- /.test(next)) break;
+        i++;
+      }
+      continue;
+    }
+
+    // Old path header.
+    const om = /^--- (?:[ab]\/)?(\S.*?)(?:\t.*)?$/.exec(line);
+    if (om && line.startsWith("--- ")) {
+      if (cur && cur.oldPath !== undefined && cur.newPath !== undefined) {
+        finaliseCurrent();
+      }
+      if (!cur) cur = makeMutableFile();
+      cur.oldPath = parseHeaderPath(om[1]!);
+      i++;
+      continue;
+    }
+
+    // New path header.
+    const nm = /^\+\+\+ (?:[ab]\/)?(\S.*?)(?:\t.*)?$/.exec(line);
+    if (nm && line.startsWith("+++ ")) {
+      if (!cur) cur = makeMutableFile();
+      cur.newPath = parseHeaderPath(nm[1]!);
+      i++;
+      continue;
+    }
+
+    // Git extended headers and blank lines between sections: silently skip.
+    if (
+      line === "" ||
+      line.startsWith("diff --git ") ||
+      line.startsWith("index ") ||
+      line.startsWith("old mode ") ||
+      line.startsWith("new mode ") ||
+      line.startsWith("similarity index ") ||
+      line.startsWith("dissimilarity index ") ||
+      line.startsWith("rename from ") ||
+      line.startsWith("rename to ") ||
+      line.startsWith("copy from ") ||
+      line.startsWith("copy to ") ||
+      line.startsWith("new file mode ") ||
+      line.startsWith("deleted file mode ")
+    ) {
+      i++;
+      continue;
+    }
+
+    return { error: `unexpected text at line ${i + 1}: ${line.slice(0, 80)}` };
+  }
+
+  // End-of-input cleanup.
+  if (hunk) {
+    const err = closeHunk(lines.length);
+    if (err) return err;
+  }
+  if (cur) {
+    if (cur.oldPath === undefined || cur.newPath === undefined) {
+      return { error: "file section with no +++/--- pair" };
+    }
+    finaliseCurrent();
+  }
+
+  return { files };
+}
+
+interface MutableFile {
+  oldPath?: string | null;
+  newPath?: string | null;
+  addedLines: number;
+  removedLines: number;
+  binary: boolean;
+}
+
+interface MutableHunk {
+  oldCount: number;
+  newCount: number;
+  oldSeen: number;
+  newSeen: number;
+}
+
+function makeMutableFile(): MutableFile {
+  return { addedLines: 0, removedLines: 0, binary: false };
+}
+
+/** Normalise a path as it appears in a diff header: strip `a/` / `b/`
+ *  prefixes, drop any tab-suffixed timestamp, and fold backslashes. */
+function stripHeaderPath(raw: string): string {
+  let p = raw.split("\t")[0]!.trim();
+  if (p.startsWith("a/") || p.startsWith("b/")) p = p.slice(2);
+  return p.replace(/\\/g, "/");
+}
+
+function parseHeaderPath(raw: string): string | null {
+  const p = stripHeaderPath(raw);
+  return p === "/dev/null" ? null : p;
 }
 
 /** What the policy wall enforces (spec §2.5 guardrails). Host-tunable in
