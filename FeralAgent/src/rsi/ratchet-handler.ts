@@ -1,11 +1,15 @@
 /**
  * Faza 1 — Async RSI Engine: the ratchet handler.
  *
- * On each EvalComplete it commits the (non-errored) genome as a git
- * candidate and asks Rust to attempt a fast-forward of `main`. The
- * monotonicity guarantee — `main` advances ONLY when the new score beats
- * the prior best — lives in Rust (`ratchet_attempt`); this handler only
- * reacts to the verdict and emits RatchetAdvanced when main moved.
+ * On each EvalComplete it runs the candidate through the Evolution
+ * Contract FSM (`runContract`, BRSI §2.1) with leaves built over the
+ * injected ratchet primitives (`contractLeavesFromRatchet`). The FSM
+ * sequences commit → tier-0 floor → benchmark → confidence gate (I6) →
+ * ratchet attempt, and writes ONE per-candidate Journal row per terminal
+ * (I3/I4). The monotonicity guarantee — `main` advances ONLY when the new
+ * score beats the prior best — still lives in Rust (`ratchet_attempt`);
+ * this handler reacts to the contract's verdict and emits RatchetAdvanced
+ * when main moved, ConfidenceFailed when a pre-ratchet gate blocked.
  *
  * The git operations are injected so the ratchet decision is testable
  * without a live repo; in production they are protocol-(a) requests to
@@ -16,6 +20,19 @@ import type { GateDecision, PairedSample } from "./confidence.ts";
 import type { EventBus, RsiEvent } from "./event-bus.ts";
 import type { EvalOutcome } from "./eval-worker.ts";
 import type { PopulationManager } from "./population-manager.ts";
+import { makeInitialState } from "./contract.ts";
+import { runContract } from "./contract-runner.ts";
+import { contractDepsFrom } from "./contract-deps.ts";
+import {
+  contractLeavesFromRatchet,
+  gateForCandidate,
+  type CandidateContext,
+  type CandidateRun,
+} from "./contract-leaves.ts";
+import { DEFAULT_BUDGET_CAPS } from "./budget.ts";
+
+// Re-exported from their new home so existing importers/tests keep working.
+export { tier0FloorBreach, buildPairedSamples } from "./contract-leaves.ts";
 
 /** Everything from EvalComplete the commit adapter needs; config,
  *  lineage and mutationType are filled by the adapter from the population. */
@@ -44,49 +61,12 @@ export interface RatchetDeps {
    *  to compare against yet — so the very first ratchet bootstraps the
    *  baseline. */
   evaluateGate?: (samples: readonly PairedSample[]) => GateDecision;
-}
-
-/** Tier 0 is the frozen sanity floor (INVARIANT I8, BRSI §2.7 accept
- *  criterion "Tier 0 floor intact"). The Rust scorer folds every task into
- *  one aggregate success rate, so a candidate can fail a Tier 0 task yet
- *  still out-score the champion on cost/latency — exactly the gaming the
- *  spec forbids. This is the absolute check the aggregate can't express:
- *  ANY tier-0 task that failed or errored breaks the floor. Returns a
- *  human-readable reason, or null if the floor holds. Pure + deterministic;
- *  exported for testing. */
-export function tier0FloorBreach(outcomes: readonly EvalOutcome[]): string | null {
-  let failed = 0;
-  for (const o of outcomes) {
-    if (o.tier === 0 && (!o.success || o.errored)) failed += 1;
-  }
-  if (failed === 0) return null;
-  return `Tier 0 floor breached: ${failed} frozen sanity task(s) failed`;
-}
-
-/** Pair the current candidate's per-task outcomes against the champion's,
- *  matched by `taskId`. Each task contributes a paired sample with the
- *  per-task binary score (1 on success, 0 otherwise) — the same scalar
- *  the behavioral fingerprint uses. Tasks present in only one set are
- *  dropped: a paired test needs both measurements. Pure + deterministic.
- *
- *  Exported for `tests/rsi-ratchet-with-confidence.test.ts`. */
-export function buildPairedSamples(
-  candidate: readonly EvalOutcome[],
-  baseline: readonly EvalOutcome[],
-): PairedSample[] {
-  const baseById = new Map<string, EvalOutcome>();
-  for (const o of baseline) baseById.set(o.taskId, o);
-
-  const samples: PairedSample[] = [];
-  for (const c of candidate) {
-    const b = baseById.get(c.taskId);
-    if (b === undefined) continue;
-    samples.push({
-      candidate: c.success ? 1 : 0,
-      baseline: b.success ? 1 : 0,
-    });
-  }
-  return samples;
+  /** Cycle id stamped on each per-candidate Journal row, linking the
+   *  candidate to its Dream episode. Default: "c-live" (manual runs). */
+  cycleId?: () => string;
+  /** Journal path override for the per-candidate rows — inject a scratch
+   *  path in tests. Default: the production per-UTC-day journal. */
+  journalPath?: () => string;
 }
 
 export class RatchetHandler {
@@ -116,79 +96,87 @@ export class RatchetHandler {
     const genomeId = event.genomeId as string;
     const score = event.score as number;
     const outcomes = event.outcomes as EvalOutcome[] | undefined;
+    const tokenCost = (event.tokenCost as number) ?? 0;
 
-    const { commitHash } = await this.deps.commitGenome({
+    const ctx: CandidateContext = {
       genomeId,
       score,
-      tokenCost: (event.tokenCost as number) ?? 0,
+      tokenCost,
       durationMs: (event.durationMs as number) ?? 0,
+      ...(outcomes ? { outcomes } : {}),
+      ...(this.lastChampionOutcomes ? { championOutcomes: this.lastChampionOutcomes } : {}),
+      // Record the hash + config so the LCA adapter and the taste miner
+      // can resolve `id → commit_hash → GenomeConfig` later without
+      // re-reading the git substrate. Fired from the sandbox_apply leaf,
+      // i.e. before any verdict — visible regardless of promotion.
+      onCommitted: (commitHash) => {
+        if (!this.pop) return;
+        this.pop.setCommitHash(genomeId, commitHash);
+        const g = this.pop.get(genomeId);
+        if (g?.config) {
+          this.pop.setCommitConfig(commitHash, g.config);
+        }
+      },
+    };
+
+    const run: CandidateRun = {};
+    const contractDeps = contractDepsFrom(contractLeavesFromRatchet(this.deps, ctx, run), {
+      evaluateConfidence: gateForCandidate(this.deps, ctx),
+      ...(this.deps.journalPath ? { journalPath: this.deps.journalPath } : {}),
     });
-    // Record the hash + config so the LCA adapter and the taste
-    // miner can resolve `id → commit_hash → GenomeConfig` later
-    // without re-reading the git substrate. Done before
-    // `ratchetAttempt` so it's visible regardless of whether main
-    // advances.
-    if (this.pop) {
-      this.pop.setCommitHash(genomeId, commitHash);
-      const g = this.pop.get(genomeId);
-      if (g?.config) {
-        this.pop.setCommitConfig(commitHash, g.config);
-      }
-    }
 
-    // Tier 0 floor (INVARIANT I8): a hard reject that applies to EVERY
-    // candidate, including the first — unlike the confidence gate below it
-    // has no baseline dependency. A candidate that broke a frozen sanity
-    // test must never promote, however significant its aggregate gain.
-    if (outcomes) {
-      const breach = tier0FloorBreach(outcomes);
-      if (breach) {
-        await this.bus.emit({ type: "ConfidenceFailed", genomeId, reason: breach });
-        return;
-      }
-    }
+    const final = await runContract(
+      makeInitialState({
+        cycleId: this.deps.cycleId?.() ?? "c-live",
+        candidateId: genomeId,
+        layer: "L1", // Configuration Evolution (BRSI §5) — config-RSI candidates
+        budgetCaps: DEFAULT_BUDGET_CAPS,
+      }),
+      contractDeps,
+    );
 
-    // BRSI §2.7 confidence gate (INVARIANT I6): before asking Rust to
-    // ratchet, require statistical evidence the candidate genuinely beats
-    // the champion — not just a noisy +0.001. Gated on having both a gate
-    // dep and a champion baseline; the first candidate has neither and so
-    // falls through to the Rust strict-greater check alone.
-    if (this.deps.evaluateGate && this.lastChampionOutcomes && outcomes) {
-      const samples = buildPairedSamples(outcomes, this.lastChampionOutcomes);
-      const decision = this.deps.evaluateGate(samples);
-      if (!decision.accept) {
-        // Reject: the candidate stays on its branch (already committed
-        // above) but main does not advance. Emit ConfidenceFailed so the
-        // rejection is counted into the episode journal and mirrored to
-        // the UI (ADR-0012) — a silent return would lose the evidence the
-        // gate is doing its job. No RatchetAdvanced emitted.
-        await this.bus.emit({
-          type: "ConfidenceFailed",
-          genomeId,
-          reason: decision.reason,
-          pValue: decision.bootstrap.pValue,
-          effectSize: decision.bootstrap.effectSize,
-        });
-        return;
-      }
-    }
-
-    const result = await this.deps.ratchetAttempt(commitHash, score);
-
-    if (result.advanced) {
+    if (final.decided?.action === "accept" && run.advanced && run.commitHash) {
       // This candidate is the new champion — its outcomes become the
       // baseline the next candidate's confidence gate pairs against.
       if (outcomes) this.lastChampionOutcomes = outcomes;
       await this.bus.emit({
         type: "RatchetAdvanced",
         genomeId,
-        commitHash,
+        commitHash: run.commitHash,
         score,
-        previousBest: result.previousBest,
+        previousBest: run.previousBest ?? 0,
         // Carried through for the recalcitrance tracker:
         // improvement_difficulty = tokenCost / (score − previousBest).
-        tokenCost: (event.tokenCost as number) ?? 0,
+        tokenCost,
       });
+      return;
+    }
+
+    // I6 gate reject: emit ConfidenceFailed with the bootstrap evidence so
+    // the rejection is counted into the episode journal and mirrored to the
+    // UI (ADR-0012) — a silent return would lose the evidence the gate is
+    // doing its job.
+    if (final.confidence && !final.confidence.accept) {
+      await this.bus.emit({
+        type: "ConfidenceFailed",
+        genomeId,
+        reason: final.confidence.reason,
+        pValue: final.confidence.bootstrap.pValue,
+        effectSize: final.confidence.bootstrap.effectSize,
+      });
+      return;
+    }
+
+    // Tier 0 floor breach (INVARIANT I8) — surfaced the same way the
+    // hand-rolled path did. A deploy decline (`ratchet declined`) stays
+    // silent, exactly as before: not a gate, just strict-greater saying no.
+    for (let i = final.history.length - 1; i >= 0; i--) {
+      const h = final.history[i]!;
+      if (h.result.ok) continue;
+      if (h.stage === "tests" || h.stage === "safety_checks") {
+        await this.bus.emit({ type: "ConfidenceFailed", genomeId, reason: h.result.reason });
+      }
+      break;
     }
   }
 }

@@ -12,6 +12,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
 import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
 import {
@@ -33,6 +35,10 @@ function outcome(taskId: string, success: boolean, tier = 1): EvalOutcome {
 function outcomes(successes: boolean[]): EvalOutcome[] {
   return successes.map((s, i) => outcome(`t${i}`, s));
 }
+
+/** Scratch journal path so the per-candidate Contract rows never touch the
+ *  real ~/.feral/rsi/journal during tests. */
+const journalPath = () => join(tmpdir(), `rsi-ratchet-confidence-test-${process.pid}.jsonl`);
 
 const ACCEPT: GateDecision = {
   accept: true,
@@ -61,6 +67,7 @@ describe("RSI ratchet handler + confidence gate", () => {
         gateCalls += 1;
         return REJECT; // even a reject stub must not be consulted here
       },
+      journalPath,
     });
 
     await bus.emit({
@@ -93,6 +100,7 @@ describe("RSI ratchet handler + confidence gate", () => {
         return { advanced: true, previousBest: 0 };
       },
       evaluateGate: () => (commits <= 1 ? ACCEPT : REJECT),
+      journalPath,
     });
 
     // First candidate: no baseline → bypasses gate → advances, becomes champion.
@@ -131,6 +139,7 @@ describe("RSI ratchet handler + confidence gate", () => {
       },
       ratchetAttempt: async () => ({ advanced: true, previousBest: 0 }),
       evaluateGate: () => (commits <= 1 ? ACCEPT : REJECT),
+      journalPath,
     });
 
     await bus.emit({
@@ -166,6 +175,7 @@ describe("RSI ratchet handler + confidence gate", () => {
         return { advanced: true, previousBest: 0 };
       },
       evaluateGate: () => ACCEPT,
+      journalPath,
     });
 
     await bus.emit({
@@ -199,6 +209,7 @@ describe("RSI ratchet handler + confidence gate", () => {
         attempts += 1;
         return { advanced: true, previousBest: 0 };
       },
+      journalPath,
     });
 
     for (const id of ["g1", "g2", "g3"]) {
@@ -251,6 +262,7 @@ describe("RatchetHandler + Tier 0 floor", () => {
         return { advanced: true, previousBest: 0 };
       },
       evaluateGate: () => ACCEPT,
+      journalPath,
     });
 
     // First candidate (no baseline → confidence gate would bypass) but it

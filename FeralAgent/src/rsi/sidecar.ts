@@ -376,6 +376,13 @@ export class RsiSidecar {
     } catch { isLoopback = false; }
     const pricePer1kUsd = blendedPricePer1kUsd(process.env.FERAL_MODEL ?? "", isLoopback);
 
+    // One cycle id per engine run — stamped on every per-candidate Journal
+    // row this episode's Contract FSM writes. Same `c-<ISO>` shape as the
+    // Dream Cycle's episode summary row (dream-cycle.ts makeCycleSummary);
+    // the timestamps differ by the ms between scheduler start and engine
+    // start, so the ids are siblings, not equal — good enough to correlate.
+    const cycleId = `c-${new Date().toISOString()}`;
+
     const engine = createRsiEngine({
       seeds,
       goal: {
@@ -396,6 +403,7 @@ export class RsiSidecar {
         commitGenome,
         ratchetAttempt,
         evaluateGate: (samples) => evaluateGate(samples),
+        cycleId: () => cycleId,
       },
       selection,
       // taste is wired below on engine.bus, not here — see tasteHolder.

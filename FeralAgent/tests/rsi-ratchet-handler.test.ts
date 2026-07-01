@@ -12,8 +12,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
 import { RatchetHandler } from "../src/rsi/ratchet-handler.ts";
+
+/** Scratch journal path so the per-candidate Contract rows never touch the
+ *  real ~/.feral/rsi/journal during tests. */
+const journalPath = () => join(tmpdir(), `rsi-ratchet-test-${process.pid}.jsonl`);
 
 describe("RSI ratchet handler", () => {
   test("commits the candidate and emits RatchetAdvanced when main advances", async () => {
@@ -31,6 +37,7 @@ describe("RSI ratchet handler", () => {
         advanced: true,
         previousBest: 50,
       }),
+      journalPath,
     });
 
     await bus.emit({
@@ -73,6 +80,7 @@ describe("RSI ratchet handler", () => {
         return { commitHash: "b".repeat(40) };
       },
       ratchetAttempt: async () => ({ advanced: false, previousBest: 90 }),
+      journalPath,
     });
 
     await bus.emit({ type: "EvalComplete", genomeId: "g2", score: 60, errored: false });
@@ -97,6 +105,7 @@ describe("RSI ratchet handler", () => {
         attempts += 1;
         return { advanced: false, previousBest: 0 };
       },
+      journalPath,
     });
 
     await bus.emit({ type: "EvalComplete", genomeId: "g3", score: 0, errored: true });
