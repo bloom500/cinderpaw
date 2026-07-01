@@ -179,9 +179,12 @@ export class AgentLoop {
   // the full 16384 budget on chain-of-thought. User Controls override takes priority.
   static readonly CLOUD_DEFAULT_MAX_TOKENS = 4096;
 
-  // Cloud models have huge contexts; bound the transcript only to control cost
-  // and latency, not to avoid a crash. Override via FERAL_CLOUD_TRANSCRIPT_BUDGET.
-  static readonly CLOUD_TRANSCRIPT_BUDGET = 32_000;
+  // Cloud models have huge contexts (Kimi 128K, Claude 200K, MiniMax 1M);
+  // bound the transcript only to control cost and latency, not to avoid a
+  // crash. Default is conservative for Claude-class 200K models; users on
+  // 1M models (or anyone wanting zero compression) override with
+  // FERAL_CLOUD_TRANSCRIPT_BUDGET=900000 (or higher).
+  static readonly CLOUD_TRANSCRIPT_BUDGET = 200_000;
 
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
