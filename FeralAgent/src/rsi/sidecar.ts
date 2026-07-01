@@ -48,6 +48,7 @@ import type { GenomeConfig } from "./genome.ts";
 import type { EvalKind, EvalExpected } from "./eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
 import { blendedPricePer1kUsd } from "./rsi-cost.ts";
+import { evaluateGate } from "./confidence.ts";
 import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
 import { PbtHandler } from "./pbt-handler.ts";
 import {
@@ -366,7 +367,15 @@ export class RsiSidecar {
         pricePer1kUsd,
       },
       evalDeps: { runEval, scoreGenome },
-      ratchetDeps: { commitGenome, ratchetAttempt },
+      // BRSI §2.7: gate ratchet promotion on statistical significance
+      // (strict locked thresholds via evaluateGate's defaults). The full
+      // suite (Tier 0+1/2 ≈ 28 tasks) clears MIN_SAMPLES; the first
+      // candidate bootstraps the baseline and bypasses the gate.
+      ratchetDeps: {
+        commitGenome,
+        ratchetAttempt,
+        evaluateGate: (samples) => evaluateGate(samples),
+      },
       selection,
       // taste is wired below on engine.bus, not here — see tasteHolder.
       ...(opts.concurrency != null ? { concurrency: opts.concurrency } : {}),

@@ -60,6 +60,10 @@ export class EvalWorker {
         genomeId: genome.id,
         score,
         behavioralFingerprint: behavioralFingerprint(outcomes),
+        // Full per-task outcomes: the confidence gate (BRSI §2.7) pairs
+        // these against the champion's, matched by taskId. Additive field;
+        // Faza 1 consumers ignore it.
+        outcomes,
         tokenCost: outcomes.reduce((sum, o) => sum + o.tokens, 0),
         durationMs: outcomes.reduce((sum, o) => sum + o.latencyMs, 0),
         errored: false,
