@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Moon, Sparkles, Check, X, AlertTriangle } from 'lucide-react';
-import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow } from '@/lib/tauri';
+import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2 } from 'lucide-react';
+import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 
@@ -63,6 +63,8 @@ export function FeralDreamsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [receipts, setReceipts] = useState<JournalRow[]>([]);
   const [champions, setChampions] = useState<ChampionTreeRow[]>([]);
+  const [pendingPatches, setPendingPatches] = useState<CodePatchesPayload | null>(null);
+  const [resolving, setResolving] = useState<Set<string>>(new Set());
   const [requested, setRequested] = useState(false);
   const dreaming = useDream((s) => s.dreaming);
   const stage = useDream((s) => s.stage);
@@ -76,6 +78,25 @@ export function FeralDreamsPanel() {
       setRequested(true);
       setTimeout(() => setRequested(false), 4000);
     } catch { /* sidecar not running — ignore */ }
+  };
+
+  // Faza 2 Slice 5 — approve or reject a pending code patch. The sidecar
+  // replies with `code_patch_resolved` + a refreshed `code_patches` snapshot
+  // (handled by the listeners below); the per-row "resolving" set keeps the
+  // buttons disabled until the ack lands so a double-click can't fire twice.
+  const resolvePatch = async (patchId: string, action: 'approve' | 'reject') => {
+    if (resolving.has(patchId)) return;
+    setResolving((s) => new Set(s).add(patchId));
+    try {
+      await tauri.rsi.codePatchResolve(patchId, action);
+    } catch {
+      // Sidecar didn't ack — drop the resolving flag so the user can retry.
+      setResolving((s) => {
+        const next = new Set(s);
+        next.delete(patchId);
+        return next;
+      });
+    }
   };
 
   useEffect(() => {
@@ -102,13 +123,54 @@ export function FeralDreamsPanel() {
       } catch {
         if (alive) setChampions([]);
       }
+      // Faza 2 Slice 5 — pending code-patch queue. Fire-and-forget IPC; the
+      // real data arrives via `onCodePatches` below. Same soft-add-on
+      // discipline as the other fetches.
+      try {
+        await tauri.rsi.codePatchesList();
+      } catch { /* sidecar not running — the listener will fill in later */ }
     };
     void load();
     // A completed episode appends a new line → reload to pick it up.
-    const unlistenP = events.onDreamCycle.listen((e) => {
+    const unlistenDream = events.onDreamCycle.listen((e) => {
       if (alive && e.phase === 'ended') void load();
     });
-    return () => { alive = false; void unlistenP.then((u) => u()).catch(() => {}); };
+    // Pending patches stream: full snapshot on every change.
+    const unlistenPatches = events.onCodePatches.listen((e) => {
+      if (!alive) return;
+      // The wire type carries `status: string` (Rust doesn't tag enums on
+      // the wire); the domain type is the strict `CodePatchStatus` union per
+      // spec §2.5. The cast is sound because the sidecar is the only writer
+      // and only emits one of the six named values.
+      setPendingPatches({
+        patches: e.patches as unknown as CodePatch[],
+        manualWindowOpen: e.manualWindowOpen,
+        appliedCount: e.appliedCount,
+      });
+      // Any ack of a row we were tracking is no longer in flight.
+      setResolving((s) => {
+        if (s.size === 0) return s;
+        const next = new Set(s);
+        for (const p of e.patches) next.delete(p.id);
+        return next;
+      });
+    });
+    // Per-row ack: clear the resolving flag for the acked id.
+    const unlistenResolved = events.onCodePatchResolved.listen((e) => {
+      if (!alive) return;
+      setResolving((s) => {
+        if (!s.has(e.id)) return s;
+        const next = new Set(s);
+        next.delete(e.id);
+        return next;
+      });
+    });
+    return () => {
+      alive = false;
+      void unlistenDream.then((u) => u()).catch(() => {});
+      void unlistenPatches.then((u) => u()).catch(() => {});
+      void unlistenResolved.then((u) => u()).catch(() => {});
+    };
   }, []);
 
   return (
@@ -170,6 +232,11 @@ export function FeralDreamsPanel() {
 
           <Receipts rows={receipts} />
           <ChampionsByNiche rows={champions} />
+          <PendingPatches
+            payload={pendingPatches}
+            resolving={resolving}
+            onResolve={resolvePatch}
+          />
         </>
       )}
     </div>
@@ -257,6 +324,166 @@ function DecisionBadge({ action }: { action: string }) {
       {label}
     </span>
   );
+}
+
+/** Faza 2 Slice 5 — the code-patch approval gate (Dreams-panel "Pending patches"
+ *  card). Mirrors the Receipts pattern: fetch on mount, refresh on `dream_cycle
+ *  ended`, render the queue with one row per patch. The first 10 applys need
+ *  explicit human approval (spec §2.5); after the window closes, approvals
+ *  auto-apply and the `applied`/`apply_failed` ack comes back async. */
+function PendingPatches({
+  payload,
+  resolving,
+  onResolve,
+}: {
+  payload: CodePatchesPayload | null;
+  resolving: Set<string>;
+  onResolve: (id: string, action: 'approve' | 'reject') => void;
+}) {
+  const patches = payload?.patches ?? [];
+  // No state until the sidecar has answered once — avoid a flash of "no
+  // pending patches" during the cold-start fetch.
+  if (payload === null) return null;
+  const showWindow = payload.manualWindowOpen;
+  return (
+    <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
+      <div className="flex items-center gap-2">
+        <Code2 size={11} className="text-brand" />
+        <span className="text-[11px] font-medium text-text-secondary">
+          Pending patches
+        </span>
+        <span className="text-text-muted text-[11px]">({patches.length})</span>
+        {showWindow && (
+          <span className="ml-auto text-[11px] text-text-muted tabular-nums">
+            {payload.appliedCount}/10 manual approvals until auto-apply unlocks
+          </span>
+        )}
+      </div>
+      {patches.length === 0 ? (
+        <p className="text-[11px] text-text-muted">No pending code patches.</p>
+      ) : (
+        <ul className="space-y-2">
+          {patches.map((p) => (
+            <PatchRow
+              key={p.id}
+              patch={p}
+              busy={resolving.has(p.id)}
+              onResolve={onResolve}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** One pending code patch — the row, the diff, and the resolve controls. */
+function PatchRow({
+  patch,
+  busy,
+  onResolve,
+}: {
+  patch: CodePatch;
+  busy: boolean;
+  onResolve: (id: string, action: 'approve' | 'reject') => void;
+}) {
+  return (
+    <li className="text-[11px] space-y-1">
+      <div className="flex items-center gap-1.5">
+        <PatchStatusBadge status={patch.status} />
+        <span className="font-mono text-text-muted">{patch.id.slice(0, 8)}</span>
+        <span className="ml-auto flex items-center gap-2 text-text-muted tabular-nums">
+          <span>score {patch.score.toFixed(2)}</span>
+          <span>·</span>
+          <span>{formatRelativeTime(patch.createdAt)}</span>
+        </span>
+      </div>
+      <p className="text-text-secondary">{patch.rationale}</p>
+      {patch.affectedFiles.length > 0 && (
+        <ul className="flex flex-wrap gap-1 text-text-muted">
+          {patch.affectedFiles.map((f) => (
+            <li
+              key={f}
+              className="font-mono text-[10px] rounded border border-border-subtle px-1 py-px"
+            >
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
+      {patch.note && (
+        <p className="text-text-muted">{patch.note}</p>
+      )}
+      {patch.error && (
+        <p className="text-amber-500">{patch.error}</p>
+      )}
+      <details className="rounded border border-border-subtle">
+        <summary className="cursor-pointer select-none px-2 py-1 text-text-muted hover:text-text-secondary">
+          <FileText size={10} className="inline -mt-px mr-1" />
+          Show diff
+        </summary>
+        <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-[10px] text-text-secondary border-t border-border-subtle">
+          {patch.patch}
+        </pre>
+      </details>
+      {patch.status === 'pending' && (
+        <div className="flex items-center gap-1.5 pt-0.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onResolve(patch.id, 'approve')}
+            className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-brand hover:border-brand disabled:opacity-50"
+          >
+            <Check size={10} className="inline -mt-px mr-0.5" />
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onResolve(patch.id, 'reject')}
+            className="rounded border border-border-subtle px-2 py-0.5 text-text-secondary hover:text-text-primary disabled:opacity-50"
+          >
+            <X size={10} className="inline -mt-px mr-0.5" />
+            Reject
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** Color-coded badge for the six lifecycle states (spec §2.5). */
+function PatchStatusBadge({ status }: { status: CodePatchStatus | string }) {
+  const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
+    pending:      { icon: Code2,        cls: 'text-text-muted',          label: 'pending' },
+    approved:     { icon: GitMerge,     cls: 'text-text-muted',          label: 'approved' },
+    rejected:     { icon: X,            cls: 'text-text-muted',          label: 'rejected' },
+    applied:      { icon: Check,        cls: 'text-brand',               label: 'applied' },
+    apply_failed: { icon: AlertTriangle, cls: 'text-amber-500',          label: 'apply failed' },
+    reverted:     { icon: Undo2,        cls: 'text-text-muted',          label: 'reverted' },
+  };
+  const entry = map[status] ?? { icon: AlertTriangle, cls: 'text-text-muted', label: status };
+  const { icon: Icon, cls, label } = entry;
+  return (
+    <span className={`inline-flex items-center gap-1 font-medium ${cls}`}>
+      <Icon size={11} />
+      {label}
+    </span>
+  );
+}
+
+/** Compact "x ago" — never trust the host clock to match the sidecar's; this
+ *  is a display helper only, the sidecar's `createdAt` is the source of truth. */
+function formatRelativeTime(ts: number): string {
+  const deltaMs = Date.now() - ts;
+  if (deltaMs < 0) return 'just now';
+  const m = Math.floor(deltaMs / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {

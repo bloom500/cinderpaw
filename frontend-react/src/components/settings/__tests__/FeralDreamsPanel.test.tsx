@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FeralDreamsPanel } from '@/components/settings/FeralDreamsPanel';
 import { tauri, type DreamTelemetrySummary } from '@/lib/tauri';
-import { events } from '@/lib/tauri/events';
+import { events, type CodePatchesLine } from '@/lib/tauri/events';
 import { useDream } from '@/stores/dream';
 
 afterEach(() => {
@@ -12,8 +12,11 @@ afterEach(() => {
 
 function stubListener() {
   // onDreamCycle.listen returns Promise<UnlistenFn>; the panel only needs it
-  // to resolve to a no-op unlisten.
+  // to resolve to a no-op unlisten. Slice 5 adds two more sidecar-filtered
+  // listeners — same shape, same fake.
   vi.spyOn(events.onDreamCycle, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(events.onCodePatches, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(events.onCodePatchResolved, 'listen').mockResolvedValue(() => {});
 }
 
 const SUMMARY: DreamTelemetrySummary = {
@@ -152,5 +155,195 @@ describe('FeralDreamsPanel', () => {
     render(<FeralDreamsPanel />);
 
     expect(await screen.findByText(/Couldn't read dream history/)).toBeInTheDocument();
+  });
+});
+
+// ─── Faza 2 Slice 5 — code-patch approval gate (Dreams-panel card) ────────────
+// The IPC shapes are FROZEN (`code_patches` / `code_patch_resolved`); these
+// tests pin the React side of the trust boundary.
+
+/** Capture the callback `onCodePatches.listen` was given and let the test
+ *  fire it with a synthetic payload. Returns the captured callback (or null
+ *  if the panel never subscribed, which is a test bug). */
+function capturePatchesListener(): (e: CodePatchesLine) => void {
+  let cb: ((e: CodePatchesLine) => void) | null = null;
+  vi.spyOn(events.onCodePatches, 'listen').mockImplementation((c) => {
+    cb = c as (e: CodePatchesLine) => void;
+    return Promise.resolve(() => {});
+  });
+  // Return a callable that also asserts the subscription happened.
+  return (e) => {
+    if (!cb) throw new Error('panel never subscribed to onCodePatches');
+    cb(e);
+  };
+}
+
+const SAMPLE_PATCH = (over: Partial<{
+  id: string; status: string; score: number; rationale: string;
+  affectedFiles: string[]; patch: string; commitHash: string;
+  createdAt: number; note?: string; error?: string;
+}> = {}) => ({
+  id: 'p-abc12345',
+  status: 'pending',
+  score: 0.78,
+  rationale: 'fix: handle empty input in mutation.ts',
+  affectedFiles: ['src/rsi/mutation.ts'],
+  patch: '--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1,1 +1,2 @@\n+const guard = "";\n',
+  commitHash: 'deadbeef',
+  createdAt: Date.now() - 60_000,
+  ...over,
+});
+
+const PATCHES_PAYLOAD = (over: Partial<CodePatchesLine> = {}) => ({
+  type: 'code_patches' as const,
+  patches: [SAMPLE_PATCH()],
+  manualWindowOpen: true,
+  appliedCount: 3,
+  ...over,
+});
+
+describe('FeralDreamsPanel — Pending patches (Slice 5)', () => {
+  it('fires feral_code_patches_list on mount', async () => {
+    stubListener();
+    capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    const listSpy = vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+
+    await waitFor(() => {
+      expect(listSpy).toHaveBeenCalled();
+    });
+  });
+
+  it('renders pending patches with approve/reject buttons', async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(PATCHES_PAYLOAD());
+
+    expect(await screen.findByText('Pending patches')).toBeInTheDocument();
+    expect(screen.getByText('fix: handle empty input in mutation.ts')).toBeInTheDocument();
+    expect(screen.getByText('src/rsi/mutation.ts')).toBeInTheDocument();
+    expect(screen.getByText('Approve')).toBeInTheDocument();
+    expect(screen.getByText('Reject')).toBeInTheDocument();
+    // Score + relative time both rendered (toFixed(2) → "0.78").
+    expect(screen.getByText(/score 0\.78/)).toBeInTheDocument();
+  });
+
+  it('clicking Approve invokes codePatchResolve with the right args', async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    const resolveSpy = vi.spyOn(tauri.rsi, 'codePatchResolve').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(PATCHES_PAYLOAD());
+
+    const approveBtn = await screen.findByText('Approve');
+    fireEvent.click(approveBtn);
+
+    await waitFor(() => {
+      expect(resolveSpy).toHaveBeenCalledWith('p-abc12345', 'approve');
+    });
+  });
+
+  it('clicking Reject invokes codePatchResolve with "reject"', async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    const resolveSpy = vi.spyOn(tauri.rsi, 'codePatchResolve').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(PATCHES_PAYLOAD());
+
+    fireEvent.click(await screen.findByText('Reject'));
+
+    await waitFor(() => {
+      expect(resolveSpy).toHaveBeenCalledWith('p-abc12345', 'reject');
+    });
+  });
+
+  it('does not show Approve/Reject for an already-applied patch', async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(PATCHES_PAYLOAD({
+      patches: [SAMPLE_PATCH({ status: 'applied', note: 'live apply OK' })],
+    }));
+
+    await screen.findByText('applied');
+    expect(screen.queryByText('Approve')).not.toBeInTheDocument();
+    expect(screen.queryByText('Reject')).not.toBeInTheDocument();
+    expect(screen.getByText('live apply OK')).toBeInTheDocument();
+  });
+
+  it('renders the manual window header while the first-10 window is open', async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(PATCHES_PAYLOAD({ manualWindowOpen: true, appliedCount: 3 }));
+
+    expect(await screen.findByText(/3\/10 manual approvals until auto-apply unlocks/)).toBeInTheDocument();
+  });
+
+  it('hides the manual window header after auto-apply unlocks', async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(PATCHES_PAYLOAD({ manualWindowOpen: false, appliedCount: 12 }));
+
+    await screen.findByText('Pending patches');
+    expect(screen.queryByText(/manual approvals until auto-apply/)).not.toBeInTheDocument();
+  });
+
+  it('renders the empty state when the sidecar sends zero patches', async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(PATCHES_PAYLOAD({ patches: [] }));
+
+    expect(await screen.findByText(/No pending code patches/)).toBeInTheDocument();
+  });
+
+  it('stays hidden until the sidecar has answered once (no flash of empty state)', async () => {
+    stubListener();
+    capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+
+    // Panel must render the dream summary…
+    expect(await screen.findByText('12')).toBeInTheDocument();
+    // …but the Pending patches card must NOT appear before the listener fires.
+    expect(screen.queryByText('Pending patches')).not.toBeInTheDocument();
+    expect(screen.queryByText(/No pending code patches/)).not.toBeInTheDocument();
   });
 });

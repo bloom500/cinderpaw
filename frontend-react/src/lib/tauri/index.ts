@@ -298,6 +298,53 @@ export interface ChampionTreeRow {
   score: number;
 }
 
+// ── Code-patch approval gate (Faza 2 Slice 5) ───────────────────────────────
+// Frozen wire shape from FeralAgent/src/types.ts (OutboundEvent `code_patches`
+// + `code_patch_resolved`). The Dreams panel renders this list and resolves
+// patches; the trust boundary + sidecar disk live behind the Tauri command.
+
+/** The six lifecycle states a pending code patch can be in (spec §2.5). */
+export type CodePatchStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'applied'
+  | 'apply_failed'
+  | 'reverted';
+
+/** One entry in the pending-patches queue, flattened for the card UI. */
+export interface CodePatch {
+  id: string;
+  status: CodePatchStatus;
+  score: number;
+  rationale: string;
+  affectedFiles: string[];
+  /** The unified diff itself — the card renders it for review. */
+  patch: string;
+  commitHash: string;
+  createdAt: number;
+  /** Host note (e.g. "applied", "live apply unavailable: FERAL_CODE_RSI_REPO not set"). */
+  note?: string;
+  /** Resolution-side error, when status === 'apply_failed'. */
+  error?: string;
+}
+
+/** Payload of the `code_patches` outbound event (full queue snapshot). */
+export interface CodePatchesPayload {
+  patches: CodePatch[];
+  /** True while the first-10 window is open (spec §2.5): every apply
+   *  needs an explicit human approval. */
+  manualWindowOpen: boolean;
+  appliedCount: number;
+}
+
+/** Payload of the `code_patch_resolved` ack event. */
+export interface CodePatchResolvedPayload {
+  id: string;
+  status: CodePatchStatus;
+  error?: string;
+}
+
 /** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
@@ -526,6 +573,15 @@ const raw = {
     invoke<JournalRow[]>('rsi_journal_recent', { limit }),
   rsiChampionTree:    () => invoke<ChampionTreeRow[]>('rsi_champion_tree'),
   rsiDreamNow:        () => invoke<void>('feral_dream_now'),
+  // Faza 2 Slice 5 — code-patch approval gate. `feral_code_patches_list` is
+  // fire-and-forget; the sidecar replies async via a `code_patches` event
+  // (handled by `events.onCodePatches`). `feral_code_patch_resolve` is also
+  // fire-and-forget; the ack + refreshed queue arrives as `code_patch_resolved`
+  // + `code_patches`. The Rust handler validates `action ∈ {approve,reject}`
+  // and rejects anything else.
+  feralCodePatchesList:   () => invoke<void>('feral_code_patches_list'),
+  feralCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
+    invoke<void>('feral_code_patch_resolve', { patch_id: patchId, action }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -673,6 +729,13 @@ export const tauri = {
     championTree:    async () => raw.rsiChampionTree(),
     /** BRSI §2.8 `user` Wake trigger — run one dream episode now. */
     dreamNow:        async () => raw.rsiDreamNow(),
+    /** Faza 2 Slice 5 — ask the sidecar for the pending code-patch queue.
+     *  The full snapshot arrives async via `events.onCodePatches`. */
+    codePatchesList: async () => raw.feralCodePatchesList(),
+    /** Faza 2 Slice 5 — approve or reject one pending patch. The sidecar
+     *  acks via `code_patch_resolved` and re-emits `code_patches`. */
+    codePatchResolve: async (patchId: string, action: 'approve' | 'reject') =>
+      raw.feralCodePatchResolve(patchId, action),
   },
 
   agents: {

@@ -123,6 +123,44 @@ export interface DreamCycleLine {
   stopReason?: string;
 }
 
+/**
+ * Code-patch approval-gate snapshot (Faza 2 Slice 5). Filtered out of the
+ * raw sidecar line stream. Mirrors the `code_patches` OutboundEvent in
+ * `FeralAgent/src/types.ts`. Sent on `feral_code_patches_list` and after
+ * every resolution so the Dreams-panel card always reflects the truth.
+ */
+export interface CodePatchesLine {
+  type: 'code_patches';
+  patches: Array<{
+    id: string;
+    status: string;
+    score: number;
+    rationale: string;
+    affectedFiles: string[];
+    patch: string;
+    commitHash: string;
+    createdAt: number;
+    note?: string;
+    error?: string;
+  }>;
+  /** True while the first-10 window is open (spec §2.5). */
+  manualWindowOpen: boolean;
+  appliedCount: number;
+}
+
+/**
+ * Code-patch resolution ack (Faza 2 Slice 5). A single `code_patch_resolved`
+ * arrives in reply to `feral_code_patch_resolve`; the sidecar follows it
+ * with a refreshed `code_patches` snapshot. Same listener shape as the
+ * other filtered sidecar streams.
+ */
+export interface CodePatchResolvedLine {
+  type: 'code_patch_resolved';
+  id: string;
+  status: string;
+  error?: string;
+}
+
 function wrap<T>(channel: string) {
   return {
     listen: (cb: EventCallback<T>): Promise<UnlistenFn> => listen<T>(channel, cb),
@@ -292,10 +330,10 @@ export const events = {
       }),
   },
 
-  /**
+/**
    * Heartbeat for the agent (sidecar) inference path. Filters the raw
    * `feral://agent-output` stream for `type === "stream_progress"` lines.
-   * Same `.listen(cb)` shape as every other event here.
+   * Same `.listen(cb)` shape as every other event in this file.
    */
   onStreamProgress: {
     listen: (cb: (e: StreamProgressEvent) => void): Promise<UnlistenFn> =>
@@ -308,6 +346,54 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'stream_progress'
           ) {
             cb(parsed as StreamProgressEvent);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
+   * Pending code-patch queue snapshot (Faza 2 Slice 5). Filtered out of the
+   * raw sidecar line stream for `type === "code_patches"`. The Dreams-panel
+   * card consumes this on mount (via `feral_code_patches_list`) and on every
+   * resolution ack. Same `.listen(cb)` shape as the other filtered listeners.
+   */
+  onCodePatches: {
+    listen: (cb: (e: CodePatchesLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'code_patches'
+          ) {
+            cb(parsed as CodePatchesLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
+   * Code-patch resolution ack (Faza 2 Slice 5). Filtered out of the raw
+   * sidecar line stream for `type === "code_patch_resolved"`. The card uses
+   * this for per-row feedback (`apply_failed` surfaces the error inline);
+   * a refreshed `code_patches` always follows this ack.
+   */
+  onCodePatchResolved: {
+    listen: (cb: (e: CodePatchResolvedLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'code_patch_resolved'
+          ) {
+            cb(parsed as CodePatchResolvedLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore
