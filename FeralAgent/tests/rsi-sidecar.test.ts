@@ -111,6 +111,7 @@ function buildSidecar(opts: {
     // Hermetic: point at a nonexistent champion path so tests never read
     // the real ~/.feral/rsi/champion.json (resume seed) from the dev box.
     championPath: resolve(import.meta.dir, `../.tmp-nochampion-${Math.random()}.json`),
+    championTreePath: resolve(import.meta.dir, `../.tmp-tree-${Math.random()}.json`),
     ...(opts.historyWindow != null ? { historyWindow: opts.historyWindow } : {}),
   });
   return { sidecar, emitted, logs };
@@ -252,6 +253,7 @@ describe("RsiSidecar — lifecycle", () => {
       router: new FakeRouter(),
       send: () => {},
       championPath: resolve(import.meta.dir, `../.tmp-nochampion-idle-${Math.random()}.json`),
+      championTreePath: resolve(import.meta.dir, `../.tmp-tree-idle-${Math.random()}.json`),
       onIdle: () => {
         idleCount += 1;
       },
@@ -400,6 +402,7 @@ describe("RsiSidecar — champion hook (the Crux)", () => {
       router: new FakeRouter(),
       send: () => {},
       championPath: tmp,
+      championTreePath: resolve(import.meta.dir, `../.tmp-tree-champ-${Math.random()}.json`),
       onChampion: (rec) => champions.push(rec),
     });
 

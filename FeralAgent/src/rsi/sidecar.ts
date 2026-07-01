@@ -59,6 +59,12 @@ import {
   type ChampionRecord,
 } from "./champion.ts";
 import {
+  readChampionTree,
+  writeChampionTree,
+  defaultChampionTreePath,
+  nicheOf,
+} from "./champion-tree.ts";
+import {
   readPopulationSnapshot,
   writePopulationSnapshot,
   defaultPopulationSnapshotPath,
@@ -152,6 +158,9 @@ export interface RsiSidecarDeps {
   /** Optional: where to persist `champion.json`. Default
    *  `~/.feral/rsi/champion.json`. */
   championPath?: string;
+  /** Optional: where to persist the Tree of Champions per-niche archive
+   *  (§7.4). Default `~/.feral/rsi/champion-tree.json`. */
+  championTreePath?: string;
   /** Optional: where to persist the full population snapshot (Dream Cycle
    *  evolutionary continuity). Default `~/.feral/rsi/population.json`. */
   populationSnapshotPath?: string;
@@ -203,6 +212,11 @@ export class RsiSidecar {
     // and keep evolving from there. Falls back to cold defaults when
     // there's no champion yet.
     const championPath = this.deps.championPath ?? defaultChampionPath();
+    // Tree of Champions (§7.4): load the per-niche archive so ratchets this
+    // episode record into it and it persists across restarts. Read-only here;
+    // recorded in the RatchetAdvanced handler below.
+    const championTreePath = this.deps.championTreePath ?? defaultChampionTreePath();
+    const championTree = readChampionTree(championTreePath);
     const resumeSeed = championSeed(readChampion(championPath));
     const baseSeeds = defaultEngineSeedsWithExtras(this.deps.extraSeeds);
     const seeds = resumeSeed ? [resumeSeed, ...baseSeeds] : baseSeeds;
@@ -467,6 +481,16 @@ export class RsiSidecar {
         };
         try {
           writeChampion(championPath, record);
+        } catch {
+          // disk error — soft layer
+        }
+        // Tree of Champions (§7.4): record this genome as its niche's champion
+        // so diversity survives a higher global best in another niche. Persist
+        // only when the niche actually changed. Soft layer — never abort.
+        try {
+          if (championTree.record(nicheOf(config), record)) {
+            writeChampionTree(championTreePath, championTree);
+          }
         } catch {
           // disk error — soft layer
         }

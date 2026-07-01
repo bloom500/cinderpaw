@@ -135,6 +135,7 @@ async function runOneEpisode(bridge: FakeBridge): Promise<{
     router: new FakeRouter(),
     send: () => {},
     championPath: join(tmpdir(), `feral-dream-e2e-champ-${Math.random()}.json`),
+    championTreePath: join(tmpdir(), `feral-dream-e2e-tree-${Math.random()}.json`),
     onIdle: dreamCycle.onEpisodeEnd,
   });
   const scheduler = dreamCycle.arm(sidecar, {
