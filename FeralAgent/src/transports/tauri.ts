@@ -158,6 +158,7 @@ const INBOUND_TYPES = [
   "rsi_start",
   "rsi_stop",
   "rsi_set_concurrency",
+  "rsi_dream_now",
   "rsi_response",
 ] as const satisfies readonly InboundMessage["type"][];
 

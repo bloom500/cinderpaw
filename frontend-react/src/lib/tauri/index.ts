@@ -507,6 +507,7 @@ const raw = {
     invoke<DreamTelemetrySummary>('rsi_dream_telemetry', { limit }),
   rsiJournalRecent:   (limit: number) =>
     invoke<JournalRow[]>('rsi_journal_recent', { limit }),
+  rsiDreamNow:        () => invoke<void>('feral_dream_now'),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -650,6 +651,8 @@ export const tauri = {
     setConcurrency:  async (concurrency: number) => raw.rsiSetConcurrency(concurrency),
     dreamTelemetry:  async (limit = 12) => raw.rsiDreamTelemetry(limit),
     journalRecent:   async (limit = 12) => raw.rsiJournalRecent(limit),
+    /** BRSI §2.8 `user` Wake trigger — run one dream episode now. */
+    dreamNow:        async () => raw.rsiDreamNow(),
   },
 
   agents: {

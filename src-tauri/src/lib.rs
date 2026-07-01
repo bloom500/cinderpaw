@@ -1029,6 +1029,25 @@ async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> Result<(), S
     Ok(())
 }
 
+/// BRSI §2.8 `user` Wake trigger: ask the sidecar's Dream Cycle to run one
+/// evolutionary episode now, bypassing the idle/cooldown gate. Fire-and-forget
+/// like the benchmark command — the sidecar's scheduler launches on its next
+/// tick and emits the usual `dream_cycle` "started"/"ended" events.
+#[tauri::command]
+#[specta::specta]
+async fn feral_dream_now(state: State<'_, AppState>) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "rsi_dream_now" }).to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Reactive-tree drill-down: ask the sidecar for the real member memories of a
 /// top-level RAPTOR cluster. Fire-and-forget like the benchmark — the sidecar
 /// replies with a `fractal_cluster_leaves_result` line (paired by `request_id`)
@@ -3204,6 +3223,7 @@ pub fn run() {
             feral_agent_status,
             feral_stop_generation,
             feral_run_fractal_benchmark,
+            feral_dream_now,
             feral_fractal_cluster_leaves,
             feral_set_model,
             feral_get_model_config,

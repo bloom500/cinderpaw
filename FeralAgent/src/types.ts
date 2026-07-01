@@ -917,6 +917,9 @@ export interface InboundMessage {
     // commands the sidecar engine via these messages; the sidecar
     // emits `rsi_engine_event` outbound events to ack + mirror state.
     | "rsi_start" | "rsi_stop" | "rsi_set_concurrency"
+    // BRSI §2.8 `user` Wake trigger — the host asks the Dream Cycle to run one
+    // episode now, bypassing the idle/cooldown gate (explicit user intent).
+    | "rsi_dream_now"
     // Bridge response delivery — every `rsi_request` the sidecar emits
     // is paired with exactly one `rsi_response` line by Rust. Routed
     // to `RsiBridge.onResponse` in the sidecar.

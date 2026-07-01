@@ -938,6 +938,11 @@ async function main(): Promise<void> {
       case "connectors_reload":
         void connectors.reload();
         break;
+      // BRSI §2.8 `user` Wake trigger: run one dream episode now. The scheduler
+      // launches it on its next tick, bypassing the idle/cooldown gate.
+      case "rsi_dream_now":
+        dream.requestUserDream();
+        break;
 
       // PROVISIONAL (temporary Settings button): run the Fractal Memory Search
       // benchmark gate on demand and emit the verdict back to the UI. Runs off

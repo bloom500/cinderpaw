@@ -20,6 +20,18 @@ export function FeralDreamsPanel() {
   const [summary, setSummary] = useState<DreamTelemetrySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [receipts, setReceipts] = useState<JournalRow[]>([]);
+  const [requested, setRequested] = useState(false);
+
+  // BRSI §2.8 `user` Wake trigger: ask the Dream Cycle to run one episode now
+  // instead of waiting for the idle gate. Best-effort — a failure (sidecar not
+  // running) is swallowed; the scheduler launches on its next tick.
+  const dreamNow = async () => {
+    try {
+      await tauri.rsi.dreamNow();
+      setRequested(true);
+      setTimeout(() => setRequested(false), 4000);
+    } catch { /* sidecar not running — ignore */ }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -53,6 +65,15 @@ export function FeralDreamsPanel() {
         <Moon size={13} className="text-brand" />
         <span className="text-sm font-medium text-text-primary">Feral&apos;s Dreams</span>
         <span className="text-[11px] text-text-muted">self-improvement while you&apos;re idle</span>
+        <button
+          type="button"
+          onClick={dreamNow}
+          disabled={requested}
+          title="Run one dream episode now (bypasses the idle wait)"
+          className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+        >
+          {requested ? 'Dreaming soon…' : 'Dream now'}
+        </button>
       </header>
 
       {error ? (
