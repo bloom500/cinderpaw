@@ -157,3 +157,83 @@ describe("Contract FSM in the live ratchet path — per-candidate Journal rows",
     expect(rows[1]!.result).not.toBeNull();
   });
 });
+
+describe("Slice 2 — real userSatisfaction in the benchmark leaf (§2.10, goodhart-gated)", () => {
+  test("successful tool-call audit rows give userSatisfaction > 0.5; the ratchet still sees the raw score", async () => {
+    const bus = new EventBus();
+    const scoresSeen: number[] = [];
+
+    new RatchetHandler(bus, {
+      commitGenome: async () => ({ commitHash: "d".repeat(40) }),
+      ratchetAttempt: async (_hash, score) => {
+        scoresSeen.push(score);
+        return { advanced: true, previousBest: 0 };
+      },
+      journalPath,
+      // Five successful tool calls in the last hour — all-positive signal.
+      readRecentAudit: () =>
+        Array.from({ length: 5 }, (_, i) => ({
+          timestamp: Date.now() - i * 60_000,
+          actionType: "tool_call",
+          toolName: `tool${i}`,
+          result: "success",
+        })),
+    });
+
+    await bus.emit({
+      type: "EvalComplete",
+      genomeId: "g-sat",
+      score: 73,
+      outcomes: [outcome("t0", true, 0), outcome("t1", true)],
+      errored: false,
+    });
+
+    const rows = readRows();
+    expect(rows.length).toBe(1);
+    const result = rows[0]!.result!;
+    // Real signal, all positive → satisfied, not neutral.
+    expect(result.fitnessVector.userSatisfaction).toBeGreaterThan(0.5);
+    // hallucination stays the unmeasured neutral.
+    expect(result.fitnessVector.hallucination).toBe(0.5);
+    // GUARDRAIL §6.1: promotion input unchanged — raw score to the ratchet,
+    // score-proxy aggregate in the journal, satisfaction colours neither.
+    expect(scoresSeen).toEqual([73]);
+    expect(result.aggregate).toBeCloseTo(0.73);
+  });
+
+  test("tool errors push userSatisfaction below 0.5; without a reader it stays neutral", async () => {
+    const emitTo = async (handlerBus: EventBus) =>
+      handlerBus.emit({
+        type: "EvalComplete",
+        genomeId: "g-x",
+        score: 50,
+        outcomes: [outcome("t0", true)],
+        errored: false,
+      });
+
+    // All-error audit → dissatisfied.
+    const errBus = new EventBus();
+    new RatchetHandler(errBus, {
+      commitGenome: async () => ({ commitHash: "e".repeat(40) }),
+      ratchetAttempt: async () => ({ advanced: true, previousBest: 0 }),
+      journalPath,
+      readRecentAudit: () => [
+        { timestamp: Date.now(), actionType: "tool_call", result: "error" },
+        { timestamp: Date.now(), actionType: "tool_call", result: "error" },
+      ],
+    });
+    await emitTo(errBus);
+    expect(readRows()[0]!.result!.fitnessVector.userSatisfaction).toBeLessThan(0.5);
+    rmSync(JOURNAL, { force: true });
+
+    // No reader → Slice-1 behaviour: neutral 0.5.
+    const plainBus = new EventBus();
+    new RatchetHandler(plainBus, {
+      commitGenome: async () => ({ commitHash: "e".repeat(40) }),
+      ratchetAttempt: async () => ({ advanced: true, previousBest: 0 }),
+      journalPath,
+    });
+    await emitTo(plainBus);
+    expect(readRows()[0]!.result!.fitnessVector.userSatisfaction).toBe(0.5);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
+import { AuditLog, recentToolCalls } from "../src/sandbox/audit-log.ts";
 import type { AuditEntry } from "../src/types.ts";
 
 function entry(over: Partial<AuditEntry> = {}): AuditEntry {
@@ -93,6 +93,36 @@ describe("audit log hash chain (H-2)", () => {
     const r = a2.verify();
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.entries).toBe(3);
+    db.close();
+  });
+});
+
+describe("recentToolCalls (§2.10 personal-fitness reader)", () => {
+  test("returns recent tool_call rows only, windowed and capped", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const now = Date.now();
+    audit.record(entry({ timestamp: now - 1_000, toolName: "fresh_ok", result: "success" }));
+    audit.record(entry({ timestamp: now - 2_000, toolName: "fresh_err", result: "error" }));
+    // Not a tool_call → excluded.
+    audit.record(entry({ timestamp: now - 3_000, actionType: "memory_write", toolName: "mem" }));
+    // Older than the window → excluded.
+    audit.record(entry({ timestamp: now - 8 * 24 * 60 * 60 * 1000, toolName: "stale" }));
+
+    const rows = recentToolCalls(db.raw);
+    expect(rows.map((r) => r.toolName)).toEqual(["fresh_ok", "fresh_err"]);
+    expect(rows[0]!.actionType).toBe("tool_call");
+    expect(rows[1]!.result).toBe("error");
+
+    // limit caps the result set (newest first).
+    expect(recentToolCalls(db.raw, undefined, 1).map((r) => r.toolName)).toEqual(["fresh_ok"]);
+    db.close();
+  });
+
+  test("soft-fails to [] when the table is missing", () => {
+    const db = openDatabase(":memory:");
+    db.raw.exec("DROP TABLE audit_log");
+    expect(recentToolCalls(db.raw)).toEqual([]);
     db.close();
   });
 });

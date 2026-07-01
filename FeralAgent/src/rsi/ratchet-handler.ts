@@ -67,6 +67,10 @@ export interface RatchetDeps {
   /** Journal path override for the per-candidate rows — inject a scratch
    *  path in tests. Default: the production per-UTC-day journal. */
   journalPath?: () => string;
+  /** Recent tool-call audit rows for the §2.10 personal-fitness signal.
+   *  Optional: absent → `userSatisfaction` stays the neutral 0.5. Observed
+   *  + journaled only — never an input to the promotion decision. */
+  readRecentAudit?: () => import("./personal-fitness.ts").AuditEntryLike[];
 }
 
 export class RatchetHandler {
@@ -105,6 +109,7 @@ export class RatchetHandler {
       durationMs: (event.durationMs as number) ?? 0,
       ...(outcomes ? { outcomes } : {}),
       ...(this.lastChampionOutcomes ? { championOutcomes: this.lastChampionOutcomes } : {}),
+      ...(this.deps.readRecentAudit ? { readRecentAudit: this.deps.readRecentAudit } : {}),
       // Record the hash + config so the LCA adapter and the taste miner
       // can resolve `id → commit_hash → GenomeConfig` later without
       // re-reading the git substrate. Fired from the sandbox_apply leaf,

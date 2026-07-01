@@ -24,6 +24,11 @@ import type { GateDecision, PairedSample } from "./confidence.ts";
 import type { StageHandlerDeps } from "./contract-stages.ts";
 import type { CommitRequest, RatchetDeps } from "./ratchet-handler.ts";
 import { scoreToFitnessVector } from "./fitness.ts";
+import {
+  auditEntriesToUserSignals,
+  computePersonalFitness,
+  type AuditEntryLike,
+} from "./personal-fitness.ts";
 
 /** Tier 0 is the frozen sanity floor (INVARIANT I8, BRSI §2.7 accept
  *  criterion "Tier 0 floor intact"). The Rust scorer folds every task into
@@ -82,6 +87,10 @@ export interface CandidateContext {
   /** Fired as soon as `commitGenome` returns, with the new hash — the
    *  handler records it on the population regardless of later verdicts. */
   onCommitted?: (commitHash: string) => void;
+  /** Recent tool-call audit rows (BRSI §2.10) — when supplied, the benchmark
+   *  leaf computes a REAL `userSatisfaction` from them instead of the neutral
+   *  0.5. Observed + journaled only; never an input to promotion (spec §1). */
+  readRecentAudit?: () => AuditEntryLike[];
 }
 
 /** What the leaves learned while running — the handler reads this after
@@ -127,15 +136,28 @@ export function contractLeavesFromRatchet(
     },
 
     // The payoff stage: the FitnessVector + paired samples for the I6 gate.
-    // Slice 1: userSatisfaction stays unmeasured (neutral 0.5); Slice 2
-    // plugs computePersonalFitness in here.
+    // With an audit reader, `userSatisfaction` is REAL — the §2.10 personal
+    // fitness over the user's recent tool-call outcomes. Without one (legacy
+    // wiring, tests), it stays the neutral unmeasured 0.5.
     runBenchmark: async () => {
-      const fitnessVector = scoreToFitnessVector(ctx.score);
+      const base = scoreToFitnessVector(
+        ctx.score,
+        ctx.readRecentAudit ? { unmeasured: ["hallucination"] } : {},
+      );
+      const fitnessVector = ctx.readRecentAudit
+        ? {
+            ...base,
+            userSatisfaction: computePersonalFitness({
+              signals: auditEntriesToUserSignals(ctx.readRecentAudit()),
+            }),
+          }
+        : base;
       return {
         fitnessVector,
         // Journal scalar only — the deploy leaf hands the RAW score to the
-        // ratchet (spec §1), never this normalised aggregate.
-        aggregate: fitnessVector.accuracy,
+        // ratchet (spec §1), never this normalised aggregate. Uses the score
+        // proxy (accuracy), NOT the satisfaction-coloured vector.
+        aggregate: base.accuracy,
         samples:
           ctx.outcomes && ctx.championOutcomes
             ? buildPairedSamples(ctx.outcomes, ctx.championOutcomes)

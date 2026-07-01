@@ -49,6 +49,7 @@ import type { EvalKind, EvalExpected } from "./eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
 import { blendedPricePer1kUsd } from "./rsi-cost.ts";
 import { evaluateGate } from "./confidence.ts";
+import { recentToolCalls } from "../sandbox/audit-log.ts";
 import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
 import { PbtHandler } from "./pbt-handler.ts";
 import {
@@ -404,6 +405,10 @@ export class RsiSidecar {
         ratchetAttempt,
         evaluateGate: (samples) => evaluateGate(samples),
         cycleId: () => cycleId,
+        // §2.10 personal fitness: recent tool-call audit rows → a real
+        // userSatisfaction in each candidate's Journal row. Observed only —
+        // the deploy leaf still hands the ratchet the raw score.
+        readRecentAudit: () => recentToolCalls(this.deps.db),
       },
       selection,
       // taste is wired below on engine.bus, not here — see tasteHolder.
