@@ -64,6 +64,7 @@ import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import { shouldAutostartPassive } from "./rsi/passive-supervisor.ts";
 import { createDreamCycle } from "./rsi/dream-cycle.ts";
+import { defaultJournalPath } from "./rsi/journal.ts";
 import { ActivityMonitor } from "./rsi/activity-monitor.ts";
 import { resolveDreamConfig, dreamCloudGate } from "./rsi/dream-config.ts";
 import { episodeStartOptions } from "./rsi/episode-options.ts";
@@ -878,6 +879,10 @@ async function main(): Promise<void> {
   const dreamCycle = createDreamCycle({
     send: (e) => transport.send(e),
     telemetryPath: dreamTelemetryPath,
+    // BRSI §2.9 Evolution Journal: per-day rotating file under the
+    // per-instance ~/.feral/rsi/journal dir. Resolved per write so a
+    // process spanning UTC midnight rolls to the next day's file.
+    journalPath: () => defaultJournalPath(),
     activityMonitor,
     config: dreamCfg,
     log,
