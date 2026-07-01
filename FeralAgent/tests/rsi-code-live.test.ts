@@ -12,7 +12,8 @@ import { join } from "node:path";
 import type { CodeGenome } from "../src/rsi/code-genome.ts";
 import type { CodeEvalMeasurements } from "../src/rsi/code-sandbox.ts";
 import type { CodeStageDeps } from "../src/rsi/code-leaves.ts";
-import { runCodeCandidate } from "../src/rsi/code-rsi.ts";
+import { makeCodeStageAdapters, runCodeCandidate } from "../src/rsi/code-rsi.ts";
+import type { RsiBridge } from "../src/rsi/bridge.ts";
 import { PopulationManager } from "../src/rsi/population-manager.ts";
 import {
   affectedFilesOf,
@@ -144,6 +145,47 @@ describe("runCodeCandidate — the code path through the live FSM", () => {
     expect(result.decided?.action).toBe("reject");
     expect(result.advanced).toBe(false);
     expect(result.commitHash).toBe("deadbeef"); // substrate commit happened
+  });
+});
+
+describe("makeCodeStageAdapters.validatePatch — both walls, in order", () => {
+  function bridgeStub(responses: Record<string, unknown>, calls: string[] = []) {
+    const bridge = {
+      request: async (method: string) => (calls.push(method), responses[method]),
+    } as unknown as RsiBridge;
+    return { bridge, calls };
+  }
+
+  test("TS wall rejects in-process; the bridge is never consulted", async () => {
+    const { bridge, calls } = bridgeStub({});
+    const deps = makeCodeStageAdapters({ bridge, repoRoot: "C:/fake" });
+    // Policy-violating patch (outside src/rsi/) that parses fine.
+    const v = await deps.validatePatch(
+      "--- a/src/agent-loop.ts\n+++ b/src/agent-loop.ts\n@@ -1 +1 @@\n-a\n+b\n",
+    );
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("outside");
+    expect(calls).toEqual([]);
+    // Unparseable input is also caught locally, as a verdict.
+    const p = await deps.validatePatch("not a diff");
+    expect(p.ok).toBe(false);
+    expect(p.reason).toContain("parse");
+    expect(calls).toEqual([]);
+  });
+
+  test("a TS-clean patch still needs the Rust wall's word", async () => {
+    const good = genome.patch;
+    const { bridge, calls } = bridgeStub({ rsi_validate_code_patch: { ok: true } });
+    const deps = makeCodeStageAdapters({ bridge, repoRoot: "C:/fake" });
+    expect((await deps.validatePatch(good)).ok).toBe(true);
+    expect(calls).toEqual(["rsi_validate_code_patch"]);
+
+    const { bridge: denyBridge } = bridgeStub({
+      rsi_validate_code_patch: { ok: false, reason: "rust says no" },
+    });
+    const denied = await makeCodeStageAdapters({ bridge: denyBridge, repoRoot: "C:/fake" })
+      .validatePatch(good);
+    expect(denied).toEqual({ ok: false, reason: "rust says no" });
   });
 });
 

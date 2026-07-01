@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RsiBridge } from "./bridge.ts";
 import type { CodeGenome } from "./code-genome.ts";
+import { isDiffParseError, parseUnifiedDiff, validateCodePatch } from "./code-genome.ts";
 import type { CodeEvalMeasurements } from "./code-sandbox.ts";
 import { evaluateCodePatch, type CodeSandboxOptions } from "./code-sandbox.ts";
 import {
@@ -58,6 +59,14 @@ export function makeCodeStageAdapters(args: {
   const { bridge, repoRoot } = args;
   return {
     validatePatch: async (patch) => {
+      // TS wall first (parse + policy, in-process): cheap rejections never
+      // cross the bridge. Then the Rust wall — the one compiled into the
+      // binary — has the final word. Both must pass.
+      const parsed = parseUnifiedDiff(patch);
+      if (isDiffParseError(parsed)) return { ok: false, reason: `parse: ${parsed.error}` };
+      const ts = validateCodePatch(parsed);
+      if (!ts.ok) return { ok: false, reason: ts.reason };
+
       const v = await bridge.request<{ ok: boolean; reason?: string }>(
         "rsi_validate_code_patch",
         { patch },
