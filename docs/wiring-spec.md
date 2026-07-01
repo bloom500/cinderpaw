@@ -369,6 +369,30 @@ const final = await runContract(initial, contractDeps);
 **Invariant coverage:** I1 (ratchet strict-greater), I5 (budget halt),
 I6 (confidence precedence).
 
+> **As-built (2026-07-01) — runner + handlers + composition root LANDED,
+> live threading GATED:**
+> - `contract-runner.ts` (`runContract`) + `contract-stages.ts` (8 `StageFn`
+>   factories over `StageHandlerDeps`) + `contract-deps.ts`
+>   (`contractDepsFrom(stage, opts)`) all shipped, green (`rsi-contract-*.test.ts`).
+> - `contractDepsFrom` binds the live engine-half (`evaluateGate` I6,
+>   `appendJournal` I3/I4, `assertCanSpend` I5). The `StageHandlerDeps` LEAVES
+>   stay injectable — NOT yet wired to real eval/bridge/ratchet.
+> - **Why the leaves aren't live (Faza-1 reality):** re-audited each stage's
+>   primitive. static_analysis=grammar (TS ✓), sandbox_apply=`rsi_commit_genome`
+>   (✓, but for a config genome this is just a commit), tests=tier0 (✓),
+>   benchmark=eval+`rsi_score` (✓), safety_checks=SandboxBounds (✓),
+>   deploy=`rsi_ratchet_attempt` (✓) — BUT **regression=`goodhart.rs` is DORMANT
+>   until Faza 4.5** (Tier 2 eval suite empty → `tier2_delta:None` → detector
+>   skips every sample), and **monitor has no meaning for a config genome** (no
+>   deployed service to health-check).
+> - So wiring the leaves + threading a candidate from `selection-handler` into
+>   `runContract` (the "live" step) would put ~2 structural no-ops on the
+>   HARD-invariant ratchet path AND write per-candidate Journal rows —
+>   explicitly the wrong granularity for config ("hundreds/run", §2 above; the
+>   per-candidate row is right for **code** candidates, Faza 2). Deferred until
+>   the Faza-2 (code candidates) / Faza-4.5 (Tier 2) substrate exists. The FSM
+>   is complete and ready; it just has nothing real to drive in Faza 1.
+
 ---
 
 ## 9. New event kinds on `event-bus.ts`
