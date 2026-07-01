@@ -113,7 +113,11 @@ export interface FractalClusterLeavesLine {
 export interface DreamCycleLine {
   type: 'dream_cycle';
   phase: 'started' | 'ended';
-  trigger: 'idle' | 'error';
+  /** Fine 7-stage FSM transition (BRSI §2.8). Present on stage pulses; the
+   *  toast/mascot only consume the coarse `phase` envelope (see the listener,
+   *  which filters to phase-bearing events), so stage is informational here. */
+  stage?: 'wake' | 'observe' | 'dream' | 'mutate' | 'evaluate' | 'remember' | 'sleep';
+  trigger: 'idle' | 'error' | 'schedule' | 'user' | 'threshold' | 'budget_available';
   iterations?: number;
   ratchets?: number;
   stopReason?: string;
@@ -247,7 +251,12 @@ export const events = {
           if (
             parsed !== null &&
             typeof parsed === 'object' &&
-            (parsed as Record<string, unknown>)['type'] === 'dream_cycle'
+            (parsed as Record<string, unknown>)['type'] === 'dream_cycle' &&
+            // Forward only the coarse envelope (started/ended) that drives the
+            // toast + mascot. The intermediate 7-stage pulses (observe/evaluate/
+            // remember) carry no `phase` and flow past to other stream consumers.
+            ((parsed as Record<string, unknown>)['phase'] === 'started' ||
+              (parsed as Record<string, unknown>)['phase'] === 'ended')
           ) {
             cb(parsed as DreamCycleLine);
           }

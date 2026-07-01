@@ -56,6 +56,11 @@ export interface DreamConfig {
    *  cancellation churn isn't worth it; operators who want strict "user
    *  always wins" semantics flip this on. */
   stopOnActivity: boolean;
+  /** Periodic "schedule" wake interval (ms) — the BRSI §2.8 schedule trigger.
+   *  Undefined (the default: FERAL_RSI_SCHEDULE_MS unset/invalid) disables it,
+   *  so idle/error stay the only automatic triggers and Faza-1 behaviour is
+   *  unchanged. Set e.g. FERAL_RSI_SCHEDULE_MS=604800000 for a weekly wake. */
+  scheduleIntervalMs?: number;
 }
 
 /** Input to the cloud anti-burn gate. The caller computes "is the active
@@ -132,6 +137,8 @@ export function resolveDreamConfig(
     errorWindowMs: positive(env.FERAL_RSI_ERROR_WINDOW_MS, 15 * 60_000),
     pollMs: positive(env.FERAL_RSI_POLL_MS, 30_000),
     stopOnActivity: truthy(env.FERAL_RSI_STOP_ON_ACTIVITY),
+    // 0/unset/invalid → undefined → schedule trigger disabled (Faza-1 default).
+    scheduleIntervalMs: positive(env.FERAL_RSI_SCHEDULE_MS, 0) || undefined,
   };
 }
 

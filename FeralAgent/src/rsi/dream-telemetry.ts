@@ -17,7 +17,9 @@ import { appendFileSync } from "node:fs";
 export interface DreamEpisodeRecord {
   startedAt: number;
   endedAt: number;
-  trigger: "idle" | "error" | "manual";
+  // Mirrors DreamTrigger (BRSI §2.8) plus the legacy "manual" value. Kept as an
+  // inline union to avoid coupling the ops-telemetry row to the scheduler module.
+  trigger: "idle" | "error" | "manual" | "schedule" | "user" | "threshold" | "budget_available";
   iterations: number;
   tokens: number;
   ratchets: number;

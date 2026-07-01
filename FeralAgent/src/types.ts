@@ -1140,8 +1140,16 @@ export type OutboundEvent =
   // raise a toast and put the typing-bar mascot into its `dreaming` pose.
   | {
       type: "dream_cycle";
-      phase: "started" | "ended";
-      trigger: "idle" | "error";
+      /** Coarse envelope for the UI toast + mascot `dreaming` pose: present on
+       *  the wake ("started") and sleep ("ended") transitions only. Absent on
+       *  the intermediate stage pulses so existing consumers that key on
+       *  started/ended ignore them. */
+      phase?: "started" | "ended";
+      /** Fine 7-stage FSM transition (BRSI §2.8 Wake→Observe→Dream→Mutate→
+       *  Evaluate→Remember→Sleep). Present on every stage pulse; `dream` /
+       *  `mutate` are subsumed by the engine episode in Faza 1 (reserved). */
+      stage?: "wake" | "observe" | "dream" | "mutate" | "evaluate" | "remember" | "sleep";
+      trigger: "idle" | "error" | "schedule" | "user" | "threshold" | "budget_available";
       iterations?: number;
       ratchets?: number;
       stopReason?: string;

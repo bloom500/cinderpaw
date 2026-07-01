@@ -11,11 +11,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { DreamScheduler } from "../src/rsi/dream-scheduler.ts";
+import { DreamScheduler, type DreamTrigger } from "../src/rsi/dream-scheduler.ts";
 
 function harness(overrides: Partial<Parameters<typeof DreamScheduler.prototype.constructor>[0]> = {}) {
   let running = false;
-  const starts: Array<"idle" | "error"> = [];
+  const starts: DreamTrigger[] = [];
   const signals = { idle: 0, errors: 0, now: 0 };
   const sched = new DreamScheduler({
     start: async (trigger) => {
@@ -102,6 +102,72 @@ describe("DreamScheduler — sleep + cooldown", () => {
     const h = harness();
     h.sched.shutdown();
     h.signals.idle = 9999;
+    await h.sched.tick();
+    expect(h.starts).toEqual([]);
+  });
+});
+
+describe("DreamScheduler — §2.8 schedule trigger", () => {
+  test("fires once per interval, measured from construction", async () => {
+    const h = harness({ scheduleIntervalMs: 10_000 });
+    h.signals.now = 5_000; // < interval from construction (t=0)
+    h.signals.idle = 0; // not idle
+    await h.sched.tick();
+    expect(h.starts).toEqual([]);
+
+    h.signals.now = 10_000; // interval elapsed
+    await h.sched.tick();
+    expect(h.starts).toEqual(["schedule"]);
+  });
+
+  test("does not fire when scheduleIntervalMs is unset (Faza-1 default)", async () => {
+    const h = harness(); // no scheduleIntervalMs
+    h.signals.now = 1_000_000;
+    h.signals.idle = 0;
+    await h.sched.tick();
+    expect(h.starts).toEqual([]);
+  });
+
+  test("error takes precedence over schedule", async () => {
+    const h = harness({ scheduleIntervalMs: 10_000 });
+    h.signals.now = 20_000; // schedule due
+    h.signals.errors = 3; // error also firing
+    await h.sched.tick();
+    expect(h.starts).toEqual(["error"]);
+  });
+});
+
+describe("DreamScheduler — §2.8 user trigger", () => {
+  test("requestUserDream launches on the next tick, bypassing cooldown", async () => {
+    const h = harness();
+    // Simulate a just-ended episode so we are deep inside the cooldown window.
+    h.signals.now = 0;
+    h.sched.onRunEnded(); // lastEpisodeEndedAt = 0
+    h.signals.now = 1_000; // < cooldownMs (5000) → automatic triggers blocked
+    h.signals.idle = 0;
+
+    await h.sched.tick();
+    expect(h.starts).toEqual([]); // nothing automatic inside cooldown
+
+    h.sched.requestUserDream();
+    await h.sched.tick();
+    expect(h.starts).toEqual(["user"]); // user bypassed cooldown
+  });
+
+  test("the user request is one-shot (consumed after it fires)", async () => {
+    const h = harness();
+    h.signals.idle = 0;
+    h.sched.requestUserDream();
+    await h.sched.tick();
+    h.setRunning(false);
+    await h.sched.tick();
+    expect(h.starts).toEqual(["user"]); // only one launch
+  });
+
+  test("requestUserDream is a no-op after shutdown", async () => {
+    const h = harness();
+    h.sched.shutdown();
+    h.sched.requestUserDream();
     await h.sched.tick();
     expect(h.starts).toEqual([]);
   });

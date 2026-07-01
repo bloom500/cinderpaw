@@ -90,6 +90,8 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
   const onEpisodeEnd = (stats?: RsiRunStats): void => {
     if (currentEpisode) {
       const endedAt = Date.now();
+      // Remember: persist the ops telemetry + the semantic Journal row.
+      send({ type: "dream_cycle", stage: "remember", trigger: currentEpisode.trigger });
       appendDreamTelemetry(telemetryPath, {
         startedAt: currentEpisode.startedAt,
         endedAt,
@@ -112,9 +114,12 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
           makeCycleSummary(currentEpisode, stats, endedAt, budgetCaps ?? DEFAULT_BUDGET_CAPS),
         );
       }
+      // Sleep: the coarse "ended" pulse (UI toast off, mascot wakes) — the
+      // seventh stage loops back to a sleeping Wake until the next trigger.
       send({
         type: "dream_cycle",
         phase: "ended",
+        stage: "sleep",
         trigger: currentEpisode.trigger,
         iterations: stats?.iterations ?? 0,
         ratchets: stats?.ratchets ?? 0,
@@ -131,8 +136,20 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
     scheduler = new DreamScheduler({
       start: async (trigger) => {
         currentEpisode = { startedAt: Date.now(), trigger };
-        // Tell the UI the dream started (toast + mascot dreaming pose).
-        send({ type: "dream_cycle", phase: "started", trigger });
+        // BRSI §2.8 stage sequence. Wake → Observe → (episode = Dream+Mutate+
+        // Evaluate). The engine's internal proposal/apply/eval loop is opaque
+        // in Faza 1, so it surfaces as one `evaluate` bracket; `dream`/`mutate`
+        // are reserved until the engine loop is cracked open (or the Contract
+        // FSM owns the per-candidate Evaluate detail — this is that seam). The
+        // coarse `phase:"started"` rides the wake pulse for the UI toast +
+        // mascot `dreaming` pose.
+        send({ type: "dream_cycle", phase: "started", stage: "wake", trigger });
+        // Observe: surface WHY the cycle woke (the scheduler already decided;
+        // the trigger is the signal). Acceptance/demo signals fold in here once
+        // Layer 2 produces them.
+        send({ type: "dream_cycle", stage: "observe", trigger });
+        // Evaluate: run the bounded episode.
+        send({ type: "dream_cycle", stage: "evaluate", trigger });
         await engine.start(episodeOptions);
       },
       isRunning: () => engine.isRunning(),
@@ -142,6 +159,8 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
       cooldownMs: config.cooldownMs,
       errorThreshold: config.errorThreshold,
       pollMs: config.pollMs,
+      // §2.8 schedule trigger — undefined disables it (idle/error only).
+      scheduleIntervalMs: config.scheduleIntervalMs,
       log,
     });
     return scheduler;

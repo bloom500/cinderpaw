@@ -184,6 +184,16 @@ describe("Dream Cycle — end-to-end wiring", () => {
     expect(starts).toBe(1);
   });
 
+  test("emits the §2.8 stage sequence in order (wake→observe→evaluate→remember→sleep)", async () => {
+    const { events } = await runOneEpisode(new FakeBridge());
+    const stages = events
+      .filter((e) => e.type === "dream_cycle" && typeof (e as { stage?: string }).stage === "string")
+      .map((e) => (e as { stage: string }).stage);
+    // Dream/Mutate are subsumed by the opaque engine episode in Faza 1 (surfaced
+    // under the `evaluate` bracket), so the observable sequence is 5 stages.
+    expect(stages).toEqual(["wake", "observe", "evaluate", "remember", "sleep"]);
+  });
+
   test("a ratchet advance is counted into the telemetry record (Q4/B3)", async () => {
     const { rec, events } = await runOneEpisode(new FakeBridge(true));
     // The real RatchetHandler emitted RatchetAdvanced → the sidecar counted it

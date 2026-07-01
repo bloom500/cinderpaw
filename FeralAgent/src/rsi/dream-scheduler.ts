@@ -22,8 +22,26 @@
  * supervisor used.
  */
 
-/** The reason an episode was launched — carried into telemetry. */
-export type DreamTrigger = "idle" | "error";
+/** The reason an episode was launched — carried into telemetry (BRSI §2.8
+ *  "Wake events"). `idle` / `error` are the literature triggers and fire from
+ *  the activity monitor. The four §2.8 triggers:
+ *   - `schedule`  — a periodic wake (weekly default); self-driving via
+ *                   `scheduleIntervalMs`.
+ *   - `user`      — user-initiated; forced via `requestUserDream()`, bypasses
+ *                   the cooldown gate (explicit intent beats back-off).
+ *   - `threshold` — N demos accumulated. RESERVED: the demo-capture pipeline
+ *                   (Layer 2) has no producer yet, so nothing fires it today.
+ *   - `budget_available` — resources freed up. RESERVED: no producer yet.
+ *  `threshold` / `budget_available` are in the type so the schema is complete
+ *  (mirrors the EvalHalted type-first / emitter-later pattern); their firing
+ *  paths land when their producers do. */
+export type DreamTrigger =
+  | "idle"
+  | "error"
+  | "schedule"
+  | "user"
+  | "threshold"
+  | "budget_available";
 
 export interface DreamSchedulerDeps {
   /** Launch one bounded episode. Resolves once the start is dispatched.
@@ -41,6 +59,11 @@ export interface DreamSchedulerDeps {
   cooldownMs: number;
   /** Error count (within the monitor window) that triggers a dream cycle. */
   errorThreshold: number;
+  /** Periodic "schedule" wake (BRSI §2.8). When set, a `schedule` trigger
+   *  fires once per interval (measured from scheduler construction, then from
+   *  each schedule fire). Undefined disables the schedule trigger — idle/error
+   *  remain the only automatic triggers, preserving Faza-1 behaviour. */
+  scheduleIntervalMs?: number;
   /** Clock source (injectable for tests). Default: Date.now. */
   now?: () => number;
   /** Poll scheduler for the internal tick loop (injectable for tests).
@@ -60,9 +83,24 @@ export class DreamScheduler {
    *  yet", so the very first trigger is never gated by cooldown. */
   private lastEpisodeEndedAt = Number.NEGATIVE_INFINITY;
   private readonly now: () => number;
+  /** A user asked for a dream; consumed by the next tick (bypasses cooldown). */
+  private pendingUserTrigger = false;
+  /** When the last `schedule` trigger fired (or construction time), so the
+   *  first scheduled wake is one full interval after boot. */
+  private lastScheduleFireAt: number;
 
   constructor(private readonly deps: DreamSchedulerDeps) {
     this.now = deps.now ?? Date.now;
+    this.lastScheduleFireAt = this.now();
+  }
+
+  /** Request a user-initiated dream on the next tick (BRSI §2.8 `user`
+   *  trigger). Bypasses the cooldown gate — explicit intent beats back-off.
+   *  No-op while shutting down; idempotent (repeated calls before the next
+   *  tick collapse to one launch). */
+  requestUserDream(): void {
+    if (this.shuttingDown) return;
+    this.pendingUserTrigger = true;
   }
 
   /** Begin the trigger loop. Arms a periodic tick; does NOT launch an
@@ -91,10 +129,17 @@ export class DreamScheduler {
     if (this.deps.isRunning()) return;
 
     const now = this.now();
-    if (now - this.lastEpisodeEndedAt < this.deps.cooldownMs) return; // cooldown
+    // A user-initiated dream bypasses the cooldown gate (explicit intent beats
+    // back-off); every automatic trigger still respects cooldown.
+    const userRequested = this.pendingUserTrigger;
+    if (!userRequested && now - this.lastEpisodeEndedAt < this.deps.cooldownMs) return;
 
-    const trigger = this.evaluateTrigger(now);
+    const trigger = userRequested ? "user" : this.evaluateTrigger(now);
     if (!trigger) return;
+
+    // Consume the one-shot signals now that this trigger is committed to launch.
+    if (trigger === "user") this.pendingUserTrigger = false;
+    if (trigger === "schedule") this.lastScheduleFireAt = now;
 
     this.launching = true;
     try {
@@ -106,10 +151,18 @@ export class DreamScheduler {
     }
   }
 
-  /** Which trigger fires now, if any. Error takes precedence over idle —
-   *  a failing agent should be improved even if the user is active. */
+  /** Which automatic trigger fires now, if any. Precedence: error → schedule →
+   *  idle. Error wins — a failing agent should be improved even if the user is
+   *  active. The `user` trigger is handled in `tick` (it bypasses cooldown);
+   *  `threshold` / `budget_available` have no producer yet (see DreamTrigger). */
   private evaluateTrigger(now: number): DreamTrigger | null {
     if (this.deps.errorsInWindow(now) >= this.deps.errorThreshold) return "error";
+    if (
+      this.deps.scheduleIntervalMs !== undefined &&
+      now - this.lastScheduleFireAt >= this.deps.scheduleIntervalMs
+    ) {
+      return "schedule";
+    }
     if (this.deps.idleForMs(now) >= this.deps.idleThresholdMs) return "idle";
     return null;
   }
