@@ -17,6 +17,7 @@
  */
 
 import { STANDING_GOAL } from "./passive-supervisor.ts";
+import { DEFAULT_BUDGET_CAPS, type BudgetCaps } from "./budget.ts";
 
 export interface EpisodeOptions {
   goal: string;
@@ -35,6 +36,22 @@ export interface EpisodeOptions {
 /** Re-export the standing goal text unchanged — the dream optimises
  *  against the same frozen objective the passive engine already chases. */
 export { STANDING_GOAL };
+
+/** Lift the episode's bounded run config into the BRSI 6-resource budget
+ *  model (§2.5) so the Evolution Journal can report honest remaining
+ *  budget. The two resources the episode actually enforces (via GoalConfig
+ *  stop conditions) become the caps: `tokens` from `maxTotalTokens`,
+ *  `wallClockMin` from `maxWallClockMs`. The other four (cpu / ram / disk /
+ *  energy) are not measured or enforced at the episode level yet, so they
+ *  carry the §2.5 defaults as notional caps — a real resource monitor
+ *  (Faza 4) fills them in. Pure; exported for testing. */
+export function episodeBudgetCaps(opts: EpisodeOptions): BudgetCaps {
+  return {
+    ...DEFAULT_BUDGET_CAPS,
+    tokens: opts.maxTotalTokens,
+    wallClockMin: opts.maxWallClockMs / 60_000,
+  };
+}
 
 /** Build the episode config from the sidecar's environment. Each numeric
  *  field reads its own FERAL_RSI_* knob and falls back to the default on

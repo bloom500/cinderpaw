@@ -67,7 +67,7 @@ import { createDreamCycle } from "./rsi/dream-cycle.ts";
 import { defaultJournalPath } from "./rsi/journal.ts";
 import { ActivityMonitor } from "./rsi/activity-monitor.ts";
 import { resolveDreamConfig, dreamCloudGate } from "./rsi/dream-config.ts";
-import { episodeStartOptions } from "./rsi/episode-options.ts";
+import { episodeStartOptions, episodeBudgetCaps } from "./rsi/episode-options.ts";
 import {
   mapGenomeToAgentConfig,
   readChampion,
@@ -876,6 +876,9 @@ async function main(): Promise<void> {
   // Dream Cycle glue (telemetry + started/ended events + cooldown threading)
   // lives in createDreamCycle so the full idle→episode→telemetry→ended path is
   // exercised end-to-end in a test (audit D2), not just inline here.
+  // One source of truth for the episode's bounded run config — reused for
+  // the budget caps the journal reports against and for arming the engine.
+  const episodeOpts = episodeStartOptions(process.env);
   const dreamCycle = createDreamCycle({
     send: (e) => transport.send(e),
     telemetryPath: dreamTelemetryPath,
@@ -883,6 +886,9 @@ async function main(): Promise<void> {
     // per-instance ~/.feral/rsi/journal dir. Resolved per write so a
     // process spanning UTC midnight rolls to the next day's file.
     journalPath: () => defaultJournalPath(),
+    // BRSI §2.5: report honest remaining budget against the same limits
+    // GoalConfig enforces for the episode.
+    budgetCaps: episodeBudgetCaps(episodeOpts),
     activityMonitor,
     config: dreamCfg,
     log,
@@ -916,7 +922,7 @@ async function main(): Promise<void> {
   // engine math is untouched — only the *when* changed. The standing
   // goal + bounded budgets come from episodeStartOptions; the trigger
   // signals from the activity monitor.
-  const dream = dreamCycle.arm(rsiSidecar, episodeStartOptions(process.env));
+  const dream = dreamCycle.arm(rsiSidecar, episodeOpts);
 
   // Connector Surface (inbound): Discord/Telegram/… share this one agent.
   // The host writes ~/.feral/connectors.json and pokes us with

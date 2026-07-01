@@ -16,6 +16,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { makeCycleSummary } from "../src/rsi/dream-cycle.ts";
 import { readJournal } from "../src/rsi/journal.ts";
+import { episodeBudgetCaps } from "../src/rsi/episode-options.ts";
+import { DEFAULT_BUDGET_CAPS } from "../src/rsi/budget.ts";
 
 const START = Date.UTC(2026, 6, 1, 12, 0, 0); // 2026-07-01T12:00:00Z
 const END = START + 90_000; // +1.5 min
@@ -84,6 +86,50 @@ describe("makeCycleSummary", () => {
     const entry = makeCycleSummary({ startedAt: START, trigger: "idle" }, undefined, END);
     expect(entry.decided.action).toBe("reject"); // 0 ratchets, no error
     expect(entry.observed).toContain("stop reason: unknown");
+  });
+
+  test("reports real remaining budget against the caps (BRSI §2.5)", () => {
+    const caps = { ...DEFAULT_BUDGET_CAPS, tokens: 10_000, wallClockMin: 5 };
+    const entry = makeCycleSummary(
+      { startedAt: START, trigger: "idle" },
+      { iterations: 6, tokens: 4_000, ratchets: 1, stopReason: "converged", errors: [], emptyResponses: 0 },
+      START + 90_000, // 1.5 min elapsed
+      caps,
+    );
+    // 10k cap − 4k spent = 6k tokens; 5 min cap − 1.5 min = 3.5 min.
+    expect(entry.budgetRemaining.tokens).toBe(6_000);
+    expect(entry.budgetRemaining.wallClockMin).toBeCloseTo(3.5, 5);
+    expect(entry.observed).toContain("budget left: 6000 tokens, 3.5 min");
+  });
+
+  test("remaining budget clamps at 0 on overshoot (no negatives)", () => {
+    const caps = { ...DEFAULT_BUDGET_CAPS, tokens: 1_000, wallClockMin: 1 };
+    const entry = makeCycleSummary(
+      { startedAt: START, trigger: "idle" },
+      { iterations: 3, tokens: 5_000, ratchets: 0, stopReason: "token_budget", errors: [], emptyResponses: 0 },
+      START + 600_000, // 10 min elapsed, cap 1 min
+      caps,
+    );
+    expect(entry.budgetRemaining.tokens).toBe(0);
+    expect(entry.budgetRemaining.wallClockMin).toBe(0);
+  });
+});
+
+describe("episodeBudgetCaps", () => {
+  test("lifts token + wall-clock limits into the 6-resource budget model", () => {
+    const caps = episodeBudgetCaps({
+      goal: "g",
+      maxIterations: 40,
+      maxTotalTokens: 2_000_000,
+      maxTotalCostUsd: 0,
+      concurrency: 1,
+      maxWallClockMs: 8 * 60_000,
+      plateauIterations: 12,
+    });
+    expect(caps.tokens).toBe(2_000_000);
+    expect(caps.wallClockMin).toBe(8);
+    // Unmeasured resources fall back to the §2.5 defaults.
+    expect(caps.ramMb).toBe(DEFAULT_BUDGET_CAPS.ramMb);
   });
 });
 
