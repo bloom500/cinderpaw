@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Moon, Sparkles } from 'lucide-react';
-import { tauri, type DreamTelemetrySummary } from '@/lib/tauri';
+import { Moon, Sparkles, Check, X, AlertTriangle } from 'lucide-react';
+import { tauri, type DreamTelemetrySummary, type JournalRow } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 
 /**
@@ -19,6 +19,7 @@ const RECENT_LIMIT = 16;
 export function FeralDreamsPanel() {
   const [summary, setSummary] = useState<DreamTelemetrySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [receipts, setReceipts] = useState<JournalRow[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -28,6 +29,14 @@ export function FeralDreamsPanel() {
         if (alive) { setSummary(s); setError(null); }
       } catch (e) {
         if (alive) setError(String(e));
+      }
+      // Receipts are a soft add-on: a failure here (e.g. no journal yet)
+      // must never blank the whole panel, so it has its own guard.
+      try {
+        const rows = await tauri.rsi.journalRecent(RECENT_LIMIT);
+        if (alive) setReceipts(rows);
+      } catch {
+        if (alive) setReceipts([]);
       }
     };
     void load();
@@ -78,9 +87,61 @@ export function FeralDreamsPanel() {
               · {summary.last[0].stopReason}
             </p>
           )}
+
+          <Receipts rows={receipts} />
         </>
       )}
     </div>
+  );
+}
+
+/** Recent Evolution Journal rows (BRSI §2.9) — the auditable "receipts" of
+ *  what each dream episode decided and why. Read-only, honest: shows the
+ *  promotion decision, why candidates were blocked (confidence / Tier 0
+ *  floor), and how much budget was left. Empty until the journal has rows. */
+function Receipts({ rows }: { rows: JournalRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
+      <span className="text-[11px] font-medium text-text-secondary">Receipts</span>
+      <ul className="space-y-2">
+        {rows.map((r) => (
+          <li key={r.cycleId} className="text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <DecisionBadge action={r.decided.action} />
+              <span className="text-text-muted tabular-nums">
+                {new Date(r.timestamp).toLocaleString([], {
+                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                })}
+              </span>
+            </div>
+            <p className="mt-0.5 text-text-secondary">{r.decided.reason}</p>
+            {r.observed.length > 0 && (
+              <ul className="mt-0.5 space-y-0.5 pl-3 text-text-muted">
+                {r.observed.map((line, i) => (
+                  <li key={i} className="list-disc marker:text-border-subtle">{line}</li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DecisionBadge({ action }: { action: string }) {
+  const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
+    accept: { icon: Check, cls: 'text-brand', label: 'promoted' },
+    reject: { icon: X, cls: 'text-text-muted', label: 'no change' },
+    halt: { icon: AlertTriangle, cls: 'text-amber-500', label: 'halted' },
+  };
+  const { icon: Icon, cls, label } = map[action] ?? map.reject;
+  return (
+    <span className={`inline-flex items-center gap-1 font-medium ${cls}`}>
+      <Icon size={11} />
+      {label}
+    </span>
   );
 }
 

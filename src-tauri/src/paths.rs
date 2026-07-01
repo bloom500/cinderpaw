@@ -122,6 +122,15 @@ pub fn rsi_dream_telemetry_path() -> PathBuf {
     rsi_dir().join("dream.jsonl")
 }
 
+/// `~/.feral/rsi/journal/` — the BRSI Evolution Journal (§2.9): per-day
+/// `journal-YYYY-MM-DD.jsonl` files, one semantic row per dream episode
+/// (observed / decided / budget). Written by the sidecar (`journal.ts`,
+/// mirroring `instance-paths.ts` journalDir); read back by
+/// `rsi_journal_recent` for the receipts UI.
+pub fn rsi_journal_dir() -> PathBuf {
+    rsi_dir().join("journal")
+}
+
 /// HuggingFace repo hosting whisper.cpp ggml models.
 pub const WHISPER_REPO: &str = "ggerganov/whisper.cpp";
 

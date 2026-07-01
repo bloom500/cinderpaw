@@ -1000,6 +1000,89 @@ pub fn rsi_dream_telemetry(limit: usize) -> Result<DreamTelemetrySummary, String
     }
 }
 
+// ── Evolution Journal (read path for the receipts UI) ───────────────────────
+
+/// The terminal decision of a journal row (BRSI §2.9). The sidecar's
+/// `decided` union (accept / reject / halt) always carries `action` + `reason`;
+/// per-variant extras (`nextStep`, `stage`) are ignored here — the receipts
+/// UI renders action + reason.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct JournalDecisionRow {
+    pub action: String,
+    pub reason: String,
+}
+
+/// One Evolution Journal row, flattened for the receipts UI. The `observed`
+/// lines are already human-readable (trigger, N promoted, gate-blocked count,
+/// budget left), so the UI renders them verbatim. Extra journal fields
+/// (`hypothesized`, `experimented`, `result`, `budgetRemaining`) are ignored
+/// here — they are episode-internal, not receipt copy.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalRow {
+    pub cycle_id: String,
+    pub timestamp: i64,
+    pub duration_min: f64,
+    pub observed: Vec<String>,
+    pub decided: JournalDecisionRow,
+}
+
+/// Parse a journal JSONL body into rows, oldest-first. Tolerant: blank lines
+/// and unparseable rows are skipped (the journal is a soft trail — one
+/// poisoned line must not blank the whole receipts view).
+fn parse_journal_rows(body: &str) -> Vec<JournalRow> {
+    let mut rows = Vec::new();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(row) = serde_json::from_str::<JournalRow>(line) {
+            rows.push(row);
+        }
+    }
+    rows
+}
+
+/// Read the per-day journal files under `~/.feral/rsi/journal/` and return the
+/// most recent `limit` rows, newest first. A missing directory yields an empty
+/// list (the Dream Cycle simply hasn't journaled yet). **Stateless.**
+///
+/// ponytail: reads every day-file fully. Journals are one row per episode
+/// (occasional), so this is cheap; if it ever grows, read newest file first
+/// and stop once `limit` rows are collected.
+#[tauri::command]
+#[specta::specta]
+pub fn rsi_journal_recent(limit: usize) -> Result<Vec<JournalRow>, String> {
+    let dir = paths::rsi_journal_dir();
+    let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("journal-") && n.ends_with(".jsonl"))
+                    .unwrap_or(false)
+            })
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("read journal dir: {e}")),
+    };
+    // `journal-YYYY-MM-DD.jsonl` → lexical sort is chronological.
+    files.sort();
+
+    let mut rows: Vec<JournalRow> = Vec::new();
+    for f in &files {
+        if let Ok(body) = std::fs::read_to_string(f) {
+            rows.append(&mut parse_journal_rows(&body));
+        }
+    }
+    // Rows are oldest-first across sorted files; flip to newest-first and cap.
+    rows.reverse();
+    rows.truncate(limit);
+    Ok(rows)
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1044,6 +1127,29 @@ not json — must be skipped
         let s = parse_dream_telemetry("", 10);
         assert_eq!(s.episodes, 0);
         assert!(s.last.is_empty());
+    }
+
+    #[test]
+    fn parse_journal_rows_extracts_decision_and_observed_skipping_junk() {
+        let body = "\
+{\"cycleId\":\"c-1\",\"timestamp\":1000,\"durationMin\":1.5,\"observed\":[\"trigger: idle\",\"12 evaluation(s), 2 promoted to main\"],\"hypothesized\":[],\"experimented\":null,\"result\":null,\"decided\":{\"action\":\"accept\",\"reason\":\"2 candidate(s) cleared the gate\"},\"budgetRemaining\":{\"wallClockMin\":6,\"tokens\":18000,\"cpuPct\":50,\"ramMb\":2048,\"diskMb\":5120}}
+not json — skipped
+{\"missing\":\"fields\"}
+{\"cycleId\":\"c-2\",\"timestamp\":2000,\"durationMin\":0.5,\"observed\":[\"stop reason: error\"],\"hypothesized\":[],\"experimented\":null,\"result\":null,\"decided\":{\"action\":\"halt\",\"reason\":\"bridge timeout\",\"stage\":\"evaluate\"},\"budgetRemaining\":{\"wallClockMin\":0,\"tokens\":0,\"cpuPct\":0,\"ramMb\":0,\"diskMb\":0}}";
+        let rows = parse_journal_rows(body);
+        // Two valid rows; two junk lines skipped.
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].cycle_id, "c-1");
+        assert_eq!(rows[0].decided.action, "accept");
+        assert_eq!(rows[0].observed.len(), 2);
+        // The halt variant's extra `stage` field is ignored; action+reason kept.
+        assert_eq!(rows[1].decided.action, "halt");
+        assert_eq!(rows[1].decided.reason, "bridge timeout");
+    }
+
+    #[test]
+    fn parse_journal_rows_empty_is_empty() {
+        assert!(parse_journal_rows("").is_empty());
     }
 
     #[test]
