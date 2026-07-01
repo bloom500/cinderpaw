@@ -27,6 +27,7 @@
 //! - `commands` : the Tauri commands the sidecar calls
 
 pub mod audit;
+pub mod code_patch;
 pub mod commands;
 pub mod goodhart;
 pub mod paths;

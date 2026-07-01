@@ -890,6 +890,55 @@ pub async fn dispatch_rsi_request(
             let specs: Vec<super::tier0::Tier0Spec> = TIER0_SPECS.iter().cloned().collect();
             Ok(json!(specs))
         }
+        // ── Faza 2 code-RSI (spec §2: the Rust half of the trust boundary) ──
+        // The sidecar's TS wall is advisory once code-RSI can rewrite TS;
+        // these three re-assert policy/scoring/commit in the compiled binary.
+        "rsi_validate_code_patch" => {
+            let patch: String = require_string(params.get("patch"), "patch")?;
+            // Policy violation is a soft verdict (candidate rejection),
+            // not a bridge error — mirrors the TS wall's PatchVerdict.
+            Ok(match super::code_patch::validate_code_patch(&patch) {
+                Ok(stats) => json!({ "ok": true, "changed_lines": stats.changed_lines, "files": stats.files }),
+                Err(reason) => json!({ "ok": false, "reason": reason }),
+            })
+        }
+        "rsi_score_code_patch" => {
+            let measurements: super::code_patch::CodePatchMeasurements = serde_json::from_value(
+                params
+                    .get("measurements")
+                    .cloned()
+                    .ok_or_else(|| "rsi_score_code_patch: missing 'measurements'".to_string())?,
+            )
+            .map_err(|e| format!("rsi_score_code_patch: bad measurements: {e}"))?;
+            let scored = super::code_patch::score_code_patch(&measurements);
+            Ok(serde_json::to_value(scored)
+                .map_err(|e| format!("rsi_score_code_patch: serialise: {e}"))?)
+        }
+        "rsi_commit_code_patch" => {
+            let genome_id: String = require_string(params.get("genome_id"), "genome_id")?;
+            let patch: String = require_string(params.get("patch"), "patch")?;
+            let genome_json: String = require_string(params.get("genome_json"), "genome_json")?;
+            let candidate_branch: String =
+                require_string(params.get("candidate_branch"), "candidate_branch")?;
+            let metadata: IterationMetadata = serde_json::from_value(
+                params
+                    .get("metadata")
+                    .cloned()
+                    .ok_or_else(|| "rsi_commit_code_patch: missing 'metadata'".to_string())?,
+            )
+            .map_err(|e| format!("rsi_commit_code_patch: bad metadata: {e}"))?;
+            // HARD gate: an invalid patch never reaches the substrate. This
+            // is the enforcement the sidecar cannot patch its way around.
+            let stats = super::code_patch::validate_code_patch(&patch)
+                .map_err(|reason| format!("rsi_commit_code_patch: policy violation: {reason}"))?;
+            ensure_initialized(state)?;
+            let commit_hash = tokio::task::spawn_blocking(move || {
+                commit_genome_inner(genome_id, genome_json, Vec::new(), metadata, candidate_branch)
+            })
+            .await
+            .map_err(|e| format!("rsi_commit_code_patch: task panicked: {e}"))??;
+            Ok(json!({ "commitHash": commit_hash, "changed_lines": stats.changed_lines }))
+        }
         // Embeddings for Fractal Memory Search. Not RSI per se, but it rides
         // the same sidecar↔Rust bridge: the TS `embed.ts` module calls this to
         // turn query/leaf text into vectors via the dedicated embedding model.
@@ -1406,6 +1455,56 @@ not json — skipped
             assert!(spec.get("id").and_then(|v| v.as_str()).is_some(),
                 "every Tier 0 spec needs a string id; got {spec}");
         }
+    }
+
+    #[test]
+    fn dispatch_rsi_validate_code_patch_soft_verdicts() {
+        // Policy-clean patch → ok:true with stats.
+        let good = "--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n";
+        let v = run_dispatch("rsi_validate_code_patch", serde_json::json!({ "patch": good }))
+            .expect("dispatch must succeed");
+        assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(true));
+        assert_eq!(v.get("changed_lines").and_then(|x| x.as_u64()), Some(2));
+        // Violation → ok:false soft verdict, NOT a bridge error.
+        let bad = good.replace("src/rsi/mutation.ts", "src/agent-loop.ts");
+        let v = run_dispatch("rsi_validate_code_patch", serde_json::json!({ "patch": bad }))
+            .expect("soft verdict, not an error");
+        assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(false));
+        assert!(v.get("reason").and_then(|x| x.as_str()).unwrap().contains("outside"));
+    }
+
+    #[test]
+    fn dispatch_rsi_score_code_patch_returns_composite() {
+        let v = run_dispatch(
+            "rsi_score_code_patch",
+            serde_json::json!({ "measurements": {
+                "tests_passed": 10, "tests_failed": 0, "tests_exit_code": 0,
+                "tsc_exit_code": 0, "build_exit_code": 0, "changed_lines": 200
+            }}),
+        )
+        .expect("score must succeed");
+        // 60 + 15 + 15 + 0 (diff economy exhausted at the cap) = 90
+        let score = v.get("score").and_then(|x| x.as_f64()).unwrap();
+        assert!((score - 90.0).abs() < 1e-9, "got {score}");
+    }
+
+    #[test]
+    fn dispatch_rsi_commit_code_patch_hard_rejects_policy_violations() {
+        // A denylisted target must never reach the substrate — hard error,
+        // before any repo/init requirement can even apply.
+        let bad = "--- a/src/rsi/code-genome.ts\n+++ b/src/rsi/code-genome.ts\n@@ -1 +1 @@\n-a\n+b\n";
+        let err = run_dispatch(
+            "rsi_commit_code_patch",
+            serde_json::json!({
+                "genome_id": "g1", "patch": bad, "genome_json": "{}",
+                "candidate_branch": "genome-g1",
+                "metadata": { "score": 1.0, "strategy": "code", "parent_lineage": [],
+                              "mutation_type": "code_patch", "cost_tokens": 0, "duration_ms": 0 }
+            }),
+        )
+        .unwrap_err();
+        assert!(err.contains("policy violation"), "got: {err}");
+        assert!(err.contains("enforcement"), "got: {err}");
     }
 
     #[test]
