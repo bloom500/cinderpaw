@@ -10,12 +10,16 @@
  * pulled from the queue.
  */
 
-/** The nine fundamental events of the RSI engine (PLAN.md "Async RSI Engine"). */
+/** The fundamental events of the RSI engine (PLAN.md "Async RSI Engine").
+ *  `ConfidenceFailed` (BRSI §2.7, ADR-0012) is the confidence gate's reject
+ *  verdict — the acceptance verdict needs no event because it is already
+ *  observable as the subsequent `RatchetAdvanced`. */
 export type RsiEventType =
   | "GenomeBorn"
   | "EvalStarted"
   | "EvalComplete"
   | "RatchetAdvanced"
+  | "ConfidenceFailed"
   | "GenomeDied"
   | "ExtinctionTriggered"
   | "PBTSyncTriggered"

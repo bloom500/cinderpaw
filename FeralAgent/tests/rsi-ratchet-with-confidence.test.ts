@@ -114,6 +114,41 @@ describe("RSI ratchet handler + confidence gate", () => {
     expect((advanced[0] as { genomeId: string }).genomeId).toBe("champ");
   });
 
+  test("a gate rejection emits ConfidenceFailed with a reason (ADR-0012)", async () => {
+    const bus = new EventBus();
+    const failed: RsiEvent[] = [];
+    bus.on("ConfidenceFailed", async (e) => failed.push(e));
+
+    let commits = 0;
+    new RatchetHandler(bus, {
+      commitGenome: async () => {
+        commits += 1;
+        return { commitHash: "e".repeat(40) };
+      },
+      ratchetAttempt: async () => ({ advanced: true, previousBest: 0 }),
+      evaluateGate: () => (commits <= 1 ? ACCEPT : REJECT),
+    });
+
+    await bus.emit({
+      type: "EvalComplete",
+      genomeId: "champ",
+      score: 60,
+      outcomes: outcomes([true, true, true]),
+      errored: false,
+    });
+    await bus.emit({
+      type: "EvalComplete",
+      genomeId: "noisy",
+      score: 61,
+      outcomes: outcomes([true, true, true]),
+      errored: false,
+    });
+
+    expect(failed.length).toBe(1);
+    expect((failed[0] as { genomeId: string }).genomeId).toBe("noisy");
+    expect((failed[0] as { reason: string }).reason).toBe("stub reject");
+  });
+
   test("a candidate that clears the gate is ratcheted", async () => {
     const bus = new EventBus();
     const advanced: RsiEvent[] = [];

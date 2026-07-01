@@ -150,6 +150,7 @@ export function makeCycleSummary(
 ): JournalEntry {
   const iterations = stats?.iterations ?? 0;
   const ratchets = stats?.ratchets ?? 0;
+  const rejections = stats?.confidenceRejections ?? 0;
   const stopReason = stats?.stopReason ?? "unknown";
   const errors = stats?.errors ?? [];
 
@@ -158,6 +159,11 @@ export function makeCycleSummary(
     `${iterations} evaluation(s), ${ratchets} promoted to main`,
     `stop reason: ${stopReason}`,
   ];
+  if (rejections > 0) {
+    observed.push(
+      `${rejections} candidate(s) beat the score but failed the confidence gate`,
+    );
+  }
   if (errors.length > 0) {
     observed.push(`${errors.length} eval error(s): ${errors.slice(0, 3).join("; ")}`);
   }

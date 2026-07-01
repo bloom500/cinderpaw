@@ -129,7 +129,17 @@ export class RatchetHandler {
       const decision = this.deps.evaluateGate(samples);
       if (!decision.accept) {
         // Reject: the candidate stays on its branch (already committed
-        // above) but main does not advance. No RatchetAdvanced emitted.
+        // above) but main does not advance. Emit ConfidenceFailed so the
+        // rejection is counted into the episode journal and mirrored to
+        // the UI (ADR-0012) — a silent return would lose the evidence the
+        // gate is doing its job. No RatchetAdvanced emitted.
+        await this.bus.emit({
+          type: "ConfidenceFailed",
+          genomeId,
+          reason: decision.reason,
+          pValue: decision.bootstrap.pValue,
+          effectSize: decision.bootstrap.effectSize,
+        });
         return;
       }
     }

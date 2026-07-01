@@ -97,6 +97,12 @@ export interface RsiRunStats {
    *  improvements committed to main. The number that lets telemetry prove
    *  the Dream Cycle is improving (not just spinning). */
   ratchets: number;
+  /** ConfidenceFailed events during this episode — candidates that beat
+   *  main's prior score but did NOT clear the statistical confidence gate
+   *  (BRSI §2.7). The count that proves the gate is filtering noise, not
+   *  rubber-stamping. Optional for back-compat with stats literals that
+   *  predate the gate. */
+  confidenceRejections?: number;
   /** Error messages from failed evals (capped at 5). */
   errors: string[];
   /** Number of empty model responses during this episode. */
@@ -438,6 +444,13 @@ export class RsiSidecar {
     const onChampion = this.deps.onChampion;
     // Count real improvements this episode → carried on the run-end stats so
     // telemetry records the number that proves the Dream Cycle is ratcheting.
+    let confidenceRejections = 0;
+    this.mirrors.push(
+      engine.bus.onDisposable("ConfidenceFailed", () => {
+        confidenceRejections += 1;
+      }),
+    );
+
     let ratchetCount = 0;
     this.mirrors.push(
       engine.bus.onDisposable("RatchetAdvanced", (ev) => {
@@ -501,6 +514,7 @@ export class RsiSidecar {
           tokens: result.totalTokens,
           stopReason: result.reason,
           ratchets: ratchetCount,
+          confidenceRejections,
           errors: result.errors,
           emptyResponses,
         });
@@ -520,7 +534,7 @@ export class RsiSidecar {
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, errors: [detail], emptyResponses });
+        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses });
       },
     );
   }
@@ -804,6 +818,19 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
       errored: ev.errored,
     });
     maybeEmitStagnation();
+  }));
+  offs.push(bus.onDisposable("ConfidenceFailed", (ev) => {
+    // Surface the gate's reject to the UI as a progress event so the user
+    // sees the receipt live (ADR-0012): "this candidate beat the score but
+    // not the significance bar, and here's why".
+    send({
+      type: "rsi_engine_event",
+      event: "progress",
+      iteration: iterationCount,
+      genomeId: ev.genomeId,
+      stage: "confidence_rejected",
+      reason: ev.reason,
+    });
   }));
   offs.push(bus.onDisposable("RatchetAdvanced", (ev) => {
     // A ratchet resets the stall counters AND clears the stagnation

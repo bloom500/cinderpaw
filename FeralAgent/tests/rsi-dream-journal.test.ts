@@ -35,6 +35,26 @@ describe("makeCycleSummary", () => {
     expect(entry.observed).toContain("12 evaluation(s), 2 promoted to main");
   });
 
+  test("surfaces confidence-gate rejections in observed (ADR-0012)", () => {
+    const entry = makeCycleSummary(
+      { startedAt: START, trigger: "idle" },
+      { iterations: 10, tokens: 2000, ratchets: 1, confidenceRejections: 3, stopReason: "converged", errors: [], emptyResponses: 0 },
+      END,
+    );
+    expect(entry.observed).toContain(
+      "3 candidate(s) beat the score but failed the confidence gate",
+    );
+  });
+
+  test("no rejection line when the gate rejected nothing", () => {
+    const entry = makeCycleSummary(
+      { startedAt: START, trigger: "idle" },
+      { iterations: 4, tokens: 100, ratchets: 1, confidenceRejections: 0, stopReason: "converged", errors: [], emptyResponses: 0 },
+      END,
+    );
+    expect(entry.observed.some((o) => o.includes("failed the confidence gate"))).toBe(false);
+  });
+
   test("reject when nothing ratcheted", () => {
     const entry = makeCycleSummary(
       { startedAt: START, trigger: "idle" },
