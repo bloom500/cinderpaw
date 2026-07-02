@@ -233,11 +233,22 @@ impl ModelManager {
 
         // Release the previous model BEFORE allocating the new one. On an
         // 8 GB card two 4B models cannot be resident at once — without this,
-        // every reload OOMed on VRAM and silently fell back to CPU (in-flight
-        // generations still finish: they hold their own Arc, see
-        // backend::unload).
+        // every reload OOMed on VRAM and silently fell back to CPU. The
+        // epoch bump inside unload() stops in-flight generations at their
+        // next token; we then wait for them to drop their model Arcs so the
+        // VRAM is actually free when the new allocation starts.
         if self.current.lock().is_some() {
             self.unload();
+            #[cfg(feature = "inference")]
+            {
+                use std::sync::atomic::Ordering;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+                while backend::ACTIVE_GENERATIONS.load(Ordering::SeqCst) > 0
+                    && std::time::Instant::now() < deadline
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
         }
 
         #[cfg(feature = "inference")]
@@ -252,7 +263,12 @@ impl ModelManager {
 
     pub fn unload(&self) {
         #[cfg(feature = "inference")]
-        backend::unload();
+        {
+            // Stop in-flight generations at their next token — they hold
+            // model Arcs that would otherwise keep the old weights resident.
+            backend::bump_generation_epoch();
+            backend::unload();
+        }
         *self.current.lock() = None;
     }
 
@@ -1042,6 +1058,22 @@ mod backend {
         Ok(tokens.len())
     }
 
+    /// Bumped by `unload()`. A generation captures the epoch at start and
+    /// stops at the next token once it changes — an unload must actually
+    /// release VRAM, and an in-flight generation holding the model Arc
+    /// would otherwise keep the old weights resident (on an 8 GB card the
+    /// follow-up load then OOMs and silently lands on CPU).
+    static GENERATION_EPOCH: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+    /// Live generation count — `ModelManager::load` waits for 0 after an
+    /// unload so the old model's Arcs are really gone before allocating.
+    pub static ACTIVE_GENERATIONS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    pub fn bump_generation_epoch() {
+        GENERATION_EPOCH.fetch_add(1, Ordering::SeqCst);
+    }
+
     pub fn generate(
         messages: Vec<Message>,
         params: InferParams,
@@ -1049,7 +1081,18 @@ mod backend {
         on_start: Option<Box<dyn Fn(u32) + Send + 'static>>,
     ) -> mpsc::Receiver<String> {
         let (tx, rx) = mpsc::channel(256);
+        let epoch = GENERATION_EPOCH.load(Ordering::SeqCst);
         tokio::task::spawn_blocking(move || {
+            ACTIVE_GENERATIONS.fetch_add(1, Ordering::SeqCst);
+            // Decrement on every exit path (including panics) so a stuck
+            // counter can never wedge future loads.
+            struct Guard;
+            impl Drop for Guard {
+                fn drop(&mut self) {
+                    ACTIVE_GENERATIONS.fetch_sub(1, Ordering::SeqCst);
+                }
+            }
+            let _guard = Guard;
             // P6: the global STATE lock is held only long enough to clone
             // the Arc — never across the generation. Each call then checks
             // a context out of the pool (creating one lazily up to the cap)
@@ -1072,6 +1115,7 @@ mod backend {
                     &params,
                     &tx,
                     &stop,
+                    epoch,
                     on_start.as_deref(),
                 );
                 // Return the context even on error: run_inference empties
@@ -1109,6 +1153,7 @@ mod backend {
             params: &InferParams,
             tx: &mpsc::Sender<String>,
             stop: &Arc<AtomicBool>,
+            epoch: u64,
             on_start: Option<&(dyn Fn(u32) + Send)>,
         ) -> Result<()> {
             // ── Phase 1: tokenize + build sampler (model only) ──
@@ -1271,7 +1316,14 @@ mod backend {
             let mut session_tokens = tokens.clone();
 
             loop {
-                if stop.load(Ordering::Relaxed) { break; }
+                // Two stop reasons: the caller's flag, and a model unload
+                // under our feet (epoch bump) — the generation must release
+                // its Arc quickly so the next load gets the VRAM back.
+                if stop.load(Ordering::Relaxed)
+                    || GENERATION_EPOCH.load(Ordering::SeqCst) != epoch
+                {
+                    break;
+                }
 
                 let token = sampler.sample(ctx, -1);
                 sampler.accept(token);
