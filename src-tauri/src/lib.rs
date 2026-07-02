@@ -102,6 +102,11 @@ pub struct AppState {
     /// accepted the request. Cloned into `feral_agent::spawn` so the
     /// reader can ack without holding the AppState mutex.
     pub rsi_request_registry: rsi::commands::RsiRequestRegistry,
+    /// Faza 3: why the next sidecar exit is expected (deliberate restart
+    /// or post-apply rebuild). Set before `start_kill()`; taken by the
+    /// supervisor so planned exits never count as crashes toward the
+    /// watchdog's revert threshold.
+    pub feral_agent_planned_exit: feral_agent::PlannedExitSlot,
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -2111,6 +2116,10 @@ fn set_desktop_control_yolo(
 /// stops only when it is cleared), and the stdin `tx` is invalidated so any
 /// in-flight send fails fast instead of writing into a dead pipe.
 fn restart_sidecar(state: &AppState) {
+    // Mark the exit as planned so the supervisor skips crash accounting
+    // AND the Faza 3 watchdog counter (an env-toggle restart during a
+    // patch's observation window must not push it toward auto-revert).
+    *state.feral_agent_planned_exit.lock() = Some(feral_agent::PlannedExit::Restart);
     {
         let mut guard = state.feral_agent_process.lock();
         if let Some(ref mut child) = *guard {
@@ -3205,6 +3214,7 @@ pub fn run() {
         rsi_goodhart: rsi::commands::GoodhartSlot::default(),
         rsi_engine: std::sync::Arc::new(parking_lot::Mutex::new(None)),
         rsi_request_registry: rsi::commands::RsiRequestRegistry::default(),
+        feral_agent_planned_exit: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -3510,6 +3520,7 @@ pub fn run() {
             // registry + engine mirror are cloned into every spawn generation
             // so the stdout reader can route `rsi_engine_event` acks to the
             // matching oneshot and keep `rsi_status.engine` fresh.
+            let fa_planned_exit = app.handle().state::<AppState>().feral_agent_planned_exit.clone();
             feral_agent::supervise(
                 fa_handle,
                 fa_tx_slot,
@@ -3518,6 +3529,7 @@ pub fn run() {
                 fa_token,
                 fa_registry,
                 fa_engine_mirror,
+                fa_planned_exit,
             );
 
             // Reconnect enabled MCP extensions in the background. Failures

@@ -1418,6 +1418,7 @@ not json — skipped
             feral_model_config: StdArc::new(PlMutex::new(None)),
             local_api_token: StdArc::from("test-token-not-used"),
             mcp: StdArc::new(crate::mcp::McpManager::new()),
+            feral_agent_planned_exit: StdArc::new(PlMutex::new(None)),
         }
     }
 

@@ -422,6 +422,7 @@ export function useFeralGlobal() {
     let unlistenReady:  (() => void) | null = null;
     let unlistenExit:   (() => void) | null = null;
     let unlistenOutput: (() => void) | null = null;
+    let unlistenRevert: (() => void) | null = null;
 
     const setup = async () => {
       unlistenReady = await listen('feral://agent-ready', () => {
@@ -444,6 +445,19 @@ export function useFeralGlobal() {
                 'suspended. Restart the app to bring Agent mode back.',
             );
           }
+        },
+      );
+
+      // Faza 3 watchdog: the Rust supervisor auto-reverted a live-applied
+      // code patch that was crashing the agent.
+      unlistenRevert = await listen<{ patchId: string }>(
+        'feral://rsi-patch-reverted',
+        (event) => {
+          useNotifications.getState().push(
+            'info',
+            'Change rolled back',
+            `Feral undid a self-modification that was causing problems (${event.payload.patchId}).`,
+          );
         },
       );
 
@@ -476,6 +490,7 @@ export function useFeralGlobal() {
       unlistenReady?.();
       unlistenExit?.();
       unlistenOutput?.();
+      unlistenRevert?.();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -3,11 +3,12 @@
 //!
 //! The flow (spec: `docs/superpowers/specs/2026-07-02-faza3-stabilizare-design.md` §Slice 3):
 //!
-//! 1. The TS sidecar, after `applyPatchLive` succeeds, writes a
-//!    [`PatchMarker`] to `~/.feral/rsi/last_applied_patch.json` (path
-//!    resolved by the supervisor — this module does not own the path).
-//! 2. The Rust supervisor (`#11` — wired by another agent) accumulates
-//!    the timestamps of every sidecar exit. On each new exit it calls
+//! 1. The host's stdout reader (`feral_agent.rs`), on a
+//!    `code_patch_resolved` line with `status: "applied"`, writes a
+//!    [`PatchMarker`] to `~/.feral/rsi/last_applied_patch.json`
+//!    ([`default_marker_path`]).
+//! 2. The Rust supervisor (`#11`) accumulates the timestamps of every
+//!    UNPLANNED sidecar exit. On each new exit it calls
 //!    [`should_revert`] with the current marker + the exit list.
 //! 3. If [`should_revert`] returns `true`, the supervisor performs
 //!    `git apply -R` itself, rebuilds the sidecar, restarts it, marks
@@ -33,7 +34,7 @@
 //! correct behaviour for the supervisor. Crashing on a bad read would
 //! be strictly worse.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result};
@@ -46,11 +47,10 @@ pub const DEFAULT_WINDOW_MS: u64 = 600_000;
 /// trigger the revert.
 pub const DEFAULT_CRASH_THRESHOLD: usize = 2;
 
-/// Marker written at `applyPatchLive`. The TS sidecar is responsible
-/// for writing it (this module only reads / clears it; the supervisor
-/// hands the file to `save_marker` indirectly via the TS writer). The
-/// canonical path lives elsewhere — this module takes the path as an
-/// argument so it can be unit-tested against a `tempfile::TempDir`.
+/// Marker written when a patch goes live (the host writes it on the
+/// `code_patch_resolved`/`applied` stdout line). Every function here
+/// takes the path as an argument so it can be unit-tested against a
+/// `tempfile::TempDir`; the canonical location is [`default_marker_path`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchMarker {
     /// Stable identifier of the patch that was applied (commit hash
@@ -183,6 +183,67 @@ pub fn marker_expired(marker: &PatchMarker, now_ms: u64, opts: &WatchdogOpts) ->
 }
 
 static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+// ---------------------------------------------------------------------------
+// Host-side helpers (impure). The pure core above never touches canonical
+// paths or the TS pending-patch store; the supervisor's revert flow does,
+// and these are its only two views into TS-owned state. Rust may write
+// `pending-patches.json` ONLY because the sidecar is dead when the revert
+// runs — that's the whole premise of the watchdog.
+
+/// Canonical marker path: `~/.feral/rsi/last_applied_patch.json`.
+pub fn default_marker_path() -> PathBuf {
+    crate::paths::rsi_dir().join("last_applied_patch.json")
+}
+
+/// The TS `PendingPatchStore` file: `~/.feral/rsi/pending-patches.json`
+/// (TS side: `defaultPendingPatchesPath()` in `pending-patches.ts`).
+pub fn default_pending_store_path() -> PathBuf {
+    crate::paths::rsi_dir().join("pending-patches.json")
+}
+
+/// Read the unified-diff text of an APPLIED patch out of the sidecar's
+/// pending-patch store. `None` for a missing/corrupt store, an unknown
+/// id, or a patch that isn't in `applied` status — same "corrupt →
+/// start empty" discipline as `load_marker`.
+pub fn applied_patch_text(store_path: &Path, patch_id: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(store_path).ok()?).ok()?;
+    let p = v
+        .get("patches")?
+        .as_array()?
+        .iter()
+        .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(patch_id))?;
+    if p.get("status")?.as_str()? != "applied" {
+        return None;
+    }
+    Some(p.get("genome")?.get("patch")?.as_str()?.to_string())
+}
+
+/// Flip an `applied` patch to `reverted` in the store (mirror of the TS
+/// `markReverted`, including its applied-only precondition). Edits the
+/// JSON as a `Value` so an evolving TS schema doesn't break us.
+pub fn mark_patch_reverted(store_path: &Path, patch_id: &str) -> Result<()> {
+    let bytes = std::fs::read(store_path)
+        .with_context(|| format!("read pending store {}", store_path.display()))?;
+    let mut v: serde_json::Value =
+        serde_json::from_slice(&bytes).context("parse pending store")?;
+    let p = v
+        .get_mut("patches")
+        .and_then(|a| a.as_array_mut())
+        .and_then(|arr| {
+            arr.iter_mut()
+                .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(patch_id))
+        })
+        .with_context(|| format!("patch '{patch_id}' not found in pending store"))?;
+    let status = p.get("status").and_then(|s| s.as_str()).unwrap_or("");
+    if status != "applied" {
+        anyhow::bail!("patch '{patch_id}' is {status}, not applied — nothing to revert");
+    }
+    p["status"] = serde_json::Value::from("reverted");
+    std::fs::write(store_path, serde_json::to_vec_pretty(&v)?)
+        .with_context(|| format!("write pending store {}", store_path.display()))?;
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -405,5 +466,60 @@ mod tests {
         // Must not panic.
         clear_marker(&p);
         clear_marker(&p);
+    }
+
+    // -- applied_patch_text / mark_patch_reverted --------------------------
+
+    /// A minimal TS-store envelope with one patch in the given status.
+    fn store_json(status: &str) -> String {
+        format!(
+            r#"{{"version":1,"patches":[{{"id":"g1","status":"{status}","score":90,"commitHash":"abc","createdAt":1,"genome":{{"patch":"diff text"}}}}]}}"#
+        )
+    }
+
+    #[test]
+    fn applied_patch_text_reads_applied_patch() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("pending-patches.json");
+        std::fs::write(&p, store_json("applied")).unwrap();
+        assert_eq!(applied_patch_text(&p, "g1").as_deref(), Some("diff text"));
+        assert!(applied_patch_text(&p, "nope").is_none());
+    }
+
+    #[test]
+    fn applied_patch_text_refuses_non_applied_and_corrupt() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("pending-patches.json");
+        std::fs::write(&p, store_json("pending")).unwrap();
+        assert!(applied_patch_text(&p, "g1").is_none());
+        std::fs::write(&p, b"{ not json").unwrap();
+        assert!(applied_patch_text(&p, "g1").is_none());
+        assert!(applied_patch_text(&dir.path().join("missing.json"), "g1").is_none());
+    }
+
+    #[test]
+    fn mark_patch_reverted_flips_applied_only() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("pending-patches.json");
+        std::fs::write(&p, store_json("applied")).unwrap();
+        mark_patch_reverted(&p, "g1").unwrap();
+        // Now reverted → a second revert must fail, and the text reader
+        // must no longer serve it.
+        assert!(applied_patch_text(&p, "g1").is_none());
+        assert!(mark_patch_reverted(&p, "g1").is_err());
+        // Other fields survive the round-trip.
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        assert_eq!(v["patches"][0]["status"], "reverted");
+        assert_eq!(v["patches"][0]["score"], 90);
+        assert_eq!(v["version"], 1);
+    }
+
+    #[test]
+    fn mark_patch_reverted_unknown_id_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("pending-patches.json");
+        std::fs::write(&p, store_json("applied")).unwrap();
+        assert!(mark_patch_reverted(&p, "ghost").is_err());
     }
 }

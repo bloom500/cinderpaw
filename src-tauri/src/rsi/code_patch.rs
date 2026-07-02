@@ -16,8 +16,10 @@
 //!    changed lines); this function turns them into the 0..100 scalar
 //!    the ratchet compares. Locked weights (spec §5.3):
 //!
-//!        score = 100 · (0.60·pass_rate + 0.15·tsc_clean
-//!                       + 0.15·build_ok + 0.10·(1 − changed/200))
+//!    ```text
+//!    score = 100 · (0.60·pass_rate + 0.15·tsc_clean
+//!                   + 0.15·build_ok + 0.10·(1 − changed/200))
+//!    ```
 //!
 //!    Small diffs are favoured by construction; a patch that breaks
 //!    the type-check or the build loses its component entirely.

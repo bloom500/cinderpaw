@@ -40,6 +40,32 @@ pub struct AskUserAnswer {
 /// Default cancel reason when the UI doesn't supply one.
 const DEFAULT_CANCEL_REASON: &str = "user cancelled";
 
+/// Why the next sidecar exit is expected. Whoever kills the child on
+/// purpose sets this BEFORE `start_kill()`; the supervisor takes it on
+/// exit and skips both the crash-failure accounting and the Faza 3
+/// watchdog counter (a deliberate restart must never count toward
+/// "≥2 deaths → revert the patch").
+pub enum PlannedExit {
+    /// Plain restart (e.g. `restart_sidecar` after an env toggle).
+    Restart,
+    /// Faza 3 Slice 2: a live-applied code patch wants to become the
+    /// running agent. The supervisor rebuilds the sidecar from
+    /// `repo_root` while the process is dead (Windows locks a running
+    /// exe — this is the only safe moment to overwrite the binary),
+    /// then respawns.
+    Rebuild { repo_root: String },
+}
+
+pub type PlannedExitSlot = Arc<Mutex<Option<PlannedExit>>>;
+
+/// Unix time in milliseconds — the watchdog's clock.
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Build the JSON line the sidecar expects for an `ask_user_response`.
 ///
 /// Returns an `Err` when `request_id` is empty/whitespace — the sidecar
@@ -237,6 +263,8 @@ pub async fn spawn(
     api_token: &str,
     rsi_registry: RsiRequestRegistry,
     rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
+    process_slot: Arc<Mutex<Option<tokio::process::Child>>>,
+    planned_exit: PlannedExitSlot,
 ) -> Result<tokio::process::Child, String> {
     let binary = find_binary(&app).ok_or_else(|| {
         // D1 fix: the `beforeDevCommand` / `beforeBuildCommand` in
@@ -356,6 +384,8 @@ pub async fn spawn(
         response_tx,
         rsi_registry,
         rsi_engine_mirror,
+        process_slot,
+        planned_exit,
     ));
     tokio::spawn(stderr_logger(app.clone(), stderr));
 
@@ -395,12 +425,16 @@ pub fn supervise(
     api_token: String,
     rsi_registry: RsiRequestRegistry,
     rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
+    planned_exit: PlannedExitSlot,
 ) {
     const MAX_QUICK_FAILURES: u32 = 5;
     const STABLE_UPTIME_SECS: u64 = 60;
 
     tauri::async_runtime::spawn(async move {
         let mut quick_failures: u32 = 0;
+        // Faza 3 Slice 3: unexpected-exit timestamps (unix ms) feeding the
+        // crash→auto-revert watchdog. Planned exits never land here.
+        let mut crash_times_ms: Vec<u64> = Vec::new();
         loop {
             let started = std::time::Instant::now();
             match spawn(
@@ -410,6 +444,8 @@ pub fn supervise(
                 &api_token,
                 rsi_registry.clone(),
                 rsi_engine_mirror.clone(),
+                process_slot.clone(),
+                planned_exit.clone(),
             )
             .await
             {
@@ -444,6 +480,35 @@ pub fn supervise(
             };
             let Some(status) = status else { return };
 
+            // A planned exit (env-toggle restart, or a post-apply rebuild) is
+            // not a crash: skip the failure accounting AND the watchdog
+            // counter, then respawn immediately.
+            // Scope the guard: holding a parking_lot lock across the rebuild
+            // await would make the future !Send.
+            let planned = { planned_exit.lock().take() };
+            if let Some(planned) = planned {
+                *tx_slot.lock() = None;
+                let _ = app.emit(
+                    "feral://agent-exit",
+                    serde_json::json!({ "code": status.code(), "restarting": true }),
+                );
+                if let PlannedExit::Rebuild { repo_root } = planned {
+                    // The process is dead, so its exe is finally writable
+                    // (Windows locks running binaries) — rebuild now, before
+                    // the respawn picks the binary up again.
+                    match run_rebuild_script(&repo_root).await {
+                        Ok(()) => tracing::info!(
+                            "feral-agent: sidecar rebuilt after live patch apply"
+                        ),
+                        Err(e) => tracing::warn!(
+                            "feral-agent: sidecar rebuild failed ({e}); respawning the \
+                             previous binary — the watchdog marker will expire harmlessly"
+                        ),
+                    }
+                }
+                continue;
+            }
+
             if started.elapsed().as_secs() >= STABLE_UPTIME_SECS {
                 quick_failures = 0;
             }
@@ -472,6 +537,36 @@ pub fn supervise(
                 "feral://agent-exit",
                 serde_json::json!({ "code": status.code(), "restarting": true }),
             );
+
+            // Faza 3 Slice 3: crash→auto-revert watchdog. If a live-applied
+            // patch has a fresh marker and this is the ≥2nd unexpected death
+            // inside its window, the patch is the prime suspect — reverse it
+            // ourselves (the sidecar is in no state to help), rebuild, and
+            // respawn clean.
+            let now_ms = unix_ms();
+            crash_times_ms.push(now_ms);
+            let marker_path = crate::rsi::watchdog::default_marker_path();
+            if let Some(marker) = crate::rsi::watchdog::load_marker(&marker_path) {
+                let opts = crate::rsi::watchdog::WatchdogOpts::default();
+                crash_times_ms
+                    .retain(|t| now_ms.saturating_sub(*t) <= opts.window_ms);
+                if crate::rsi::watchdog::marker_expired(&marker, now_ms, &opts) {
+                    crate::rsi::watchdog::clear_marker(&marker_path);
+                } else if crate::rsi::watchdog::should_revert(
+                    &marker,
+                    &crash_times_ms,
+                    now_ms,
+                    &opts,
+                ) {
+                    revert_bad_patch(&app, &marker).await;
+                    crate::rsi::watchdog::clear_marker(&marker_path);
+                    crash_times_ms.clear();
+                    quick_failures = 0;
+                    // Respawn immediately on the reverted (and rebuilt) source.
+                    continue;
+                }
+            }
+
             let backoff = if over_budget {
                 tracing::error!(
                     "feral-agent: {MAX_QUICK_FAILURES} rapid failures — cooling down 30s before retrying"
@@ -519,6 +614,8 @@ async fn stdout_reader(
     response_tx: mpsc::Sender<String>,
     rsi_registry: RsiRequestRegistry,
     rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
+    process_slot: Arc<Mutex<Option<tokio::process::Child>>>,
+    planned_exit: PlannedExitSlot,
 ) {
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -554,6 +651,13 @@ async fn stdout_reader(
                     // Intentionally fall through to the UI forward — the
                     // rsi_engine_event line may carry useful payload (e.g.
                     // iteration progress) for live widgets.
+                }
+                Some("code_patch_resolved") => {
+                    // Faza 3 Slices 2+3: a live-applied patch writes the
+                    // watchdog marker and schedules the rebuild-restart that
+                    // makes the patched source the running agent. Falls
+                    // through — the UI needs this line for the approval panel.
+                    handle_code_patch_resolved(&v, &process_slot, &planned_exit);
                 }
                 _ => {}
             }
@@ -652,6 +756,167 @@ fn handle_rsi_engine_event(
         }
     };
     *guard = Some(next);
+}
+
+/// Faza 3 Slices 2+3, the apply side. Called for every `code_patch_resolved`
+/// line; only `status: "applied"` acts (approvals without a live apply, and
+/// rejects/errors, are UI-only). On an applied patch:
+///
+///   1. writes the watchdog marker (Slice 3 — the crash window starts now);
+///   2. if the dev-repo knob `FERAL_CODE_RSI_REPO` is set, schedules a
+///      `PlannedExit::Rebuild` and kills the sidecar. The supervisor does the
+///      actual rebuild while the process is dead, then respawns the fresh
+///      binary — the patched source becomes the running agent (Slice 2).
+fn handle_code_patch_resolved(
+    v: &serde_json::Value,
+    process_slot: &Arc<Mutex<Option<tokio::process::Child>>>,
+    planned_exit: &PlannedExitSlot,
+) {
+    if v.get("status").and_then(|s| s.as_str()) != Some("applied") {
+        return;
+    }
+    let Some(id) = v.get("id").and_then(|s| s.as_str()) else {
+        return;
+    };
+
+    let marker = crate::rsi::watchdog::PatchMarker {
+        patch_id: id.to_string(),
+        applied_at_ms: unix_ms(),
+    };
+    let marker_path = crate::rsi::watchdog::default_marker_path();
+    if let Err(e) = crate::rsi::watchdog::save_marker(&marker_path, &marker) {
+        tracing::warn!("feral-agent: failed to write watchdog marker: {e}");
+    }
+
+    let repo = std::env::var("FERAL_CODE_RSI_REPO").unwrap_or_default();
+    if repo.trim().is_empty() {
+        // Shouldn't happen (the sidecar refuses live apply without the
+        // knob), but the marker alone is still correct behaviour.
+        return;
+    }
+    tracing::info!("feral-agent: patch '{id}' applied — restarting sidecar for rebuild");
+    *planned_exit.lock() = Some(PlannedExit::Rebuild { repo_root: repo });
+    if let Some(child) = process_slot.lock().as_mut() {
+        let _ = child.start_kill();
+    }
+}
+
+/// Run `scripts/rsi-rebuild-sidecar.ps1` from the source repo: `bun run
+/// build` + copy over the Tauri externalBin target. Must only run while
+/// the sidecar is DEAD (the copy fails on a running exe). Windows-only,
+/// like the script (per the Faza 3 spec, live apply is a Windows dev-
+/// machine story for now).
+async fn run_rebuild_script(repo_root: &str) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        let _ = repo_root;
+        Err("sidecar rebuild script is Windows-only for now".to_string())
+    }
+    #[cfg(windows)]
+    {
+        let script = std::path::Path::new(repo_root)
+            .join("scripts")
+            .join("rsi-rebuild-sidecar.ps1");
+        let mut cmd = tokio::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&script)
+            .arg("-RepoRoot")
+            .arg(repo_root);
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let out = tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output())
+            .await
+            .map_err(|_| "rebuild script timed out after 300s".to_string())?
+            .map_err(|e| format!("failed to launch rebuild script: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(format!(
+                "rebuild script exited {:?}: {}",
+                out.status.code(),
+                stderr.lines().last().unwrap_or("").trim()
+            ))
+        }
+    }
+}
+
+/// Reverse-apply a patch from the real source repo — the Rust mirror of the
+/// TS `revertPatchLive` git invocation (`--directory=FeralAgent`, check
+/// first, patch text on stdin). Runs in Rust precisely because the sidecar
+/// is crash-looping and cannot be asked to revert itself.
+async fn git_apply_reverse(repo_root: &str, patch: &str) -> Result<(), String> {
+    for check in [true, false] {
+        let mut cmd = tokio::process::Command::new("git");
+        cmd.args([
+            "apply",
+            "--directory=FeralAgent",
+            "--whitespace=nowarn",
+            "-R",
+        ]);
+        if check {
+            cmd.arg("--check");
+        }
+        cmd.current_dir(repo_root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped());
+        #[cfg(windows)]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("git spawn failed: {e}"))?;
+        let mut stdin = child.stdin.take().expect("stdin was piped");
+        stdin
+            .write_all(patch.as_bytes())
+            .await
+            .map_err(|e| format!("git stdin write failed: {e}"))?;
+        drop(stdin);
+        let out = child
+            .wait_with_output()
+            .await
+            .map_err(|e| format!("git wait failed: {e}"))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            return Err(stderr.lines().next().unwrap_or("git apply -R failed").to_string());
+        }
+    }
+    Ok(())
+}
+
+/// Faza 3 Slice 3, the revert action. Called from the supervisor when the
+/// watchdog says "this patch is killing the sidecar": reverse the patch on
+/// the source tree, mark it `reverted` in the pending store, rebuild the
+/// sidecar, and tell the UI. Every step is best-effort with a logged
+/// reason — the supervisor's respawn loop continues regardless.
+async fn revert_bad_patch(app: &AppHandle, marker: &crate::rsi::watchdog::PatchMarker) {
+    let id = &marker.patch_id;
+    let repo = std::env::var("FERAL_CODE_RSI_REPO").unwrap_or_default();
+    if repo.trim().is_empty() {
+        tracing::warn!("feral-agent: watchdog fired for '{id}' but FERAL_CODE_RSI_REPO is unset — cannot revert");
+        return;
+    }
+    let store = crate::rsi::watchdog::default_pending_store_path();
+    let Some(patch) = crate::rsi::watchdog::applied_patch_text(&store, id) else {
+        tracing::warn!("feral-agent: watchdog fired for '{id}' but no applied patch with that id in the pending store");
+        return;
+    };
+    if let Err(e) = git_apply_reverse(&repo, &patch).await {
+        tracing::error!("feral-agent: auto-revert of '{id}' FAILED ({e}) — source may still carry the bad patch");
+        return;
+    }
+    if let Err(e) = crate::rsi::watchdog::mark_patch_reverted(&store, id) {
+        tracing::warn!("feral-agent: reverted '{id}' but could not mark the store: {e}");
+    }
+    if let Err(e) = run_rebuild_script(&repo).await {
+        tracing::warn!("feral-agent: reverted '{id}' but rebuild failed ({e}) — the running binary may still carry the patch until the next successful build");
+    }
+    tracing::warn!("feral-agent: auto-reverted patch '{id}' after repeated sidecar crashes");
+    let _ = app.emit(
+        "feral://rsi-patch-reverted",
+        serde_json::json!({ "patchId": id }),
+    );
 }
 
 /// Run a single desktop-control request from the sidecar and write the
