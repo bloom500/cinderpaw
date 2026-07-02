@@ -396,28 +396,34 @@ describe("RsiSidecar — champion hook (the Crux)", () => {
     const bridge = new AdvancingBridge();
     const champions: Array<{ genomeId: string; config: unknown; score: number }> = [];
     const tmp = resolve(import.meta.dir, `../.tmp-champion-${Date.now()}.json`);
+    const treeTmp = resolve(import.meta.dir, `../.tmp-tree-champ-${Math.random()}.json`);
+    const { rmSync } = require("node:fs") as typeof import("node:fs");
     const sidecar = new RsiSidecar({
       bridge,
       db: makeDb(),
       router: new FakeRouter(),
       send: () => {},
       championPath: tmp,
-      championTreePath: resolve(import.meta.dir, `../.tmp-tree-champ-${Math.random()}.json`),
+      championTreePath: treeTmp,
       onChampion: (rec) => champions.push(rec),
     });
 
-    await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, concurrency: 1 }, "ack");
-    for (let i = 0; i < 60 && champions.length === 0; i++) {
-      await new Promise((r) => setTimeout(r, 10));
-    }
+    try {
+      await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, concurrency: 1 }, "ack");
+      for (let i = 0; i < 60 && champions.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
 
-    expect(champions.length).toBeGreaterThan(0);
-    expect(typeof champions[0]!.genomeId).toBe("string");
-    expect((champions[0]!.config as { temperature?: number }).temperature).toBeTypeOf("number");
-    // It was persisted too.
-    const { readChampion } = await import("../src/rsi/champion.ts");
-    expect(readChampion(tmp)).not.toBeNull();
-    try { require("node:fs").rmSync(tmp, { force: true }); } catch { /* ignore */ }
+      expect(champions.length).toBeGreaterThan(0);
+      expect(typeof champions[0]!.genomeId).toBe("string");
+      expect((champions[0]!.config as { temperature?: number }).temperature).toBeTypeOf("number");
+      // It was persisted too.
+      const { readChampion } = await import("../src/rsi/champion.ts");
+      expect(readChampion(tmp)).not.toBeNull();
+    } finally {
+      rmSync(tmp, { force: true });
+      rmSync(treeTmp, { force: true });
+    }
   });
 });
 
