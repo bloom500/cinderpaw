@@ -346,30 +346,76 @@ impl ChatReq {
     }
 }
 
-/// Wait for a model to be loaded before serving a completion.
+/// One lazy-load at a time — a burst of eval requests must not stack up N
+/// concurrent `manager.load` calls for the same model.
+static API_AUTOLOAD_IN_FLIGHT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Ensure a model is loaded before serving a completion.
 ///
-/// The UI auto-loads the persisted model shortly after boot, but early API
-/// callers race that load — the RSI Dream Cycle's first episode (scheduler
-/// tick fires ~30s after boot) burned every eval on "no model loaded" empty
-/// responses, and connectors hit the same window. Rather than pushing a
-/// readiness check into every caller, the completion endpoints wait here.
-/// Polls up to `FERAL_MODEL_WAIT_MS` (default 120s), then gives up so a
-/// system with no local model configured still gets a real error instead of
-/// hanging forever.
-async fn wait_for_model(state: &ApiState) -> bool {
+/// Boot auto-load was deliberately removed (2026-06-30: mmap lag froze
+/// non-technical users' machines), so nothing guarantees a loaded model when
+/// an API caller arrives — the RSI Dream Cycle's first episode burned every
+/// eval on "no model loaded", and connectors hit the same hole whenever the
+/// user hadn't touched the Local Models tab. The fix that respects the
+/// no-boot-load decision: load lazily HERE, on first demand, using the model
+/// id the caller asked for (falling back to the first model on disk). Waits
+/// out a concurrent load (UI or another request) up to `FERAL_MODEL_WAIT_MS`
+/// (default 120s).
+async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
+    use std::sync::atomic::Ordering;
     if state.manager.current().is_some() {
         return true;
     }
+
+    if !API_AUTOLOAD_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        // We own the load. Resolve the requested id against the models dir.
+        let requested = requested.to_string();
+        let manager = state.manager.clone();
+        let loaded = tokio::task::spawn_blocking(move || {
+            let models = models::scan_models_dir().unwrap_or_default();
+            let pick = models
+                .iter()
+                .find(|m| m.id == requested || m.name == requested)
+                .or_else(|| models.first());
+            match pick {
+                Some(m) => {
+                    tracing::info!(model = %m.id, "api: lazy-loading model on first completion request");
+                    // n_gpu_layers -1 = offload all (GPU builds fall back to
+                    // CPU internally); context uses the conservative default
+                    // cap — the UI's Hardware choice re-applies on its next
+                    // explicit load.
+                    manager.load(m.path.clone(), -1, None).map(|_| true).unwrap_or(false)
+                }
+                None => false,
+            }
+        })
+        .await
+        .unwrap_or(false);
+        API_AUTOLOAD_IN_FLIGHT.store(false, Ordering::SeqCst);
+        if loaded {
+            return true;
+        }
+        // Fall through to the wait loop — a concurrent UI load may still land.
+    }
+
     let deadline_ms = std::env::var("FERAL_MODEL_WAIT_MS")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(120_000);
     let start = std::time::Instant::now();
     while start.elapsed().as_millis() < u128::from(deadline_ms) {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         if state.manager.current().is_some() {
             return true;
         }
+        if !API_AUTOLOAD_IN_FLIGHT.load(Ordering::SeqCst) {
+            // No load in flight anymore and still no model → nothing on disk
+            // or the load failed; give the caller a real error now.
+            if state.manager.current().is_none() {
+                return false;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
     false
 }
@@ -389,7 +435,7 @@ async fn api_chat(
     State(state): State<ApiState>,
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
-    if !wait_for_model(&state).await {
+    if !wait_for_model(&state, &req.model).await {
         return no_model_response();
     }
     let mut params = params_from_options(req.options.as_ref());
@@ -447,7 +493,7 @@ async fn v1_chat_completions(
     State(state): State<ApiState>,
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
-    if !wait_for_model(&state).await {
+    if !wait_for_model(&state, &req.model).await {
         return no_model_response();
     }
     let mut params = params_from_options(req.options.as_ref());

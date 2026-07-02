@@ -231,6 +231,15 @@ impl ModelManager {
             .unwrap_or("model")
             .to_string();
 
+        // Release the previous model BEFORE allocating the new one. On an
+        // 8 GB card two 4B models cannot be resident at once — without this,
+        // every reload OOMed on VRAM and silently fell back to CPU (in-flight
+        // generations still finish: they hold their own Arc, see
+        // backend::unload).
+        if self.current.lock().is_some() {
+            self.unload();
+        }
+
         #[cfg(feature = "inference")]
         let (ctx_len, n_ctx_train) = backend::load(&path, n_gpu_layers, max_context)?;
         #[cfg(not(feature = "inference"))]
