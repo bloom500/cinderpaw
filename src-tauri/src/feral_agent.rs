@@ -497,9 +497,12 @@ pub fn supervise(
                     // (Windows locks running binaries) — rebuild now, before
                     // the respawn picks the binary up again.
                     match run_rebuild_script(&repo_root).await {
-                        Ok(()) => tracing::info!(
-                            "feral-agent: sidecar rebuilt after live patch apply"
-                        ),
+                        Ok(()) => {
+                            if let Err(e) = refresh_spawn_binary(&app, &repo_root) {
+                                tracing::warn!("feral-agent: rebuilt but could not refresh spawn binary: {e}");
+                            }
+                            tracing::info!("feral-agent: sidecar rebuilt after live patch apply");
+                        }
                         Err(e) => tracing::warn!(
                             "feral-agent: sidecar rebuild failed ({e}); respawning the \
                              previous binary — the watchdog marker will expire harmlessly"
@@ -841,6 +844,30 @@ async fn run_rebuild_script(repo_root: &str) -> Result<(), String> {
     }
 }
 
+/// Push the freshly rebuilt sidecar to the path the NEXT spawn will
+/// actually use. Gap found by the live smoke: the rebuild script updates
+/// `<repo>/src-tauri/binaries/`, but in dev mode `cargo tauri dev` copies
+/// the sidecar NEXT TO feral.exe (in the cargo target dir) and
+/// `find_binary` prefers that copy — so without this, the supervisor
+/// keeps respawning the stale binary forever. Must run while the sidecar
+/// is dead (the destination is unlocked then).
+fn refresh_spawn_binary(app: &AppHandle, repo_root: &str) -> Result<(), String> {
+    let fresh = std::path::Path::new(repo_root)
+        .join("src-tauri")
+        .join("binaries")
+        .join(binary_filename());
+    let dest = find_binary(app).ok_or_else(|| "find_binary resolved no sidecar".to_string())?;
+    // Same file (dev repo == running repo layout)? Nothing to do.
+    if let (Ok(a), Ok(b)) = (fresh.canonicalize(), dest.canonicalize()) {
+        if a == b {
+            return Ok(());
+        }
+    }
+    std::fs::copy(&fresh, &dest)
+        .map(|_| ())
+        .map_err(|e| format!("copy {} -> {}: {e}", fresh.display(), dest.display()))
+}
+
 /// Reverse-apply a patch from the real source repo — the Rust mirror of the
 /// TS `revertPatchLive` git invocation (`--directory=FeralAgent`, check
 /// first, patch text on stdin). Runs in Rust precisely because the sidecar
@@ -909,8 +936,13 @@ async fn revert_bad_patch(app: &AppHandle, marker: &crate::rsi::watchdog::PatchM
     if let Err(e) = crate::rsi::watchdog::mark_patch_reverted(&store, id) {
         tracing::warn!("feral-agent: reverted '{id}' but could not mark the store: {e}");
     }
-    if let Err(e) = run_rebuild_script(&repo).await {
-        tracing::warn!("feral-agent: reverted '{id}' but rebuild failed ({e}) — the running binary may still carry the patch until the next successful build");
+    match run_rebuild_script(&repo).await {
+        Ok(()) => {
+            if let Err(e) = refresh_spawn_binary(app, &repo) {
+                tracing::warn!("feral-agent: reverted '{id}' but could not refresh spawn binary: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("feral-agent: reverted '{id}' but rebuild failed ({e}) — the running binary may still carry the patch until the next successful build"),
     }
     tracing::warn!("feral-agent: auto-reverted patch '{id}' after repeated sidecar crashes");
     let _ = app.emit(
