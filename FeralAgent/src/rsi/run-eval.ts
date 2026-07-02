@@ -37,6 +37,11 @@ export interface RunEvalDeps {
   invokeAgent: (prompt: string, genome: GenomeSpec) => Promise<AgentResponse>;
   /** Monotonic clock for latency, injectable for tests. Default Date.now. */
   now?: () => number;
+  /** Diagnostic sink for failed evals — logs the spec id + a response
+   *  excerpt so a systematically failing suite (e.g. a thinking model
+   *  burning its whole budget inside <think>) is visible in the host log
+   *  instead of just "N tasks failed". */
+  log?: (msg: string) => void;
 }
 
 /** Build the production `runEval` (the EvalWorker's injected suite runner). */
@@ -48,7 +53,8 @@ export function makeRunEval(
     const specs = await deps.getSpecs();
     const outcomes: EvalOutcome[] = [];
     for (const spec of specs) {
-      outcomes.push(await runOne(spec, genome, deps.invokeAgent, now));
+      const outcome = await runOne(spec, genome, deps.invokeAgent, now, deps.log);
+      outcomes.push(outcome);
     }
     return outcomes;
   };
@@ -59,15 +65,23 @@ async function runOne(
   genome: GenomeSpec,
   invokeAgent: RunEvalDeps["invokeAgent"],
   now: () => number,
+  log?: (msg: string) => void,
 ): Promise<EvalOutcome> {
   const start = now();
   try {
     const { response, tokens } = await invokeAgent(spec.prompt, genome);
     const latencyMs = now() - start;
+    const success = validateOutcome(spec, response, tokens, latencyMs);
+    if (!success) {
+      const excerpt = response.replace(/\s+/g, " ").slice(0, 200);
+      log?.(
+        `rsi eval FAIL ${spec.id} (genome=${genome.id}, tokens=${tokens}, ${latencyMs}ms): "${excerpt}"`,
+      );
+    }
     return {
       taskId: spec.id,
       tier: spec.tier,
-      success: validateOutcome(spec, response, tokens, latencyMs),
+      success,
       latencyMs,
       tokens,
       errored: false,

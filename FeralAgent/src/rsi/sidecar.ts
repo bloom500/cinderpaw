@@ -307,7 +307,7 @@ export class RsiSidecar {
         throw err;
       }
     };
-    const runEval = makeRunEval({ getSpecs, invokeAgent });
+    const runEval = makeRunEval({ getSpecs, invokeAgent, log: this.deps.log });
 
     // ── Crossover wiring (LCA over the bridge) ────────────────────────
     const lca = makeLcaAdapter({ bridge: this.deps.bridge, pop });
