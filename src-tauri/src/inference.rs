@@ -403,6 +403,35 @@ pub fn gpu_active() -> bool {
     }
 }
 
+/// Faza 4 (L2 personal adaptation): stage a LoRA adapter (GGUF) to be applied
+/// at the NEXT model load — pass `None` to clear. Staging does not touch the
+/// currently loaded model; the caller reloads to make it effective (adapters
+/// attach per context, and reloading also flushes KV caches decoded under the
+/// previous adapter). Scale 1.0 = the adapter as trained.
+pub fn set_lora_adapter(path: Option<std::path::PathBuf>, scale: f32) {
+    #[cfg(feature = "inference")]
+    {
+        backend::set_lora(path, scale);
+    }
+    #[cfg(not(feature = "inference"))]
+    {
+        let _ = (path, scale);
+    }
+}
+
+/// The LoRA adapter path loaded with the CURRENT model, if any. `None` when no
+/// model is loaded, no adapter is active, or this is a stub build.
+pub fn active_lora_adapter() -> Option<String> {
+    #[cfg(feature = "inference")]
+    {
+        backend::active_lora()
+    }
+    #[cfg(not(feature = "inference"))]
+    {
+        None
+    }
+}
+
 /// Human-readable backend status for the model-load UI. Distinguishes a real
 /// GPU run from a GPU-capable build that silently fell back to CPU, and from a
 /// plain CPU build — so a user with an expensive card can see whether it's
@@ -452,7 +481,10 @@ mod backend {
         },
         llama_backend::LlamaBackend,
         llama_batch::LlamaBatch,
-        model::{params::LlamaModelParams, AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel},
+        model::{
+            params::LlamaModelParams, AddBos, LlamaChatMessage, LlamaChatTemplate,
+            LlamaLoraAdapter, LlamaModel,
+        },
         sampling::LlamaSampler,
         token::LlamaToken,
     };
@@ -466,6 +498,56 @@ mod backend {
 
     // LlamaBackend lives for the app lifetime — initialized once.
     static BACKEND: OnceCell<LlamaBackend> = OnceCell::new();
+
+    // ── Faza 4: personal LoRA adapter (L2) ─────────────────────────────────
+    //
+    // The champion adapter (chosen by the TS-side LoraRegistry through the
+    // human gate) is applied at MODEL LOAD, not per request: llama.cpp
+    // attaches adapters per context, and every pooled context must carry
+    // the same adapter or two requests would answer from different models.
+    // `set_lora_adapter` therefore only stages the path; the next `load()`
+    // initializes the adapter against the freshly loaded weights and every
+    // context created for that model (eager first + lazy pool growth) gets
+    // it set. Changing champions ⇒ stage + reload, which also flushes the
+    // per-context KV caches (prefixes decoded under another adapter would
+    // otherwise be silently reused).
+
+    /// Adapter staged for the next load: (GGUF LoRA path, scale).
+    static PENDING_LORA: Lazy<Mutex<Option<(PathBuf, f32)>>> = Lazy::new(|| Mutex::new(None));
+
+    pub(super) fn set_lora(path: Option<PathBuf>, scale: f32) {
+        *PENDING_LORA.lock() = path.map(|p| (p, scale));
+    }
+
+    /// The adapter actually loaded with the CURRENT model (observability —
+    /// a stale/missing adapter file loads the model bare, and the UI must
+    /// be able to tell). `None` when no model or no adapter is active.
+    pub(super) fn active_lora() -> Option<String> {
+        let state = STATE.lock();
+        state
+            .as_ref()
+            .and_then(|s| s.lora.as_ref())
+            .map(|l| l.path.display().to_string())
+    }
+
+    /// The adapter + the model it was initialized against. `adapter` is a
+    /// llama.cpp object owned by the model (freed with `llama_model_free`,
+    /// no separate free in this crate version) — LoadedState holds both, so
+    /// the adapter can never outlive its model.
+    pub(super) struct LoraState {
+        path: PathBuf,
+        scale: f32,
+        /// `lora_adapter_set` wants `&mut` — the Mutex provides it. The set
+        /// call mutates the CONTEXT, not the adapter; the lock just
+        /// serializes the API's conservative signature.
+        adapter: Mutex<LlamaLoraAdapter>,
+    }
+    // SAFETY: the raw adapter pointer is only dereferenced by llama.cpp
+    // calls made while holding the Mutex, and the referent is kept alive by
+    // the LoadedState that owns both this and the model Arc (same
+    // discipline as PooledContext).
+    unsafe impl Send for LoraState {}
+    unsafe impl Sync for LoraState {}
 
     // ── P6: context pool — concurrent local inference ─────────────────────
     //
@@ -551,7 +633,12 @@ mod backend {
         /// Check out a context, creating one lazily if under the cap, or
         /// blocking until another generation returns one. Called from
         /// `spawn_blocking` threads only — blocking here is fine.
-        fn acquire(&self, model: &Arc<LlamaModel>, ctx_len: u32) -> Result<PooledContext> {
+        fn acquire(
+            &self,
+            model: &Arc<LlamaModel>,
+            ctx_len: u32,
+            lora: Option<&LoraState>,
+        ) -> Result<PooledContext> {
             let mut inner = self.inner.lock();
             loop {
                 if let Some(ctx) = inner.idle.pop() {
@@ -563,7 +650,7 @@ mod backend {
                     // slot back and wake a waiter so it can retry/create.
                     inner.created += 1;
                     drop(inner);
-                    match create_context(model, ctx_len) {
+                    match create_context(model, ctx_len, lora) {
                         Ok(ctx) => return Ok(ctx),
                         Err(e) => {
                             let mut inner = self.inner.lock();
@@ -602,6 +689,9 @@ mod backend {
         /// wrong template guessed from its filename. `None` for GGUFs without
         /// one; those fall back to the filename heuristic.
         chat_template: Option<LlamaChatTemplate>,
+        /// Faza 4: personal LoRA adapter applied to every context of this
+        /// model. `None` = bare foundation model.
+        lora: Option<LoraState>,
     }
 
     static STATE: Lazy<Mutex<Option<Arc<LoadedState>>>> = Lazy::new(|| Mutex::new(None));
@@ -661,8 +751,14 @@ mod backend {
         if gpu_active { 1 } else { 2 }
     }
 
-    /// Allocate one pooled context for `model`, sized to `ctx_len`.
-    fn create_context(model: &Arc<LlamaModel>, ctx_len: u32) -> Result<PooledContext> {
+    /// Allocate one pooled context for `model`, sized to `ctx_len`, with
+    /// the model's LoRA adapter (if any) attached — EVERY context of a
+    /// model must carry the same adapter (see the Faza 4 block comment).
+    fn create_context(
+        model: &Arc<LlamaModel>,
+        ctx_len: u32,
+        lora: Option<&LoraState>,
+    ) -> Result<PooledContext> {
         let backend = BACKEND
             .get()
             .ok_or_else(|| anyhow!("llama backend not initialized"))?;
@@ -678,6 +774,14 @@ mod backend {
         // long as the context (field drop order: context first). See the
         // PooledContext block comment for the full invariant.
         let context: LlamaContext<'static> = unsafe { std::mem::transmute(context) };
+        if let Some(l) = lora {
+            // Adapter attach failure is a hard error, not a warn-and-skip:
+            // a pool where some contexts answer with the adapter and some
+            // without is worse than a failed allocation.
+            context
+                .lora_adapter_set(&mut l.adapter.lock(), l.scale)
+                .map_err(|e| anyhow!("set lora adapter {:?}: {}", l.path, e))?;
+        }
         Ok(PooledContext {
             context,
             cached_tokens: Vec::new(),
@@ -954,18 +1058,33 @@ mod backend {
         // the PooledContext block comment). Returns model + ctx_len + the warm
         // first context, or an error if EITHER the weights or the KV allocation
         // failed.
-        let attempt = |ngl: u32| -> Result<(Arc<LlamaModel>, u32, PooledContext)> {
+        // Faza 4: adapter staged via `set_lora_adapter`. Initialized per
+        // ATTEMPT — the adapter object belongs to the model instance it was
+        // initialized against, so the CPU-fallback model needs its own. A
+        // missing/corrupt adapter file fails the attempt loudly rather than
+        // silently serving the bare model (see LoraState docblock).
+        let staged_lora = PENDING_LORA.lock().clone();
+        let attempt = |ngl: u32| -> Result<(Arc<LlamaModel>, u32, PooledContext, Option<LoraState>)> {
             let params = LlamaModelParams::default().with_n_gpu_layers(ngl);
             let model = Arc::new(
                 LlamaModel::load_from_file(backend, path, &params)
                     .map_err(|e| anyhow!("load weights: {}", e))?,
             );
+            let lora = staged_lora
+                .as_ref()
+                .map(|(p, scale)| -> Result<LoraState> {
+                    let adapter = model
+                        .lora_adapter_init(p)
+                        .map_err(|e| anyhow!("init lora adapter {:?}: {}", p, e))?;
+                    Ok(LoraState { path: p.clone(), scale: *scale, adapter: Mutex::new(adapter) })
+                })
+                .transpose()?;
             let ctx_len = model.n_ctx_train().max(2048).min(cap);
             // create_context allocates the KV cache — on the GPU when layers are
             // offloaded, so this is the step that returns a null context when
             // VRAM is exhausted (a model/context too big for the card).
-            let first = create_context(&model, ctx_len)?;
-            Ok((model, ctx_len, first))
+            let first = create_context(&model, ctx_len, lora.as_ref())?;
+            Ok((model, ctx_len, first, lora))
         };
 
         // Try GPU first; on ANY failure — weights won't load, OR the KV cache
@@ -974,7 +1093,7 @@ mod backend {
         // instead of erroring out. A hard GPU *driver crash* can't be caught
         // here, but a clean error can.
         let mut offloaded = requested > 0;
-        let (model, ctx_len, first) = match attempt(requested) {
+        let (model, ctx_len, first, lora) = match attempt(requested) {
             Ok(v) => v,
             Err(e) if requested > 0 => {
                 tracing::warn!(
@@ -1019,6 +1138,7 @@ mod backend {
             ctx_len,
             max_contexts = max,
             gguf_template = chat_template.is_some(),
+            lora = lora.as_ref().map(|l| l.path.display().to_string()),
             fallback_template = %detect_template(&name),
             "model loaded (context pool ready, per-context KV prefix reuse)"
         );
@@ -1032,6 +1152,7 @@ mod backend {
                 max,
             },
             chat_template,
+            lora,
         }));
         Ok((ctx_len, n_ctx_train))
     }
@@ -1139,7 +1260,7 @@ mod backend {
                     .ok_or_else(|| anyhow!("no model loaded"))?;
                 // Blocks only when `max_contexts()` generations are already
                 // running — the one serialization point left by design.
-                let mut pctx = state.pool.acquire(&state.model, state.ctx_len)?;
+                let mut pctx = state.pool.acquire(&state.model, state.ctx_len, state.lora.as_ref())?;
                 let result = run_inference(
                     &state,
                     &mut pctx,

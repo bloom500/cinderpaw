@@ -363,6 +363,18 @@ fn unload_model(state: State<AppState>) {
     state.manager.unload();
 }
 
+/// Faza 4 (L2): stage a personal LoRA adapter for the next model load, or
+/// clear it with `None`. Takes effect on the next `load_model` — the champion
+/// flow is: human approves the review card → stage adapter → reload model.
+/// Returns the adapter active on the CURRENTLY loaded model (i.e. staging is
+/// visible here only after the reload).
+#[tauri::command]
+#[specta::specta]
+fn set_lora_adapter(path: Option<String>, scale: Option<f32>) -> Option<String> {
+    inference::set_lora_adapter(path.map(PathBuf::from), scale.unwrap_or(1.0));
+    inference::active_lora_adapter()
+}
+
 #[tauri::command]
 #[specta::specta]
 fn delete_model(state: State<AppState>, path: String) -> Result<(), String> {
@@ -3227,6 +3239,7 @@ pub fn run() {
             load_model,
             start_model_load,
             unload_model,
+            set_lora_adapter,
             delete_model,
             chat_stream,
             stop_generation,

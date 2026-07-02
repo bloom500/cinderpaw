@@ -198,6 +198,19 @@ export class LoraRegistry {
     return structuredClone(a);
   }
 
+  /** Retire a candidate/evaluating adapter the human REJECTED at the
+   *  review card — it never becomes champion and stops showing as "in
+   *  flight". Champions are not retired here (that's `promote`'s demotion
+   *  or `rollback`). */
+  retire(id: string): LoraAdapterRecord {
+    const a = this.#require(id);
+    if (a.status !== "candidate" && a.status !== "evaluating") {
+      throw new Error(`adapter '${id}' is ${a.status} — cannot retire`);
+    }
+    this.#setStatus(a, "retired");
+    return structuredClone(a);
+  }
+
   /**
    * Regression rollback: demote the current champion to `rolled_back`
    * and re-promote its nearest promotable ancestor (walking parentId
