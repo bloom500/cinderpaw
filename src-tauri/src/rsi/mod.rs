@@ -25,6 +25,7 @@
 //! - `plan`     : embedded PLAN.md (the versioned architectural plan)
 //! - `repo`     : git2 wrapper for the RSI git substrate
 //! - `commands` : the Tauri commands the sidecar calls
+//! - `watchdog` : pure-decision crash→auto-revert logic (Faza 3)
 
 pub mod audit;
 pub mod code_patch;
@@ -37,6 +38,7 @@ pub mod sandbox_bounds;
 pub mod scorer;
 pub mod tier0;
 pub mod types;
+pub mod watchdog;
 
 #[cfg(test)]
 pub(crate) mod test_support;
