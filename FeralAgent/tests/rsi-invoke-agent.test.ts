@@ -115,7 +115,7 @@ describe("makeInvokeAgent — single-call mapping", () => {
     expect(userMsg.content).toBe("Capital of France?");
   });
 
-  test("computes maxTokens as floor(budget * contextWindowUsage), clamped to 32", async () => {
+  test("computes maxTokens as floor(budget * contextWindowUsage), clamped to 256", async () => {
     const router = new FakeRouter();
     const invoke = makeInvokeAgent({
       router,
@@ -125,11 +125,13 @@ describe("makeInvokeAgent — single-call mapping", () => {
     await invoke("x", makeGenome({ contextWindowUsage: 0.5 })); // 0.5 * 4096 = 2048
     expect(router.calls[0]!.maxTokens).toBe(2048);
 
-    await invoke("x", makeGenome({ contextWindowUsage: 0.1 })); // 0.1 * 4096 = 409
+    // Floor 256: a low-usage genome must not truncate CORRECT answers
+    // (tier2/plan_make_tea was cut at 130 tokens on usage 0.1 × 1024).
+    await invoke("x", makeGenome({ contextWindowUsage: 0.1 })); // floor=409 > 256 → 409
     expect(router.calls[1]!.maxTokens).toBe(409);
 
-    await invoke("x", makeGenome({ contextWindowUsage: 0.001 })); // floor=4 → clamped to 32
-    expect(router.calls[2]!.maxTokens).toBe(32);
+    await invoke("x", makeGenome({ contextWindowUsage: 0.001 })); // floor=4 → clamped to 256
+    expect(router.calls[2]!.maxTokens).toBe(256);
   });
 
   test("uses a stable session id per genome", async () => {

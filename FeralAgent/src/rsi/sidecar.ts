@@ -280,6 +280,10 @@ export class RsiSidecar {
       router: this.deps.router,
       contextBudget: evalBudget,
       getSystemPrompt: (id) =>
+        // Identity line: tier0/identity_honesty expects "bloom", and the
+        // production agent DOES carry its identity in the system prompt —
+        // evals grade the agent-as-shipped, not an anonymous model.
+        "You are Feral, a local AI agent made by bloom. " +
         (this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT) + " /no_think",
     });
     const invokeAgent: typeof baseInvokeAgent = async (prompt, genome) => {

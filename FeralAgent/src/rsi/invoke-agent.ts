@@ -180,8 +180,11 @@ async function runOnce(args: {
     ? `${recallBlock}\n\n${args.prompt}`
     : args.prompt;
 
+  // Floor 256: a genome with low contextWindowUsage was truncating CORRECT
+  // answers (tier2/plan_make_tea cut at 130 tokens) — the floor keeps the
+  // eval fair while usage still differentiates genomes above it.
   const maxTokens = Math.max(
-    32,
+    256,
     Math.floor(args.contextBudget * args.config.contextWindowUsage),
   );
 

@@ -148,6 +148,18 @@ pub(crate) fn augment_messages(messages: &[Message]) -> Vec<Message> {
     }
 }
 
+/// `true` when a system message opts into `/no_think` AND the model is a
+/// Qwen (the family that ships the soft switch but — in 3.5 — ignores it).
+/// The caller enforces the switch with a `<think></think>` prefill.
+pub(crate) fn wants_nothink_prefill(messages: &[Message], model_name: &str) -> bool {
+    if !model_name.to_lowercase().contains("qwen") {
+        return false;
+    }
+    messages
+        .iter()
+        .any(|m| m.role == "system" && m.content.contains("/no_think"))
+}
+
 pub(crate) fn build_prompt(messages: &[Message], model_name: &str) -> String {
     let augmented = augment_messages(messages);
     let messages: Vec<&Message> = augmented.iter().collect();
@@ -1183,7 +1195,18 @@ mod backend {
             // template the llama.cpp engine can't render).
             let gguf_prompt = build_prompt_gguf(state, messages);
             let used_gguf = gguf_prompt.is_some();
-            let prompt = gguf_prompt.unwrap_or_else(|| build_prompt(messages, &state.name));
+            let mut prompt = gguf_prompt.unwrap_or_else(|| build_prompt(messages, &state.name));
+            // Tier 0 fix (thinking burn): Qwen3/3.5 IGNORE the `/no_think`
+            // soft switch and burn the whole eval budget inside <think>,
+            // truncating the graded answer. When a system message carries
+            // the switch and this is a Qwen, enforce it at template level
+            // by prefilling an empty think block — the same thing
+            // llama.cpp's enable_thinking=false does.
+            if super::wants_nothink_prefill(messages, &state.name)
+                && prompt.ends_with("<|im_start|>assistant\n")
+            {
+                prompt.push_str("<think>\n\n</think>\n\n");
+            }
             let extra_stop_tokens: Vec<LlamaToken> = if used_gguf {
                 // Template family is unknown here, so take the union of the
                 // common end-of-turn markers — but only those this model's
@@ -1487,6 +1510,18 @@ mod tests {
         let inst_pos = p.find("[INST]").unwrap();
         let sys_pos = p.find("Be concise.").unwrap();
         assert!(sys_pos > inst_pos, "system content should be inside [INST] block");
+    }
+
+    #[test]
+    fn nothink_prefill_gated_on_qwen_and_system_switch() {
+        let with_switch = vec![msg("system", "Do the eval. /no_think"), msg("user", "Q")];
+        let without = vec![msg("system", "Do the eval."), msg("user", "Q")];
+        assert!(wants_nothink_prefill(&with_switch, "Qwen3.5-4B-Q8_0.gguf"));
+        assert!(!wants_nothink_prefill(&without, "Qwen3.5-4B-Q8_0.gguf"));
+        assert!(!wants_nothink_prefill(&with_switch, "Mistral-7B.gguf"));
+        // /no_think in a USER message does not opt in (system-only switch).
+        let user_only = vec![msg("user", "hello /no_think")];
+        assert!(!wants_nothink_prefill(&user_only, "qwen3.5"));
     }
 
     #[test]
