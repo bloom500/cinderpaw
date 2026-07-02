@@ -213,6 +213,10 @@ pub(crate) fn build_prompt(messages: &[Message], model_name: &str) -> String {
 #[derive(Default)]
 pub struct ModelManager {
     pub current: Arc<Mutex<Option<LoadedModel>>>,
+    /// Serializes `load()` calls. Two concurrent loads (the API's lazy-load
+    /// racing the UI's explicit load) otherwise allocate on the GPU at the
+    /// same time — the second OOMs and silently lands on CPU.
+    load_gate: Mutex<()>,
 }
 
 impl ModelManager {
@@ -225,6 +229,22 @@ impl ModelManager {
     /// model's real `n_ctx_train`. `None` falls back to FERAL_MAX_CONTEXT / the
     /// conservative 8192 default (see `backend::load`).
     pub fn load(&self, path: PathBuf, n_gpu_layers: i32, max_context: Option<u32>) -> Result<LoadedModel> {
+        // One load at a time (see `load_gate`). Callers already run on
+        // blocking threads (spawn_blocking), so parking here is fine.
+        let _gate = self.load_gate.lock();
+
+        // Idempotence: a context-agnostic load (the API's lazy-load passes
+        // `None`) that finds the same model already resident keeps it —
+        // reloading would tear down the UI's explicitly-chosen context size
+        // for nothing.
+        if max_context.is_none() {
+            if let Some(cur) = self.current.lock().clone() {
+                if cur.path == path {
+                    return Ok(cur);
+                }
+            }
+        }
+
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
