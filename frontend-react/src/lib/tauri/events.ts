@@ -161,6 +161,47 @@ export interface CodePatchResolvedLine {
   error?: string;
 }
 
+/**
+ * Faza 4 (L2 LoRA) — personal-adaptation review inbox snapshot. Mirrors the
+ * `lora_reviews` OutboundEvent in `FeralAgent/src/types.ts`. Sent on
+ * `feral_lora_reviews_list` and after every train/resolve.
+ */
+export interface LoraReviewsLine {
+  type: 'lora_reviews';
+  reviews: Array<{
+    id: string;
+    domain: string;
+    /** Card status: pending | approved | rejected. */
+    status: string;
+    /** Gate verdict: recommend_promote | reject | insufficient_evidence. */
+    verdict: string;
+    reason: string;
+    metrics: Record<string, number>;
+    adapterPath: string;
+    baseModel: string;
+    createdAt: number;
+  }>;
+  champions: Array<{ domain: string; id: string; adapterPath: string }>;
+}
+
+/** Faza 4 — resolution ack for one `feral_lora_review_resolve`. */
+export interface LoraReviewResolvedLine {
+  type: 'lora_review_resolved';
+  id: string;
+  status: string;
+  error?: string;
+}
+
+/** Faza 4 — one training cycle's outcome. `ok:false` = infra failure
+ *  (trainer unavailable, not enough data, train/eval error) with the reason. */
+export interface LoraTrainResultLine {
+  type: 'lora_train_result';
+  ok: boolean;
+  reason?: string;
+  adapterId?: string;
+  verdict?: string;
+}
+
 function wrap<T>(channel: string) {
   return {
     listen: (cb: EventCallback<T>): Promise<UnlistenFn> => listen<T>(channel, cb),
@@ -394,6 +435,64 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'code_patch_resolved'
           ) {
             cb(parsed as CodePatchResolvedLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /** Faza 4 (L2 LoRA) — review inbox snapshots, filtered from the raw sidecar
+   *  stream for `type === "lora_reviews"`. Same shape as onCodePatches. */
+  onLoraReviews: {
+    listen: (cb: (e: LoraReviewsLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'lora_reviews'
+          ) {
+            cb(parsed as LoraReviewsLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /** Faza 4 — per-card resolution acks (`lora_review_resolved`). */
+  onLoraReviewResolved: {
+    listen: (cb: (e: LoraReviewResolvedLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'lora_review_resolved'
+          ) {
+            cb(parsed as LoraReviewResolvedLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /** Faza 4 — training-cycle outcomes (`lora_train_result`). */
+  onLoraTrainResult: {
+    listen: (cb: (e: LoraTrainResultLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'lora_train_result'
+          ) {
+            cb(parsed as LoraTrainResultLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

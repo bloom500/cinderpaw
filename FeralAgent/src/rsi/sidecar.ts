@@ -648,7 +648,7 @@ export class RsiSidecar {
 /** Default system prompt. A more sophisticated pool can be injected
  *  via `RsiSidecarDeps.systemPrompts`; the genome's `systemPromptId`
  *  is an index into whatever pool the host supplies. */
-const DEFAULT_SYSTEM_PROMPT =
+export const DEFAULT_SYSTEM_PROMPT =
   "You are a precise assistant. Answer the following question concisely and accurately.";
 
 /** The "balanced" strategy-seed mutation_rate. The active strategy's

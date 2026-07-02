@@ -582,6 +582,14 @@ const raw = {
   feralCodePatchesList:   () => invoke<void>('feral_code_patches_list'),
   feralCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
     invoke<void>('feral_code_patch_resolve', { patch_id: patchId, action }),
+  // Faza 4 (L2 LoRA) — personal-adaptation gate. All fire-and-forget; the
+  // sidecar replies via `lora_reviews` / `lora_review_resolved` /
+  // `lora_train_result` events (see events.ts).
+  feralLoraReviewsList:   () => invoke<void>('feral_lora_reviews_list'),
+  feralLoraReviewResolve: (cardId: string, action: 'approve' | 'reject') =>
+    invoke<void>('feral_lora_review_resolve', { card_id: cardId, action }),
+  feralLoraTrain:         (domain?: string) =>
+    invoke<void>('feral_lora_train', { domain: domain ?? null }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -736,6 +744,14 @@ export const tauri = {
      *  acks via `code_patch_resolved` and re-emits `code_patches`. */
     codePatchResolve: async (patchId: string, action: 'approve' | 'reject') =>
       raw.feralCodePatchResolve(patchId, action),
+    /** Faza 4 (L2 LoRA) — ask for the review inbox; snapshot arrives via
+     *  `events.onLoraReviews`. */
+    loraReviewsList: async () => raw.feralLoraReviewsList(),
+    /** Faza 4 — approve (promote + apply live) or reject one review card. */
+    loraReviewResolve: async (cardId: string, action: 'approve' | 'reject') =>
+      raw.feralLoraReviewResolve(cardId, action),
+    /** Faza 4 — run one training cycle; outcome via `events.onLoraTrainResult`. */
+    loraTrain: async (domain?: string) => raw.feralLoraTrain(domain),
   },
 
   agents: {

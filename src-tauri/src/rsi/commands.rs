@@ -890,6 +890,44 @@ pub async fn dispatch_rsi_request(
             let specs: Vec<super::tier0::Tier0Spec> = TIER0_SPECS.iter().cloned().collect();
             Ok(json!(specs))
         }
+        // ── Faza 4 (L2 LoRA): swap the personal adapter under the loaded model ──
+        // The sidecar's eval runner calls this to A/B a candidate adapter
+        // against the champion: stage the adapter (or clear with path:null),
+        // then reload the CURRENT model so every pooled context — and the
+        // KV caches decoded under the previous adapter — is rebuilt with it.
+        // No model loaded → stage only (applies at the next load).
+        "rsi_set_lora" => {
+            let path: Option<std::path::PathBuf> = params
+                .get("path")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(std::path::PathBuf::from);
+            let scale = params
+                .get("scale")
+                .and_then(|v| v.as_f64())
+                .map(|v| v as f32)
+                .unwrap_or(1.0);
+            if let Some(p) = &path {
+                if !p.is_file() {
+                    return Err(format!("rsi_set_lora: adapter file not found: {}", p.display()));
+                }
+            }
+            crate::inference::set_lora_adapter(path, scale);
+            let current = state.manager.current();
+            if let Some(cur) = current {
+                let manager = state.manager.clone();
+                let n_gpu_layers = state.settings.default_gpu_layers;
+                let ctx = Some(cur.ctx_len);
+                // `Some(ctx)` forces a real reload (the manager's idempotence
+                // shortcut only fires on `None`) while preserving the user's
+                // active context size.
+                tokio::task::spawn_blocking(move || manager.load(cur.path, n_gpu_layers, ctx))
+                    .await
+                    .map_err(|e| format!("rsi_set_lora: task panicked: {e}"))?
+                    .map_err(|e| format!("rsi_set_lora: reload failed: {e}"))?;
+            }
+            Ok(json!({ "active": crate::inference::active_lora_adapter() }))
+        }
         // ── Faza 2 code-RSI (spec §2: the Rust half of the trust boundary) ──
         // The sidecar's TS wall is advisory once code-RSI can rewrite TS;
         // these three re-assert policy/scoring/commit in the compiled binary.

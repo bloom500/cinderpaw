@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FeralDreamsPanel } from '@/components/settings/FeralDreamsPanel';
 import { tauri, type DreamTelemetrySummary } from '@/lib/tauri';
-import { events, type CodePatchesLine } from '@/lib/tauri/events';
+import { events, type CodePatchesLine, type LoraReviewsLine } from '@/lib/tauri/events';
 import { useDream } from '@/stores/dream';
 
 afterEach(() => {
@@ -13,10 +13,14 @@ afterEach(() => {
 function stubListener() {
   // onDreamCycle.listen returns Promise<UnlistenFn>; the panel only needs it
   // to resolve to a no-op unlisten. Slice 5 adds two more sidecar-filtered
-  // listeners — same shape, same fake.
+  // listeners — same shape, same fake. Faza 4 adds the three LoRA ones.
   vi.spyOn(events.onDreamCycle, 'listen').mockResolvedValue(() => {});
   vi.spyOn(events.onCodePatches, 'listen').mockResolvedValue(() => {});
   vi.spyOn(events.onCodePatchResolved, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(events.onLoraReviews, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(events.onLoraReviewResolved, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(events.onLoraTrainResult, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
 }
 
 const SUMMARY: DreamTelemetrySummary = {
@@ -345,5 +349,130 @@ describe('FeralDreamsPanel — Pending patches (Slice 5)', () => {
     // …but the Pending patches card must NOT appear before the listener fires.
     expect(screen.queryByText('Pending patches')).not.toBeInTheDocument();
     expect(screen.queryByText(/No pending code patches/)).not.toBeInTheDocument();
+  });
+});
+
+// ── Faza 4 (L2 LoRA) — the Personal adaptation card ─────────────────────────
+
+function captureLoraListener(): (e: LoraReviewsLine) => void {
+  let cb: ((e: LoraReviewsLine) => void) | null = null;
+  vi.spyOn(events.onLoraReviews, 'listen').mockImplementation((c) => {
+    cb = c as (e: LoraReviewsLine) => void;
+    return Promise.resolve(() => {});
+  });
+  return (e) => {
+    if (!cb) throw new Error('panel never subscribed to onLoraReviews');
+    cb(e);
+  };
+}
+
+const LORA_PAYLOAD = (over: Partial<LoraReviewsLine> = {}): LoraReviewsLine => ({
+  type: 'lora_reviews',
+  reviews: [
+    {
+      id: 'lora-general-abc123def456',
+      domain: 'general',
+      status: 'pending',
+      verdict: 'recommend_promote',
+      reason: 'passes Tier 0 and confidence gate',
+      metrics: { loss: 0.42 },
+      adapterPath: 'C:/adapters/a.gguf',
+      baseModel: 'Qwen3.5-4B.gguf',
+      createdAt: Date.now() - 60_000,
+    },
+  ],
+  champions: [],
+  ...over,
+});
+
+describe('FeralDreamsPanel — Personal adaptation (Faza 4)', () => {
+  it('fires feral_lora_reviews_list on mount and renders the empty state', async () => {
+    stubListener();
+    capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    const listSpy = vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+
+    await waitFor(() => expect(listSpy).toHaveBeenCalled());
+    expect(screen.getByText('Personal adaptation')).toBeInTheDocument();
+    expect(screen.getByText(/No adapters under review/)).toBeInTheDocument();
+    expect(screen.getByText('Train now')).toBeInTheDocument();
+  });
+
+  it('renders a recommended card and approves it', async () => {
+    stubListener();
+    capturePatchesListener();
+    const fire = captureLoraListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
+    const resolveSpy = vi.spyOn(tauri.rsi, 'loraReviewResolve').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(LORA_PAYLOAD());
+
+    expect(await screen.findByText('recommended')).toBeInTheDocument();
+    expect(screen.getByText(/passes Tier 0 and confidence gate/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Approve & use/));
+    await waitFor(() => {
+      expect(resolveSpy).toHaveBeenCalledWith('lora-general-abc123def456', 'approve');
+    });
+  });
+
+  it('a reject-verdict card offers Reject but no Approve', async () => {
+    stubListener();
+    capturePatchesListener();
+    const fire = captureLoraListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(LORA_PAYLOAD({
+      reviews: [{ ...LORA_PAYLOAD().reviews[0], verdict: 'reject', reason: 'no significant gain' }],
+    }));
+
+    expect(await screen.findByText('not better')).toBeInTheDocument();
+    expect(screen.queryByText(/Approve & use/)).not.toBeInTheDocument();
+  });
+
+  it('clicking Train now invokes loraTrain and shows the busy state', async () => {
+    stubListener();
+    capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
+    const trainSpy = vi.spyOn(tauri.rsi, 'loraTrain').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fireEvent.click(await screen.findByText('Train now'));
+
+    await waitFor(() => expect(trainSpy).toHaveBeenCalled());
+    expect(screen.getByText(/Training…/)).toBeInTheDocument();
+  });
+
+  it('renders champion adapters per domain', async () => {
+    stubListener();
+    capturePatchesListener();
+    const fire = captureLoraListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+    fire(LORA_PAYLOAD({
+      reviews: [],
+      champions: [{ domain: 'coding', id: 'lora-coding-deadbeef1234', adapterPath: 'C:/a.gguf' }],
+    }));
+
+    expect(await screen.findByText('coding')).toBeInTheDocument();
+    expect(screen.getByText('lora-coding-deadbeef1234')).toBeInTheDocument();
   });
 });

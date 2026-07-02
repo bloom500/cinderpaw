@@ -161,6 +161,9 @@ const INBOUND_TYPES = [
   "rsi_dream_now",
   "rsi_code_patches_list",
   "rsi_code_patch_resolve",
+  "rsi_lora_train",
+  "rsi_lora_reviews_list",
+  "rsi_lora_review_resolve",
   "rsi_response",
 ] as const satisfies readonly InboundMessage["type"][];
 

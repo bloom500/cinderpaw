@@ -1039,6 +1039,52 @@ async function main(): Promise<void> {
     return codePatchGatePromise;
   };
 
+  // Faza 4 (L2 LoRA) — the personal-adaptation gate, same lazy-on-first-touch
+  // discipline as the code-patch gate. Registry + review inbox persist next
+  // to the journal; `sendLoraReviews` is the one shape the UI card renders.
+  let loraGatePromise: Promise<{
+    registry: import("./rsi/lora-registry.ts").LoraRegistry;
+    reviews: import("./rsi/lora-pipeline.ts").LoraReviewStore;
+    sendLoraReviews: () => void;
+  }> | null = null;
+  const loraGate = () => {
+    loraGatePromise ??= (async () => {
+      const { LoraRegistry } = await import("./rsi/lora-registry.ts");
+      const { LoraReviewStore } = await import("./rsi/lora-pipeline.ts");
+      const registry = new LoraRegistry();
+      const reviews = new LoraReviewStore();
+      const sendLoraReviews = (): void => {
+        transport.send({
+          type: "lora_reviews",
+          reviews: reviews.list().map((c) => {
+            const rec = registry.get(c.adapterId);
+            return {
+              id: c.adapterId,
+              domain: c.domain,
+              status: c.status,
+              verdict: c.gate.verdict,
+              reason: c.gate.reason,
+              metrics: c.metrics,
+              adapterPath: rec?.adapterPath ?? "",
+              baseModel: rec?.baseModel ?? "",
+              createdAt: c.createdAt,
+            };
+          }),
+          champions: registry
+            .list()
+            .filter((a) => a.status === "champion")
+            .map((a) => ({ domain: a.domain, id: a.id, adapterPath: a.adapterPath })),
+        });
+      };
+      return { registry, reviews, sendLoraReviews };
+    })();
+    return loraGatePromise;
+  };
+  // One training cycle at a time — training is the heaviest thing this
+  // process can trigger, and a second concurrent cycle would fight the
+  // first for the model (the eval runner reloads it).
+  let loraTrainBusy = false;
+
   transport.onMessage(async (msg) => {
     switch (msg.type) {
       case "ping":
@@ -1091,6 +1137,178 @@ async function main(): Promise<void> {
             ack(store.get(patchId)?.status ?? "error", r.ok ? undefined : r.reason);
           } catch (err) {
             ack("error", err instanceof Error ? err.message : String(err));
+          }
+        })();
+        break;
+      }
+
+      // Faza 4 (L2 LoRA) — the personal-adaptation gate IPC.
+      case "rsi_lora_reviews_list": {
+        void (async () => {
+          const { sendLoraReviews } = await loraGate();
+          sendLoraReviews();
+        })();
+        break;
+      }
+      case "rsi_lora_review_resolve": {
+        void (async () => {
+          const { registry, reviews, sendLoraReviews } = await loraGate();
+          const cardId = msg.id ?? "";
+          const action = msg.loraAction;
+          const ack = (status: string, error?: string): void => {
+            transport.send({ type: "lora_review_resolved", id: cardId, status, ...(error ? { error } : {}) });
+            sendLoraReviews();
+          };
+          try {
+            if (action !== "approve" && action !== "reject") {
+              ack("error", `invalid loraAction '${String(action)}'`);
+              return;
+            }
+            const { applyLoraReview } = await import("./rsi/lora-pipeline.ts");
+            const { record } = applyLoraReview(registry, reviews, cardId, action);
+            if (action === "approve") {
+              // Promotion is live: stage the new champion adapter and reload
+              // the model so the user is answered by it from now on. A
+              // failed apply does NOT roll back the promotion — the adapter
+              // also applies at every future load, so a transient reload
+              // error self-heals; the ack carries the detail either way.
+              try {
+                await rsiBridge.request("rsi_set_lora", { path: record.adapterPath, scale: 1.0 });
+                ack("approved");
+              } catch (err) {
+                ack("approved", `promoted, but live apply failed (applies at next model load): ${
+                  err instanceof Error ? err.message : String(err)}`);
+              }
+              return;
+            }
+            ack("rejected");
+          } catch (err) {
+            ack("error", err instanceof Error ? err.message : String(err));
+          }
+        })();
+        break;
+      }
+      case "rsi_lora_train": {
+        void (async () => {
+          const fail = (reason: string): void => {
+            log(`lora train: ${reason}`);
+            transport.send({ type: "lora_train_result", ok: false, reason });
+          };
+          if (loraTrainBusy) {
+            fail("a training cycle is already running");
+            return;
+          }
+          loraTrainBusy = true;
+          try {
+            if (!router.isPrimaryLocal) {
+              fail("LoRA training requires a LOCAL primary model (the adapter applies to the local GGUF)");
+              return;
+            }
+            const { registry, reviews, sendLoraReviews } = await loraGate();
+            const { runLoraTrainingCycle, deriveAdapterId } = await import("./rsi/lora-pipeline.ts");
+            const { CliTrainer } = await import("./rsi/trainers/cli-trainer.ts");
+            const { writeDataset } = await import("./rsi/dataset-builder.ts");
+            const { makeLoraEvalRunner } = await import("./rsi/lora-eval-runner.ts");
+            const { makeRunEval } = await import("./rsi/run-eval.ts");
+            const { makeGetSpecs } = await import("./rsi/get-specs.ts");
+            const { makeInvokeAgent } = await import("./rsi/invoke-agent.ts");
+            const { championSeed } = await import("./rsi/champion.ts");
+            const { DEFAULT_SYSTEM_PROMPT } = await import("./rsi/sidecar.ts");
+            const { paths } = await import("./rsi/instance-paths.ts");
+            const pathMod = require("node:path") as typeof import("node:path");
+
+            const domainRaw = msg.loraDomain ?? "general";
+            const DOMAINS = ["general", "coding", "research", "writing", "planning"] as const;
+            const domain = (DOMAINS as readonly string[]).includes(domainRaw)
+              ? (domainRaw as (typeof DOMAINS)[number])
+              : "general";
+
+            // Dataset: the most recent conversation record, heuristically
+            // paired + redacted (Slice 2). ponytail: flat 5000-row cap;
+            // incremental/windowed mining when datasets need curating.
+            const rows = db.raw
+              .query<{ sessionId: string; timestamp: number; role: string; content: string }, []>(
+                "SELECT session_id AS sessionId, timestamp, role, content FROM episodic ORDER BY timestamp DESC LIMIT 5000",
+              )
+              .all();
+            const datasetId = `ds-${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}`;
+            const datasetPath = pathMod.join(paths().root, "lora", "datasets", `${datasetId}.jsonl`);
+            const dataset = writeDataset(rows, datasetPath);
+            if (dataset.pairs.length < 10) {
+              fail(`not enough training data: ${dataset.pairs.length} usable pairs (need >= 10) — keep talking to Feral and retry`);
+              return;
+            }
+
+            const baseModel = router.currentModel.model;
+            const hyperparameters: Record<string, unknown> = {};
+            const adapterId = deriveAdapterId(domain, baseModel, dataset.hash, hyperparameters);
+
+            // Eval identity: the champion config when one exists, else a
+            // fixed conservative config — CONSTANT across both eval runs so
+            // the adapter is the only variable.
+            const genome = championSeed(readChampion(defaultChampionPath())) ?? {
+              id: "lora-eval-identity",
+              generation: 0,
+              lineage: [],
+              config: {
+                promptTemplateId: 0,
+                temperature: 0.2,
+                systemPromptId: 0,
+                retrievalStrategy: "episodic" as const,
+                contextWindowUsage: 0.4,
+                toolPreferenceWeights: [0.25, 0.25, 0.25, 0.25],
+                decompositionDepth: 0,
+              },
+            };
+            const invokeAgent = makeInvokeAgent({
+              router,
+              contextBudget: 1024,
+              // Same identity + /no_think discipline as the config ladder's
+              // eval (sidecar.ts) — Tier 0 grades the agent-as-shipped.
+              getSystemPrompt: () =>
+                "You are Feral, a local AI agent made by bloom. " + DEFAULT_SYSTEM_PROMPT + " /no_think",
+            });
+            const getSpecs = makeGetSpecs({
+              fetchTier0: () => rsiBridge.request("rsi_get_tier0_specs", {}),
+            });
+            const runEval = makeLoraEvalRunner({
+              setLora: async (p) => {
+                await rsiBridge.request("rsi_set_lora", { path: p, scale: 1.0 });
+              },
+              runEval: makeRunEval({ getSpecs, invokeAgent, log }),
+              genome,
+              baselineAdapterPath: () => registry.champion(domain)?.adapterPath ?? null,
+              log,
+            });
+
+            log(`lora train: starting cycle ${adapterId} (domain=${domain}, base=${baseModel}, pairs=${dataset.pairs.length})`);
+            const result = await runLoraTrainingCycle({
+              registry,
+              reviews,
+              trainer: new CliTrainer(),
+              domain,
+              baseModel,
+              dataset: { id: datasetId, path: dataset.path, hash: dataset.hash },
+              hyperparameters,
+              outputDir: pathMod.join(paths().root, "lora", "adapters", adapterId),
+              runEval,
+            });
+            if (!result.ok) {
+              fail(result.reason);
+              return;
+            }
+            log(`lora train: cycle done — ${result.card.gate.verdict} (${result.card.gate.reason})`);
+            transport.send({
+              type: "lora_train_result",
+              ok: true,
+              adapterId: result.record.id,
+              verdict: result.card.gate.verdict,
+            });
+            sendLoraReviews();
+          } catch (err) {
+            fail(err instanceof Error ? err.message : String(err));
+          } finally {
+            loraTrainBusy = false;
           }
         })();
         break;

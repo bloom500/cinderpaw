@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2 } from 'lucide-react';
+import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2, Brain } from 'lucide-react';
 import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload } from '@/lib/tauri';
-import { events } from '@/lib/tauri/events';
+import { events, type LoraReviewsLine } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 
 /** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
@@ -66,6 +66,11 @@ export function FeralDreamsPanel() {
   const [pendingPatches, setPendingPatches] = useState<CodePatchesPayload | null>(null);
   const [resolving, setResolving] = useState<Set<string>>(new Set());
   const [requested, setRequested] = useState(false);
+  // Faza 4 (L2 LoRA) — review inbox + champions + one-at-a-time training state.
+  const [loraReviews, setLoraReviews] = useState<LoraReviewsLine | null>(null);
+  const [loraResolving, setLoraResolving] = useState<Set<string>>(new Set());
+  const [loraTraining, setLoraTraining] = useState(false);
+  const [loraTrainNote, setLoraTrainNote] = useState<string | null>(null);
   const dreaming = useDream((s) => s.dreaming);
   const stage = useDream((s) => s.stage);
 
@@ -113,6 +118,36 @@ export function FeralDreamsPanel() {
     }
   };
 
+  // Faza 4 — approve/reject one LoRA review card. Approve promotes the
+  // adapter to domain champion and applies it to the loaded model live.
+  const resolveLoraCard = async (cardId: string, action: 'approve' | 'reject') => {
+    if (loraResolving.has(cardId)) return;
+    setLoraResolving((s) => new Set(s).add(cardId));
+    try {
+      await tauri.rsi.loraReviewResolve(cardId, action);
+    } catch {
+      setLoraResolving((s) => {
+        const next = new Set(s);
+        next.delete(cardId);
+        return next;
+      });
+    }
+  };
+
+  // Faza 4 — run one training cycle. Long-running (train + two eval passes);
+  // the button stays busy until `lora_train_result` lands.
+  const loraTrainNow = async () => {
+    if (loraTraining) return;
+    setLoraTraining(true);
+    setLoraTrainNote(null);
+    try {
+      await tauri.rsi.loraTrain();
+    } catch (e) {
+      setLoraTraining(false);
+      setLoraTrainNote(String(e));
+    }
+  };
+
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -142,6 +177,10 @@ export function FeralDreamsPanel() {
       // discipline as the other fetches.
       try {
         await tauri.rsi.codePatchesList();
+      } catch { /* sidecar not running — the listener will fill in later */ }
+      // Faza 4 — LoRA review inbox, same fire-and-forget discipline.
+      try {
+        await tauri.rsi.loraReviewsList();
       } catch { /* sidecar not running — the listener will fill in later */ }
     };
     void load();
@@ -179,11 +218,40 @@ export function FeralDreamsPanel() {
         return next;
       });
     });
+    // Faza 4 — LoRA inbox snapshots + per-card acks + train outcomes.
+    const unlistenLora = events.onLoraReviews.listen((e) => {
+      if (!alive) return;
+      setLoraReviews(e);
+      setLoraResolving((s) => {
+        if (s.size === 0) return s;
+        const next = new Set(s);
+        for (const r of e.reviews) next.delete(r.id);
+        return next;
+      });
+    });
+    const unlistenLoraResolved = events.onLoraReviewResolved.listen((e) => {
+      if (!alive) return;
+      if (e.error) setLoraTrainNote(e.error);
+      setLoraResolving((s) => {
+        if (!s.has(e.id)) return s;
+        const next = new Set(s);
+        next.delete(e.id);
+        return next;
+      });
+    });
+    const unlistenLoraTrain = events.onLoraTrainResult.listen((e) => {
+      if (!alive) return;
+      setLoraTraining(false);
+      setLoraTrainNote(e.ok ? null : (e.reason ?? 'training failed'));
+    });
     return () => {
       alive = false;
       void unlistenDream.then((u) => u()).catch(() => {});
       void unlistenPatches.then((u) => u()).catch(() => {});
       void unlistenResolved.then((u) => u()).catch(() => {});
+      void unlistenLora.then((u) => u()).catch(() => {});
+      void unlistenLoraResolved.then((u) => u()).catch(() => {});
+      void unlistenLoraTrain.then((u) => u()).catch(() => {});
     };
   }, []);
 
@@ -253,7 +321,136 @@ export function FeralDreamsPanel() {
           />
         </>
       )}
+
+      <LoraReviews
+        payload={loraReviews}
+        resolving={loraResolving}
+        training={loraTraining}
+        note={loraTrainNote}
+        onResolve={resolveLoraCard}
+        onTrain={loraTrainNow}
+      />
     </div>
+  );
+}
+
+/** Faza 4 (L2 LoRA) — the personal-adaptation card: per-domain champion
+ *  adapters, the review inbox (approve = promote + apply live), and the
+ *  "Train now" trigger. Mirrors the PendingPatches pattern. Rendered outside
+ *  the dream-history guard — training is user-triggered and must be reachable
+ *  before the first dream. */
+function LoraReviews({
+  payload,
+  resolving,
+  training,
+  note,
+  onResolve,
+  onTrain,
+}: {
+  payload: LoraReviewsLine | null;
+  resolving: Set<string>;
+  training: boolean;
+  note: string | null;
+  onResolve: (id: string, action: 'approve' | 'reject') => void;
+  onTrain: () => void;
+}) {
+  const reviews = payload?.reviews ?? [];
+  const champions = payload?.champions ?? [];
+  return (
+    <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
+      <div className="flex items-center gap-2">
+        <Brain size={11} className="text-brand" />
+        <span className="text-[11px] font-medium text-text-secondary">Personal adaptation</span>
+        <span className="text-text-muted text-[11px]">LoRA · learns how you work</span>
+        <button
+          type="button"
+          onClick={onTrain}
+          disabled={training}
+          title="Mine your conversations into a dataset, train a candidate adapter, and evaluate it against the champion"
+          className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+        >
+          {training ? 'Training…' : 'Train now'}
+        </button>
+      </div>
+      {note && <p className="text-[11px] text-amber-500">{note}</p>}
+      {champions.length > 0 && (
+        <ul className="space-y-0.5">
+          {champions.map((c) => (
+            <li key={c.domain} className="flex items-center gap-2 text-[11px]">
+              <Check size={10} className="text-brand" />
+              <span className="text-text-secondary">{c.domain}</span>
+              <span className="ml-auto font-mono text-[10px] text-text-muted">{c.id}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {reviews.length === 0 ? (
+        <p className="text-[11px] text-text-muted">
+          No adapters under review. Train one and Feral starts adapting to you — every
+          promotion needs your explicit approval.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {reviews.map((r) => (
+            <li key={r.id} className="text-[11px] space-y-1">
+              <div className="flex items-center gap-1.5">
+                <LoraVerdictBadge status={r.status} verdict={r.verdict} />
+                <span className="text-text-secondary">{r.domain}</span>
+                <span className="font-mono text-text-muted">{r.id.slice(0, 24)}</span>
+                <span className="ml-auto text-text-muted tabular-nums">
+                  {formatRelativeTime(r.createdAt)}
+                </span>
+              </div>
+              <p className="text-text-secondary">{r.reason}</p>
+              {r.status === 'pending' && (
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  {r.verdict === 'recommend_promote' && (
+                    <button
+                      type="button"
+                      disabled={resolving.has(r.id)}
+                      onClick={() => onResolve(r.id, 'approve')}
+                      className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-brand hover:border-brand disabled:opacity-50"
+                    >
+                      <Check size={10} className="inline -mt-px mr-0.5" />
+                      Approve &amp; use
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={resolving.has(r.id)}
+                    onClick={() => onResolve(r.id, 'reject')}
+                    className="rounded border border-border-subtle px-2 py-0.5 text-text-secondary hover:text-text-primary disabled:opacity-50"
+                  >
+                    <X size={10} className="inline -mt-px mr-0.5" />
+                    Reject
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Badge for a review card: resolved status wins, otherwise the gate verdict. */
+function LoraVerdictBadge({ status, verdict }: { status: string; verdict: string }) {
+  const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
+    approved: { icon: Check, cls: 'text-brand', label: 'champion' },
+    rejected: { icon: X, cls: 'text-text-muted', label: 'rejected' },
+    recommend_promote: { icon: Sparkles, cls: 'text-brand', label: 'recommended' },
+    reject: { icon: X, cls: 'text-text-muted', label: 'not better' },
+    insufficient_evidence: { icon: AlertTriangle, cls: 'text-amber-500', label: 'needs more evals' },
+  };
+  const entry = (status !== 'pending' ? map[status] : map[verdict])
+    ?? { icon: AlertTriangle, cls: 'text-text-muted', label: verdict };
+  const { icon: Icon, cls, label } = entry;
+  return (
+    <span className={`inline-flex items-center gap-1 font-medium ${cls}`}>
+      <Icon size={11} />
+      {label}
+    </span>
   );
 }
 

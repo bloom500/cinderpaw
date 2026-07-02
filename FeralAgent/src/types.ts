@@ -926,6 +926,13 @@ export interface InboundMessage {
     // approval also live-applies when FERAL_CODE_RSI_REPO is set. The
     // sidecar replies with `code_patch_resolved` + a refreshed `code_patches`.
     | "rsi_code_patches_list" | "rsi_code_patch_resolve"
+    // Faza 4 (L2 LoRA) — the personal-adaptation gate. `train` runs one
+    // full candidate cycle (dataset → trainer → paired eval → review card;
+    // replies with `lora_train_result` + `lora_reviews`); `list` asks for
+    // the review inbox (`lora_reviews`); `resolve` approves/rejects card
+    // `id` (payload `loraAction`) — an approval promotes the adapter to
+    // domain champion and applies it to the loaded model live.
+    | "rsi_lora_train" | "rsi_lora_reviews_list" | "rsi_lora_review_resolve"
     // Bridge response delivery — every `rsi_request` the sidecar emits
     // is paired with exactly one `rsi_response` line by Rust. Routed
     // to `RsiBridge.onResponse` in the sidecar.
@@ -945,6 +952,11 @@ export interface InboundMessage {
   /** Approval-gate payload (type === "rsi_code_patch_resolve"); the patch
    *  id rides the plain `id` field. */
   patchAction?: "approve" | "reject";
+  /** LoRA gate payloads. `loraAction` rides "rsi_lora_review_resolve" (the
+   *  card id on the plain `id` field); `loraDomain` optionally scopes
+   *  "rsi_lora_train" (default "general"). */
+  loraAction?: "approve" | "reject";
+  loraDomain?: string;
   /**
    * RSI response payload (type === "rsi_response") reuses the PLAIN fields
    * `id` (above) and `ok`/`data`/`error` (declared below). Rust's
@@ -1153,6 +1165,41 @@ export type OutboundEvent =
       id: string;
       status: string;
       error?: string;
+    }
+  // Faza 4 (L2 LoRA) — the personal-adaptation review gate. `lora_reviews`
+  // is the full inbox + per-domain champions (sent on `rsi_lora_reviews_list`
+  // and after every train/resolve); `lora_review_resolved` acks one
+  // `rsi_lora_review_resolve`; `lora_train_result` reports one training
+  // cycle (ok:false = infra failure — trainer unavailable, train/eval error).
+  | {
+      type: "lora_reviews";
+      reviews: Array<{
+        id: string;
+        domain: string;
+        /** Card status: pending | approved | rejected. */
+        status: string;
+        /** Gate verdict: recommend_promote | reject | insufficient_evidence. */
+        verdict: string;
+        reason: string;
+        metrics: Record<string, number>;
+        adapterPath: string;
+        baseModel: string;
+        createdAt: number;
+      }>;
+      champions: Array<{ domain: string; id: string; adapterPath: string }>;
+    }
+  | {
+      type: "lora_review_resolved";
+      id: string;
+      status: string;
+      error?: string;
+    }
+  | {
+      type: "lora_train_result";
+      ok: boolean;
+      reason?: string;
+      adapterId?: string;
+      verdict?: string;
     }
   // Living-organism pulses. Forwarded verbatim over `feral://agent-output`
   // so the React `events.onFractalActivity` listener can route each kind

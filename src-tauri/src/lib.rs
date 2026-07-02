@@ -1115,6 +1115,80 @@ async fn feral_code_patch_resolve(
     Ok(())
 }
 
+/// Faza 4 (L2 LoRA) — personal-adaptation gate: ask the sidecar for the LoRA
+/// review inbox + per-domain champions. Fire-and-forget; the sidecar replies
+/// with one `lora_reviews` line forwarded over `feral://agent-output`.
+#[tauri::command]
+#[specta::specta]
+async fn feral_lora_reviews_list(state: State<'_, AppState>) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "rsi_lora_reviews_list" }).to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Faza 4 (L2 LoRA) — approve or reject one LoRA review card. `action` is
+/// validated HERE (same rule as code patches: the webview can't smuggle
+/// another verb). An approval promotes the adapter to domain champion AND
+/// applies it to the loaded model live. Sidecar acks with
+/// `lora_review_resolved` + a refreshed `lora_reviews`.
+#[tauri::command]
+#[specta::specta]
+async fn feral_lora_review_resolve(
+    state: State<'_, AppState>,
+    card_id: String,
+    action: String,
+) -> Result<(), String> {
+    if action != "approve" && action != "reject" {
+        return Err(format!("invalid action '{action}' — approve|reject"));
+    }
+    let msg = serde_json::json!({
+        "type": "rsi_lora_review_resolve",
+        "id": card_id,
+        "loraAction": action,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Faza 4 (L2 LoRA) — run one training cycle (dataset → trainer → paired eval
+/// → review card). Fire-and-forget; progress lands as a `lora_train_result`
+/// line + a refreshed `lora_reviews`. Training needs a local primary model and
+/// FERAL_LORA_TRAINER_BIN on the sidecar's env — without them the sidecar
+/// reports a clear "training unavailable" reason instead of erroring here.
+#[tauri::command]
+#[specta::specta]
+async fn feral_lora_train(state: State<'_, AppState>, domain: Option<String>) -> Result<(), String> {
+    let msg = serde_json::json!({
+        "type": "rsi_lora_train",
+        "loraDomain": domain.unwrap_or_else(|| "general".into()),
+    })
+    .to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Reactive-tree drill-down: ask the sidecar for the real member memories of a
 /// top-level RAPTOR cluster. Fire-and-forget like the benchmark — the sidecar
 /// replies with a `fractal_cluster_leaves_result` line (paired by `request_id`)
@@ -3299,6 +3373,9 @@ pub fn run() {
             feral_dream_now,
             feral_code_patches_list,
             feral_code_patch_resolve,
+            feral_lora_reviews_list,
+            feral_lora_review_resolve,
+            feral_lora_train,
             feral_fractal_cluster_leaves,
             feral_set_model,
             feral_get_model_config,
