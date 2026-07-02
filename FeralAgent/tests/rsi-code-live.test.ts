@@ -17,10 +17,14 @@ import type { RsiBridge } from "../src/rsi/bridge.ts";
 import { PopulationManager } from "../src/rsi/population-manager.ts";
 import {
   affectedFilesOf,
+  applyEditBlocks,
+  buildUnifiedDiff,
   extractUnifiedDiff,
+  parseEditBlocks,
   proposableFiles,
   proposeCodePatch,
 } from "../src/rsi/code-proposer.ts";
+import { parseUnifiedDiff } from "../src/rsi/code-genome.ts";
 
 const genome: CodeGenome = {
   patch: "--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n",
@@ -233,6 +237,77 @@ describe("proposal operator — pure pieces", () => {
     expect(g!.baseCommit).toBe("head123");
     expect(g!.affectedFiles).toEqual(["src/rsi/mutation.ts"]);
     expect(g!.proposal.rationale).toBe("tighten a clamp");
+  });
+
+  test("parseEditBlocks: extracts SEARCH/REPLACE pairs; null on prose", () => {
+    const text =
+      "RATIONALE: x\n<<<<<<< SEARCH\nconst a = 1;\n=======\nconst a = 2;\n>>>>>>> REPLACE\n";
+    expect(parseEditBlocks(text)).toEqual([{ search: "const a = 1;", replace: "const a = 2;" }]);
+    expect(parseEditBlocks("no blocks here")).toBeNull();
+  });
+
+  test("applyEditBlocks: unique match applies; missing or ambiguous → null", () => {
+    const src = "one\ntwo\nthree\n";
+    expect(applyEditBlocks(src, [{ search: "two", replace: "2" }])).toBe("one\n2\nthree\n");
+    expect(applyEditBlocks(src, [{ search: "missing", replace: "x" }])).toBeNull();
+    expect(applyEditBlocks("dup\ndup\n", [{ search: "dup", replace: "x" }])).toBeNull();
+    // A no-op edit yields no candidate rather than an empty diff.
+    expect(applyEditBlocks(src, [{ search: "two", replace: "two" }])).toBeNull();
+  });
+
+  test("buildUnifiedDiff: single hunk with context that the TS wall parses", () => {
+    const oldText = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n";
+    const newText = "l1\nl2\nl3\nl4x\nl5\nl6\nl7\nl8\n";
+    const diff = buildUnifiedDiff(oldText, newText, "src/rsi/mutation.ts");
+    expect(diff).toContain("--- a/src/rsi/mutation.ts");
+    expect(diff).toContain("+++ b/src/rsi/mutation.ts");
+    expect(diff).toContain("-l4");
+    expect(diff).toContain("+l4x");
+    // The wall's parser must accept exactly what the serializer emits.
+    const parsed = parseUnifiedDiff(diff!);
+    expect("error" in parsed).toBe(false);
+    // Identical texts → no diff.
+    expect(buildUnifiedDiff(oldText, oldText, "src/rsi/mutation.ts")).toBeNull();
+  });
+
+  test("buildUnifiedDiff: edits at file top and bottom keep valid hunks", () => {
+    const oldText = "a\nb\nc\n";
+    for (const newText of ["A\nb\nc\n", "a\nb\nC\n", "x\na\nb\nc\n", "a\nb\n"]) {
+      const diff = buildUnifiedDiff(oldText, newText, "src/rsi/x.ts");
+      expect(diff).not.toBeNull();
+      const parsed = parseUnifiedDiff(diff!);
+      expect("error" in parsed).toBe(false);
+    }
+  });
+
+  test("proposeCodePatch: SEARCH/REPLACE output becomes a serialized diff", async () => {
+    const source = "line1\nline2\nline3\nline4\n";
+    const g = await proposeCodePatch({
+      completeLocal: async () =>
+        "RATIONALE: tighten\n<<<<<<< SEARCH\nline2\n=======\nline2-improved\n>>>>>>> REPLACE\n",
+      listRsiFiles: async () => ["mutation.ts"],
+      readRsiFile: async () => source,
+      baseCommit: async () => "h",
+      rng: () => 0,
+    });
+    expect(g).not.toBeNull();
+    expect(g!.patch).toContain("-line2");
+    expect(g!.patch).toContain("+line2-improved");
+    expect(g!.affectedFiles).toEqual(["src/rsi/mutation.ts"]);
+    const parsed = parseUnifiedDiff(g!.patch);
+    expect("error" in parsed).toBe(false);
+  });
+
+  test("proposeCodePatch: hallucinated SEARCH text → null, not a broken patch", async () => {
+    const g = await proposeCodePatch({
+      completeLocal: async () =>
+        "RATIONALE: x\n<<<<<<< SEARCH\nthis text is not in the file\n=======\nnew\n>>>>>>> REPLACE\n",
+      listRsiFiles: async () => ["mutation.ts"],
+      readRsiFile: async () => "real content\n",
+      baseCommit: async () => "h",
+      rng: () => 0,
+    });
+    expect(g).toBeNull();
   });
 
   test("proposeCodePatch: SKIP and diff-less output → null, not an error", async () => {

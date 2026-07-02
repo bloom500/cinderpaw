@@ -264,10 +264,23 @@ export class RsiSidecar {
     // immediately whether the MODEL (not the engine) is the problem.
     let emptyResponses = 0;
     let emptyWarned = false;
+    // Tier-0 evals are short factual answers — they never need the 4096-token
+    // default budget. On slow local hardware the budget is the difference
+    // between a 50s eval and a 5-minute timeout (thinking-mode models like
+    // Qwen3.5 will happily burn the whole window "reasoning").
+    // ponytail: flat env knob; per-spec budgets if Tier 1/2 specs ever need more.
+    const evalBudget =
+      Number(process.env.FERAL_RSI_EVAL_TOKEN_BUDGET) > 0
+        ? Number(process.env.FERAL_RSI_EVAL_TOKEN_BUDGET)
+        : 1024;
+    // Qwen3/3.5 honor a `/no_think` soft switch in the prompt; without it the
+    // model spends the whole eval budget inside <think> and the graded answer
+    // never arrives. Models without the switch see one line of harmless text.
     const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
+      contextBudget: evalBudget,
       getSystemPrompt: (id) =>
-        this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT,
+        (this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT) + " /no_think",
     });
     const invokeAgent: typeof baseInvokeAgent = async (prompt, genome) => {
       try {

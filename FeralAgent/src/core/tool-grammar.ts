@@ -56,13 +56,18 @@ export function buildToolCallGrammar(toolNames: readonly string[]): string {
   return [
     `root    ::= ws "{" ws "\\"name\\"" ws ":" ws name ws "," ws "\\"args\\"" ws ":" ws object ws "}" rest`,
     `name    ::= ${nameRule}`,
+    // "Any char" is [^\x00] (anything but NUL — never emitted by a model).
+    // The literal [^] form reads as an EMPTY negated class in llama.cpp's
+    // GBNF parser, which its left-recursion check then rejects with
+    // "unsupported grammar, left recursion detected" and the whole grammar
+    // silently degrades to unconstrained sampling.
     `rest    ::= anychar*`,
-    `anychar ::= [^]`,
+    `anychar ::= [^\\x00]`,
     `object  ::= "{" ws ( member ( ws "," ws member )* )? ws "}"`,
     `member  ::= string ws ":" ws value`,
     `array   ::= "[" ws ( value ( ws "," ws value )* )? ws "]"`,
     `value   ::= string | number | object | array | "true" | "false" | "null"`,
-    `string  ::= "\\"" ( [^"\\\\] | "\\\\" [^] )* "\\""`,
+    `string  ::= "\\"" ( [^"\\\\] | "\\\\" [^\\x00] )* "\\""`,
     `number  ::= "-"? ( "0" | [1-9] [0-9]* ) ( "." [0-9]+ )? ( [eE] [-+]? [0-9]+ )?`,
     `ws      ::= [ \\t\\n\\r]*`,
   ].join("\n");

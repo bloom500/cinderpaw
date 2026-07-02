@@ -38,6 +38,16 @@ describe("buildToolCallGrammar", () => {
     expect(g).not.toContain("bad");
   });
 
+  it("never emits the [^] empty negated class llama.cpp rejects", () => {
+    // llama.cpp parses a literal `[^]` as an EMPTY negated class and its
+    // left-recursion check then rejects the whole grammar ("unsupported
+    // grammar, left recursion detected"), silently degrading to
+    // unconstrained sampling. Any-char must be spelled [^\x00].
+    const g = buildToolCallGrammar(["web_search"]);
+    expect(g).not.toContain("[^]");
+    expect(g).toContain("[^\\x00]");
+  });
+
   it("exposes tool-call fence triggers for lazy enforcement", () => {
     expect(TOOL_CALL_TRIGGERS).toContain("```tool");
     expect(TOOL_CALL_TRIGGERS.length).toBeGreaterThan(0);

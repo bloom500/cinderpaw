@@ -76,9 +76,23 @@ export function FeralDreamsPanel() {
     try {
       await tauri.rsi.dreamNow();
       setRequested(true);
-      setTimeout(() => setRequested(false), 4000);
     } catch { /* sidecar not running — ignore */ }
   };
+
+  // `requested` holds until the episode actually starts (`dreaming` flips
+  // true) — a fixed short timer here made the button silently revert while
+  // the request was still queued behind a running episode, which read as
+  // "nothing happened". The long fallback only covers a sidecar that never
+  // starts the episode at all.
+  useEffect(() => {
+    if (dreaming) {
+      setRequested(false);
+      return;
+    }
+    if (!requested) return;
+    const t = setTimeout(() => setRequested(false), 120_000);
+    return () => clearTimeout(t);
+  }, [dreaming, requested]);
 
   // Faza 2 Slice 5 — approve or reject a pending code patch. The sidecar
   // replies with `code_patch_resolved` + a refreshed `code_patches` snapshot
@@ -182,11 +196,11 @@ export function FeralDreamsPanel() {
         <button
           type="button"
           onClick={dreamNow}
-          disabled={requested}
+          disabled={requested || dreaming}
           title="Run one dream episode now (bypasses the idle wait)"
           className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
         >
-          {requested ? 'Dreaming soon…' : 'Dream now'}
+          {dreaming ? 'Dreaming…' : requested ? 'Queued — starts after current cycle' : 'Dream now'}
         </button>
       </header>
 

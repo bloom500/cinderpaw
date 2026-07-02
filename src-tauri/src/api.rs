@@ -346,10 +346,52 @@ impl ChatReq {
     }
 }
 
+/// Wait for a model to be loaded before serving a completion.
+///
+/// The UI auto-loads the persisted model shortly after boot, but early API
+/// callers race that load — the RSI Dream Cycle's first episode (scheduler
+/// tick fires ~30s after boot) burned every eval on "no model loaded" empty
+/// responses, and connectors hit the same window. Rather than pushing a
+/// readiness check into every caller, the completion endpoints wait here.
+/// Polls up to `FERAL_MODEL_WAIT_MS` (default 120s), then gives up so a
+/// system with no local model configured still gets a real error instead of
+/// hanging forever.
+async fn wait_for_model(state: &ApiState) -> bool {
+    if state.manager.current().is_some() {
+        return true;
+    }
+    let deadline_ms = std::env::var("FERAL_MODEL_WAIT_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(120_000);
+    let start = std::time::Instant::now();
+    while start.elapsed().as_millis() < u128::from(deadline_ms) {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if state.manager.current().is_some() {
+            return true;
+        }
+    }
+    false
+}
+
+/// The 503 body both chat endpoints return when `wait_for_model` gives up.
+/// A real status code (not an empty 200) lets the sidecar's router treat it
+/// as a failed call it can surface, instead of a silent empty response.
+fn no_model_response() -> axum::response::Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": { "message": "no model loaded", "type": "model_not_ready" } })),
+    )
+        .into_response()
+}
+
 async fn api_chat(
     State(state): State<ApiState>,
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
+    if !wait_for_model(&state).await {
+        return no_model_response();
+    }
     let mut params = params_from_options(req.options.as_ref());
     apply_max_tokens(&mut params, req.max_tokens);
     apply_grammar(&mut params, &req);
@@ -405,6 +447,9 @@ async fn v1_chat_completions(
     State(state): State<ApiState>,
     Json(req): Json<ChatReq>,
 ) -> impl IntoResponse {
+    if !wait_for_model(&state).await {
+        return no_model_response();
+    }
     let mut params = params_from_options(req.options.as_ref());
     apply_max_tokens(&mut params, req.max_tokens);
     apply_grammar(&mut params, &req);

@@ -25,6 +25,11 @@ REM Context pool auto-caps at 1 on GPU (each context = full KV cache in
 REM VRAM; 2 contexts on 8GB cards explodes with "null reference" from
 REM llama.cpp). Set FERAL_MAX_LOCAL_CONTEXTS=N to opt into more.
 
+REM RX 580 + 4B thinking model: a chat generation and an RSI eval can
+REM serialize on the single GPU context — give local calls 15 min instead
+REM of the 5-min default before the total-deadline watchdog kills them.
+set "FERAL_TOTAL_DEADLINE_MS=900000"
+
 echo [launcher] GPU/Vulkan dev ^|^| default_gpu_layers=%FERAL_DEFAULT_GPU_LAYERS% ^|^| embed auto-CPU on AMD
 cd /d "D:\FeralLocalAI\src-tauri"
 cargo tauri dev --features inference-vulkan

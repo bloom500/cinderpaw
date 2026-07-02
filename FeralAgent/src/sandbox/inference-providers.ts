@@ -342,7 +342,18 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       body.tool_choice = "auto";
     }
 
-    const raw = (await postJson(url, body, authHeaders, req.signal, isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS)) as {
+    // Loopback deadline comes from the perf policy (FERAL_TOTAL_DEADLINE_MS
+    // tunable) — a hardcoded value here silently bypassed the knob and killed
+    // slow-hardware prefills (RSI evals on CPU rigs died at exactly 300s).
+    const raw = (await postJson(
+      url,
+      body,
+      authHeaders,
+      req.signal,
+      isLoopbackTarget(target)
+        ? resolvePerfPolicy({ isCloud: false }).totalDeadlineMs
+        : CLOUD_IDLE_MS,
+    )) as {
       choices?: {
         message?: {
           content?: string;
