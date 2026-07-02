@@ -100,7 +100,10 @@ describe("runLoraTrainingCycle", () => {
     expect(r.record.status).toBe("evaluating");
     expect(r.record.adapterPath).toBe(join(dir, "out", "adapter.gguf"));
     expect(r.record.provenance.datasetHash).toBe("abc123");
-    expect(r.record.provenance.metrics).toEqual({ loss: 0.42 });
+    // Slice 5: the pipeline stamps measured training time next to the
+    // trainer's own metrics.
+    expect(r.record.provenance.metrics.loss).toBe(0.42);
+    expect(r.record.provenance.metrics.training_ms).toBeGreaterThanOrEqual(0);
     expect(r.card.gate.verdict).toBe("recommend_promote");
     expect(r.card.gate.humanApprovalRequired).toBe(true);
     expect(r.card.status).toBe("pending");

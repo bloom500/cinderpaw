@@ -1050,7 +1050,7 @@ async function main(): Promise<void> {
   const loraGate = () => {
     loraGatePromise ??= (async () => {
       const { LoraRegistry } = await import("./rsi/lora-registry.ts");
-      const { LoraReviewStore } = await import("./rsi/lora-pipeline.ts");
+      const { LoraReviewStore, loraStats } = await import("./rsi/lora-pipeline.ts");
       const registry = new LoraRegistry();
       const reviews = new LoraReviewStore();
       const sendLoraReviews = (): void => {
@@ -1074,6 +1074,7 @@ async function main(): Promise<void> {
             .list()
             .filter((a) => a.status === "champion")
             .map((a) => ({ domain: a.domain, id: a.id, adapterPath: a.adapterPath })),
+          stats: loraStats(registry.list(), reviews.list()),
         });
       };
       return { registry, reviews, sendLoraReviews };

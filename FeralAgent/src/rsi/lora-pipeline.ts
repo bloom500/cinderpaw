@@ -202,6 +202,7 @@ export async function runLoraTrainingCycle(
 
   let adapterPath: string;
   let metrics: Record<string, number>;
+  const trainStarted = Date.now();
   try {
     const trained = await trainer.train({
       baseModel,
@@ -210,7 +211,10 @@ export async function runLoraTrainingCycle(
       outputDir: args.outputDir,
     });
     adapterPath = trained.adapterPath;
-    metrics = trained.metrics;
+    // Slice 5: training time is a first-class provenance metric — the
+    // dashboard's cost story needs it and the trainer can't self-report
+    // (it doesn't know when the host called it).
+    metrics = { ...trained.metrics, training_ms: Date.now() - trainStarted };
   } catch (err) {
     return {
       ok: false,
@@ -246,6 +250,57 @@ export async function runLoraTrainingCycle(
 
   const card = reviews.add({ adapterId: id, domain, gate, metrics });
   return { ok: true, record: registry.get(id)!, card };
+}
+
+// ---------------------------------------------------------------------------
+// Slice 5 — dashboard aggregation
+// ---------------------------------------------------------------------------
+
+/** The dashboard numbers (spec §Slice 5), derived purely from the registry
+ *  + review inbox — no extra state to keep in sync. */
+export interface LoraStats {
+  /** Adapters ever trained (registry rows). */
+  adapters: number;
+  /** Distinct datasets those adapters were trained on. */
+  datasets: number;
+  /** Cards still waiting on the human. */
+  pendingReviews: number;
+  /** Live champions across domains. */
+  champions: number;
+  /** Adapters pulled by a regression rollback. */
+  rollbacks: number;
+  /** approved / (approved + rejected). Null until something was resolved. */
+  acceptanceRate: number | null;
+  /** Mean paired-eval gain (bootstrap mean of candidate − baseline) over
+   *  cards that reached statistics. Null when none did. */
+  averageGain: number | null;
+  /** Total measured training time, ms (Slice 5 provenance metric). */
+  trainingMsTotal: number;
+}
+
+export function loraStats(
+  adapters: readonly LoraAdapterRecord[],
+  cards: readonly LoraReviewCard[],
+): LoraStats {
+  const resolved = cards.filter((c) => c.status !== "pending");
+  const approved = resolved.filter((c) => c.status === "approved").length;
+  const gains = cards
+    .map((c) => c.gate.confidence?.bootstrap.mean)
+    .filter((g): g is number => typeof g === "number" && Number.isFinite(g));
+  return {
+    adapters: adapters.length,
+    datasets: new Set(adapters.map((a) => a.provenance.datasetHash)).size,
+    pendingReviews: cards.filter((c) => c.status === "pending").length,
+    champions: adapters.filter((a) => a.status === "champion").length,
+    rollbacks: adapters.filter((a) => a.status === "rolled_back").length,
+    acceptanceRate: resolved.length > 0 ? approved / resolved.length : null,
+    averageGain:
+      gains.length > 0 ? gains.reduce((s, g) => s + g, 0) / gains.length : null,
+    trainingMsTotal: adapters.reduce(
+      (s, a) => s + (a.provenance.metrics.training_ms ?? 0),
+      0,
+    ),
+  };
 }
 
 /**

@@ -18,6 +18,7 @@
  * the test seam and the production path in lockstep.
  */
 
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { bunExec, type ExecFn } from "../code-sandbox.ts";
 import type { TrainerBackend } from "../lora-registry.ts";
@@ -172,6 +173,10 @@ export class CliTrainer implements TrainerBackend {
 
     const args = buildTrainArgs(this.#binPath, job);
     const timeoutMs = readTrainTimeout();
+
+    // The job's outputDir is also the child's cwd — spawning into a
+    // directory that doesn't exist yet fails before the trainer runs.
+    mkdirSync(job.outputDir, { recursive: true });
 
     const result = await this.#exec(args, {
       cwd: job.outputDir,

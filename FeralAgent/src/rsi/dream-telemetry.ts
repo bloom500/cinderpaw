@@ -28,6 +28,11 @@ export interface DreamEpisodeRecord {
   errors: string[];
   /** Number of empty model responses during this episode. */
   emptyResponses: number;
+  /** Slice 5: MEASURED resource usage for the episode (cpu % of one core,
+   *  RSS MB, RSI state dir MB). Optional — older rows lack it, and the
+   *  Rust reader ignores unknown fields, so the format stays compatible
+   *  in both directions. */
+  resources?: { cpuPct: number; ramMb: number; diskMb: number };
 }
 
 /** Append one JSON line to `path`. Swallows ALL errors — telemetry is a

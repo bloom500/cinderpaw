@@ -382,6 +382,16 @@ const LORA_PAYLOAD = (over: Partial<LoraReviewsLine> = {}): LoraReviewsLine => (
     },
   ],
   champions: [],
+  stats: {
+    adapters: 1,
+    datasets: 1,
+    pendingReviews: 1,
+    champions: 0,
+    rollbacks: 0,
+    acceptanceRate: null,
+    averageGain: 0.31,
+    trainingMsTotal: 90_000,
+  },
   ...over,
 });
 

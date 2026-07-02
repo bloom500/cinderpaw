@@ -42,6 +42,13 @@ import {
 import type { RsiRunStats } from "./sidecar.ts";
 import type { EpisodeOptions } from "./episode-options.ts";
 import type { OutboundEvent } from "../types.ts";
+import {
+  dirSizeMb,
+  endResourceSample,
+  startResourceSample,
+  type ResourceSample,
+} from "./resource-monitor.ts";
+import { dirname } from "node:path";
 
 /** The minimal slice of `RsiSidecar` the Dream Cycle drives. */
 export interface DreamEngine {
@@ -83,8 +90,13 @@ export interface DreamCycle {
 export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
   const { send, telemetryPath, journalPath, budgetCaps, activityMonitor, config, log } = deps;
   // Carries the in-flight episode's start time + trigger from the scheduler's
-  // `start` callback to the run-end telemetry append.
-  let currentEpisode: { startedAt: number; trigger: DreamTrigger } | null = null;
+  // `start` callback to the run-end telemetry append. `sample` is the Slice 5
+  // resource-measurement window opened at episode start.
+  let currentEpisode: {
+    startedAt: number;
+    trigger: DreamTrigger;
+    sample: ResourceSample;
+  } | null = null;
   let scheduler: DreamScheduler | undefined;
 
   const onEpisodeEnd = (stats?: RsiRunStats): void => {
@@ -92,6 +104,10 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
       const endedAt = Date.now();
       // Remember: persist the ops telemetry + the semantic Journal row.
       send({ type: "dream_cycle", stage: "remember", trigger: currentEpisode.trigger });
+      // Slice 5: close the resource window opened at episode start. Disk is
+      // the RSI state dir (the telemetry file's parent) — the thing dreams
+      // actually grow.
+      const usage = endResourceSample(currentEpisode.sample);
       appendDreamTelemetry(telemetryPath, {
         startedAt: currentEpisode.startedAt,
         endedAt,
@@ -102,6 +118,11 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
         stopReason: stats?.stopReason ?? "unknown",
         errors: stats?.errors ?? [],
         emptyResponses: stats?.emptyResponses ?? 0,
+        resources: {
+          cpuPct: usage.cpuPct,
+          ramMb: usage.ramMb,
+          diskMb: dirSizeMb(dirname(telemetryPath)),
+        },
       });
       // BRSI §2.9: the semantic lab-notebook row for this episode — what
       // was observed and decided, distinct from the flat ops telemetry
@@ -135,7 +156,7 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
   const arm = (engine: DreamEngine, episodeOptions: EpisodeOptions): DreamScheduler => {
     scheduler = new DreamScheduler({
       start: async (trigger) => {
-        currentEpisode = { startedAt: Date.now(), trigger };
+        currentEpisode = { startedAt: Date.now(), trigger, sample: startResourceSample() };
         // BRSI §2.8 stage sequence. Wake → Observe → (episode = Dream+Mutate+
         // Evaluate). The engine's internal proposal/apply/eval loop is opaque
         // in Faza 1, so it surfaces as one `evaluate` bracket; `dream`/`mutate`

@@ -373,6 +373,37 @@ function LoraReviews({
         </button>
       </div>
       {note && <p className="text-[11px] text-amber-500">{note}</p>}
+      {payload && payload.stats.adapters > 0 && (
+        <div className="grid grid-cols-4 gap-x-4 gap-y-1.5 text-[11px]">
+          <Stat label="Adapters" value={String(payload.stats.adapters)} />
+          <Stat
+            label="Accepted"
+            value={
+              payload.stats.acceptanceRate === null
+                ? '—'
+                : `${Math.round(payload.stats.acceptanceRate * 100)}%`
+            }
+            accent={(payload.stats.acceptanceRate ?? 0) > 0}
+          />
+          <Stat
+            label="Avg gain"
+            value={
+              payload.stats.averageGain === null
+                ? '—'
+                : `${payload.stats.averageGain >= 0 ? '+' : ''}${(payload.stats.averageGain * 100).toFixed(0)}%`
+            }
+            accent={(payload.stats.averageGain ?? 0) > 0}
+          />
+          <Stat
+            label="Train time"
+            value={
+              payload.stats.trainingMsTotal > 0
+                ? `${(payload.stats.trainingMsTotal / 60_000).toFixed(1)}m`
+                : '—'
+            }
+          />
+        </div>
+      )}
       {champions.length > 0 && (
         <ul className="space-y-0.5">
           {champions.map((c) => (

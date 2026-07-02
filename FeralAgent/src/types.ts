@@ -1187,6 +1187,17 @@ export type OutboundEvent =
         createdAt: number;
       }>;
       champions: Array<{ domain: string; id: string; adapterPath: string }>;
+      /** Slice 5 dashboard aggregates (see `LoraStats` in lora-pipeline.ts). */
+      stats: {
+        adapters: number;
+        datasets: number;
+        pendingReviews: number;
+        champions: number;
+        rollbacks: number;
+        acceptanceRate: number | null;
+        averageGain: number | null;
+        trainingMsTotal: number;
+      };
     }
   | {
       type: "lora_review_resolved";

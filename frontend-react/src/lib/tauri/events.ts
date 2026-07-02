@@ -182,6 +182,17 @@ export interface LoraReviewsLine {
     createdAt: number;
   }>;
   champions: Array<{ domain: string; id: string; adapterPath: string }>;
+  /** Slice 5 dashboard aggregates. */
+  stats: {
+    adapters: number;
+    datasets: number;
+    pendingReviews: number;
+    champions: number;
+    rollbacks: number;
+    acceptanceRate: number | null;
+    averageGain: number | null;
+    trainingMsTotal: number;
+  };
 }
 
 /** Faza 4 — resolution ack for one `feral_lora_review_resolve`. */
