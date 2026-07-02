@@ -912,19 +912,49 @@ pub async fn dispatch_rsi_request(
                     return Err(format!("rsi_set_lora: adapter file not found: {}", p.display()));
                 }
             }
+            let had_adapter = path.is_some();
             crate::inference::set_lora_adapter(path, scale);
             let current = state.manager.current();
             if let Some(cur) = current {
+                // Skip the (expensive) reload when nothing changes — e.g. the
+                // eval runner's restore-to-bare after a candidate that failed
+                // to load and already got the model re-loaded bare below.
+                if crate::inference::active_lora_adapter()
+                    == params.get("path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from)
+                {
+                    return Ok(json!({ "active": crate::inference::active_lora_adapter() }));
+                }
                 let manager = state.manager.clone();
                 let n_gpu_layers = state.settings.default_gpu_layers;
                 let ctx = Some(cur.ctx_len);
                 // `Some(ctx)` forces a real reload (the manager's idempotence
                 // shortcut only fires on `None`) while preserving the user's
                 // active context size.
-                tokio::task::spawn_blocking(move || manager.load(cur.path, n_gpu_layers, ctx))
-                    .await
-                    .map_err(|e| format!("rsi_set_lora: task panicked: {e}"))?
-                    .map_err(|e| format!("rsi_set_lora: reload failed: {e}"))?;
+                let reload = tokio::task::spawn_blocking({
+                    let manager = manager.clone();
+                    let path = cur.path.clone();
+                    move || manager.load(path, n_gpu_layers, ctx)
+                })
+                .await
+                .map_err(|e| format!("rsi_set_lora: task panicked: {e}"))?;
+                if let Err(e) = reload {
+                    // A bad adapter must not leave the model UNLOADED with the
+                    // broken staging still armed (a concurrent lazy-load would
+                    // trip on it — seen live in the Faza 4 smoke). Clear the
+                    // staging and put the bare model back BEFORE reporting the
+                    // error; best-effort, the error we return is the original.
+                    if had_adapter {
+                        crate::inference::set_lora_adapter(None, 1.0);
+                        let recover = tokio::task::spawn_blocking(move || {
+                            manager.load(cur.path, n_gpu_layers, ctx)
+                        })
+                        .await;
+                        if let Err(e2) = recover.map_err(|e| e.to_string()).and_then(|r| r.map_err(|e| e.to_string())) {
+                            tracing::error!(error = %e2, "rsi_set_lora: bare-model recovery reload failed");
+                        }
+                    }
+                    return Err(format!("rsi_set_lora: reload failed: {e}"));
+                }
             }
             Ok(json!({ "active": crate::inference::active_lora_adapter() }))
         }
