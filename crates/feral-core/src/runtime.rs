@@ -92,6 +92,12 @@ pub struct RuntimeState {
     /// accepted the request. Cloned into `feral_agent::spawn` so the
     /// reader can ack without holding the RuntimeState mutex.
     pub rsi_request_registry: RsiRequestRegistry,
+    /// The model the Feral Agent sidecar actually infers with — the local GGUF
+    /// name, or a cloud model id (e.g. `MiniMax-M3`) when a BYOK provider is
+    /// active. Set by `feral_agent::spawn`. Distinct from `manager.current()`,
+    /// which only ever knows the *local* engine; for a cloud session that's
+    /// `None` while this is the real answer. Reported by `/runtime/status`.
+    pub active_agent_model: Arc<Mutex<Option<String>>>,
     /// Faza 4.5 Slice 3: the runtime's observability bus. Every host event
     /// (`HostEvents::emit`) that a broadcasting sink publishes lands here; the
     /// Public Runtime API `/events` SSE handler subscribes to replay them live.
@@ -117,6 +123,7 @@ impl RuntimeState {
             rsi_goodhart: GoodhartSlot::default(),
             rsi_engine: Arc::new(Mutex::new(None)),
             rsi_request_registry: RsiRequestRegistry::default(),
+            active_agent_model: Arc::new(Mutex::new(None)),
             events_tx,
         }
     }

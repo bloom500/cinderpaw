@@ -732,6 +732,9 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
     });
     Json(json!({
         "model": model,
+        // What the sidecar actually infers with (local GGUF name or a cloud
+        // model id). For a cloud session `model` above is null but this is set.
+        "agent_model": rt.active_agent_model.lock().clone(),
         "lora": crate::inference::active_lora_adapter(),
         "sidecar_alive": sidecar_alive,
         "backend": crate::inference::active_backend_label(),
@@ -775,6 +778,7 @@ async fn runtime_manifest(State(state): State<ApiState>) -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "models": models,
         "active_model": active_model,
+        "agent_model": rt.active_agent_model.lock().clone(),
         "loras": { "active": crate::inference::active_lora_adapter() },
         "providers": {
             "backend": crate::inference::active_backend_label(),

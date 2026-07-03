@@ -529,6 +529,7 @@ mod tests {
             local_api_token: StdArc::from("test-token-not-used"),
             feral_agent_planned_exit: StdArc::new(PlMutex::new(None)),
             events_tx: tokio::sync::broadcast::channel(16).0,
+            active_agent_model: StdArc::new(PlMutex::new(None)),
         }
     }
 

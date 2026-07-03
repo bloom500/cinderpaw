@@ -379,6 +379,7 @@ pub async fn spawn(
             .unwrap_or_else(|| "feral-local".to_string())
     };
     cmd.env("FERAL_MODEL", &model_name);
+    *runtime.active_agent_model.lock() = Some(model_name.clone());
     tracing::info!(model = %model_name, "feral-agent: using discovered model");
 
     if let Some(db_key) = crate::db_key::get_or_create() {

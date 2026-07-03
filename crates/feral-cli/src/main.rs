@@ -15,10 +15,13 @@
 
 use std::sync::Arc;
 
+mod chat;
+
 const USAGE: &str = "Feral Runtime (headless)
 
 USAGE:
   feral-cli gateway    run the gateway in the foreground (Ctrl+C to stop)
+  feral-cli chat       interactive chat in the terminal (needs a running gateway)
   feral-cli help       show this help
 ";
 
@@ -26,6 +29,7 @@ fn main() {
     let arg = std::env::args().nth(1).unwrap_or_default();
     match arg.as_str() {
         "gateway" => run_gateway(),
+        "chat" => chat::run(),
         "help" | "--help" | "-h" | "" => {
             print!("{USAGE}");
             if arg.is_empty() {
@@ -115,6 +119,7 @@ mod tests {
     #[test]
     fn usage_covers_all_commands() {
         assert!(USAGE.contains("gateway"), "USAGE must document `gateway`");
+        assert!(USAGE.contains("chat"), "USAGE must document `chat`");
         assert!(USAGE.contains("help"), "USAGE must document `help`");
     }
 
