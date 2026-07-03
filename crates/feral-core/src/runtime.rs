@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+use crate::host::HostEvent;
 use crate::inference::ModelManager;
 use crate::rsi;
 use crate::rsi::runtime::{GoodhartSlot, RsiEngineState, RsiRequestRegistry};
@@ -91,10 +92,20 @@ pub struct RuntimeState {
     /// accepted the request. Cloned into `feral_agent::spawn` so the
     /// reader can ack without holding the RuntimeState mutex.
     pub rsi_request_registry: RsiRequestRegistry,
+    /// Faza 4.5 Slice 3: the runtime's observability bus. Every host event
+    /// (`HostEvents::emit`) that a broadcasting sink publishes lands here; the
+    /// Public Runtime API `/events` SSE handler subscribes to replay them live.
+    /// A `broadcast::Sender` is always present so any host can subscribe even
+    /// before a sink is wired — subscribers just see nothing until events flow.
+    pub events_tx: tokio::sync::broadcast::Sender<HostEvent>,
 }
 
 impl RuntimeState {
     pub fn new(manager: Arc<ModelManager>, settings: Settings, local_api_token: Arc<str>) -> Self {
+        // ponytail: 512-event ring buffer. Enough to bridge a subscriber's
+        // reconnect gap without unbounded memory; a lagging client drops the
+        // oldest events (broadcast semantics), which is fine for observability.
+        let (events_tx, _) = tokio::sync::broadcast::channel(512);
         Self {
             manager,
             settings,
@@ -106,6 +117,7 @@ impl RuntimeState {
             rsi_goodhart: GoodhartSlot::default(),
             rsi_engine: Arc::new(Mutex::new(None)),
             rsi_request_registry: RsiRequestRegistry::default(),
+            events_tx,
         }
     }
 }

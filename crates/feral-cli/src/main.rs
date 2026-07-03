@@ -66,8 +66,11 @@ fn run_gateway() {
             }
         }
 
+        // Slice 3: the gateway's event sink broadcasts onto the runtime bus so
+        // `/events` SSE subscribers replay host events live (LogEvents only
+        // logged). It still logs, so gateway stderr is unchanged.
         let events: Arc<dyn feral_core::host::HostEvents> =
-            Arc::new(feral_core::host::LogEvents);
+            Arc::new(feral_core::host::BroadcastEvents::new(runtime.events_tx.clone()));
         // Desktop control is a desktop-host feature; the gateway declines it.
         feral_core::boot::start(runtime.clone(), events, None, Vec::new()).await;
         tracing::info!(port, "feral gateway up — model API + sidecar supervised");

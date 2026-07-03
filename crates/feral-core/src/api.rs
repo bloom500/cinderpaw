@@ -29,10 +29,12 @@ use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::inference::{InferParams, Message, ModelManager};
 use crate::models;
+use crate::runtime::RuntimeState;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -41,6 +43,11 @@ pub struct ApiState {
     /// `Authorization: Bearer <token>`. Shared with the sidecar and external
     /// consumers out of band — see the module docstring.
     pub token: Arc<str>,
+    /// Faza 4.5 Slice 3: the whole runtime, so the Public Runtime API
+    /// `/runtime/*` endpoints report live status/inventory and `/events`
+    /// subscribes to the observability bus. `manager`/`token` above stay as
+    /// convenience handles the pre-Slice-3 handlers already read.
+    pub runtime: Arc<RuntimeState>,
 }
 
 pub fn router(state: ApiState) -> Router {
@@ -68,6 +75,16 @@ pub fn router(state: ApiState) -> Router {
         // this for accurate context accounting with the loaded model's real
         // vocabulary; its GPT-2 BPE fallback miscounts everything else.
         .route("/tokenize", post(api_tokenize))
+        // Public Runtime API v1 (Faza 4.5 Slice 3, spec D3). Same posture as
+        // the rest of this router: 127.0.0.1-only + bearer token. This first
+        // vertical serves the Rust-local read-only surface + the `/events`
+        // observability stream; the sidecar-round-trip endpoints
+        // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
+        .route("/runtime/status", get(runtime_status))
+        .route("/runtime/models", get(runtime_models))
+        .route("/runtime/lora", get(runtime_lora))
+        .route("/runtime/manifest", get(runtime_manifest))
+        .route("/events", get(runtime_events))
         // Auth runs before any handler. `from_fn_with_state` hands the token
         // to the middleware so it can compare in constant time.
         .layer(middleware::from_fn_with_state(state.clone(), require_token))
@@ -487,6 +504,117 @@ async fn v1_models() -> impl IntoResponse {
         json!({ "id": m.id, "object": "model", "owned_by": "feral" })
     }).collect();
     Json(json!({ "object": "list", "data": data }))
+}
+
+// ── Public Runtime API v1 (Faza 4.5 Slice 3) ──────────────────────────────
+//
+// All handlers here read from `state.runtime` (the host-agnostic RuntimeState)
+// so every host — desktop or headless gateway — serves identical answers
+// (invariant 11). Nothing here fabricates: fields the runtime cannot source
+// locally (connectors/memories/dreams live in the sidecar) are reported as
+// `null` until the sidecar-round-trip vertical wires them.
+
+/// D3: loaded model, active LoRA, sidecar liveness, backend, RSI engine mirror.
+async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
+    let rt = &state.runtime;
+    let model = rt.manager.current().map(|m| {
+        json!({ "name": m.name, "ctx_len": m.ctx_len, "n_ctx_train": m.n_ctx_train })
+    });
+    let sidecar_alive = rt.feral_agent_process.lock().is_some();
+    let rsi_engine = rt.rsi_engine.lock().clone().map(|e| {
+        json!({
+            "running": e.running,
+            "iteration": e.iteration,
+            "best_score": e.best_score,
+            "cost_so_far_usd": e.cost_so_far_usd,
+            "concurrency": e.concurrency,
+        })
+    });
+    Json(json!({
+        "model": model,
+        "lora": crate::inference::active_lora_adapter(),
+        "sidecar_alive": sidecar_alive,
+        "backend": crate::inference::active_backend_label(),
+        "gpu": crate::inference::gpu_active(),
+        "rsi_engine": rsi_engine,
+    }))
+}
+
+/// D3: model inventory on disk + which one is loaded. `active` is the loaded
+/// model's internal name; the inventory `id`s are the on-disk identifiers. We
+/// return both rather than joining them — the two namespaces are not guaranteed
+/// equal, and a wrong per-item `active` flag is worse than none.
+async fn runtime_models(State(state): State<ApiState>) -> impl IntoResponse {
+    let active = state.runtime.manager.current().map(|m| m.name);
+    let models = models::scan_models_dir().unwrap_or_default();
+    let ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
+    Json(json!({ "models": ids, "active": active }))
+}
+
+/// D3: the active LoRA adapter. Full adapter inventory is deferred — no disk
+/// scanner is surfaced from feral-core yet, and reporting a fabricated list
+/// would be worse than reporting only what is provably active.
+async fn runtime_lora() -> impl IntoResponse {
+    Json(json!({ "active": crate::inference::active_lora_adapter() }))
+}
+
+/// D3b: declarative runtime snapshot. The foundation for `feral export` /
+/// `feral import` (a future phase — v1 is read-only). Locally-sourced keys are
+/// filled; sidecar-sourced keys (connectors/memories/dreams) are `null` until
+/// the sidecar-round-trip vertical wires them, so a client can tell the
+/// difference between "empty" and "not yet available".
+async fn runtime_manifest(State(state): State<ApiState>) -> impl IntoResponse {
+    let rt = &state.runtime;
+    let active_model = rt.manager.current().map(|m| m.name);
+    let models: Vec<String> = models::scan_models_dir()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+    Json(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "models": models,
+        "active_model": active_model,
+        "loras": { "active": crate::inference::active_lora_adapter() },
+        "providers": {
+            "backend": crate::inference::active_backend_label(),
+            "gpu": crate::inference::gpu_active(),
+        },
+        "connectors": Value::Null,
+        "memories": Value::Null,
+        "dreams": Value::Null,
+    }))
+}
+
+/// D3: unified observability stream. Subscribes to the runtime's broadcast bus
+/// (fed by any `BroadcastEvents` sink) and replays every host event as SSE.
+/// The headless gateway wires `BroadcastEvents`; on the desktop host today the
+/// bus is idle (TauriEvents forwards to the webview) — uniform `/events` on
+/// desktop is a Faza 5 concern. `curl -N /events` proves it live.
+async fn runtime_events(
+    State(state): State<ApiState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use async_stream::stream;
+    let mut rx = state.runtime.events_tx.subscribe();
+    let s = stream! {
+        loop {
+            match rx.recv().await {
+                Ok(ev) => {
+                    let data = json!({ "event": ev.event, "data": ev.payload }).to_string();
+                    yield Ok::<_, Infallible>(Event::default().event("runtime").data(data));
+                }
+                // A subscriber that fell behind the 512-event ring lost `n`
+                // events. Log it and keep streaming from the current tail
+                // rather than tearing the connection down.
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(skipped = n, "/events subscriber lagged");
+                    continue;
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+    Sse::new(s)
 }
 
 async fn v1_chat_completions(

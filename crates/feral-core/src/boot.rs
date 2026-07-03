@@ -284,6 +284,7 @@ async fn spawn_api_server_if_enabled(runtime: &Arc<RuntimeState>) {
     let api_state = api::ApiState {
         manager: runtime.manager.clone(),
         token: runtime.local_api_token.clone(),
+        runtime: runtime.clone(),
     };
     let port = runtime.settings.api_port;
     tokio::spawn(async move {
