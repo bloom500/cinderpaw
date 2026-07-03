@@ -13,7 +13,7 @@ name = "feral_core"
 # unused deps with cargo-machete once the dust settles.
 
 # Serialization
-specta = "=2.0.0-rc.25"
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "0.0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -92,3 +92,6 @@ inference-cuda   = ["dep:llama-cpp-2", "llama-cpp-2/cuda"]
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
 inference-metal  = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
 whisper = ["dep:whisper-rs"]
+
+[dev-dependencies]
+tempfile = "3"

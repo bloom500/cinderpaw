@@ -1,28 +1,22 @@
 mod agents;
-mod api;
-mod byok;
 mod connectors;
-#[cfg(feature = "whisper")]
-mod transcription;
 mod conversations;
-mod db_key;
 mod desktop_control;
 mod disk_encryption;
 mod events;
 mod feral_agent;
-mod gpu_detect;
-mod inference;
 mod mcp;
-mod perf_policy;
 mod memory_graph;
-mod models;
-mod paths;
 mod projects;
 mod rsi;
-mod settings;
 mod skills;
-mod sysinfo_mod;
-mod tools;
+
+pub use feral_core::{
+    api, byok, db_key, gpu_detect, inference, models, paths, perf_policy,
+    settings, sysinfo_mod, tools,
+};
+#[cfg(feature = "whisper")]
+pub use feral_core::transcription;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

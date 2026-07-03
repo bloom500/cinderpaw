@@ -47,11 +47,9 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 # HTTP client (tool calls, HF downloads)
 reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
 
-# Inference — llama.cpp bindings (CPU by default; add feature "inference-vulkan" for GPU)
-llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
-
-# Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
-whisper-rs = { version = "0.16", default-features = false, optional = true }
+# Feral Runtime (host-agnostic): inference, models, API, RSI substrate,
+# settings, paths, tools, byok, perf, gpu, transcription.
+feral-core = { path = "../crates/feral-core", default-features = false }
 
 # Utilities
 anyhow = "1"
@@ -93,7 +91,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 [features]
 default = ["inference"]
 # CPU-only baseline (works everywhere; slow for larger models).
-inference = ["dep:llama-cpp-2"]
+inference = ["feral-core/inference"]
 # GPU backends — additive on top of `inference`. Pick at most ONE per build
 # (enabling two GPU features simultaneously is untested and likely produces
 # duplicate symbols in llama-cpp-sys-2). CI selects one per platform:
@@ -102,10 +100,10 @@ inference = ["dep:llama-cpp-2"]
 #   macOS                → inference-metal    (Metal ships with Xcode; no extra SDK)
 # A GPU build still falls back to CPU at runtime if GPU init fails (see
 # inference.rs::backend::load), so a missing/broken driver degrades gracefully.
-inference-cuda   = ["dep:llama-cpp-2", "llama-cpp-2/cuda"]
-inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
-inference-metal  = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
-whisper = ["dep:whisper-rs"]
+inference-cuda   = ["feral-core/inference-cuda"]
+inference-vulkan = ["feral-core/inference-vulkan"]
+inference-metal  = ["feral-core/inference-metal"]
+whisper          = ["feral-core/whisper"]
 
 # Desktop control (OS accessibility tree). Windows-only for now — UIA via the
 # `windows` crate. macOS (AX) and Linux are compiled stubs in desktop_control.

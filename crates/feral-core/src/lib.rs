@@ -5,3 +5,17 @@
 //! paths. Consumed by two entry points: the Tauri desktop app (src-tauri)
 //! and the headless `feral` binary (Faza 4.5 Slice 2).
 //! Invariants: docs/runtime-invariants.md.
+
+pub mod api;
+pub mod byok;
+pub mod db_key;
+pub mod gpu_detect;
+pub mod inference;
+pub mod models;
+pub mod paths;
+pub mod perf_policy;
+pub mod rsi;
+pub mod settings;
+pub mod sysinfo_mod;
+pub mod tools;
+pub mod transcription;
