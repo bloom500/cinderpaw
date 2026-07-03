@@ -15,35 +15,60 @@
 
 use std::sync::Arc;
 
+mod admin;
 mod chat;
+mod common;
 
 const USAGE: &str = "Feral Runtime (headless)
 
 USAGE:
-  feral-cli gateway    run the gateway in the foreground (Ctrl+C to stop)
-  feral-cli chat       interactive chat in the terminal (needs a running gateway)
-  feral-cli help       show this help
+  feral gateway                 run the gateway in the foreground (Ctrl+C to stop)
+  feral gateway start           start the gateway in the background
+  feral gateway stop            stop a running gateway (graceful drain)
+  feral gateway restart         restart the gateway
+  feral gateway status          show gateway + model status
+  feral status                  alias for `gateway status`
+  feral model                   list installed models
+  feral doctor                  diagnose the install (port, token, model, sidecar, GPU)
+  feral chat                    interactive chat in the terminal
+  feral help                    show this help
 ";
 
 fn main() {
-    let arg = std::env::args().nth(1).unwrap_or_default();
-    match arg.as_str() {
-        "gateway" => run_gateway(),
-        "chat" => chat::run(),
-        "help" | "--help" | "-h" | "" => {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cmd = args.first().map(String::as_str).unwrap_or("");
+    let sub = args.get(1).map(String::as_str).unwrap_or("");
+
+    let code: i32 = match (cmd, sub) {
+        ("gateway", "") => run_gateway(), // foreground; never returns
+        ("gateway", "start") => admin::gateway_start(),
+        ("gateway", "stop") => admin::gateway_stop(),
+        ("gateway", "restart") => admin::gateway_restart(),
+        ("gateway", "status") | ("status", _) => admin::gateway_status(),
+        ("gateway", other) => {
+            eprintln!("unknown gateway subcommand: {other}\n{USAGE}");
+            2
+        }
+        ("model", _) | ("models", _) => admin::model_list(),
+        ("doctor", _) => admin::doctor(),
+        ("chat", _) => chat::run(), // never returns
+        ("help" | "--help" | "-h", _) => {
             print!("{USAGE}");
-            if arg.is_empty() {
-                std::process::exit(2);
-            }
+            0
         }
-        other => {
+        ("", _) => {
+            print!("{USAGE}");
+            2
+        }
+        (other, _) => {
             eprintln!("unknown command: {other}\n{USAGE}");
-            std::process::exit(2);
+            2
         }
-    }
+    };
+    std::process::exit(code);
 }
 
-fn run_gateway() {
+fn run_gateway() -> i32 {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -79,12 +104,17 @@ fn run_gateway() {
         feral_core::boot::start(runtime.clone(), events, None, Vec::new()).await;
         tracing::info!(port, "feral gateway up — model API + sidecar supervised");
 
-        tokio::signal::ctrl_c().await.ok();
-        tracing::info!("shutdown requested — draining (D7)");
+        // Stop on Ctrl+C (interactive) or a `POST /runtime/shutdown`
+        // (`feral gateway stop`, cross-platform — no Windows console signal
+        // group needed to reach a detached child).
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => tracing::info!("Ctrl+C — draining (D7)"),
+            _ = runtime.shutdown.notified() => tracing::info!("shutdown request — draining (D7)"),
+        }
         shutdown(&runtime).await;
         0
     });
-    std::process::exit(code);
+    code
 }
 
 /// Graceful shutdown per spec D7: mark the exit as planned (so the sidecar

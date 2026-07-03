@@ -81,6 +81,7 @@ pub fn router(state: ApiState) -> Router {
         // observability stream; the sidecar-round-trip endpoints
         // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
         .route("/runtime/chat", post(runtime_chat))
+        .route("/runtime/shutdown", post(runtime_shutdown))
         .route("/runtime/status", get(runtime_status))
         .route("/runtime/models", get(runtime_models))
         .route("/runtime/lora", get(runtime_lora))
@@ -712,6 +713,21 @@ fn sse_from_agent_reply(
         }
     };
     Sse::new(s)
+}
+
+/// Slice 4: request a graceful shutdown. Fires the runtime's shutdown signal;
+/// the headless gateway's main loop wakes and runs the D7 drain. Token-gated +
+/// loopback like everything else — a local holder of the token could already
+/// drive inference and delete models, so letting it stop the daemon is no new
+/// exposure. `feral gateway stop` calls this (no Windows signal games).
+async fn runtime_shutdown(State(state): State<ApiState>) -> impl IntoResponse {
+    tracing::info!("runtime: shutdown requested via /runtime/shutdown");
+    state.runtime.shutdown.notify_waiters();
+    // notify_one() as well, so a request that races ahead of the gateway's
+    // `.notified()` still lands (stores a permit); notify_waiters alone would
+    // be lost if no task is parked yet.
+    state.runtime.shutdown.notify_one();
+    Json(json!({ "ok": true, "shutting_down": true }))
 }
 
 /// D3: loaded model, active LoRA, sidecar liveness, backend, RSI engine mirror.

@@ -13,16 +13,8 @@ use std::io::Write;
 
 use futures_util::StreamExt;
 
-// ── Brand palette (truecolor ANSI) ────────────────────────────────────────
-// Softened from the brand orange #ff6600, per the "portocaliu mai moale" brief.
-const ACCENT: &str = "\x1b[38;2;236;140;76m"; // soft orange
-const ACCENT_HI: &str = "\x1b[38;2;242;164;102m"; // brighter orange (user)
-const TEXT: &str = "\x1b[38;2;228;221;210m"; // warm off-white
-const META: &str = "\x1b[38;2;122;116;107m"; // dim
-const ONLINE: &str = "\x1b[38;2;143;183;122m"; // soft green
-const BOLD: &str = "\x1b[1m";
-const DIM: &str = "\x1b[2m";
-const RESET: &str = "\x1b[0m";
+use crate::common::{ACCENT, BOLD, DIM, META, RESET, TEXT};
+const ONLINE: &str = crate::common::OK;
 
 /// Entry point for `feral-cli chat`. Never returns — exits the process.
 pub fn run() -> ! {
@@ -32,9 +24,8 @@ pub fn run() -> ! {
 }
 
 async fn async_main() -> i32 {
-    let port = feral_core::settings::load().api_port;
-    let base = format!("http://127.0.0.1:{port}");
-    let token = match read_token() {
+    let base = crate::common::base_url();
+    let token = match crate::common::read_token() {
         Some(t) => t,
         None => {
             eprintln!("feral: no API token found at ~/.feral/api-token — is the gateway running?");
@@ -85,12 +76,6 @@ async fn async_main() -> i32 {
 
     println!("\n{META}stay feral. ↝{RESET}");
     0
-}
-
-/// Read the per-launch bearer token the gateway persists.
-fn read_token() -> Option<String> {
-    let path = feral_core::paths::feral_dir().join("api-token");
-    std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
 fn read_line() -> Option<String> {

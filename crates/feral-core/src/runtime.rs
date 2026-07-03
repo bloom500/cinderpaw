@@ -98,6 +98,13 @@ pub struct RuntimeState {
     /// which only ever knows the *local* engine; for a cloud session that's
     /// `None` while this is the real answer. Reported by `/runtime/status`.
     pub active_agent_model: Arc<Mutex<Option<String>>>,
+    /// Faza 4.5 Slice 4: a graceful-shutdown signal. `POST /runtime/shutdown`
+    /// fires it; the headless gateway selects on it alongside Ctrl+C to run the
+    /// D7 drain. Cross-platform, so `feral gateway stop` doesn't depend on
+    /// Windows console signal groups (which don't reach a detached child). The
+    /// desktop host builds this field but never awaits it — window close is its
+    /// exit — so a stray POST there is a harmless no-op.
+    pub shutdown: Arc<tokio::sync::Notify>,
     /// Faza 4.5 Slice 3: the runtime's observability bus. Every host event
     /// (`HostEvents::emit`) that a broadcasting sink publishes lands here; the
     /// Public Runtime API `/events` SSE handler subscribes to replay them live.
@@ -124,6 +131,7 @@ impl RuntimeState {
             rsi_engine: Arc::new(Mutex::new(None)),
             rsi_request_registry: RsiRequestRegistry::default(),
             active_agent_model: Arc::new(Mutex::new(None)),
+            shutdown: Arc::new(tokio::sync::Notify::new()),
             events_tx,
         }
     }
