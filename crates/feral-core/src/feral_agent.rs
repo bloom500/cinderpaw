@@ -426,28 +426,49 @@ pub fn supervise(
             let planned = { runtime.feral_agent_planned_exit.lock().take() };
             if let Some(planned) = planned {
                 *runtime.feral_agent_tx.lock() = None;
-                events.emit(
-                    "feral://agent-exit",
-                    serde_json::json!({ "code": status.code(), "restarting": true }),
-                );
-                if let PlannedExit::Rebuild { repo_root } = planned {
-                    // The process is dead, so its exe is finally writable
-                    // (Windows locks running binaries) — rebuild now, before
-                    // the respawn picks the binary up again.
-                    match run_rebuild_script(&repo_root).await {
-                        Ok(()) => {
-                            if let Err(e) = refresh_spawn_binary(&extra_bin_dirs, &repo_root) {
-                                tracing::warn!("feral-agent: rebuilt but could not refresh spawn binary: {e}");
+                match planned {
+                    PlannedExit::Shutdown => {
+                        // Faza 4.5 Slice 2 D7: clean shutdown. The host
+                        // asked for one-shot exit; the supervisor stops
+                        // here. The agent-exit event still fires (with
+                        // restarting:false) so the host can update its
+                        // own UI / SSE subscribers.
+                        events.emit(
+                            "feral://agent-exit",
+                            serde_json::json!({ "code": status.code(), "restarting": false }),
+                        );
+                        return;
+                    }
+                    PlannedExit::Restart => {
+                        events.emit(
+                            "feral://agent-exit",
+                            serde_json::json!({ "code": status.code(), "restarting": true }),
+                        );
+                        continue;
+                    }
+                    PlannedExit::Rebuild { repo_root } => {
+                        events.emit(
+                            "feral://agent-exit",
+                            serde_json::json!({ "code": status.code(), "restarting": true }),
+                        );
+                        // The process is dead, so its exe is finally writable
+                        // (Windows locks running binaries) — rebuild now, before
+                        // the respawn picks the binary up again.
+                        match run_rebuild_script(&repo_root).await {
+                            Ok(()) => {
+                                if let Err(e) = refresh_spawn_binary(&extra_bin_dirs, &repo_root) {
+                                    tracing::warn!("feral-agent: rebuilt but could not refresh spawn binary: {e}");
+                                }
+                                tracing::info!("feral-agent: sidecar rebuilt after live patch apply");
                             }
-                            tracing::info!("feral-agent: sidecar rebuilt after live patch apply");
+                            Err(e) => tracing::warn!(
+                                "feral-agent: sidecar rebuild failed ({e}); respawning the \
+                                 previous binary — the watchdog marker will expire harmlessly"
+                            ),
                         }
-                        Err(e) => tracing::warn!(
-                            "feral-agent: sidecar rebuild failed ({e}); respawning the \
-                             previous binary — the watchdog marker will expire harmlessly"
-                        ),
+                        continue;
                     }
                 }
-                continue;
             }
 
             if started.elapsed().as_secs() >= STABLE_UPTIME_SECS {

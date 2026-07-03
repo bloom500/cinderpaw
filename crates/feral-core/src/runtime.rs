@@ -31,6 +31,19 @@ pub enum PlannedExit {
     /// exe — this is the only safe moment to overwrite the binary),
     /// then respawns.
     Rebuild { repo_root: String },
+    /// Faza 4.5 Slice 2 (D7): a clean shutdown. The supervisor emits
+    /// `feral://agent-exit` with `restarting:false` and stops the loop
+    /// instead of respawning. Used by `feral-cli` on Ctrl+C and by
+    /// anything else that wants a one-shot, no-recovery exit.
+    Shutdown,
+}
+
+impl PlannedExit {
+    /// Convenience constructor for the `Shutdown` variant. Symmetric
+    /// with the `feral_cli` shutdown path; keeps the call site readable.
+    pub fn shutdown() -> Self {
+        Self::Shutdown
+    }
 }
 
 pub type PlannedExitSlot = Arc<Mutex<Option<PlannedExit>>>;

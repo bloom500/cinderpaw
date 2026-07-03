@@ -1446,6 +1446,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "feral-cli"
+version = "0.2.0"
+dependencies = [
+ "feral-core",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "feral-core"
 version = "0.2.0"
 dependencies = [

@@ -1,0 +1,25 @@
+[package]
+name = "feral-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "feral-cli"
+path = "src/main.rs"
+
+[dependencies]
+feral-core = { path = "../feral-core", default-features = false }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = "1"
+
+[features]
+default = ["inference"]
+inference        = ["feral-core/inference"]
+inference-cuda   = ["feral-core/inference-cuda"]
+inference-vulkan = ["feral-core/inference-vulkan"]
+inference-metal  = ["feral-core/inference-metal"]
+whisper          = ["feral-core/whisper"]
