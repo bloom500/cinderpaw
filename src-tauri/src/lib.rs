@@ -4,7 +4,6 @@ mod conversations;
 mod desktop_control;
 mod disk_encryption;
 mod events;
-mod feral_agent;
 mod mcp;
 mod memory_graph;
 mod projects;
@@ -12,8 +11,8 @@ mod rsi;
 mod skills;
 
 pub use feral_core::{
-    api, byok, db_key, gpu_detect, inference, models, paths, perf_policy,
-    settings, sysinfo_mod, tools,
+    api, byok, db_key, feral_agent, gpu_detect, inference, models, paths,
+    perf_policy, settings, sysinfo_mod, tools,
 };
 #[cfg(feature = "whisper")]
 pub use feral_core::transcription;
@@ -28,6 +27,16 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
+
+/// `HostEvents` for the desktop entry point (Faza 4.5 Slice 2): forwards
+/// every runtime event to the webview via `app.emit`. The headless gateway
+/// uses `feral_core::host::LogEvents` instead — see `crates/feral-cli`.
+struct TauriEvents(tauri::AppHandle);
+impl feral_core::host::HostEvents for TauriEvents {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        let _ = self.0.emit(event, payload);
+    }
+}
 
 use crate::agents::AgentConfig;
 use crate::inference::{InferParams, Message, ModelManager};
@@ -2173,7 +2182,7 @@ fn restart_sidecar(state: &AppState) {
     // Mark the exit as planned so the supervisor skips crash accounting
     // AND the Faza 3 watchdog counter (an env-toggle restart during a
     // patch's observation window must not push it toward auto-revert).
-    *state.feral_agent_planned_exit.lock() = Some(feral_agent::PlannedExit::Restart);
+    *state.feral_agent_planned_exit.lock() = Some(feral_core::runtime::PlannedExit::Restart);
     {
         let mut guard = state.feral_agent_process.lock();
         if let Some(ref mut child) = *guard {
@@ -3562,30 +3571,26 @@ pub fn run() {
                 });
             }
             // Spawn Feral Agent sidecar, pointed at the bundled engine (A1).
-            let fa_handle = app.handle().clone();
-            let fa_tx_slot = app.handle().state::<AppState>().feral_agent_tx.clone();
-            let fa_process_slot = app.handle().state::<AppState>().feral_agent_process.clone();
-            let fa_registry = app.handle().state::<AppState>().rsi_request_registry.clone();
-            let fa_engine_mirror = app.handle().state::<AppState>().rsi_engine.clone();
-            let fa_port = api_port;
-            let fa_token = local_api_token.to_string();
-            // #11: supervised spawn — watches for sidecar crashes, restarts
-            // with backoff, and emits `feral://agent-exit` so the UI can show
-            // an "agent offline" banner instead of going silently mute. The
-            // registry + engine mirror are cloned into every spawn generation
-            // so the stdout reader can route `rsi_engine_event` acks to the
-            // matching oneshot and keep `rsi_status.engine` fresh.
-            let fa_planned_exit = app.handle().state::<AppState>().feral_agent_planned_exit.clone();
-            feral_agent::supervise(
-                fa_handle,
-                fa_tx_slot,
-                fa_process_slot,
-                fa_port,
-                fa_token,
-                fa_registry,
-                fa_engine_mirror,
-                fa_planned_exit,
-            );
+            // Faza 4.5 Slice 2: the supervisor takes the host-agnostic runtime
+            // + the Tauri-specific events/desktop-control closures instead of
+            // an `AppHandle`. See `crates/feral-core/src/feral_agent.rs`.
+            let runtime = app.handle().state::<AppState>().runtime.clone();
+            let events: Arc<dyn feral_core::host::HostEvents> =
+                Arc::new(TauriEvents(app.handle().clone()));
+            let desktop_control: Option<feral_core::host::DesktopControlHandler> = {
+                let dc: feral_core::host::DesktopControlHandler =
+                    Arc::new(|action, params| {
+                        Box::pin(async move {
+                            crate::desktop_control::handle_request(&action, &params).await
+                        })
+                    });
+                Some(dc)
+            };
+            let extra_bin_dirs: Vec<PathBuf> = vec![app.path().resource_dir().ok()]
+                .into_iter()
+                .flatten()
+                .collect();
+            feral_agent::supervise(runtime, events, desktop_control, extra_bin_dirs);
 
             // Reconnect enabled MCP extensions in the background. Failures
             // are logged per-server — a broken extension never blocks launch.

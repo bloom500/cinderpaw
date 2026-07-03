@@ -9,6 +9,7 @@
 pub mod api;
 pub mod byok;
 pub mod db_key;
+pub mod feral_agent;
 pub mod gpu_detect;
 pub mod host;
 pub mod inference;

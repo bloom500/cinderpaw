@@ -6,6 +6,9 @@
 //! logs and publishes on the Public Runtime API `/events` SSE stream.
 //! No consumers yet — Slice 2 wires `feral_agent.rs` through it.
 
+use std::sync::Arc;
+
+use futures::future::BoxFuture;
 use serde_json::Value;
 
 pub trait HostEvents: Send + Sync + 'static {
@@ -21,3 +24,15 @@ impl HostEvents for LogEvents {
         tracing::info!(target: "host_events", %event, %payload, "event");
     }
 }
+
+/// Host-supplied closure that executes one `desktop_control_request` line
+/// coming from the Feral Agent sidecar's stdout. The closure shape mirrors
+/// `crate::desktop_control::handle_request(action, params) -> Result<Value, String>`
+/// — the Tauri host injects its own implementation (which enforces all the
+/// security gating). A headless host passes `None`, and `feral_agent`
+/// responds to every desktop_control_request with
+/// `ok:false, error:"desktop control not available in this host"` so the
+/// sidecar's pending Promise never hangs.
+pub type DesktopControlHandler = Arc<
+    dyn Fn(String, Value) -> BoxFuture<'static, Result<Value, String>> + Send + Sync,
+>;

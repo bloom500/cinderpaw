@@ -1,27 +1,36 @@
-//! Feral Agent sidecar — binary discovery and process lifecycle.
+//! Feral Agent sidecar — binary discovery, process lifecycle, supervisor.
 //!
 //! Feral Agent is the proactive AI agent with a native security sandbox.
 //! It speaks newline-delimited JSON over stdin/stdout (the Tauri sidecar
 //! protocol it was built for). All stdout JSON lines are forwarded to the
-//! React frontend as `feral://agent-output` events; the frontend parses the
-//! `type` field and routes to chunk/done/tool/proactive/error handlers.
+//! host's event bus (today `feral://agent-output` on the Tauri webview,
+//! tomorrow the Public Runtime API `/events` SSE stream). The frontend
+//! parses the `type` field and routes to chunk/done/tool/proactive/error
+//! handlers.
 //!
 //! Data files live under `~/.feral/agent/` (DB) and `~/.feral/workspace/`.
+//!
+//! **Faza 4.5 Slice 2 — host-agnostic core.** This module no longer touches
+//! `tauri::AppHandle`. Every host-specific concern flows through the
+//! `HostEvents` trait (see `feral_core::host`):
+//!   * events: `events.emit(event, payload)` instead of `app.emit(...)`
+//!   * state: `Arc<RuntimeState>` (replaces `AppHandle::state::<AppState>()`)
+//!   * desktop control: `Option<DesktopControlHandler>` (injected by host)
+//!   * binary resolution: `extra_dirs: &[PathBuf]` (host supplies its
+//!     `resource_dir`; feral-core walks the rest)
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::events::FeralAgentOutputEvent;
+use crate::host::{DesktopControlHandler, HostEvents};
 use crate::paths;
 use crate::rsi::runtime::{RsiEngineState, RsiRequestRegistry};
-use crate::AppState;
-pub use feral_core::runtime::{PlannedExit, PlannedExitSlot};
+use crate::runtime::{PlannedExit, PlannedExitSlot, RuntimeState};
 
 /// A single user answer to a single `ask_user` question.
 ///
@@ -96,10 +105,13 @@ pub fn build_ask_user_cancel_line(
 /// `Contents/MacOS/feral-agent` inside a macOS .app, `/usr/bin/feral-agent`
 /// for Linux deb/rpm, and `feral-agent.exe` beside `feral.exe` on Windows.
 /// The triple-suffixed name only exists in dev (`src-tauri/binaries/`) and,
-/// historically, in the Windows installer. Check all of them — the previous
-/// resource-dir-only lookup made the agent silently dead on macOS and Linux
-/// production installs.
-pub fn find_binary(app: &AppHandle) -> Option<PathBuf> {
+/// historically, in the Windows installer.
+///
+/// `extra_dirs` is host-supplied: Tauri passes its `resource_dir` so the
+/// bundle lookup still works, feral-cli passes an empty slice. The
+/// `current_exe`-relative and `src-tauri/binaries` walk-up probes are
+/// host-agnostic and stay in this function.
+pub fn find_binary(extra_dirs: &[PathBuf]) -> Option<PathBuf> {
     let triple_name = binary_filename();
     let plain_name = if cfg!(target_os = "windows") {
         "feral-agent.exe".to_string()
@@ -119,8 +131,9 @@ pub fn find_binary(app: &AppHandle) -> Option<PathBuf> {
         }
     }
 
-    // Some layouts (and older bundlers) use the resource directory.
-    if let Ok(dir) = app.path().resource_dir() {
+    // Host-supplied locations (Tauri's `resource_dir` for the bundle; headless
+    // hosts pass an empty slice and rely on the rest of the search path).
+    for dir in extra_dirs {
         for name in [&plain_name, &triple_name] {
             let p = dir.join(name);
             if p.exists() {
@@ -170,25 +183,6 @@ fn binary_filename() -> String {
 /// `/v1/models` on the local api server (OpenAI-compatible). Returns
 /// the first model id (the bundled llama.cpp server exposes one
 /// primary model — the `.gguf` filename minus the directory).
-///
-/// Used at sidecar-spawn time so `FERAL_MODEL` matches the real
-/// model the server returns from `/v1/models`. Previously the
-/// sidecar's `FERAL_MODEL` was hardcoded to `"feral-local"`, which
-/// never matched a real model — every `invokeAgent` call returned
-/// 404 from the api and the engine emitted `EvalComplete` with
-/// `errored: true` even though the wire format was correct.
-///
-/// On any failure (server not up yet, network blip, parse error)
-/// the function returns `None` and the caller falls back to
-/// `"feral-local"` — better than aborting the spawn, because the
-/// user might be running with an external provider where `/v1/models`
-/// isn't accessible.
-///
-/// 1-second timeout is generous: the api server is local on
-/// `127.0.0.1:{api_port}` and serves /v1/models within a few ms when
-/// the engine has finished loading. A slow first-call (engine still
-/// warming up) is still < 1s; we don't want to block Tauri startup
-/// behind model-load time.
 async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String> {
     let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
     let client = reqwest::Client::builder()
@@ -205,18 +199,11 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
         return None;
     }
     let body: serde_json::Value = resp.json().await.ok()?;
-    // Pick the first *chat* model, skipping the bundled embedding model
-    // (bge-small): /v1/models lists every GGUF in the models dir, and on
-    // NTFS the embedding model often sorts first (case-insensitive `b` <
-    // `v`), so a naive `data[0]` hands the sidecar a BERT model it can't
-    // generate text with — breaking RAPTOR cluster summaries and bench
-    // query generation. Falls back to the first entry if the only model
-    // present is the embedding model.
     let arr = body.get("data").and_then(|d| d.as_array())?;
     let pick = arr
         .iter()
         .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
-        .find(|id| *id != crate::paths::EMBED_FILENAME)
+        .find(|id| *id != paths::EMBED_FILENAME)
         .or_else(|| {
             arr.first()
                 .and_then(|m| m.get("id"))
@@ -227,29 +214,30 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
 
 /// Spawn the feral-agent sidecar and wire up stdin/stdout communication.
 ///
-/// Populates `tx_slot` with a `Sender<String>`; Tauri commands clone it to
-/// write JSON messages to the agent's stdin. Stdout lines are parsed and
-/// forwarded to the React frontend as `feral://agent-output` events.
+/// Populates `runtime.feral_agent_tx` with a `Sender<String>`; callers
+/// clone it to write JSON messages to the agent's stdin. Stdout lines
+/// are parsed and forwarded to the host's event bus.
 ///
-/// `rsi_registry` + `rsi_engine_mirror` are routed to the stdout reader so
-/// the engine-driver IPC round-trip works: every `rsi_engine_event` line is
-/// matched against a pending request in `rsi_registry` (acks the oneshot)
-/// AND, when the event carries engine state, mirrored into `rsi_engine` so
-/// the UI's `rsi_status` shows live progress without polling the sidecar.
+/// `desktop_control` is `Some` on the desktop host (forwards each
+/// `desktop_control_request` to the injected handler); `None` on the
+/// headless gateway (responds with `ok:false` so the sidecar's pending
+/// Promise never hangs).
 ///
-/// Returns the child process so the caller can store it in `AppState` and
-/// kill it on app exit.
+/// Returns the `Child` handle so the caller can store it in
+/// `runtime.feral_agent_process` and let the supervisor watch it. We
+/// don't pre-populate the process slot here because the supervisor
+/// (which calls `spawn` on every generation) is the sole owner of the
+/// slot — pre-populating would race against `try_wait()` polling.
 pub async fn spawn(
-    app: AppHandle,
-    tx_slot: Arc<Mutex<Option<mpsc::Sender<String>>>>,
-    api_port: u16,
-    api_token: &str,
-    rsi_registry: RsiRequestRegistry,
-    rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
-    process_slot: Arc<Mutex<Option<tokio::process::Child>>>,
-    planned_exit: PlannedExitSlot,
+    runtime: Arc<RuntimeState>,
+    events: Arc<dyn HostEvents>,
+    desktop_control: Option<DesktopControlHandler>,
+    extra_bin_dirs: Vec<PathBuf>,
 ) -> Result<tokio::process::Child, String> {
-    let binary = find_binary(&app).ok_or_else(|| {
+    let api_port = runtime.settings.api_port;
+    let api_token = runtime.local_api_token.as_ref();
+
+    let binary = find_binary(&extra_bin_dirs).ok_or_else(|| {
         // D1 fix: the `beforeDevCommand` / `beforeBuildCommand` in
         // tauri.conf.json invoke `scripts/build-sidecar.mjs` which
         // builds the sidecar and copies it to `binaries/`. If you see
@@ -272,13 +260,6 @@ pub async fn spawn(
     let db_path = paths::feral_agent_db_path();
     let workspace = paths::feral_agent_workspace_path();
 
-    // A1: point the sidecar at Feral's own bundled llama.cpp engine by default
-    // (the loopback OpenAI-compatible API on `api_port`), not at an external
-    // Ollama install. This makes "fully local" work out of the box with no
-    // third-party runtime. The V4 bearer token rides in as FERAL_API_KEY so
-    // the now-gated API accepts the sidecar's requests. The frontend may still
-    // hot-swap to a cloud BYOK model later via `set_model`; this is only the
-    // boot default.
     let base_url = format!("http://127.0.0.1:{api_port}");
 
     let mut cmd = tokio::process::Command::new(&binary);
@@ -287,40 +268,21 @@ pub async fn spawn(
         .env("FERAL_PROVIDER", "openai_compatible")
         .env("FERAL_BASE_URL", &base_url)
         .env("FERAL_API_KEY", api_token);
-    // Discover the active model id from the bundled engine BEFORE spawning
-    // the sidecar. The previous hardcoded "feral-local" was a placeholder
-    // that never matched a real model on disk — every `invokeAgent` would
-    // 404 against the api server and the run would emit errored
-    // EvalComplete events even though the sidecar's wire format was
-    // correct. The api server exposes /v1/models (OpenAI-compatible) and
-    // returns the id we should use verbatim as `model` in completion calls.
-    // Fallback to "feral-local" preserves the old behaviour for environments
-    // where /v1/models is unreachable (offline / api down) — better to spawn
-    // with a placeholder than to fail the launch outright.
+
     let model_name = discover_active_model(&base_url, api_token)
         .await
         .unwrap_or_else(|| "feral-local".to_string());
     cmd.env("FERAL_MODEL", &model_name);
     tracing::info!(model = %model_name, "feral-agent: using discovered model");
 
-    // At-rest encryption key (H-1) for the sidecar's sensitive DB columns. From
-    // the OS keychain, generated on first use. Absent ⇒ sidecar stores plaintext
-    // (it must never encrypt with a key it can't persist). Passed like the other
-    // secrets above and never written to disk by the host.
     if let Some(db_key) = crate::db_key::get_or_create() {
         cmd.env("FERAL_DB_KEY", db_key);
     }
 
-    // Desktop-control opt-in + policy. Forwarded from the host environment so a
-    // single env var (or, later, a Settings toggle that sets it) consistently
-    // enables BOTH the sidecar's `control_app` tool registration AND the Rust
-    // host's command gate — they must agree or the tool is dead. Absent vars
-    // are simply not forwarded, keeping desktop control OFF by default.
     for key in [
         "FERAL_ENABLE_DESKTOP_CONTROL",
         "FERAL_DESKTOP_CONTROL_CONFIRM",
         "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
-        // Keep the existing shell_exec opt-in flowing through the same path.
         "FERAL_ENABLE_SHELL_EXEC",
     ] {
         if let Ok(val) = std::env::var(key) {
@@ -333,7 +295,6 @@ pub async fn spawn(
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
 
-    // Suppress console window flash on Windows.
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -350,27 +311,29 @@ pub async fn spawn(
 
     // Channel: commands → stdin writer task.
     let (tx, rx) = mpsc::channel::<String>(64);
-    *tx_slot.lock() = Some(tx);
+    *runtime.feral_agent_tx.lock() = Some(tx);
 
     // The stdout reader needs a way to write responses back to the sidecar's
-    // stdin (for the desktop-control request/response bridge), so hand it a
-    // clone of the stdin sender before `tx` is moved into the slot.
+    // stdin (for the desktop-control / rsi request/response bridges), so hand
+    // it a clone of the stdin sender before `tx` is moved into the slot.
     let response_tx = {
-        let guard = tx_slot.lock();
+        let guard = runtime.feral_agent_tx.lock();
         guard.as_ref().expect("tx_slot was just populated").clone()
     };
 
     tokio::spawn(stdin_writer(stdin, rx));
     tokio::spawn(stdout_reader(
-        app.clone(),
+        runtime.clone(),
+        events.clone(),
+        desktop_control,
         stdout,
         response_tx,
-        rsi_registry,
-        rsi_engine_mirror,
-        process_slot,
-        planned_exit,
+        runtime.rsi_request_registry.clone(),
+        runtime.rsi_engine.clone(),
+        runtime.feral_agent_process.clone(),
+        runtime.feral_agent_planned_exit.clone(),
     ));
-    tokio::spawn(stderr_logger(app.clone(), stderr));
+    tokio::spawn(stderr_logger(events.clone(), stderr));
 
     tracing::info!("feral-agent: started (pid {:?})", child.id());
     Ok(child)
@@ -391,7 +354,7 @@ pub async fn spawn(
 ///   * After the budget is exhausted, gives up and emits a final
 ///     `feral://agent-exit` with `restarting: false`.
 ///
-/// The `Child` stays in `process_slot` (AppState) so app-exit kill-on-drop
+/// The `Child` stays in `runtime.feral_agent_process` so app-exit kill-on-drop
 /// semantics are unchanged; the supervisor polls `try_wait()` through the
 /// same mutex instead of taking ownership.
 ///
@@ -401,19 +364,15 @@ pub async fn spawn(
 /// the request), but cloning them keeps the contract "every spawn has its
 /// own readers" explicit.
 pub fn supervise(
-    app: AppHandle,
-    tx_slot: Arc<Mutex<Option<mpsc::Sender<String>>>>,
-    process_slot: Arc<Mutex<Option<tokio::process::Child>>>,
-    api_port: u16,
-    api_token: String,
-    rsi_registry: RsiRequestRegistry,
-    rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
-    planned_exit: PlannedExitSlot,
+    runtime: Arc<RuntimeState>,
+    events: Arc<dyn HostEvents>,
+    desktop_control: Option<DesktopControlHandler>,
+    extra_bin_dirs: Vec<PathBuf>,
 ) {
     const MAX_QUICK_FAILURES: u32 = 5;
     const STABLE_UPTIME_SECS: u64 = 60;
 
-    tauri::async_runtime::spawn(async move {
+    tokio::spawn(async move {
         let mut quick_failures: u32 = 0;
         // Faza 3 Slice 3: unexpected-exit timestamps (unix ms) feeding the
         // crash→auto-revert watchdog. Planned exits never land here.
@@ -421,23 +380,19 @@ pub fn supervise(
         loop {
             let started = std::time::Instant::now();
             match spawn(
-                app.clone(),
-                tx_slot.clone(),
-                api_port,
-                &api_token,
-                rsi_registry.clone(),
-                rsi_engine_mirror.clone(),
-                process_slot.clone(),
-                planned_exit.clone(),
+                runtime.clone(),
+                events.clone(),
+                desktop_control.clone(),
+                extra_bin_dirs.clone(),
             )
             .await
             {
                 Ok(child) => {
-                    *process_slot.lock() = Some(child);
+                    *runtime.feral_agent_process.lock() = Some(child);
                 }
                 Err(e) => {
                     tracing::warn!("feral-agent: spawn failed: {e}");
-                    let _ = app.emit(
+                    events.emit(
                         "feral://agent-exit",
                         serde_json::json!({ "code": null, "restarting": false, "error": e }),
                     );
@@ -446,11 +401,11 @@ pub fn supervise(
             }
 
             // Poll for exit. try_wait() through the mutex keeps ownership in
-            // AppState so kill_on_drop still fires on app shutdown.
+            // RuntimeState so kill_on_drop still fires on app shutdown.
             let status = loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 let exited = {
-                    let mut guard = process_slot.lock();
+                    let mut guard = runtime.feral_agent_process.lock();
                     match guard.as_mut() {
                         Some(c) => c.try_wait().ok().flatten(),
                         // Slot cleared externally — stop supervising.
@@ -468,10 +423,10 @@ pub fn supervise(
             // counter, then respawn immediately.
             // Scope the guard: holding a parking_lot lock across the rebuild
             // await would make the future !Send.
-            let planned = { planned_exit.lock().take() };
+            let planned = { runtime.feral_agent_planned_exit.lock().take() };
             if let Some(planned) = planned {
-                *tx_slot.lock() = None;
-                let _ = app.emit(
+                *runtime.feral_agent_tx.lock() = None;
+                events.emit(
                     "feral://agent-exit",
                     serde_json::json!({ "code": status.code(), "restarting": true }),
                 );
@@ -481,7 +436,7 @@ pub fn supervise(
                     // the respawn picks the binary up again.
                     match run_rebuild_script(&repo_root).await {
                         Ok(()) => {
-                            if let Err(e) = refresh_spawn_binary(&app, &repo_root) {
+                            if let Err(e) = refresh_spawn_binary(&extra_bin_dirs, &repo_root) {
                                 tracing::warn!("feral-agent: rebuilt but could not refresh spawn binary: {e}");
                             }
                             tracing::info!("feral-agent: sidecar rebuilt after live patch apply");
@@ -499,14 +454,6 @@ pub fn supervise(
                 quick_failures = 0;
             }
             quick_failures += 1;
-            // Within the rapid-failure budget we retry fast; once over it we
-            // back off HARD instead of giving up permanently. The old code
-            // `return`ed here, which left the agent dead with no recovery short
-            // of restarting the whole app — a real dead-end when a *transient*
-            // cause (e.g. the sidecar binary being swapped during a rebuild, or
-            // a momentary file lock) made it crash 5× quickly. Now a transient
-            // failure self-heals after the cool-down, and a genuinely-broken
-            // binary just retries slowly (logged) rather than busy-looping.
             let over_budget = quick_failures > MAX_QUICK_FAILURES;
             tracing::warn!(
                 code = ?status.code(),
@@ -516,19 +463,14 @@ pub fn supervise(
             );
             // Invalidate the stale stdin sender so feral_send_message fails
             // fast instead of writing into a dead pipe.
-            *tx_slot.lock() = None;
-            // We always intend to restart now, so the UI banner never shows a
-            // permanent "offline" — at worst a slow recovery.
-            let _ = app.emit(
+            *runtime.feral_agent_tx.lock() = None;
+            let events_for_exit = events.clone();
+            events_for_exit.emit(
                 "feral://agent-exit",
                 serde_json::json!({ "code": status.code(), "restarting": true }),
             );
 
-            // Faza 3 Slice 3: crash→auto-revert watchdog. If a live-applied
-            // patch has a fresh marker and this is the ≥2nd unexpected death
-            // inside its window, the patch is the prime suspect — reverse it
-            // ourselves (the sidecar is in no state to help), rebuild, and
-            // respawn clean.
+            // Faza 3 Slice 3: crash→auto-revert watchdog.
             let now_ms = unix_ms();
             crash_times_ms.push(now_ms);
             let marker_path = crate::rsi::watchdog::default_marker_path();
@@ -544,11 +486,10 @@ pub fn supervise(
                     now_ms,
                     &opts,
                 ) {
-                    revert_bad_patch(&app, &marker).await;
+                    revert_bad_patch(events.clone(), &extra_bin_dirs, &marker).await;
                     crate::rsi::watchdog::clear_marker(&marker_path);
                     crash_times_ms.clear();
                     quick_failures = 0;
-                    // Respawn immediately on the reverted (and rebuilt) source.
                     continue;
                 }
             }
@@ -557,8 +498,6 @@ pub fn supervise(
                 tracing::error!(
                     "feral-agent: {MAX_QUICK_FAILURES} rapid failures — cooling down 30s before retrying"
                 );
-                // Fresh budget after the long cool-down so the next transient
-                // blip gets the same fast-retry treatment.
                 quick_failures = 0;
                 std::time::Duration::from_secs(30)
             } else {
@@ -582,20 +521,20 @@ async fn stdin_writer(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Recei
 }
 
 /// Read stdout line-by-line. Most lines are protocol events forwarded verbatim
-/// to the React frontend as `feral://agent-output`. Exceptions (handled in
-/// Rust, NOT forwarded):
-///   * `desktop_control_request` — the OS accessibility work lives behind
-///     the Rust security gate; the response is written back to the sidecar's
-///     stdin as `desktop_control_response`.
-///   * `rsi_engine_event` — the engine-driver IPC ack + mirror update. The
-///     sidecar emits one of these for each `rsi_start` / `rsi_stop` /
-///     `rsi_set_concurrency` (with the matching `id`), plus optional
-///     `progress` lines that update the engine mirror without acking. After
-///     we extract what we need, we still forward the line to the UI so the
-///     React layer can render live updates if it wants (the documented path
-///     is polling `rsi_status`, but live events are useful for charts).
+/// to the host's event bus as `feral://agent-output` (matching the wire shape
+/// `{"data": "<line>"}` the legacy `FeralAgentOutputEvent` Tauri struct used to
+/// emit — see Step 3 of Task 2 in
+/// `docs/superpowers/plans/2026-07-03-faza4-5-slice2-feral-gateway.md`).
+///
+/// Exceptions handled in Rust, NOT forwarded as `agent-output`:
+///   * `desktop_control_request` — routed to the injected `DesktopControlHandler`
+///   * `rsi_request`              — dispatched via `feral_core::rsi::runtime`
+///   * `rsi_engine_event`         — engine-driver IPC ack + mirror update
+///   * `code_patch_resolved`      — Faza 3 patch lifecycle (marker + restart)
 async fn stdout_reader(
-    app: AppHandle,
+    runtime: Arc<RuntimeState>,
+    events: Arc<dyn HostEvents>,
+    desktop_control: Option<DesktopControlHandler>,
     stdout: tokio::process::ChildStdout,
     response_tx: mpsc::Sender<String>,
     rsi_registry: RsiRequestRegistry,
@@ -610,39 +549,27 @@ async fn stdout_reader(
             continue;
         }
 
-        // Peek the `type` field cheaply; route the three intercepted types,
-        // everything else flows straight to the UI.
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
             match v.get("type").and_then(|t| t.as_str()) {
                 Some("desktop_control_request") => {
                     let tx = response_tx.clone();
-                    tokio::spawn(async move { handle_desktop_control_request(v, tx).await });
+                    let dc = desktop_control.clone();
+                    tokio::spawn(async move { handle_desktop_control_request(v, dc, tx).await });
                     continue;
                 }
                 Some("rsi_request") => {
-                    // Sidecar asks Rust to do something (commit_genome,
-                    // ratchet_attempt, score, etc.). Dispatch and write the
-                    // matching rsi_response back to stdin. NOT forwarded to
-                    // the UI — it's an internal request/response, like
-                    // desktop_control_request.
                     let tx = response_tx.clone();
-                    let app_for_rsi = app.clone();
+                    let runtime = runtime.clone();
                     tokio::spawn(async move {
-                        handle_rsi_request(v, app_for_rsi, tx).await;
+                        handle_rsi_request(runtime, v, tx).await;
                     });
                     continue;
                 }
                 Some("rsi_engine_event") => {
                     handle_rsi_engine_event(&v, &rsi_registry, &rsi_engine_mirror);
-                    // Intentionally fall through to the UI forward — the
-                    // rsi_engine_event line may carry useful payload (e.g.
-                    // iteration progress) for live widgets.
+                    // Intentionally fall through to the host-event forward.
                 }
                 Some("code_patch_resolved") => {
-                    // Faza 3 Slices 2+3: a live-applied patch writes the
-                    // watchdog marker and schedules the rebuild-restart that
-                    // makes the patched source the running agent. Falls
-                    // through — the UI needs this line for the approval panel.
                     handle_code_patch_resolved(&v, &process_slot, &planned_exit);
                 }
                 _ => {}
@@ -650,32 +577,14 @@ async fn stdout_reader(
         }
 
         tracing::debug!("feral-agent out: {}", &line);
-        let _ = app.emit("feral://agent-output", FeralAgentOutputEvent { data: line });
+        // Wire shape MUST match the legacy FeralAgentOutputEvent struct:
+        // `{"data": "<line>"}`. See Step 3 of Slice 2 Task 2 plan for the
+        // event-shape regression check.
+        events.emit("feral://agent-output", serde_json::json!({ "data": line }));
     }
     tracing::info!("feral-agent: stdout closed");
 }
 
-/// Apply a single `rsi_engine_event` line: ack the matching in-flight
-/// request (if any) and update the engine mirror.
-///
-/// Expected shape:
-///
-/// ```json
-/// { "type": "rsi_engine_event",
-///   "event": "started" | "stopped" | "concurrency_set" | "progress",
-///   "id": "<request_id>",           // only on ack-bearing events
-///   "iteration": 0,                  // optional, started/progress/stopped
-///   "bestScore": 73.4,               // optional
-///   "costSoFarUsd": 0.0,             // optional
-///   "concurrency": 1,                // optional, started/concurrency_set
-///   "stopReason": "UserStopped"      // only on stopped
-/// }
-/// ```
-///
-/// Missing fields fall back to whatever the mirror already holds, so a
-/// partial event (e.g. just `iteration`) doesn't wipe the rest. An
-/// unknown `event` is logged and ignored — version skew between Rust and
-/// the sidecar shouldn't be a panic.
 fn handle_rsi_engine_event(
     v: &serde_json::Value,
     rsi_registry: &RsiRequestRegistry,
@@ -687,9 +596,6 @@ fn handle_rsi_engine_event(
         return;
     }
 
-    // Ack first (cheap, lock-free w.r.t. the engine mirror). An unknown
-    // id simply returns false — no error, the request may have already
-    // timed out and that's fine.
     if let Some(id) = v.get("id").and_then(|t| t.as_str()) {
         let fired = rsi_registry.ack(id);
         if !fired && matches!(event_name, "started" | "stopped" | "concurrency_set") {
@@ -699,8 +605,6 @@ fn handle_rsi_engine_event(
         }
     }
 
-    // Update the mirror. Seed from the previous value so partial events
-    // don't blank fields we don't know about.
     let mut guard = rsi_engine_mirror.lock();
     let prev = guard.clone().unwrap_or_default();
     let next = match event_name {
@@ -745,14 +649,10 @@ fn handle_rsi_engine_event(
 }
 
 /// Faza 3 Slices 2+3, the apply side. Called for every `code_patch_resolved`
-/// line; only `status: "applied"` acts (approvals without a live apply, and
-/// rejects/errors, are UI-only). On an applied patch:
-///
+/// line; only `status: "applied"` acts. On an applied patch:
 ///   1. writes the watchdog marker (Slice 3 — the crash window starts now);
 ///   2. if the dev-repo knob `FERAL_CODE_RSI_REPO` is set, schedules a
-///      `PlannedExit::Rebuild` and kills the sidecar. The supervisor does the
-///      actual rebuild while the process is dead, then respawns the fresh
-///      binary — the patched source becomes the running agent (Slice 2).
+///      `PlannedExit::Rebuild` and kills the sidecar.
 fn handle_code_patch_resolved(
     v: &serde_json::Value,
     process_slot: &Arc<Mutex<Option<tokio::process::Child>>>,
@@ -776,8 +676,6 @@ fn handle_code_patch_resolved(
 
     let repo = std::env::var("FERAL_CODE_RSI_REPO").unwrap_or_default();
     if repo.trim().is_empty() {
-        // Shouldn't happen (the sidecar refuses live apply without the
-        // knob), but the marker alone is still correct behaviour.
         return;
     }
     tracing::info!("feral-agent: patch '{id}' applied — restarting sidecar for rebuild");
@@ -800,7 +698,7 @@ async fn run_rebuild_script(repo_root: &str) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        let script = std::path::Path::new(repo_root)
+        let script = Path::new(repo_root)
             .join("scripts")
             .join("rsi-rebuild-sidecar.ps1");
         let mut cmd = tokio::process::Command::new("powershell");
@@ -834,13 +732,12 @@ async fn run_rebuild_script(repo_root: &str) -> Result<(), String> {
 /// `find_binary` prefers that copy — so without this, the supervisor
 /// keeps respawning the stale binary forever. Must run while the sidecar
 /// is dead (the destination is unlocked then).
-fn refresh_spawn_binary(app: &AppHandle, repo_root: &str) -> Result<(), String> {
-    let fresh = std::path::Path::new(repo_root)
+fn refresh_spawn_binary(extra_bin_dirs: &[PathBuf], repo_root: &str) -> Result<(), String> {
+    let fresh = Path::new(repo_root)
         .join("src-tauri")
         .join("binaries")
         .join(binary_filename());
-    let dest = find_binary(app).ok_or_else(|| "find_binary resolved no sidecar".to_string())?;
-    // Same file (dev repo == running repo layout)? Nothing to do.
+    let dest = find_binary(extra_bin_dirs).ok_or_else(|| "find_binary resolved no sidecar".to_string())?;
     if let (Ok(a), Ok(b)) = (fresh.canonicalize(), dest.canonicalize()) {
         if a == b {
             return Ok(());
@@ -852,9 +749,7 @@ fn refresh_spawn_binary(app: &AppHandle, repo_root: &str) -> Result<(), String> 
 }
 
 /// Reverse-apply a patch from the real source repo — the Rust mirror of the
-/// TS `revertPatchLive` git invocation (`--directory=FeralAgent`, check
-/// first, patch text on stdin). Runs in Rust precisely because the sidecar
-/// is crash-looping and cannot be asked to revert itself.
+/// TS `revertPatchLive` git invocation.
 async fn git_apply_reverse(repo_root: &str, patch: &str) -> Result<(), String> {
     for check in [true, false] {
         let mut cmd = tokio::process::Command::new("git");
@@ -898,9 +793,14 @@ async fn git_apply_reverse(repo_root: &str, patch: &str) -> Result<(), String> {
 /// Faza 3 Slice 3, the revert action. Called from the supervisor when the
 /// watchdog says "this patch is killing the sidecar": reverse the patch on
 /// the source tree, mark it `reverted` in the pending store, rebuild the
-/// sidecar, and tell the UI. Every step is best-effort with a logged
-/// reason — the supervisor's respawn loop continues regardless.
-async fn revert_bad_patch(app: &AppHandle, marker: &crate::rsi::watchdog::PatchMarker) {
+/// sidecar, refresh the spawn binary, and tell the host. Every step is
+/// best-effort with a logged reason — the supervisor's respawn loop
+/// continues regardless.
+async fn revert_bad_patch(
+    events: Arc<dyn HostEvents>,
+    extra_bin_dirs: &[PathBuf],
+    marker: &crate::rsi::watchdog::PatchMarker,
+) {
     let id = &marker.patch_id;
     let repo = std::env::var("FERAL_CODE_RSI_REPO").unwrap_or_default();
     if repo.trim().is_empty() {
@@ -921,41 +821,55 @@ async fn revert_bad_patch(app: &AppHandle, marker: &crate::rsi::watchdog::PatchM
     }
     match run_rebuild_script(&repo).await {
         Ok(()) => {
-            if let Err(e) = refresh_spawn_binary(app, &repo) {
+            if let Err(e) = refresh_spawn_binary(extra_bin_dirs, &repo) {
                 tracing::warn!("feral-agent: reverted '{id}' but could not refresh spawn binary: {e}");
             }
         }
         Err(e) => tracing::warn!("feral-agent: reverted '{id}' but rebuild failed ({e}) — the running binary may still carry the patch until the next successful build"),
     }
     tracing::warn!("feral-agent: auto-reverted patch '{id}' after repeated sidecar crashes");
-    let _ = app.emit(
+    events.emit(
         "feral://rsi-patch-reverted",
         serde_json::json!({ "patchId": id }),
     );
 }
 
 /// Run a single desktop-control request from the sidecar and write the
-/// response back to its stdin. All security gating lives inside
-/// `desktop_control::handle_request`; this function only marshals JSON and
-/// guarantees that *every* request gets exactly one response (so the sidecar's
-/// pending Promise never hangs).
-async fn handle_desktop_control_request(req: serde_json::Value, tx: mpsc::Sender<String>) {
+/// response back to its stdin. All security gating lives inside the
+/// host's `DesktopControlHandler` (today: `crate::desktop_control`); this
+/// function only marshals JSON and guarantees *every* request gets exactly
+/// one response. When the host injects `None` (headless gateway), every
+/// request responds with `ok:false, error:"desktop control not available
+/// in this host"` so the sidecar's pending Promise never hangs.
+async fn handle_desktop_control_request(
+    req: serde_json::Value,
+    desktop_control: Option<DesktopControlHandler>,
+    tx: mpsc::Sender<String>,
+) {
     let id = req.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let action = req.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
 
-    let response = match crate::desktop_control::handle_request(&action, &params).await {
-        Ok(data) => serde_json::json!({
-            "type": "desktop_control_response",
-            "id": id,
-            "ok": true,
-            "data": data,
-        }),
-        Err(message) => serde_json::json!({
+    let response = match desktop_control {
+        Some(dc) => match dc(action, params).await {
+            Ok(data) => serde_json::json!({
+                "type": "desktop_control_response",
+                "id": id,
+                "ok": true,
+                "data": data,
+            }),
+            Err(message) => serde_json::json!({
+                "type": "desktop_control_response",
+                "id": id,
+                "ok": false,
+                "error": message,
+            }),
+        },
+        None => serde_json::json!({
             "type": "desktop_control_response",
             "id": id,
             "ok": false,
-            "error": message,
+            "error": "desktop control not available in this host",
         }),
     };
 
@@ -965,18 +879,10 @@ async fn handle_desktop_control_request(req: serde_json::Value, tx: mpsc::Sender
 }
 
 /// Run a single `rsi_request` from the sidecar and write a matching
-/// `rsi_response` back to its stdin. Mirrors `handle_desktop_control_request`:
-/// request lines are intercepted by `stdout_reader`, dispatched here, and
-/// the response is written back to the stdin writer task via `tx`.
-///
-/// Every request gets EXACTLY ONE response — even an unknown method or a
-/// missing `id` field produces an error response (or a stub with empty id),
-/// so the sidecar's pending bridge Promise never hangs. The dispatcher
-/// itself is in `rsi::commands::dispatch_rsi_request`; this function only
-/// handles the JSON envelope and AppHandle plumbing.
+/// `rsi_response` back to its stdin.
 async fn handle_rsi_request(
+    runtime: Arc<RuntimeState>,
     req: serde_json::Value,
-    app: AppHandle,
     tx: mpsc::Sender<String>,
 ) {
     let id = req
@@ -1002,10 +908,7 @@ async fn handle_rsi_request(
             "error": "rsi_request: missing 'method'",
         })
     } else {
-        // app.state::<AppState>() returns State<'_, AppState>; .inner()
-        // gives a plain &AppState the dispatcher can use.
-        let state = app.state::<AppState>();
-        match feral_core::rsi::runtime::dispatch_rsi_request(state.inner(), &method, params).await {
+        match crate::rsi::runtime::dispatch_rsi_request(&runtime, &method, params).await {
             Ok(data) => serde_json::json!({
                 "type": "rsi_response",
                 "id": id,
@@ -1027,7 +930,7 @@ async fn handle_rsi_request(
 }
 
 /// Log stderr from the agent; emit `feral://agent-ready` when the ready line appears.
-async fn stderr_logger(app: AppHandle, stderr: tokio::process::ChildStderr) {
+async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::ChildStderr) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         let line = line.trim().to_string();
@@ -1035,9 +938,8 @@ async fn stderr_logger(app: AppHandle, stderr: tokio::process::ChildStderr) {
             continue;
         }
         tracing::info!("[feral-agent] {}", &line);
-        // The agent writes "[feral] ready — ..." to stderr on startup.
         if line.contains("ready") {
-            let _ = app.emit("feral://agent-ready", serde_json::json!({}));
+            events.emit("feral://agent-ready", serde_json::json!({}));
         }
     }
 }
@@ -1062,8 +964,6 @@ mod tests {
         assert!(name.starts_with("feral-agent-"));
     }
 
-    // --- ask_user message builders (regression test for missing Tauri command) ---
-
     #[test]
     fn build_ask_user_response_line_emits_correct_json() {
         let answers = vec![
@@ -1074,13 +974,11 @@ mod tests {
             },
         ];
         let line = build_ask_user_response_line("req-1", &answers).expect("ok");
-        // Parse back to assert on shape (string match is too brittle).
         let v: serde_json::Value = serde_json::from_str(&line).expect("valid json");
         assert_eq!(v["type"], "ask_user_response");
         assert_eq!(v["requestId"], "req-1");
         assert_eq!(v["answers"][0]["question"], "Pick a database");
         assert_eq!(v["answers"][0]["selected"][0], "Postgres");
-        // customText is omitted when None (skip_serializing_if), not serialized as null.
         assert!(v["answers"][0].get("customText").is_none(), "customText must be omitted when None");
     }
 
@@ -1126,9 +1024,6 @@ mod tests {
 
     #[test]
     fn ask_user_response_and_cancel_messages_are_distinct() {
-        // Regression guard: the bug was that "ask_user_response" was the
-        // only supported inbound type — adding "ask_user_cancel" must not
-        // accidentally fall through to the same code path.
         let r = build_ask_user_response_line("req", &[]).unwrap();
         let c = build_ask_user_cancel_line("req", None).unwrap();
         assert_ne!(r, c, "response and cancel must produce distinct JSON");
