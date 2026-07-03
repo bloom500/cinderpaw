@@ -228,6 +228,53 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
 /// don't pre-populate the process slot here because the supervisor
 /// (which calls `spawn` on every generation) is the sole owner of the
 /// slot — pre-populating would race against `try_wait()` polling.
+/// A cloud provider endpoint loaded from the user's BYOK config + OS keychain.
+struct ByokEndpoint {
+    base_url: String,
+    api_key: String,
+    model: Option<String>,
+}
+
+/// Load a configured BYOK provider's endpoint (base URL + keychain API key +
+/// default model) by its id (e.g. `"minimax"`, `"nvidia"`). Returns `None` if
+/// the provider is unknown or has no key stored — never fabricates. The key is
+/// read in-process from the OS keychain via `byok::load`; it is never printed
+/// or passed on a command line.
+fn load_byok_provider_endpoint(provider_id: &str) -> Option<ByokEndpoint> {
+    let settings = crate::settings::load();
+    let byok = crate::byok::load(&settings);
+    let cfg = byok.get_provider(provider_id)?;
+    if cfg.api_key.is_empty() {
+        tracing::warn!(
+            provider = %provider_id,
+            "FERAL_BYOK_PROVIDER set but no API key in keychain — falling back to local engine"
+        );
+        return None;
+    }
+    // `get_all_providers` fills in the default base URL when the config leaves
+    // it unset, so we don't have to re-derive it from the Provider enum here.
+    let info = byok
+        .get_all_providers()
+        .into_iter()
+        .find(|p| p.id == provider_id)?;
+    // The sidecar's openai_compatible path builds `{base}/v1/chat/completions`
+    // (FeralAgent inference-providers.ts). BYOK base URLs are stored WITH a
+    // trailing `/v1` (e.g. MiniMax `…/v1`, NVIDIA NIM `…/v1`), which would
+    // double to `/v1/v1/chat/completions` and 404. Strip it so the sidecar
+    // re-adds exactly one `/v1`.
+    let base_url = info.base_url?;
+    let base_url = base_url
+        .trim_end_matches('/')
+        .trim_end_matches("/v1")
+        .to_string();
+    tracing::info!(provider = %provider_id, %base_url, "feral-agent: using BYOK cloud provider");
+    Some(ByokEndpoint {
+        base_url,
+        api_key: cfg.api_key.clone(),
+        model: info.default_model,
+    })
+}
+
 /// Decide which API key the sidecar gets. If the base URL is loopback, hand it
 /// the local bearer token (the gated server expects it). For any remote host,
 /// REQUIRE an explicit `FERAL_API_KEY` — silently forwarding the local token to
@@ -289,11 +336,26 @@ pub async fn spawn(
     // by setting FERAL_BASE_URL/FERAL_API_KEY/FERAL_MODEL before boot —
     // e.g. for testing the Discord connector against a fast model without
     // burning the local GPU.
+    // Optional: use a configured cloud provider (BYOK) instead of the bundled
+    // local engine. `FERAL_BYOK_PROVIDER=minimax` loads that provider's base
+    // URL + API key (from the OS keychain, in-process — the key never touches
+    // the command line or the env we log) + default model. This makes the
+    // headless gateway a true peer of the desktop app: same configured
+    // providers, one brain. Explicit FERAL_BASE_URL/API_KEY/MODEL still win.
+    let byok = std::env::var("FERAL_BYOK_PROVIDER")
+        .ok()
+        .and_then(|pid| load_byok_provider_endpoint(&pid));
+
     let provider = std::env::var("FERAL_PROVIDER")
         .unwrap_or_else(|_| "openai_compatible".to_string());
     let base_url = std::env::var("FERAL_BASE_URL")
-        .unwrap_or_else(|_| format!("http://127.0.0.1:{api_port}"));
-    let api_key = resolve_sidecar_api_key(&base_url, api_token, std::env::var("FERAL_API_KEY").ok())?;
+        .ok()
+        .or_else(|| byok.as_ref().map(|b| b.base_url.clone()))
+        .unwrap_or_else(|| format!("http://127.0.0.1:{api_port}"));
+    let env_or_byok_key = std::env::var("FERAL_API_KEY")
+        .ok()
+        .or_else(|| byok.as_ref().map(|b| b.api_key.clone()));
+    let api_key = resolve_sidecar_api_key(&base_url, api_token, env_or_byok_key)?;
 
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.env("FERAL_DB", &db_path)
@@ -308,6 +370,8 @@ pub async fn spawn(
     // best-effort (some clouds expose OpenAI-compatible /v1/models) but
     // honour FERAL_MODEL when present so the caller can override.
     let model_name = if let Ok(m) = std::env::var("FERAL_MODEL") {
+        m
+    } else if let Some(m) = byok.as_ref().and_then(|b| b.model.clone()) {
         m
     } else {
         discover_active_model(&base_url, &api_key)

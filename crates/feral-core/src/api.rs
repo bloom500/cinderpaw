@@ -80,6 +80,7 @@ pub fn router(state: ApiState) -> Router {
         // vertical serves the Rust-local read-only surface + the `/events`
         // observability stream; the sidecar-round-trip endpoints
         // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
+        .route("/runtime/chat", post(runtime_chat))
         .route("/runtime/status", get(runtime_status))
         .route("/runtime/models", get(runtime_models))
         .route("/runtime/lora", get(runtime_lora))
@@ -514,6 +515,205 @@ async fn v1_models() -> impl IntoResponse {
 // locally (connectors/memories/dreams live in the sidecar) are reported as
 // `null` until the sidecar-round-trip vertical wires them.
 
+#[derive(Deserialize)]
+struct RuntimeChatReq {
+    /// The user's new message. The sidecar owns per-session history (unified
+    /// memory, invariant 11), so we forward only the new turn, not a transcript.
+    content: String,
+    /// Session key. Every client that shares a `session_id` shares one
+    /// conversation + memory. Defaults to `api` per spec D3.
+    #[serde(default = "default_session")]
+    session_id: String,
+    /// SSE token stream (default) vs a single JSON reply.
+    #[serde(default = "default_true")]
+    stream: bool,
+}
+fn default_session() -> String { "api".to_string() }
+fn default_true() -> bool { true }
+
+/// How long to wait for the next reply fragment before giving up. Local
+/// inference plus a tool call can be slow; 120s idle is generous without
+/// hanging a dead sidecar's socket open forever.
+const CHAT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// D3: forward a chat turn to the supervised sidecar and stream the reply.
+///
+/// The sidecar broadcasts *all* output on one bus as `feral://agent-output`
+/// events (no per-request socket), so we correlate our reply by the message
+/// `id` we generate: subscribe to the bus BEFORE sending (no lost-first-token
+/// race), send `{"type":"message", id, content, sessionId}`, then keep only
+/// `chunk`/`done` events whose `id` matches ours. Same session, same memory,
+/// same LoRA, same tools as the desktop and the connectors — this is just
+/// another face on the one brain.
+async fn runtime_chat(
+    State(state): State<ApiState>,
+    Json(req): Json<RuntimeChatReq>,
+) -> Response {
+    let rt = &state.runtime;
+
+    // Grab the sidecar sender without holding the lock across the await.
+    let tx = {
+        let guard = rt.feral_agent_tx.lock();
+        match guard.as_ref() {
+            Some(tx) => tx.clone(),
+            None => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+                    .into_response()
+            }
+        }
+    };
+
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    // Subscribe BEFORE sending so we can't miss the first chunk.
+    let rx = rt.events_tx.subscribe();
+
+    let outbound = json!({
+        "type": "message",
+        "id": msg_id,
+        "content": req.content,
+        "sessionId": req.session_id,
+    })
+    .to_string();
+    if tx.send(outbound).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar stopped accepting messages")
+            .into_response();
+    }
+
+    if req.stream {
+        sse_from_agent_reply(rx, msg_id).into_response()
+    } else {
+        // Non-stream: the `done` event already carries the full text, so we
+        // just wait for our matching `done` instead of accumulating chunks.
+        match await_agent_reply(rx, &msg_id).await {
+            Ok(text) => Json(json!({
+                "id": msg_id,
+                "session_id": req.session_id,
+                "content": text,
+            }))
+            .into_response(),
+            Err(e) => (StatusCode::GATEWAY_TIMEOUT, e).into_response(),
+        }
+    }
+}
+
+/// Pull one line's `type`+`id`+`content` out of a `feral://agent-output`
+/// broadcast event, if it is one. The payload is `{"data": "<json line>"}`
+/// where the line is itself the sidecar's JSON event.
+fn parse_agent_output(ev: &crate::host::HostEvent) -> Option<(String, String, String)> {
+    if ev.event != "feral://agent-output" {
+        return None;
+    }
+    let line = ev.payload.get("data")?.as_str()?;
+    let v: Value = serde_json::from_str(line).ok()?;
+    let ty = v.get("type")?.as_str()?.to_string();
+    let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    // `chunk`/`done` carry the text in `content`; `error` carries it in
+    // `message`. Fall back so the correlator can surface failures too.
+    let content = v
+        .get("content")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("message").and_then(|x| x.as_str()))
+        .unwrap_or("")
+        .to_string();
+    Some((ty, id, content))
+}
+
+/// Wait for the `done` event matching `msg_id`, returning its full text.
+/// Used by the non-stream path.
+async fn await_agent_reply(
+    mut rx: broadcast::Receiver<crate::host::HostEvent>,
+    msg_id: &str,
+) -> Result<String, String> {
+    loop {
+        match tokio::time::timeout(CHAT_IDLE_TIMEOUT, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if let Some((ty, id, content)) = parse_agent_output(&ev) {
+                    if id == msg_id {
+                        match ty.as_str() {
+                            "done" => return Ok(content),
+                            "error" => return Err(format!("sidecar inference error: {content}")),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                return Err("runtime event bus closed before reply completed".into())
+            }
+            Err(_) => return Err("timed out waiting for sidecar reply".into()),
+        }
+    }
+}
+
+/// SSE the reply for `msg_id` as OpenAI-style chat chunks (so any OpenAI SSE
+/// client — and `feral chat` — can consume it), terminating with `[DONE]`.
+fn sse_from_agent_reply(
+    rx: broadcast::Receiver<crate::host::HostEvent>,
+    msg_id: String,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use async_stream::stream;
+    let s = stream! {
+        let mut rx = rx;
+        loop {
+            let recv = tokio::time::timeout(CHAT_IDLE_TIMEOUT, rx.recv()).await;
+            match recv {
+                Ok(Ok(ev)) => {
+                    let Some((ty, id, content)) = parse_agent_output(&ev) else { continue };
+                    if id != msg_id { continue; }
+                    match ty.as_str() {
+                        "chunk" => {
+                            let payload = json!({
+                                "id": format!("chatcmpl-{msg_id}"),
+                                "object": "chat.completion.chunk",
+                                "choices": [{ "index": 0, "delta": { "content": content } }],
+                            });
+                            yield Ok::<_, Infallible>(Event::default().data(payload.to_string()));
+                        }
+                        "done" => {
+                            let payload = json!({
+                                "id": format!("chatcmpl-{msg_id}"),
+                                "object": "chat.completion.chunk",
+                                "choices": [{ "index": 0, "delta": {}, "finish_reason": "stop" }],
+                            });
+                            yield Ok(Event::default().data(payload.to_string()));
+                            yield Ok(Event::default().data("[DONE]"));
+                            break;
+                        }
+                        "error" => {
+                            // Surface the sidecar's inference error to the client
+                            // instead of hanging until the idle timeout.
+                            tracing::warn!(msg_id = %msg_id, error = %content, "/runtime/chat sidecar error");
+                            let payload = json!({
+                                "id": format!("chatcmpl-{msg_id}"),
+                                "object": "chat.completion.chunk",
+                                "choices": [{ "index": 0, "delta": {}, "finish_reason": "error" }],
+                                "error": content,
+                            });
+                            yield Ok(Event::default().data(payload.to_string()));
+                            yield Ok(Event::default().data("[DONE]"));
+                            break;
+                        }
+                        _ => {} // tool_done / usage / etc. — not part of the text stream
+                    }
+                }
+                Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
+                    tracing::warn!(skipped = n, "/runtime/chat subscriber lagged");
+                    continue;
+                }
+                Ok(Err(broadcast::error::RecvError::Closed)) => break,
+                Err(_) => {
+                    // Idle timeout — close the stream rather than hang.
+                    tracing::warn!(msg_id = %msg_id, "/runtime/chat idle timeout");
+                    yield Ok(Event::default().data("[DONE]"));
+                    break;
+                }
+            }
+        }
+    };
+    Sse::new(s)
+}
+
 /// D3: loaded model, active LoRA, sidecar liveness, backend, RSI engine mirror.
 async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
     let rt = &state.runtime;
@@ -751,4 +951,44 @@ fn sse_from_chat(
         }
     };
     Sse::new(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::HostEvent;
+
+    fn agent_output(line: &str) -> HostEvent {
+        HostEvent { event: "feral://agent-output".into(), payload: json!({ "data": line }) }
+    }
+
+    #[test]
+    fn parse_agent_output_extracts_chunk() {
+        let ev = agent_output(r#"{"type":"chunk","id":"abc","content":"hel"}"#);
+        assert_eq!(
+            parse_agent_output(&ev),
+            Some(("chunk".into(), "abc".into(), "hel".into()))
+        );
+    }
+
+    #[test]
+    fn parse_agent_output_done_carries_full_text() {
+        let ev = agent_output(r#"{"type":"done","id":"abc","content":"hello","stopped":false}"#);
+        assert_eq!(
+            parse_agent_output(&ev),
+            Some(("done".into(), "abc".into(), "hello".into()))
+        );
+    }
+
+    #[test]
+    fn parse_agent_output_ignores_non_agent_events() {
+        let ev = HostEvent { event: "feral://agent-ready".into(), payload: json!({}) };
+        assert_eq!(parse_agent_output(&ev), None);
+    }
+
+    #[test]
+    fn parse_agent_output_ignores_unparseable_data() {
+        // A log line that isn't JSON must not crash the correlator.
+        assert_eq!(parse_agent_output(&agent_output("not json")), None);
+    }
 }
