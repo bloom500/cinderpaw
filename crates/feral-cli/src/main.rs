@@ -13,56 +13,143 @@
 //! then drains per spec D7 (planned shutdown, bounded wait, hard-kill
 //! fallback). Exit codes: 0 clean, 1 startup failure, 2 usage error.
 
+use std::io::IsTerminal;
 use std::sync::Arc;
+
+use clap::{CommandFactory, Parser, Subcommand};
 
 mod admin;
 mod chat;
 mod common;
 
-const USAGE: &str = "Feral Runtime (headless)
+/// Feral — your local AI runtime, headless. One brain, many faces: the same
+/// memory, LoRA, dreams and tools as the desktop app, reachable over a small
+/// loopback API and from this terminal.
+#[derive(Parser)]
+#[command(name = "feral", version, about, long_about = None)]
+struct Cli {
+    /// Machine-readable JSON output (where it applies).
+    #[arg(long, global = true)]
+    json: bool,
+    /// Disable colored output.
+    #[arg(long, global = true)]
+    no_color: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
 
-USAGE:
-  feral gateway                 run the gateway in the foreground (Ctrl+C to stop)
-  feral gateway start           start the gateway in the background
-  feral gateway stop            stop a running gateway (graceful drain)
-  feral gateway restart         restart the gateway
-  feral gateway status          show gateway + model status
-  feral status                  alias for `gateway status`
-  feral model                   list installed models
-  feral doctor                  diagnose the install (port, token, model, sidecar, GPU)
-  feral chat                    interactive chat in the terminal
-  feral help                    show this help
-";
+#[derive(Subcommand)]
+enum Command {
+    /// Run or manage the background gateway (no subcommand = run in foreground)
+    Gateway {
+        #[command(subcommand)]
+        action: Option<GatewayAction>,
+    },
+    /// Show gateway + model status (alias for `gateway status`)
+    Status,
+    /// Interactive chat in the terminal
+    Chat,
+    /// Interactive chat in the terminal (alias for `chat`)
+    Tui,
+    /// Diagnose the install (port, token, model, sidecar, GPU, connectors)
+    Doctor,
+    /// Print the gateway log (`-f` to follow)
+    Logs {
+        #[arg(short, long)]
+        follow: bool,
+    },
+    /// List installed models
+    Model,
+    /// Inspect or reload connectors (Discord/Slack/…)
+    Connectors {
+        #[command(subcommand)]
+        action: Option<ConnectorsAction>,
+    },
+    /// Watch the Dream Cycle live
+    Dreams,
+    /// Read or write settings.json
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    /// Generate a shell completion script
+    Completion {
+        /// bash | zsh | fish | powershell | elvish
+        shell: clap_complete::Shell,
+    },
+}
+
+#[derive(Subcommand)]
+enum GatewayAction {
+    /// Start the gateway in the background
+    Start,
+    /// Stop a running gateway (graceful drain)
+    Stop,
+    /// Restart the gateway
+    Restart,
+    /// Show gateway + model status
+    Status,
+}
+
+#[derive(Subcommand)]
+enum ConnectorsAction {
+    /// List configured connectors (default)
+    List,
+    /// Reload connectors.json into a running gateway
+    Reload,
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Print settings.json, or one key
+    Get { key: Option<String> },
+    /// Set a top-level key (value parsed as JSON when possible)
+    Set { key: String, value: String },
+}
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let cmd = args.first().map(String::as_str).unwrap_or("");
-    let sub = args.get(1).map(String::as_str).unwrap_or("");
+    let cli = Cli::parse();
 
-    let code: i32 = match (cmd, sub) {
-        ("gateway", "") => run_gateway(), // foreground; never returns
-        ("gateway", "start") => admin::gateway_start(),
-        ("gateway", "stop") => admin::gateway_stop(),
-        ("gateway", "restart") => admin::gateway_restart(),
-        ("gateway", "status") | ("status", _) => admin::gateway_status(),
-        ("gateway", other) => {
-            eprintln!("unknown gateway subcommand: {other}\n{USAGE}");
+    // Global output modes. Color auto-disables when piped (not a TTY) or when
+    // NO_COLOR is set — the standard convention — and `--no-color` forces it.
+    common::init_json(cli.json);
+    let color = !cli.no_color
+        && !cli.json
+        && std::env::var_os("NO_COLOR").is_none()
+        && std::io::stdout().is_terminal();
+    common::init_color(color);
+
+    let code: i32 = match cli.command {
+        None => {
+            let _ = Cli::command().print_help();
+            println!();
             2
         }
-        ("model", _) | ("models", _) => admin::model_list(),
-        ("doctor", _) => admin::doctor(),
-        ("chat", _) => chat::run(), // never returns
-        ("help" | "--help" | "-h", _) => {
-            print!("{USAGE}");
+        Some(Command::Gateway { action }) => match action {
+            None => run_gateway(), // foreground; returns its exit code
+            Some(GatewayAction::Start) => admin::gateway_start(),
+            Some(GatewayAction::Stop) => admin::gateway_stop(),
+            Some(GatewayAction::Restart) => admin::gateway_restart(),
+            Some(GatewayAction::Status) => admin::gateway_status(),
+        },
+        Some(Command::Status) => admin::gateway_status(),
+        Some(Command::Chat) | Some(Command::Tui) => chat::run(), // never returns
+        Some(Command::Doctor) => admin::doctor(),
+        Some(Command::Logs { follow }) => admin::logs(follow),
+        Some(Command::Model) => admin::model_list(),
+        Some(Command::Connectors { action }) => match action {
+            None | Some(ConnectorsAction::List) => admin::connectors_list(),
+            Some(ConnectorsAction::Reload) => admin::connectors_reload(),
+        },
+        Some(Command::Dreams) => admin::dreams(),
+        Some(Command::Config { action }) => match action {
+            ConfigAction::Get { key } => admin::config_get(key.as_deref()),
+            ConfigAction::Set { key, value } => admin::config_set(&key, &value),
+        },
+        Some(Command::Completion { shell }) => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "feral", &mut std::io::stdout());
             0
-        }
-        ("", _) => {
-            print!("{USAGE}");
-            2
-        }
-        (other, _) => {
-            eprintln!("unknown command: {other}\n{USAGE}");
-            2
         }
     };
     std::process::exit(code);
@@ -143,25 +230,11 @@ async fn shutdown(runtime: &feral_core::runtime::RuntimeState) {
 mod tests {
     use super::*;
 
-    /// Regression guard for the usage string: every command we accept on
-    /// the CLI must be documented. If someone adds e.g. `feral-cli doctor`
-    /// they must update USAGE too — keeps the user-facing surface in sync.
+    /// clap validates the whole command tree — conflicting args, bad flag
+    /// definitions, duplicate names — in one assertion. Replaces the old
+    /// hand-rolled USAGE-string regression guard.
     #[test]
-    fn usage_covers_all_commands() {
-        assert!(USAGE.contains("gateway"), "USAGE must document `gateway`");
-        assert!(USAGE.contains("chat"), "USAGE must document `chat`");
-        assert!(USAGE.contains("help"), "USAGE must document `help`");
-    }
-
-    /// `main`'s argument parser must accept every command listed in USAGE.
-    /// White-box check: `main()` returns 2 on unknown commands (per the
-    /// "Exit codes" doc comment) and 0 on `help`. We invoke it through the
-    /// public entry; cargo's test harness captures the process exit.
-    #[test]
-    #[ignore = "exits the test process — run via `feral-cli bogus` smoke instead"]
-    fn unknown_command_exits_with_usage_error() {
-        // Intentionally not run as a unit test: `std::process::exit` would
-        // tear down the test harness. The real check is the smoke in
-        // Task 4 / Step 4: `./target/debug/feral-cli bogus; echo $?` ⇒ 2.
+    fn cli_tree_is_valid() {
+        Cli::command().debug_assert();
     }
 }

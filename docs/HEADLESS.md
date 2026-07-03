@@ -32,10 +32,18 @@ refuses to start a second host, and vice-versa.
 | `feral gateway start` | Start in the **background**; logs to `~/.feral/gateway.log`. |
 | `feral gateway stop` | Graceful drain (finishes in-flight work, then exits). |
 | `feral gateway restart` | Stop then start. |
-| `feral gateway status` | Model, LoRA, backend, sidecar liveness. |
+| `feral gateway status` / `feral status` | Model, LoRA, backend, sidecar liveness. |
 | `feral model` | List installed local models. |
 | `feral doctor` | Diagnose: port, token, models, sidecar binary, GPU, connectors. |
-| `feral chat` | Interactive terminal chat over `/runtime/chat`. |
+| `feral logs [-f]` | Print (or follow) the gateway log. |
+| `feral connectors [reload]` | List connectors, or reload `connectors.json` into a running gateway. |
+| `feral dreams` | Watch the Dream Cycle live off the event stream. |
+| `feral config get [key]` / `set <key> <value>` | Read/write `settings.json`. |
+| `feral chat` (alias `tui`) | Interactive terminal chat over `/runtime/chat`. |
+| `feral completion <shell>` | Print a shell-completion script (bash/zsh/fish/powershell/elvish). |
+
+Global flags: `--json` (machine-readable output on the read commands),
+`--no-color` (also auto-off when piped or `NO_COLOR` is set), `-V`/`--version`.
 
 `stop` works by asking the running gateway to shut down over HTTP
 (`POST /runtime/shutdown`), so it's reliable across platforms and doesn't depend

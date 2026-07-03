@@ -81,6 +81,7 @@ pub fn router(state: ApiState) -> Router {
         // observability stream; the sidecar-round-trip endpoints
         // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
         .route("/runtime/chat", post(runtime_chat))
+        .route("/runtime/connectors/reload", post(runtime_connectors_reload))
         .route("/runtime/shutdown", post(runtime_shutdown))
         .route("/runtime/status", get(runtime_status))
         .route("/runtime/models", get(runtime_models))
@@ -713,6 +714,25 @@ fn sse_from_agent_reply(
         }
     };
     Sse::new(s)
+}
+
+/// Slice 4b: poke the sidecar to reconcile connectors against the on-disk
+/// `~/.feral/connectors.json` — the same `connectors_reload` message the desktop
+/// app sends. 503 if the sidecar isn't running.
+async fn runtime_connectors_reload(State(state): State<ApiState>) -> impl IntoResponse {
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    match tx {
+        Some(tx) => {
+            if tx.send(json!({ "type": "connectors_reload" }).to_string()).await.is_err() {
+                return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+                    .into_response();
+            }
+            Json(json!({ "ok": true, "reloaded": true })).into_response()
+        }
+        None => {
+            (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running").into_response()
+        }
+    }
 }
 
 /// Slice 4: request a graceful shutdown. Fires the runtime's shutdown signal;

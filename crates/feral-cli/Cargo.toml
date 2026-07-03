@@ -18,6 +18,9 @@ serde_json = "1"
 # `feral chat` TUI: stream /runtime/chat SSE + read /runtime/status.
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
 futures-util = "0.3"
+# CLI surface (Slice 4b): subcommands, --json/--no-color/-V, shell completion.
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 
 [features]
 default = ["inference"]

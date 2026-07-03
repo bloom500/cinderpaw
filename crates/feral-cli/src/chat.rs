@@ -13,8 +13,7 @@ use std::io::Write;
 
 use futures_util::StreamExt;
 
-use crate::common::{ACCENT, BOLD, DIM, META, RESET, TEXT};
-const ONLINE: &str = crate::common::OK;
+use crate::common::{self, Palette};
 
 /// Entry point for `feral-cli chat`. Never returns — exits the process.
 pub fn run() -> ! {
@@ -24,8 +23,9 @@ pub fn run() -> ! {
 }
 
 async fn async_main() -> i32 {
-    let base = crate::common::base_url();
-    let token = match crate::common::read_token() {
+    let Palette { accent: ACCENT, bold: BOLD, meta: META, reset: RESET, .. } = common::palette();
+    let base = common::base_url();
+    let token = match common::read_token() {
         Some(t) => t,
         None => {
             eprintln!("feral: no API token found at ~/.feral/api-token — is the gateway running?");
@@ -89,14 +89,17 @@ fn read_line() -> Option<String> {
 
 fn banner() {
     // A restrained wordmark — the brand is the color, not ASCII fireworks.
+    let Palette { accent: ACCENT, bold: BOLD, text: TEXT, meta: META, reset: RESET, .. } =
+        common::palette();
     println!();
     println!("  {ACCENT}{BOLD}feral{RESET} {ACCENT}▸{RESET} {TEXT}chat{RESET}");
     println!("  {META}the terminal face of your local brain{RESET}");
 }
 
 fn print_status(s: &StatusLine) {
+    let Palette { text: TEXT, meta: META, dim: DIM, ok: OK, reset: RESET, .. } = common::palette();
     let lora = s.lora.as_deref().unwrap_or("none");
-    let dot = if s.sidecar_alive { ONLINE } else { META };
+    let dot = if s.sidecar_alive { OK } else { META };
     let state = if s.sidecar_alive { "online" } else { "no sidecar" };
     println!(
         "  {META}model{RESET} {TEXT}{}{RESET}   {META}lora{RESET} {TEXT}{}{RESET}   \
@@ -170,9 +173,10 @@ async fn stream_reply(
         .error_for_status()
         .map_err(|e| e.to_string())?;
 
+    let Palette { meta: META, reset: RESET, .. } = common::palette();
     let mut stream = resp.bytes_stream();
     let mut sse = SseBuffer::default();
-    let mut think = ThinkRenderer::default();
+    let mut think = ThinkRenderer::new(common::palette());
     let out = std::io::stdout();
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| e.to_string())?;
@@ -229,16 +233,26 @@ impl SseBuffer {
 /// Streaming-safe renderer that dims `<think>…</think>` spans. Because the tags
 /// can straddle token boundaries, it holds back the last few chars (a possible
 /// partial tag) until it can decide, then flushes them at end of stream.
-#[derive(Default)]
 struct ThinkRenderer {
     in_think: bool,
     pending: String,
     started_color: bool,
+    palette: Palette,
+}
+
+impl Default for ThinkRenderer {
+    fn default() -> Self {
+        Self::new(common::palette())
+    }
 }
 
 impl ThinkRenderer {
     const OPEN: &'static str = "<think>";
     const CLOSE: &'static str = "</think>";
+
+    fn new(palette: Palette) -> Self {
+        Self { in_think: false, pending: String::new(), started_color: false, palette }
+    }
 
     fn render<W: Write>(&mut self, tok: &str, w: &mut W) {
         self.pending.push_str(tok);
@@ -270,7 +284,7 @@ impl ThinkRenderer {
         if s.is_empty() {
             return;
         }
-        let color = if self.in_think { META } else { TEXT };
+        let color = if self.in_think { self.palette.meta } else { self.palette.text };
         if !self.started_color {
             let _ = write!(w, "{color}");
             self.started_color = true;
@@ -282,7 +296,7 @@ impl ThinkRenderer {
     fn flush<W: Write>(&mut self, w: &mut W) {
         let leftover = std::mem::take(&mut self.pending);
         self.emit(&leftover, w);
-        let _ = write!(w, "{RESET}");
+        let _ = write!(w, "{}", self.palette.reset);
         let _ = w.flush();
     }
 }

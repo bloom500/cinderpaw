@@ -1,17 +1,74 @@
-//! Shared bits for the `feral` CLI: the brand palette and the loopback
-//! endpoint helpers every subcommand needs.
+//! Shared bits for the `feral` CLI: the brand palette (color-gated for
+//! `--no-color`) and the loopback endpoint helpers every subcommand needs.
 
-// ── Brand palette (truecolor ANSI) — softened from brand orange #ff6600 ────
-pub const ACCENT: &str = "\x1b[38;2;236;140;76m"; // soft orange
-pub const ACCENT_HI: &str = "\x1b[38;2;242;164;102m"; // brighter orange
-pub const TEXT: &str = "\x1b[38;2;228;221;210m"; // warm off-white
-pub const META: &str = "\x1b[38;2;122;116;107m"; // dim
-pub const OK: &str = "\x1b[38;2;143;183;122m"; // soft green
-pub const WARN: &str = "\x1b[38;2;214;169;90m"; // amber
-pub const FAIL: &str = "\x1b[38;2;209;107;90m"; // soft red
-pub const BOLD: &str = "\x1b[1m";
-pub const DIM: &str = "\x1b[2m";
-pub const RESET: &str = "\x1b[0m";
+use std::sync::OnceLock;
+
+/// The brand palette as ANSI escapes. Every field is `&'static str` so callers
+/// can destructure it into locals named like the old consts and keep using
+/// `{ACCENT}`-style interpolation unchanged:
+///
+/// ```ignore
+/// let common::Palette { accent: ACCENT, reset: RESET, .. } = common::palette();
+/// println!("{ACCENT}hi{RESET}");
+/// ```
+#[derive(Clone, Copy)]
+pub struct Palette {
+    pub accent: &'static str,
+    pub accent_hi: &'static str,
+    pub text: &'static str,
+    pub meta: &'static str,
+    pub ok: &'static str,
+    pub warn: &'static str,
+    pub fail: &'static str,
+    pub bold: &'static str,
+    pub dim: &'static str,
+    pub reset: &'static str,
+}
+
+// Softened from the brand orange #ff6600, per "portocaliu mai moale".
+const COLOR: Palette = Palette {
+    accent: "\x1b[38;2;236;140;76m",
+    accent_hi: "\x1b[38;2;242;164;102m",
+    text: "\x1b[38;2;228;221;210m",
+    meta: "\x1b[38;2;122;116;107m",
+    ok: "\x1b[38;2;143;183;122m",
+    warn: "\x1b[38;2;214;169;90m",
+    fail: "\x1b[38;2;209;107;90m",
+    bold: "\x1b[1m",
+    dim: "\x1b[2m",
+    reset: "\x1b[0m",
+};
+
+const PLAIN: Palette = Palette {
+    accent: "", accent_hi: "", text: "", meta: "", ok: "", warn: "", fail: "",
+    bold: "", dim: "", reset: "",
+};
+
+static PALETTE: OnceLock<Palette> = OnceLock::new();
+
+/// Fix the palette for the process. `color=false` (from `--no-color`, the
+/// `NO_COLOR` env var, or a non-tty stdout) blanks every escape so output is
+/// clean when piped. Call once at startup; later calls are ignored.
+pub fn init_color(color: bool) {
+    let _ = PALETTE.set(if color { COLOR } else { PLAIN });
+}
+
+/// The active palette (defaults to color if `init_color` was never called).
+pub fn palette() -> Palette {
+    *PALETTE.get().unwrap_or(&COLOR)
+}
+
+static JSON: OnceLock<bool> = OnceLock::new();
+
+/// Fix machine-readable (`--json`) output for the process. Call once at startup.
+pub fn init_json(on: bool) {
+    let _ = JSON.set(on);
+}
+
+/// Whether the read commands should print JSON instead of styled text.
+pub fn json() -> bool {
+    *JSON.get().unwrap_or(&false)
+}
 
 /// The loopback API port the gateway binds (same source every host uses).
 pub fn api_port() -> u16 {
