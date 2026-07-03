@@ -7,6 +7,7 @@
 //! Invariants: docs/runtime-invariants.md.
 
 pub mod api;
+pub mod boot;
 pub mod byok;
 pub mod db_key;
 pub mod feral_agent;

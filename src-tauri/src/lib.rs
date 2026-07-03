@@ -39,7 +39,7 @@ impl feral_core::host::HostEvents for TauriEvents {
 }
 
 use crate::agents::AgentConfig;
-use crate::inference::{InferParams, Message, ModelManager};
+use crate::inference::{InferParams, Message};
 use crate::models::ModelInfo;
 use crate::perf_policy::{deadline_message, perf_policy, DeadlineReason, PerfPolicy};
 use crate::settings::Settings;
@@ -3216,43 +3216,15 @@ pub fn run() {
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
         .init();
 
-    let _ = paths::ensure_dirs();
-
-    let settings = settings::load();
-    let manager = Arc::new(ModelManager::new());
-
-    // V4: per-launch bearer token for the loopback HTTP API. Two uuids give
-    // ~244 bits of randomness — far past brute-force for a token that also
-    // rotates every launch. Persisted to `~/.feral/api-token` (inside the
-    // already user-private profile dir) so external apps that want to consume
-    // the local endpoint can read it; the in-app sidecar receives it directly.
-    let local_api_token: Arc<str> = Arc::from(
-        format!(
-            "{}{}",
-            uuid::Uuid::new_v4().simple(),
-            uuid::Uuid::new_v4().simple()
-        )
-        .as_str(),
-    );
-    {
-        let token_path = paths::feral_dir().join("api-token");
-        if let Err(e) = std::fs::write(&token_path, local_api_token.as_bytes()) {
-            tracing::warn!(?e, "failed to persist api-token (external API consumers won't have it)");
-        } else {
-            // Restrict to owner-only so other local users can't read the
-            // bearer token. (Same-user processes still can — that is the
-            // documented contract for external API consumers.) On Windows the
-            // file already sits in the user-private profile dir.
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
-            }
-        }
-    }
+    // Faza 4.5 Slice 2: the runtime (token + settings + ModelManager) is
+    // built by the host-agnostic `feral_core::boot::build_runtime`. The
+    // headless `feral-cli` gateway calls the same function — see
+    // `crates/feral-cli/src/main.rs`.
+    let runtime = feral_core::boot::build_runtime();
 
     // Pre-compute system info in a background thread so the first IPC call
     // returns instantly instead of waiting 2-3 s for PowerShell + sysinfo.
+    // Tauri-only field on AppState; the headless gateway doesn't need it.
     let system_info_cache: Arc<Mutex<Option<SystemInfo>>> = Arc::new(Mutex::new(None));
     {
         let cache = system_info_cache.clone();
@@ -3262,14 +3234,8 @@ pub fn run() {
         });
     }
 
-    let runtime_state = feral_core::runtime::RuntimeState::new(
-        manager.clone(),
-        settings,
-        local_api_token.clone(),
-    );
-
     let state = AppState {
-        runtime: std::sync::Arc::new(runtime_state),
+        runtime,
         downloads: Arc::new(Mutex::new(HashMap::new())),
         stop_signal: Arc::new(AtomicBool::new(false)),
         system_info_cache,
@@ -3439,141 +3405,12 @@ pub fn run() {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
 
-            // ── Auto CPU-offload for embedding on fragile AMD GPUs ─────────
-            // On RX 580 / Polaris / early-Vega cards, llama.cpp's Vulkan embed
-            // (bge-small) crashes at model load — a known llama.cpp × AMDVLK
-            // driver bug that no Feral-side work-around fixes (see
-            // docs/agents-memory/project_local_models_gpu.md). The chat
-            // inference path on the same GPU is fine; only the embed path is
-            // the problem. We set FERAL_EMBED_GPU_LAYERS=0 BEFORE the embed
-            // model is lazily loaded (inference.rs::load_embedding reads it
-            // via std::env at first use), so the crash never happens. Only
-            // active on a Vulkan build (inference-vulkan feature) — a CPU
-            // build ignores the env anyway. Honors an explicit user override
-            // (we never overwrite a pre-set env var).
-            #[cfg(feature = "inference-vulkan")]
-            {
-                if std::env::var_os("FERAL_EMBED_GPU_LAYERS").is_none() {
-                    let info = crate::gpu_detect::detect();
-                    if crate::gpu_detect::looks_like_fragile_amd_gpu(&info) {
-                        std::env::set_var("FERAL_EMBED_GPU_LAYERS", "0");
-                        tracing::info!(
-                            gpu = %info.name,
-                            "fragile AMD GPU detected — forcing CPU offload for embeddings \
-                             (FERAL_EMBED_GPU_LAYERS=0); chat inference still uses GPU"
-                        );
-                    }
-                }
-            }
-
-            // ── RSI substrate bootstrap (Faza 0 — Keystone) ──────────────
-            // Runs BEFORE the sidecar spawns. The sidecar's bootstrapOnce()
-            // expects the git repo + PLAN.md + SandboxBounds to already be
-            // on disk; without this the sidecar would log a missing
-            // substrate and skip the rsi_init IPC call (which is the
-            // documented ordering — see FeralAgent/src/rsi/mod.ts).
-            //
-            // Bootstrap is idempotent: if the repo exists, repo::bootstrap
-            // returns its current tip; if the bounds file exists,
-            // bootstrap_with_audit would create a duplicate genesis row, so
-            // we use SandboxBounds::load instead when the file is present.
-            match rsi::repo::bootstrap() {
-                Ok(plan_commit) => {
-                    tracing::info!(plan_commit = %plan_commit, "rsi: git substrate bootstrapped");
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "rsi: git substrate bootstrap failed");
-                }
-            }
-            let audit_path = paths::rsi_sandbox_bounds_audit_path();
-            match rsi::audit::SandboxBoundsAudit::open(&audit_path) {
-                Ok(audit) => {
-                    let bounds_result = if paths::rsi_sandbox_bounds_path().exists() {
-                        rsi::sandbox_bounds::SandboxBounds::load()
-                    } else {
-                        rsi::sandbox_bounds::SandboxBounds::bootstrap_with_audit(&audit)
-                    };
-                    match bounds_result {
-                        Ok(bounds) => {
-                            let sha = bounds.file_sha256().ok();
-                            tracing::info!(
-                                version = bounds.version,
-                                bounds_sha256 = sha.as_deref().unwrap_or("?"),
-                                "rsi: sandbox_bounds ready",
-                            );
-                            // Reflect the boot state into AppState so the
-                            // very first rsi_init call from the UI is a
-                            // no-op and the subsequent rsi_status call
-                            // returns the right values immediately.
-                            let st = app.handle().state::<AppState>();
-                            *st.rsi_state.bounds.lock() = Some(bounds);
-                            *st.rsi_state.bounds_file_sha256.lock() = sha;
-                            *st.rsi_state.initialized.lock() = true;
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "rsi: sandbox_bounds bootstrap failed");
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "rsi: audit log open failed");
-                }
-            }
-
-            // Start API server in background.
-            //
-            // R4 fix: the Feral Agent sidecar is hardcoded to point at
-            // 127.0.0.1:{api_port} (see feral_agent::spawn — FERAL_BASE_URL is
-            // set unconditionally to `http://127.0.0.1:{api_port}`). Without the
-            // local API server up, every agent inference fails with
-            // "connection refused". The bearer token (api_token below) already
-            // gates the only exposure the `api_server_enabled` opt-in was
-            // guarding, so we force it on for the sidecar codepath. Users who
-            // truly want the API off can remove the sidecar's externalBin entry
-            // in tauri.conf.json.
-            let mut cfg = settings::load();
-            cfg.api_server_enabled = true;
-            let api_port = cfg.api_port;
-            // Desktop control opt-in (persisted in Settings) → export the env
-            // BEFORE the sidecar spawns so `feral_agent::spawn` forwards it and
-            // the sidecar registers `control_app`. Same flag opens the Rust
-            // command gate (desktop_control.rs reads it per request). Off by
-            // default; the Settings toggle flips this and restarts the sidecar.
-            if cfg.desktop_control_enabled {
-                std::env::set_var("FERAL_ENABLE_DESKTOP_CONTROL", "true");
-            }
-            // YOLO mode (no per-action confirmation) is read by the sidecar, so
-            // export it before spawn too. Safe mode (default) leaves it unset.
-            if cfg.desktop_control_yolo {
-                std::env::set_var("FERAL_DESKTOP_CONTROL_CONFIRM", "false");
-            }
-            // Token budget: always set the env so the sidecar picks it up.
-            // None = unlimited (Infinity); Some(n) = hard cap at n tokens.
-            match cfg.token_budget_conversation {
-                Some(n) => std::env::set_var("FERAL_BUDGET_CONVERSATION", n.to_string()),
-                None => std::env::set_var("FERAL_BUDGET_CONVERSATION", "Infinity"),
-            }
-            // RSI background spend cap. Some(0.0)/default = local-only; Some(n)
-            // = allow $n cloud spend; None = no cap (remove the var).
-            match cfg.rsi_max_cost_usd {
-                Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", n.to_string()),
-                None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
-            }
-            if cfg.api_server_enabled {
-                let api_state = api::ApiState {
-                    manager: manager.clone(),
-                    token: local_api_token.clone(),
-                };
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = api::serve(api_state, api_port).await {
-                        tracing::error!(?e, "api server stopped");
-                    }
-                });
-            }
-            // Spawn Feral Agent sidecar, pointed at the bundled engine (A1).
-            // Faza 4.5 Slice 2: the supervisor takes the host-agnostic runtime
-            // + the Tauri-specific events/desktop-control closures instead of
-            // an `AppHandle`. See `crates/feral-core/src/feral_agent.rs`.
+            // Faza 4.5 Slice 2: every runtime service (AMD-guard, RSI
+            // bootstrap, env exports, API server, supervised sidecar)
+            // delegates to the host-agnostic `feral_core::boot::start`.
+            // The headless `feral-cli` gateway calls the same function with
+            // a different `events` and `desktop_control = None` — see
+            // `crates/feral-cli/src/main.rs`.
             let runtime = app.handle().state::<AppState>().runtime.clone();
             let events: Arc<dyn feral_core::host::HostEvents> =
                 Arc::new(TauriEvents(app.handle().clone()));
@@ -3590,10 +3427,13 @@ pub fn run() {
                 .into_iter()
                 .flatten()
                 .collect();
-            feral_agent::supervise(runtime, events, desktop_control, extra_bin_dirs);
+            feral_core::boot::start(runtime, events, desktop_control, extra_bin_dirs);
 
             // Reconnect enabled MCP extensions in the background. Failures
             // are logged per-server — a broken extension never blocks launch.
+            // Tauri-only wiring (uses AppState via Tauri's manage); the
+            // headless gateway reconnects MCP extensions via its own
+            // mcp::start_enabled task after boot::start returns.
             let mcp_manager = app.handle().state::<AppState>().mcp.clone();
             tauri::async_runtime::spawn(async move {
                 mcp_manager.start_enabled().await;
