@@ -188,8 +188,28 @@ export class InferenceRouter {
 
   /** True when the active primary target is a local loopback address. */
   get isPrimaryLocal(): boolean {
+    return this.#isLocalHost(this.#primary.baseUrl);
+  }
+
+  /**
+   * True when at least one configured target (primary OR fallback) is on
+   * a non-loopback host — i.e. cloud is reachable from this router.
+   *
+   * Brain Stack (slice S5) uses this to compute the `offline` hint passed
+   * to `brain.route()`: offline = (primary is local) AND (cloud not
+   * reachable). When false, Brain Stack won't force-route to local-only
+   * models — even if primary is local, a cloud fallback means cloud
+   * models are reachable.
+   */
+  get cloudReachable(): boolean {
+    if (!this.#isLocalHost(this.#primary.baseUrl)) return true;
+    if (this.#fallback === undefined) return false;
+    return !this.#isLocalHost(this.#fallback.baseUrl);
+  }
+
+  #isLocalHost(url: string): boolean {
     try {
-      const host = new URL(this.#primary.baseUrl).hostname;
+      const host = new URL(url).hostname;
       return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
     } catch {
       return false;
@@ -244,11 +264,60 @@ export class InferenceRouter {
   }
 
   /**
-   * Run one completion through the router. Throws BudgetExhaustedError when a
-   * budget is hit (the agent loop decides whether to stop or compress) and
-   * InferenceError when both primary and fallback fail.
+   * Run one completion through the router. Thin wrapper that delegates to
+   * `completeWith(this.#primary, this.#fallback, req)` — the default path
+   * for callers that haven't picked a model yet. Brain Stack (slice S5)
+   * calls `completeWith` directly with the targets it routed to.
+   *
+   * Throws BudgetExhaustedError when a budget is hit (the agent loop
+   * decides whether to stop or compress) and InferenceError when both
+   * primary and fallback fail.
    */
   async complete(req: InferenceRequest): Promise<InferenceResponse> {
+    return this.completeWith(this.#primary, this.#fallback, req);
+  }
+
+  /**
+   * Like `complete()`, but routes to the given targets instead of the
+   * router's configured `#primary` / `#fallback`. This is the seam the
+   * Brain Stack uses (slice S5): it picks a `{primary, fallback}` per
+   * turn via `route()` and hands them here.
+   *
+   * Reuses the SAME budget / audit / abort / circuit machinery as
+   * `complete()` — one code path, two entry points. The `trustedBaseUrls`
+   * enforcement is the same as the constructor: any passed target
+   * whose base URL is not in `this.#trusted` is refused with an
+   * `InferenceError` (and a `blocked` audit row) before any fetch /
+   * budget / abort plumbing runs. `#callTarget` re-checks at call
+   * time as defense-in-depth — the constructor-style check here just
+   * fails fast with a cleaner stack.
+   *
+   * Caller's responsibility: ensure the passed targets are in the
+   * router's trusted URL set. For Brain Stack this means every model
+   * in the registry must be in `trustedBaseUrls` at router-construction
+   * time (S5 will validate this).
+   */
+  async completeWith(
+    primary: ModelTarget,
+    fallback: ModelTarget | undefined,
+    req: InferenceRequest,
+  ): Promise<InferenceResponse> {
+    // Same trusted-URL check as the constructor: passed targets must be
+    // in `this.#trusted` (or `trustedBaseUrls` was omitted, in which case
+    // the trusted set was seeded from the configured targets — the caller
+    // is responsible for widening it before invoking `completeWith`).
+    for (const target of [primary, fallback]) {
+      if (target && !this.#trusted.has(normalizeBaseUrl(target.baseUrl))) {
+        this.#auditBlocked(
+          req.sessionId,
+          `inference target not in trustedBaseUrls: ${target.baseUrl}`,
+        );
+        throw new InferenceError(
+          `refusing to contact untrusted inference endpoint: ${target.baseUrl}`,
+        );
+      }
+    }
+
     if (!req.skipBudgetCheck) this.#enforceBudget(req.sessionId);
 
     // Install a per-session AbortController (P0-#3) so `abort(sessionId)` can
@@ -276,8 +345,6 @@ export class InferenceRouter {
 
     const start = Date.now();
     // Snapshot at call time so an in-flight reconfigure() doesn't affect us.
-    const primary = this.#primary;
-    const fallback = this.#fallback;
     const reqWithSignal = { ...req, signal: ac.signal };
 
     try {

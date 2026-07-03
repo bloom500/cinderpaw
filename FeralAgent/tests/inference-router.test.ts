@@ -289,3 +289,391 @@ describe("conversation budget gate", () => {
     db.close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 4 — `completeWith(primary, fallback, req)` seam.
+//
+// Brain Stack (slice 5) calls this directly with the targets it routed
+// to. The router keeps ONE code path for the actual fetch / budget /
+// audit / abort machinery; `complete()` is a thin wrapper that hands the
+// configured primary + fallback to `completeWith`.
+//
+// These tests assert:
+//   - `completeWith` actually USES the passed targets (not #primary /
+//     #fallback) — verified by URL inspection of the mocked fetch
+//   - the same trustedBaseUrls enforcement runs at call time (the brief
+//     is explicit about this; an untrusted passed target must throw)
+//   - the fallback path works the same way as `complete()`'s fallback
+//     path (same audit row, same error shape)
+//   - `complete()` is unchanged in behaviour after the refactor
+//     (regression — the existing tests above already prove this; this
+//     file adds one extra sanity check that the wrapper delegates)
+// ---------------------------------------------------------------------------
+
+/** Mock that drives fetch by URL: each URL gets its own behavior. */
+function installFetchRouter(
+  behaviors: Record<string, { ok: true; body: unknown } | { ok: false; message: string }>,
+): { restore: () => void; calls: string[] } {
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as Request).url;
+    calls.push(url);
+    const b = behaviors[url];
+    if (!b) {
+      throw new Error(`fetch not configured for URL: ${url}`);
+    }
+    if (!b.ok) throw new Error(b.message);
+    return new Response(JSON.stringify(b.body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  return { restore: () => (globalThis.fetch = original), calls };
+}
+
+describe("InferenceRouter.completeWith() — passed targets are honoured (slice 4)", () => {
+  test("completeWith routes to the PASSED primary, not #primary", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const mock = installFetchMock(OLLAMA_OK);
+    restoreFetch = mock.restore;
+
+    // Router configured with primary = localhost:11434 …
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "configured-model", baseUrl: "http://localhost:11434" },
+      trustedBaseUrls: ["http://localhost:11434", "http://localhost:11435"],
+      tokenBudget: BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    // … but completeWith is called with primary = localhost:11435.
+    const passedPrimary = {
+      provider: "ollama",
+      model: "passed-model",
+      baseUrl: "http://localhost:11435",
+    };
+    const res = await router.completeWith(passedPrimary, undefined, {
+      sessionId: "s1",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(res.content).toBe("hi");
+    expect(mock.calls).toHaveLength(1);
+    // The passed baseUrl wins: fetch hits :11435, not the configured :11434.
+    expect(mock.calls[0]).toBe("http://localhost:11435/api/chat");
+    db.close();
+  });
+
+  test("completeWith uses the PASSED fallback when primary fails", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    // Passed primary fails; passed fallback succeeds.
+    const mock = installFetchRouter({
+      "http://localhost:11434/api/chat": { ok: false, message: "primary down" },
+      "http://localhost:11435/api/chat": { ok: true, body: OLLAMA_OK },
+    });
+    restoreFetch = mock.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "configured-primary", baseUrl: "http://localhost:9999" },
+      trustedBaseUrls: ["http://localhost:11434", "http://localhost:11435", "http://localhost:9999"],
+      tokenBudget: BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    // completeWith is called with DIFFERENT primary+fallback than #primary.
+    // Both are configured-trusted; primary fails, fallback succeeds.
+    const res = await router.completeWith(
+      { provider: "ollama", model: "passed-primary", baseUrl: "http://localhost:11434" },
+      { provider: "ollama", model: "passed-fallback", baseUrl: "http://localhost:11435" },
+      { sessionId: "s1", messages: [{ role: "user", content: "hi" }] },
+    );
+
+    expect(res.usedFallback).toBe(true);
+    expect(mock.calls).toHaveLength(2);
+    expect(mock.calls[0]).toBe("http://localhost:11434/api/chat");
+    expect(mock.calls[1]).toBe("http://localhost:11435/api/chat");
+    db.close();
+  });
+
+  test("completeWith with no fallback: primary failure throws InferenceError", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const mock = installFetchRouter({
+      "http://localhost:11434/api/chat": { ok: false, message: "primary down" },
+    });
+    restoreFetch = mock.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+      trustedBaseUrls: ["http://localhost:11434"],
+      tokenBudget: BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    await expect(
+      router.completeWith(
+        { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+        undefined,
+        { sessionId: "s1", messages: [{ role: "user", content: "hi" }] },
+      ),
+    ).rejects.toBeInstanceOf(InferenceError);
+
+    const failure = auditRows(db.raw, "error");
+    expect(failure.length).toBeGreaterThanOrEqual(1);
+    db.close();
+  });
+});
+
+describe("InferenceRouter.completeWith() — trustedBaseUrls enforcement (slice 4)", () => {
+  test("completeWith refuses a primary whose URL is NOT in trustedBaseUrls", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const trap = installFetchTrap();
+    restoreFetch = trap.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "m", baseUrl: "https://allowed.com/v1" },
+      trustedBaseUrls: ["https://allowed.com/v1"],
+      tokenBudget: BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    await expect(
+      router.completeWith(
+        { provider: "ollama", model: "evil", baseUrl: "https://evil.example/v1" },
+        undefined,
+        { sessionId: "s1", messages: [{ role: "user", content: "hi" }] },
+      ),
+    ).rejects.toBeInstanceOf(InferenceError);
+
+    // Never reached the network.
+    expect(trap.calls).toHaveLength(0);
+
+    // `blocked` audit row written with the offending URL in the reason.
+    const blocked = auditRows(db.raw, "blocked");
+    expect(
+      blocked.some(
+        (r) =>
+          r.blocked_reason?.includes("evil.example") &&
+          r.blocked_reason?.includes("not in trustedBaseUrls"),
+      ),
+    ).toBe(true);
+    db.close();
+  });
+
+  test("completeWith refuses a FALLBACK whose URL is not in trustedBaseUrls", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const trap = installFetchTrap();
+    restoreFetch = trap.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "m", baseUrl: "https://allowed.com/v1" },
+      trustedBaseUrls: ["https://allowed.com/v1"],
+      tokenBudget: BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    await expect(
+      router.completeWith(
+        { provider: "ollama", model: "m", baseUrl: "https://allowed.com/v1" },
+        { provider: "ollama", model: "evil-fb", baseUrl: "https://evil.example/v1" },
+        { sessionId: "s1", messages: [{ role: "user", content: "hi" }] },
+      ),
+    ).rejects.toBeInstanceOf(InferenceError);
+
+    expect(trap.calls).toHaveLength(0);
+    const blocked = auditRows(db.raw, "blocked");
+    expect(blocked.some((r) => r.blocked_reason?.includes("evil.example"))).toBe(true);
+    db.close();
+  });
+
+  test("completeWith refuses BEFORE budget / abort plumbing runs", async () => {
+    // Budget so small that any normal call would trip it. If completeWith
+    // runs the budget check before the trusted-URL check, this throws
+    // BudgetExhaustedError instead of InferenceError. The order matters.
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const trap = installFetchTrap();
+    restoreFetch = trap.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "m", baseUrl: "https://allowed.com/v1" },
+      trustedBaseUrls: ["https://allowed.com/v1"],
+      tokenBudget: { perConversation: 1, perDay: 500_000, onExhausted: "stop" },
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    await expect(
+      router.completeWith(
+        { provider: "ollama", model: "evil", baseUrl: "https://evil.example/v1" },
+        undefined,
+        { sessionId: "s1", messages: [{ role: "user", content: "hi" }] },
+      ),
+    ).rejects.toBeInstanceOf(InferenceError);
+    // NOT a BudgetExhaustedError — the trusted-URL check fires first.
+    db.close();
+  });
+});
+
+describe("InferenceRouter.complete() — regression after the S4 refactor", () => {
+  test("complete() delegates to completeWith() — same behaviour as before", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const mock = installFetchMock(OLLAMA_OK);
+    restoreFetch = mock.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+      trustedBaseUrls: ["http://localhost:11434"],
+      tokenBudget: BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    const res = await router.complete({
+      sessionId: "s1",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    // Same success shape, same audit row, same URL — pre-S4 behaviour.
+    expect(res.content).toBe("hi");
+    expect(res.totalTokens).toBe(18);
+    expect(mock.calls).toEqual(["http://localhost:11434/api/chat"]);
+    expect(auditRows(db.raw, "success")).toHaveLength(1);
+    db.close();
+  });
+
+  test("complete() falls back to #fallback when #primary fails", async () => {
+    // Sanity check that the fallback path still works through complete()
+    // after the refactor (the existing tests cover this but explicit
+    // here because S4 changed the call graph).
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const mock = installFetchRouter({
+      "http://localhost:11434/api/chat": { ok: false, message: "primary down" },
+      "http://localhost:11435/api/chat": { ok: true, body: OLLAMA_OK },
+    });
+    restoreFetch = mock.restore;
+
+    const config: InferenceConfig = {
+      primary: { provider: "ollama", model: "primary", baseUrl: "http://localhost:11434" },
+      fallback: { provider: "ollama", model: "fallback", baseUrl: "http://localhost:11435" },
+      trustedBaseUrls: ["http://localhost:11434", "http://localhost:11435"],
+      tokenBudget: BUDGET,
+    };
+    const router = new InferenceRouter(config, audit.logger, db.raw);
+
+    const res = await router.complete({
+      sessionId: "s1",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(res.usedFallback).toBe(true);
+    expect(mock.calls).toHaveLength(2);
+    db.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 5 — `cloudReachable` getter.
+//
+// Brain Stack uses this to compute the `offline` hint passed to
+// `brain.route()`: offline = primary is local AND cloud is not reachable.
+// When fallback is configured and on a non-loopback host, cloud is
+// reachable even if primary is local — Brain Stack won't force-route to
+// local-only models in that case.
+// ---------------------------------------------------------------------------
+
+describe("InferenceRouter.cloudReachable (slice 5)", () => {
+  test("local primary, no fallback → cloud NOT reachable", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      {
+        primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+        trustedBaseUrls: ["http://localhost:11434"],
+        tokenBudget: BUDGET,
+      },
+      audit.logger,
+      db.raw,
+    );
+    expect(router.isPrimaryLocal).toBe(true);
+    expect(router.cloudReachable).toBe(false);
+    db.close();
+  });
+
+  test("local primary, cloud fallback → cloud IS reachable", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      {
+        primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+        fallback: { provider: "openai", model: "m", baseUrl: "https://api.openai.com/v1", apiKey: "sk-test" },
+        trustedBaseUrls: ["http://localhost:11434", "https://api.openai.com/v1"],
+        tokenBudget: BUDGET,
+      },
+      audit.logger,
+      db.raw,
+    );
+    expect(router.isPrimaryLocal).toBe(true);
+    expect(router.cloudReachable).toBe(true); // fallback makes it reachable
+    db.close();
+  });
+
+  test("cloud primary, no fallback → cloud IS reachable", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      {
+        primary: { provider: "openai", model: "m", baseUrl: "https://api.openai.com/v1", apiKey: "sk-test" },
+        trustedBaseUrls: ["https://api.openai.com/v1"],
+        tokenBudget: BUDGET,
+      },
+      audit.logger,
+      db.raw,
+    );
+    expect(router.isPrimaryLocal).toBe(false);
+    expect(router.cloudReachable).toBe(true);
+    db.close();
+  });
+
+  test("local primary, local fallback → cloud NOT reachable (both loopback)", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      {
+        primary: { provider: "ollama", model: "a", baseUrl: "http://localhost:11434" },
+        fallback: { provider: "ollama", model: "b", baseUrl: "http://localhost:11435" },
+        trustedBaseUrls: ["http://localhost:11434", "http://localhost:11435"],
+        tokenBudget: BUDGET,
+      },
+      audit.logger,
+      db.raw,
+    );
+    expect(router.cloudReachable).toBe(false);
+    db.close();
+  });
+
+  test("127.0.0.1 is treated as local", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      {
+        primary: { provider: "ollama", model: "m", baseUrl: "http://127.0.0.1:11434" },
+        trustedBaseUrls: ["http://127.0.0.1:11434"],
+        tokenBudget: BUDGET,
+      },
+      audit.logger,
+      db.raw,
+    );
+    expect(router.isPrimaryLocal).toBe(true);
+    expect(router.cloudReachable).toBe(false);
+    db.close();
+  });
+});

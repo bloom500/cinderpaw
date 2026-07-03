@@ -85,6 +85,9 @@ import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
 import { createScheduleMeetingTool } from "./tools/builtin/schedule-meeting.ts";
 import type { InferenceConfig, ModelTarget, Transport } from "./types.ts";
+import { CircuitBreaker } from "./sandbox/circuit-breaker.ts";
+import { BrainStack } from "./brain/brain-stack.ts";
+import { loadBrainConfig } from "./brain/brain-config.ts";
 
 interface AppConfig {
   transport: "tauri";
@@ -254,7 +257,15 @@ function buildTransport(kind: AppConfig["transport"]): Transport {
   }
 }
 
-async function main(): Promise<void> {
+/**
+ * Main entry point — wires the full agent stack.
+ *
+ * @param transportOverride — when set, use this transport instead of building
+ *   the default TauriTransport. Used by the TUI chat loop (src/tui/chat.ts)
+ *   which passes a TuiTransport so events fan out in-process instead of
+ *   writing JSON to stdout.
+ */
+export async function main(transportOverride?: Transport): Promise<void> {
   const config = loadConfig();
   const db = openDatabase(config.dbPath);
 
@@ -690,6 +701,13 @@ async function main(): Promise<void> {
   extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---
+  // S5: Brain Stack wiring. Opt-in — loadBrainConfig() returns null when
+  // brain.json is absent (and FERAL_BRAIN is unset), so production runs
+  // with no brain.json see no behavior change. Each BrainStack owns its
+  // own CircuitBreaker instance — tool-health and model-health live in
+  // separate namespaces until S6 generalises the breaker key.
+  const brainCfg = loadBrainConfig();
+  const brain = brainCfg ? new BrainStack(brainCfg, new CircuitBreaker()) : null;
   const agent = new AgentLoop(
     router, registry, episodic,
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
@@ -698,6 +716,7 @@ async function main(): Promise<void> {
     soul,
     user,
     hooks,
+    brain,
   );
 
   // --- Heartbeat loop (P2-#1) ---
@@ -787,7 +806,9 @@ async function main(): Promise<void> {
   });
 
   // --- Layer 4: Transport ---
-  const transport = buildTransport(config.transport);
+  // Accept an override (e.g. TuiTransport for the terminal chat) or build
+  // the default TauriTransport (newline-delimited JSON over stdin/stdout).
+  const transport = transportOverride ?? buildTransport(config.transport);
   // Now that the transport exists, wire the ask_user bridge's emit target.
   // Every `ask_user` event from now on flows through the transport to the
   // React UI, and `ask_user_response` messages from the UI are routed back
@@ -1805,13 +1826,88 @@ function log(message: string): void {
   process.stderr.write(`[feral] ${message}\n`);
 }
 
-// Only auto-start when run as the entry point — importing this module (e.g.
-// from a test) must not boot the whole app.
+// ——— CLI dispatch ———
+//
+// The process is started in one of three ways:
+//   1. By the Tauri host (no args) → default → main() with TauriTransport.
+//   2. By the user via `feral chat`  → TUI mode → main() with TuiTransport.
+//   3. By the user via `feral setup` → standalone wizard, no agent needed.
+//   4. By the user via `feral help/version` → print and exit.
+//
+// Dynamic imports break the circular dependency between index.ts and
+// src/tui/chat.ts (chat.ts imports main from here).
 if (import.meta.main) {
-  main().catch((err) => {
-    // Startup misconfiguration (e.g. a target outside trustedBaseUrls) should
-    // fail fast with a clear, single-line reason rather than a raw stack trace.
-    log(`fatal: failed to start — ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-  });
+  const { parseArgs, tailArgv, dispatch, HELP_TEXT } = await import("./cli.ts");
+  const args = parseArgs(tailArgv(process.argv));
+  const result = dispatch(args);
+
+  switch (result.kind) {
+    case "default":
+      // Tauri host (no args) or plain `feral` from CLI — existing behaviour.
+      main().catch((err) => {
+        log(`fatal: failed to start — ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      });
+      break;
+
+    case "subcommand":
+      switch (result.name) {
+        case "gateway":
+          main().catch((err) => {
+            log(`fatal: gateway failed — ${err instanceof Error ? err.message : String(err)}`);
+            process.exit(1);
+          });
+          break;
+        case "chat": {
+          const { runChat } = await import("./tui/chat.ts");
+          await runChat().catch((err: unknown) => {
+            log(`chat error: ${err instanceof Error ? err.message : String(err)}`);
+            process.exit(1);
+          });
+          break;
+        }
+        case "setup": {
+          const { runSetup } = await import("./tui/setup.ts");
+          await runSetup().catch((err: unknown) => {
+            log(`setup error: ${err instanceof Error ? err.message : String(err)}`);
+            process.exit(1);
+          });
+          break;
+        }
+        case "models":
+          console.log("Models: (not yet implemented — see feral models in S5.4)");
+          break;
+        case "providers":
+          console.log("Providers: (not yet implemented — see feral providers in S5.4)");
+          break;
+        case "brain":
+          console.log("Brain: (not yet implemented — see feral brain in S5.4)");
+          break;
+      }
+      break;
+
+    case "help":
+      console.log(HELP_TEXT);
+      break;
+
+    case "version": {
+      let ver = "0.0.0-dev";
+      try {
+        const fs = await import("node:fs");
+        const text = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
+        const pkg = JSON.parse(text) as { version?: string };
+        ver = pkg.version ?? ver;
+      } catch {
+        ver = process.env.FERAL_VERSION ?? ver;
+      }
+      console.log(`Feral v${ver}`);
+      break;
+    }
+
+    case "unknown":
+      console.error(`Unknown subcommand: ${result.subcommand}`);
+      console.log(HELP_TEXT);
+      process.exit(1);
+      break;
+  }
 }

@@ -58,6 +58,12 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   sequence (10 steps), landmines for any contract / dream-cycle work,
   and the opencode-vs-Opus division of labor. **Read before touching
   any file in `FeralAgent/src/rsi/` or `src-tauri/src/rsi/`.**
+- **`project_brain_stack.md`** — Brain Stack (Faza 4.6) engine that picks
+  the right model per task. Slice 1 done (CapabilityRegistry +
+  `isConfigured`); Slice 2 plan (task classifier) + the four-
+  responsibility split (Registry=Data / Router=Policy / Health=Observation
+  / Cost=Optimisation). **Read before touching any file in
+  `FeralAgent/src/brain/`.**
 
 ## Things that are pinned at the type level (don't break these)
 

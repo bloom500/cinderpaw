@@ -40,11 +40,14 @@ export interface Recaller {
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { stripPrivate } from "../memory/privacy.ts";
+import type { BrainStack } from "../brain/brain-stack.ts";
+import type { ModelTarget } from "../types.ts";
 import type {
   AnthropicToolDef,
   ChatMessage,
   OpenAIToolDef,
   InferenceConfig,
+  InferenceResponse,
   OutboundEvent,
   ParsedResponse,
   ParsedToolCall,
@@ -191,6 +194,13 @@ export class AgentLoop {
   readonly #episodic: EpisodicMemory;
   readonly #recall: Recaller | null;
   readonly #extractor: MemoryExtractor | null;
+  /**
+   * S5: optional Brain Stack. When non-null, #handle() routes per turn
+   * through this.#brain and calls router.completeWith() with the chosen
+   * {primary, fallback} targets. When null, today's path is preserved
+   * (router.complete() with #primary/#fallback) — no behavior change.
+   */
+  readonly #brain: BrainStack | null;
   readonly #config: AgentLoopConfig;
   readonly #systemPrompt: string;
   // Note: SOUL.md and USER configs are consumed by buildSystemPrompt() at
@@ -328,6 +338,7 @@ export class AgentLoop {
     soul: SoulConfig | null = null,
     user: UserConfig | null = null,
     hooks: HookRegistry | null = null,
+    brain: BrainStack | null = null,
   ) {
     this.#router = router;
     this.#registry = registry;
@@ -337,6 +348,11 @@ export class AgentLoop {
     if (this.#extractor) {
       this.#extractor.setIdleChecker(() => this.activeSessionCount === 0);
     }
+    // S5: Brain Stack is opt-in. When provided, #handle() routes per turn
+    // via this.#brain and calls router.completeWith(); when null, the
+    // existing path (router.complete()) is used unchanged. See #handle
+    // and #complete for the dispatch logic.
+    this.#brain = brain;
     this.#config = { ...DEFAULT_CONFIG, ...config };
     this.#hooks = hooks;
     // Tool drawer: register list_tools/load_tool BEFORE the snapshots below so
@@ -601,6 +617,13 @@ export class AgentLoop {
     let toolCallCount = 0;
     let tokensUsed = 0;
 
+    // S5: Brain Stack routing — compute ONCE per user turn (NOT per tool
+    // iteration). The chosen {primary, fallback} pair is used for every
+    // router call inside the loop in #run (main completion + budget-
+    // recovery retry). A BrainError here falls back to the default path
+    // silently — a misconfigured Brain must not break a turn.
+    const routeTargets = this.#brain ? this.#routeForTurn(userText, images) : null;
+
     try {
       // Self-terminating loop: no limit computation needed. #run() returns
       // naturally when the model produces a text-only turn (no tool calls).
@@ -611,6 +634,7 @@ export class AgentLoop {
         messageId,
         ctx,
         traceId,
+        routeTargets,
       );
       toolCallCount = runToolCount;
       memory.addAssistant(final);
@@ -717,6 +741,13 @@ export class AgentLoop {
     messageId: string,
     ctx: SessionRunContext,
     traceId: string,
+    /**
+     * S5: Brain Stack routing decision computed ONCE in #handle, threaded
+     * through every iteration of the tool-call loop. When null, falls
+     * back to router.complete() (the pre-S5 path) so the call graph is
+     * unchanged for callers that don't opt into Brain.
+     */
+    routeTargets: { primary: ModelTarget; fallback?: ModelTarget } | null = null,
   ): Promise<{ text: string; toolCallCount: number }> {
     // Reset stop flag at the start of every run (ctx is per-handle, so this
     // only affects this session — the P3 fix for shared #lastStopped).
@@ -765,6 +796,7 @@ export class AgentLoop {
         sessionId,
         memory,
         onToken,
+        routeTargets,
       );
       // Surface REAL token usage so the UI context ring reflects actual context
       // consumption (the latest call's prompt = full context fed to the model,
@@ -1001,6 +1033,13 @@ export class AgentLoop {
     sessionId: string,
     memory: WorkingMemory,
     onToken?: (token: string) => void,
+    /**
+     * S5: Brain Stack routing decision computed ONCE in #handle, threaded
+     * through every iteration of the tool-call loop. When null, falls
+     * back to router.complete() (the pre-S5 path) so the call graph is
+     * unchanged for callers that don't opt into Brain.
+     */
+    routeTargets: { primary: ModelTarget; fallback?: ModelTarget } | null = null,
   ): Promise<{ content: string; finishReason?: string; promptTokens: number; completionTokens: number }> {
     // Grammar-constrained tool calls (opt-in). Applied only to the main agent
     // loop — the summarizer and memory extractor have their own router calls
@@ -1039,23 +1078,29 @@ export class AgentLoop {
       this.#transcriptBudget(),
     );
 
-    try {
-      // Controls-panel overrides for this session (UX: the user's Max Tokens
-      // / Temperature sliders were previously silently ignored by the agent).
-      const overrides = this.#sessionInferParams.get(sessionId);
-      // ponytail: cloud reasoning models (NIM, DeepSeek, stepfun…) burn the full
-      // max_tokens budget on chain-of-thought before answering. 16384 = 14k tokens
-      // on "Test" with Step 3.7 Flash. Use the pre-raise default (4096) for cloud
-      // unless the user explicitly set a value via the Controls panel.
-      const defaultMaxTokens = this.#router.isPrimaryLocal
-        ? this.#config.maxTokensPerCall
-        : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS;
-      const res = await this.#router.complete({
+    // S5: dispatch helper — uses router.completeWith() when Brain Stack
+    // provided route targets, otherwise the existing router.complete()
+    // path. Same shape either way; the router handles all the audit /
+    // budget / abort machinery in both modes. Hoisted BEFORE the try so
+    // both the main call and the budget-recovery retry can call it.
+    const overrides = this.#sessionInferParams.get(sessionId);
+    // ponytail: cloud reasoning models (NIM, DeepSeek, stepfun…) burn the full
+    // max_tokens budget on chain-of-thought before answering. 16384 = 14k tokens
+    // on "Test" with Step 3.7 Flash. Use the pre-raise default (4096) for cloud
+    // unless the user explicitly set a value via the Controls panel.
+    const defaultMaxTokens = this.#router.isPrimaryLocal
+      ? this.#config.maxTokensPerCall
+      : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS;
+
+    const dispatch = (
+      maxTokens: number,
+      temperature: number | undefined,
+    ): Promise<InferenceResponse> => {
+      const req = {
         sessionId,
         messages: memory.render(),
-        // Precedence: explicit UI Controls override > RSI champion > cloud/local default.
-        maxTokens: overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens,
-        temperature: overrides?.temperature ?? this.#championParams.temperature,
+        maxTokens,
+        temperature,
         onToken,
         cachePrompt: true,
         // A3: native tool definitions for Anthropic.
@@ -1063,7 +1108,23 @@ export class AgentLoop {
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.
         openAITools,
         ...grammarFields,
-      });
+      };
+      if (routeTargets) {
+        return this.#router.completeWith(
+          routeTargets.primary,
+          routeTargets.fallback,
+          req,
+        );
+      }
+      return this.#router.complete(req);
+    };
+
+    try {
+      const res = await dispatch(
+        // Precedence: explicit UI Controls override > RSI champion > cloud/local default.
+        overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens,
+        overrides?.temperature ?? this.#championParams.temperature,
+      );
       return {
         content: res.content,
         promptTokens: res.promptTokens,
@@ -1081,19 +1142,10 @@ export class AgentLoop {
         );
         if (compressed) {
           const overrides = this.#sessionInferParams.get(sessionId);
-          const res = await this.#router.complete({
-            sessionId,
-            messages: memory.render(),
-            maxTokens: overrides?.maxTokens ?? (this.#router.isPrimaryLocal ? this.#config.maxTokensPerCall : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS),
-            temperature: overrides?.temperature,
-            onToken,
-            cachePrompt: true,
-            // A3: native tool definitions for Anthropic.
-            nativeTools,
-            // A3 regression fix: native tool definitions for OpenAI-compatible providers.
-            openAITools,
-            ...grammarFields,
-          });
+          const res = await dispatch(
+            overrides?.maxTokens ?? (this.#router.isPrimaryLocal ? this.#config.maxTokensPerCall : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS),
+            overrides?.temperature,
+          );
           return {
             content: res.content,
             promptTokens: res.promptTokens,
@@ -1103,6 +1155,42 @@ export class AgentLoop {
         }
       }
       throw err;
+    }
+  }
+
+  /**
+   * S5: ask Brain Stack to pick `{primary, fallback}` for this user turn.
+   * Returns null when Brain is unconfigured, has no candidates, or
+   * throws — all of those cases fall back to the existing router.complete()
+   * path so a misconfigured Brain never breaks a turn.
+   *
+   * The `offline` hint is computed here from the router's state:
+   *   offline = primary is local AND cloud is not reachable
+   * (cloud is reachable when primary OR fallback is on a non-loopback
+   * host — see `InferenceRouter.cloudReachable`).
+   */
+  #routeForTurn(
+    userText: string,
+    images: string[] | undefined,
+  ): { primary: ModelTarget; fallback?: ModelTarget } | null {
+    if (!this.#brain) return null;
+    try {
+      const offline =
+        this.#router.isPrimaryLocal && !this.#router.cloudReachable;
+      const result = this.#brain.route({
+        text: userText,
+        hasImages: images !== undefined && images.length > 0,
+        offline,
+      });
+      return { primary: result.primary, fallback: result.fallback };
+    } catch (err) {
+      // BrainError (no candidates) or any other routing failure: log
+      // and fall through to the default path. The router will surface
+      // its own InferenceError if no model is actually configured.
+      console.warn(
+        `[brain] route failed, falling back to router defaults: ${String(err)}`,
+      );
+      return null;
     }
   }
 
