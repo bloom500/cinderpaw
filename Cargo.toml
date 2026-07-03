@@ -3,7 +3,7 @@
 # frontend is `frontend-react/`, which is built by Tauri (tauri.conf.json
 # beforeDevCommand / beforeBuildCommand) and never enters the Rust
 # workspace.
-members = ["src-tauri"]
+members = ["src-tauri", "crates/feral-core"]
 resolver = "2"
 
 [workspace.package]

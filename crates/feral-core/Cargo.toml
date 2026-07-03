@@ -1,0 +1,94 @@
+[package]
+name = "feral-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "feral_core"
+
+[dependencies]
+# ponytail: copied wholesale from src-tauri minus tauri/rmcp/windows; prune
+# unused deps with cargo-machete once the dust settles.
+
+# Serialization
+specta = "=2.0.0-rc.25"
+specta-typescript = "0.0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+
+# HTTP server (Ollama-compatible API)
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# HTTP client (tool calls, HF downloads)
+reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
+
+# Inference — llama.cpp bindings (CPU by default; add feature "inference-vulkan" for GPU)
+llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
+
+# Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
+whisper-rs = { version = "0.16", default-features = false, optional = true }
+
+# Utilities
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sysinfo = "0.32"
+uuid = { version = "1", features = ["v4", "serde"] }
+dirs = "5"
+# SHA-256 for the hash-chained SandboxBounds audit log.
+# The agent's tool audit (audit-log.ts) uses node:crypto; the bounds audit
+# here uses the same algorithm but a separate chain so a tamper on one side
+# cannot mask a tamper on the other.
+sha2 = "0.10"
+# git2 (libgit2 bindings) for the RSI git substrate at ~/.feral/rsi/.git/.
+# Vendored so we don't depend on a system libgit2 install — the spec requires
+# "fără dependență de git instalat pe sistem". The C build is heavy; only the
+# rsi module pulls it in.
+git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
+# OS-native secret storage for BYOK API keys (V6): DPAPI/Credential Manager on
+# Windows, Keychain on macOS, Secret Service (libsecret) on Linux. Platform
+# backends are target-gated inside the crate, so only the host's backend builds.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+log = "0.4"
+once_cell = "1"
+parking_lot = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1"
+encoding_rs = "0.8"
+urlencoding = "2"
+# CSPRNG for the at-rest DB field key (H-1). Already in the tree transitively
+# (uuid/rand); declared directly so key generation uses the OS RNG explicitly.
+getrandom = "0.2"
+
+# Chat attachment text extraction (PDF + OOXML/ODF containers)
+pdf-extract = "0.12"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[features]
+default = ["inference"]
+# CPU-only baseline (works everywhere; slow for larger models).
+inference = ["dep:llama-cpp-2"]
+# GPU backends — additive on top of `inference`. Pick at most ONE per build
+# (enabling two GPU features simultaneously is untested and likely produces
+# duplicate symbols in llama-cpp-sys-2). CI selects one per platform:
+#   Windows/Linux NVIDIA → inference-cuda     (needs CUDA Toolkit 12.x + nvcc)
+#   Windows/Linux AMD/Intel → inference-vulkan (needs the Vulkan SDK at build time)
+#   macOS                → inference-metal    (Metal ships with Xcode; no extra SDK)
+# A GPU build still falls back to CPU at runtime if GPU init fails (see
+# inference.rs::backend::load), so a missing/broken driver degrades gracefully.
+inference-cuda   = ["dep:llama-cpp-2", "llama-cpp-2/cuda"]
+inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
+inference-metal  = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
+whisper = ["dep:whisper-rs"]
