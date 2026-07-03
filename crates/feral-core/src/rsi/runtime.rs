@@ -149,6 +149,14 @@ pub fn require_string(v: Option<&serde_json::Value>, field: &str) -> Result<Stri
 /// Body of `rsi_score` extracted so the sidecar request dispatcher
 /// (`dispatch_rsi_request`) can call it without going through a
 /// Tauri `State<'_, AppState>` extractor.
+///
+/// **Visibility note (Faza 4.5 Slice 2 audit):** promoted from
+/// `pub(crate)` (when this lived in `src-tauri/src/rsi/commands.rs`) to
+/// `pub` so future headless hosts built on `feral-core` can dispatch
+/// `rsi_score` directly. Re-evaluate when the headless API stabilises —
+/// if only `dispatch_rsi_request` ever calls this, it can go back to
+/// `pub(crate)`. Same applies to `commit_genome_inner` below and the
+/// other dispatcher-adjacent helpers.
 pub fn do_rsi_score(state: &RuntimeState, outcomes: Vec<EvalOutcome>) -> Result<ScoreBreakdown, String> {
     ensure_initialized(state)?;
     // Use the bounds' weights if they exist, otherwise defaults.
@@ -183,6 +191,11 @@ pub fn do_rsi_commit_genome(
 /// and would otherwise stall a tokio worker for the whole commit. The
 /// cheap `ensure_initialized` lock check stays on the async path; only
 /// this (git-bound) part is offloaded.
+///
+/// **Visibility note (Faza 4.5 Slice 2 audit):** promoted from
+/// `pub(crate)` (when this lived in `src-tauri/src/rsi/commands.rs`) to
+/// `pub` so future headless hosts built on `feral-core` can commit
+/// genomes directly. See `do_rsi_score` above — same review trigger.
 pub fn commit_genome_inner(
     genome_id: String,
     genome_json: String,

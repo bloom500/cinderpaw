@@ -23,6 +23,11 @@ FeralAgent/dist/
 src-tauri/binaries/*.exe
 src-tauri/binaries/feral-agent
 
+# Compiled Bun scripts under scripts/ — sources (.ts/.mjs/.ps1) are
+# tracked, the .exe is a build artifact (e.g. scripts/fake-lora-trainer.exe
+# from `bun build --compile scripts/fake-lora-trainer.ts`).
+scripts/*.exe
+
 # Git worktrees (paseo / git worktree add)
 .worktrees/
 

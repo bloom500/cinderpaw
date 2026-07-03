@@ -86,3 +86,13 @@ cd FeralAgent && bun run build
 # Cargo (may need: vcvars64 + CMAKE_GENERATOR=Ninja + CARGO_TARGET_DIR=D:\fb)
 cargo build --features inference
 ```
+
+## Out-of-scope TODOs (don't touch in current slice)
+
+These are pre-existing items noticed while doing Faza 4.5 work; they
+are NOT blockers for the current slice and should be addressed in their
+own slice.
+
+- `crates/feral-core/src/inference.rs` — `max_contexts()` method is
+  dead (no caller; pool caps go through `effective_pool_cap(_with_env)`).
+  Has an inline `// TODO(inference)` marker. Out of scope for Slice 2.

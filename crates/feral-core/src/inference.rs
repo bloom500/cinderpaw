@@ -709,6 +709,10 @@ mod backend {
     /// (potentially gigabytes for large-context models), so the default
     /// stays small; contexts beyond the first are only created when
     /// generations actually overlap. Override with FERAL_MAX_LOCAL_CONTEXTS.
+    // TODO(inference): currently dead — no caller reads `max_contexts()`;
+    // pool caps flow through `effective_pool_cap(_with_env)`. Pre-existing
+    // (not introduced by Slice 2). Delete or wire up when the pool layer is
+    // next refactored. Out of scope for Faza 4.5.
     fn max_contexts() -> usize {
         max_contexts_env().unwrap_or(2)
     }
