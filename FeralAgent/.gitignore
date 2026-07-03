@@ -7,3 +7,5 @@ data/
 bun.lockb
 # Never commit npm auth — token lives in the NPM_TOKEN env var, .npmrc only references it.
 .npmrc
+# Prebuilt binaries bundled at publish time by scripts/package-win.mjs (SP0). Build output, not source.
+vendor/

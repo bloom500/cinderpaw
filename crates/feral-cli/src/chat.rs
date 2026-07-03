@@ -17,6 +17,23 @@ use crate::common::{self, Palette};
 
 /// Entry point for `feral-cli chat`. Never returns — exits the process.
 pub fn run() -> ! {
+    // Auto-start the runtime if it isn't up. `feral chat` is the primary
+    // entrypoint and must not require a manual `feral gateway start` first
+    // (Docker Desktop / Ollama behavior). Advanced users still have
+    // `feral gateway start` for services / connectors / debugging.
+    //
+    // Done here (sync, before the tokio runtime) so gateway_start's blocking
+    // wait-for-bind doesn't stall the async reactor.
+    let port = common::api_port();
+    if !common::port_in_use(port) {
+        let Palette { meta: META, reset: RESET, .. } = common::palette();
+        println!("\n  {META}Runtime not running. Starting...{RESET}");
+        let code = crate::admin::gateway_start();
+        if code != 0 {
+            eprintln!("feral: could not start the runtime — run `feral doctor` to diagnose.");
+            std::process::exit(code);
+        }
+    }
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let code = rt.block_on(async_main());
     std::process::exit(code);
@@ -40,8 +57,11 @@ async fn async_main() -> i32 {
     match fetch_status(&client, &base, &token).await {
         Ok(status) => print_status(&status),
         Err(_) => {
+            // We tried to auto-start in run(); if we still can't reach it,
+            // something else is wrong (port held by a non-Feral process, boot
+            // failure). Point at doctor rather than a manual start.
             println!(
-                "  {META}gateway offline{RESET} — start it first: {ACCENT}feral gateway{RESET}\n"
+                "  {META}could not reach the runtime{RESET} — run {ACCENT}feral doctor{RESET}\n"
             );
             return 1;
         }

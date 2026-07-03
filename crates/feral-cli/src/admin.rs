@@ -543,6 +543,31 @@ fn check_token() -> Check {
     }
 }
 
+/// `feral setup` — first-run wizard. The rich wizard currently lives in the
+/// TS sidecar (`feral-agent setup`); we delegate to it so the user sees one
+/// `feral setup` regardless of where it's implemented. This is the command
+/// router pattern: when the wizard is rewritten in Rust (SP1), the user-facing
+/// `feral setup` is unchanged. Delegation is invisible — no "launching sidecar"
+/// wording leaks to the user; the wizard just runs.
+pub fn setup() -> i32 {
+    let Palette { fail: FAIL, reset: RESET, .. } = palette();
+    let sidecar = match feral_core::feral_agent::find_binary(&[]) {
+        Some(p) => p,
+        None => {
+            eprintln!("{FAIL}feral: runtime component not found — reinstall feral-agent{RESET}");
+            return 1;
+        }
+    };
+    // Inherit stdio (default) so the interactive wizard reads the user's answers.
+    match std::process::Command::new(&sidecar).arg("setup").status() {
+        Ok(s) => s.code().unwrap_or(0),
+        Err(e) => {
+            eprintln!("{FAIL}feral: setup failed to start: {e}{RESET}");
+            1
+        }
+    }
+}
+
 fn check_models() -> Check {
     match feral_core::models::scan_models_dir() {
         Ok(m) if !m.is_empty() => Check::Ok(format!("{} model(s) on disk", m.len())),

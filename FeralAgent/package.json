@@ -1,12 +1,21 @@
 {
   "name": "feral-agent",
-  "version": "2026.6.29",
+  "version": "2026.6.31",
   "description": "Feral Agent — proactive, portable AI agent with a native security sandbox",
   "type": "module",
   "module": "src/index.ts",
+  "bin": {
+    "feral": "bin/feral.js"
+  },
+  "files": [
+    "bin",
+    "vendor",
+    "brain.example.json",
+    "README.md"
+  ],
   "license": "MIT",
   "author": "Bloom Media",
-  "homepage": "https://github.com/bloom500/feral#readme",
+  "homepage": "https://github.com/bloom500/feral#readalme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bloom500/feral.git",
@@ -24,12 +33,8 @@
     "llm"
   ],
   "engines": {
-    "bun": ">=1.0.0"
+    "node": ">=18"
   },
-  "files": [
-    "src",
-    "README.md"
-  ],
   "publishConfig": {
     "access": "public"
   },
@@ -37,7 +42,9 @@
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "typecheck": "bunx tsc --noEmit",
-    "build": "bun build src/index.ts --compile --outfile dist/feral-agent"
+    "build": "bun build src/index.ts --compile --outfile dist/feral-agent",
+    "build:js": "bun build src/index.ts --target=bun --outfile dist/feral-agent.js",
+    "package:win": "node scripts/package-win.mjs"
   },
   "devDependencies": {
     "@types/bun": "latest",

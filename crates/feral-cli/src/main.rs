@@ -47,6 +47,10 @@ enum Command {
     },
     /// Show gateway + model status (alias for `gateway status`)
     Status,
+    /// Stop the running gateway (alias for `gateway stop`)
+    Stop,
+    /// First-run wizard: configure your models, providers and connectors
+    Setup,
     /// Interactive chat in the terminal
     Chat,
     /// Interactive chat in the terminal (alias for `chat`)
@@ -133,6 +137,8 @@ fn main() {
             Some(GatewayAction::Status) => admin::gateway_status(),
         },
         Some(Command::Status) => admin::gateway_status(),
+        Some(Command::Stop) => admin::gateway_stop(),
+        Some(Command::Setup) => admin::setup(),
         Some(Command::Chat) | Some(Command::Tui) => chat::run(), // never returns
         Some(Command::Doctor) => admin::doctor(),
         Some(Command::Logs { follow }) => admin::logs(follow),
