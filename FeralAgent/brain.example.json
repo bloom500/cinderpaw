@@ -1,0 +1,34 @@
+{
+  "//": "Feral Brain Stack config — drop into ~/.feral/brain.json (or $FERAL_HOME/brain.json). Loaded by loadBrainConfig(). `feral setup` writes this shape for you.",
+  "enabled": true,
+  "//mode": "budget = prefer cheap/local, balanced = capability weighted by cost, quality = best capability wins",
+  "mode": "balanced",
+  "//offlineModelId": "forced primary when no cloud is reachable (classifier category 'offline')",
+  "offlineModelId": "local",
+  "//registry": "every model Brain Stack may route to. capabilities are 0..10 per skill; cost 1=local/cheap 2=mid 3=premium.",
+  "registry": [
+    {
+      "id": "local",
+      "target": {
+        "provider": "openai_compatible",
+        "model": "qwen2.5:7b",
+        "baseUrl": "http://127.0.0.1:11435"
+      },
+      "capabilities": { "reasoning": 5, "coding": 6, "vision": 0, "speed": 8, "multilingual": 5 },
+      "cost": 1,
+      "local": true
+    },
+    {
+      "id": "cloud",
+      "target": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "baseUrl": "https://api.anthropic.com/v1",
+        "apiKey": "sk-ant-..."
+      },
+      "capabilities": { "reasoning": 9, "coding": 9, "vision": 7, "speed": 6, "multilingual": 8 },
+      "cost": 3,
+      "local": false
+    }
+  ]
+}
