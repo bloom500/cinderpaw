@@ -51,56 +51,30 @@ pub struct FeralModelConfigView {
 }
 
 pub struct AppState {
-    pub manager: Arc<ModelManager>,
+    /// Host-agnostic runtime shared with any future non-Tauri host (Faza 4.5
+    /// Slice 2). Holds the model manager, settings, local API token, the
+    /// Feral Agent sidecar handles, and the RSI substrate/engine state.
+    /// `AppState` derefs to this so every existing `state.manager` /
+    /// `state.rsi_state` / etc. call site across this file keeps compiling.
+    pub runtime: std::sync::Arc<feral_core::runtime::RuntimeState>,
     pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
     pub stop_signal: Arc<AtomicBool>,
-    pub settings: Settings,
     /// System info pre-computed in a background thread at startup so the
     /// first call to get_system_info() returns instantly.
     pub system_info_cache: Arc<Mutex<Option<SystemInfo>>>,
-    /// Feral Agent sidecar process.
-    pub feral_agent_process: Arc<Mutex<Option<tokio::process::Child>>>,
-    /// Sender for writing JSON messages to the Feral Agent's stdin.
-    /// Commands clone this to send messages without holding the lock during I/O.
-    pub feral_agent_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<String>>>>,
     /// Cached display-safe view of the model the sidecar is currently using.
     /// Updated optimistically by feral_set_model; None until first set_model call.
     pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
-    /// Per-launch bearer token for the local HTTP API (V4). Generated at
-    /// startup, handed to the API server and injected as the api key whenever
-    /// the sidecar is pointed at the local engine, so the loopback API can
-    /// require auth without breaking the in-app path.
-    pub local_api_token: Arc<str>,
     /// MCP "Extensions" client manager (rmcp). Holds live connections to
     /// installed servers; configs persist at ~/.feral/mcp.json.
     pub mcp: Arc<mcp::McpManager>,
-    /// RSI (Fractal Memory System) state. Holds the cached SandboxBounds
-    /// and the initialised flag so every RSI command can answer "are
-    /// we bootstrapped?" without a disk round-trip. Populated by
-    /// `rsi_init`; consumed by every other rsi::* command.
-    pub rsi_state: rsi::RsiState,
-    /// Goodhart detector's rolling window. Kept as a separate Tauri
-    /// `State` so it can be re-built lazily inside the command without
-    /// contending on `rsi_state`.
-    pub rsi_goodhart: rsi::commands::GoodhartSlot,
-    /// Engine status mirror. `None` until the sidecar emits its first
-    /// engine event (Faza 7b-part2 wires this — for now the UI sees
-    /// `engine: null` in `rsi_status` and shows "engine not wired").
-    /// Populated from the `rsi_engine_event` outbound events on stdout.
-    pub rsi_engine: std::sync::Arc<parking_lot::Mutex<Option<rsi::commands::RsiEngineState>>>,
-    /// In-flight ack registry for the 3 engine-driver commands
-    /// (`rsi_start` / `rsi_stop` / `rsi_set_concurrency`). Each entry
-    /// is a oneshot whose sender is fired by `feral_agent::stdout_reader`
-    /// when the matching `rsi_engine_event` arrives on stdout, so the
-    /// command can return success only after the sidecar has actually
-    /// accepted the request. Cloned into `feral_agent::spawn` so the
-    /// reader can ack without holding the AppState mutex.
-    pub rsi_request_registry: rsi::commands::RsiRequestRegistry,
-    /// Faza 3: why the next sidecar exit is expected (deliberate restart
-    /// or post-apply rebuild). Set before `start_kill()`; taken by the
-    /// supervisor so planned exits never count as crashes toward the
-    /// watchdog's revert threshold.
-    pub feral_agent_planned_exit: feral_agent::PlannedExitSlot,
+}
+
+impl std::ops::Deref for AppState {
+    type Target = feral_core::runtime::RuntimeState;
+    fn deref(&self) -> &Self::Target {
+        &self.runtime
+    }
 }
 
 fn download_key(repo_id: &str, filename: &str) -> String {
@@ -3279,22 +3253,19 @@ pub fn run() {
         });
     }
 
+    let runtime_state = feral_core::runtime::RuntimeState::new(
+        manager.clone(),
+        settings,
+        local_api_token.clone(),
+    );
+
     let state = AppState {
-        manager: manager.clone(),
+        runtime: std::sync::Arc::new(runtime_state),
         downloads: Arc::new(Mutex::new(HashMap::new())),
         stop_signal: Arc::new(AtomicBool::new(false)),
-        settings,
         system_info_cache,
-        feral_agent_process: Arc::new(Mutex::new(None)),
-        feral_agent_tx: Arc::new(Mutex::new(None)),
         feral_model_config: Arc::new(Mutex::new(None)),
-        local_api_token: local_api_token.clone(),
         mcp: Arc::new(mcp::McpManager::new()),
-        rsi_state: rsi::RsiState::default(),
-        rsi_goodhart: rsi::commands::GoodhartSlot::default(),
-        rsi_engine: std::sync::Arc::new(parking_lot::Mutex::new(None)),
-        rsi_request_registry: rsi::commands::RsiRequestRegistry::default(),
-        feral_agent_planned_exit: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()

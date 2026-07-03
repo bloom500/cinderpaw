@@ -36,6 +36,7 @@ pub mod goodhart;
 pub mod paths;
 pub mod plan;
 pub mod repo;
+pub mod runtime;
 pub mod sandbox_bounds;
 pub mod scorer;
 pub mod tier0;

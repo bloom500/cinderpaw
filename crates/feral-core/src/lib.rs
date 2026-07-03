@@ -16,6 +16,7 @@ pub mod models;
 pub mod paths;
 pub mod perf_policy;
 pub mod rsi;
+pub mod runtime;
 pub mod settings;
 pub mod sysinfo_mod;
 pub mod tools;

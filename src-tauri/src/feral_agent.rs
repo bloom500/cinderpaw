@@ -19,8 +19,9 @@ use tokio::sync::mpsc;
 
 use crate::events::FeralAgentOutputEvent;
 use crate::paths;
-use crate::rsi::commands::{RsiEngineState, RsiRequestRegistry};
+use crate::rsi::runtime::{RsiEngineState, RsiRequestRegistry};
 use crate::AppState;
+pub use feral_core::runtime::{PlannedExit, PlannedExitSlot};
 
 /// A single user answer to a single `ask_user` question.
 ///
@@ -39,24 +40,6 @@ pub struct AskUserAnswer {
 
 /// Default cancel reason when the UI doesn't supply one.
 const DEFAULT_CANCEL_REASON: &str = "user cancelled";
-
-/// Why the next sidecar exit is expected. Whoever kills the child on
-/// purpose sets this BEFORE `start_kill()`; the supervisor takes it on
-/// exit and skips both the crash-failure accounting and the Faza 3
-/// watchdog counter (a deliberate restart must never count toward
-/// "≥2 deaths → revert the patch").
-pub enum PlannedExit {
-    /// Plain restart (e.g. `restart_sidecar` after an env toggle).
-    Restart,
-    /// Faza 3 Slice 2: a live-applied code patch wants to become the
-    /// running agent. The supervisor rebuilds the sidecar from
-    /// `repo_root` while the process is dead (Windows locks a running
-    /// exe — this is the only safe moment to overwrite the binary),
-    /// then respawns.
-    Rebuild { repo_root: String },
-}
-
-pub type PlannedExitSlot = Arc<Mutex<Option<PlannedExit>>>;
 
 /// Unix time in milliseconds — the watchdog's clock.
 fn unix_ms() -> u64 {
@@ -1022,7 +1005,7 @@ async fn handle_rsi_request(
         // app.state::<AppState>() returns State<'_, AppState>; .inner()
         // gives a plain &AppState the dispatcher can use.
         let state = app.state::<AppState>();
-        match crate::rsi::commands::dispatch_rsi_request(state.inner(), &method, params).await {
+        match feral_core::rsi::runtime::dispatch_rsi_request(state.inner(), &method, params).await {
             Ok(data) => serde_json::json!({
                 "type": "rsi_response",
                 "id": id,
