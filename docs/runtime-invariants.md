@@ -25,3 +25,7 @@ după) se validează împotriva lor. Dacă un design le încalcă, designul e gr
 11. **Every client MUST produce identical behavior.** „Hello" de pe Desktop,
     CLI, Discord sau REST trece prin aceeași funcție (`AgentLoop.handle`), nu
     prin implementări paralele.
+12. **Runtime owns scheduling.** Nici GUI, nici CLI, nici Discord nu decid
+    CÂND pornește un Dream, un training, housekeeping, GC sau embedding
+    refresh. Clienții doar CER (`RequestDream`); runtime-ul decide: OK / not
+    now (CPU busy) / queue. Orice „dream now" din UI e o cerere, nu o comandă.
