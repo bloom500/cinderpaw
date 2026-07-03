@@ -5,3 +5,5 @@ data/
 .env
 .DS_Store
 bun.lockb
+# Never commit npm auth — token lives in the NPM_TOKEN env var, .npmrc only references it.
+.npmrc
