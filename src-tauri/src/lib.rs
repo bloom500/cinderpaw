@@ -3411,6 +3411,13 @@ pub fn run() {
             // The headless `feral-cli` gateway calls the same function with
             // a different `events` and `desktop_control = None` — see
             // `crates/feral-cli/src/main.rs`.
+            //
+            // `boot::start` is `async` (Task 4 smoke fix: a sync version
+            // panicked with "no reactor running" when Tauri 2's sync setup
+            // closure called `tokio::spawn` inside it). Tauri's
+            // `async_runtime::spawn` works in both sync and async contexts,
+            // so the setup closure stays sync and the boot runs in the
+            // background — same pattern the MCP reconnect below uses.
             let runtime = app.handle().state::<AppState>().runtime.clone();
             let events: Arc<dyn feral_core::host::HostEvents> =
                 Arc::new(TauriEvents(app.handle().clone()));
@@ -3427,7 +3434,9 @@ pub fn run() {
                 .into_iter()
                 .flatten()
                 .collect();
-            feral_core::boot::start(runtime, events, desktop_control, extra_bin_dirs);
+            tauri::async_runtime::spawn(async move {
+                feral_core::boot::start(runtime, events, desktop_control, extra_bin_dirs).await;
+            });
 
             // Reconnect enabled MCP extensions in the background. Failures
             // are logged per-server — a broken extension never blocks launch.

@@ -69,7 +69,7 @@ fn run_gateway() {
         let events: Arc<dyn feral_core::host::HostEvents> =
             Arc::new(feral_core::host::LogEvents);
         // Desktop control is a desktop-host feature; the gateway declines it.
-        feral_core::boot::start(runtime.clone(), events, None, Vec::new());
+        feral_core::boot::start(runtime.clone(), events, None, Vec::new()).await;
         tracing::info!(port, "feral gateway up — model API + sidecar supervised");
 
         tokio::signal::ctrl_c().await.ok();

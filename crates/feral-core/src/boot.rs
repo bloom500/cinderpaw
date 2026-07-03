@@ -69,13 +69,24 @@ pub fn build_runtime() -> Arc<RuntimeState> {
 /// spawned on the current tokio runtime. Order of the sections matches
 /// the pre-extraction Tauri `setup` closure exactly.
 ///
+/// **Async signature (Faza 4.5 Slice 2, Task 4 smoke fix).** The function
+/// is `async` so the API-server spawn and the supervised sidecar can
+/// each `tokio::spawn` from inside a real async context. The Tauri
+/// desktop entry point wraps the call in `tauri::async_runtime::spawn`;
+/// the headless gateway awaits it directly inside its `block_on`.
+/// Calling `tokio::spawn` from a sync context — the way the pre-fix
+/// `boot::start` did, when invoked from Tauri 2's `setup` closure —
+/// panics with "there is no reactor running". The async signature
+/// routes around that by guaranteeing a tokio runtime handle is
+/// reachable on the caller's task.
+///
 /// `events` is the host-specific event sink (Tauri's webview today, the
 /// headless SSE stream tomorrow). `desktop_control` is `Some` on the
 /// desktop host (forwards to `crate::desktop_control`) and `None` on the
 /// headless gateway, where every `desktop_control_request` line is
 /// answered with `ok:false, error:"not available"`. `extra_bin_dirs` is
 /// the host-supplied binary search path (Tauri passes its `resource_dir`).
-pub fn start(
+pub async fn start(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
@@ -84,7 +95,7 @@ pub fn start(
     fragile_amd_embed_guard();
     bootstrap_rsi_substrate(&runtime);
     export_settings_env(&runtime.settings);
-    spawn_api_server_if_enabled(&runtime);
+    spawn_api_server_if_enabled(&runtime).await;
     feral_agent::supervise(runtime, events, desktop_control, extra_bin_dirs);
 }
 
@@ -261,7 +272,12 @@ fn export_settings_env(settings: &Settings) {
 /// Spawn the OpenAI-compatible API server on `runtime.settings.api_port`.
 /// Forced on by `build_settings()` when the sidecar needs it; user-toggle
 /// on hosts that don't run a sidecar at all.
-fn spawn_api_server_if_enabled(runtime: &Arc<RuntimeState>) {
+///
+/// `async` so the inner `tokio::spawn` runs in a real tokio context —
+/// the previous sync version panicked with "no reactor running" when
+/// invoked from Tauri 2's setup closure. The `async` signature on
+/// `start()` (above) makes this reachable.
+async fn spawn_api_server_if_enabled(runtime: &Arc<RuntimeState>) {
     if !runtime.settings.api_server_enabled {
         return;
     }
