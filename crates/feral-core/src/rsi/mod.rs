@@ -2,7 +2,8 @@
 //!
 //! **NON-NEGOTIABLE INVARIANT**: every write to the RSI substrate
 //! (`~/.feral/rsi/`, the git repo, the eval suite, the SandboxBounds file,
-//! the scorer code) MUST go through a Tauri command exposed here. The
+//! the scorer code) MUST go through the host's command layer
+//! (`src-tauri/src/rsi/commands.rs`). The
 //! TypeScript sidecar and the LLM agent have NO direct filesystem path to
 //! any of these locations. The scorer, the eval paths, and the
 //! SandboxBounds live in Rust, are constants or read-only-from-Rust's-side
@@ -24,7 +25,6 @@
 //! - `audit`    : hash-chained audit log for bound mutations
 //! - `plan`     : embedded PLAN.md (the versioned architectural plan)
 //! - `repo`     : git2 wrapper for the RSI git substrate
-//! - `commands` : the Tauri commands the sidecar calls
 //! - `watchdog` : pure-decision crash→auto-revert logic (Faza 3)
 //!
 //! (Faza 4.5: the substrate lives in feral-core, but every WRITE still goes
