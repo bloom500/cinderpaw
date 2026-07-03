@@ -10,6 +10,7 @@ pub mod api;
 pub mod byok;
 pub mod db_key;
 pub mod gpu_detect;
+pub mod host;
 pub mod inference;
 pub mod models;
 pub mod paths;
