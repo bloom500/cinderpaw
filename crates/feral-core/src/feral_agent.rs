@@ -228,6 +228,28 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
 /// don't pre-populate the process slot here because the supervisor
 /// (which calls `spawn` on every generation) is the sole owner of the
 /// slot — pre-populating would race against `try_wait()` polling.
+/// Decide which API key the sidecar gets. If the base URL is loopback, hand it
+/// the local bearer token (the gated server expects it). For any remote host,
+/// REQUIRE an explicit `FERAL_API_KEY` — silently forwarding the local token to
+/// a third party would leak a credential. `env_key` is `FERAL_API_KEY` if set.
+fn resolve_sidecar_api_key(
+    base_url: &str,
+    local_token: &str,
+    env_key: Option<String>,
+) -> Result<String, String> {
+    if base_url.contains("127.0.0.1") || base_url.contains("localhost") {
+        Ok(local_token.to_string())
+    } else {
+        env_key.ok_or_else(|| {
+            format!(
+                "FERAL_API_KEY must be set when FERAL_BASE_URL is not loopback \
+                 (got: {base_url}). Refusing to send the local API bearer token \
+                 to a remote endpoint."
+            )
+        })
+    }
+}
+
 pub async fn spawn(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
@@ -260,18 +282,38 @@ pub async fn spawn(
     let db_path = paths::feral_agent_db_path();
     let workspace = paths::feral_agent_workspace_path();
 
-    let base_url = format!("http://127.0.0.1:{api_port}");
+    // Faza 4.5 Slice 2 (post-acceptance, user-driven): env-var overrides for
+    // the provider + base URL + API key. Defaults preserve the pre-change
+    // behavior (point at the bundled llama.cpp on loopback). The headless
+    // gateway (or any host) can now point the sidecar at a cloud provider
+    // by setting FERAL_BASE_URL/FERAL_API_KEY/FERAL_MODEL before boot —
+    // e.g. for testing the Discord connector against a fast model without
+    // burning the local GPU.
+    let provider = std::env::var("FERAL_PROVIDER")
+        .unwrap_or_else(|_| "openai_compatible".to_string());
+    let base_url = std::env::var("FERAL_BASE_URL")
+        .unwrap_or_else(|_| format!("http://127.0.0.1:{api_port}"));
+    let api_key = resolve_sidecar_api_key(&base_url, api_token, std::env::var("FERAL_API_KEY").ok())?;
 
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.env("FERAL_DB", &db_path)
         .env("FERAL_WORKSPACE", &workspace)
-        .env("FERAL_PROVIDER", "openai_compatible")
+        .env("FERAL_PROVIDER", &provider)
         .env("FERAL_BASE_URL", &base_url)
-        .env("FERAL_API_KEY", api_token);
+        .env("FERAL_API_KEY", &api_key);
 
-    let model_name = discover_active_model(&base_url, api_token)
-        .await
-        .unwrap_or_else(|| "feral-local".to_string());
+    // FERAL_MODEL discovery is for the bundled llama.cpp (/v1/models on
+    // loopback). For a remote provider the user is expected to set
+    // FERAL_MODEL explicitly; we still call discover_active_model as a
+    // best-effort (some clouds expose OpenAI-compatible /v1/models) but
+    // honour FERAL_MODEL when present so the caller can override.
+    let model_name = if let Ok(m) = std::env::var("FERAL_MODEL") {
+        m
+    } else {
+        discover_active_model(&base_url, &api_key)
+            .await
+            .unwrap_or_else(|| "feral-local".to_string())
+    };
     cmd.env("FERAL_MODEL", &model_name);
     tracing::info!(model = %model_name, "feral-agent: using discovered model");
 
@@ -983,6 +1025,31 @@ mod tests {
         let name = binary_filename();
         assert!(name.contains('-'), "binary name must contain a target triple");
         assert!(name.starts_with("feral-agent-"));
+    }
+
+    #[test]
+    fn sidecar_api_key_loopback_uses_local_token() {
+        for url in ["http://127.0.0.1:11435", "http://localhost:11435"] {
+            assert_eq!(
+                resolve_sidecar_api_key(url, "local-secret", None).unwrap(),
+                "local-secret",
+                "loopback must reuse the local bearer token even without FERAL_API_KEY"
+            );
+        }
+    }
+
+    #[test]
+    fn sidecar_api_key_remote_requires_explicit_key() {
+        // No FERAL_API_KEY for a remote host → refuse, never leak the local token.
+        let err = resolve_sidecar_api_key("https://api.openai.com/v1", "local-secret", None)
+            .unwrap_err();
+        assert!(err.contains("FERAL_API_KEY must be set"));
+        assert!(!err.contains("local-secret"), "error must not echo the local token");
+        // With an explicit key, it is used verbatim (local token never forwarded).
+        assert_eq!(
+            resolve_sidecar_api_key("https://api.openai.com/v1", "local-secret", Some("sk-remote".into())).unwrap(),
+            "sk-remote"
+        );
     }
 
     #[test]
