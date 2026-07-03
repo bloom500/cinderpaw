@@ -471,6 +471,7 @@ pub fn doctor() -> i32 {
         ("api port", check_port()),
         ("api token", check_token()),
         ("models", check_models()),
+        ("brain config", check_brain()),
         ("sidecar", check_sidecar()),
         ("gpu", check_gpu()),
         ("connectors", check_connectors()),
@@ -574,6 +575,63 @@ fn check_models() -> Check {
         Ok(_) => Check::Warn("no .gguf models in ~/.feral/models — download one or use BYOK".into()),
         Err(e) => Check::Fail(format!("cannot read models dir: {e}")),
     }
+}
+
+/// Validate `brain.json` against the contract the sidecar's `loadBrainConfig()`
+/// enforces: `{ enabled: bool, mode: string, registry: array }`. This is the
+/// one check that would have caught the P0 where the old `feral setup` wrote
+/// `{ primary, fallback, capabilities }` — a shape the runtime rejects, so
+/// `feral chat` / `FERAL_BRAIN=1` threw on first run. Doctor runs offline
+/// (no sidecar), so it parses the file itself rather than asking the gateway.
+///
+/// Absent brain.json is a WARN, not a FAIL: Brain Stack is opt-in.
+fn check_brain() -> Check {
+    let path = feral_file("brain.json");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return Check::Warn("no brain.json — Brain Stack off (run `feral setup`)".into()),
+    };
+    let obj = match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(serde_json::Value::Object(o)) => o,
+        Ok(_) => return Check::Fail("brain.json must be a JSON object".into()),
+        Err(e) => return Check::Fail(format!("brain.json invalid JSON: {e}")),
+    };
+
+    let has_enabled = obj.get("enabled").is_some_and(|v| v.is_boolean());
+    let has_mode = obj.get("mode").is_some_and(|v| v.is_string());
+    let has_registry = obj.get("registry").is_some_and(|v| v.is_array());
+
+    if has_enabled && has_mode && has_registry {
+        let n = obj["registry"].as_array().map_or(0, |a| a.len());
+        let mode = obj["mode"].as_str().unwrap_or("?");
+        let state = if obj["enabled"].as_bool().unwrap_or(false) { "enabled" } else { "disabled" };
+        return Check::Ok(format!("valid — {state}, mode={mode}, {n} model(s)"));
+    }
+
+    // Keys the user actually has (drop `//comment` keys the example file uses).
+    let found: Vec<&str> = obj
+        .keys()
+        .map(String::as_str)
+        .filter(|k| !k.starts_with("//"))
+        .collect();
+
+    // Name the legacy shape explicitly so the fix ("re-run setup") is obvious.
+    if obj.contains_key("primary") || obj.contains_key("capabilities") {
+        return Check::Fail(format!(
+            "old shape (found: {}) — expected: enabled, mode, registry. Re-run `feral setup`.",
+            found.join(", ")
+        ));
+    }
+
+    let mut missing = Vec::new();
+    if !has_enabled { missing.push("enabled"); }
+    if !has_mode { missing.push("mode"); }
+    if !has_registry { missing.push("registry"); }
+    Check::Fail(format!(
+        "missing/invalid: {} (found: {})",
+        missing.join(", "),
+        found.join(", "),
+    ))
 }
 
 fn check_sidecar() -> Check {
