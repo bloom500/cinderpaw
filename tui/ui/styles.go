@@ -26,14 +26,14 @@ const TagWidth = 9
 var (
 	HeaderStyle = lipgloss.NewStyle()
 
-	StatusOnline  = lipgloss.NewStyle().Foreground(Ok).SetString("●")
-	StatusOffline = lipgloss.NewStyle().Foreground(Fail).SetString("●")
+	StatusOnline  = lipgloss.NewStyle().Foreground(Ok)
+	StatusOffline = lipgloss.NewStyle().Foreground(Fail)
 
 	BrandStyle = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 
 	TagYou   = lipgloss.NewStyle().Foreground(AccentHi).Width(TagWidth).Align(lipgloss.Right)
 	TagFeral = lipgloss.NewStyle().Foreground(Accent).Width(TagWidth).Align(lipgloss.Left)
-	Cursor   = lipgloss.NewStyle().Foreground(Accent).SetString("▌")
+	Cursor   = lipgloss.NewStyle().Foreground(Accent)
 
 	UserContent  = lipgloss.NewStyle().Foreground(Text)
 	FeralContent = lipgloss.NewStyle().Foreground(Text)
@@ -58,8 +58,8 @@ var (
 	// ToolMark is the leading status dot — Claude-Code-style "⏺ name(arg)"
 	// instead of a bulleted card. ToolResult prefixes the indented result
 	// line with "⎿" so it reads as a child of the call above it.
-	ToolMark   = lipgloss.NewStyle().SetString("⏺")
-	ToolResult = lipgloss.NewStyle().Foreground(Meta).SetString("⎿")
+	ToolMark   = lipgloss.NewStyle()
+	ToolResult = lipgloss.NewStyle().Foreground(Meta)
 
 	// Error cards — one border per kind. Same shape, different tint so the
 	// eye categorises the failure before reading the message.
@@ -91,9 +91,9 @@ var (
 	StreamHint    = lipgloss.NewStyle().Foreground(Meta)
 	StreamStalled = lipgloss.NewStyle().Foreground(Warn).Italic(true)
 
-	ThinkingHeader    = lipgloss.NewStyle().Foreground(Meta).SetString("▾ thinking")
+	ThinkingHeader    = lipgloss.NewStyle().Foreground(Meta)
 	ThinkingContent   = lipgloss.NewStyle().Foreground(Meta).Italic(true)
-	ThinkingCollapsed = lipgloss.NewStyle().Foreground(Meta).SetString("▸ thinking…")
+	ThinkingCollapsed = lipgloss.NewStyle().Foreground(Meta)
 
 	SeparatorStyle = lipgloss.NewStyle().Foreground(Meta)
 
@@ -106,9 +106,9 @@ var (
 	DiffFile = lipgloss.NewStyle().Foreground(AccentHi).Bold(true)
 	// InputPrompt is the leading glyph on the input row — Claude-Code style
 	// "› " prompt instead of a bordered box. No Border/Background: the
-	// horizontal rule already drawn above the input (see view.go's `sep`)
-	// is the only visual separator.
-	InputPrompt      = lipgloss.NewStyle().Foreground(Accent).SetString("›")
+	// blank line above the input (see view.go's `sep`) is the only visual
+	// separator.
+	InputPrompt      = lipgloss.NewStyle().Foreground(Accent)
 	InputStyle       = lipgloss.NewStyle().Padding(0, 1)
 	InputPlaceholder = lipgloss.NewStyle().Foreground(Meta).Italic(true)
 	FooterStyle      = lipgloss.NewStyle().Foreground(Meta).Padding(0, 1)

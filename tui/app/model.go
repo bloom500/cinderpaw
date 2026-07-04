@@ -363,7 +363,7 @@ func (a *App) buildChatContent() string {
 			// answer row, since the tag marks the answer, not the thinking.
 			if turn.Reasoning != "" {
 				if turn.ThinkingOpen {
-					b.WriteString(gutter + ui.ThinkingHeader.String())
+					b.WriteString(gutter + ui.ThinkingHeader.Render(ui.G.ThinkOpen+" thinking"))
 					b.WriteByte('\n')
 					for _, line := range reflow(turn.Reasoning, msgWidth-2) {
 						b.WriteString(gutter + "  " + ui.ThinkingContent.Render(line))
@@ -375,7 +375,7 @@ func (a *App) buildChatContent() string {
 						first = first[:idx]
 					}
 					first = first[:clampLen(first, msgWidth-2)]
-					b.WriteString(gutter + ui.ThinkingCollapsed.String() + " " + first)
+					b.WriteString(gutter + ui.ThinkingCollapsed.Render(ui.G.ThinkClosed+" thinking…") + " " + first)
 					b.WriteByte('\n')
 				}
 			}
@@ -394,7 +394,7 @@ func (a *App) buildChatContent() string {
 				lines := strings.Split(rendered, "\n")
 				for i, line := range lines {
 					if turn.Streaming && i == len(lines)-1 {
-						line += ui.Cursor.String()
+						line += ui.Cursor.Render(ui.G.Cursor)
 					}
 					if i == 0 {
 						b.WriteString(tag + " " + ui.FeralContent.Render(line))
@@ -437,7 +437,7 @@ func (a *App) buildChatContent() string {
 			}
 			// Per-turn cost footnote, dim — Claude Code's "✻ Cooked for Ns".
 			if turn.Meta != "" {
-				b.WriteString(gutter + ui.MetaStyle.Render("✻ "+turn.Meta))
+				b.WriteString(gutter + ui.MetaStyle.Render(ui.G.Spark+" "+turn.Meta))
 				b.WriteByte('\n')
 			}
 		}

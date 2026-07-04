@@ -53,7 +53,7 @@ func (a *App) View() string {
 	completions := a.renderCompletions()
 	input := a.renderInput(inH)
 	footer := a.renderFooter()
-	sep := ui.SeparatorStyle.Render(strings.Repeat("─", a.Width))
+	sep := ""
 
 	// Order matters — JoinVertical drops empty strings, so the layout
 	// gracefully shrinks when none of the aux strips are active.
@@ -95,7 +95,7 @@ func (a *App) renderWelcomeContent() string {
 	}
 
 	var lines []string
-	lines = append(lines, ui.WelcomeTagline.Render("✻ feral chat"))
+	lines = append(lines, ui.WelcomeTagline.Render(ui.G.Spark+" feral chat"))
 	if a.Cwd != "" {
 		lines = append(lines, ui.WelcomeValue.Render(a.Cwd))
 	}
@@ -130,10 +130,10 @@ func (a *App) renderWelcomeStatus() []string {
 	if a.Status.ByokProvider != "" {
 		backend = a.Status.ByokProvider
 	}
-	dot := ui.StatusOffline
+	dot := ui.StatusOffline.Render(ui.G.On)
 	state := "offline"
 	if a.Status.Online {
-		dot = ui.StatusOnline
+		dot = ui.StatusOnline.Render(ui.G.On)
 		state = "online"
 	}
 	elapsed := formatElapsed(time.Since(a.StartedAt))
@@ -141,7 +141,7 @@ func (a *App) renderWelcomeStatus() []string {
 		{"model", m},
 		{"lora", l},
 		{"backend", backend},
-		{"session", fmt.Sprintf("%s %s · ⏱ %s", dot.String(), state, elapsed)},
+		{"session", fmt.Sprintf("%s %s · ⏱ %s", dot, state, elapsed)},
 	}
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -164,7 +164,7 @@ func (a *App) renderWelcomeSessions() []string {
 	}
 	out := make([]string, 0, len(a.Sessions))
 	for i, s := range a.Sessions {
-		out = append(out, fmt.Sprintf("  ▸ %s   %s",
+		out = append(out, fmt.Sprintf("  %s %s   %s", ui.G.ThinkClosed,
 			ui.WelcomeSess.Render(truncate(s.Title, 38)),
 			ui.WelcomeSessMeta.Render("· "+formatRelative(s.UpdatedAt)),
 		))
@@ -236,10 +236,10 @@ func truncate(s string, max int) string {
 }
 
 func (a *App) renderHeader() string {
-	dot := ui.StatusOffline.String()
+	dot := ui.StatusOffline.Render(ui.G.On)
 	state := "no sidecar"
 	if a.Status.Online {
-		dot = ui.StatusOnline.String()
+		dot = ui.StatusOnline.Render(ui.G.On)
 		state = "online"
 	}
 	m := orStr(a.Status.Model, "—")
@@ -273,9 +273,9 @@ func (a *App) renderInput(h int) string {
 		// the layout height stays stable and the user's eye doesn't
 		// jump around between the two strips.
 		placeholder := ui.InputPlaceholder.Render("…  (esc to cancel)")
-		return ui.InputStyle.Width(a.Width).Height(h).Render(ui.InputPrompt.String() + " " + placeholder)
+		return ui.InputStyle.Width(a.Width).Height(h).Render(ui.InputPrompt.Render(ui.G.Prompt) + " " + placeholder)
 	}
-	return ui.InputStyle.Width(a.Width).Height(h).Render(ui.InputPrompt.String() + " " + a.Input.View())
+	return ui.InputStyle.Width(a.Width).Height(h).Render(ui.InputPrompt.Render(ui.G.Prompt) + " " + a.Input.View())
 }
 
 func (a *App) renderFooter() string {
@@ -560,7 +560,7 @@ func formatToolViewerRow(row ToolViewerRow) string {
 		// Running — show elapsed-so-far.
 		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s ⠿", formatElapsed(time.Since(row.Call.StartedAt))))
 	}
-	return fmt.Sprintf("%s %s%s   %s", ui.ToolMark.String(), name, arg, elapsed)
+	return fmt.Sprintf("%s %s%s   %s", ui.ToolMark.Render(ui.G.ToolMark), name, arg, elapsed)
 }
 
 // formatToolViewerPreview renders the expanded preview panel for the
@@ -582,7 +582,7 @@ func formatToolViewerPreview(row ToolViewerRow, width int) string {
 	}
 	diff := looksLikeDiff(preview)
 	out := make([]string, 0, len(lines)+2)
-	out = append(out, ui.ToolViewerMeta.Render(" ▸ result ──"))
+	out = append(out, ui.ToolViewerMeta.Render(" "+ui.G.ThinkClosed+" result --"))
 	for _, line := range lines {
 		clipped := truncateRunes(line, width)
 		if diff {
@@ -681,7 +681,7 @@ func (a *App) renderErrorCard(e ErrorCard, width int) string {
 	if width < 20 {
 		width = 20
 	}
-	mark := ui.ErrorTitle.Render("⏺ error")
+	mark := ui.ErrorTitle.Render(ui.G.ToolMark + " error")
 	if e.Kind != "" && e.Kind != "unknown" {
 		mark = mark + ui.ErrorTitle.Render("  ·  "+e.Kind)
 	}
@@ -808,7 +808,7 @@ func collapsedToolSummary(turn *Turn, gutter string) string {
 		total += tc.endedOrNow()
 	}
 	line := fmt.Sprintf("%s %s  %s",
-		ui.ToolDone.Render(ui.ToolMark.String()),
+		ui.ToolDone.Render(ui.ToolMark.Render(ui.G.ToolMark)),
 		fmt.Sprintf("ran %d tool calls", len(turn.Tools)),
 		ui.MetaStyle.Render(fmt.Sprintf("⏱ %s total · /tools for details", formatElapsed(total))))
 	return gutter + line
@@ -830,21 +830,21 @@ func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
 	}
 	elapsed := formatElapsed(t.endedOrNow())
 	statusGlyph, statusStyle := t.statusGlyph()
-	mark := statusStyle.Render(ui.ToolMark.String())
+	mark := statusStyle.Render(ui.ToolMark.Render(ui.G.ToolMark))
 	tail := statusStyle.Render(fmt.Sprintf("⏱ %s %s", elapsed, statusGlyph))
 
 	first := fmt.Sprintf("%s %s%s  %s", mark, name, arg, tail)
 	out := []string{first}
 	if t.Note != "" {
-		out = append(out, "  "+ui.ToolResult.String()+" "+ui.ToolNote.Render(t.Note))
+		out = append(out, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolNote.Render(t.Note))
 	}
 	if t.Status == ToolError && t.ErrMsg != "" {
-		out = append(out, "  "+ui.ToolResult.String()+" "+ui.ToolError.Render(t.ErrMsg))
+		out = append(out, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolError.Render(t.ErrMsg))
 	}
 	if t.Preview != "" {
 		preview := truncate(t.Preview, width-TagIndent-2)
 		if preview != "" {
-			out = append(out, "  "+ui.ToolResult.String()+" "+ui.MetaStyle.Render(preview))
+			out = append(out, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.MetaStyle.Render(preview))
 		}
 	}
 	return strings.Join(out, "\n"+gutter)
