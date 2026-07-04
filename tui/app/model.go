@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -83,6 +84,33 @@ type Turn struct {
 	// timed out. Rendered as bordered cards in the transcript so a
 	// transient failure is visible without hunting through inline text.
 	Errors []ErrorCard
+	// Meta is a one-line trailing footnote set once the turn finishes
+	// streaming — "12.4s · 842 tok", mirroring Claude Code's dim
+	// "✻ Cooked for Ns" note under a completed reply.
+	Meta string
+
+	// mdCacheSrc/mdCacheOut/mdCacheWidth memoize the last glamour render of
+	// Text. Every tea.Msg (a token, a spinner tick, a resize) rebuilds the
+	// WHOLE transcript, so without this every past turn's markdown was
+	// re-rendered on every frame — O(history size) work per keystroke.
+	// Only the actively-streaming turn's Text actually changes between
+	// frames, so this makes every other turn a cache hit.
+	mdCacheSrc   string
+	mdCacheOut   string
+	mdCacheWidth int
+}
+
+// renderMarkdownCached returns the glamour render of Text, reusing the last
+// render when neither Text nor width has changed since.
+func (t *Turn) renderMarkdownCached(width int) string {
+	if t.Text == t.mdCacheSrc && width == t.mdCacheWidth {
+		return t.mdCacheOut
+	}
+	out := ui.RenderMarkdown(t.Text, width)
+	t.mdCacheSrc = t.Text
+	t.mdCacheOut = out
+	t.mdCacheWidth = width
+	return out
 }
 
 // ErrorCard is one error event attached to an assistant turn.
@@ -199,6 +227,10 @@ type App struct {
 	// StartedAt is when the TUI booted — used by the welcome screen to
 	// show a session-elapsed timer (`⏱ 0:42`).
 	StartedAt time.Time
+
+	// Cwd is the working directory the TUI was launched from — shown on
+	// the welcome screen, mirroring Claude Code's boot banner.
+	Cwd string
 }
 
 // ToolViewerRow is one entry in the `/tools` overlay — the flattened
@@ -245,6 +277,14 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 	ti.Placeholder = "type a message…"
 	ti.CharLimit = 0
 	ti.ShowLineNumbers = false
+	// bubbles' default Prompt is a thick-border "┃ " printed on every line,
+	// and the default focused CursorLine paints a filled background — both
+	// recreate the boxed look the flat redesign removed from InputStyle.
+	// We already render our own "›" once in view.go's renderInput, so strip
+	// both here rather than fighting them from the outside.
+	ti.Prompt = ""
+	ti.FocusedStyle.CursorLine = ti.FocusedStyle.CursorLine.UnsetBackground()
+	ti.BlurredStyle.CursorLine = ti.BlurredStyle.CursorLine.UnsetBackground()
 	ti.Focus()
 
 	vp := viewport.New(80, 20)
@@ -253,6 +293,8 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 	sp := spinner.New()
 	sp.Style = ui.SpinnerStyle
 	sp.Spinner = spinner.Dot
+
+	cwd, _ := os.Getwd()
 
 	return &App{
 		Status:       status,
@@ -263,6 +305,7 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 		Loader:       sp,
 		StartedAt:    time.Now(),
 		FollowBottom: true,
+		Cwd:          cwd,
 	}
 }
 
@@ -310,7 +353,8 @@ func (a *App) buildChatContent() string {
 	}
 	msgWidth := a.ChatVP.Width - ui.TagWidth - 1
 	var b strings.Builder
-	for _, turn := range a.Turns {
+	for i := range a.Turns {
+		turn := &a.Turns[i]
 		switch turn.Role {
 		case RoleUser:
 			tag := ui.TagYou.Render("you")
@@ -354,7 +398,7 @@ func (a *App) buildChatContent() string {
 				break
 			}
 			if turn.Text != "" {
-				rendered := ui.RenderMarkdown(turn.Text, msgWidth)
+				rendered := turn.renderMarkdownCached(msgWidth)
 				lines := strings.Split(rendered, "\n")
 				for i, line := range lines {
 					if turn.Streaming && i == len(lines)-1 {
@@ -377,16 +421,31 @@ func (a *App) buildChatContent() string {
 				b.WriteByte('\n')
 			}
 			// Tool pills — rendered under the tag, indented to the gutter
-			// so they read as part of this turn's transcript.
-			for _, tc := range turn.Tools {
-				pill := a.renderToolPill(tc, gutter, msgWidth)
-				b.WriteString(gutter + pill)
+			// so they read as part of this turn's transcript. A long burst
+			// of successful calls collapses to one summary line (full
+			// detail stays one keystroke away via /tools) so a 20-tool-call
+			// turn doesn't push the whole scrollback off-screen; streaming
+			// turns and any turn with an error always show every pill so
+			// live progress and failures stay visible.
+			if collapsed := collapsedToolSummary(turn, gutter); collapsed != "" {
+				b.WriteString(collapsed)
 				b.WriteByte('\n')
+			} else {
+				for _, tc := range turn.Tools {
+					pill := a.renderToolPill(tc, gutter, msgWidth)
+					b.WriteString(gutter + pill)
+					b.WriteByte('\n')
+				}
 			}
 			// Error cards — bordered boxes, prefixed with the gutter so
 			// they align with the pills above.
 			for _, e := range turn.Errors {
 				b.WriteString(gutter + a.renderErrorCard(e, msgWidth-TagIndent))
+				b.WriteByte('\n')
+			}
+			// Per-turn cost footnote, dim — Claude Code's "✻ Cooked for Ns".
+			if turn.Meta != "" {
+				b.WriteString(gutter + ui.MetaStyle.Render("✻ "+turn.Meta))
 				b.WriteByte('\n')
 			}
 		}

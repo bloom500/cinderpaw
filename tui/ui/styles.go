@@ -96,6 +96,14 @@ var (
 	ThinkingCollapsed = lipgloss.NewStyle().Foreground(Meta).SetString("▸ thinking…")
 
 	SeparatorStyle = lipgloss.NewStyle().Foreground(Meta)
+
+	// Diff line styles for unified-diff previews (git_diff tool output, or
+	// any tool result that looks like one). Bold +/- so the color reads at
+	// a glance even in terminals with a low-contrast theme.
+	DiffAdd  = lipgloss.NewStyle().Foreground(Ok)
+	DiffDel  = lipgloss.NewStyle().Foreground(Fail)
+	DiffHunk = lipgloss.NewStyle().Foreground(Meta).Italic(true)
+	DiffFile = lipgloss.NewStyle().Foreground(AccentHi).Bold(true)
 	// InputPrompt is the leading glyph on the input row — Claude-Code style
 	// "› " prompt instead of a bordered box. No Border/Background: the
 	// horizontal rule already drawn above the input (see view.go's `sep`)

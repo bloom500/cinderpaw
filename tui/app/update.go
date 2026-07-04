@@ -541,18 +541,27 @@ func (a *App) beginAssistant() {
 }
 
 func (a *App) finishStream() {
+	elapsed := formatElapsed(time.Since(a.StreamStartedAt))
+	tokens := a.StreamCompletionTokens
 	for i := range a.Turns {
 		t := &a.Turns[i]
 		if t.Role == RoleAssistant && t.Streaming {
 			t.Streaming = false
+			if !a.StreamStartedAt.IsZero() {
+				if tokens > 0 {
+					t.Meta = fmt.Sprintf("%s · %d tok", elapsed, tokens)
+				} else {
+					t.Meta = elapsed
+				}
+			}
 			break
 		}
 	}
 	a.Mode = ModeEditing
 	a.StreamBuf.Reset()
 	// Clear streaming stats — the footer reverts to the shortcut row until
-	// the next turn begins. We keep StreamStartedAt around briefly so the
-	// "last turn: 1.2k tok in 4.3s" line can flash in the footer.
+	// the next turn begins. The per-turn cost is preserved on the Turn
+	// itself (Meta, set above), not here.
 	a.StreamStartedAt = time.Time{}
 	a.StreamPromptTokens = 0
 	a.StreamCompletionTokens = 0

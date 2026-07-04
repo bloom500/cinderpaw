@@ -95,7 +95,11 @@ func (a *App) renderWelcomeContent() string {
 	}
 
 	var lines []string
-	lines = append(lines, ui.WelcomeTagline.Render("✻ feral chat"), "")
+	lines = append(lines, ui.WelcomeTagline.Render("✻ feral chat"))
+	if a.Cwd != "" {
+		lines = append(lines, ui.WelcomeValue.Render(a.Cwd))
+	}
+	lines = append(lines, "")
 	lines = append(lines, a.renderWelcomeStatus()...)
 	lines = append(lines, "")
 
@@ -576,10 +580,16 @@ func formatToolViewerPreview(row ToolViewerRow, width int) string {
 		lines = lines[:maxLines]
 		truncated = true
 	}
+	diff := looksLikeDiff(preview)
 	out := make([]string, 0, len(lines)+2)
 	out = append(out, ui.ToolViewerMeta.Render(" ▸ result ──"))
 	for _, line := range lines {
-		out = append(out, "   "+ui.ToolViewerPreview.Render(truncateRunes(line, width)))
+		clipped := truncateRunes(line, width)
+		if diff {
+			out = append(out, "   "+renderDiffLine(clipped))
+			continue
+		}
+		out = append(out, "   "+ui.ToolViewerPreview.Render(clipped))
 	}
 	if truncated {
 		out = append(out, ui.ToolViewerMeta.Render(
@@ -589,6 +599,40 @@ func formatToolViewerPreview(row ToolViewerRow, width int) string {
 		out = append(out, ui.ToolViewerMeta.Render("   error: ")+ui.ToolViewerRow.Render(tc.ErrMsg))
 	}
 	return strings.Join(out, "\n")
+}
+
+// looksLikeDiff reports whether text is unified-diff shaped (git_diff tool
+// output, or any tool result that happens to embed one) — enough of the
+// standard markers that plain prose won't false-positive.
+func looksLikeDiff(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff --git "),
+			strings.HasPrefix(line, "@@ "),
+			strings.HasPrefix(line, "--- a/"),
+			strings.HasPrefix(line, "+++ b/"):
+			return true
+		}
+	}
+	return false
+}
+
+// renderDiffLine colors one line of a unified diff — added lines green,
+// removed lines red, hunk headers and file markers dim/accent, everything
+// else (context lines) in the plain preview style.
+func renderDiffLine(line string) string {
+	switch {
+	case strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "), strings.HasPrefix(line, "diff --git "):
+		return ui.DiffFile.Render(line)
+	case strings.HasPrefix(line, "@@"):
+		return ui.DiffHunk.Render(line)
+	case strings.HasPrefix(line, "+"):
+		return ui.DiffAdd.Render(line)
+	case strings.HasPrefix(line, "-"):
+		return ui.DiffDel.Render(line)
+	default:
+		return ui.ToolViewerPreview.Render(line)
+	}
 }
 
 // plural returns "s" when n != 1, else "" — keeps the overlay header
@@ -709,10 +753,17 @@ func (a *App) renderStreamingStatus() string {
 	elapsed := formatElapsed(time.Since(a.StreamStartedAt))
 	tokens := a.StreamCompletionTokens
 	if tokens <= 0 {
-		// No `usage` event yet — show what we know (elapsed + spinner)
-		// and let the host's first usage chunk fill in the numbers.
+		// No `usage` event yet — show what we know (elapsed + spinner). Past
+		// 8s with zero tokens the model is almost certainly still prefilling
+		// the prompt (long context + CPU inference can take tens of seconds
+		// before the first token), not hung — say so explicitly, otherwise a
+		// bare spinner + growing timer is indistinguishable from a freeze.
 		status := ui.StreamStatus.Render(fmt.Sprintf("▌ streaming %s", a.Loader.View())) +
 			"  " + ui.StreamDim.Render(fmt.Sprintf("⏱ %s", elapsed))
+		if time.Since(a.StreamStartedAt) > 8*time.Second {
+			status += "  " + ui.StreamStalled.Render("⏳ prefilling prompt — first token can take a while on CPU")
+		}
+		status += "  " + ui.StreamHint.Render("esc to cancel")
 		return status
 	}
 	tps := 0.0
@@ -735,6 +786,32 @@ func (a *App) renderStreamingStatus() string {
 	// end of the same line, not somewhere else.
 	status += "  " + ui.StreamHint.Render("esc to cancel")
 	return status
+}
+
+// collapseToolThreshold is the tool-call count past which a finished, all-
+// successful turn collapses its pills into one summary line.
+const collapseToolThreshold = 4
+
+// collapsedToolSummary returns the one-line "ran N tool calls" summary for
+// turn, or "" if the turn should render every pill individually (still
+// streaming, too few calls, or at least one error/running call — those
+// need to stay visible on their own).
+func collapsedToolSummary(turn *Turn, gutter string) string {
+	if turn.Streaming || len(turn.Tools) < collapseToolThreshold {
+		return ""
+	}
+	var total time.Duration
+	for _, tc := range turn.Tools {
+		if tc.Status != ToolDone {
+			return ""
+		}
+		total += tc.endedOrNow()
+	}
+	line := fmt.Sprintf("%s %s  %s",
+		ui.ToolDone.Render(ui.ToolMark.String()),
+		fmt.Sprintf("ran %d tool calls", len(turn.Tools)),
+		ui.MetaStyle.Render(fmt.Sprintf("⏱ %s total · /tools for details", formatElapsed(total))))
+	return gutter + line
 }
 
 // renderToolPill renders one tool call as two flat lines:
