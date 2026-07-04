@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"feral-tui/api"
+	"testing"
+)
 
 func TestStateFooterHintMatchesSpecTable(t *testing.T) {
 	cases := []struct {
@@ -25,5 +28,12 @@ func TestNewAppStartsReady(t *testing.T) {
 	a := newTestApp()
 	if a.State != StateReady {
 		t.Fatalf("newTestApp() State = %v, want StateReady", a.State)
+	}
+}
+
+func TestNewStartsBoot(t *testing.T) {
+	a := New("http://127.0.0.1:1", "x", &api.StatusSnapshot{Online: false})
+	if a.State != StateBoot {
+		t.Fatalf("New() State = %v, want StateBoot (§2 J2.1)", a.State)
 	}
 }

@@ -170,6 +170,14 @@ type RuntimeEventMsg struct {
 	Event api.RuntimeEvent
 }
 
+// BootComplete is sent by Init() after the first frame so the header
+// renders at least once with "○ starting" before transitioning (§2 J2.1).
+type BootComplete struct{}
+
+// wizardDoneMarker is written by finishWizard and checked on every launch
+// to decide whether to auto-open the setup flow (§2 J2.3).
+const wizardDoneMarker = "~/.feral/.wizard-done"
+
 type App struct {
 	Width, Height int
 
@@ -381,7 +389,7 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 		StartedAt:    time.Now(),
 		FollowBottom: true,
 		Cwd:          cwd,
-		State:        StateReady,
+		State:        StateBoot,
 		HistoryIdx:   -1,
 	}
 }

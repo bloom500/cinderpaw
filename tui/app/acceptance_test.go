@@ -114,6 +114,20 @@ func TestFreezeFrameAtSmallTerminal(t *testing.T) {
 	}
 }
 
+// TestBootHeaderShowsStarting — spec §22 acceptance for §2 J2.1.
+func TestBootHeaderShowsStarting(t *testing.T) {
+	a := newTestApp()
+	a.State = StateBoot
+	a.Status.Online = false
+	out := stripAnsi(a.renderHeader())
+	if !strings.Contains(out, "starting") {
+		t.Fatalf("boot header should contain 'starting', got: %q", out)
+	}
+	if strings.Contains(out, "online") {
+		t.Fatalf("boot header should not show 'online', got: %q", out)
+	}
+}
+
 // TestNormalSizeShowsContent verifies 80×24 renders normally.
 func TestNormalSizeShowsContent(t *testing.T) {
 	a := newTestApp()

@@ -5,6 +5,7 @@ import (
 	"feral-tui/api"
 	"feral-tui/ui"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -34,11 +35,29 @@ func (a *App) fetchSessionsCmd() tea.Cmd {
 }
 
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd(), a.startEventsCmd())
+	return tea.Sequence(
+		// Boot flash — header shows "○ starting" for ~100 ms (§2 J2.1).
+		tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+			return BootComplete{}
+		}),
+		tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd(), a.startEventsCmd()),
+	)
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case BootComplete:
+		a.State = StateReady
+		a.rebuildViewport()
+
+		// Check for wizard-done marker (§2 J2.3) — if missing, this is a
+		// first launch and the setup wizard opens automatically.
+		marker := os.ExpandEnv(wizardDoneMarker)
+		if _, err := os.Stat(marker); os.IsNotExist(err) {
+			a.startWizard()
+		}
+		return a, nil
+
 	case tea.WindowSizeMsg:
 		a.Width = msg.Width
 		a.Height = msg.Height
@@ -1394,11 +1413,15 @@ func advanceWizardStep(c WizardChoice) WizardStep {
 	}
 }
 
-// finishWizard exits the wizard, adds the welcome message, and transitions
-// to the normal chat state.
+// finishWizard exits the wizard, writes the wizard-done marker, adds the
+// welcome message, and transitions to the normal chat state.
 func (a *App) finishWizard() {
 	a.Wizard.Show = false
 	a.State = StateReady
+
+	// Write wizard-done marker so subsequent launches skip the wizard (§2 J2.3).
+	marker := os.ExpandEnv(wizardDoneMarker)
+	os.WriteFile(marker, []byte("done\n"), 0644)
 
 	// Welcome moment — one assistant turn that greets the user.
 	welcomeText := "Welcome to Feral.\n\nI'm ready to help.\n\n" +

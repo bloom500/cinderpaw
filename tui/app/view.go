@@ -256,11 +256,15 @@ func truncate(s string, max int) string {
 }
 
 func (a *App) renderHeader() string {
-	dot := ui.StatusOffline.Render(ui.G.On)
-	state := "no sidecar"
-	if a.Status.Online {
+	dot := ui.StatusOffline.Render(ui.G.Off)
+	state := "starting"
+	if a.State == StateBoot {
+		// Boot flash — show "○ starting" (§2 J2.1).
+	} else if a.Status.Online {
 		dot = ui.StatusOnline.Render(ui.G.On)
 		state = "online"
+	} else {
+		state = "no sidecar"
 	}
 	m := orStr(a.Status.Model, "—")
 	brand := ui.BrandStyle.Render("feral")
