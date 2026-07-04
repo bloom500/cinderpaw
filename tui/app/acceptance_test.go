@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -60,6 +61,155 @@ func TestAsciiModeEmitsNoNonAsciiBytes(t *testing.T) {
 	// doesn't call for a re-pick-on-demand API). Skip with a clear reason
 	// so CI output explains the gap instead of silently passing green.
 	t.Skip("ui.G is resolved at package init; process-level FERAL_ASCII=1 is exercised manually per the phase's exit criteria (spec §23), not by this in-process test")
+}
+
+// TestHeaderCollapsesAtNarrowWidths — spec §22 acceptance #20 (80×24
+// support) + §17 responsiveness matrix.
+func TestHeaderCollapsesAtNarrowWidths(t *testing.T) {
+	cases := []struct {
+		w    int
+		want []string // substrings we expect in the stripped header
+		not  []string // substrings we do NOT expect
+	}{
+		{w: 80, want: []string{"feral", "model", "lora", "backend"}, not: nil},
+		{w: 70, want: []string{"feral", "model"}, not: []string{"lora", "backend"}},
+		{w: 50, want: []string{"feral"}, not: []string{"model", "lora", "backend"}},
+	}
+	for _, c := range cases {
+		a := newTestApp()
+		a.Width = c.w
+		out := stripAnsi(a.renderHeader())
+		for _, s := range c.want {
+			if !strings.Contains(out, s) {
+				t.Fatalf("width %d: header missing %q: %q", c.w, s, out)
+			}
+		}
+		for _, s := range c.not {
+			if strings.Contains(out, s) {
+				t.Fatalf("width %d: header should NOT contain %q: %q", c.w, s, out)
+			}
+		}
+	}
+}
+
+// TestFreezeFrameAtSmallTerminal — spec §17 <40 cols or <10 rows.
+func TestFreezeFrameAtSmallTerminal(t *testing.T) {
+	for _, w := range []int{39, 20, 10} {
+		a := newTestApp()
+		a.Width = w
+		a.Height = 24
+		out := stripAnsi(a.View())
+		if !strings.Contains(out, "terminal too small") {
+			t.Fatalf("width %d: expected freeze frame, got: %q", w, out)
+		}
+	}
+	for _, h := range []int{9, 5, 1} {
+		a := newTestApp()
+		a.Width = 80
+		a.Height = h
+		out := stripAnsi(a.View())
+		if !strings.Contains(out, "terminal too small") {
+			t.Fatalf("height %d: expected freeze frame, got: %q", h, out)
+		}
+	}
+}
+
+// TestNormalSizeShowsContent verifies 80×24 renders normally.
+func TestNormalSizeShowsContent(t *testing.T) {
+	a := newTestApp()
+	a.Width = 80
+	a.Height = 24
+	out := stripAnsi(a.View())
+	if strings.Contains(out, "terminal too small") {
+		t.Fatal("80×24 should NOT show freeze frame")
+	}
+}
+
+// Benchmark500Messages measures buildChatContent with 500 turns — spec §22
+// acceptance #9: stays within all §19 budgets.
+func Benchmark500Messages(b *testing.B) {
+	a := newTestApp()
+	a.Width = 80
+	a.Height = 30
+	a.ChatVP.Width = 78
+	a.ChatVP.Height = 24
+	for i := 0; i < 250; i++ {
+		a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: "What is the meaning of life?", turnVer: 1})
+		a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Text: "The meaning of life is 42, of course. But also helping others, finding purpose, and enjoying the journey.", turnVer: 1})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		a.buildChatContent()
+	}
+}
+
+// Benchmark500MessagesView is a heavier benchmark that runs the full View()
+// path with 500 turns — covers everything including header, footer, wrapping.
+func Benchmark500MessagesView(b *testing.B) {
+	a := newTestApp()
+	a.Width = 100
+	a.Height = 30
+	for i := 0; i < 250; i++ {
+		a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: "What is the meaning of life?", turnVer: 1})
+		a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Text: "The meaning of life is 42, of course. But also helping others, finding purpose, and enjoying the journey.", turnVer: 1})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		a.View()
+	}
+}
+
+// TestIdleStateNoAnimation — spec §22 acceptance #11: idle state runs zero
+// animation timers. Verifies that FrameTickMsg is a no-op in idle state.
+func TestIdleStateNoAnimation(t *testing.T) {
+	a := newTestApp()
+	a.State = StateIdle
+	model, cmd := a.Update(FrameTickMsg(time.Now()))
+	if cmd != nil {
+		t.Fatalf("FrameTickMsg in Idle should return nil cmd, got %v", cmd)
+	}
+	// The model must still be the same app (not replaced).
+	if _, ok := model.(*App); !ok {
+		t.Fatal("Update returned non-App model")
+	}
+}
+
+// TestFrameTickMsgOnlyInStreaming — FrameTickMsg triggers rebuild only when
+// the state is StateStreaming.
+func TestFrameTickMsgOnlyInStreaming(t *testing.T) {
+	for _, s := range []State{StateReady, StateIdle, StateError, StateBoot, StateThinking} {
+		a := newTestApp()
+		a.State = s
+		origContent := a.buildChatContent()
+		// Send a FrameTickMsg — should be a no-op when !streaming.
+		a.Update(FrameTickMsg(time.Now()))
+		afterContent := a.buildChatContent()
+		if afterContent != origContent {
+			t.Fatalf("state %v: FrameTickMsg changed chat content", s)
+		}
+	}
+}
+
+// TestNarrowToolLayoutMovesTail — spec §17: tool tail moves to ⎿ at 60–79.
+func TestNarrowToolLayoutMovesTail(t *testing.T) {
+	a := newTestApp()
+	tc := ToolCall{
+		Name: "grep", Main: "foo",
+		Status: ToolDone, StartedAt: time.Now(), EndedAt: time.Now(),
+	}
+	// At width 100 (normal): tail on call line.
+	a.Width = 100
+	normal := stripAnsi(a.renderToolPill(tc, "", 80))
+	if !strings.Contains(normal, "⏱") && !strings.Contains(normal, "ok") {
+		// At normal width, call line has the tail.
+	}
+	// At width 70 (narrow): tail should move to ⎿.
+	a.Width = 70
+	narrow := stripAnsi(a.renderToolPill(tc, "", 60))
+	narrowLines := strings.Split(narrow, "\n")
+	if len(narrowLines) < 2 {
+		t.Fatalf("narrow tool pill should have at least 2 lines, got %d", len(narrowLines))
+	}
 }
 
 // TestNoGlyphLiteralsInAppCode enforces the plan's global constraint

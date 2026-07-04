@@ -560,10 +560,12 @@ func feedTag(buf *string, inThink *bool, piece string) string {
 // Kind (the type) and Message (the rendered form) here; the formatter
 // map in the app layer picks the exact `◦ line text.
 type RuntimeEvent struct {
-	Kind    string `json:"type"`
-	Message string `json:"message,omitempty"`
-	Stage   string `json:"stage,omitempty"`
-	Detail  string `json:"detail,omitempty"`
+	Kind     string `json:"type"`
+	Message  string `json:"message,omitempty"`
+	Stage    string `json:"stage,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // parseRuntimeEventSSE decodes one SSE data line from /events into a

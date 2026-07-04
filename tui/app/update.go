@@ -430,6 +430,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case RuntimeEventMsg:
+		// Brain Stack model switch: update header live (spec §10).
+		if msg.Event.Kind == "model_set" {
+			if msg.Event.Model != "" {
+				a.Status.Model = msg.Event.Model
+			}
+			if msg.Event.Provider != "" {
+				a.Status.Provider = msg.Event.Provider
+			}
+		}
 		if a.State == StateStreaming {
 			a.PendingEvents = append(a.PendingEvents, msg.Event)
 		} else {
@@ -462,7 +471,7 @@ func (a *App) handleSubmit() tea.Cmd {
 	a.Completion.List = nil
 	a.Completion.Idx = 0
 	a.lastUserText = raw
-	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: raw})
+	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: raw, turnVer: 1})
 	a.beginAssistant()
 	a.State = StateStreaming
 	a.FollowBottom = true
@@ -703,6 +712,7 @@ func (a *App) beginAssistant() {
 	a.Turns = append(a.Turns, Turn{
 		Role:      RoleAssistant,
 		Streaming: true,
+		turnVer:   1, // non-zero so fresh turn doesn't match empty cache
 	})
 	// Reset streaming stats so the footer starts fresh for this turn.
 	a.StreamStartedAt = time.Now()
@@ -726,6 +736,7 @@ func (a *App) finishStream() {
 					t.Meta = elapsed
 				}
 			}
+			t.markDirty()
 			break
 		}
 	}
@@ -753,6 +764,7 @@ func (a *App) stopStream() {
 		t := &a.Turns[len(a.Turns)-1-i]
 		if t.Role == RoleAssistant && t.Streaming {
 			t.Interrupted = true
+			t.markDirty()
 			break
 		}
 	}
@@ -993,6 +1005,7 @@ func (a *App) pushToolStart(ts api.ToolStart) {
 		a.ApprovalToolID = ts.ID
 	}
 	t.Tools = append(t.Tools, tc)
+	t.markDirty()
 }
 
 // finishToolCall flips a running tool pill to its terminal state (done or
@@ -1015,6 +1028,7 @@ func (a *App) finishToolCall(td api.ToolDone) {
 				if len(td.Result) > 0 {
 					t.Tools[j].Preview = truncateRunes(string(td.Result), 80)
 				}
+				t.markDirty()
 				return
 			}
 		}
@@ -1034,6 +1048,7 @@ func (a *App) noteToolProgress(tp api.ToolProgress) {
 		for j := range t.Tools {
 			if t.Tools[j].ID == tp.ID {
 				t.Tools[j].Note = tp.Message
+				t.markDirty()
 				return
 			}
 		}
@@ -1113,6 +1128,9 @@ func (a *App) flushPending() {
 		if reasoning != "" {
 			t.Reasoning += reasoning
 		}
+		if text != "" || reasoning != "" {
+			t.markDirty()
+		}
 		return
 	}
 }
@@ -1149,6 +1167,7 @@ func (a *App) pushAssistantError(msg string) {
 			Kind:    kind,
 			Hint:    hint,
 		})
+		t.markDirty()
 		return
 	}
 }
@@ -1214,6 +1233,7 @@ func (a *App) toggleThinking() {
 		t := &a.Turns[len(a.Turns)-1-i]
 		if t.Role == RoleAssistant && t.Reasoning != "" {
 			t.ThinkingOpen = !t.ThinkingOpen
+			t.markDirty()
 			return
 		}
 	}
@@ -1247,9 +1267,9 @@ func (a *App) runDoctorChecks() []doctorCheck {
 // appendTranscriptLines adds text lines as a synthetic user turn then an
 // assistant turn — they render as transcript content that scrolls normally.
 func (a *App) appendTranscriptLines(lines []string) {
-	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: ""})
+	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: "", turnVer: 1})
 	body := strings.Join(lines, "\n")
-	a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Text: body})
+	a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Text: body, turnVer: 1})
 	a.rebuildViewport()
 }
 

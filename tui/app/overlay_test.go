@@ -242,6 +242,9 @@ func TestFormatRuntimeEventDreamCycle(t *testing.T) {
 		{ev: api.RuntimeEvent{Kind: "genome_evolution", Message: "layer L3 fitness 0.83 → 0.85"}, want: "genome: layer L3 fitness 0.83 → 0.85"},
 		{ev: api.RuntimeEvent{Kind: "meta_evolution", Message: "epoch 7 — mutation budget tightened"}, want: "meta: epoch 7 — mutation budget tightened"},
 		{ev: api.RuntimeEvent{Kind: "connector_event", Message: "telegram: reply sent to @dan"}, want: "telegram: reply sent to @dan"},
+		{ev: api.RuntimeEvent{Kind: "model_set", Model: "gpt-4o"}, want: "routed to gpt-4o"},
+		{ev: api.RuntimeEvent{Kind: "model_set", Model: "stepfun-ai/step-3.7-flash"}, want: "routed to step-3.7-flash"},
+		{ev: api.RuntimeEvent{Kind: "fallback", Message: "primary unreachable, switching to local"}, want: "⚠ primary unreachable, switching to local"},
 		// Unknown kind — forward-compatible fallback to Message
 		{ev: api.RuntimeEvent{Kind: "unknown_new_feature", Message: "something happened"}, want: "something happened"},
 	}
@@ -421,6 +424,57 @@ func TestToolResultBudget(t *testing.T) {
 	last := stripAnsi(lines[len(lines)-1])
 	if strings.Contains(last, "more") && !strings.Contains(last, "/tools") {
 		t.Fatalf("overflow line should mention /tools, got: %q", last)
+	}
+}
+
+func TestModelSetEventUpdatesStatus(t *testing.T) {
+	a := newTestApp()
+	a.Update(RuntimeEventMsg{Event: api.RuntimeEvent{
+		Kind: "model_set", Provider: "openai", Model: "gpt-4o",
+	}})
+	if a.Status.Model != "gpt-4o" {
+		t.Fatalf("expected model=gpt-4o, got %q", a.Status.Model)
+	}
+	if a.Status.Provider != "openai" {
+		t.Fatalf("expected provider=openai, got %q", a.Status.Provider)
+	}
+}
+
+// TestTurnRenderCache — calls buildChatContent twice; the second call should
+// hit cache for every clean turn and produce identical output.
+func TestTurnRenderCache(t *testing.T) {
+	a := newTestApp()
+	a.Width = 80
+	a.Height = 24
+	a.ChatVP.Width = 78
+	a.ChatVP.Height = 20
+
+	// Add a few turns.
+	a.Turns = []Turn{
+		{Role: RoleUser, Text: "hello", turnVer: 1},
+		{Role: RoleAssistant, Text: "world", Streaming: false, turnVer: 1},
+		{Role: RoleUser, Text: "second question", turnVer: 1},
+		{Role: RoleAssistant, Text: "second answer", Streaming: false, turnVer: 1},
+	}
+	first := a.buildChatContent()
+	if first == "" {
+		t.Fatal("buildChatContent returned empty")
+	}
+
+	// All cached entries should be populated.
+	for i := range a.Turns {
+		if a.Turns[i].turnCache == "" {
+			t.Fatalf("turn %d cache is empty after buildChatContent", i)
+		}
+		if a.Turns[i].turnCacheVer != a.Turns[i].turnVer {
+			t.Fatalf("turn %d cache version mismatch: %d != %d", i, a.Turns[i].turnCacheVer, a.Turns[i].turnVer)
+		}
+	}
+
+	// Second call with no mutations: same output, cache hits.
+	second := a.buildChatContent()
+	if second != first {
+		t.Fatal("second buildChatContent with no mutations produced different output")
 	}
 }
 

@@ -15,6 +15,10 @@ func (a *App) View() string {
 	if a.Width == 0 {
 		return "Loading…"
 	}
+	// Freeze frame on too-small terminals (§17).
+	if a.Width < 40 || a.Height < 10 {
+		return ui.MetaStyle.Render("terminal too small (min 40×10)")
+	}
 
 	headerH := 1
 	footerH := 1
@@ -243,20 +247,30 @@ func (a *App) renderHeader() string {
 		state = "online"
 	}
 	m := orStr(a.Status.Model, "—")
-	l := orStr(a.Status.LoRA, "none")
-	// Show the BYOK provider (nvidia / minimax / …) when one is active,
-	// otherwise fall back to the generic backend label. Either way the
-	// header stays one short phrase so it fits narrow terminals.
-	backendLabel := a.Status.Backend
-	if a.Status.ByokProvider != "" {
-		backendLabel = a.Status.ByokProvider
-	}
 	brand := ui.BrandStyle.Render("feral")
-	left := fmt.Sprintf("%s  %s %s  %s %s  %s %s",
-		brand,
-		ui.MetaStyle.Render("model"), m,
-		ui.MetaStyle.Render("lora"), l,
-		ui.MetaStyle.Render("backend"), backendLabel)
+
+	// Build left segments right-to-left so narrower widths naturally
+	// exclude the rightmost segments (spec §17).
+	var left string
+	switch {
+	case a.Width >= 80:
+		l := orStr(a.Status.LoRA, "none")
+		backendLabel := a.Status.Backend
+		if a.Status.ByokProvider != "" {
+			backendLabel = a.Status.ByokProvider
+		}
+		left = fmt.Sprintf("%s  %s %s  %s %s  %s %s",
+			brand,
+			ui.MetaStyle.Render("model"), m,
+			ui.MetaStyle.Render("lora"), l,
+			ui.MetaStyle.Render("backend"), backendLabel)
+	case a.Width >= 60:
+		left = fmt.Sprintf("%s  %s %s",
+			brand,
+			ui.MetaStyle.Render("model"), m)
+	default:
+		left = brand
+	}
 	right := fmt.Sprintf("%s %s", dot, state)
 	pad := a.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if pad < 1 {
@@ -279,6 +293,9 @@ func (a *App) renderInput(h int) string {
 }
 
 func (a *App) renderFooter() string {
+	// Narrow terminal: shorten hints (§17 40–59 cols).
+	short := a.Width < 60 && !a.IsStreaming() && a.State != StateError && a.State != StateWaiting
+
 	if a.State == StateError {
 		if !a.RateLimitUntil.IsZero() {
 			remaining := int(time.Until(a.RateLimitUntil).Seconds())
@@ -294,7 +311,22 @@ func (a *App) renderFooter() string {
 	if a.FlashText != "" {
 		return ui.FooterStyle.Render(ui.FlashStyle.Render(a.FlashText))
 	}
-	return ui.FooterStyle.Render(a.State.FooterHint())
+	hint := a.State.FooterHint()
+	if short {
+		hint = shortHint(hint)
+	}
+	return ui.FooterStyle.Render(hint)
+}
+
+// shortHint returns a compressed version of the footer hint for narrow
+// terminals (§17 <60 cols). Key names only, no descriptions.
+func shortHint(hint string) string {
+	switch hint {
+	case "F1 for shortcuts · Ctrl+C to exit":
+		return "F1 · ^C"
+	default:
+		return hint
+	}
 }
 
 func (a *App) renderHelpOverlay(under string) string {
@@ -853,7 +885,14 @@ func collapsedToolSummary(turn *Turn, gutter string) string {
 // result would exceed 3 lines, the last ⎿ becomes an overflow hint.
 const toolResultBudget = 3
 
+// renderToolPill renders one tool call. When `compactTail` is true (narrow
+// terminal, 60–79 cols), the ⏱ elapsed + status glyph moves to the last
+// ⎿ line instead of sharing the call line (spec §17).
 func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
+	return a.renderToolPillCompact(t, gutter, width, a.narrowToolLayout())
+}
+
+func (a *App) renderToolPillCompact(t ToolCall, gutter string, width int, compactTail bool) string {
 	// Declined tools render a single line.
 	if t.Status == ToolDeclined {
 		mark := ui.MetaStyle.Render(ui.G.ToolMark)
@@ -879,18 +918,29 @@ func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
 	mark := statusStyle.Render(ui.ToolMark.Render(ui.G.ToolMark))
 	tail := statusStyle.Render(fmt.Sprintf("⏱ %s %s", elapsed, statusGlyph))
 
-	first := fmt.Sprintf("%s %s%s  %s", mark, name, arg, tail)
-	out := []string{first}
+	var out []string
+	if compactTail {
+		// Narrow layout: tail moves to the first ⎿ line (§17).
+		out = []string{fmt.Sprintf("%s %s%s", mark, name, arg)}
+	} else {
+		out = []string{fmt.Sprintf("%s %s%s  %s", mark, name, arg, tail)}
+	}
 
-	// Collect result lines — enforce the 3 ⎿ line budget (§8). Note and
-	// Error each count as one line. Preview may contain embedded newlines;
-	// we cap the total rendered lines at toolResultBudget.
+	// Collect result lines — enforce the 3 ⎿ line budget (§8).
 	resultLines := make([]string, 0, toolResultBudget)
 	if t.Note != "" {
-		resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolNote.Render(t.Note))
+		line := "  " + ui.ToolResult.Render(ui.G.Result) + " " + ui.ToolNote.Render(t.Note)
+		if compactTail && len(resultLines) == 0 {
+			line += "  " + tail
+		}
+		resultLines = append(resultLines, line)
 	}
 	if t.Status == ToolError && t.ErrMsg != "" {
-		resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolError.Render(t.ErrMsg))
+		line := "  " + ui.ToolResult.Render(ui.G.Result) + " " + ui.ToolError.Render(t.ErrMsg)
+		if compactTail && len(resultLines) == 0 {
+			line += "  " + tail
+		}
+		resultLines = append(resultLines, line)
 	}
 	if t.Preview != "" {
 		// Count lines already allocated.
@@ -902,6 +952,9 @@ func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
 		if remaining <= 0 {
 			// No budget left — show overflow on the last line.
 			overflow := fmt.Sprintf("%s %s (+%d more · /tools)", ui.G.Result, ui.G.Ellipsis, len(t.Preview))
+			if compactTail {
+				overflow += "  " + tail
+			}
 			resultLines[len(resultLines)-1] = "  " + ui.ToolResult.Render(overflow)
 		} else {
 			preview := truncate(t.Preview, width-TagIndent-2)
@@ -912,12 +965,23 @@ func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
 					renderLines = renderLines[:remaining]
 					renderLines[remaining-1] = fmt.Sprintf("%s (+%d more · /tools)", ui.G.Ellipsis, len(t.Preview))
 				}
-				for _, pl := range renderLines {
-					resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.MetaStyle.Render(pl))
+				for i, pl := range renderLines {
+					line := "  " + ui.ToolResult.Render(ui.G.Result) + " " + ui.MetaStyle.Render(pl)
+					if compactTail && i == 0 && len(resultLines) == 0 {
+						line += "  " + tail
+					}
+					resultLines = append(resultLines, line)
 				}
 			}
 		}
 	}
+
+	// If compact tail never got attached (no result lines at all), append
+	// the tail on a standalone ⎿ line so it's not lost.
+	if compactTail && len(resultLines) == 0 {
+		resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.MetaStyle.Render(tail))
+	}
+
 	out = append(out, resultLines...)
 	return strings.Join(out, "\n"+gutter)
 }

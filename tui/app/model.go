@@ -96,6 +96,19 @@ type Turn struct {
 	mdCacheSrc   string
 	mdCacheOut   string
 	mdCacheWidth int
+
+	// turnVer and turnCache form the per-turn render cache (§16). turnVer
+	// increments on every mutation to this turn's content; turnCache holds
+	// the last full render of this turn. buildChatContent skips re-render
+	// when turnCacheVer == turnVer (same width verified at call site).
+	turnVer     uint64
+	turnCacheVer uint64
+	turnCache    string
+}
+
+// markDirty increments the turn version, invalidating any cached render.
+func (t *Turn) markDirty() {
+	t.turnVer++
 }
 
 // renderMarkdownCached returns the glamour render of Text, reusing the last
@@ -175,6 +188,9 @@ type App struct {
 	Input       textarea.Model
 	Loader      spinner.Model
 	PrevContent string
+	// renderWidth tracks the msgWidth used during the last buildChatContent
+	// pass. When it matches, per-turn caches are valid (spec §16).
+	renderWidth int
 	// FollowBottom is true while the transcript should auto-scroll to the
 	// newest content (the default, and what streaming needs). It flips to
 	// false the moment the user scrolls up on purpose (PgUp / mouse wheel
@@ -407,6 +423,12 @@ func (a *App) lastAssistantTurn() *Turn {
 // text starts at the same column the tag's own text ends on.
 var gutter = strings.Repeat(" ", ui.TagWidth+1)
 
+// narrowToolLayout reports whether the terminal is in the 60–79 col range
+// where the tool tail moves onto the ⎿ line (spec §17).
+func (a *App) narrowToolLayout() bool {
+	return a.Width >= 60 && a.Width < 80
+}
+
 func (a *App) buildChatContent() string {
 	if len(a.Turns) == 0 {
 		welcome := a.renderWelcomeContent()
@@ -423,126 +445,143 @@ func (a *App) buildChatContent() string {
 		return welcome
 	}
 	msgWidth := a.ChatVP.Width - ui.TagWidth - 1
+	widthOK := msgWidth == a.renderWidth
+
 	var b strings.Builder
 	for i := range a.Turns {
 		turn := &a.Turns[i]
-		switch turn.Role {
-		case RoleUser:
-			tag := ui.TagYou.Render("you")
-			lines := reflow(turn.Text, msgWidth)
-			b.WriteString(tag + " " + ui.UserContent.Render(lines[0]))
-			b.WriteByte('\n')
-			for _, line := range lines[1:] {
-				b.WriteString(gutter + ui.UserContent.Render(line))
-				b.WriteByte('\n')
-			}
-		case RoleAssistant:
-			// Reasoning reads like a dim, tag-less "sys" preamble — same
-			// gutter indent as continuation lines — before the tagged
-			// answer row, since the tag marks the answer, not the thinking.
-			if turn.Reasoning != "" {
-				if turn.ThinkingOpen {
-					b.WriteString(gutter + ui.ThinkingHeader.Render(ui.G.ThinkOpen+" thinking"))
-					b.WriteByte('\n')
-					for _, line := range reflow(turn.Reasoning, msgWidth-2) {
-						b.WriteString(gutter + "  " + ui.ThinkingContent.Render(line))
-						b.WriteByte('\n')
-					}
-				} else {
-					// Collapsed mode: live spinner + elapsed while the
-					// active turn is still streaming (§9).
-					var prefix string
-					if turn.Streaming {
-						prefix = a.Loader.View() + " thinking"
-						if elapsed := time.Since(a.StreamStartedAt); elapsed > 3*time.Second {
-							prefix += fmt.Sprintf(" · %s", formatElapsed(elapsed))
-						}
-					} else {
-						prefix = ui.G.ThinkClosed + " thinking…"
-					}
-					first := turn.Reasoning
-					if idx := strings.Index(first, "\n"); idx >= 0 {
-						first = first[:idx]
-					}
-					first = first[:clampLen(first, msgWidth-2)]
-					b.WriteString(gutter + ui.ThinkingCollapsed.Render(prefix) + " " + first)
-					b.WriteByte('\n')
-				}
-			}
 
-			tag := ui.TagFeral.Render("◆ feral")
-			if turn.Text == "" && len(turn.Tools) == 0 {
-				b.WriteString(tag)
-				if turn.Streaming {
-					b.WriteString(" " + a.Loader.View())
-				}
-				b.WriteByte('\n')
-				break
-			}
-			if turn.Text != "" {
-				rendered := turn.renderMarkdownCached(msgWidth)
-				lines := strings.Split(rendered, "\n")
-				for i, line := range lines {
-					if turn.Streaming && i == len(lines)-1 {
-						line += ui.Cursor.Render(ui.G.Cursor)
-					}
-					if i == 0 {
-						b.WriteString(tag + " " + ui.FeralContent.Render(line))
-					} else {
-						b.WriteString(gutter + ui.FeralContent.Render(line))
-					}
-					b.WriteByte('\n')
-				}
-			} else {
-				// Empty body but tool calls present — still emit the tag so
-				// the pill block below has a visual owner.
-				b.WriteString(tag)
-				if turn.Streaming {
-					b.WriteString(" " + a.Loader.View())
-				}
-				b.WriteByte('\n')
-			}
-			// Tool pills — rendered under the tag, indented to the gutter
-			// so they read as part of this turn's transcript. A long burst
-			// of successful calls collapses to one summary line (full
-			// detail stays one keystroke away via /tools) so a 20-tool-call
-			// turn doesn't push the whole scrollback off-screen; streaming
-			// turns and any turn with an error always show every pill so
-			// live progress and failures stay visible.
-			if collapsed := collapsedToolSummary(turn, gutter); collapsed != "" {
-				b.WriteString(collapsed)
-				b.WriteByte('\n')
-			} else {
-				for _, tc := range turn.Tools {
-					pill := a.renderToolPill(tc, gutter, msgWidth)
-					b.WriteString(gutter + pill)
-					b.WriteByte('\n')
-				}
-			}
-			// Error cards — bordered boxes, prefixed with the gutter so
-			// they align with the pills above.
-			for _, e := range turn.Errors {
-				b.WriteString(gutter + a.renderErrorCard(e, msgWidth-TagIndent))
-				b.WriteByte('\n')
-			}
-			// Per-turn cost footnote, dim — Claude Code's "✻ Cooked for Ns".
-			if turn.Meta != "" {
-				b.WriteString(gutter + ui.MetaStyle.Render(ui.G.Spark+" "+turn.Meta))
-				b.WriteByte('\n')
-			}
-			if turn.Interrupted {
-				b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" interrupted"))
-				b.WriteByte('\n')
-			}
+		// Per-turn render cache (§16). When the width hasn't changed and the
+		// turn's data hasn't changed, reuse the previous render. This means
+		// streaming only re-renders the last one or two turns instead of the
+		// entire transcript.
+		if widthOK && turn.turnCacheVer == turn.turnVer {
+			b.WriteString(turn.turnCache)
+			continue
 		}
-		b.WriteByte('\n')
+
+		rendered := a.renderTurn(turn, msgWidth)
+		turn.turnCache = rendered
+		turn.turnCacheVer = turn.turnVer
+		b.WriteString(rendered)
 	}
+	a.renderWidth = msgWidth
+
 	// Runtime events (§11) — rendered after all turns, between-turn position.
 	for _, ev := range a.RuntimeEvents {
 		b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" "+formatRuntimeEvent(ev)))
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// renderTurn renders one full turn block — the tag line, any reasoning,
+// content, tool pills, error cards, meta, and interrupted marker.
+func (a *App) renderTurn(turn *Turn, msgWidth int) string {
+	var b strings.Builder
+	switch turn.Role {
+	case RoleUser:
+		tag := ui.TagYou.Render("you")
+		lines := reflow(turn.Text, msgWidth)
+		b.WriteString(tag + " " + ui.UserContent.Render(lines[0]))
+		b.WriteByte('\n')
+		for _, line := range lines[1:] {
+			b.WriteString(gutter + ui.UserContent.Render(line))
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+		return b.String()
+	case RoleAssistant:
+		// Reasoning reads like a dim, tag-less "sys" preamble — same
+		// gutter indent as continuation lines — before the tagged
+		// answer row, since the tag marks the answer, not the thinking.
+		if turn.Reasoning != "" {
+			if turn.ThinkingOpen {
+				b.WriteString(gutter + ui.ThinkingHeader.Render(ui.G.ThinkOpen+" thinking"))
+				b.WriteByte('\n')
+				for _, line := range reflow(turn.Reasoning, msgWidth-2) {
+					b.WriteString(gutter + "  " + ui.ThinkingContent.Render(line))
+					b.WriteByte('\n')
+				}
+			} else {
+				// Collapsed mode: live spinner + elapsed while the
+				// active turn is still streaming (§9).
+				var prefix string
+				if turn.Streaming {
+					prefix = a.Loader.View() + " thinking"
+					if elapsed := time.Since(a.StreamStartedAt); elapsed > 3*time.Second {
+						prefix += fmt.Sprintf(" · %s", formatElapsed(elapsed))
+					}
+				} else {
+					prefix = ui.G.ThinkClosed + " thinking…"
+				}
+				first := turn.Reasoning
+				if idx := strings.Index(first, "\n"); idx >= 0 {
+					first = first[:idx]
+				}
+				first = first[:clampLen(first, msgWidth-2)]
+				b.WriteString(gutter + ui.ThinkingCollapsed.Render(prefix) + " " + first)
+				b.WriteByte('\n')
+			}
+		}
+
+		tag := ui.TagFeral.Render("◆ feral")
+		if turn.Text == "" && len(turn.Tools) == 0 {
+			b.WriteString(tag)
+			if turn.Streaming {
+				b.WriteString(" " + a.Loader.View())
+			}
+			b.WriteByte('\n')
+			b.WriteByte('\n')
+			return b.String()
+		}
+		if turn.Text != "" {
+			rendered := turn.renderMarkdownCached(msgWidth)
+			lines := strings.Split(rendered, "\n")
+			for i, line := range lines {
+				if turn.Streaming && i == len(lines)-1 {
+					line += ui.Cursor.Render(ui.G.Cursor)
+				}
+				if i == 0 {
+					b.WriteString(tag + " " + ui.FeralContent.Render(line))
+				} else {
+					b.WriteString(gutter + ui.FeralContent.Render(line))
+				}
+				b.WriteByte('\n')
+			}
+		} else {
+			b.WriteString(tag)
+			if turn.Streaming {
+				b.WriteString(" " + a.Loader.View())
+			}
+			b.WriteByte('\n')
+		}
+		if collapsed := collapsedToolSummary(turn, gutter); collapsed != "" {
+			b.WriteString(collapsed)
+			b.WriteByte('\n')
+		} else {
+			for _, tc := range turn.Tools {
+				pill := a.renderToolPill(tc, gutter, msgWidth)
+				b.WriteString(gutter + pill)
+				b.WriteByte('\n')
+			}
+		}
+		for _, e := range turn.Errors {
+			b.WriteString(gutter + a.renderErrorCard(e, msgWidth-TagIndent))
+			b.WriteByte('\n')
+		}
+		if turn.Meta != "" {
+			b.WriteString(gutter + ui.MetaStyle.Render(ui.G.Spark+" "+turn.Meta))
+			b.WriteByte('\n')
+		}
+		if turn.Interrupted {
+			b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" interrupted"))
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+		return b.String()
+	}
+	return ""
 }
 
 func (a *App) rebuildViewport() {
@@ -574,6 +613,17 @@ func formatRuntimeEvent(ev api.RuntimeEvent) string {
 		return "genome: " + ev.Message
 	case "meta_evolution":
 		return "meta: " + ev.Message
+	case "model_set":
+		if ev.Model != "" {
+			short := ev.Model
+			if idx := strings.LastIndex(short, "/"); idx >= 0 {
+				short = short[idx+1:]
+			}
+			return fmt.Sprintf("routed to %s", short)
+		}
+		return "routed"
+	case "fallback":
+		return "⚠ " + ev.Message
 	default:
 		if ev.Message != "" {
 			return ev.Message
