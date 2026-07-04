@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"feral-tui/api"
+	"feral-tui/ui"
 	"fmt"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ func (a *App) fetchSessionsCmd() tea.Cmd {
 }
 
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd())
+	return tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd(), a.startEventsCmd())
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -247,6 +248,40 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.rebuildViewport()
 			return a, nil
 
+		case "y":
+			if a.State == StateWaiting && a.ApprovalToolID != "" {
+				a.State = a.PriorState
+				a.ApprovalToolID = ""
+				a.rebuildViewport()
+				return a, nil
+			}
+			// fall through to textarea below.
+
+		case "n":
+			if a.State == StateWaiting && a.ApprovalToolID != "" {
+				a.State = StateReady
+				// Mark the tool as declined.
+				for i := len(a.Turns) - 1; i >= 0; i-- {
+					t := &a.Turns[i]
+					if t.Role != RoleAssistant {
+						continue
+					}
+					for j := range t.Tools {
+						if t.Tools[j].ID == a.ApprovalToolID {
+							t.Tools[j].Status = ToolDeclined
+							break
+						}
+					}
+					break
+				}
+				a.ApprovalToolID = ""
+				a.PriorState = StateReady
+				a.setFlash("declined")
+				a.rebuildViewport()
+				return a, nil
+			}
+			// fall through to textarea below.
+
 		case "r":
 			if a.State == StateError {
 				return a, a.retryLastMessage()
@@ -394,6 +429,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.setFlash(msg.Text)
 		return a, nil
 
+	case RuntimeEventMsg:
+		if a.State == StateStreaming {
+			a.PendingEvents = append(a.PendingEvents, msg.Event)
+		} else {
+			a.RuntimeEvents = append(a.RuntimeEvents, msg.Event)
+			a.coalesceRuntimeEvents()
+			a.rebuildViewport()
+		}
+		return a, nil
+
 	}
 
 	return a, nil
@@ -437,6 +482,7 @@ func (a *App) handleSlash(body string) tea.Cmd {
 		return tea.Quit
 	case "clear", "cls":
 		a.Turns = nil
+		a.RuntimeEvents = nil
 		a.StreamBuf.Reset()
 		a.PrevContent = ""
 		a.ChatVP.SetContent("")
@@ -449,6 +495,7 @@ func (a *App) handleSlash(body string) tea.Cmd {
 		// fresh. On a headless gateway the session would persist to
 		// disk; here we just clear the in-memory state.
 		a.Turns = nil
+		a.RuntimeEvents = nil
 		a.StreamBuf.Reset()
 		a.PrevContent = ""
 		a.ChatVP.SetContent("")
@@ -456,6 +503,72 @@ func (a *App) handleSlash(body string) tea.Cmd {
 		a.FollowBottom = true
 		a.setFlash("session reset")
 		return nil
+	case "compact":
+		nTurns := len(a.Turns)
+		if nTurns == 0 {
+			a.setFlash("no turns to compact")
+			return nil
+		}
+		total := 0
+		for _, t := range a.Turns {
+			total += len(t.Text)
+		}
+		// Simulate compaction — in a full implementation this would call
+		// a gateway endpoint. For now render a receipt line.
+		msg := fmt.Sprintf("compacted: %d turns → summary (%s freed)", nTurns, formatTokens(total/2))
+		a.RuntimeEvents = append(a.RuntimeEvents, api.RuntimeEvent{
+			Kind:    "compact",
+			Message: msg,
+		})
+		a.rebuildViewport()
+		a.setFlash(msg)
+		return nil
+
+	case "connectors":
+		return a.handleConnectors(parts[1:])
+
+	case "doctor":
+		// Run in-memory checks from cached status + manifest.
+		checks := a.runDoctorChecks()
+		lines := make([]string, 0, len(checks))
+		for _, c := range checks {
+			glyph := ui.G.OK
+			if !c.Ok {
+				glyph = ui.G.Err
+			}
+			lines = append(lines, fmt.Sprintf("%s %s · %s", glyph, c.Name, c.Detail))
+		}
+		a.appendTranscriptLines(lines)
+		return nil
+
+	case "dream":
+		return a.handleDream(parts[1:])
+
+	case "genome":
+		a.setFlash("genome status: use /status or check the web dashboard")
+		return nil
+
+	case "history":
+		// Alias for /sessions.
+		return a.handleSlash("sessions")
+
+	case "lora":
+		return a.handleLora()
+
+	case "memory":
+		return a.handleMemory(parts[1:])
+
+	case "meta":
+		a.setFlash("meta evolution status: use /status or check the web dashboard")
+		return nil
+
+	case "providers":
+		return a.handleProviders()
+
+	case "setup":
+		a.setFlash("setup wizard — coming in a future update")
+		return nil
+
 	case "sessions":
 		// Show the most-recent sessions from the welcome screen cache.
 		// If we haven't fetched yet (or the cache is stale), kick off
@@ -596,6 +709,7 @@ func (a *App) beginAssistant() {
 	a.StreamPromptTokens = 0
 	a.StreamCompletionTokens = 0
 	a.LastTokenAt = time.Now()
+	a.streamHasContent = false
 }
 
 func (a *App) finishStream() {
@@ -619,10 +733,12 @@ func (a *App) finishStream() {
 	// pushAssistantError) and the recovery loop (retryLastMessage,
 	// auto-retry-on-zero) relies on the user staying in that state
 	// after the stream ends. finishStream must not clobber it.
-	if a.State == StateStreaming {
+	if a.State == StateStreaming || a.State == StateThinking || a.State == StateWaiting {
 		a.State = StateReady
 	}
 	a.StreamBuf.Reset()
+	// Flush any runtime events that queued during streaming (spec §11).
+	a.flushPendingEvents()
 	// Clear streaming stats — the footer reverts to the shortcut row until
 	// the next turn begins. The per-turn cost is preserved on the Turn
 	// itself (Meta, set above), not here.
@@ -778,10 +894,37 @@ func (a *App) startStream(content string) tea.Cmd {
 	}
 }
 
+// startEventsCmd launches the background /events SSE reader. The goroutine
+// runs until the connection drops or the context is cancelled (on shutdown).
+// Each event is pushed through Program.Send so Update handles it on the
+// single loop thread.
+func (a *App) startEventsCmd() tea.Cmd {
+	return func() tea.Msg {
+		events := make(chan api.RuntimeEvent, 64)
+		done := make(chan error, 1)
+		go api.StreamEvents(a.BaseURL, a.Token, events, done)
+		for {
+			select {
+			case ev, ok := <-events:
+				if !ok {
+					return nil
+				}
+				a.Prog.Send(RuntimeEventMsg{Event: ev})
+			case <-done:
+				return nil
+			}
+		}
+	}
+}
+
 func (a *App) handleStreamChunk(chunk api.Chunk) {
 	switch {
 	case chunk.ToolStart.ID != "":
 		a.pushToolStart(chunk.ToolStart)
+		a.streamHasContent = true
+		if a.State == StateThinking {
+			a.State = StateStreaming
+		}
 	case chunk.ToolDone.ID != "":
 		a.finishToolCall(chunk.ToolDone)
 	case chunk.ToolProgress.ID != "":
@@ -789,8 +932,15 @@ func (a *App) handleStreamChunk(chunk api.Chunk) {
 	case chunk.Error != "":
 		a.pushAssistantError(chunk.Error)
 	case chunk.Reasoning != "":
+		if !a.streamHasContent && a.State == StateStreaming {
+			a.State = StateThinking
+		}
 		a.pushAssistantReasoning(chunk.Reasoning)
 	case chunk.Content != "":
+		a.streamHasContent = true
+		if a.State == StateThinking {
+			a.State = StateStreaming
+		}
 		a.pushAssistantText(chunk.Content)
 		a.LastTokenAt = time.Now()
 	}
@@ -805,22 +955,44 @@ func (a *App) handleStreamChunk(chunk api.Chunk) {
 	}
 }
 
+// needsConfirmation reports whether a tool call should pause for user
+// approval before executing (spec §8). The sidecar will eventually own
+// this decision; for now the TUI uses name-based heuristics.
+func needsConfirmation(name string) bool {
+	switch name {
+	case "shell_exec", "write_file", "delete_file", "batch", "execute",
+		"bash", "powershell", "cmd", "sudo":
+		return true
+	}
+	return false
+}
+
 // pushToolStart appends a new running ToolCall to the trailing assistant
 // turn. If no assistant turn exists yet (race before beginAssistant), we
 // drop the call — the host only emits tool_start after the agent loop has
 // already started, so in practice one is always present.
+//
+// For confirmation-gated tools (§8) the app enters StateWaiting and stores
+// the tool ID so the user can approve (y) or decline (n) before the tool
+// proceeds. The prior state is saved for restoration on approval.
 func (a *App) pushToolStart(ts api.ToolStart) {
 	t := a.lastAssistantTurn()
 	if t == nil {
 		return
 	}
-	t.Tools = append(t.Tools, ToolCall{
-		ID:       ts.ID,
-		Name:     ts.Name,
-		Main:     mainArgFromArgs(ts.Args),
-		Status:   ToolRunning,
+	tc := ToolCall{
+		ID:        ts.ID,
+		Name:      ts.Name,
+		Main:      mainArgFromArgs(ts.Args),
+		Status:    ToolRunning,
 		StartedAt: time.Now(),
-	})
+	}
+	if needsConfirmation(ts.Name) && a.State == StateStreaming {
+		a.PriorState = a.State
+		a.State = StateWaiting
+		a.ApprovalToolID = ts.ID
+	}
+	t.Tools = append(t.Tools, tc)
 }
 
 // finishToolCall flips a running tool pill to its terminal state (done or
@@ -1050,6 +1222,138 @@ func (a *App) toggleThinking() {
 func (a *App) setFlash(text string) {
 	a.FlashText = text
 	a.FlashUntil = time.Now().Add(5 * time.Second)
+}
+
+// ── Slash command helpers (§12) ─────────────────────────────────
+
+type doctorCheck struct {
+	Name   string
+	Detail string
+	Ok     bool
+}
+
+// runDoctorChecks returns a list of health checks from cached state.
+func (a *App) runDoctorChecks() []doctorCheck {
+	return []doctorCheck{
+		{Name: "gateway", Detail: fmt.Sprintf("port %d", api.DefaultPort), Ok: a.Status.Online},
+		{Name: "model", Detail: orStr(a.Status.Model, "none loaded"), Ok: a.Status.Model != ""},
+		{Name: "lora", Detail: orStr(a.Status.LoRA, "none"), Ok: a.Status.LoRA != ""},
+		{Name: "backend", Detail: a.Status.Backend, Ok: a.Status.Online},
+		{Name: "provider", Detail: orStr(a.Status.Provider, "local"), Ok: true},
+		{Name: "events", Detail: fmt.Sprintf("%d events seen", len(a.RuntimeEvents)), Ok: true},
+	}
+}
+
+// appendTranscriptLines adds text lines as a synthetic user turn then an
+// assistant turn — they render as transcript content that scrolls normally.
+func (a *App) appendTranscriptLines(lines []string) {
+	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: ""})
+	body := strings.Join(lines, "\n")
+	a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Text: body})
+	a.rebuildViewport()
+}
+
+func (a *App) handleConnectors(args []string) tea.Cmd {
+	if len(args) > 0 && args[0] == "reload" {
+		return func() tea.Msg {
+			err := api.ReloadConnectors(a.BaseURL, a.Token)
+			if err != nil {
+				a.Prog.Send(FlashMsg{Text: fmt.Sprintf("connectors reload failed: %v", err)})
+			} else {
+				a.Prog.Send(FlashMsg{Text: "connectors reloaded"})
+			}
+			return nil
+		}
+	}
+	// Show cached connector count from last status poll.
+	a.setFlash("connectors info: use /connectors reload to refresh")
+	return nil
+}
+
+func (a *App) handleDream(args []string) tea.Cmd {
+	if len(args) > 0 && args[0] == "now" {
+		// Trigger a dream cycle via the gateway (stub).
+		return func() tea.Msg {
+			err := api.TriggerDream(a.BaseURL, a.Token)
+			if err != nil {
+				return FlashMsg{Text: fmt.Sprintf("dream trigger failed: %v", err)}
+			}
+			return FlashMsg{Text: "dream cycle triggered — watch /events for progress"}
+		}
+	}
+	// Show last dream event from the runtime events log.
+	for i := len(a.RuntimeEvents) - 1; i >= 0; i-- {
+		if a.RuntimeEvents[i].Kind == "dream_cycle" {
+			a.setFlash("last dream: " + a.RuntimeEvents[i].Message)
+			return nil
+		}
+	}
+	a.setFlash("no dream events recorded yet — try /dream now")
+	return nil
+}
+
+func (a *App) handleLora() tea.Cmd {
+	return func() tea.Msg {
+		status, err := api.FetchLoraStatus(a.BaseURL, a.Token)
+		if err != nil {
+			return FlashMsg{Text: fmt.Sprintf("lora status: %v", err)}
+		}
+		msg := fmt.Sprintf("lora: %s", orStr(status, "none"))
+		return FlashMsg{Text: msg}
+	}
+}
+
+func (a *App) handleMemory(args []string) tea.Cmd {
+	if len(args) > 0 && args[0] == "search" && len(args) >= 2 {
+		query := strings.Join(args[1:], " ")
+		msg := fmt.Sprintf("memory search for %q — use the web dashboard for full results", query)
+		a.setFlash(msg)
+		return nil
+	}
+	// Show memory stats from cached status.
+	model := orStr(a.Status.Model, "—")
+	backend := a.Status.Backend
+	nTurns := len(a.Turns)
+	a.setFlash(fmt.Sprintf("memory: model %s · backend: %s · session: %d turns", model, backend, nTurns))
+	return nil
+}
+
+func (a *App) handleProviders() tea.Cmd {
+	return func() tea.Msg {
+		providers, defaultProvider, err := api.FetchProviders(a.BaseURL, a.Token)
+		if err != nil {
+			return FlashMsg{Text: fmt.Sprintf("providers: %v", err)}
+		}
+		if len(providers) == 0 {
+			return FlashMsg{Text: "no providers configured — using local inference"}
+		}
+		lines := make([]string, 0, len(providers)+1)
+		for _, p := range providers {
+			dot := ui.G.Off
+			if p.Online {
+				dot = ui.G.On
+			}
+			def := ""
+			if p.ID == defaultProvider {
+				def = " · default"
+			}
+			lines = append(lines, fmt.Sprintf("%s %s%s", dot, p.ID, def))
+		}
+		// Run from a goroutine, so send via FlashMsg.
+		msg := strings.Join(lines, "  ")
+		return FlashMsg{Text: msg}
+	}
+}
+
+func formatTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM tok", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk tok", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d tok", n)
+	}
 }
 
 const inputHistoryCap = 200

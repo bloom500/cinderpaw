@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ const (
 	ToolRunning ToolStatus = iota
 	ToolDone
 	ToolError
+	ToolDeclined
 )
 
 // CompletionItem is one row in the slash-command autocomplete popup.
@@ -150,6 +152,11 @@ type SessionsMsg struct {
 	Err      error
 }
 
+// RuntimeEventMsg wraps one event from the /events SSE stream.
+type RuntimeEventMsg struct {
+	Event api.RuntimeEvent
+}
+
 type App struct {
 	Width, Height int
 
@@ -219,6 +226,10 @@ type App struct {
 	// exceeds ~3s without a `done` event, we tag the spinner as stalled so
 	// the user knows the agent is still working but not making progress.
 	LastTokenAt time.Time
+	// streamHasContent is true once the first content (non-reasoning)
+	// token arrives. Used to transition StateThinking → StateStreaming
+	// (the thinking footer hints only while reasoning precedes text).
+	streamHasContent bool
 
 	// Completion is one entry in the slash-command autocomplete popup that
 	// floats above the input while the user types `/`.
@@ -257,6 +268,24 @@ type App struct {
 	// counting down. Cleared on the auto-retry.
 	RateLimitUntil   time.Time
 	retriedRateLimit bool
+
+	// RuntimeEvents are the rendered event lines in the transcript (spec
+	// §11). Events arriving during streaming queue in PendingEvents and
+	// flush into RuntimeEvents when the stream ends.
+	RuntimeEvents   []api.RuntimeEvent
+	PendingEvents   []api.RuntimeEvent
+
+	// eventsCtx is cancelled when the events SSE goroutine should stop.
+	// Set when the app shuts down so we don't leak the HTTP reader.
+	eventsCancel func()
+
+	// PriorState stores the state before entering StateWaiting so
+	// y/n can restore the right prior state (spec §8 approval prompts).
+	PriorState State
+
+	// ApprovalToolID is the tool call ID currently awaiting user approval
+	// in StateWaiting. Empty when not in an approval flow.
+	ApprovalToolID string
 }
 
 // ToolViewerRow is one entry in the `/tools` overlay — the flattened
@@ -380,7 +409,18 @@ var gutter = strings.Repeat(" ", ui.TagWidth+1)
 
 func (a *App) buildChatContent() string {
 	if len(a.Turns) == 0 {
-		return a.renderWelcomeContent()
+		welcome := a.renderWelcomeContent()
+		if len(a.RuntimeEvents) > 0 {
+			var b strings.Builder
+			b.WriteString(welcome)
+			b.WriteByte('\n')
+			for _, ev := range a.RuntimeEvents {
+				b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" "+formatRuntimeEvent(ev)))
+				b.WriteByte('\n')
+			}
+			return b.String()
+		}
+		return welcome
 	}
 	msgWidth := a.ChatVP.Width - ui.TagWidth - 1
 	var b strings.Builder
@@ -409,12 +449,23 @@ func (a *App) buildChatContent() string {
 						b.WriteByte('\n')
 					}
 				} else {
+					// Collapsed mode: live spinner + elapsed while the
+					// active turn is still streaming (§9).
+					var prefix string
+					if turn.Streaming {
+						prefix = a.Loader.View() + " thinking"
+						if elapsed := time.Since(a.StreamStartedAt); elapsed > 3*time.Second {
+							prefix += fmt.Sprintf(" · %s", formatElapsed(elapsed))
+						}
+					} else {
+						prefix = ui.G.ThinkClosed + " thinking…"
+					}
 					first := turn.Reasoning
 					if idx := strings.Index(first, "\n"); idx >= 0 {
 						first = first[:idx]
 					}
 					first = first[:clampLen(first, msgWidth-2)]
-					b.WriteString(gutter + ui.ThinkingCollapsed.Render(ui.G.ThinkClosed+" thinking…") + " " + first)
+					b.WriteString(gutter + ui.ThinkingCollapsed.Render(prefix) + " " + first)
 					b.WriteByte('\n')
 				}
 			}
@@ -486,6 +537,11 @@ func (a *App) buildChatContent() string {
 		}
 		b.WriteByte('\n')
 	}
+	// Runtime events (§11) — rendered after all turns, between-turn position.
+	for _, ev := range a.RuntimeEvents {
+		b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" "+formatRuntimeEvent(ev)))
+		b.WriteByte('\n')
+	}
 	return b.String()
 }
 
@@ -498,4 +554,73 @@ func (a *App) rebuildViewport() {
 			a.ChatVP.GotoBottom()
 		}
 	}
+}
+
+// formatRuntimeEvent renders one event line — the part after the `◦` glyph
+// (spec §11 table). Unknown event kinds fall back to `ev.Message` for
+// forward-compatibility.
+func formatRuntimeEvent(ev api.RuntimeEvent) string {
+	switch ev.Kind {
+	case "dream_cycle":
+		if ev.Message == "" {
+			return "dreaming…"
+		}
+		return "dream: " + ev.Message
+	case "memory_indexed", "memory_indexing":
+		return "indexing memory… " + ev.Message
+	case "lora_training":
+		return "lora: " + ev.Message
+	case "genome_evolution", "genome_tick":
+		return "genome: " + ev.Message
+	case "meta_evolution":
+		return "meta: " + ev.Message
+	default:
+		if ev.Message != "" {
+			return ev.Message
+		}
+		return ev.Kind
+	}
+}
+
+// flushPendingEvents drains the PendingEvents queue into RuntimeEvents
+// (spec §11: events arriving during streaming flush when the stream ends).
+// Applies coalescing: same-kind events within 1s collapse to a summary line.
+func (a *App) flushPendingEvents() {
+	if len(a.PendingEvents) == 0 {
+		return
+	}
+	for _, ev := range a.PendingEvents {
+		a.RuntimeEvents = append(a.RuntimeEvents, ev)
+	}
+	a.PendingEvents = nil
+	// Coalesce: merge consecutive same-kind events into one summary.
+	a.coalesceRuntimeEvents()
+}
+
+// coalesceRuntimeEvents merges same-kind events that arrived within 1s of
+// each other into one summary line (spec §22 acceptance #26).
+func (a *App) coalesceRuntimeEvents() {
+	if len(a.RuntimeEvents) < 2 {
+		return
+	}
+	merged := make([]api.RuntimeEvent, 0, len(a.RuntimeEvents))
+	i := 0
+	for i < len(a.RuntimeEvents) {
+		j := i + 1
+		kind := a.RuntimeEvents[i].Kind
+		for j < len(a.RuntimeEvents) && a.RuntimeEvents[j].Kind == kind {
+			j++
+		}
+		count := j - i
+		if count > 1 {
+			merged = append(merged, api.RuntimeEvent{
+				Kind:    kind,
+				Message: fmt.Sprintf("%d %s events · /status for detail", count, kind),
+			})
+		} else {
+			merged = append(merged, a.RuntimeEvents[i])
+		}
+		i = j
+	}
+	a.RuntimeEvents = merged
 }

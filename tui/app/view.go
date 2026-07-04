@@ -759,9 +759,24 @@ func (a *App) renderCompletions() string {
 //
 // Hidden when idle (returns "" so JoinVertical drops it).
 func (a *App) renderStreamingStatus() string {
-	if !a.IsStreaming() {
+	if !a.IsStreaming() && a.State != StateThinking {
 		return ""
 	}
+	// Thinking phase (reasoning before first content token) — show latency
+	// hiding line per spec §9 (100ms+, 3s+, 15s+ ladders).
+	if a.State == StateThinking {
+		elapsed := time.Since(a.StreamStartedAt)
+		status := ui.StreamStatus.Render(fmt.Sprintf("▌ thinking %s", a.Loader.View()))
+		if elapsed > 100*time.Millisecond {
+			status += "  " + ui.StreamDim.Render(fmt.Sprintf("⏱ %s", formatElapsed(elapsed)))
+		}
+		if elapsed > 15*time.Second {
+			status += "  " + ui.StreamStalled.Render("⏳ still working (esc to interrupt)")
+		}
+		status += "  " + ui.StreamHint.Render("esc to interrupt")
+		return status
+	}
+
 	elapsed := formatElapsed(time.Since(a.StreamStartedAt))
 	tokens := a.StreamCompletionTokens
 	if tokens <= 0 {
@@ -826,13 +841,32 @@ func collapsedToolSummary(turn *Turn, gutter string) string {
 	return gutter + line
 }
 
-// renderToolPill renders one tool call as two flat lines:
+// renderToolPill renders one tool call as flat lines:
 //   ⏺ tool_name(main arg)  ⏱ 0.4s ✓
 //     ⎿ result preview / note / error
+//     ⎿ … (+N more chars · /tools)
 // No emoji, no bullet card — the leading ⏺ is colored by status
 // (accent = running, meta = done, fail = error) so the eye reads state
 // from color before reading the name, same idea Claude Code uses.
+//
+// Budget: 1 call line + at most 3 ⎿ lines (§8 result budget). If the
+// result would exceed 3 lines, the last ⎿ becomes an overflow hint.
+const toolResultBudget = 3
+
 func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
+	// Declined tools render a single line.
+	if t.Status == ToolDeclined {
+		mark := ui.MetaStyle.Render(ui.G.ToolMark)
+		name := ui.ToolName.Render(t.Name)
+		arg := ""
+		if t.Main != "" {
+			arg = ui.ToolArg.Render(fmt.Sprintf("(%s)", t.Main))
+		}
+		first := fmt.Sprintf("%s %s%s", mark, name, arg)
+		second := "  " + ui.ToolResult.Render(ui.G.Result) + " " + ui.MetaStyle.Render("declined")
+		return strings.Join([]string{first, second}, "\n"+gutter)
+	}
+
 	name := ui.ToolName.Render(t.Name)
 	arg := ""
 	if t.Main != "" {
@@ -847,18 +881,44 @@ func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
 
 	first := fmt.Sprintf("%s %s%s  %s", mark, name, arg, tail)
 	out := []string{first}
+
+	// Collect result lines — enforce the 3 ⎿ line budget (§8). Note and
+	// Error each count as one line. Preview may contain embedded newlines;
+	// we cap the total rendered lines at toolResultBudget.
+	resultLines := make([]string, 0, toolResultBudget)
 	if t.Note != "" {
-		out = append(out, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolNote.Render(t.Note))
+		resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolNote.Render(t.Note))
 	}
 	if t.Status == ToolError && t.ErrMsg != "" {
-		out = append(out, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolError.Render(t.ErrMsg))
+		resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.ToolError.Render(t.ErrMsg))
 	}
 	if t.Preview != "" {
-		preview := truncate(t.Preview, width-TagIndent-2)
-		if preview != "" {
-			out = append(out, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.MetaStyle.Render(preview))
+		// Count lines already allocated.
+		allocated := 0
+		for _, rl := range resultLines {
+			allocated += 1 + strings.Count(rl, "\n")
+		}
+		remaining := toolResultBudget - allocated
+		if remaining <= 0 {
+			// No budget left — show overflow on the last line.
+			overflow := fmt.Sprintf("%s %s (+%d more · /tools)", ui.G.Result, ui.G.Ellipsis, len(t.Preview))
+			resultLines[len(resultLines)-1] = "  " + ui.ToolResult.Render(overflow)
+		} else {
+			preview := truncate(t.Preview, width-TagIndent-2)
+			if preview != "" {
+				renderLines := strings.Split(preview, "\n")
+				if len(renderLines) > remaining {
+					// Cap at remaining lines, last one is overflow.
+					renderLines = renderLines[:remaining]
+					renderLines[remaining-1] = fmt.Sprintf("%s (+%d more · /tools)", ui.G.Ellipsis, len(t.Preview))
+				}
+				for _, pl := range renderLines {
+					resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.MetaStyle.Render(pl))
+				}
+			}
 		}
 	}
+	out = append(out, resultLines...)
 	return strings.Join(out, "\n"+gutter)
 }
 
@@ -888,6 +948,8 @@ func (t ToolCall) statusGlyph() (string, lipgloss.Style) {
 		return ui.G.Running, ui.ToolRunning
 	case ToolError:
 		return ui.G.Err, ui.ToolError
+	case ToolDeclined:
+		return ui.G.Off, ui.MetaStyle
 	default:
 		return ui.G.OK, ui.ToolDone
 	}

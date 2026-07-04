@@ -2,6 +2,7 @@ package app
 
 import (
 	"feral-tui/api"
+	"strings"
 	"testing"
 	"time"
 )
@@ -224,5 +225,215 @@ func TestOpenToolViewerSkipsUserTurns(t *testing.T) {
 func TestPlural(t *testing.T) {
 	if plural(0) != "s" || plural(1) != "" || plural(2) != "s" || plural(42) != "s" {
 		t.Fatalf("plural broken: %q/%q/%q/%q", plural(0), plural(1), plural(2), plural(42))
+	}
+}
+
+// ── Runtime event tests (§11 / §22 acceptance 25–26) ──────────────
+
+func TestFormatRuntimeEventDreamCycle(t *testing.T) {
+	cases := []struct {
+		ev   api.RuntimeEvent
+		want string
+	}{
+		{ev: api.RuntimeEvent{Kind: "dream_cycle", Message: ""}, want: "dreaming…"},
+		{ev: api.RuntimeEvent{Kind: "dream_cycle", Message: "2 insights added to memory"}, want: "dream: 2 insights added to memory"},
+		{ev: api.RuntimeEvent{Kind: "memory_indexed", Message: "done (12 s)"}, want: "indexing memory… done (12 s)"},
+		{ev: api.RuntimeEvent{Kind: "lora_training", Message: "eval +4.2% — approve in /lora"}, want: "lora: eval +4.2% — approve in /lora"},
+		{ev: api.RuntimeEvent{Kind: "genome_evolution", Message: "layer L3 fitness 0.83 → 0.85"}, want: "genome: layer L3 fitness 0.83 → 0.85"},
+		{ev: api.RuntimeEvent{Kind: "meta_evolution", Message: "epoch 7 — mutation budget tightened"}, want: "meta: epoch 7 — mutation budget tightened"},
+		{ev: api.RuntimeEvent{Kind: "connector_event", Message: "telegram: reply sent to @dan"}, want: "telegram: reply sent to @dan"},
+		// Unknown kind — forward-compatible fallback to Message
+		{ev: api.RuntimeEvent{Kind: "unknown_new_feature", Message: "something happened"}, want: "something happened"},
+	}
+	for _, c := range cases {
+		got := formatRuntimeEvent(c.ev)
+		if got != c.want {
+			t.Fatalf("formatRuntimeEvent(%+v) = %q, want %q", c.ev, got, c.want)
+		}
+	}
+}
+
+// TestRuntimeEventQueueDuringStreaming — spec §22 acceptance #25.
+func TestRuntimeEventQueueDuringStreaming(t *testing.T) {
+	a := newTestApp()
+	a.State = StateStreaming
+	a.beginAssistant()
+
+	// Send two runtime events while streaming.
+	a.Update(RuntimeEventMsg{Event: api.RuntimeEvent{Kind: "dream_cycle", Message: "2 insights"}})
+	a.Update(RuntimeEventMsg{Event: api.RuntimeEvent{Kind: "connector_event", Message: "telegram: replied"}})
+
+	if len(a.RuntimeEvents) != 0 {
+		t.Fatalf("expected 0 rendered events during streaming, got %d", len(a.RuntimeEvents))
+	}
+	if len(a.PendingEvents) != 2 {
+		t.Fatalf("expected 2 pending events, got %d", len(a.PendingEvents))
+	}
+
+	// Flush by ending the stream (simulates StreamDoneMsg path).
+	_, _ = a.Update(StreamDoneMsg{Err: nil})
+
+	if len(a.PendingEvents) != 0 {
+		t.Fatalf("expected 0 pending after flush, got %d", len(a.PendingEvents))
+	}
+	if len(a.RuntimeEvents) != 2 {
+		t.Fatalf("expected 2 rendered events after flush, got %d", len(a.RuntimeEvents))
+	}
+
+	content := a.buildChatContent()
+	if !strings.Contains(content, "dream: 2 insights") {
+		t.Fatalf("expected dream event in transcript, got:\n%s", content)
+	}
+	if !strings.Contains(content, "telegram: replied") {
+		t.Fatalf("expected connector event in transcript, got:\n%s", content)
+	}
+}
+
+// TestRuntimeEventCoalesce — spec §22 acceptance #26.
+func TestRuntimeEventCoalesce(t *testing.T) {
+	a := newTestApp()
+	// Insert 3 same-kind events followed by a different one.
+	a.RuntimeEvents = []api.RuntimeEvent{
+		{Kind: "connector_event", Message: "discord: reconnected"},
+		{Kind: "connector_event", Message: "telegram: reply sent"},
+		{Kind: "connector_event", Message: "whatsapp: message received"},
+		{Kind: "dream_cycle", Message: "2 insights"},
+	}
+	a.coalesceRuntimeEvents()
+	if len(a.RuntimeEvents) != 2 {
+		t.Fatalf("expected 2 coalesced events, got %d", len(a.RuntimeEvents))
+	}
+	if a.RuntimeEvents[0].Kind != "connector_event" {
+		t.Fatalf("first coalesced kind = %q, want connector_event", a.RuntimeEvents[0].Kind)
+	}
+	if !strings.Contains(a.RuntimeEvents[0].Message, "3") || !strings.Contains(a.RuntimeEvents[0].Message, "connector_event") {
+		t.Fatalf("coalesced message should mention count and kind, got %q", a.RuntimeEvents[0].Message)
+	}
+	if a.RuntimeEvents[1].Kind != "dream_cycle" {
+		t.Fatalf("second event kind = %q, want dream_cycle", a.RuntimeEvents[1].Kind)
+	}
+}
+
+// TestRuntimeEventAppendsDirectlyWhenIdle verifies that events arrive
+// immediately in RuntimeEvents when not streaming.
+// TestEveryErrorKindHasActionableHint — spec §22 acceptance #14.
+// Every error card's hint must name an action the user can take.
+func TestEveryErrorKindHasActionableHint(t *testing.T) {
+	kinds := []string{
+		"429 too many requests",
+		"no model loaded",
+		"runtime lost",
+		"offline",
+		"timed out",
+		"permission denied",
+		"connection refused",
+		"unknown tool: foo",
+		"something completely novel",
+	}
+	for _, msg := range kinds {
+		kind, hint := inferErrorKind(msg)
+		// Only "unknown" has no hint — that's the fallthrough case.
+		if kind == "unknown" {
+			if hint != "" {
+				t.Fatalf("inferErrorKind(%q) = (%q, %q): unknown should have empty hint", msg, kind, hint)
+			}
+			continue
+		}
+		if hint == "" {
+			t.Fatalf("inferErrorKind(%q) = (%q, %q): expected non-empty hint for acceptance #14", msg, kind, hint)
+		}
+	}
+}
+
+// TestThinkingStateTransition verifies that StateThinking is entered when
+// reasoning arrives before the first content token (§9).
+func TestThinkingStateTransition(t *testing.T) {
+	a := newTestApp()
+	a.beginAssistant()
+	a.State = StateStreaming
+
+	// Reasoning arrives — should enter StateThinking.
+	a.handleStreamChunk(api.Chunk{Reasoning: "thinking step 1"})
+	if a.State != StateThinking {
+		t.Fatalf("expected StateThinking after reasoning, got %v", a.State)
+	}
+	if a.streamHasContent {
+		t.Fatal("streamHasContent should remain false after reasoning only")
+	}
+
+	// Content arrives — should revert to StateStreaming.
+	a.handleStreamChunk(api.Chunk{Content: "Hello"})
+	if a.State != StateStreaming {
+		t.Fatalf("expected StateStreaming after content, got %v", a.State)
+	}
+	if !a.streamHasContent {
+		t.Fatal("streamHasContent should be true after content")
+	}
+}
+
+// TestThinkingFinishStreamRestoresReady verifies finishStream handles
+// StateThinking → StateReady.
+func TestThinkingFinishStreamRestoresReady(t *testing.T) {
+	a := newTestApp()
+	a.beginAssistant()
+	a.State = StateThinking
+
+	_, _ = a.Update(StreamDoneMsg{Err: nil})
+	if a.State != StateReady {
+		t.Fatalf("after StreamDone in Thinking: State = %v, want StateReady", a.State)
+	}
+}
+
+// TestToolDeclinedStatusRendersDeclined verifies a declined tool call
+// produces a "⎿ declined" result line.
+func TestToolDeclinedStatusRendersDeclined(t *testing.T) {
+	a := newTestApp()
+	tc := ToolCall{
+		ID: "t1", Name: "shell_exec", Main: "rm -rf /",
+		Status: ToolDeclined, StartedAt: time.Now(), EndedAt: time.Now(),
+	}
+	out := a.renderToolPill(tc, "", 80)
+	stripped := stripAnsi(out)
+	if !strings.Contains(stripped, "declined") {
+		t.Fatalf("declined tool pill should contain 'declined', got:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "rm -rf") {
+		t.Fatalf("declined tool pill should show the tool args, got:\n%s", stripped)
+	}
+}
+
+// TestToolResultBudget verifies the 3-line result budget (§8).
+func TestToolResultBudget(t *testing.T) {
+	a := newTestApp()
+	tc := ToolCall{
+		Name: "grep", Status: ToolDone,
+		Note:    "searched 42 files",
+		ErrMsg:  "2 matches found",
+		Preview: "line 1\nline 2\nline 3\nline 4\nline 5",
+		StartedAt: time.Now(), EndedAt: time.Now(),
+	}
+	out := a.renderToolPill(tc, "", 80)
+	lines := strings.Split(out, "\n")
+	if len(lines) > 4 {
+		t.Fatalf("tool pill should have at most 4 lines (1 call + 3 ⎿), got %d", len(lines))
+	}
+	// When the budget is exceeded, the last line should mention /tools.
+	last := stripAnsi(lines[len(lines)-1])
+	if strings.Contains(last, "more") && !strings.Contains(last, "/tools") {
+		t.Fatalf("overflow line should mention /tools, got: %q", last)
+	}
+}
+
+func TestRuntimeEventAppendsDirectlyWhenIdle(t *testing.T) {
+	a := newTestApp()
+	a.State = StateReady
+
+	a.Update(RuntimeEventMsg{Event: api.RuntimeEvent{Kind: "dream_cycle", Message: "2 insights"}})
+
+	if len(a.PendingEvents) != 0 {
+		t.Fatalf("expected no pending events in idle state, got %d", len(a.PendingEvents))
+	}
+	if len(a.RuntimeEvents) != 1 {
+		t.Fatalf("expected 1 rendered event, got %d", len(a.RuntimeEvents))
 	}
 }
