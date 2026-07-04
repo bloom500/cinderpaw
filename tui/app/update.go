@@ -175,6 +175,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
 			a.ChatVP, cmd = a.ChatVP.Update(msg)
+			a.FollowBottom = a.ChatVP.AtBottom()
 			return a, cmd
 
 		case "up", "k":
@@ -345,6 +346,7 @@ func (a *App) handleSubmit() tea.Cmd {
 	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: raw})
 	a.beginAssistant()
 	a.Mode = ModeStreaming
+	a.FollowBottom = true
 	a.rebuildViewport()
 	return a.startStream(raw)
 }
@@ -365,6 +367,7 @@ func (a *App) handleSlash(body string) tea.Cmd {
 		a.PrevContent = ""
 		a.ChatVP.SetContent("")
 		a.ChatVP.GotoBottom()
+		a.FollowBottom = true
 		a.setFlash("cleared")
 		return nil
 	case "new", "reset":
@@ -376,6 +379,7 @@ func (a *App) handleSlash(body string) tea.Cmd {
 		a.PrevContent = ""
 		a.ChatVP.SetContent("")
 		a.ChatVP.GotoBottom()
+		a.FollowBottom = true
 		a.setFlash("session reset")
 		return nil
 	case "sessions":

@@ -144,6 +144,13 @@ type App struct {
 	Input       textarea.Model
 	Loader      spinner.Model
 	PrevContent string
+	// FollowBottom is true while the transcript should auto-scroll to the
+	// newest content (the default, and what streaming needs). It flips to
+	// false the moment the user scrolls up on purpose (PgUp / mouse wheel
+	// up) and flips back once they've scrolled back down to the bottom —
+	// mirrors how a normal terminal pager or chat client behaves, and
+	// stops streaming tokens from yanking the view back down mid-read.
+	FollowBottom bool
 
 	ShowHelp    bool
 	ShowHistory bool
@@ -248,13 +255,14 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 	sp.Spinner = spinner.Dot
 
 	return &App{
-		Status:    status,
-		BaseURL:   baseURL,
-		Token:     token,
-		Input:     ti,
-		ChatVP:    vp,
-		Loader:    sp,
-		StartedAt: time.Now(),
+		Status:       status,
+		BaseURL:      baseURL,
+		Token:        token,
+		Input:        ti,
+		ChatVP:       vp,
+		Loader:       sp,
+		StartedAt:    time.Now(),
+		FollowBottom: true,
 	}
 }
 
@@ -392,7 +400,7 @@ func (a *App) rebuildViewport() {
 	if content != a.PrevContent {
 		a.ChatVP.SetContent(content)
 		a.PrevContent = content
-		if !a.ChatVP.AtBottom() {
+		if a.FollowBottom {
 			a.ChatVP.GotoBottom()
 		}
 	}
