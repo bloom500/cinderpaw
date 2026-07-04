@@ -294,8 +294,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StreamChunkMsg:
 		a.handleStreamChunk(msg.Chunk)
-		a.rebuildViewport()
 		return a, nil
+
+	case FrameTickMsg:
+		if a.State != StateStreaming {
+			return a, nil
+		}
+		a.flushPending()
+		a.rebuildViewport()
+		return a, frameTick()
 
 	case ModelListMsg:
 		if msg.Err != nil {
@@ -364,6 +371,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.State == StateShutdown {
 			return a, tea.Quit
 		}
+		a.flushPending()
 		a.finishStream()
 		if msg.Err != nil {
 			a.setFlash(fmt.Sprintf("stream error: %v", msg.Err))
@@ -402,7 +410,7 @@ func (a *App) handleSubmit() tea.Cmd {
 	a.State = StateStreaming
 	a.FollowBottom = true
 	a.rebuildViewport()
-	return a.startStream(raw)
+	return tea.Batch(a.startStream(raw), frameTick())
 }
 
 func (a *App) handleSlash(body string) tea.Cmd {
@@ -606,6 +614,14 @@ func (a *App) finishStream() {
 }
 
 func (a *App) stopStream() {
+	a.flushPending()
+	for i := range a.Turns {
+		t := &a.Turns[len(a.Turns)-1-i]
+		if t.Role == RoleAssistant && t.Streaming {
+			t.Interrupted = true
+			break
+		}
+	}
 	a.finishStream()
 	a.setFlash("cancelled")
 }
@@ -882,13 +898,43 @@ func truncateRunes(s string, max int) string {
 }
 
 func (a *App) pushAssistantText(piece string) {
+	a.pendingText.WriteString(piece)
+}
+
+// flushPending moves buffered stream deltas into the trailing assistant
+// turn. Called by FrameTickMsg (≤ once per 33ms while streaming) and once
+// more on StreamDoneMsg so no buffered tail is ever lost.
+func (a *App) flushPending() {
+	text := a.pendingText.String()
+	reasoning := a.pendingReasoning.String()
+	if text == "" && reasoning == "" {
+		return
+	}
+	a.pendingText.Reset()
+	a.pendingReasoning.Reset()
 	for i := range a.Turns {
 		t := &a.Turns[len(a.Turns)-1-i]
-		if t.Role == RoleAssistant && t.Streaming {
-			t.Text += piece
-			return
+		if t.Role != RoleAssistant {
+			continue
 		}
+		if text != "" {
+			t.Text += text
+		}
+		if reasoning != "" {
+			t.Reasoning += reasoning
+		}
+		return
 	}
+}
+
+// FrameTickMsg drives the 30fps streaming render cap (spec §7/§31.3): one
+// ticker, only re-issued while State == StateStreaming.
+type FrameTickMsg time.Time
+
+func frameTick() tea.Cmd {
+	return tea.Tick(33*time.Millisecond, func(t time.Time) tea.Msg {
+		return FrameTickMsg(t)
+	})
 }
 
 // pushAssistantError appends an ErrorCard to the trailing assistant turn.
@@ -938,13 +984,7 @@ func inferErrorKind(msg string) (kind, hint string) {
 }
 
 func (a *App) pushAssistantReasoning(piece string) {
-	for i := range a.Turns {
-		t := &a.Turns[len(a.Turns)-1-i]
-		if t.Role == RoleAssistant && t.Streaming {
-			t.Reasoning += piece
-			return
-		}
-	}
+	a.pendingReasoning.WriteString(piece)
 }
 
 func (a *App) toggleThinking() {

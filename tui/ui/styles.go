@@ -118,6 +118,11 @@ var (
 	FlashStyle = lipgloss.NewStyle().Foreground(Warn)
 	MetaStyle  = lipgloss.NewStyle().Foreground(Meta)
 
+	// EventStyle renders the "◦ …" receipt lines (spec §11/§15) — this task
+	// only uses it for "◦ interrupted"; P1 reuses it for the full runtime
+	// event formatter map.
+	EventStyle = lipgloss.NewStyle().Foreground(Meta)
+
 	SpinnerStyle = lipgloss.NewStyle().Foreground(Accent)
 
 	HelpTitle = lipgloss.NewStyle().Foreground(AccentHi).Bold(true)

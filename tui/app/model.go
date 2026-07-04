@@ -80,6 +80,11 @@ type Turn struct {
 	// "✻ Cooked for Ns" note under a completed reply.
 	Meta string
 
+	// Interrupted is set when the user cancelled this turn mid-stream (Esc or
+	// Ctrl+C). Rendered as one dim "◦ interrupted" line after the turn's
+	// content — the partial text itself is never discarded (spec §7).
+	Interrupted bool
+
 	// mdCacheSrc/mdCacheOut/mdCacheWidth memoize the last glamour render of
 	// Text. Every tea.Msg (a token, a spinner tick, a resize) rebuilds the
 	// WHOLE transcript, so without this every past turn's markdown was
@@ -189,6 +194,14 @@ type App struct {
 
 	StreamBuf strings.Builder
 	Prog      *tea.Program
+
+	// pendingText/pendingReasoning buffer incoming stream deltas between
+	// frame flushes so the viewport rebuilds at most once per 33ms (spec
+	// §7/§31.3) instead of on every token. lastFrameFlush is a monotonic guard
+	// consulted only by the frameTick handler — it is not read by View().
+	pendingText      strings.Builder
+	pendingReasoning strings.Builder
+	lastFrameFlush   time.Time
 
 	// StreamStartedAt is when the current assistant turn began emitting
 	// tokens. Zero when idle. Used by the streaming footer to render an
@@ -451,6 +464,10 @@ func (a *App) buildChatContent() string {
 			// Per-turn cost footnote, dim — Claude Code's "✻ Cooked for Ns".
 			if turn.Meta != "" {
 				b.WriteString(gutter + ui.MetaStyle.Render(ui.G.Spark+" "+turn.Meta))
+				b.WriteByte('\n')
+			}
+			if turn.Interrupted {
+				b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" interrupted"))
 				b.WriteByte('\n')
 			}
 		}
