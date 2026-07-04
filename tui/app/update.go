@@ -615,7 +615,13 @@ func (a *App) finishStream() {
 			break
 		}
 	}
-	a.State = StateReady
+	// Preserve StateError: a mid-stream error sets StateError (via
+	// pushAssistantError) and the recovery loop (retryLastMessage,
+	// auto-retry-on-zero) relies on the user staying in that state
+	// after the stream ends. finishStream must not clobber it.
+	if a.State == StateStreaming {
+		a.State = StateReady
+	}
 	a.StreamBuf.Reset()
 	// Clear streaming stats — the footer reverts to the shortcut row until
 	// the next turn begins. The per-turn cost is preserved on the Turn

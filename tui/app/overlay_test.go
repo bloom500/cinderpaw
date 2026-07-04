@@ -1,6 +1,7 @@
 package app
 
 import (
+	"feral-tui/api"
 	"testing"
 	"time"
 )
@@ -124,6 +125,49 @@ func TestRateLimitEntersErrorStateWithDeadline(t *testing.T) {
 	a.pushAssistantError("429 too many requests")
 	if a.RateLimitUntil.IsZero() {
 		t.Fatal("expected RateLimitUntil to be set on a rate_limited error")
+	}
+}
+
+// TestStreamDoneAfterErrorPreservesStateError pins the contract that
+// finishStream does not clobber StateError when StreamDoneMsg follows a
+// mid-stream error chunk. Before the fix, the countdown hint vanished
+// from the footer the instant the stream ended and the `r` keybind
+// stopped working (r only fires in StateError). Driving the full path —
+// error chunk → StreamDoneMsg — exercises the bug end-to-end.
+func TestStreamDoneAfterErrorPreservesStateError(t *testing.T) {
+	a := newTestApp()
+	a.beginAssistant()
+	a.State = StateStreaming
+	a.lastUserText = "hi"
+
+	a.handleStreamChunk(api.Chunk{Error: "429 too many requests"})
+	if a.State != StateError {
+		t.Fatalf("after error chunk: State = %v, want StateError", a.State)
+	}
+	if a.RateLimitUntil.IsZero() {
+		t.Fatal("expected RateLimitUntil to be set after rate_limited error")
+	}
+
+	_, _ = a.Update(StreamDoneMsg{Err: nil})
+	if a.State != StateError {
+		t.Fatalf("after StreamDone: State = %v, want StateError (finishStream must not clobber)", a.State)
+	}
+	if a.RateLimitUntil.IsZero() {
+		t.Fatal("RateLimitUntil must survive StreamDone — auto-retry depends on it")
+	}
+}
+
+// TestStreamDoneAfterSuccessRestoresReady is the positive-path companion
+// to the test above: when no error fired, StreamDone must land the app
+// in StateReady (not leave it dangling in StateStreaming).
+func TestStreamDoneAfterSuccessRestoresReady(t *testing.T) {
+	a := newTestApp()
+	a.beginAssistant()
+	a.State = StateStreaming
+
+	_, _ = a.Update(StreamDoneMsg{Err: nil})
+	if a.State != StateReady {
+		t.Fatalf("after clean StreamDone: State = %v, want StateReady", a.State)
 	}
 }
 
