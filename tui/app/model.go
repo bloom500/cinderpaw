@@ -318,7 +318,10 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 
 	sp := spinner.New()
 	sp.Style = ui.SpinnerStyle
-	sp.Spinner = spinner.Dot
+	// MiniDot matches the spec's braille inventory (§5/§25.3 — ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏)
+	// at ~83 ms/frame, the closest match to spec §31.2's 80 ms/frame target.
+	// spinner.Dot uses a different braille sequence at 100 ms/frame.
+	sp.Spinner = spinner.MiniDot
 
 	cwd, _ := os.Getwd()
 

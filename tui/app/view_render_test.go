@@ -32,7 +32,7 @@ func newTestApp() *App {
 
 	sp := spinner.New()
 	sp.Style = ui.SpinnerStyle
-	sp.Spinner = spinner.Dot
+	sp.Spinner = spinner.MiniDot
 
 	a := &App{
 		Width:     100,
