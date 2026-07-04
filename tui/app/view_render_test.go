@@ -96,23 +96,22 @@ func TestViewRendersCompletionPopup(t *testing.T) {
 }
 
 // stripAnsi is a tiny helper that drops CSI escape sequences from a string
-// so test assertions can match against human-readable text. It does NOT
-// handle every SGR sequence — just enough for our own output (foreground
-// colors, bold, italic, reset).
+// so test assertions can match against human-readable text. A CSI sequence
+// is ESC '[' followed by any number of parameter/intermediate bytes
+// (0x20-0x3f) and a single final byte (0x40-0x7e); the whole sequence is
+// discarded, including multi-parameter truecolor SGR codes like
+// "\x1b[38;2;121;116;107m".
 func stripAnsi(s string) string {
 	var b strings.Builder
 	i := 0
 	for i < len(s) {
 		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
 			j := i + 2
-			for j < len(s) {
-				c := s[j]
-				b.WriteRune(rune(c)) // keep printable content around escapes? no — drop
-				_ = b
+			for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3f {
 				j++
-				if (c >= 0x40 && c <= 0x7e) || c == 'm' {
-					break
-				}
+			}
+			if j < len(s) {
+				j++ // consume the final byte (0x40-0x7e)
 			}
 			i = j
 			continue
@@ -120,28 +119,16 @@ func stripAnsi(s string) string {
 		b.WriteByte(s[i])
 		i++
 	}
-	// The simplistic stripper above accidentally keeps final chars; do a
-	// second pass with a proper regex-free walk.
-	out := b.String()
-	b.Reset()
-	i = 0
-	for i < len(out) {
-		if out[i] == 0x1b && i+1 < len(out) && out[i+1] == '[' {
-			j := i + 2
-			for j < len(out) {
-				c := out[j]
-				j++
-				if (c >= 0x40 && c <= 0x7e) || c == 'm' {
-					break
-				}
-			}
-			i = j
-			continue
-		}
-		b.WriteByte(out[i])
-		i++
-	}
 	return b.String()
+}
+
+func TestStripAnsiTruecolorMultiParam(t *testing.T) {
+	in := "\x1b[38;2;121;116;107m⎿\x1b[0m \x1b[3;38;2;121;116;107mcached\x1b[0m"
+	got := stripAnsi(in)
+	want := "⎿ cached"
+	if got != want {
+		t.Fatalf("stripAnsi truecolor multi-param: got %q, want %q (raw %q)", got, want, in)
+	}
 }
 
 // ensure tea import is referenced even when no test below uses it directly
