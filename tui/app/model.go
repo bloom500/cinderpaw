@@ -222,6 +222,18 @@ type App struct {
 	// Cwd is the working directory the TUI was launched from — shown on
 	// the welcome screen, mirroring Claude Code's boot banner.
 	Cwd string
+
+	// CtrlCArmedAt is non-zero for 1s after a Ctrl+C press that only cleared
+	// the input (rather than quitting) — a second press before it lapses
+	// quits, mirroring Claude Code (spec §16).
+	CtrlCArmedAt time.Time
+
+	// InputHistory is up to the last 200 distinct-from-previous submitted
+	// inputs (slash commands and messages alike), newest last. HistoryIdx is
+	// -1 when not currently browsing; otherwise an index into InputHistory
+	// counting back from the end (0 = most recent).
+	InputHistory []string
+	HistoryIdx   int
 }
 
 // ToolViewerRow is one entry in the `/tools` overlay — the flattened
@@ -298,6 +310,7 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 		FollowBottom: true,
 		Cwd:          cwd,
 		State:        StateReady,
+		HistoryIdx:   -1,
 	}
 }
 

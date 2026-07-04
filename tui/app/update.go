@@ -65,13 +65,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch key {
 		case "ctrl+c":
-			if a.State == StateStreaming {
-				a.stopStream()
+			a.handleCtrlC()
+			if a.State == StateShutdown {
+				return a, tea.Quit
 			}
-			a.State = StateShutdown
-			return a, tea.Quit
+			return a, nil
+
+		case "ctrl+d":
+			if a.Input.Value() == "" {
+				a.State = StateShutdown
+				return a, tea.Quit
+			}
+			return a, nil
 
 		case "esc":
+			if a.State == StateStreaming || a.State == StateToolRunning || a.State == StateThinking {
+				a.stopStream()
+				return a, nil
+			}
 			if a.ShowHelp {
 				a.ShowHelp = false
 				return a, nil
@@ -107,11 +118,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.Completion.Idx = 0
 				return a, nil
 			}
-			if a.State != StateReady {
-				return a, nil
-			}
-			a.State = StateShutdown
-			return a, tea.Quit
+			a.Input.Reset()
+			return a, nil
 
 		case "enter":
 			if a.ShowHelp || a.ShowHistory {
@@ -178,7 +186,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.FollowBottom = a.ChatVP.AtBottom()
 			return a, cmd
 
-		case "up", "k":
+		case "up":
 			if a.ToolViewer.Show && len(a.ToolViewer.Rows) > 0 {
 				if a.ToolViewer.Idx > 0 {
 					a.ToolViewer.Idx--
@@ -191,8 +199,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return a, nil
 			}
+			if a.Input.Value() == "" {
+				a.historyUp()
+				return a, nil
+			}
 
-		case "down", "j":
+		case "down":
 			if a.ToolViewer.Show && len(a.ToolViewer.Rows) > 0 {
 				if a.ToolViewer.Idx < len(a.ToolViewer.Rows)-1 {
 					a.ToolViewer.Idx++
@@ -205,6 +217,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return a, nil
 			}
+			if a.Input.Value() == "" {
+				a.historyDown()
+				return a, nil
+			}
+
+		case "k", "j":
+			// vim-style overlay nav only — never touches history (they're
+			// valid textarea characters), so no plain-editing branch here.
+			if a.ToolViewer.Show && len(a.ToolViewer.Rows) > 0 {
+				if key == "k" && a.ToolViewer.Idx > 0 {
+					a.ToolViewer.Idx--
+				} else if key == "j" && a.ToolViewer.Idx < len(a.ToolViewer.Rows)-1 {
+					a.ToolViewer.Idx++
+				}
+				return a, nil
+			}
+			if a.ModelPicker.Show && !a.ModelPicker.Loading && len(a.ModelPicker.Rows) > 0 {
+				if key == "k" && a.ModelPicker.Idx > 0 {
+					a.ModelPicker.Idx--
+				} else if key == "j" && a.ModelPicker.Idx < len(a.ModelPicker.Rows)-1 {
+					a.ModelPicker.Idx++
+				}
+				return a, nil
+			}
 
 		case "ctrl+t":
 			a.toggleThinking()
@@ -212,7 +248,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		if a.State == StateReady {
+		if a.State != StateShutdown {
 			var cmd tea.Cmd
 			a.Input, cmd = a.Input.Update(msg)
 			// Every keystroke can change the slash-command prefix.
@@ -353,8 +389,10 @@ func (a *App) handleSubmit() tea.Cmd {
 		// Hide the popup the instant we commit a slash command — keeps the
 		// flash banner + overlay from racing the popup.
 		a.Completion.Show = false
+		a.pushHistory(raw)
 		return a.handleSlash(raw[1:])
 	}
+	a.pushHistory(raw)
 	a.Input.Reset()
 	a.Completion.Show = false
 	a.Completion.List = nil
@@ -922,6 +960,75 @@ func (a *App) toggleThinking() {
 func (a *App) setFlash(text string) {
 	a.FlashText = text
 	a.FlashUntil = time.Now().Add(5 * time.Second)
+}
+
+const inputHistoryCap = 200
+
+// pushHistory records a submitted input for ↑/↓ recall (spec §16), deduping
+// only against the immediately preceding entry (a user repeating the same
+// message minutes apart is a legitimate distinct entry).
+func (a *App) pushHistory(raw string) {
+	if raw == "" {
+		return
+	}
+	if n := len(a.InputHistory); n > 0 && a.InputHistory[n-1] == raw {
+		a.HistoryIdx = -1
+		return
+	}
+	a.InputHistory = append(a.InputHistory, raw)
+	if len(a.InputHistory) > inputHistoryCap {
+		a.InputHistory = a.InputHistory[len(a.InputHistory)-inputHistoryCap:]
+	}
+	a.HistoryIdx = -1
+}
+
+// historyUp/historyDown walk InputHistory from most-recent backward/forward.
+// Only called from the `up`/`down` key branch when the textarea is empty
+// and no overlay owns the arrow keys (spec §16: "↑/↓ on empty input: walk
+// input history; with text: move cursor in textarea").
+func (a *App) historyUp() {
+	if len(a.InputHistory) == 0 {
+		return
+	}
+	if a.HistoryIdx+1 >= len(a.InputHistory) {
+		return
+	}
+	a.HistoryIdx++
+	a.Input.SetValue(a.InputHistory[len(a.InputHistory)-1-a.HistoryIdx])
+	a.Input.CursorEnd()
+}
+
+func (a *App) historyDown() {
+	if a.HistoryIdx < 0 {
+		return
+	}
+	a.HistoryIdx--
+	if a.HistoryIdx < 0 {
+		a.Input.SetValue("")
+		return
+	}
+	a.Input.SetValue(a.InputHistory[len(a.InputHistory)-1-a.HistoryIdx])
+	a.Input.CursorEnd()
+}
+
+// handleCtrlC implements the two-stage guard (spec §16): first press on
+// non-empty input clears it and arms a 1s grace window; a second press
+// inside that window, or any press on empty input, quits.
+func (a *App) handleCtrlC() {
+	if a.State == StateStreaming {
+		a.stopStream()
+	}
+	if a.Input.Value() != "" {
+		armed := !a.CtrlCArmedAt.IsZero() && time.Since(a.CtrlCArmedAt) < time.Second
+		if armed {
+			a.State = StateShutdown
+			return
+		}
+		a.Input.Reset()
+		a.CtrlCArmedAt = time.Now()
+		return
+	}
+	a.State = StateShutdown
 }
 
 func clamp(min, val, max int) int {
