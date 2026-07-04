@@ -82,67 +82,12 @@ func (a *App) View() string {
 	return main
 }
 
-// feralLogoFull spells out all five letters (FERAL) with 5-cell-wide
-// block letters and 1-cell spacing. 29 cells wide × 7 rows tall — only
-// rendered when the viewport is wide enough; the smaller variants below
-// cover narrower terminals without truncating the brand.
-//
-// Rendered with ui.WelcomeLogo (orange + bold) — same color family as
-// the header's `feral` brand, so the whole TUI reads as one product.
-var feralLogoFull = []string{
-	`█████ █████ █████  ████  █   `,
-	`██    ██    ██  ██ █   █ █   `,
-	`██    ██    ██  ██ █   █ █   `,
-	`████  ████  █████  █████ █   `,
-	`██    ██    ██ ██  █   █ █   `,
-	`██    ██    ██  ██ █   █ █   `,
-	`██    █████ ██  ██ █   █ ████`,
-}
-
-// feralLogoMid is a 3-row compressed version for terminals that don't
-// have enough vertical room (or that prefer less chrome). It still
-// spells FERAL — just at 3 stripes (top, mid, bottom) instead of 7.
-// Width matches the full logo so a terminal that's wide but short gets
-// the same horizontal centering.
-var feralLogoMid = []string{
-	`█████ █████ █████  ████  █   `,
-	`████  ████  █████  █████ █   `,
-	`██    █████ ██  ██ █   █ ████`,
-}
-
-// feralLogoSingle is one line of blocks for terminals <40 cols wide.
-// Below that, the renderer falls back to plain bold "feral" text.
-var feralLogoSingle = []string{
-	`█▀▀█ █▀▀▀ █▀▀█  ▄▀█  █▄▄ `,
-}
-
-// renderWelcomeContent draws the once-per-session welcome card — ASCII logo,
-// status table, recent sessions, shortcut hints — centered inside the chat
-// viewport. Living inside the viewport (rather than as separate top-level
-// chrome) means an oversized card just scrolls within its own region
-// instead of overflowing the whole terminal frame.
-//
-// The card collapses gracefully in two dimensions:
-//   - Width:  the logo picks a smaller variant (full → mid → single → text)
-//             so the brand stays visible even on a 60-col terminal.
-//   - Height: mascot first, then recent-sessions, then shortcuts — the
-//             status row + brand always stay visible.
-//
-// Width breakpoints, chosen by visual testing on real terminals:
-//   - w ≥ 34 cells AND h ≥ 18: full 7-row FERAL block logo
-//   - w ≥ 34 cells AND h < 18:  3-row mid logo (same width, shorter height)
-//   - w < 34 cells:              bold "feral" text label
-//
-// lipgloss.Place doesn't truncate overflowing content — it lets the
-// text bleed past the viewport, which is exactly what the user saw
-// ("se taie în ecran mic"). We avoid that by switching to the brand
-// label below the breakpoint. The label stays centred because
-// JoinVertical(Center) on the whole stack re-centres the column
-// after the logo row's width changes.
-//
-// Note: the 5-cell block letters are 29 cells wide per row. A 34-cell
-// viewport gives us 4 cells of slack on each side at most; below that
-// the logo starts to clip the trailing `L`.
+// renderWelcomeContent draws the once-per-session welcome text — a plain,
+// left-aligned block (brand line, status line, recent sessions, shortcut
+// hint) with no border and no ASCII logo, matching Claude Code's flat
+// welcome screen. Centered as a block so it doesn't hug the left edge on
+// wide terminals; the block's own content never wraps or truncates itself
+// beyond the plain truncate() calls already used for session titles.
 func (a *App) renderWelcomeContent() string {
 	w, h := a.ChatVP.Width, a.ChatVP.Height
 	if w <= 0 || h <= 0 {
@@ -150,48 +95,20 @@ func (a *App) renderWelcomeContent() string {
 	}
 
 	var lines []string
-
-	switch {
-	case w >= 34 && h >= 18:
-		for _, row := range feralLogoFull {
-			lines = append(lines, ui.WelcomeLogo.Render(row))
-		}
-	case w >= 34:
-		// Wide enough for the full logo but not tall enough — show the
-		// 3-row compressed variant so the brand stays block-letter.
-		for _, row := range feralLogoMid {
-			lines = append(lines, ui.WelcomeLogo.Render(row))
-		}
-	default:
-		// Logo would clip on this viewport. Fall back to a bold brand
-		// label so the welcome still identifies the product.
-		lines = append(lines, ui.WelcomeLogo.Render("feral"))
-	}
-	tagline := ui.WelcomeTagline.Render("▸ feral chat · local-first coding agent")
-	lines = append(lines, tagline, "")
-
-	// Status table — model / lora / backend / session timer / dreaming.
-	rule := ui.WelcomeRule.Render(strings.Repeat("─", 36))
-	lines = append(lines, rule)
+	lines = append(lines, ui.WelcomeTagline.Render("✻ feral chat"), "")
 	lines = append(lines, a.renderWelcomeStatus()...)
-	lines = append(lines, rule, "")
+	lines = append(lines, "")
 
-	// Recent sessions + shortcuts — drop when the viewport is too short.
-	if h >= 22 {
+	if h >= 14 {
 		lines = append(lines, ui.WelcomeSection.Render("recent"))
 		lines = append(lines, a.renderWelcomeSessions()...)
 		lines = append(lines, "")
 	}
-	if h >= 16 {
-		lines = append(lines, ui.WelcomeSection.Render("shortcuts"))
-		lines = append(lines, a.renderWelcomeShortcuts()...)
-	}
+	lines = append(lines, a.renderWelcomeShortcuts()...)
 
-	content := lipgloss.JoinVertical(lipgloss.Center, lines...)
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	if lipgloss.Height(content) > h {
-		// Last-resort fallback: just show the tagline so the viewport is
-		// never empty even on a tiny terminal.
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, tagline)
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, lines[0])
 	}
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
 }
@@ -330,7 +247,7 @@ func (a *App) renderHeader() string {
 	if a.Status.ByokProvider != "" {
 		backendLabel = a.Status.ByokProvider
 	}
-	brand := ui.BrandStyle.Render("feral") + ui.CaretStyle.Render(" ▸ ") + ui.BrandStyle.Render("chat")
+	brand := ui.BrandStyle.Render("feral")
 	left := fmt.Sprintf("%s  %s %s  %s %s  %s %s",
 		brand,
 		ui.MetaStyle.Render("model"), m,
@@ -341,34 +258,27 @@ func (a *App) renderHeader() string {
 	if pad < 1 {
 		pad = 1
 	}
-	return ui.HeaderStyle.Render(left + strings.Repeat(" ", pad) + right)
+	return ui.HeaderStyle.Render(" " + left + strings.Repeat(" ", pad) + right)
 }
 
 func (a *App) renderInput(h int) string {
 	if a.IsStreaming() {
 		// The streaming-status strip above the input already carries
 		// tokens / tps / elapsed / cancel hint — duplicating a spinner
-		// here just adds visual noise. Render an empty bordered box so
+		// here just adds visual noise. Render an empty placeholder so
 		// the layout height stays stable and the user's eye doesn't
 		// jump around between the two strips.
-		placeholder := ui.InputPlaceholder.Render("  …  (esc to cancel)")
-		return ui.InputStyle.Width(a.Width).Height(h).Render(placeholder)
+		placeholder := ui.InputPlaceholder.Render("…  (esc to cancel)")
+		return ui.InputStyle.Width(a.Width).Height(h).Render(ui.InputPrompt.String() + " " + placeholder)
 	}
-	return ui.InputStyle.Width(a.Width).Height(h).Render(a.Input.View())
+	return ui.InputStyle.Width(a.Width).Height(h).Render(ui.InputPrompt.String() + " " + a.Input.View())
 }
 
 func (a *App) renderFooter() string {
 	if a.FlashText != "" {
 		return ui.FooterStyle.Render(ui.FlashStyle.Render(a.FlashText))
 	}
-	h := fmt.Sprintf("%s · %s · %s · %s  %s",
-		ui.FooterAccent.Render("/help"),
-		ui.FooterAccent.Render("/clear"),
-		ui.FooterAccent.Render("/model"),
-		ui.FooterAccent.Render("/exit"),
-		ui.FooterHint.Render("· PgUp/PgDn scroll · Ctrl+T thinking · Ctrl+H history · F1 help"),
-	)
-	return ui.FooterStyle.Render(h)
+	return ui.FooterStyle.Render("F1 for shortcuts · Ctrl+C to exit")
 }
 
 func (a *App) renderHelpOverlay(under string) string {
@@ -399,14 +309,8 @@ func (a *App) renderHelpOverlay(under string) string {
 		ui.HelpMeta.Render("  press Esc to close"),
 	}
 	content := strings.Join(lines, "\n")
-	box := lipgloss.NewStyle().
-		Width(boxW).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ui.Accent).
-		Padding(1, 2).
-		Foreground(ui.Text).
-		Render(content)
-	box = ui.HelpTitle.Render(" help ") + "\n" + box
+	box := lipgloss.NewStyle().Width(boxW).Padding(0, 2).Foreground(ui.Text).Render(content)
+	box = ui.HelpTitle.Render("help") + "\n" + box
 	return lipgloss.Place(a.Width, a.Height,
 		lipgloss.Center, lipgloss.Center, box,
 		lipgloss.WithWhitespaceChars(" "))
@@ -437,14 +341,8 @@ func (a *App) renderHistoryOverlay(under string) string {
 	lines = append(lines, "")
 	lines = append(lines, ui.HelpMeta.Render("  press Tab/Esc to close"))
 	content := strings.Join(lines, "\n")
-	box := lipgloss.NewStyle().
-		Width(boxW).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ui.Accent).
-		Padding(1, 2).
-		Foreground(ui.Text).
-		Render(content)
-	box = ui.HelpTitle.Render(" history ") + "\n" + box
+	box := lipgloss.NewStyle().Width(boxW).Padding(0, 2).Foreground(ui.Text).Render(content)
+	box = ui.HelpTitle.Render("history") + "\n" + box
 	return lipgloss.Place(a.Width, a.Height,
 		lipgloss.Center, lipgloss.Center, box,
 		lipgloss.WithWhitespaceChars(" "))
@@ -643,7 +541,6 @@ func (a *App) renderModelPickerOverlay(under string) string {
 // style shared with the inline pill, so the eye recognises a tool the
 // user has seen on the transcript.
 func formatToolViewerRow(row ToolViewerRow) string {
-	emoji := ui.EmojiForTool(row.Call.Name)
 	name := ui.ToolViewerRow.Render(row.Call.Name)
 	arg := ""
 	if row.Call.Main != "" {
@@ -659,7 +556,7 @@ func formatToolViewerRow(row ToolViewerRow) string {
 		// Running — show elapsed-so-far.
 		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s ⠿", formatElapsed(time.Since(row.Call.StartedAt))))
 	}
-	return fmt.Sprintf("● %s %s%s   %s", emoji, name, arg, elapsed)
+	return fmt.Sprintf("⏺ %s%s   %s", name, arg, elapsed)
 }
 
 // formatToolViewerPreview renders the expanded preview panel for the
@@ -732,37 +629,24 @@ func helpLine(key, desc string) string {
 	return fmt.Sprintf("  %s  %s", ui.HelpKey.Render(key), ui.HelpDesc.Render(desc))
 }
 
-// renderErrorCard draws a single bounded error box. The border colour
-// comes from `Kind` so the eye categorises the failure (timeout =
-// warn-amber, permission = fail-red, network = dim-meta, …) before
-// reading the body. `width` is the inner card width — pass the chat
-// content area minus the gutter so the box never overruns the viewport.
-//
-// Two-row layout:
-//
-//   ┌─ error · timeout ─────────────────┐
-//   │ model timed out after 120s        │
-//   │ Try: shorter prompt, or ^C cancel │
-//   └───────────────────────────────────┘
-//
-// When the message wraps onto more than ~6 lines we truncate with an
-// ellipsis so the card stays one screen-row tall; the full text is in
-// `ErrorCard.Message` if the user wants to inspect further (e.g. via
-// future /error command).
+// renderErrorCard draws a flat, unboxed error line — matches the tool-pill
+// shape: "⏺ error · kind" then indented message/hint lines, colored by
+// Kind (see inferErrorKind) so the eye still categorises the failure
+// before reading text, just without a drawn border around it.
 func (a *App) renderErrorCard(e ErrorCard, width int) string {
 	if width < 20 {
 		width = 20
 	}
-	title := ui.ErrorTitle.Render("error")
+	mark := ui.ErrorTitle.Render("⏺ error")
 	if e.Kind != "" && e.Kind != "unknown" {
-		title = title + ui.ErrorMeta.Render("  ·  "+e.Kind)
+		mark = mark + ui.ErrorTitle.Render("  ·  "+e.Kind)
 	}
 	body := ui.ErrorMsg.Render(truncateRunes(e.Message, width*3))
-	lines := []string{title, body}
+	lines := []string{mark, "  " + body}
 	if e.Hint != "" {
-		lines = append(lines, "", ui.ErrorHint.Render(e.Hint))
+		lines = append(lines, "  "+ui.ErrorHint.Render(e.Hint))
 	}
-	return ui.ErrorBorder.Width(width - 2).Render(strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
 
 // renderCompletions renders the slash-command autocomplete popup as a
@@ -853,48 +737,40 @@ func (a *App) renderStreamingStatus() string {
 	return status
 }
 
-// renderToolPill renders one tool call as a compact inline row, matching
-// the React frontend's ToolCallBubble visual:
-//   ● emoji tool_name("main arg")  ⏱ 0.4s ✓
-//   └─ retry 2/3
-// where the bullet + status glyph + elapsed time come from `ui.ToolRunning/
-// ToolDone/ToolError`, and the note line under it renders only if set.
-//
-// `gutter` is the indent shared by every continuation line in the transcript.
+// renderToolPill renders one tool call as two flat lines:
+//   ⏺ tool_name(main arg)  ⏱ 0.4s ✓
+//     ⎿ result preview / note / error
+// No emoji, no bullet card — the leading ⏺ is colored by status
+// (accent = running, meta = done, fail = error) so the eye reads state
+// from color before reading the name, same idea Claude Code uses.
 func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
-	emoji := ui.EmojiForTool(t.Name)
 	name := ui.ToolName.Render(t.Name)
 	arg := ""
 	if t.Main != "" {
-		arg = " " + ui.ToolArg.Render(fmt.Sprintf("(%s)", t.Main))
+		arg = ui.ToolArg.Render(fmt.Sprintf("(%s)", t.Main))
+	} else {
+		arg = ui.ToolArg.Render("()")
 	}
 	elapsed := formatElapsed(t.endedOrNow())
 	statusGlyph, statusStyle := t.statusGlyph()
+	mark := statusStyle.Render("⏺")
 	tail := statusStyle.Render(fmt.Sprintf("⏱ %s %s", elapsed, statusGlyph))
 
-	first := fmt.Sprintf("%s %s %s%s  %s",
-		ui.ToolBullet.Render("●"), emoji, name, arg, tail,
-	)
+	first := fmt.Sprintf("%s %s%s  %s", mark, name, arg, tail)
 	out := []string{first}
 	if t.Note != "" {
-		noteLine := fmt.Sprintf("   %s %s",
-			ui.ToolBullet.Render("└─"), ui.ToolNote.Render(t.Note),
-		)
-		out = append(out, noteLine)
+		out = append(out, "  "+ui.ToolResult.String()+" "+ui.ToolNote.Render(t.Note))
 	}
 	if t.Status == ToolError && t.ErrMsg != "" {
-		errLine := fmt.Sprintf("   %s %s",
-			ui.ToolBullet.Render("└─"), ui.ToolError.Render(t.ErrMsg),
-		)
-		out = append(out, errLine)
+		out = append(out, "  "+ui.ToolResult.String()+" "+ui.ToolError.Render(t.ErrMsg))
 	}
 	if t.Preview != "" {
 		preview := truncate(t.Preview, width-TagIndent-2)
 		if preview != "" {
-			out = append(out, gutter+"  "+ui.MetaStyle.Render(preview))
+			out = append(out, "  "+ui.ToolResult.String()+" "+ui.MetaStyle.Render(preview))
 		}
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n"+gutter)
 }
 
 // TagIndent is the indent at which tool pills sit inside an assistant
