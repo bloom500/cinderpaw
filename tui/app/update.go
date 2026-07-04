@@ -238,6 +238,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		a.Loader, cmd = a.Loader.Update(msg)
+		if !a.FlashUntil.IsZero() && time.Now().After(a.FlashUntil) {
+			a.FlashText = ""
+			a.FlashUntil = time.Time{}
+		}
 		if a.IsStreaming() {
 			a.rebuildViewport()
 		}
