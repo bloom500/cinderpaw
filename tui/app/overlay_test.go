@@ -491,6 +491,52 @@ func TestWizardCloudKeyValidation(t *testing.T) {
 	}
 }
 
+// TestWizardConnectorPrompt — confirms W4 Enter goes to prompt, Y/n advances.
+func TestWizardConnectorPrompt(t *testing.T) {
+	a := newTestApp()
+	a.startWizard()
+	a.Wizard.Step = WizConnectors
+	a.Wizard.connectorIdx = 0
+
+	// Enter with Discord selected.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.Wizard.Step != WizConnectorPrompt {
+		t.Fatalf("expected WizConnectorPrompt, got %v", a.Wizard.Step)
+	}
+	if a.Wizard.ConnectorSelected != "Discord" {
+		t.Fatalf("expected ConnectorSelected=Discord, got %q", a.Wizard.ConnectorSelected)
+	}
+
+	// Press Y → connecting → WizFinish.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if !a.Wizard.Connecting {
+		t.Fatal("Y should set Connecting=true")
+	}
+	if a.Wizard.Step != WizFinish {
+		t.Fatalf("expected WizFinish after Y, got %v", a.Wizard.Step)
+	}
+}
+
+// TestWizardWelcomeMoment — finishWizard adds welcome turn to transcript.
+func TestWizardWelcomeMoment(t *testing.T) {
+	a := newTestApp()
+	a.startWizard()
+	a.finishWizard()
+
+	if a.Wizard.Show {
+		t.Fatal("finishWizard should hide wizard")
+	}
+	if len(a.Turns) != 1 {
+		t.Fatalf("expected 1 welcome turn, got %d", len(a.Turns))
+	}
+	if a.Turns[0].Role != RoleAssistant {
+		t.Fatalf("welcome turn should be assistant")
+	}
+	if !strings.Contains(a.Turns[0].Text, "Welcome to Feral") {
+		t.Fatalf("welcome turn missing 'Welcome to Feral', got %q", a.Turns[0].Text)
+	}
+}
+
 func TestModelSetEventUpdatesStatus(t *testing.T) {
 	a := newTestApp()
 	a.Update(RuntimeEventMsg{Event: api.RuntimeEvent{

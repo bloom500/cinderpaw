@@ -11,6 +11,7 @@ const (
 	WizLocalDownload
 	WizCloudKey
 	WizConnectors
+	WizConnectorPrompt
 	WizFinish
 )
 
@@ -41,11 +42,18 @@ type WizardState struct {
 	APIKey   string       // masked input buffer
 	KeyValid bool         // true after successful live validation
 
-	Hardware WizardHardware // probed hardware (W1)
-	ModelID  string         // selected model id
-	ModelSize string        // human size, e.g. "4.1 GB"
-	Progress  float64       // download progress 0..1 (W3a)
-	ProgressMsg string      // live progress text
+	Hardware   WizardHardware // probed hardware (W1)
+	ModelID    string         // selected model id
+	ModelSize  string         // human size, e.g. "4.1 GB"
+	Progress   float64        // download progress 0..1 (W3a)
+	ProgressMsg string        // live progress text
+
+	// connectorIdx is the currently highlighted connector index (0-3) in W4.
+	connectorIdx int
+	// ConnectorSelected is the connector confirmed in W4 → WizConnectorPrompt.
+	ConnectorSelected string
+	// Connecting is true while the mock connector handshake is shown.
+	Connecting bool
 
 	// Resumability: when the wizard is interrupted (Ctrl+C), the last
 	// completed step is saved. On next launch the wizard resumes from
@@ -62,6 +70,9 @@ func (ws *WizardState) reset() {
 	ws.KeyValid = false
 	ws.Progress = 0
 	ws.ProgressMsg = ""
+	ws.connectorIdx = 0
+	ws.ConnectorSelected = ""
+	ws.Connecting = false
 	ws.lastCompleted = WizHardware
 }
 
@@ -83,7 +94,9 @@ func (ws *WizardState) footerHint() string {
 		}
 		return "paste your api key and press enter"
 	case WizConnectors:
-		return "enter to skip · esc back"
+		return "enter to select · esc back"
+	case WizConnectorPrompt:
+		return "y confirm · n skip"
 	case WizFinish:
 		return "enter to start chatting"
 	default:

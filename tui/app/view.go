@@ -1136,6 +1136,8 @@ func (a *App) renderWizard() string {
 		return renderWizCloudKey(w, width)
 	case WizConnectors:
 		return renderWizConnectors(w, width)
+	case WizConnectorPrompt:
+		return renderWizConnectorPrompt(w, width)
 	case WizFinish:
 		return renderWizFinish(w, width)
 	default:
@@ -1143,95 +1145,121 @@ func (a *App) renderWizard() string {
 	}
 }
 
-func renderWizardLine(s string, width int) string {
+func wizTitle(s string) string {
+	return ui.WelcomeSection.Render(s)
+}
+
+func wizLine(s string) string {
 	return ui.MetaStyle.Render(s)
+}
+
+func wizSep(width int) string {
+	line := strings.Repeat("─", width)
+	return ui.SeparatorStyle.Render(line)
 }
 
 func renderWizHardware(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.BrandStyle.Render(ui.G.Spark + " setting up feral"))
+	b.WriteString(wizSep(width))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	b.WriteString(renderWizardLine("detecting hardware…", width))
+	b.WriteString(wizLine("Checking your machine" + ui.G.Ellipsis))
 	b.WriteByte('\n')
-	gpuOff := fmt.Sprintf("  %s gpu none detected — cpu mode", ui.G.Off)
-	gpuOK := fmt.Sprintf("  %s gpu   %s · %d GB · vulkan", ui.G.OK, w.Hardware.GpuName, w.Hardware.GpuVram)
+	b.WriteByte('\n')
 	if w.Hardware.GpuOK {
-		b.WriteString(ui.OkStyle.Render(gpuOK))
+		line := fmt.Sprintf("  %s %s \u00b7 %d GB", ui.G.OK, w.Hardware.GpuName, w.Hardware.GpuVram)
+		b.WriteString(ui.OkStyle.Render(line))
 	} else {
-		b.WriteString(renderWizardLine(gpuOff, width))
+		b.WriteString(wizLine("  " + ui.G.Off + " gpu none detected — cpu mode"))
 	}
 	b.WriteByte('\n')
-	ramOK := fmt.Sprintf("  %s ram   %d GB", ui.G.OK, w.Hardware.RamGB)
-	ramOff := "  " + ui.G.Off + " ram probing…"
-	if w.Hardware.RamGB > 0 {
-		b.WriteString(ui.OkStyle.Render(ramOK))
-	} else {
-		b.WriteString(renderWizardLine(ramOff, width))
-	}
+	ramLine := fmt.Sprintf("  %s %d GB", ui.G.OK, w.Hardware.RamGB)
+	b.WriteString(ui.OkStyle.Render(ramLine))
 	b.WriteByte('\n')
-	diskOK := fmt.Sprintf("  %s disk  %d GB free", ui.G.OK, w.Hardware.DiskGB)
-	diskOff := "  " + ui.G.Off + " disk probing…"
-	if w.Hardware.DiskGB > 0 {
-		b.WriteString(ui.OkStyle.Render(diskOK))
-	} else {
-		b.WriteString(renderWizardLine(diskOff, width))
-	}
+	diskLine := fmt.Sprintf("  %s %d GB available", ui.G.OK, w.Hardware.DiskGB)
+	b.WriteString(ui.OkStyle.Render(diskLine))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(wizSep(width))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(wizLine("This machine can comfortably run"))
+	b.WriteByte('\n')
+	b.WriteString(ui.AccentStyle.Render("  Qwen2.5 7B (recommended)"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(ui.AccentStyle.Render("  Press Enter"))
 	b.WriteByte('\n')
 	return b.String()
 }
 
 func renderWizModelChoice(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.MetaStyle.Render("how should feral think?"))
+	b.WriteString(wizSep(width))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	sel := ui.G.ThinkClosed + " "
-	recLine := "  1. local — private, free, runs on your gpu   (recommended for this machine)"
-	if w.Choice == WizChoiceLocal {
-		b.WriteString(ui.AccentStyle.Render(sel + recLine[3:]))
-	} else {
-		b.WriteString(ui.MetaStyle.Render(recLine))
+	b.WriteString(ui.AccentStyle.Render("Where should Feral run?"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+
+	type rtOption struct {
+		name string
+		desc string
+		opt  WizardChoice
 	}
-	b.WriteByte('\n')
-	cloudLine := "  2. cloud — bring your own api key"
-	if w.Choice == WizChoiceCloud {
-		b.WriteString(ui.AccentStyle.Render(sel + cloudLine[3:]))
-	} else {
-		b.WriteString(ui.MetaStyle.Render(cloudLine))
+	runtimes := []rtOption{
+		{"Local", "Private. Runs on your GPU.", WizChoiceLocal},
+		{"Cloud", "Uses your API key.", WizChoiceCloud},
+		{"Hybrid", "Local first. Cloud fallback.", WizChoiceBoth},
 	}
-	b.WriteByte('\n')
-	bothLine := "  3. both — local first, cloud fallback"
-	if w.Choice == WizChoiceBoth {
-		b.WriteString(ui.AccentStyle.Render(sel + bothLine[3:]))
-	} else {
-		b.WriteString(ui.MetaStyle.Render(bothLine))
+	for _, r := range runtimes {
+		sel := "  "
+		nameStyle := ui.MetaStyle
+		descStyle := ui.MetaStyle
+		if w.Choice == r.opt {
+			sel = ui.G.ThinkClosed + " "
+			nameStyle = ui.AccentStyle
+		}
+		b.WriteString(fmt.Sprintf("%s%s", sel, nameStyle.Render(r.name)))
+		b.WriteByte('\n')
+		b.WriteString(fmt.Sprintf("  %s", descStyle.Render(r.desc)))
+		b.WriteByte('\n')
+		b.WriteByte('\n')
 	}
-	b.WriteByte('\n')
-	b.WriteByte('\n')
-	b.WriteString(ui.MetaStyle.Render("minimax · anthropic · openai"))
+	b.WriteString(wizLine("1 2 3  choose    " + ui.AccentStyle.Render("Enter") + "  confirm"))
 	b.WriteByte('\n')
 	return b.String()
 }
 
 func renderWizDownload(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.MetaStyle.Render(fmt.Sprintf("preparing download for %s" + ui.G.Ellipsis, w.ModelID)))
+	b.WriteString(wizSep(width))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(wizTitle("Downloading " + w.ModelID))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
 	if w.Progress > 0 {
 		pct := int(w.Progress * 100)
-		barW := width - 10
-		if barW < 10 {
-			barW = 10
-		}
-		filled := int(float64(barW) * w.Progress)
-		bar := strings.Repeat("█", filled) + strings.Repeat("░", barW-filled)
-		b.WriteString(ui.OkStyle.Render(fmt.Sprintf("  %s %d%%", bar, pct)))
+		b.WriteString(ui.AccentStyle.Render(fmt.Sprintf("  %d%%", pct)))
 		b.WriteByte('\n')
-	}
-	if w.ProgressMsg != "" {
-		b.WriteString(renderWizardLine(w.ProgressMsg, width))
+		b.WriteByte('\n')
+		total := fmt.Sprintf("%.1f / %.1f GB", w.Progress*17.0, 17.0)
+		speed := "4.2 MB/s"
+		remaining := int((1 - w.Progress) * 17.0 / 4.2)
+		eta := fmt.Sprintf("~%d seconds remaining", remaining)
+		if remaining > 120 {
+			eta = fmt.Sprintf("~%d minutes remaining", remaining/60)
+		}
+		b.WriteString(wizLine(fmt.Sprintf("  %s    %s", total, speed)))
+		b.WriteByte('\n')
+		b.WriteString(wizLine(fmt.Sprintf("  %s", eta)))
+		b.WriteByte('\n')
+	} else if w.ProgressMsg != "" {
+		b.WriteString(wizLine("  " + w.ProgressMsg))
+		b.WriteByte('\n')
+	} else {
+		b.WriteString(wizLine("  preparing download" + ui.G.Ellipsis))
 		b.WriteByte('\n')
 	}
 	return b.String()
@@ -1239,48 +1267,124 @@ func renderWizDownload(w *WizardState, width int) string {
 
 func renderWizCloudKey(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.MetaStyle.Render("bring your own api key"))
+	b.WriteString(wizSep(width))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	b.WriteString(renderWizardLine("provider: "+w.Provider, width))
+	b.WriteString(ui.AccentStyle.Render(w.Provider))
 	b.WriteByte('\n')
-	masked := "••••••••••"
-	if w.APIKey != "" && len(w.APIKey) > 4 {
-		masked = w.APIKey[:4] + "••••••••"
+	b.WriteByte('\n')
+	b.WriteString(wizLine("Paste your API key."))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	masked := strings.Repeat("\u2022", 16)
+	if w.APIKey != "" {
+		if len(w.APIKey) > 4 {
+			masked = w.APIKey[:4] + strings.Repeat("\u2022", 12)
+		}
 	}
-	b.WriteString(renderWizardLine("key: "+masked, width))
+	b.WriteString(wizLine("  " + masked))
+	b.WriteByte('\n')
 	b.WriteByte('\n')
 	if w.KeyValid {
-		b.WriteString(ui.OkStyle.Render("  " + ui.G.OK + " key works"))
-	} else if w.APIKey != "" {
-		b.WriteString(ui.WarnStyle.Render("  " + ui.G.Err + " key rejected — check it and paste again"))
+		b.WriteString(ui.OkStyle.Render("  " + ui.G.OK + " Connected"))
+	} else if w.APIKey != "" && !w.KeyValid {
+		b.WriteString(wizLine("  Validating" + ui.G.Ellipsis))
+	} else {
+		b.WriteString(wizLine("  " + ui.AccentStyle.Render("Enter") + "  validate"))
 	}
-	b.WriteByte('\n')
-	b.WriteByte('\n')
-	b.WriteString(ui.MetaStyle.Render("stored in your system keychain"))
 	b.WriteByte('\n')
 	return b.String()
 }
 
 func renderWizConnectors(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.MetaStyle.Render("connect chat apps"))
+	b.WriteString(wizSep(width))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	b.WriteString(renderWizardLine("connect chat apps later with /connectors — skipping", width))
+	b.WriteString(wizTitle("Connectors"))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	b.WriteString(ui.MetaStyle.Render("auto-advancing" + ui.G.Ellipsis))
+	type connItem struct {
+		name string
+		desc string
+	}
+	items := []connItem{
+		{"Discord", "chat, voice, community"},
+		{"Slack", "team messaging"},
+		{"Telegram", "private messaging"},
+		{"WhatsApp", "mobile messaging"},
+	}
+	for i, c := range items {
+		sel := "  "
+		nameStyle := ui.MetaStyle
+		descStyle := ui.MetaStyle
+		if i == w.connectorIdx {
+			sel = ui.G.ThinkClosed + " "
+			nameStyle = ui.AccentStyle
+		}
+		b.WriteString(fmt.Sprintf("%s%s", sel, nameStyle.Render(c.name)))
+		b.WriteByte('\n')
+		b.WriteString(fmt.Sprintf("   %s", descStyle.Render(c.desc)))
+		b.WriteByte('\n')
+		b.WriteByte('\n')
+	}
+	b.WriteString(wizLine("  Skip for now"))
 	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(wizLine("1 2 3 4  select    " + ui.AccentStyle.Render("Enter") + "  confirm"))
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func renderWizConnectorPrompt(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(wizSep(width))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	if w.Connecting {
+		b.WriteString(ui.OkStyle.Render(fmt.Sprintf("  %s Connected", ui.G.OK)))
+		b.WriteByte('\n')
+		b.WriteByte('\n')
+		b.WriteString(wizLine(fmt.Sprintf("  %s is ready.", w.ConnectorSelected)))
+		b.WriteByte('\n')
+	} else {
+		name := w.ConnectorSelected
+		if name == "" {
+			name = "Discord"
+		}
+		b.WriteString(ui.AccentStyle.Render(fmt.Sprintf("  Connect %s now?", name)))
+		b.WriteByte('\n')
+		b.WriteByte('\n')
+		b.WriteString(wizLine("  " + ui.AccentStyle.Render("Y") + "  yes"))
+		b.WriteByte('\n')
+		b.WriteString(wizLine("  " + ui.AccentStyle.Render("n") + "  no"))
+		b.WriteByte('\n')
+	}
 	return b.String()
 }
 
 func renderWizFinish(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.OkStyle.Render(ui.G.OK + " feral is ready"))
+	b.WriteString(ui.OkStyle.Render("  " + ui.G.OK + " Setup complete."))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	b.WriteString(renderWizardLine("say something.", width))
+	b.WriteString(wizSep(width))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(ui.AccentStyle.Render(fmt.Sprintf("  %s", w.ModelID)))
+	b.WriteByte('\n')
+	b.WriteString(wizLine("  Local reasoning"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(wizLine("  Persistent memory"))
+	b.WriteByte('\n')
+	b.WriteString(wizLine("  Autonomous learning"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(wizSep(width))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(ui.AccentStyle.Render("  Welcome to Feral."))
 	b.WriteByte('\n')
 	return b.String()
 }

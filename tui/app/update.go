@@ -1340,12 +1340,34 @@ func (a *App) wizardHandleKey(key tea.KeyMsg) bool {
 	case WizConnectors:
 		switch key.Type {
 		case tea.KeyEnter:
-			w.Step = WizFinish
+			conns := []string{"Discord", "Slack", "Telegram", "WhatsApp"}
+			w.ConnectorSelected = conns[w.connectorIdx]
+			w.Step = WizConnectorPrompt
 			w.lastCompleted = WizConnectors
+		case tea.KeyRunes:
+			if len(key.Runes) == 1 && key.Runes[0] >= '1' && key.Runes[0] <= '4' {
+				w.connectorIdx = int(key.Runes[0] - '1')
+			}
 		case tea.KeyEscape:
 			if w.Step > WizHardware {
 				w.Step--
 			}
+		}
+		return true
+	case WizConnectorPrompt:
+		switch key.Type {
+		case tea.KeyRunes:
+			if len(key.Runes) == 1 && (key.Runes[0] == 'y' || key.Runes[0] == 'Y') {
+				w.Connecting = true
+			}
+			// Y and n both advance; n skips connecting.
+			w.Step = WizFinish
+			w.lastCompleted = WizConnectorPrompt
+		case tea.KeyEnter:
+			w.Step = WizFinish
+			w.lastCompleted = WizConnectorPrompt
+		case tea.KeyEscape:
+			w.Step = WizConnectors
 		}
 		return true
 	case WizFinish:
@@ -1372,11 +1394,21 @@ func advanceWizardStep(c WizardChoice) WizardStep {
 	}
 }
 
-// finishWizard exits the wizard and transitions to the normal chat state.
+// finishWizard exits the wizard, adds the welcome message, and transitions
+// to the normal chat state.
 func (a *App) finishWizard() {
 	a.Wizard.Show = false
 	a.State = StateReady
-	a.setFlash("feral is ready")
+
+	// Welcome moment — one assistant turn that greets the user.
+	welcomeText := "Welcome to Feral.\n\nI'm ready to help.\n\n" +
+		"Ask me to write code,\n" +
+		"analyze files,\n" +
+		"use tools,\n" +
+		"or automate tasks.\n\n" +
+		"Type /help anytime."
+	a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Text: welcomeText, turnVer: 1})
+
 	a.rebuildViewport()
 }
 
