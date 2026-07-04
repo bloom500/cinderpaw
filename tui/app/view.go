@@ -25,6 +25,24 @@ func (a *App) View() string {
 	sepH := 1
 	inH := clamp(3, a.Input.Height()+2, a.Height/5)
 
+	// Wizard mode: input hidden, wizard footer, wizard content in chat area.
+	if a.Wizard.Show {
+		chatH := a.Height - headerH - footerH - 1
+		if chatH < 10 {
+			chatH = 10
+		}
+		a.ChatVP.Height = chatH
+		a.ChatVP.Width = a.Width - 2
+		a.rebuildViewport()
+
+		header := a.renderHeader()
+		chat := a.renderWizard()
+		input := ""
+		footer := renderWizardFooter(&a.Wizard)
+		main := lipgloss.JoinVertical(lipgloss.Top, header, chat, input, footer)
+		return main
+	}
+
 	// Auxiliary strips above the input — the streaming status line and the
 	// autocomplete popup. Each takes from the chat height so the layout
 	// stays exact even when both are visible.
@@ -33,8 +51,6 @@ func (a *App) View() string {
 		auxH += 1
 	}
 	if a.Completion.Show && len(a.Completion.List) > 0 {
-		// +2 for the border + 1 row per item, capped so a short terminal
-		// still has a usable chat viewport.
 		items := len(a.Completion.List)
 		if items > 6 {
 			items = 6
@@ -1099,3 +1115,182 @@ func splitTokens(s string) []string {
 	}
 	return tokens
 }
+
+// ── Wizard renderers (§13) ─────────────────────────────────────────
+
+// renderWizard renders the current Setup Wizard step in the transcript zone.
+func (a *App) renderWizard() string {
+	w := &a.Wizard
+	width := a.ChatVP.Width
+	if width < 40 {
+		width = 40
+	}
+	switch w.Step {
+	case WizHardware:
+		return renderWizHardware(w, width)
+	case WizModelChoice:
+		return renderWizModelChoice(w, width)
+	case WizLocalDownload:
+		return renderWizDownload(w, width)
+	case WizCloudKey:
+		return renderWizCloudKey(w, width)
+	case WizConnectors:
+		return renderWizConnectors(w, width)
+	case WizFinish:
+		return renderWizFinish(w, width)
+	default:
+		return ""
+	}
+}
+
+func renderWizardLine(s string, width int) string {
+	return ui.MetaStyle.Render(s)
+}
+
+func renderWizHardware(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(ui.BrandStyle.Render(ui.G.Spark + " setting up feral"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(renderWizardLine("detecting hardware…", width))
+	b.WriteByte('\n')
+	gpuOff := fmt.Sprintf("  %s gpu none detected — cpu mode", ui.G.Off)
+	gpuOK := fmt.Sprintf("  %s gpu   %s · %d GB · vulkan", ui.G.OK, w.Hardware.GpuName, w.Hardware.GpuVram)
+	if w.Hardware.GpuOK {
+		b.WriteString(ui.OkStyle.Render(gpuOK))
+	} else {
+		b.WriteString(renderWizardLine(gpuOff, width))
+	}
+	b.WriteByte('\n')
+	ramOK := fmt.Sprintf("  %s ram   %d GB", ui.G.OK, w.Hardware.RamGB)
+	ramOff := "  " + ui.G.Off + " ram probing…"
+	if w.Hardware.RamGB > 0 {
+		b.WriteString(ui.OkStyle.Render(ramOK))
+	} else {
+		b.WriteString(renderWizardLine(ramOff, width))
+	}
+	b.WriteByte('\n')
+	diskOK := fmt.Sprintf("  %s disk  %d GB free", ui.G.OK, w.Hardware.DiskGB)
+	diskOff := "  " + ui.G.Off + " disk probing…"
+	if w.Hardware.DiskGB > 0 {
+		b.WriteString(ui.OkStyle.Render(diskOK))
+	} else {
+		b.WriteString(renderWizardLine(diskOff, width))
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func renderWizModelChoice(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(ui.MetaStyle.Render("how should feral think?"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	sel := ui.G.ThinkClosed + " "
+	recLine := "  1. local — private, free, runs on your gpu   (recommended for this machine)"
+	if w.Choice == WizChoiceLocal {
+		b.WriteString(ui.AccentStyle.Render(sel + recLine[3:]))
+	} else {
+		b.WriteString(ui.MetaStyle.Render(recLine))
+	}
+	b.WriteByte('\n')
+	cloudLine := "  2. cloud — bring your own api key"
+	if w.Choice == WizChoiceCloud {
+		b.WriteString(ui.AccentStyle.Render(sel + cloudLine[3:]))
+	} else {
+		b.WriteString(ui.MetaStyle.Render(cloudLine))
+	}
+	b.WriteByte('\n')
+	bothLine := "  3. both — local first, cloud fallback"
+	if w.Choice == WizChoiceBoth {
+		b.WriteString(ui.AccentStyle.Render(sel + bothLine[3:]))
+	} else {
+		b.WriteString(ui.MetaStyle.Render(bothLine))
+	}
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(ui.MetaStyle.Render("minimax · anthropic · openai"))
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func renderWizDownload(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(ui.MetaStyle.Render(fmt.Sprintf("preparing download for %s" + ui.G.Ellipsis, w.ModelID)))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	if w.Progress > 0 {
+		pct := int(w.Progress * 100)
+		barW := width - 10
+		if barW < 10 {
+			barW = 10
+		}
+		filled := int(float64(barW) * w.Progress)
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barW-filled)
+		b.WriteString(ui.OkStyle.Render(fmt.Sprintf("  %s %d%%", bar, pct)))
+		b.WriteByte('\n')
+	}
+	if w.ProgressMsg != "" {
+		b.WriteString(renderWizardLine(w.ProgressMsg, width))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func renderWizCloudKey(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(ui.MetaStyle.Render("bring your own api key"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(renderWizardLine("provider: "+w.Provider, width))
+	b.WriteByte('\n')
+	masked := "••••••••••"
+	if w.APIKey != "" && len(w.APIKey) > 4 {
+		masked = w.APIKey[:4] + "••••••••"
+	}
+	b.WriteString(renderWizardLine("key: "+masked, width))
+	b.WriteByte('\n')
+	if w.KeyValid {
+		b.WriteString(ui.OkStyle.Render("  " + ui.G.OK + " key works"))
+	} else if w.APIKey != "" {
+		b.WriteString(ui.WarnStyle.Render("  " + ui.G.Err + " key rejected — check it and paste again"))
+	}
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(ui.MetaStyle.Render("stored in your system keychain"))
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func renderWizConnectors(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(ui.MetaStyle.Render("connect chat apps"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(renderWizardLine("connect chat apps later with /connectors — skipping", width))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(ui.MetaStyle.Render("auto-advancing" + ui.G.Ellipsis))
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func renderWizFinish(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(ui.OkStyle.Render(ui.G.OK + " feral is ready"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+	b.WriteString(renderWizardLine("say something.", width))
+	b.WriteByte('\n')
+	return b.String()
+}
+
+// renderWizardFooter renders the footer hint for the current wizard step.
+func renderWizardFooter(w *WizardState) string {
+	hint := w.footerHint()
+	if hint == "" {
+		return ""
+	}
+	return ui.FooterStyle.Render(hint)
+}
+

@@ -188,6 +188,7 @@ type App struct {
 	Input       textarea.Model
 	Loader      spinner.Model
 	PrevContent string
+	Wizard      WizardState
 	// renderWidth tracks the msgWidth used during the last buildChatContent
 	// pass. When it matches, per-turn caches are valid (spec §16).
 	renderWidth int

@@ -123,6 +123,11 @@ var (
 	// event formatter map.
 	EventStyle = lipgloss.NewStyle().Foreground(Meta)
 
+	// Wizard styles (§13).
+	OkStyle    = lipgloss.NewStyle().Foreground(Ok)
+	WarnStyle  = lipgloss.NewStyle().Foreground(Warn)
+	AccentStyle = lipgloss.NewStyle().Foreground(Accent)
+
 	SpinnerStyle = lipgloss.NewStyle().Foreground(Accent)
 
 	HelpTitle = lipgloss.NewStyle().Foreground(AccentHi).Bold(true)

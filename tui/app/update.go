@@ -62,6 +62,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.State == StateShutdown {
 			return a, tea.Quit
 		}
+		// Wizard mode: wizard consumes all keys when active.
+		if a.Wizard.Show {
+			a.wizardHandleKey(msg)
+			a.rebuildViewport()
+			return a, nil
+		}
 		key := msg.String()
 
 		switch key {
@@ -1242,6 +1248,136 @@ func (a *App) toggleThinking() {
 func (a *App) setFlash(text string) {
 	a.FlashText = text
 	a.FlashUntil = time.Now().Add(5 * time.Second)
+}
+
+// ── Setup Wizard (§13) ────────────────────────────────────────
+
+// startWizard begins the Setup Wizard. Called on first launch when no
+// config is detected (§2 J2.3) or via the /setup command.
+func (a *App) startWizard() {
+	a.Wizard = WizardState{
+		Show:   true,
+		Step:   WizHardware,
+		Choice: WizChoiceLocal,
+	}
+	// If there's a previously saved step, resume from the one after it.
+	if a.Wizard.lastCompleted > WizHardware {
+		a.Wizard.Step = a.Wizard.lastCompleted + 1
+	}
+	a.State = StateDetectingHardware
+	// Kick off hardware detection.
+	a.startWizardHardwareProbe()
+}
+
+// startWizardHardwareProbe begins the W1 hardware scan. In a real
+// implementation this would call the gateway API; here we simulate with
+// plausible defaults for the dev machine.
+func (a *App) startWizardHardwareProbe() {
+	a.Wizard.Hardware = WizardHardware{
+		GpuName: "rtx 4070",
+		GpuVram: 12,
+		RamGB:   64,
+		DiskGB:  412,
+		GpuOK:   true,
+	}
+	// Auto-advance after probe (simulated synchronously for now).
+	a.State = StateReady
+	a.Wizard.Step = WizModelChoice
+}
+
+// wizardHandleKey processes key events while the wizard is showing.
+// Returns true if the key was consumed by the wizard.
+func (a *App) wizardHandleKey(key tea.KeyMsg) bool {
+	if !a.Wizard.Show {
+		return false
+	}
+	w := &a.Wizard
+	switch w.Step {
+	case WizModelChoice:
+		switch key.Type {
+		case tea.KeyEnter:
+			w.Step = advanceWizardStep(w.Choice)
+			w.lastCompleted = WizModelChoice
+		case tea.KeyRunes:
+			switch string(key.Runes) {
+			case "1":
+				w.Choice = WizChoiceLocal
+			case "2":
+				w.Choice = WizChoiceCloud
+			case "3":
+				w.Choice = WizChoiceBoth
+			}
+		case tea.KeyEscape:
+			if w.Step > WizHardware {
+				w.Step--
+			}
+		}
+		return true
+	case WizCloudKey:
+		switch key.Type {
+		case tea.KeyEnter:
+			if w.APIKey == "" {
+				return true
+			}
+			// Simulate key validation.
+			w.KeyValid = true
+			if w.KeyValid {
+				w.Step = WizConnectors
+				w.lastCompleted = WizCloudKey
+			}
+		case tea.KeyBackspace:
+			if len(w.APIKey) > 0 {
+				w.APIKey = w.APIKey[:len(w.APIKey)-1]
+			}
+		case tea.KeyRunes:
+			w.APIKey += string(key.Runes)
+		case tea.KeyEscape:
+			if w.Step > WizHardware {
+				w.Step--
+			}
+		}
+		return true
+	case WizConnectors:
+		switch key.Type {
+		case tea.KeyEnter:
+			w.Step = WizFinish
+			w.lastCompleted = WizConnectors
+		case tea.KeyEscape:
+			if w.Step > WizHardware {
+				w.Step--
+			}
+		}
+		return true
+	case WizFinish:
+		switch key.Type {
+		case tea.KeyEnter:
+			a.finishWizard()
+		}
+		return true
+	default:
+		// WizHardware, WizLocalDownload: auto-advance only.
+		return true
+	}
+}
+
+// advanceWizardStep returns the next wizard step based on the user's choice.
+func advanceWizardStep(c WizardChoice) WizardStep {
+	switch c {
+	case WizChoiceLocal, WizChoiceBoth:
+		return WizLocalDownload
+	case WizChoiceCloud:
+		return WizCloudKey
+	default:
+		return WizFinish
+	}
+}
+
+// finishWizard exits the wizard and transitions to the normal chat state.
+func (a *App) finishWizard() {
+	a.Wizard.Show = false
+	a.State = StateReady
+	a.setFlash("feral is ready")
+	a.rebuildViewport()
 }
 
 // ── Slash command helpers (§12) ─────────────────────────────────

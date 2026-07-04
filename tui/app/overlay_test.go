@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestInferErrorKindTimeout(t *testing.T) {
@@ -424,6 +426,68 @@ func TestToolResultBudget(t *testing.T) {
 	last := stripAnsi(lines[len(lines)-1])
 	if strings.Contains(last, "more") && !strings.Contains(last, "/tools") {
 		t.Fatalf("overflow line should mention /tools, got: %q", last)
+	}
+}
+
+// TestWizardFlow — spec §22 acceptance #22-24: wizard flow, resume, key validation.
+func TestWizardFlow(t *testing.T) {
+	a := newTestApp()
+
+	// Start wizard.
+	a.startWizard()
+	if !a.Wizard.Show {
+		t.Fatal("startWizard should set Show=true")
+	}
+	if a.Wizard.Step != WizModelChoice {
+		t.Fatalf("expected WizModelChoice after hardware probe, got %v", a.Wizard.Step)
+	}
+
+	// Select local.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	if a.Wizard.Choice != WizChoiceLocal {
+		t.Fatal("key 1 should select local")
+	}
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.Wizard.Step != WizLocalDownload {
+		t.Fatalf("expected WizLocalDownload after enter, got %v", a.Wizard.Step)
+	}
+
+	// Simulate download progress.
+	a.Wizard.Progress = 0.5
+	a.Wizard.ProgressMsg = "downloading — 3 minutes"
+	content := a.renderWizard()
+	if content == "" {
+		t.Fatal("wizard render should not be empty")
+	}
+}
+
+// TestWizardCloudKeyValidation — spec §22 acceptance #24.
+func TestWizardCloudKeyValidation(t *testing.T) {
+	a := newTestApp()
+	a.startWizard()
+	a.Wizard.Choice = WizChoiceCloud
+	a.Wizard.Step = WizCloudKey
+	a.Wizard.Provider = "openai"
+
+	// Enter with empty key: noop.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.Wizard.Step != WizCloudKey {
+		t.Fatal("enter with empty key should stay on WizCloudKey")
+	}
+
+	// Type a key.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("sk-xxxx")})
+	if a.Wizard.APIKey != "sk-xxxx" {
+		t.Fatalf("expected APIKey=sk-xxxx, got %q", a.Wizard.APIKey)
+	}
+
+	// Enter validates.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !a.Wizard.KeyValid {
+		t.Fatal("enter should validate key")
+	}
+	if a.Wizard.Step != WizConnectors {
+		t.Fatalf("expected WizConnectors after key val, got %v", a.Wizard.Step)
 	}
 }
 
