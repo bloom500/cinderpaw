@@ -431,7 +431,7 @@ func (a *App) renderToolViewerOverlay(under string) string {
 		absoluteIdx := start + i
 		line := formatToolViewerRow(row)
 		if absoluteIdx == a.ToolViewer.Idx {
-			line = ui.ToolViewerSel.Render("▸ " + stripAnsiLocal(line))
+			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed+" "+stripAnsiLocal(line))
 		} else {
 			line = "  " + ui.ToolViewerRow.Render(stripAnsiLocal(line))
 		}
@@ -445,7 +445,7 @@ func (a *App) renderToolViewerOverlay(under string) string {
 	}
 
 	body += "\n" + strings.Repeat("─", boxW-4)
-	hint := ui.ToolViewerMeta.Render("  ↑↓ navigate · enter expand · esc close")
+	hint := ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate · enter expand · esc close", ui.G.Up, ui.G.Down))
 	body += "\n" + hint
 
 	box := ui.ToolViewerBox.Width(boxW).Render(body)
@@ -530,12 +530,12 @@ func (a *App) renderModelPickerOverlay(under string) string {
 		}
 		marker := " "
 		if row.Active {
-			marker = "●"
+			marker = ui.G.On
 		}
 		line := fmt.Sprintf("%s %s %s   %s",
 			marker, icon, row.ID, ui.ToolViewerMeta.Render(kind))
 		if absIdx == a.ModelPicker.Idx {
-			line = ui.ToolViewerSel.Render("▸ " + stripAnsiLocal(line))
+			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed+" "+stripAnsiLocal(line))
 		} else {
 			line = "  " + ui.ToolViewerRow.Render(stripAnsiLocal(line))
 		}
@@ -543,7 +543,7 @@ func (a *App) renderModelPickerOverlay(under string) string {
 	}
 	body := strings.Join(rowLines, "\n")
 	body += "\n" + strings.Repeat("─", boxW-4)
-	hint := ui.ToolViewerMeta.Render("  ↑↓ navigate · enter switch · tab cycle · esc close")
+	hint := ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate · enter switch · tab cycle · esc close", ui.G.Up, ui.G.Down))
 	body += "\n" + hint
 
 	box := ui.ToolViewerBox.Width(boxW).Render(body)
@@ -562,15 +562,15 @@ func formatToolViewerRow(row ToolViewerRow) string {
 	if row.Call.Main != "" {
 		arg = ui.ToolViewerMeta.Render(fmt.Sprintf(" (%s)", truncateRunes(row.Call.Main, 40)))
 	}
-	elapsed := "⠿"
+	elapsed := ui.G.Running
 	switch row.Call.Status {
 	case ToolDone:
-		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s ✓", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt))))
+		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s %s", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt)), ui.G.OK))
 	case ToolError:
-		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s !", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt))))
+		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s %s", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt)), ui.G.Err))
 	default:
 		// Running — show elapsed-so-far.
-		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s ⠿", formatElapsed(time.Since(row.Call.StartedAt))))
+		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s %s", formatElapsed(time.Since(row.Call.StartedAt)), ui.G.Running))
 	}
 	return fmt.Sprintf("%s %s%s   %s", ui.ToolMark.Render(ui.G.ToolMark), name, arg, elapsed)
 }
@@ -738,13 +738,13 @@ func (a *App) renderCompletions() string {
 	for i, c := range shown {
 		var name string
 		if i == a.Completion.Idx {
-			name = ui.CompletionSel.Render("▸ "+c.Text) + "  " + ui.CompletionDesc.Render(c.Desc)
+			name = ui.CompletionSel.Render(ui.G.ThinkClosed+" "+c.Text) + "  " + ui.CompletionDesc.Render(c.Desc)
 		} else {
 			name = "  " + ui.CompletionItem.Render(c.Text) + "  " + ui.CompletionDesc.Render(c.Desc)
 		}
 		rows = append(rows, name)
 	}
-	hint := ui.CompletionHint.Render("  tab/↑↓ cycle · enter accept · esc dismiss")
+	hint := ui.CompletionHint.Render(fmt.Sprintf("  tab/%s%s cycle · enter accept · esc dismiss", ui.G.Up, ui.G.Down))
 	rows = append(rows, hint)
 
 	box := ui.CompletionBox.Width(a.Width - 2).Render(strings.Join(rows, "\n"))
@@ -879,16 +879,17 @@ func (t ToolCall) endedOrNow() time.Duration {
 }
 
 // statusGlyph returns the right tail-glyph + colour for a tool call's
-// status. `⠿` while running (a moving-spinner feel without a separate
-// spinner widget), `✓` on success, `!` on error.
+// status. The glyph comes from the spec's glyph table (§25.3) so ASCII
+// mode substitutes it correctly; the colour carries the same state
+// redundantly (spec §18's NO_COLOR rule: state must survive colour-off).
 func (t ToolCall) statusGlyph() (string, lipgloss.Style) {
 	switch t.Status {
 	case ToolRunning:
-		return "⠿", ui.ToolRunning
+		return ui.G.Running, ui.ToolRunning
 	case ToolError:
-		return "!", ui.ToolError
+		return ui.G.Err, ui.ToolError
 	default:
-		return "✓", ui.ToolDone
+		return ui.G.OK, ui.ToolDone
 	}
 }
 

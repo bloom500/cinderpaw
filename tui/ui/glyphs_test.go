@@ -51,6 +51,7 @@ func TestAsciiSetIsPureASCII(t *testing.T) {
 	check("Spark", Ascii.Spark)
 	check("OK", Ascii.OK)
 	check("Err", Ascii.Err)
+	check("Running", Ascii.Running)
 	check("Down", Ascii.Down)
 	check("Up", Ascii.Up)
 	check("Ellipsis", Ascii.Ellipsis)

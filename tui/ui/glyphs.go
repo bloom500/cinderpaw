@@ -20,6 +20,7 @@ type GlyphSet struct {
 	Spark       string // ✻  / *
 	OK          string // ✓  / ok
 	Err         string // ✗  / x
+	Running     string // ⠿  / |  (static "in flight" indicator on tool pills)
 	Down        string // ↓  / v
 	Up          string // ↑  / ^
 	Ellipsis    string // …  / ...
@@ -30,6 +31,7 @@ type GlyphSet struct {
 var Unicode = GlyphSet{
 	Prompt: "›", ToolMark: "⏺", Result: "⎿", ThinkClosed: "▸", ThinkOpen: "▾",
 	On: "●", Off: "○", Event: "◦", Spark: "✻", OK: "✓", Err: "✗",
+	Running: "⠿",
 	Down: "↓", Up: "↑", Ellipsis: "…", Cursor: "▍",
 	Spinner: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 }
@@ -37,6 +39,7 @@ var Unicode = GlyphSet{
 var Ascii = GlyphSet{
 	Prompt: ">", ToolMark: "*", Result: "`-", ThinkClosed: "+", ThinkOpen: "-",
 	On: "o", Off: ".", Event: "-", Spark: "*", OK: "ok", Err: "x",
+	Running: "|",
 	Down: "v", Up: "^", Ellipsis: "...", Cursor: "|",
 	Spinner: []string{"|", "/", "-", "\\"},
 }

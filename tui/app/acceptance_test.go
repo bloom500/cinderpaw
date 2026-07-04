@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -58,4 +60,49 @@ func TestAsciiModeEmitsNoNonAsciiBytes(t *testing.T) {
 	// doesn't call for a re-pick-on-demand API). Skip with a clear reason
 	// so CI output explains the gap instead of silently passing green.
 	t.Skip("ui.G is resolved at package init; process-level FERAL_ASCII=1 is exercised manually per the phase's exit criteria (spec §23), not by this in-process test")
+}
+
+// TestNoGlyphLiteralsInAppCode enforces the plan's global constraint
+// ("no lipgloss.Color/hex literal or magic glyph string may appear
+// directly in tui/app/*.go"). Scans every non-test source file under
+// the app package for the spec's glyph inventory (§5/§25.3) outside of
+// comments and string-test fixtures; a hit means a renderer is bypassing
+// the ui.G.* table and ASCII mode will leak Unicode into non-UTF-8
+// locales.
+//
+// The grep is intentionally lenient about comments (where we *describe*
+// what the renderer draws — the description isn't itself a renderer)
+// and about string literals in test files (which assert rendered output
+// contains a given glyph, not that the renderer emitted it from a
+// literal). False positives are easy to triage from the line number in
+// the failure output.
+func TestNoGlyphLiteralsInAppCode(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	glyphs := []string{"⏺", "⎿", "▸", "▾", "●", "○", "◦", "✻", "✓", "✗", "↓", "↑", "▍", "⠋", "⠿"}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(".", name)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(string(b), "\n")
+		for ln, raw := range lines {
+			trimmed := strings.TrimSpace(raw)
+			if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*") {
+				continue
+			}
+			for _, g := range glyphs {
+				if strings.Contains(raw, g) {
+					t.Errorf("%s:%d contains glyph literal %q — use ui.G.* instead (full line: %q)", name, ln+1, g, raw)
+				}
+			}
+		}
+	}
 }
