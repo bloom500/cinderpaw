@@ -279,10 +279,22 @@ func (a *App) renderInput(h int) string {
 }
 
 func (a *App) renderFooter() string {
+	if a.State == StateError {
+		if !a.RateLimitUntil.IsZero() {
+			remaining := int(time.Until(a.RateLimitUntil).Seconds())
+			if remaining < 0 {
+				remaining = 0
+			}
+			return ui.FooterStyle.Render(ui.ErrorTitle.Render("error · rate limited") +
+				ui.MetaStyle.Render(fmt.Sprintf("  cooling down %ds — r to retry now", remaining)))
+		}
+		return ui.FooterStyle.Render(ui.ErrorTitle.Render("error") +
+			ui.MetaStyle.Render("  r to retry"))
+	}
 	if a.FlashText != "" {
 		return ui.FooterStyle.Render(ui.FlashStyle.Render(a.FlashText))
 	}
-	return ui.FooterStyle.Render("F1 for shortcuts · Ctrl+C to exit")
+	return ui.FooterStyle.Render(a.State.FooterHint())
 }
 
 func (a *App) renderHelpOverlay(under string) string {

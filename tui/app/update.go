@@ -246,6 +246,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.toggleThinking()
 			a.rebuildViewport()
 			return a, nil
+
+		case "r":
+			if a.State == StateError {
+				return a, a.retryLastMessage()
+			}
+			// fall through to the textarea below — "r" is a normal character
+			// everywhere else.
 		}
 
 		if a.State != StateShutdown {
@@ -277,6 +284,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !a.FlashUntil.IsZero() && time.Now().After(a.FlashUntil) {
 			a.FlashText = ""
 			a.FlashUntil = time.Time{}
+		}
+		if !a.RateLimitUntil.IsZero() && !a.retriedRateLimit && time.Now().After(a.RateLimitUntil) {
+			a.retriedRateLimit = true
+			return a, tea.Batch(cmd, a.retryLastMessage())
 		}
 		if a.IsStreaming() {
 			a.rebuildViewport()
@@ -405,6 +416,7 @@ func (a *App) handleSubmit() tea.Cmd {
 	a.Completion.Show = false
 	a.Completion.List = nil
 	a.Completion.Idx = 0
+	a.lastUserText = raw
 	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: raw})
 	a.beginAssistant()
 	a.State = StateStreaming
@@ -943,12 +955,17 @@ func frameTick() tea.Cmd {
 // the host reported the failure synchronously). Such errors land in the
 // flash banner instead, see caller.
 func (a *App) pushAssistantError(msg string) {
+	kind, hint := inferErrorKind(msg)
+	a.State = StateError
+	if kind == "rate_limited" {
+		a.RateLimitUntil = time.Now().Add(30 * time.Second)
+		a.retriedRateLimit = false
+	}
 	for i := range a.Turns {
 		t := &a.Turns[len(a.Turns)-1-i]
 		if t.Role != RoleAssistant {
 			continue
 		}
-		kind, hint := inferErrorKind(msg)
 		t.Errors = append(t.Errors, ErrorCard{
 			Message: msg,
 			Kind:    kind,
@@ -958,6 +975,23 @@ func (a *App) pushAssistantError(msg string) {
 	}
 }
 
+// retryLastMessage re-submits lastUserText — used both by the "r" keybind
+// (spec §14: "every error names its recovery in the same breath") and by
+// the rate_limited auto-retry-once-at-0 (spec §14's rate-limit row).
+func (a *App) retryLastMessage() tea.Cmd {
+	if a.lastUserText == "" {
+		return nil
+	}
+	a.State = StateReady
+	a.RateLimitUntil = time.Time{}
+	msg := a.lastUserText
+	a.beginAssistant()
+	a.State = StateStreaming
+	a.FollowBottom = true
+	a.rebuildViewport()
+	return tea.Batch(a.startStream(msg), frameTick())
+}
+
 // inferErrorKind classifies an error message into one of the colour
 // buckets the renderer uses. Substring match is plenty — the host sends
 // a handful of stable messages (timeout / permission / network) and the
@@ -965,6 +999,16 @@ func (a *App) pushAssistantError(msg string) {
 func inferErrorKind(msg string) (kind, hint string) {
 	lower := strings.ToLower(msg)
 	switch {
+	case strings.Contains(lower, "429") || strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "too many requests"):
+		return "rate_limited", "cooling down 30s — or /model to switch"
+	case strings.Contains(lower, "no model") || strings.Contains(lower, "model not found") ||
+		strings.Contains(lower, "no_model"):
+		return "no_model", "pick one with /model"
+	case strings.Contains(lower, "runtime lost") || strings.Contains(lower, "gateway"):
+		return "runtime_lost", "restarting runtime…"
+	case strings.Contains(lower, "offline") || strings.Contains(lower, "no network"):
+		return "offline", "local model still works — /model list"
 	case strings.Contains(lower, "timed out") || strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "deadline"):
 		return "timeout", "Try: shorter prompt, or ^C to cancel"

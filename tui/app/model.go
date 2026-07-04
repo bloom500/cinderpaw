@@ -247,6 +247,16 @@ type App struct {
 	// counting back from the end (0 = most recent).
 	InputHistory []string
 	HistoryIdx   int
+
+	// lastUserText is the most recently submitted user message — restored
+	// into the textarea (or auto-resent, for rate_limited) on recovery
+	// (spec §7 "Interruptions", §14 "auto-retry once at 0").
+	lastUserText string
+
+	// RateLimitUntil is non-zero while a rate_limited error's cooldown is
+	// counting down. Cleared on the auto-retry.
+	RateLimitUntil   time.Time
+	retriedRateLimit bool
 }
 
 // ToolViewerRow is one entry in the `/tools` overlay — the flattened
