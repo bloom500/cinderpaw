@@ -223,6 +223,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case tea.MouseMsg:
+		if a.ShowHelp || a.ShowHistory || a.ToolViewer.Show || a.ModelPicker.Show {
+			// Overlays don't scroll via mouse wheel yet — ignore rather
+			// than let the wheel silently move the chat viewport behind
+			// a modal the user is looking at.
+			return a, nil
+		}
+		var cmd tea.Cmd
+		a.ChatVP, cmd = a.ChatVP.Update(msg)
+		a.FollowBottom = a.ChatVP.AtBottom()
+		return a, cmd
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		a.Loader, cmd = a.Loader.Update(msg)
