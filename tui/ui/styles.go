@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 var (
@@ -126,7 +128,21 @@ var (
 
 var glamourRenderer *glamour.TermRenderer
 
+// ApplyNoColor collapses every lipgloss style process-wide to plain
+// text+bold when NO_COLOR is set (spec §18, §30.8) — one global switch,
+// not per-style handling. env is injected so tests can exercise both
+// branches without mutating the real process environment.
+func ApplyNoColor(env func(string) string) {
+	if env("NO_COLOR") != "" {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	} else {
+		lipgloss.SetColorProfile(termenv.TrueColor)
+	}
+}
+
 func init() {
+	ApplyNoColor(os.Getenv)
+
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(10000),
