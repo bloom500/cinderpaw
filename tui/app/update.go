@@ -58,17 +58,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
-		if a.Mode == ModeQuitting {
+		if a.State == StateShutdown {
 			return a, tea.Quit
 		}
 		key := msg.String()
 
 		switch key {
 		case "ctrl+c":
-			if a.Mode == ModeStreaming {
+			if a.State == StateStreaming {
 				a.stopStream()
 			}
-			a.Mode = ModeQuitting
+			a.State = StateShutdown
 			return a, tea.Quit
 
 		case "esc":
@@ -107,10 +107,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.Completion.Idx = 0
 				return a, nil
 			}
-			if a.Mode != ModeEditing {
+			if a.State != StateReady {
 				return a, nil
 			}
-			a.Mode = ModeQuitting
+			a.State = StateShutdown
 			return a, tea.Quit
 
 		case "enter":
@@ -134,7 +134,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return a, nil
 			}
-			if a.Mode == ModeStreaming {
+			if a.State == StateStreaming {
 				return a, nil
 			}
 			// Autocomplete accept: if the popup is showing, Enter inserts
@@ -212,7 +212,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		if a.Mode == ModeEditing {
+		if a.State == StateReady {
 			var cmd tea.Cmd
 			a.Input, cmd = a.Input.Update(msg)
 			// Every keystroke can change the slash-command prefix.
@@ -325,7 +325,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case StreamDoneMsg:
-		if a.Mode == ModeQuitting {
+		if a.State == StateShutdown {
 			return a, tea.Quit
 		}
 		a.finishStream()
@@ -361,7 +361,7 @@ func (a *App) handleSubmit() tea.Cmd {
 	a.Completion.Idx = 0
 	a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: raw})
 	a.beginAssistant()
-	a.Mode = ModeStreaming
+	a.State = StateStreaming
 	a.FollowBottom = true
 	a.rebuildViewport()
 	return a.startStream(raw)
@@ -375,7 +375,7 @@ func (a *App) handleSlash(body string) tea.Cmd {
 	cmd := parts[0]
 	switch cmd {
 	case "exit", "quit", ":q":
-		a.Mode = ModeQuitting
+		a.State = StateShutdown
 		return tea.Quit
 	case "clear", "cls":
 		a.Turns = nil
@@ -446,7 +446,7 @@ func (a *App) handleSlash(body string) tea.Cmd {
 	case "stop":
 		// Abort the current streaming run. If we're not streaming,
 		// tell the user nothing is in flight.
-		if a.Mode != ModeStreaming {
+		if a.State != StateStreaming {
 			a.setFlash("nothing is running")
 			return nil
 		}
@@ -557,7 +557,7 @@ func (a *App) finishStream() {
 			break
 		}
 	}
-	a.Mode = ModeEditing
+	a.State = StateReady
 	a.StreamBuf.Reset()
 	// Clear streaming stats — the footer reverts to the shortcut row until
 	// the next turn begins. The per-turn cost is preserved on the Turn

@@ -14,16 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type (
-	Mode    int
-	TickMsg time.Time
-)
-
-const (
-	ModeEditing Mode = iota
-	ModeStreaming
-	ModeQuitting
-)
+type TickMsg time.Time
 
 type Role int
 
@@ -162,7 +153,7 @@ type App struct {
 	Token   string
 
 	Turns []Turn
-	Mode  Mode
+	State State
 
 	Sessions      []api.SessionSummary
 	SessionsErr   error
@@ -306,10 +297,11 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 		StartedAt:    time.Now(),
 		FollowBottom: true,
 		Cwd:          cwd,
+		State:        StateReady,
 	}
 }
 
-func (a *App) IsStreaming() bool { return a.Mode == ModeStreaming }
+func (a *App) IsStreaming() bool { return a.State == StateStreaming }
 
 // toolsRunning reports whether any tool in any assistant turn is still
 // in-flight. Drives the periodic TickMsg that re-renders the elapsed-time
