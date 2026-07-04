@@ -556,7 +556,7 @@ func formatToolViewerRow(row ToolViewerRow) string {
 		// Running — show elapsed-so-far.
 		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s ⠿", formatElapsed(time.Since(row.Call.StartedAt))))
 	}
-	return fmt.Sprintf("⏺ %s%s   %s", name, arg, elapsed)
+	return fmt.Sprintf("%s %s%s   %s", ui.ToolMark.String(), name, arg, elapsed)
 }
 
 // formatToolViewerPreview renders the expanded preview panel for the
@@ -753,7 +753,7 @@ func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
 	}
 	elapsed := formatElapsed(t.endedOrNow())
 	statusGlyph, statusStyle := t.statusGlyph()
-	mark := statusStyle.Render("⏺")
+	mark := statusStyle.Render(ui.ToolMark.String())
 	tail := statusStyle.Render(fmt.Sprintf("⏱ %s %s", elapsed, statusGlyph))
 
 	first := fmt.Sprintf("%s %s%s  %s", mark, name, arg, tail)

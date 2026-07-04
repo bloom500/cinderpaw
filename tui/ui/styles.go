@@ -30,7 +30,6 @@ var (
 	StatusOffline = lipgloss.NewStyle().Foreground(Fail).SetString("●")
 
 	BrandStyle = lipgloss.NewStyle().Foreground(Accent).Bold(true)
-	CaretStyle = lipgloss.NewStyle().Foreground(AccentDim)
 
 	TagYou   = lipgloss.NewStyle().Foreground(AccentHi).Width(TagWidth).Align(lipgloss.Right)
 	TagFeral = lipgloss.NewStyle().Foreground(Accent).Width(TagWidth).Align(lipgloss.Left)
@@ -40,13 +39,13 @@ var (
 	FeralContent = lipgloss.NewStyle().Foreground(Text)
 
 	// Welcome screen — bigger surface, more breathing room than a transcript row.
-	WelcomeTagline = lipgloss.NewStyle().Foreground(AccentHi)
-	WelcomeLabel   = lipgloss.NewStyle().Foreground(Meta).Width(9).Align(lipgloss.Right)
-	WelcomeValue   = lipgloss.NewStyle().Foreground(Text)
-	WelcomeSess    = lipgloss.NewStyle().Foreground(Text)
+	WelcomeTagline  = lipgloss.NewStyle().Foreground(AccentHi)
+	WelcomeLabel    = lipgloss.NewStyle().Foreground(Meta).Width(9).Align(lipgloss.Right)
+	WelcomeValue    = lipgloss.NewStyle().Foreground(Text)
+	WelcomeSess     = lipgloss.NewStyle().Foreground(Text)
 	WelcomeSessMeta = lipgloss.NewStyle().Foreground(Meta)
-	WelcomeSection = lipgloss.NewStyle().Foreground(Meta).Bold(true)
-	KbdStyle       = lipgloss.NewStyle().Foreground(Text).Background(lipgloss.Color("#1b1b1f")).Padding(0, 1)
+	WelcomeSection  = lipgloss.NewStyle().Foreground(Meta).Bold(true)
+	KbdStyle        = lipgloss.NewStyle().Foreground(Text).Background(lipgloss.Color("#1b1b1f")).Padding(0, 1)
 
 	// Tool-call pills — three statuses share the same shape so the eye
 	// reads the coloured leading dot and trailing ✓/!/⏱ first.
@@ -64,21 +63,20 @@ var (
 
 	// Error cards — one border per kind. Same shape, different tint so the
 	// eye categorises the failure before reading the message.
-	ErrorTitle  = lipgloss.NewStyle().Foreground(Fail).Bold(true)
-	ErrorMeta   = lipgloss.NewStyle().Foreground(Warn).Bold(true)
-	ErrorMsg    = lipgloss.NewStyle().Foreground(Text)
-	ErrorHint   = lipgloss.NewStyle().Foreground(Meta).Italic(true)
+	ErrorTitle = lipgloss.NewStyle().Foreground(Fail).Bold(true)
+	ErrorMsg   = lipgloss.NewStyle().Foreground(Text)
+	ErrorHint  = lipgloss.NewStyle().Foreground(Meta).Italic(true)
 
 	// Tool-result viewer overlay (full-screen, mirrors help/history).
-	ToolViewerBox = lipgloss.NewStyle().Padding(0, 2)
-	ToolViewerTitle = lipgloss.NewStyle().Foreground(AccentHi).Bold(true)
-	ToolViewerRow   = lipgloss.NewStyle().Foreground(Text)
-	ToolViewerSel   = lipgloss.NewStyle().Foreground(Accent).Bold(true)
-	ToolViewerMeta  = lipgloss.NewStyle().Foreground(Meta)
+	ToolViewerBox     = lipgloss.NewStyle().Padding(0, 2)
+	ToolViewerTitle   = lipgloss.NewStyle().Foreground(AccentHi).Bold(true)
+	ToolViewerRow     = lipgloss.NewStyle().Foreground(Text)
+	ToolViewerSel     = lipgloss.NewStyle().Foreground(Accent).Bold(true)
+	ToolViewerMeta    = lipgloss.NewStyle().Foreground(Meta)
 	ToolViewerPreview = lipgloss.NewStyle().Foreground(Meta).Italic(true)
 
 	// Autocomplete popup — slim box, dim border, one row per completion.
-	CompletionBox = lipgloss.NewStyle().Padding(0, 1)
+	CompletionBox  = lipgloss.NewStyle().Padding(0, 1)
 	CompletionSel  = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 	CompletionItem = lipgloss.NewStyle().Foreground(Text)
 	CompletionDesc = lipgloss.NewStyle().Foreground(Meta)
@@ -102,10 +100,10 @@ var (
 	// "› " prompt instead of a bordered box. No Border/Background: the
 	// horizontal rule already drawn above the input (see view.go's `sep`)
 	// is the only visual separator.
-	InputPrompt = lipgloss.NewStyle().Foreground(Accent).SetString("›")
-	InputStyle  = lipgloss.NewStyle().Padding(0, 1)
+	InputPrompt      = lipgloss.NewStyle().Foreground(Accent).SetString("›")
+	InputStyle       = lipgloss.NewStyle().Padding(0, 1)
 	InputPlaceholder = lipgloss.NewStyle().Foreground(Meta).Italic(true)
-	FooterStyle    = lipgloss.NewStyle().Foreground(Meta).Padding(0, 1)
+	FooterStyle      = lipgloss.NewStyle().Foreground(Meta).Padding(0, 1)
 
 	FlashStyle = lipgloss.NewStyle().Foreground(Warn)
 	MetaStyle  = lipgloss.NewStyle().Foreground(Meta)
