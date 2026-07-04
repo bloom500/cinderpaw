@@ -164,6 +164,10 @@ const INBOUND_TYPES = [
   "rsi_lora_train",
   "rsi_lora_reviews_list",
   "rsi_lora_review_resolve",
+  "meta_status",
+  "meta_evolve",
+  "meta_rollback",
+  "meta_history",
   "rsi_response",
 ] as const satisfies readonly InboundMessage["type"][];
 

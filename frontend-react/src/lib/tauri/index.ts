@@ -573,6 +573,10 @@ const raw = {
     invoke<JournalRow[]>('rsi_journal_recent', { limit }),
   rsiChampionTree:    () => invoke<ChampionTreeRow[]>('rsi_champion_tree'),
   rsiDreamNow:        () => invoke<void>('feral_dream_now'),
+  // Faza 6 (L6) Meta Evolution — fire-and-forget; the sidecar replies async
+  // via a `meta_result` event (handled by `events.onMetaResult`).
+  feralMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
+    invoke<void>('feral_meta', { op }),
   // Faza 2 Slice 5 — code-patch approval gate. `feral_code_patches_list` is
   // fire-and-forget; the sidecar replies async via a `code_patches` event
   // (handled by `events.onCodePatches`). `feral_code_patch_resolve` is also
@@ -737,6 +741,10 @@ export const tauri = {
     championTree:    async () => raw.rsiChampionTree(),
     /** BRSI §2.8 `user` Wake trigger — run one dream episode now. */
     dreamNow:        async () => raw.rsiDreamNow(),
+    /** Faza 6 (L6) Meta Evolution — status / evolve / rollback / history.
+     *  Reply arrives async via `events.onMetaResult`. */
+    meta:            async (op: 'status' | 'evolve' | 'rollback' | 'history') =>
+      raw.feralMeta(op),
     /** Faza 2 Slice 5 — ask the sidecar for the pending code-patch queue.
      *  The full snapshot arrives async via `events.onCodePatches`. */
     codePatchesList: async () => raw.feralCodePatchesList(),

@@ -64,6 +64,22 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   responsibility split (Registry=Data / Router=Policy / Health=Observation
   / Cost=Optimisation). **Read before touching any file in
   `FeralAgent/src/brain/`.**
+- **`project_chat_tui.md`** — `feral chat` is a Go/Bubble Tea TUI
+  (`tui/`, launched by `crates/feral-cli/src/chat.rs`). Also flags the
+  open follow-up: local-Ollama reasoning for models like MiniMax-M3
+  arrives inline in `content` (no `think` tags), so the TUI cannot
+  split it — needs a sidecar fix (`FeralAgent/src/sandbox/inference-providers.ts`
+  local path) or a host-side `delta.reasoning_content` forward. **Read
+  before touching chat reasoning rendering or the local Ollama path.**
+- **`project_substrate_introspection.md`** — `self.*` runtime
+  introspection surface (`FeralAgent/src/tools/builtin/self.ts`) +
+  the `feral-self` and `feral-connectors` skills. This is the
+  agent's mental model of its own substrate (BRSI / FMS / LoRA /
+  Dreaming / Genomes / Connectors / Brain Stack / Memory). Use the
+  `self_*` tools, don't dump substrate docs into the prompt or open
+  `~/.feral/` to the agent's filesystem tools — both lose. **Read
+  before adding/changing a `self_*` tool, the SUBSYSTEMS catalog,
+  or any path that says `~/.feral/` somewhere in it.**
 
 ## Things that are pinned at the type level (don't break these)
 

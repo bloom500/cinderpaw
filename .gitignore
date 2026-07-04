@@ -28,6 +28,10 @@ src-tauri/binaries/feral-agent
 # from `bun build --compile scripts/fake-lora-trainer.ts`).
 scripts/*.exe
 
+# Go TUI binary (go build output)
+tui/feral-tui.exe
+tui/feral-tui
+
 # Git worktrees (paseo / git worktree add)
 .worktrees/
 

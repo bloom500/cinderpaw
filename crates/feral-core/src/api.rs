@@ -85,8 +85,18 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/shutdown", post(runtime_shutdown))
         .route("/runtime/status", get(runtime_status))
         .route("/runtime/models", get(runtime_models))
+        .route("/runtime/model", post(runtime_set_model))
         .route("/runtime/lora", get(runtime_lora))
         .route("/runtime/manifest", get(runtime_manifest))
+        .route("/runtime/sessions", get(runtime_sessions))
+        // Faza 6 (L6) Meta Evolution — sidecar round-trips correlated by id.
+        // `/meta/evaluate` is an alias of `/meta/current`: the fitness is
+        // computed live from the journal window on every status read.
+        .route("/meta/current", get(meta_current))
+        .route("/meta/evaluate", post(meta_current_post))
+        .route("/meta/history", get(meta_history))
+        .route("/meta/evolve", post(meta_evolve))
+        .route("/meta/rollback", post(meta_rollback))
         .route("/events", get(runtime_events))
         // Auth runs before any handler. `from_fn_with_state` hands the token
         // to the middleware so it can compare in constant time.
@@ -601,7 +611,11 @@ async fn runtime_chat(
 /// Pull one line's `type`+`id`+`content` out of a `feral://agent-output`
 /// broadcast event, if it is one. The payload is `{"data": "<json line>"}`
 /// where the line is itself the sidecar's JSON event.
-fn parse_agent_output(ev: &crate::host::HostEvent) -> Option<(String, String, String)> {
+///
+/// For tool events we also surface the structured fields (tool name, args,
+/// progress message, result) so the SSE layer can re-emit them as typed
+/// `event:` lines — see `sse_from_agent_reply`.
+fn parse_agent_output(ev: &crate::host::HostEvent) -> Option<AgentOutputLine> {
     if ev.event != "feral://agent-output" {
         return None;
     }
@@ -617,7 +631,22 @@ fn parse_agent_output(ev: &crate::host::HostEvent) -> Option<(String, String, St
         .or_else(|| v.get("message").and_then(|x| x.as_str()))
         .unwrap_or("")
         .to_string();
-    Some((ty, id, content))
+    Some(AgentOutputLine {
+        ty,
+        id,
+        content,
+        raw: v,
+    })
+}
+
+/// Flattened one-line view of a `feral://agent-output` payload, with the
+/// original `Value` retained so tool events can be re-serialised with their
+/// structured fields intact (`tool_start.tool`, `tool_done.result`, …).
+struct AgentOutputLine {
+    ty: String,
+    id: String,
+    content: String,
+    raw: Value,
 }
 
 /// Wait for the `done` event matching `msg_id`, returning its full text.
@@ -629,11 +658,11 @@ async fn await_agent_reply(
     loop {
         match tokio::time::timeout(CHAT_IDLE_TIMEOUT, rx.recv()).await {
             Ok(Ok(ev)) => {
-                if let Some((ty, id, content)) = parse_agent_output(&ev) {
-                    if id == msg_id {
-                        match ty.as_str() {
-                            "done" => return Ok(content),
-                            "error" => return Err(format!("sidecar inference error: {content}")),
+                if let Some(line) = parse_agent_output(&ev) {
+                    if line.id == msg_id {
+                        match line.ty.as_str() {
+                            "done" => return Ok(line.content),
+                            "error" => return Err(format!("sidecar inference error: {}", line.content)),
                             _ => {}
                         }
                     }
@@ -650,6 +679,12 @@ async fn await_agent_reply(
 
 /// SSE the reply for `msg_id` as OpenAI-style chat chunks (so any OpenAI SSE
 /// client — and `feral chat` — can consume it), terminating with `[DONE]`.
+///
+/// `tool_start` / `tool_progress` / `tool_done` events matching `msg_id` are
+/// re-emitted as **typed SSE events** (separate `event:` lines, not on
+/// `data:`) so plain OpenAI clients ignore them while tool-aware clients
+/// (`feral chat`, future agents) can render a tool-call stream without
+/// polluting the answer text.
 fn sse_from_agent_reply(
     rx: broadcast::Receiver<crate::host::HostEvent>,
     msg_id: String,
@@ -661,14 +696,14 @@ fn sse_from_agent_reply(
             let recv = tokio::time::timeout(CHAT_IDLE_TIMEOUT, rx.recv()).await;
             match recv {
                 Ok(Ok(ev)) => {
-                    let Some((ty, id, content)) = parse_agent_output(&ev) else { continue };
-                    if id != msg_id { continue; }
-                    match ty.as_str() {
+                    let Some(line) = parse_agent_output(&ev) else { continue };
+                    if line.id != msg_id { continue; }
+                    match line.ty.as_str() {
                         "chunk" => {
                             let payload = json!({
                                 "id": format!("chatcmpl-{msg_id}"),
                                 "object": "chat.completion.chunk",
-                                "choices": [{ "index": 0, "delta": { "content": content } }],
+                                "choices": [{ "index": 0, "delta": { "content": line.content } }],
                             });
                             yield Ok::<_, Infallible>(Event::default().data(payload.to_string()));
                         }
@@ -682,21 +717,39 @@ fn sse_from_agent_reply(
                             yield Ok(Event::default().data("[DONE]"));
                             break;
                         }
+                        "tool_start" => {
+                            // Re-serialise the raw event with the original id
+                            // embedded — the sidecar emits `id` per call, and
+                            // clients correlate tool_start → tool_done by it.
+                            yield Ok(Event::default()
+                                .event("tool_start")
+                                .data(line.raw.to_string()));
+                        }
+                        "tool_progress" => {
+                            yield Ok(Event::default()
+                                .event("tool_progress")
+                                .data(line.raw.to_string()));
+                        }
+                        "tool_done" => {
+                            yield Ok(Event::default()
+                                .event("tool_done")
+                                .data(line.raw.to_string()));
+                        }
                         "error" => {
                             // Surface the sidecar's inference error to the client
                             // instead of hanging until the idle timeout.
-                            tracing::warn!(msg_id = %msg_id, error = %content, "/runtime/chat sidecar error");
+                            tracing::warn!(msg_id = %msg_id, error = %line.content, "/runtime/chat sidecar error");
                             let payload = json!({
                                 "id": format!("chatcmpl-{msg_id}"),
                                 "object": "chat.completion.chunk",
                                 "choices": [{ "index": 0, "delta": {}, "finish_reason": "error" }],
-                                "error": content,
+                                "error": line.content,
                             });
                             yield Ok(Event::default().data(payload.to_string()));
                             yield Ok(Event::default().data("[DONE]"));
                             break;
                         }
-                        _ => {} // tool_done / usage / etc. — not part of the text stream
+                        _ => {} // usage / budget_warning / etc. — metadata, not text or tool
                     }
                 }
                 Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
@@ -735,6 +788,67 @@ async fn runtime_connectors_reload(State(state): State<ApiState>) -> impl IntoRe
     }
 }
 
+// ── Faza 6 (L6) Meta Evolution ──────────────────────────────────────────────
+
+async fn meta_current(state: State<ApiState>) -> Response {
+    meta_roundtrip(state, "meta_status").await
+}
+/// POST alias for `/meta/evaluate` — same live status+fitness payload.
+async fn meta_current_post(state: State<ApiState>) -> Response {
+    meta_roundtrip(state, "meta_status").await
+}
+async fn meta_history(state: State<ApiState>) -> Response {
+    meta_roundtrip(state, "meta_history").await
+}
+async fn meta_evolve(state: State<ApiState>) -> Response {
+    meta_roundtrip(state, "meta_evolve").await
+}
+async fn meta_rollback(state: State<ApiState>) -> Response {
+    meta_roundtrip(state, "meta_rollback").await
+}
+
+/// Send one meta_* command to the sidecar and return its `meta_result`
+/// reply, correlated by the generated `id` on the shared agent-output bus
+/// (same subscribe-before-send discipline as `/runtime/chat`).
+async fn meta_roundtrip(State(state): State<ApiState>, op: &'static str) -> Response {
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+            .into_response();
+    };
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let mut rx = state.runtime.events_tx.subscribe();
+    if tx.send(json!({ "type": op, "id": msg_id }).to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    let deadline = std::time::Duration::from_secs(10);
+    loop {
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "feral://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+                if v.get("type").and_then(|t| t.as_str()) == Some("meta_result")
+                    && v.get("id").and_then(|i| i.as_str()) == Some(msg_id.as_str())
+                {
+                    return Json(v).into_response();
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "runtime event bus closed").into_response()
+            }
+            Err(_) => {
+                return (StatusCode::GATEWAY_TIMEOUT, "timed out waiting for meta_result")
+                    .into_response()
+            }
+        }
+    }
+}
+
 /// Slice 4: request a graceful shutdown. Fires the runtime's shutdown signal;
 /// the headless gateway's main loop wakes and runs the D7 drain. Token-gated +
 /// loopback like everything else — a local holder of the token could already
@@ -766,6 +880,12 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
             "concurrency": e.concurrency,
         })
     });
+    // Active provider — read from env so the TUI can show "nvidia" / "minimax"
+    // / "local" instead of relying on the backend label alone. The provider
+    // is set at sidecar spawn time; a runtime switch updates the sidecar
+    // but not this env var, so we also report the agent_model change below.
+    let provider = std::env::var("FERAL_PROVIDER").unwrap_or_else(|_| "openai_compatible".to_string());
+    let byok_provider = std::env::var("FERAL_BYOK_PROVIDER").ok();
     Json(json!({
         "model": model,
         // What the sidecar actually infers with (local GGUF name or a cloud
@@ -774,6 +894,13 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
         "lora": crate::inference::active_lora_adapter(),
         "sidecar_alive": sidecar_alive,
         "backend": crate::inference::active_backend_label(),
+        // Provider name as the sidecar sees it — "openai_compatible",
+        // "anthropic", "nvidia" (BYOK alias), etc. The TUI picks one of these
+        // for its status line.
+        "provider": provider,
+        // BYOK provider id (e.g. "nvidia", "minimax") when the gateway was
+        // started with FERAL_BYOK_PROVIDER set. Null on a vanilla local boot.
+        "byok_provider": byok_provider,
         "gpu": crate::inference::gpu_active(),
         "rsi_engine": rsi_engine,
     }))
@@ -783,11 +910,250 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
 /// model's internal name; the inventory `id`s are the on-disk identifiers. We
 /// return both rather than joining them — the two namespaces are not guaranteed
 /// equal, and a wrong per-item `active` flag is worse than none.
+///
+/// Also lists BYOK cloud models whose provider has both an enabled flag and a
+/// key in the OS keychain — the TUI uses the merged list to show what the
+/// user can switch to without first opening the desktop Settings UI.
 async fn runtime_models(State(state): State<ApiState>) -> impl IntoResponse {
     let active = state.runtime.manager.current().map(|m| m.name);
-    let models = models::scan_models_dir().unwrap_or_default();
-    let ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
+    let local = models::scan_models_dir().unwrap_or_default();
+    let mut ids: Vec<String> = local.into_iter().map(|m| m.id).collect();
+    // Merge BYOK cloud models. Each entry is tagged `provider:model` so the
+    // /runtime/model handler can match without a separate lookup table.
+    let settings = crate::settings::load();
+    let byok = crate::byok::load(&settings);
+    for p in byok.get_all_providers() {
+        // Only list providers that have both an enabled flag AND a stored key.
+        // Skip the local provider — it has no `default_model` for cloud use.
+        if !p.enabled {
+            continue;
+        }
+        if crate::byok::byok_get(&p.id).is_none() {
+            continue;
+        }
+        if let Some(model) = p.default_model {
+            ids.push(format!("{}:{}", p.id, model));
+        }
+    }
     Json(json!({ "models": ids, "active": active }))
+}
+
+#[derive(Deserialize)]
+struct SetModelReq {
+    id: String,
+}
+
+/// Headless counterpart of the desktop `feral_set_model` command. Supports
+/// both paths now:
+///   - Local: a GGUF id (or filename) already on disk → load via the manager,
+///     tell the sidecar to talk to loopback.
+///   - BYOK: a `provider:model` pair from the cloud inventory (e.g.
+///     `nvidia:stepfun-ai/step-3.7-flash`, `minimax:MiniMax-M3`) → resolve
+///     the provider's base URL + keychain API key, push a `set_model` to
+///     the sidecar with the new provider/url/key/model so the next request
+///     goes to the cloud endpoint.
+///
+/// Pure provider ids (`nvidia`, `minimax`) are also accepted and use the
+/// provider's `default_model`.
+async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetModelReq>) -> Response {
+    let requested = req.id.trim().to_string();
+
+    // ── Cloud / BYOK path ────────────────────────────────────────────────
+    // Two accepted shapes: `provider:model` (precise) or `provider` alone
+    // (use the configured default_model).
+    let (provider_id, cloud_model) = match requested.split_once(':') {
+        Some((pid, m)) => (pid.trim().to_string(), Some(m.trim().to_string())),
+        None => (requested.clone(), None),
+    };
+
+    let settings = crate::settings::load();
+    let byok = crate::byok::load(&settings);
+    let provider_cfg = byok.get_provider(&provider_id).cloned();
+    if let Some(cfg) = provider_cfg {
+        if !cfg.enabled {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("provider '{}' is disabled in ~/.feral/byok.json", provider_id),
+            )
+                .into_response();
+        }
+        // Resolve the cloud model: explicit `provider:model` wins, else the
+        // provider's default_model. Strip any trailing `/v1` from the base
+        // URL because the sidecar's openai_compatible path appends it.
+        let model = cloud_model
+            .or_else(|| byok.get_all_providers().iter().find(|p| p.id == provider_id).and_then(|p| p.default_model.clone()));
+        let Some(model) = model else {
+            return (
+                StatusCode::NOT_FOUND,
+                format!(
+                    "provider '{}' has no default_model set in byok.json — \
+                     pass an explicit model id like '{0}:<model-id>'",
+                    provider_id
+                ),
+            )
+                .into_response();
+        };
+        let api_key = crate::byok::byok_get(&provider_id).unwrap_or_default();
+        if api_key.is_empty() {
+            return (
+                StatusCode::UNAUTHORIZED,
+                format!(
+                    "provider '{}' has no API key in the OS keychain — \
+                     run `feral byok set {0} <key>` or paste one in Settings → Cloud Keys",
+                    provider_id
+                ),
+            )
+                .into_response();
+        }
+        // Resolve base URL (BYOK stores it WITH a trailing /v1; strip it).
+        // Fall back to known well-known provider base URLs when byok.json
+        // has null (MiniMax, Groq, etc.).
+        let base_url = byok
+            .get_all_providers()
+            .into_iter()
+            .find(|p| p.id == provider_id)
+            .and_then(|p| p.base_url.clone())
+            .map(|u| u.trim_end_matches('/').trim_end_matches("/v1").to_string())
+            .or_else(|| match provider_id.as_str() {
+                "minimax" => Some("https://api.minimax.chat/v1".into()),
+                "groq"    => Some("https://api.groq.com/openai/v1".into()),
+                _         => None,
+            });
+        let Some(base_url) = base_url else {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("provider '{}' has no base_url in byok.json", provider_id),
+            )
+                .into_response();
+        };
+
+        // Tell the sidecar to swap to the cloud provider. The sidecar's
+        // `set_model` handler already supports a fresh provider/url/key
+        // payload and reloads its router — see FeralAgent set-model.ts.
+        let Some(tx) = state.runtime.feral_agent_tx.lock().as_ref().cloned() else {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "feral-agent sidecar is not running — cannot switch cloud model",
+            )
+                .into_response();
+        };
+        let provider_kind = match provider_id.as_str() {
+            "anthropic" => "anthropic",
+            "google" => "google",
+            _ => "openai_compatible",
+        };
+        // Cloud context windows are usually 200K-1M; default to 200K so the
+        // sidecar's transcript budget matches the cloud model's real KV.
+        let context_window = 200_000u32;
+        let msg = json!({
+            "type": "set_model",
+            "provider": provider_kind,
+            "model": model,
+            "baseUrl": base_url,
+            "apiKey": api_key,
+            "contextWindow": context_window,
+        })
+        .to_string();
+        if tx.try_send(msg).is_err() {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "sidecar stopped accepting messages",
+            )
+                .into_response();
+        }
+        *state.runtime.active_agent_model.lock() = Some(model.clone());
+        // Mirror the choice into env vars so runtime_status reports it and
+        // a subsequent restart doesn't lose track of which cloud we picked.
+        // SAFETY: we are single-threaded inside the router task at this point
+        // and `provider_id` is not borrowed anywhere else after this block.
+        unsafe {
+            std::env::set_var("FERAL_PROVIDER", provider_kind);
+            std::env::set_var("FERAL_BASE_URL", &base_url);
+            std::env::set_var("FERAL_MODEL", &model);
+            std::env::set_var("FERAL_BYOK_PROVIDER", &provider_id);
+        }
+        return Json(json!({
+            "active": model,
+            "provider": provider_id,
+            "backend": provider_kind,
+            "ctx_len": context_window,
+        }))
+        .into_response();
+    }
+
+    // ── Local path ───────────────────────────────────────────────────────
+    let manager = state.manager.clone();
+    let local_req = requested.clone();
+    let picked = tokio::task::spawn_blocking(move || {
+        let models = models::scan_models_dir().unwrap_or_default();
+        models
+            .into_iter()
+            .find(|m| m.id == local_req || m.name == local_req)
+    })
+    .await
+    .unwrap_or(None);
+
+    let Some(model) = picked else {
+        // Build a useful error so the TUI can show what IS available.
+        let mut local_ids: Vec<String> = models::scan_models_dir()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        let mut cloud: Vec<String> = byok
+            .get_all_providers()
+            .into_iter()
+            .filter(|p| p.enabled && crate::byok::byok_get(&p.id).is_some())
+            .filter_map(|p| p.default_model.map(|m| format!("{}:{}", p.id, m)))
+            .collect();
+        local_ids.append(&mut cloud);
+        return (
+            StatusCode::NOT_FOUND,
+            format!(
+                "no model matches '{}' — available: {}",
+                req.id,
+                local_ids.join(", ")
+            ),
+        )
+            .into_response();
+    };
+
+    let manager2 = manager.clone();
+    let path = model.path.clone();
+    let loaded = tokio::task::spawn_blocking(move || manager2.load(path, -1, None))
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!(e)));
+
+    let loaded = match loaded {
+        Ok(l) => l,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    // Tell the sidecar the context window changed (mirrors desktop path).
+    if let Some(tx) = state.runtime.feral_agent_tx.lock().as_ref().cloned() {
+        let msg = json!({
+            "type": "set_model",
+            "provider": "openai_compatible",
+            "model": loaded.name,
+            "baseUrl": format!("http://127.0.0.1:{}", state.runtime.settings.api_port),
+            "apiKey": state.runtime.local_api_token.to_string(),
+            "contextWindow": loaded.ctx_len,
+        })
+        .to_string();
+        let _ = tx.try_send(msg);
+    }
+    *state.runtime.active_agent_model.lock() = Some(loaded.name.clone());
+    // Local switch → restore the loopback provider label so runtime_status
+    // doesn't keep reporting the previous cloud provider after a /model call
+    // goes back to a local GGUF.
+    unsafe {
+        std::env::set_var("FERAL_PROVIDER", "openai_compatible");
+        std::env::set_var("FERAL_BASE_URL", format!("http://127.0.0.1:{}", state.runtime.settings.api_port));
+        std::env::set_var("FERAL_MODEL", &loaded.name);
+        std::env::remove_var("FERAL_BYOK_PROVIDER");
+    }
+
+    Json(json!({ "active": loaded.name, "backend": "llama.cpp", "ctx_len": loaded.ctx_len })).into_response()
 }
 
 /// D3: the active LoRA adapter. Full adapter inventory is deferred — no disk
@@ -795,6 +1161,53 @@ async fn runtime_models(State(state): State<ApiState>) -> impl IntoResponse {
 /// would be worse than reporting only what is provably active.
 async fn runtime_lora() -> impl IntoResponse {
     Json(json!({ "active": crate::inference::active_lora_adapter() }))
+}
+
+/// Most-recent conversations from `~/.feral/conversations/index.json`, sorted
+/// newest-first and capped at `?limit=N` (default 5, max 50). The index is
+/// maintained by the desktop app's `conversations` save/load command; on a
+/// fresh install (no index) we return `[]` rather than 404 so the welcome
+/// screen degrades gracefully.
+///
+/// Read-only — does not touch the per-conversation `.json` files (which can
+/// be large), and never falls back to scanning those files to invent entries
+/// the index doesn't know about (better to show fewer rows than hallucinated
+/// ones).
+async fn runtime_sessions(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let limit: usize = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5)
+        .clamp(1, 50);
+    let index_path = crate::paths::conversations_dir().join("index.json");
+    let raw = match tokio::fs::read(&index_path).await {
+        Ok(b) => b,
+        // Missing index = no saved conversations yet. Empty list, not 404.
+        Err(_) => return Json(json!({ "sessions": [] })).into_response(),
+    };
+    let v: Value = match serde_json::from_slice(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(path = %index_path.display(), error = %e, "runtime_sessions: bad index.json");
+            return Json(json!({ "sessions": [] })).into_response();
+        }
+    };
+    let mut items: Vec<Value> = v
+        .get("conversations")
+        .and_then(|c| c.as_array())
+        .cloned()
+        .unwrap_or_default();
+    // Newest first; index.json already keeps them sorted, but sort defensively
+    // so a hand-edited or older index still gives the right order.
+    items.sort_by(|a, b| {
+        let av = a.get("updated_at").and_then(|x| x.as_str()).unwrap_or("");
+        let bv = b.get("updated_at").and_then(|x| x.as_str()).unwrap_or("");
+        bv.cmp(av)
+    });
+    items.truncate(limit);
+    Json(json!({ "sessions": items })).into_response()
 }
 
 /// D3b: declarative runtime snapshot. The foundation for `feral export` /

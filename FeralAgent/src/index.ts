@@ -9,7 +9,7 @@
  */
 
 import { resolve, delimiter, sep } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { AuditLog } from "./sandbox/audit-log.ts";
@@ -48,6 +48,7 @@ import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
+import { createSelfTools } from "./tools/builtin/self.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
@@ -68,6 +69,7 @@ import { defaultJournalPath } from "./rsi/journal.ts";
 import { ActivityMonitor } from "./rsi/activity-monitor.ts";
 import { resolveDreamConfig, dreamCloudGate } from "./rsi/dream-config.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/episode-options.ts";
+import { MetaEvolution } from "./rsi/meta-evolution.ts";
 import {
   mapGenomeToAgentConfig,
   readChampion,
@@ -103,6 +105,26 @@ interface AppConfig {
 
 /** The agent's own home: RSI git substrate, SQLite db, SOUL/identity. */
 const FERAL_HOME = resolve(homedir(), ".feral");
+
+/**
+ * Sidecar version, surfaced verbatim in the runtime identity doc emitted
+ * by `self_describe`. Read once at startup from package.json (with an
+ * env-var override + dev fallback). Cheap — package.json is bundled in
+ * the binary, the read is one fs op.
+ */
+const VERSION: string = (() => {
+  const fallback = process.env.FERAL_VERSION ?? "0.0.0-dev";
+  try {
+    const text = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+    const pkg = JSON.parse(text) as { version?: string };
+    return pkg.version ?? fallback;
+  } catch {
+    return fallback;
+  }
+})();
+
+/** When this sidecar process started, for uptime reports. */
+const BOOT_EPOCH_MS = Date.now();
 
 /**
  * Resolve the agent's filesystem sandbox roots.
@@ -900,6 +922,17 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // One source of truth for the episode's bounded run config — reused for
   // the budget caps the journal reports against and for arming the engine.
   const episodeOpts = episodeStartOptions(process.env);
+  // L6 Meta Evolution — the MetaGenome that steers HOW the RSI searches
+  // (docs/2026-07-04 spec). `dream_batch` drives the episode iteration
+  // budget live (the getter re-reads the genome at each episode start)
+  // unless the operator pinned it via FERAL_RSI_MAX_ITER.
+  const metaEvolution = new MetaEvolution({ log });
+  if (process.env.FERAL_RSI_MAX_ITER === undefined) {
+    Object.defineProperty(episodeOpts, "maxIterations", {
+      get: () => metaEvolution.current().dream_batch,
+      enumerable: true,
+    });
+  }
   const dreamCycle = createDreamCycle({
     send: (e) => transport.send(e),
     telemetryPath: dreamTelemetryPath,
@@ -990,6 +1023,9 @@ export async function main(transportOverride?: Transport): Promise<void> {
     bridge: rsiBridge,
     send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
     log,
+    // L6: the live MetaGenome scales the PBT selection knobs and
+    // (tighten-only) the confidence gate.
+    metaParams: () => metaEvolution.current(),
     onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
       dreamCycle.onEpisodeEnd(...args);
       void maybeCodeRsiRound();
@@ -1023,6 +1059,24 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // `connectors_reload`; reconcile here. Started in onReady once the agent and
   // tools are fully wired.
   const connectors = new ConnectorManager(agent, log, leadDesk);
+
+  // F6 — self.* runtime introspection tools (the agent's mental model of
+  // its own substrate). Registered after `connectors` so the connector
+  // handle is in scope for `self_connectors` / `self_health`, and after
+  // `router` / `registry` are built (both are constructed earlier in this
+  // file). No filesystem permissions — these tools read internal state
+  // files directly, and the audit log records every call.
+  const brainStackEnabled = brain !== undefined && brain !== null;
+  for (const t of createSelfTools({
+    router,
+    registry,
+    connectors,
+    brainStackEnabled,
+    version: VERSION,
+    bootedAt: BOOT_EPOCH_MS,
+  })) {
+    registry.register(t);
+  }
 
   // Faza 2 Slice 5: the code-patch approval gate, created lazily on first
   // IPC touch (installs that never use code-RSI pay nothing). One store per
@@ -1119,6 +1173,22 @@ export async function main(transportOverride?: Transport): Promise<void> {
       // launches it on its next tick, bypassing the idle/cooldown gate.
       case "rsi_dream_now":
         dream.requestUserDream();
+        break;
+
+      // Faza 6 (L6) Meta Evolution — status / evolve / rollback / history.
+      // Request/response correlated by `id` (same convention as chat): the
+      // gateway's /meta/* routes and the desktop both consume `meta_result`.
+      case "meta_status":
+        transport.send({ type: "meta_result", id: msg.id ?? "", op: "status", ...metaEvolution.status() });
+        break;
+      case "meta_evolve":
+        transport.send({ type: "meta_result", id: msg.id ?? "", op: "evolve", ...metaEvolution.evolve() });
+        break;
+      case "meta_rollback":
+        transport.send({ type: "meta_result", id: msg.id ?? "", op: "rollback", ...metaEvolution.rollback() });
+        break;
+      case "meta_history":
+        transport.send({ type: "meta_result", id: msg.id ?? "", op: "history", ok: true, history: metaEvolution.history() });
         break;
 
       // Faza 2 Slice 5 — the code-patch approval gate. Store + apply live in

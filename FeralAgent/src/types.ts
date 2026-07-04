@@ -933,6 +933,9 @@ export interface InboundMessage {
     // `id` (payload `loraAction`) — an approval promotes the adapter to
     // domain champion and applies it to the loaded model live.
     | "rsi_lora_train" | "rsi_lora_reviews_list" | "rsi_lora_review_resolve"
+    // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
+    // engine; the sidecar replies with one `meta_result` paired by `id`.
+    | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
     // Bridge response delivery — every `rsi_request` the sidecar emits
     // is paired with exactly one `rsi_response` line by Rust. Routed
     // to `RsiBridge.onResponse` in the sidecar.
@@ -1102,6 +1105,9 @@ export type OutboundEvent =
   // matching `rsi_response` inbound line. Rust's `handle_rsi_request`
   // dispatcher writes the response back on stdin.
   | { type: "rsi_request"; id: string; method: string; params: unknown }
+  // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
+  // (status/evolve/rollback/history); `ok:false` carries a `reason`.
+  | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }
   // PROVISIONAL — temporary progress + result events for the Settings
   // Fractal Benchmark button. The sidecar emits any number of
   // `fractal_bench_progress` lines while the bench runs (so the panel

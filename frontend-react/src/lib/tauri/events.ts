@@ -166,6 +166,30 @@ export interface CodePatchResolvedLine {
  * `lora_reviews` OutboundEvent in `FeralAgent/src/types.ts`. Sent on
  * `feral_lora_reviews_list` and after every train/resolve.
  */
+/** Faza 6 (L6) Meta Evolution reply. `op` says which request it answers;
+ *  the rest of the payload is op-specific (status carries genome/generation/
+ *  fitness; history carries `history` rows; failures carry `reason`). */
+export interface MetaResultLine {
+  type: 'meta_result';
+  id: string;
+  op: 'status' | 'evolve' | 'rollback' | 'history';
+  ok: boolean;
+  reason?: string;
+  generation?: number;
+  genome?: Record<string, number>;
+  pendingCandidate?: boolean;
+  diff?: string;
+  fitness?: { score: number; cycles: number } | null;
+  history?: Array<{
+    generation: number;
+    event: string;
+    score: number | null;
+    diff: string;
+    reason: string;
+    timestamp: number;
+  }>;
+}
+
 export interface LoraReviewsLine {
   type: 'lora_reviews';
   reviews: Array<{
@@ -375,6 +399,28 @@ export const events = {
             typeof (parsed as Record<string, unknown>)['stage'] === 'string'
           ) {
             cb(parsed as DreamCycleLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /**
+   * Faza 6 (L6) Meta Evolution replies (`meta_result`): status / evolve /
+   * rollback / history payloads, requested via `tauri.rsi.meta(op)`.
+   */
+  onMetaResult: {
+    listen: (cb: (e: MetaResultLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'meta_result'
+          ) {
+            cb(parsed as MetaResultLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

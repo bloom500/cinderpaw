@@ -180,7 +180,14 @@ export interface ProfileOptions {
 export class AgentLoop {
   // ponytail: 4096 = pre-raise default; keeps cloud reasoning models from burning
   // the full 16384 budget on chain-of-thought. User Controls override takes priority.
-  static readonly CLOUD_DEFAULT_MAX_TOKENS = 4096;
+  /**
+   * Fallback max_tokens for Anthropic (required by their API, returns 400
+   * without it). 128K covers all current Claude models — Opus 4.7/4.8
+   * support 128K output, Sonnet supports 8K (server enforces its own cap).
+   * The model stops naturally when done; this is just the ceiling.
+   * OpenAI-compatible providers omit max_tokens entirely when unset.
+   */
+  static readonly ANTHROPIC_REQUIRED_MAX_TOKENS = 128_000;
 
   // Cloud models have huge contexts (Kimi 128K, Claude 200K, MiniMax 1M);
   // bound the transcript only to control cost and latency, not to avoid a
@@ -797,6 +804,9 @@ export class AgentLoop {
         memory,
         onToken,
         routeTargets,
+        ctx,
+        messageId,
+        traceId,
       );
       // Surface REAL token usage so the UI context ring reflects actual context
       // consumption (the latest call's prompt = full context fed to the model,
@@ -1040,6 +1050,16 @@ export class AgentLoop {
      * unchanged for callers that don't opt into Brain.
      */
     routeTargets: { primary: ModelTarget; fallback?: ModelTarget } | null = null,
+    /**
+     * Present only when called from the main #run loop — used to surface
+     * a synthetic tool_start/tool_done pair around context compaction so a
+     * slow summarizer call (a full extra LLM completion on CPU) shows up
+     * as a visible step instead of silent dead air inside the "streaming"
+     * status line. Absent for the summarizer/extractor's own one-shot calls.
+     */
+    ctx?: SessionRunContext,
+    messageId?: string,
+    traceId?: string,
   ): Promise<{ content: string; finishReason?: string; promptTokens: number; completionTokens: number }> {
     // Grammar-constrained tool calls (opt-in). Applied only to the main agent
     // loop — the summarizer and memory extractor have their own router calls
@@ -1067,16 +1087,48 @@ export class AgentLoop {
     const nativeTools = profile?.nativeTools ?? this.#nativeTools.filter((t) => advertise(t.name));
     const openAITools = profile?.openAITools ?? this.#openAITools.filter((t) => advertise(t.function.name));
 
+    // Surfaces compaction as a visible synthetic tool call (tool_start/
+    // tool_done on the existing event stream) instead of silent dead air —
+    // the summarizer is a full extra LLM completion, which on CPU can take
+    // as long as the turn itself, with nothing in the UI to explain the wait.
+    const compact = async (budget: number): Promise<boolean> => {
+      // Gate the synthetic event on the same over-budget check maybeCompress
+      // makes internally — without it every turn (not just ones that
+      // actually compact) would emit a tool_done, inflating any caller that
+      // counts tool calls from the event stream (e.g. Subagent.run).
+      if (!ctx || !messageId || !traceId || memory.estimatedTokens() <= budget) {
+        return memory.maybeCompress((msgs) => this.#summarize(sessionId, msgs), budget);
+      }
+      ctx.emit({ type: "tool_start", id: messageId, tool: "context_compaction", args: {}, traceId });
+      try {
+        const compressed = await memory.maybeCompress((msgs) => this.#summarize(sessionId, msgs), budget);
+        ctx.emit({
+          type: "tool_done",
+          id: messageId,
+          tool: "context_compaction",
+          result: { ok: true, content: compressed ? "compacted" : "not needed" },
+          traceId,
+        });
+        return compressed;
+      } catch (err) {
+        ctx.emit({
+          type: "tool_done",
+          id: messageId,
+          tool: "context_compaction",
+          result: { ok: false, content: String(err) },
+          traceId,
+        });
+        throw err;
+      }
+    };
+
     // Proactive context-window management: keep the transcript within the
     // model's real context BEFORE sending. The reactive cost-budget path in the
     // catch below only fires at millions of tokens — far past the local KV-cache
     // wall — so without this the prompt overflows the engine and the run crashes
     // after a handful of turns. Cheap: a no-op until the transcript exceeds the
     // budget, then one summarizer call amortized over many subsequent turns.
-    await memory.maybeCompress(
-      (msgs) => this.#summarize(sessionId, msgs),
-      this.#transcriptBudget(),
-    );
+    await compact(this.#transcriptBudget());
 
     // S5: dispatch helper — uses router.completeWith() when Brain Stack
     // provided route targets, otherwise the existing router.complete()
@@ -1084,16 +1136,17 @@ export class AgentLoop {
     // budget / abort machinery in both modes. Hoisted BEFORE the try so
     // both the main call and the budget-recovery retry can call it.
     const overrides = this.#sessionInferParams.get(sessionId);
-    // ponytail: cloud reasoning models (NIM, DeepSeek, stepfun…) burn the full
-    // max_tokens budget on chain-of-thought before answering. 16384 = 14k tokens
-    // on "Test" with Step 3.7 Flash. Use the pre-raise default (4096) for cloud
-    // unless the user explicitly set a value via the Controls panel.
+    // For cloud models we intentionally do NOT set max_tokens when the user
+    // hasn't explicitly chosen a value. OpenAI-compatible APIs (NIM, Ollama
+    // cloud, etc.) omit the field entirely and use the server's own default —
+    // which is always better than us guessing. Anthropic requires max_tokens
+    // so we supply a safe upper bound there (see ANTHROPIC_REQUIRED_MAX_TOKENS).
     const defaultMaxTokens = this.#router.isPrimaryLocal
       ? this.#config.maxTokensPerCall
-      : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS;
+      : undefined;
 
     const dispatch = (
-      maxTokens: number,
+      maxTokens: number | undefined,
       temperature: number | undefined,
     ): Promise<InferenceResponse> => {
       const req = {
@@ -1136,14 +1189,11 @@ export class AgentLoop {
         err instanceof BudgetExhaustedError &&
         this.#config.onBudgetExhausted === "compress_and_continue"
       ) {
-        const compressed = await memory.maybeCompress(
-          (msgs) => this.#summarize(sessionId, msgs),
-          this.#transcriptBudget(),
-        );
+        const compressed = await compact(this.#transcriptBudget());
         if (compressed) {
           const overrides = this.#sessionInferParams.get(sessionId);
           const res = await dispatch(
-            overrides?.maxTokens ?? (this.#router.isPrimaryLocal ? this.#config.maxTokensPerCall : AgentLoop.CLOUD_DEFAULT_MAX_TOKENS),
+            overrides?.maxTokens ?? (this.#router.isPrimaryLocal ? this.#config.maxTokensPerCall : undefined),
             overrides?.temperature,
           );
           return {
@@ -1739,10 +1789,10 @@ function errorMessage(err: unknown): string {
 
 /**
  * #13: detect the inference stream's idle-timeout abort (see
- * `idleAbortController` in sandbox/inference-providers.ts — it aborts with a
- * named `IdleTimeoutError`). Matched by name to avoid a core→sandbox import.
- * Some runtimes propagate `signal.reason` wrapped, so the message is checked
- * as a fallback.
+ * `deadlineController` in sandbox/inference-providers.ts — its stall timer
+ * aborts with a named `IdleTimeoutError`). Matched by name to avoid a
+ * core→sandbox import. Some runtimes propagate `signal.reason` wrapped, so
+ * the message is checked as a fallback.
  */
 function isIdleTimeout(err: unknown): boolean {
   if (!(err instanceof Error)) return false;

@@ -437,8 +437,19 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     const authHeaders: Record<string, string> = target.apiKey
       ? { Authorization: `Bearer ${target.apiKey}` }
       : {};
-    const idleMs = isLoopbackTarget(target) ? 300_000 : CLOUD_IDLE_MS;
-    const { controller, cleanup } = idleAbortController(idleMs, req.signal);
+    // deadlineController (not the older idleAbortController) so cloud BYOK
+    // targets (MiniMax, NVIDIA NIM, etc.) get the same TTFT timeout +
+    // heartbeat progress events Ollama already has — without a heartbeat,
+    // a slow-to-first-token cloud request looked identical to a hang for
+    // up to CLOUD_IDLE_MS (60s) with zero UI feedback.
+    const isCloud = !isLoopbackTarget(target);
+    const policy = resolvePerfPolicy({ isCloud });
+    const dc = deadlineController({
+      policy,
+      externalSignal: req.signal,
+      onProgress: req.onProgress,
+      sessionId: req.sessionId,
+    });
     let content = "";
     let promptTokens = 0;
     let completionTokens = 0;
@@ -471,7 +482,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     };
 
     try {
-      const res = await fetchStream(url, body, authHeaders, controller.signal);
+      const res = await fetchStream(url, body, authHeaders, dc.signal);
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -532,7 +543,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        controller.resetIdle();
+        dc.resetIdle();
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
@@ -560,7 +571,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         }
       }
     } finally {
-      cleanup();
+      dc.cleanup();
     }
 
     if (!promptTokens) promptTokens = estimateTokens(req.messages);
@@ -602,7 +613,12 @@ export class AnthropicProvider implements InferenceProvider {
     const { systemText, userMessages } = splitAnthropicMessages(req.messages);
     const body: Record<string, unknown> = {
       model: target.model,
-      max_tokens: req.maxTokens ?? 4096,
+      // Anthropic requires max_tokens — the API returns 400 without it.
+      // We send 128K as a generous upper bound: Claude Opus 4.7/4.8 support
+      // 128K output, Sonnet 4.6 supports 8K. The model stops naturally
+      // when it's done — max_tokens is just the ceiling, not a target.
+      // The user's explicit override always wins.
+      max_tokens: req.maxTokens ?? 128_000,
       messages: userMessages,
       temperature: cloudTemperature(target, req),
     };
@@ -652,7 +668,7 @@ export class AnthropicProvider implements InferenceProvider {
     const { systemText, userMessages } = splitAnthropicMessages(req.messages);
     const body: Record<string, unknown> = {
       model: target.model,
-      max_tokens: req.maxTokens ?? 4096,
+      max_tokens: req.maxTokens ?? 128_000,
       messages: userMessages,
       temperature: cloudTemperature(target, req),
       stream: true,
@@ -666,7 +682,17 @@ export class AnthropicProvider implements InferenceProvider {
       ...(target.apiKey ? { "x-api-key": target.apiKey } : {}),
     };
 
-    const { controller, cleanup } = idleAbortController(CLOUD_IDLE_MS, req.signal);
+    // deadlineController, not idleAbortController — see the same swap in
+    // OpenAICompatibleProvider#stream above: this is the streaming path for
+    // Anthropic-shaped BYOK cloud targets, and it needs the TTFT timeout +
+    // heartbeat too, not just a bare idle-since-last-chunk timer.
+    const policy = resolvePerfPolicy({ isCloud: true });
+    const dc = deadlineController({
+      policy,
+      externalSignal: req.signal,
+      onProgress: req.onProgress,
+      sessionId: req.sessionId,
+    });
     let content = "";
     let inputTokens = 0;
     let outputTokens = 0;
@@ -685,7 +711,7 @@ export class AnthropicProvider implements InferenceProvider {
     let activeBlockType = "";
 
     try {
-      const res = await fetchStream(url, body, headers, controller.signal);
+      const res = await fetchStream(url, body, headers, dc.signal);
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -743,7 +769,7 @@ export class AnthropicProvider implements InferenceProvider {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        controller.resetIdle();
+        dc.resetIdle();
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
@@ -751,7 +777,7 @@ export class AnthropicProvider implements InferenceProvider {
       }
       if (buf.trim()) processLine(buf);
     } finally {
-      cleanup();
+      dc.cleanup();
     }
 
     const promptTokens = inputTokens || estimateTokens(req.messages);
@@ -847,58 +873,8 @@ function readOllamaNumCtx(): number {
 }
 
 /**
- * Idle-timeout AbortController. Resets on each resetIdle() call; fires only
- * when no progress arrives for `idleMs` milliseconds. The caller MUST call
- * cleanup() in a finally block to avoid leaking the timer.
- *
- * **Deprecated.** Replaced by `deadlineController` which adds TTFT + total
- * deadlines plus a heartbeat. Kept as a thin shim so any caller that hasn't
- * migrated still compiles — internal call sites are migrated below.
- */
-function idleAbortController(
-  idleMs: number,
-  externalSignal?: AbortSignal,
-): { controller: AbortController & { resetIdle(): void }; cleanup(): void } {
-  const ac = new AbortController() as AbortController & { resetIdle(): void };
-  const idleError = () => {
-    const e = new Error(
-      `inference stream stalled: no data received for ${Math.round(idleMs / 1000)}s`,
-    );
-    e.name = "IdleTimeoutError";
-    return e;
-  };
-  let timer: ReturnType<typeof setTimeout> = setTimeout(() => ac.abort(idleError()), idleMs);
-
-  ac.resetIdle = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => ac.abort(idleError()), idleMs);
-  };
-
-  let onExt: (() => void) | null = null;
-  if (externalSignal) {
-    onExt = () => {
-      clearTimeout(timer);
-      ac.abort(externalSignal.reason);
-    };
-    if (externalSignal.aborted) {
-      onExt();
-    } else {
-      externalSignal.addEventListener("abort", onExt, { once: true });
-    }
-  }
-
-  const cleanup = () => {
-    clearTimeout(timer);
-    if (externalSignal && onExt) {
-      externalSignal.removeEventListener("abort", onExt);
-    }
-  };
-
-  return { controller: ac, cleanup };
-}
-
-/**
- * `deadlineController` generalizes `idleAbortController` with three timers:
+ * `deadlineController` generalizes the old idle-only abort controller with
+ * three timers:
  *
  *   1. **TTFT** — armed at construction. Cleared the first time `resetIdle()`
  *      is called (i.e. the first SSE chunk / NDJSON line arrives). If it

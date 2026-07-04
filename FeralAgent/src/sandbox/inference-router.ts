@@ -186,6 +186,20 @@ export class InferenceRouter {
     };
   }
 
+  /**
+   * Display-safe view of the configured fallback target (no API keys), or
+   * null if none is configured. Surfaced through `self_providers` so the
+   * agent can reason about routing + Brain Stack without leaking the key.
+   */
+  get currentFallback(): { provider: string; model: string; baseUrl: string } | null {
+    if (!this.#fallback) return null;
+    return {
+      provider: this.#fallback.provider,
+      model: this.#fallback.model,
+      baseUrl: this.#fallback.baseUrl,
+    };
+  }
+
   /** True when the active primary target is a local loopback address. */
   get isPrimaryLocal(): boolean {
     return this.#isLocalHost(this.#primary.baseUrl);

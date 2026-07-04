@@ -71,6 +71,11 @@ enum Command {
     },
     /// Watch the Dream Cycle live
     Dreams,
+    /// Inspect or drive L6 Meta Evolution (the engine's own strategy)
+    Meta {
+        #[command(subcommand)]
+        action: Option<MetaAction>,
+    },
     /// Read or write settings.json
     Config {
         #[command(subcommand)]
@@ -101,6 +106,18 @@ enum ConnectorsAction {
     List,
     /// Reload connectors.json into a running gateway
     Reload,
+}
+
+#[derive(Subcommand)]
+enum MetaAction {
+    /// Show the current MetaGenome, generation and live fitness (default)
+    Status,
+    /// Settle the pending candidate and propose the next one
+    Evolve,
+    /// Roll the pending candidate back to its baseline
+    Rollback,
+    /// Print the append-only generation history
+    History,
 }
 
 #[derive(Subcommand)]
@@ -148,6 +165,12 @@ fn main() {
             Some(ConnectorsAction::Reload) => admin::connectors_reload(),
         },
         Some(Command::Dreams) => admin::dreams(),
+        Some(Command::Meta { action }) => match action {
+            None | Some(MetaAction::Status) => admin::meta("meta_status"),
+            Some(MetaAction::Evolve) => admin::meta("meta_evolve"),
+            Some(MetaAction::Rollback) => admin::meta("meta_rollback"),
+            Some(MetaAction::History) => admin::meta("meta_history"),
+        },
         Some(Command::Config { action }) => match action {
             ConfigAction::Get { key } => admin::config_get(key.as_deref()),
             ConfigAction::Set { key, value } => admin::config_set(&key, &value),

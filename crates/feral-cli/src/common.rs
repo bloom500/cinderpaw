@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 #[derive(Clone, Copy)]
 pub struct Palette {
     pub accent: &'static str,
+    #[allow(dead_code)]
     pub accent_hi: &'static str,
     pub text: &'static str,
     pub meta: &'static str,

@@ -51,6 +51,7 @@ import { blendedPricePer1kUsd } from "./rsi-cost.ts";
 import { evaluateGate } from "./confidence.ts";
 import { recentToolCalls } from "../sandbox/audit-log.ts";
 import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
+import { DEFAULT_META_GENOME } from "./meta-evolution.ts";
 import { PbtHandler } from "./pbt-handler.ts";
 import {
   writeChampion,
@@ -165,6 +166,11 @@ export interface RsiSidecarDeps {
   /** Optional: where to persist the full population snapshot (Dream Cycle
    *  evolutionary continuity). Default `~/.feral/rsi/population.json`. */
   populationSnapshotPath?: string;
+  /** Optional: L6 Meta Evolution — the live MetaGenome accessor. When
+   *  present, its ratio-to-default fields scale the PBT-driven selection
+   *  knobs and (tighten-only) the confidence-gate thresholds. Absent →
+   *  exact pre-L6 behaviour. */
+  metaParams?: () => import("./meta-evolution.ts").MetaGenome;
 }
 
   /** Sidecar singleton — one per process. */
@@ -348,6 +354,13 @@ export class RsiSidecar {
     // The selection knobs read the ACTIVE strategy's hyperparams live —
     // getters, so each strategy rotation (on RatchetAdvanced) changes
     // the search behaviour without reconstructing the handler.
+    // L6 Meta Evolution sits ON TOP as a bounded ratio-to-default scaler:
+    // metaParams absent (or at defaults) ⇒ every scale is exactly 1.
+    const meta = this.deps.metaParams;
+    const metaScale = (field: "mutation_rate" | "exploration" | "selection_pressure"): number => {
+      if (!meta) return 1;
+      return meta()[field] / DEFAULT_META_GENOME[field];
+    };
     const selection = {
       get capacity() {
         return clampInt(pbtController.activeHyperparams().population_size, 2, 64);
@@ -358,7 +371,8 @@ export class RsiSidecar {
         // "balanced" reference rate.
         const base = defaultBounds();
         const factor = clampNum(
-          pbtController.activeHyperparams().mutation_rate / PBT_REFERENCE_MUTATION_RATE,
+          (pbtController.activeHyperparams().mutation_rate / PBT_REFERENCE_MUTATION_RATE) *
+            metaScale("mutation_rate"),
           0.1,
           8,
         );
@@ -380,9 +394,18 @@ export class RsiSidecar {
       },
       wildExplorerRng: () => Math.random(),
       get wildExplorerFraction() {
-        return pbtController.activeHyperparams().zoom_policy.wild_explorer_pct;
+        return clampNum(
+          pbtController.activeHyperparams().zoom_policy.wild_explorer_pct * metaScale("exploration"),
+          0,
+          0.5,
+        );
       },
-      selectionPressure: () => pbtController.activeHyperparams().selection_pressure,
+      selectionPressure: () =>
+        clampNum(
+          pbtController.activeHyperparams().selection_pressure * metaScale("selection_pressure"),
+          0.1,
+          3.0,
+        ),
     };
 
     // ── Compose ───────────────────────────────────────────────────────
@@ -420,7 +443,18 @@ export class RsiSidecar {
       ratchetDeps: {
         commitGenome,
         ratchetAttempt,
-        evaluateGate: (samples) => evaluateGate(samples),
+        // L6 may TIGHTEN the gate (higher confidence, lower p) but the
+        // max()/min() against the locked defaults makes weakening
+        // impossible even if the meta state file were tampered with.
+        evaluateGate: (samples) => {
+          if (!meta) return evaluateGate(samples);
+          const gate = meta().confidence_gate;
+          return evaluateGate(samples, {
+            pValueMax: Math.min(0.05, 1 - gate),
+            effectSizeMin: 0.1,
+            confidenceMin: Math.max(0.95, gate),
+          });
+        },
         cycleId: () => cycleId,
         // §2.10 personal fitness: recent tool-call audit rows → a real
         // userSatisfaction in each candidate's Journal row. Observed only —

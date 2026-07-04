@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2, Brain } from 'lucide-react';
 import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload } from '@/lib/tauri';
-import { events, type LoraReviewsLine } from '@/lib/tauri/events';
+import { events, type LoraReviewsLine, type MetaResultLine } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 
 /** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
@@ -71,6 +71,10 @@ export function FeralDreamsPanel() {
   const [loraResolving, setLoraResolving] = useState<Set<string>>(new Set());
   const [loraTraining, setLoraTraining] = useState(false);
   const [loraTrainNote, setLoraTrainNote] = useState<string | null>(null);
+  // Faza 6 (L6) Meta Evolution — status snapshot + in-flight/action note.
+  const [metaStatus, setMetaStatus] = useState<MetaResultLine | null>(null);
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [metaNote, setMetaNote] = useState<string | null>(null);
   const dreaming = useDream((s) => s.dreaming);
   const stage = useDream((s) => s.stage);
 
@@ -82,6 +86,19 @@ export function FeralDreamsPanel() {
       await tauri.rsi.dreamNow();
       setRequested(true);
     } catch { /* sidecar not running — ignore */ }
+  };
+
+  // Faza 6 — Evolve / Rollback. Fire-and-forget; the `meta_result` listener
+  // clears the busy flag, surfaces the reason on failure and re-requests status.
+  const runMetaAction = async (op: 'evolve' | 'rollback') => {
+    if (metaBusy) return;
+    setMetaBusy(true);
+    setMetaNote(null);
+    try {
+      await tauri.rsi.meta(op);
+    } catch {
+      setMetaBusy(false); // sidecar not running — allow retry
+    }
   };
 
   // `requested` holds until the episode actually starts (`dreaming` flips
@@ -182,6 +199,10 @@ export function FeralDreamsPanel() {
       try {
         await tauri.rsi.loraReviewsList();
       } catch { /* sidecar not running — the listener will fill in later */ }
+      // Faza 6 (L6) — MetaGenome status, same fire-and-forget discipline.
+      try {
+        await tauri.rsi.meta('status');
+      } catch { /* sidecar not running — the listener will fill in later */ }
     };
     void load();
     // A completed episode appends a new line → reload to pick it up.
@@ -244,8 +265,23 @@ export function FeralDreamsPanel() {
       setLoraTraining(false);
       setLoraTrainNote(e.ok ? null : (e.reason ?? 'training failed'));
     });
+    // Faza 6 — meta_result stream: status snapshots feed the card directly;
+    // evolve/rollback outcomes surface their reason and trigger a re-status.
+    const unlistenMeta = events.onMetaResult.listen((e) => {
+      if (!alive) return;
+      if (e.op === 'status') {
+        setMetaStatus(e);
+        return;
+      }
+      if (e.op === 'evolve' || e.op === 'rollback') {
+        setMetaBusy(false);
+        setMetaNote(e.ok ? null : (e.reason ?? `${e.op} failed`));
+        void tauri.rsi.meta('status').catch(() => {});
+      }
+    });
     return () => {
       alive = false;
+      void unlistenMeta.then((u) => u()).catch(() => {});
       void unlistenDream.then((u) => u()).catch(() => {});
       void unlistenPatches.then((u) => u()).catch(() => {});
       void unlistenResolved.then((u) => u()).catch(() => {});
@@ -330,7 +366,90 @@ export function FeralDreamsPanel() {
         onResolve={resolveLoraCard}
         onTrain={loraTrainNow}
       />
+
+      <MetaEvolutionCard
+        status={metaStatus}
+        busy={metaBusy}
+        note={metaNote}
+        onAction={runMetaAction}
+      />
     </div>
+  );
+}
+
+/** Faza 6 (L6) — Meta Evolution: the MetaGenome that steers HOW the RSI
+ *  searches. Read-mostly: shows generation / live fitness / metaparameters,
+ *  with Evolve (settle + propose the next candidate) and Rollback (drop the
+ *  pending candidate). Rendered outside the telemetry guard, mirroring
+ *  LoraReviews — meta state exists even before the first dream. */
+function MetaEvolutionCard({
+  status,
+  busy,
+  note,
+  onAction,
+}: {
+  status: MetaResultLine | null;
+  busy: boolean;
+  note: string | null;
+  onAction: (op: 'evolve' | 'rollback') => void;
+}) {
+  if (!status) return null;
+  const fitness = status.fitness ?? null;
+  return (
+    <section className="space-y-1.5 border-t border-border-subtle pt-2">
+      <header className="flex items-center gap-1.5">
+        <Brain size={11} className="text-brand" />
+        <span className="text-[11px] font-medium text-text-primary">Meta Evolution</span>
+        <span className="text-[10px] text-text-muted">
+          generation {status.generation ?? 0}
+          {status.pendingCandidate ? ' · candidate pending' : ''}
+        </span>
+        <span className="ml-auto flex items-center gap-1.5">
+          {status.pendingCandidate && (
+            <button
+              type="button"
+              onClick={() => onAction('rollback')}
+              disabled={busy}
+              title="Drop the pending candidate and return to its baseline"
+              className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+            >
+              <Undo2 size={10} className="mr-1 inline" />
+              Rollback
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onAction('evolve')}
+            disabled={busy}
+            title="Settle the pending candidate against its baseline, then propose the next one"
+            className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+          >
+            {busy ? 'Working…' : 'Evolve'}
+          </button>
+        </span>
+      </header>
+      <p className="text-[10px] text-text-muted">
+        {fitness
+          ? `fitness ${fitness.score.toFixed(4)} over ${fitness.cycles} cycles`
+          : 'fitness: needs more dream cycles under this genome'}
+      </p>
+      {status.genome && (
+        <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-[10px]">
+          {Object.entries(status.genome).map(([k, v]) => (
+            <span key={k} className="flex justify-between gap-2">
+              <span className="text-text-muted">{k}</span>
+              <span className="text-text-secondary tabular-nums">{v}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {note && (
+        <p className="flex items-center gap-1 text-[10px] text-text-muted">
+          <AlertTriangle size={10} className="text-brand" />
+          {note}
+        </p>
+      )}
+    </section>
   );
 }
 

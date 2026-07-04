@@ -713,6 +713,7 @@ mod backend {
     // pool caps flow through `effective_pool_cap(_with_env)`. Pre-existing
     // (not introduced by Slice 2). Delete or wire up when the pool layer is
     // next refactored. Out of scope for Faza 4.5.
+    #[allow(dead_code)]
     fn max_contexts() -> usize {
         max_contexts_env().unwrap_or(2)
     }

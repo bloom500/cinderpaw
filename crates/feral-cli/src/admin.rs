@@ -3,6 +3,8 @@
 //! `connectors`, `dreams`, `config`. Everything talks to the same loopback
 //! runtime the desktop app and connectors use.
 
+#![allow(non_snake_case)]
+
 use std::io::{Read, Seek, Write};
 
 use futures_util::StreamExt;
@@ -18,6 +20,36 @@ fn block_on<F: std::future::Future>(f: F) -> F::Output {
 
 fn feral_file(name: &str) -> std::path::PathBuf {
     feral_core::paths::feral_dir().join(name)
+}
+
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// One frame of an animated wait: a braille spinner + elapsed seconds when
+/// the palette is colored (an interactive tty); a plain trailing dot
+/// otherwise, so piped output/log files stay append-only instead of filling
+/// with carriage returns.
+fn tick(label: &str, i: usize, elapsed_ms: u64) {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, reset: RESET, .. } = palette();
+    if ACCENT.is_empty() {
+        print!(".");
+    } else {
+        print!(
+            "\r{ACCENT}{}{RESET} {TEXT}{label}{RESET}  {DIM}{META}{:.1}s{RESET}   ",
+            SPINNER[i % SPINNER.len()],
+            elapsed_ms as f32 / 1000.0
+        );
+    }
+    let _ = std::io::stdout().flush();
+}
+
+/// Clears the spinner line before printing the final result — a no-op (just
+/// a newline) when color is off, since the plain path never used `\r`.
+fn tick_done() {
+    if !palette().accent.is_empty() {
+        print!("\r\x1b[2K");
+    } else {
+        println!();
+    }
 }
 
 // ── gateway status ─────────────────────────────────────────────────────────
@@ -127,20 +159,19 @@ pub fn gateway_start() -> i32 {
     let pid = child.id();
     let _ = std::fs::write(feral_file("gateway.pid"), pid.to_string());
 
-    print!("{META}starting gateway{RESET} ");
-    let _ = std::io::stdout().flush();
-    for _ in 0..40 {
+    for i in 0..40 {
         if port_in_use(port) {
-            println!("\r{OK}● gateway started{RESET}  {DIM}{META}pid {pid} · port {port}{RESET}   ");
+            tick_done();
+            println!("{OK}● gateway started{RESET}  {DIM}{META}pid {pid} · port {port}{RESET}   ");
             println!("  logs: {DIM}{META}{}{RESET}", log_path.display());
             return 0;
         }
-        print!(".");
-        let _ = std::io::stdout().flush();
+        tick("starting gateway", i, i as u64 * 500);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
+    tick_done();
     eprintln!(
-        "\n{FAIL}gateway did not bind port {port} within 20s{RESET} — see {}",
+        "{FAIL}gateway did not bind port {port} within 20s{RESET} — see {}",
         log_path.display()
     );
     1
@@ -161,19 +192,18 @@ pub fn gateway_stop() -> i32 {
         eprintln!("{FAIL}shutdown request failed{RESET}: {e}");
         return 1;
     }
-    print!("{META}stopping gateway{RESET} ");
-    let _ = std::io::stdout().flush();
-    for _ in 0..70 {
+    for i in 0..70 {
         if !port_in_use(port) {
             let _ = std::fs::remove_file(feral_file("gateway.pid"));
-            println!("\r{OK}● gateway stopped{RESET}                 ");
+            tick_done();
+            println!("{OK}● gateway stopped{RESET}                 ");
             return 0;
         }
-        print!(".");
-        let _ = std::io::stdout().flush();
+        tick("stopping gateway", i, i as u64 * 500);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
-    eprintln!("\n{WARN}gateway still up after 35s — it may be mid-drain{RESET}");
+    tick_done();
+    eprintln!("{WARN}gateway still up after 35s — it may be mid-drain{RESET}");
     1
 }
 
@@ -403,6 +433,87 @@ pub fn dreams() -> i32 {
         }
         0
     })
+}
+
+// ── meta (L6 Meta Evolution) ───────────────────────────────────────────────
+
+/// Drive one L6 meta op through the gateway. `op` is the sidecar message
+/// type; the route + method are derived here so main.rs stays declarative.
+pub fn meta(op: &str) -> i32 {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, reset: RESET, .. } =
+        palette();
+    if !port_in_use(api_port()) {
+        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        return 1;
+    }
+    let Some(token) = read_token() else {
+        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        return 1;
+    };
+    let result = block_on(async {
+        match op {
+            "meta_status" => fetch_json(&token, "/meta/current").await,
+            "meta_history" => fetch_json(&token, "/meta/history").await,
+            "meta_evolve" => post_json(&token, "/meta/evolve").await,
+            "meta_rollback" => post_json(&token, "/meta/rollback").await,
+            _ => Err(format!("unknown meta op {op}")),
+        }
+    });
+    let v = match result {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{FAIL}meta request failed{RESET}: {e}");
+            return 1;
+        }
+    };
+    if json() {
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        return if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) { 0 } else { 1 };
+    }
+    if !v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
+        let reason = v.get("reason").and_then(|r| r.as_str()).unwrap_or("unknown error");
+        eprintln!("{FAIL}✗ {reason}{RESET}");
+        return 1;
+    }
+    match op {
+        "meta_history" => {
+            println!("  {ACCENT}✦ meta history{RESET}");
+            for row in v.get("history").and_then(|h| h.as_array()).into_iter().flatten() {
+                let gen = row.get("generation").and_then(|g| g.as_u64()).unwrap_or(0);
+                let event = row.get("event").and_then(|e| e.as_str()).unwrap_or("");
+                let diff = row.get("diff").and_then(|d| d.as_str()).unwrap_or("");
+                let score = row
+                    .get("score")
+                    .and_then(|s| s.as_f64())
+                    .map(|s| format!("{s:.4}"))
+                    .unwrap_or_else(|| "-".into());
+                println!("  {TEXT}g{gen:<4}{RESET} {ACCENT}{event:<10}{RESET} {TEXT}{score:<8}{RESET} {DIM}{META}{diff}{RESET}");
+            }
+        }
+        _ => {
+            let gen = v.get("generation").and_then(|g| g.as_u64()).unwrap_or(0);
+            println!("  {ACCENT}✦ meta{RESET} {TEXT}generation {gen}{RESET}");
+            if let Some(diff) = v.get("diff").and_then(|d| d.as_str()) {
+                println!("  {TEXT}proposed{RESET} {DIM}{META}{diff}{RESET}");
+            }
+            if let Some(pending) = v.get("pendingCandidate").and_then(|p| p.as_bool()) {
+                println!("  {TEXT}pending candidate{RESET} {DIM}{META}{pending}{RESET}");
+            }
+            if let Some(fit) = v.get("fitness").filter(|f| !f.is_null()) {
+                let score = fit.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                let cycles = fit.get("cycles").and_then(|c| c.as_u64()).unwrap_or(0);
+                println!("  {TEXT}fitness{RESET} {ACCENT}{score:.4}{RESET} {DIM}{META}over {cycles} cycles{RESET}");
+            } else if op == "meta_status" {
+                println!("  {TEXT}fitness{RESET} {DIM}{META}insufficient cycles under this genome{RESET}");
+            }
+            if let Some(genome) = v.get("genome").and_then(|g| g.as_object()) {
+                for (k, val) in genome {
+                    println!("    {DIM}{META}{k:<20}{RESET} {TEXT}{val}{RESET}");
+                }
+            }
+        }
+    }
+    0
 }
 
 // ── config ─────────────────────────────────────────────────────────────────
@@ -670,6 +781,20 @@ fn check_connectors() -> Check {
 async fn fetch_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
     reqwest::Client::new()
         .get(format!("{}{}", base_url(), path))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn post_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
+    reqwest::Client::new()
+        .post(format!("{}{}", base_url(), path))
         .bearer_auth(token)
         .send()
         .await

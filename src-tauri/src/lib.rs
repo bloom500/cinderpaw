@@ -1023,6 +1023,27 @@ async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> Result<(), S
     Ok(())
 }
 
+/// Faza 6 (L6) Meta Evolution: drive the sidecar's MetaGenome engine.
+/// Fire-and-forget like the other RSI commands — the sidecar replies with one
+/// `meta_result` line forwarded over `feral://agent-output`.
+#[tauri::command]
+#[specta::specta]
+async fn feral_meta(state: State<'_, AppState>, op: String) -> Result<(), String> {
+    if !matches!(op.as_str(), "status" | "evolve" | "rollback" | "history") {
+        return Err(format!("invalid meta op '{op}'"));
+    }
+    let msg = serde_json::json!({ "type": format!("meta_{op}") }).to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// BRSI §2.8 `user` Wake trigger: ask the sidecar's Dream Cycle to run one
 /// evolutionary episode now, bypassing the idle/cooldown gate. Fire-and-forget
 /// like the benchmark command — the sidecar's scheduler launches on its next
@@ -3311,6 +3332,7 @@ pub fn run() {
             feral_stop_generation,
             feral_run_fractal_benchmark,
             feral_dream_now,
+            feral_meta,
             feral_code_patches_list,
             feral_code_patch_resolve,
             feral_lora_reviews_list,

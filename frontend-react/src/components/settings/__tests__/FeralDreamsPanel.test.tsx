@@ -20,7 +20,9 @@ function stubListener() {
   vi.spyOn(events.onLoraReviews, 'listen').mockResolvedValue(() => {});
   vi.spyOn(events.onLoraReviewResolved, 'listen').mockResolvedValue(() => {});
   vi.spyOn(events.onLoraTrainResult, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(events.onMetaResult, 'listen').mockResolvedValue(() => {});
   vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
+  vi.spyOn(tauri.rsi, 'meta').mockResolvedValue();
 }
 
 const SUMMARY: DreamTelemetrySummary = {
@@ -484,5 +486,58 @@ describe('FeralDreamsPanel — Personal adaptation (Faza 4)', () => {
 
     expect(await screen.findByText('coding')).toBeInTheDocument();
     expect(screen.getByText('lora-coding-deadbeef1234')).toBeInTheDocument();
+  });
+});
+
+// ── Faza 6 (L6) — the Meta Evolution card ────────────────────────────────────
+
+describe('FeralDreamsPanel — Meta Evolution (Faza 6)', () => {
+  function captureMetaListener(): (e: import('@/lib/tauri/events').MetaResultLine) => void {
+    let cb: ((e: import('@/lib/tauri/events').MetaResultLine) => void) | null = null;
+    vi.spyOn(events.onMetaResult, 'listen').mockImplementation((c) => {
+      cb = c as (e: import('@/lib/tauri/events').MetaResultLine) => void;
+      return Promise.resolve(() => {});
+    });
+    return (e) => {
+      if (!cb) throw new Error('panel never subscribed to onMetaResult');
+      cb(e);
+    };
+  }
+
+  it('requests meta status on mount and renders the card from the reply', async () => {
+    stubListener();
+    const emit = captureMetaListener();
+    const metaSpy = vi.spyOn(tauri.rsi, 'meta').mockResolvedValue();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+
+    render(<FeralDreamsPanel />);
+    await waitFor(() => expect(metaSpy).toHaveBeenCalledWith('status'));
+    // No card until the sidecar replies.
+    expect(screen.queryByText('Meta Evolution')).not.toBeInTheDocument();
+
+    emit({
+      type: 'meta_result',
+      id: '',
+      op: 'status',
+      ok: true,
+      generation: 2,
+      pendingCandidate: true,
+      genome: { mutation_rate: 0.18, confidence_gate: 0.95 },
+      fitness: { score: 0.7234, cycles: 5 },
+    });
+
+    expect(await screen.findByText('Meta Evolution')).toBeInTheDocument();
+    expect(screen.getByText(/generation 2/)).toBeInTheDocument();
+    expect(screen.getByText(/candidate pending/)).toBeInTheDocument();
+    expect(screen.getByText(/fitness 0.7234 over 5 cycles/)).toBeInTheDocument();
+    expect(screen.getByText('mutation_rate')).toBeInTheDocument();
+    // Pending candidate → both actions offered.
+    expect(screen.getByText('Evolve')).toBeInTheDocument();
+    expect(screen.getByText('Rollback')).toBeInTheDocument();
+
+    // Evolve fires the op; the listener's follow-up status refresh re-renders.
+    fireEvent.click(screen.getByText('Evolve'));
+    await waitFor(() => expect(metaSpy).toHaveBeenCalledWith('evolve'));
   });
 });
