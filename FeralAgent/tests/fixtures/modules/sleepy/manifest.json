@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "mod-retrieval-sleepy-01",
+  "seam": "retrieval_strategy",
+  "seamApiVersion": 1,
+  "compat": { "runtime": ">=2026.6.17" },
+  "requires": [],
+  "displayName": "Fixture: sleeps past every timeout",
+  "entry": "module.ts",
+  "permissions": [],
+  "capabilitiesClaimed": {},
+  "limits": { "timeoutMs": 2000, "maxRssMb": 256 },
+  "createdAt": 1751600000000,
+  "sourceHash": "fixture",
+  "proposedBy": "operator"
+}

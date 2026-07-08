@@ -8,7 +8,15 @@
  */
 
 import { Database } from "bun:sqlite";
-import { mkdirSync, closeSync, openSync, unlinkSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
 import { dirname, sep } from "node:path";
 
 export interface FeralDb {  // exported for test helpers
@@ -33,6 +41,28 @@ export interface FeralDb {  // exported for test helpers
  * `*.lock` files for sub-second cross-process guards; the writer lock here is
  * the *process-level* lock for the SQLite database itself.
  */
+/**
+ * Stale-lock guard. A `process.kill(pid, 0)` signal-zero probe is the
+ * universal cross-platform liveness check: same call signature, same
+ * semantics on Linux / macOS (libc `kill`) and Windows (OpenProcess
+ * via libuv). When the owning process is gone (ESRCH / ENOENT) we
+ * treat the lock as garbage and `unlinkSync` it so the next
+ * `openSync(... "wx")` can re-acquire. Returns `true` when the pid is
+ * verifiably alive (silent on successful probe, EPERM on alive-but-no-
+ * privilege) — both indicate a process is still running and we must
+ * NOT clobber its lock.
+ */
+function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "EPERM";
+  }
+}
+
 export function openDatabase(path: string): FeralDb {
   let lockPath: string | null = null;
   let lockFd: number | null = null;
@@ -41,8 +71,37 @@ export function openDatabase(path: string): FeralDb {
     mkdirSync(dirname(path), { recursive: true });
     const dir = dirname(path);
     lockPath = `${dir}${sep}.writer.lock`;
+
+    // Stale-lock recovery. A previous sidecar crash left the lockfile
+    // on disk; without this check the next boot would refuse to start
+    // (EEXIST in the openSync below). Probe the recorded pid: if it's
+    // gone (no process with that pid) the lock is garbage and we
+    // unlink it before retrying. ES writing this guard tested against
+    // mock-dead + mock-live pids in `memory-resilience.test.ts`.
+    if (existsSync(lockPath)) {
+      const raw = readFileSync(lockPath, "utf8").trim();
+      const pid = Number.parseInt(raw, 10);
+      const stale =
+        !Number.isFinite(pid) || // legacy 0-byte or garbage lockfile
+        (pid !== process.pid && !isPidAlive(pid));
+      if (stale) {
+        try {
+          unlinkSync(lockPath);
+        } catch {
+          // Race: another sidecar cleaned it between our existsSync and
+          // unlinkSync. Fall through and let openSync try; if it's
+          // still there we'll get EEXIST and the existing error wins.
+        }
+      }
+    }
+
     try {
+      // Stamp our pid so the next sidecar can run the stale check.
+      // The fd is closed by `close()` on the returned FeralDb; we also
+      // re-write on every open because sidecars restart under the
+      // same pid (rare but possible after OS pid recycle).
       lockFd = openSync(lockPath, "wx");
+      writeSync(lockFd, `${process.pid}\n`);
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "EEXIST") {

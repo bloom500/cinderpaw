@@ -36,7 +36,7 @@ import {
   deleteWorkspace,
 } from "../src/memory/workspaces.ts";
 import type { AuditLogger } from "../src/types.ts";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -57,10 +57,16 @@ function teardown() {
 
 /** Mirror of the sidecar's writer-lock: same path, same O_EXCL discipline.
  *  Acquired at the same point (openDatabase); the tests below use this so
- *  they reproduce the production lock-acquire path, not a parallel one. */
+ *  they reproduce the production lock-acquire path, not a parallel one.
+ *
+ *  Sits in `dirname(dbPath)` — `db.ts` writes `${dir}${sep}.writer.lock`,
+ *  i.e. `tmpDir/.writer.lock` for `dbPath = tmpDir/feral.db`. Earlier
+ *  revisions of this file claimed the path was `tmpDir/feral.db.writer.lock`
+ *  but that string never matched anything; the existing tests passed by
+ *  asserting the negative (`exists(... )` → false after close) on a
+ *  path that was never the real one. */
 function writerLockPath(p: string): string {
-  // node:path's sep matches the runtime the sidecar uses; matches db.ts.
-  return `${join(tmpDir, "feral.db")}.writer.lock`;
+  return join(tmpDir, ".writer.lock");
 }
 
 describe("memory/resilience: restart", () => {
@@ -100,6 +106,87 @@ describe("memory/resilience: restart", () => {
     b.close();
     expect(existsSync(writerLockPath(dbPath))).toBe(false);
     teardown();
+  });
+
+  // Pinned by `db.ts` openDatabase() stale-recovery block. The lockfile
+  // is O_EXCL with a pid in it; on a fresh boot, a lock whose owner pid
+  // is no longer alive is recovered transparently. Cross-platform via
+  // process.kill(pid, 0) — same call signature on Linux / macOS /
+  // Windows (libuv maps signal-0 to OpenProcess on Windows). To get a
+  // verifiably-dead pid we use Bun.spawn + Bun's child.kill() so the
+  // pid we stamp is one the OS has a definite answer for (high-magic
+  // numbers like MAX_SAFE_INTEGER get rejected by Node's argument-type
+  // check with ERR_INVALID_ARG_TYPE, not ESRCH, on current Node —
+  // brittle to test against).
+  test("stale writer lock from a dead pid is removed and the db opens under our pid", async () => {
+    const child = Bun.spawn(["node", "-e", "setTimeout(() => {}, 60000)"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    const deadPid = child.pid;
+    child.kill();
+    await child.exited;
+
+    const lockPath = writerLockPath(dbPath);
+    writeFileSync(lockPath, `${deadPid}\n`);
+    expect(existsSync(lockPath)).toBe(true);
+
+    // The open must NOT throw — the stale lock should be reaped.
+    const db = openDatabase(dbPath);
+
+    // Inspect WHILE the db holds the lock — `close()` unlinks it. The
+    // lockfile must exist (proves openSync recreated it after unlink)
+    // AND contain our pid (proves the stale branch overwrote the
+    // stale pid, not just appended to it).
+    expect(existsSync(lockPath)).toBe(true);
+    const stampedPid = readFileSync(lockPath, "utf8").trim();
+    expect(stampedPid).toBe(String(process.pid));
+    expect(stampedPid).not.toBe(String(deadPid));
+
+    db.close();
+    teardown();
+  });
+
+  test("stale writer lock from a legacy 0-byte file is removed and the db opens under our pid", () => {
+    // Pre-fix files are 0 bytes — Number.parseInt("") is NaN, which the
+    // `!Number.isFinite(pid)` branch flags as stale. Belt-and-braces for
+    // installations that upgraded through the old (no-pid) lockfile.
+    const lockPath = writerLockPath(dbPath);
+    writeFileSync(lockPath, "");
+    expect(existsSync(lockPath)).toBe(true);
+
+    const db = openDatabase(dbPath);
+    expect(existsSync(lockPath)).toBe(true);
+    const stampedPid = readFileSync(lockPath, "utf8").trim();
+    expect(stampedPid).toBe(String(process.pid));
+    db.close();
+    teardown();
+  });
+
+  test("live writer lock (a sibling sidecar holding it) still throws and is NOT cleared", async () => {
+    // Simulate the real bug shape: a SECOND sidecar process holds the
+    // lock, this sidecar tries to start. We spawn a sibling (different
+    // pid, definitely alive) and write its pid into the lockfile. The
+    // stale check must detect the pid is still alive and refuse to
+    // clear the lock.
+    const sibling = Bun.spawn(["node", "-e", "setTimeout(() => {}, 60000)"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    const lockPath = writerLockPath(dbPath);
+    try {
+      writeFileSync(lockPath, `${sibling.pid}\n`);
+      expect(() => openDatabase(dbPath)).toThrow(/already holds the writer lock/);
+      // The live lock was NOT removed by the stale check.
+      expect(existsSync(lockPath)).toBe(true);
+      const stillThere = readFileSync(lockPath, "utf8").trim();
+      expect(stillThere).toBe(String(sibling.pid));
+    } finally {
+      sibling.kill();
+      await sibling.exited;
+      try { rmSync(lockPath, { force: true }); } catch { /* best-effort */ }
+      teardown();
+    }
   });
 });
 
