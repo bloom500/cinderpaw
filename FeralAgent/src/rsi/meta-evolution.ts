@@ -50,6 +50,7 @@ import {
   verifyJournal,
   type JournalEntry,
 } from "./journal.ts";
+import { appendGovernanceAudit } from "./governance-audit.ts";
 
 /** The ADN of the BRSI engine. Every field is a bounded metaparameter;
  *  none of them can name code, prompts, policies or paths. */
@@ -285,6 +286,8 @@ export function defaultReadWindow(
 export class MetaEvolution {
   private readonly statePath: string;
   private readonly historyPath: string;
+  /** Where the L5 chained audit mirror lives (G-INV-5). */
+  private readonly governanceDir: string;
   private readonly now: () => number;
   private readonly readWindow: (sinceMs: number) => JournalEntry[];
   private readonly seedSource: () => number;
@@ -295,6 +298,7 @@ export class MetaEvolution {
     const dir = opts.dir ?? paths().root;
     this.statePath = join(dir, "meta_genome.json");
     this.historyPath = join(dir, "meta_history.jsonl");
+    this.governanceDir = join(dir, "governance");
     this.now = opts.now ?? Date.now;
     this.readWindow =
       opts.readWindow ??
@@ -387,6 +391,14 @@ export class MetaEvolution {
     };
     this.append("proposed", null, `candidate over generation ${championGen} (${settled})`, seed, child, diff);
     this.save();
+    // G-INV-5: one chained governance-audit row per evolve() epoch.
+    appendGovernanceAudit(this.governanceDir, {
+      timestamp: this.now(),
+      source: "l6",
+      event: "evolve",
+      refId: `gen-${this.state.generation}`,
+      summary: `${settled} → proposed generation ${this.state.generation} (${diff})`,
+    });
     this.log(`meta-evolution: ${settled} → proposed generation ${this.state.generation} (${diff})`);
     return {
       ok: true,
@@ -414,6 +426,14 @@ export class MetaEvolution {
     };
     this.append("rollback", score, `manual rollback to generation ${generation}`, null, genome);
     this.save();
+    // G-INV-5: one chained governance-audit row per rollback.
+    appendGovernanceAudit(this.governanceDir, {
+      timestamp: this.now(),
+      source: "l6",
+      event: "rollback",
+      refId: `gen-${this.state.generation}`,
+      summary: `manual rollback to generation ${generation}`,
+    });
     this.log(`meta-evolution: manual rollback to generation ${generation}`);
     return { ok: true, generation: this.state.generation, genome };
   }
