@@ -51,6 +51,9 @@ import {
   type JournalEntry,
 } from "./journal.ts";
 import { appendGovernanceAudit } from "./governance-audit.ts";
+// Type-only: erased at runtime, so no import cycle with governance.ts
+// (which imports META_BOUNDS from here).
+import type { GovernancePolicy } from "./governance.ts";
 
 /** The ADN of the BRSI engine. Every field is a bounded metaparameter;
  *  none of them can name code, prompts, policies or paths. */
@@ -133,13 +136,17 @@ export interface MetaMutation {
 /** Mutate exactly ONE field (uniform pick) by a ±20% relative jitter,
  *  clamped to bounds — same one-field attribution discipline as L1's
  *  `mutateConfig`, same jitter shape as PBT's `perturb`. */
-export function mutateMetaGenome(parent: MetaGenome, seed: number): MetaMutation {
+export function mutateMetaGenome(
+  parent: MetaGenome,
+  seed: number,
+  bounds: Record<keyof MetaGenome, [number, number]> = META_BOUNDS,
+): MetaMutation {
   const rng = mulberry32(seed);
   const fields = Object.keys(META_BOUNDS) as (keyof MetaGenome)[];
   const field = fields[Math.min(fields.length - 1, Math.floor(rng() * fields.length))]!;
   const factor = 1 + 0.2 * (rng() * 2 - 1);
-  const [, hi] = META_BOUNDS[field];
-  let v = clamp(parent[field] * factor, META_BOUNDS[field]);
+  const [, hi] = bounds[field];
+  let v = clamp(parent[field] * factor, bounds[field]);
   if (INTEGRAL.has(field)) v = Math.round(v);
   // Clamping / rounding can land back on the parent (small integers, or a
   // parent sitting on a bound) — mirror the jitter toward the interior so
@@ -148,15 +155,33 @@ export function mutateMetaGenome(parent: MetaGenome, seed: number): MetaMutation
     if (INTEGRAL.has(field)) {
       v = parent[field] + 1 > hi ? parent[field] - 1 : parent[field] + 1;
     } else {
-      v = clamp(parent[field] * (2 - factor), META_BOUNDS[field]);
+      v = clamp(parent[field] * (2 - factor), bounds[field]);
     }
-    v = clamp(v, META_BOUNDS[field]);
+    v = clamp(v, bounds[field]);
   }
   const child = { ...parent, [field]: v };
   return { child, field, diff: `${field}: ${round4(parent[field])} → ${round4(v)}` };
 }
 
 const round4 = (n: number): number => Math.round(n * 10_000) / 10_000;
+
+/** Effective mutation bounds (§7): intersect the hardcoded META_BOUNDS
+ *  wall with the policy's meta bounds — policy can only narrow. A
+ *  degenerate intersection falls back to the wall. */
+function effectiveBounds(
+  pol: GovernancePolicy | undefined,
+): Record<keyof MetaGenome, [number, number]> {
+  if (!pol) return META_BOUNDS;
+  const out = {} as Record<keyof MetaGenome, [number, number]>;
+  for (const key of Object.keys(META_BOUNDS) as (keyof MetaGenome)[]) {
+    const wall = META_BOUNDS[key];
+    const b = pol.meta.bounds[key] ?? wall;
+    const lo = Math.max(b[0], wall[0]);
+    const hi = Math.min(b[1], wall[1]);
+    out[key] = lo <= hi ? [lo, hi] : [wall[0], wall[1]];
+  }
+  return out;
+}
 
 // ── Fitness ────────────────────────────────────────────────────────────────
 
@@ -248,8 +273,16 @@ export interface MetaEvolutionOpts {
   /** Journal window reader override (tests). Default: last 7 UTC days
    *  of journal files, filtered to entries at/after `sinceMs`. */
   readWindow?: (sinceMs: number) => JournalEntry[];
+  /** Like `readWindow` but also reporting how many journal rows were
+   *  excluded by hash-chain verification (G-INV-4). Takes precedence
+   *  over `readWindow` when both are given. */
+  readWindowVerified?: (sinceMs: number) => { entries: JournalEntry[]; excludedRows: number };
   /** Mutation seed source (tests). Default: 32-bit random. */
   seedSource?: () => number;
+  /** L5 governance accessor (§7): frozen.l6 freezes evolve/rollback and
+   *  policy meta knobs compose tighten-only on the hardcoded walls.
+   *  Absent → pre-L5 behavior (the live sidecar always passes one). */
+  policy?: () => GovernancePolicy;
   log?: (msg: string) => void;
 }
 
@@ -258,19 +291,23 @@ export interface MetaEvolutionOpts {
  *  days. Malformed files are skipped (a corrupt day must not brick L6).
  *  G-INV-4: a day-file that fails hash-chain verification is EXCLUDED
  *  from the window and surfaced via `onBadFile` — fitness may only
- *  consume verified evidence (L5 spec §2.4). */
-export function defaultReadWindow(
+ *  consume verified evidence (L5 spec §2.4). `excludedRows` counts the
+ *  rows lost to failed files so the caller can apply the §9-row-4
+ *  "≥ half the window unverified → refuse to settle" floor. */
+export function defaultReadWindowVerified(
   sinceMs: number,
   now: number = Date.now(),
   opts: { dir?: string; onBadFile?: (path: string, reason: string) => void } = {},
-): JournalEntry[] {
+): { entries: JournalEntry[]; excludedRows: number } {
   const dir = opts.dir ?? defaultJournalDir();
   const out: JournalEntry[] = [];
+  let excludedRows = 0;
   for (let i = 0; i < 7; i++) {
     const day = new Date(now - i * 86_400_000);
     const path = join(dir, journalFilename(day));
     const verdict = verifyJournal(path);
     if (!verdict.ok) {
+      excludedRows += countRows(path);
       opts.onBadFile?.(path, `row ${verdict.badRow}: ${verdict.reason}`);
       continue;
     }
@@ -280,7 +317,29 @@ export function defaultReadWindow(
       // readJournal throws on malformed JSON — skip the day, keep going.
     }
   }
-  return out.filter((e) => e.timestamp >= sinceMs).sort((a, b) => a.timestamp - b.timestamp);
+  return {
+    entries: out.filter((e) => e.timestamp >= sinceMs).sort((a, b) => a.timestamp - b.timestamp),
+    excludedRows,
+  };
+}
+
+/** Row count of a (possibly corrupt) journal file — best-effort, for
+ *  the §9-row-4 lost-evidence accounting only. */
+function countRows(path: string): number {
+  try {
+    return readFileSync(path, "utf8").split("\n").filter((l) => l.trim().length > 0).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Back-compat wrapper over `defaultReadWindowVerified`. */
+export function defaultReadWindow(
+  sinceMs: number,
+  now: number = Date.now(),
+  opts: { dir?: string; onBadFile?: (path: string, reason: string) => void } = {},
+): JournalEntry[] {
+  return defaultReadWindowVerified(sinceMs, now, opts).entries;
 }
 
 export class MetaEvolution {
@@ -289,7 +348,9 @@ export class MetaEvolution {
   /** Where the L5 chained audit mirror lives (G-INV-5). */
   private readonly governanceDir: string;
   private readonly now: () => number;
-  private readonly readWindow: (sinceMs: number) => JournalEntry[];
+  private readonly readWindowEx: (sinceMs: number) => { entries: JournalEntry[]; excludedRows: number };
+  /** L5 policy accessor — null in pre-L5 construction (tests/legacy). */
+  private readonly policy: (() => GovernancePolicy) | null;
   private readonly seedSource: () => number;
   private readonly log: (msg: string) => void;
   private state: MetaState;
@@ -300,13 +361,17 @@ export class MetaEvolution {
     this.historyPath = join(dir, "meta_history.jsonl");
     this.governanceDir = join(dir, "governance");
     this.now = opts.now ?? Date.now;
-    this.readWindow =
-      opts.readWindow ??
-      ((since) =>
-        defaultReadWindow(since, this.now(), {
-          onBadFile: (path, reason) =>
-            this.log(`[meta] journal verification failed, day excluded (G-INV-4): ${path} (${reason})`),
-        }));
+    const legacyWindow = opts.readWindow;
+    this.readWindowEx =
+      opts.readWindowVerified ??
+      (legacyWindow
+        ? (since) => ({ entries: legacyWindow(since), excludedRows: 0 })
+        : (since) =>
+            defaultReadWindowVerified(since, this.now(), {
+              onBadFile: (path, reason) =>
+                this.log(`[meta] journal verification failed, day excluded (G-INV-4): ${path} (${reason})`),
+            }));
+    this.policy = opts.policy ?? null;
     this.seedSource = opts.seedSource ?? (() => Math.floor(Math.random() * 0xffffffff));
     this.log = opts.log ?? (() => {});
     this.state = this.load();
@@ -322,7 +387,7 @@ export class MetaEvolution {
   /** Snapshot for `feral meta status` / GET /meta/current: genome,
    *  generation, live fitness-so-far, and whether a candidate is pending. */
   status(): MetaResultPayload {
-    const fitness = metaFitness(this.readWindow(this.state.deployedAt));
+    const fitness = metaFitness(this.readWindowEx(this.state.deployedAt).entries);
     return {
       ok: true,
       generation: this.state.generation,
@@ -339,21 +404,39 @@ export class MetaEvolution {
    *  propose + deploy the next mutated candidate. Refuses without
    *  MIN_META_CYCLES of journal evidence under the current genome. */
   evolve(): MetaResultPayload {
-    const fitness = metaFitness(this.readWindow(this.state.deployedAt));
-    if (!fitness) {
+    const pol = this.policy?.();
+    if (pol?.frozen.l6) {
+      return { ok: false, reason: "frozen by governance (frozen.l6) — see feral governance status" };
+    }
+    const { entries, excludedRows } = this.readWindowEx(this.state.deployedAt);
+    // §9 row 4: with ≥ half the window unverified there is not enough
+    // trustworthy evidence to settle a candidate — refuse outright.
+    if (excludedRows > 0 && excludedRows >= entries.length) {
       return {
         ok: false,
-        reason: `insufficient evidence: need >= ${MIN_META_CYCLES} dream cycles under the current meta-genome before evolving`,
+        reason: `insufficient verified evidence: ${excludedRows} journal rows failed hash-chain verification vs ${entries.length} verified (G-INV-4)`,
+      };
+    }
+    const fitness = metaFitness(entries);
+    // Policy may demand MORE evidence than the hardcoded floor (§7).
+    const minCycles = Math.max(MIN_META_CYCLES, Math.round(pol?.meta.minCycles ?? 0));
+    if (!fitness || fitness.cycles < minCycles) {
+      return {
+        ok: false,
+        reason: `insufficient evidence: need >= ${minCycles} dream cycles under the current meta-genome before evolving`,
       };
     }
 
     let settled: "accepted" | "rejected" | "bootstrap" = "bootstrap";
     let championScore = fitness.score;
 
+    // Policy margin composes tighten-only on the hardcoded floor (§7).
+    const acceptMargin = Math.max(META_ACCEPT_MARGIN, pol?.meta.acceptMargin ?? 0);
+
     if (this.state.baseline) {
       // The meta-ratchet: strict-greater BY MARGIN (see META_ACCEPT_MARGIN —
       // the two windows are not paired, so bare > is a coin flip on noise).
-      if (fitness.score > this.state.baseline.score + META_ACCEPT_MARGIN) {
+      if (fitness.score > this.state.baseline.score + acceptMargin) {
         settled = "accepted";
         this.append("accepted", fitness.score, `beat baseline ${this.state.baseline.score}`, null, this.state.genome);
       } else {
@@ -381,7 +464,7 @@ export class MetaEvolution {
     const seed = this.seedSource() >>> 0;
     const champion = this.state.genome;
     const championGen = this.state.generation;
-    const { child, diff } = mutateMetaGenome(champion, seed);
+    const { child, diff } = mutateMetaGenome(champion, seed, effectiveBounds(pol));
     this.state = {
       version: 1,
       generation: championGen + 1,
@@ -413,6 +496,9 @@ export class MetaEvolution {
   /** Manual rollback: drop the pending candidate and return to its
    *  baseline champion. Errors when there is nothing pending. */
   rollback(): MetaResultPayload {
+    if (this.policy?.().frozen.l6) {
+      return { ok: false, reason: "frozen by governance (frozen.l6) — see feral governance status" };
+    }
     if (!this.state.baseline) {
       return { ok: false, reason: "no pending candidate — nothing to roll back" };
     }

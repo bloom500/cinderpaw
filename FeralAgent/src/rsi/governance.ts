@@ -146,6 +146,74 @@ export function builtinFailClosedPolicy(now: number = Date.now()): GovernancePol
   };
 }
 
+/** The genesis policy a FRESH install activates (spec §2.1 example):
+ *  codifies the pre-L5 hardcoded behavior — same gates, same walls,
+ *  nothing frozen, L6 autonomous. Activating it changes nothing until
+ *  a later policy tightens something. */
+export function defaultGenesisPolicy(now: number = Date.now()): GovernancePolicy {
+  return {
+    ...builtinFailClosedPolicy(now),
+    policyId: "gp-1",
+    frozen: { l1: false, l2: false, l3: false, l4: false, l6: false },
+    // Budgets sit AT the G0 walls: pre-L5, the env knobs (FERAL_RSI_*)
+    // were the only budget authority — a genesis tighter than the walls
+    // would silently override them. Tightening is a later policy's job.
+    budgets: { ...G0_BUDGET_MAX },
+    approvals: {
+      l3CodePatchApply: true,
+      l2LoraPromote: true,
+      l4ModulePromote: true,
+      l6Evolve: false,
+    },
+  };
+}
+
+// ── governanceCheck — the single permission entry point (§8) ───────────────
+
+export type GovernedAction =
+  | "l6_evolve"
+  | "l6_rollback"
+  | "l3_code_patch_apply"
+  | "l2_lora_promote"
+  | "l4_module_promote";
+
+const ACTION_LAYER: Record<GovernedAction, keyof FrozenFlags> = {
+  l6_evolve: "l6",
+  l6_rollback: "l6",
+  l3_code_patch_apply: "l3",
+  l2_lora_promote: "l2",
+  l4_module_promote: "l4",
+};
+
+/** Layers never read policy fields ad hoc for permission decisions —
+ *  this is the one door (§8). Freeze wins over everything (G-INV-7,
+ *  even a present approval); then the approvals.* flags demand a human
+ *  (`approvalPresent` = the caller IS the recorded human decision, e.g.
+ *  the pending-patches resolve IPC). Reads the policy from disk on
+ *  every call: layers pick up rollbacks without a restart (§6). */
+export function governanceCheck(
+  action: GovernedAction,
+  ctx: { dir?: string; approvalPresent?: boolean } = {},
+): { allowed: boolean; reason: string } {
+  const policy = loadPolicy(ctx.dir ?? defaultGovernanceDir()).policy;
+  const layer = ACTION_LAYER[action];
+  if (policy.frozen[layer]) {
+    return { allowed: false, reason: `frozen by governance (frozen.${layer})` };
+  }
+  const needsHuman =
+    action === "l3_code_patch_apply"
+      ? policy.approvals.l3CodePatchApply
+      : action === "l2_lora_promote"
+        ? policy.approvals.l2LoraPromote
+        : action === "l4_module_promote"
+          ? policy.approvals.l4ModulePromote
+          : policy.approvals.l6Evolve;
+  if (needsHuman && !ctx.approvalPresent) {
+    return { allowed: false, reason: `requires human approval (approvals, policy ${policy.policyId})` };
+  }
+  return { allowed: true, reason: `allowed by policy ${policy.policyId}` };
+}
+
 // ── Clamp (the single door) ────────────────────────────────────────────────
 
 export interface ClampResult {

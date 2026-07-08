@@ -72,6 +72,8 @@ import { ActivityMonitor } from "./rsi/activity-monitor.ts";
 import { resolveDreamConfig, dreamCloudGate } from "./rsi/dream-config.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/episode-options.ts";
 import { MetaEvolution } from "./rsi/meta-evolution.ts";
+import { effectiveGates, governanceCheck, loadPolicy } from "./rsi/governance.ts";
+import { ensureGenesisPolicy } from "./rsi/governance-lifecycle.ts";
 import {
   mapGenomeToAgentConfig,
   readChampion,
@@ -924,14 +926,31 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // One source of truth for the episode's bounded run config — reused for
   // the budget caps the journal reports against and for arming the engine.
   const episodeOpts = episodeStartOptions(process.env);
+  // L5 Governance (spec 2026-07-04): first boot activates the genesis
+  // policy (codifies the pre-L5 hardcoded defaults); every layer reads
+  // the ACTIVE policy from disk through this accessor — rollbacks apply
+  // at the next decision point, no restart (§6).
+  ensureGenesisPolicy();
+  const governancePolicy = () => loadPolicy().policy;
+  {
+    // §8: policy budgets are OUTER walls over the env-derived episode
+    // config. Read once at startup like the env itself (episode knobs
+    // are boot-scoped); maxIterations is clamped live in its getter.
+    const b = governancePolicy().budgets;
+    episodeOpts.maxTotalTokens = Math.min(episodeOpts.maxTotalTokens, b.episodeMaxTokens);
+    episodeOpts.maxTotalCostUsd = Math.min(episodeOpts.maxTotalCostUsd, b.episodeMaxCostUsd);
+    episodeOpts.maxWallClockMs = Math.min(episodeOpts.maxWallClockMs, b.episodeMaxWallClockMs);
+    episodeOpts.maxIterations = Math.min(episodeOpts.maxIterations, b.episodeMaxIterations);
+  }
   // L6 Meta Evolution — the MetaGenome that steers HOW the RSI searches
   // (docs/2026-07-04 spec). `dream_batch` drives the episode iteration
   // budget live (the getter re-reads the genome at each episode start)
   // unless the operator pinned it via FERAL_RSI_MAX_ITER.
-  const metaEvolution = new MetaEvolution({ log });
+  const metaEvolution = new MetaEvolution({ log, policy: governancePolicy });
   if (process.env.FERAL_RSI_MAX_ITER === undefined) {
     Object.defineProperty(episodeOpts, "maxIterations", {
-      get: () => metaEvolution.current().dream_batch,
+      get: () =>
+        Math.min(metaEvolution.current().dream_batch, governancePolicy().budgets.episodeMaxIterations),
       enumerable: true,
     });
   }
@@ -1028,6 +1047,8 @@ export async function main(transportOverride?: Transport): Promise<void> {
     // L6: the live MetaGenome scales the PBT selection knobs and
     // (tighten-only) the confidence gate.
     metaParams: () => metaEvolution.current(),
+    // L5: policy gates tighten the promotion gate further (§7).
+    policyGates: () => effectiveGates(governancePolicy()),
     onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
       dreamCycle.onEpisodeEnd(...args);
       void maybeCodeRsiRound();
@@ -1245,6 +1266,15 @@ export async function main(transportOverride?: Transport): Promise<void> {
               ack("error", `invalid patchAction '${String(action)}'`);
               return;
             }
+            if (action === "approve") {
+              // §8: this resolve IS the human approval — the check bites
+              // on frozen.l3 (freeze wins over approval, G-INV-7).
+              const gov = governanceCheck("l3_code_patch_apply", { approvalPresent: true });
+              if (!gov.allowed) {
+                ack("error", gov.reason);
+                return;
+              }
+            }
             const resolved = store.resolve(patchId, action);
             if (action === "reject") {
               ack(resolved.status);
@@ -1286,6 +1316,14 @@ export async function main(transportOverride?: Transport): Promise<void> {
             if (action !== "approve" && action !== "reject") {
               ack("error", `invalid loraAction '${String(action)}'`);
               return;
+            }
+            if (action === "approve") {
+              // §8: same policy-referenced gate as L3 — frozen.l2 blocks.
+              const gov = governanceCheck("l2_lora_promote", { approvalPresent: true });
+              if (!gov.allowed) {
+                ack("error", gov.reason);
+                return;
+              }
             }
             const { applyLoraReview } = await import("./rsi/lora-pipeline.ts");
             const { record } = applyLoraReview(registry, reviews, cardId, action);

@@ -171,6 +171,11 @@ export interface RsiSidecarDeps {
    *  knobs and (tighten-only) the confidence-gate thresholds. Absent →
    *  exact pre-L6 behaviour. */
   metaParams?: () => import("./meta-evolution.ts").MetaGenome;
+  /** Optional: L5 governance gates (already composed with the locked
+   *  floor via `effectiveGates`). Tightens the promotion gate further —
+   *  same max()/min() discipline as `metaParams`. Absent → pre-L5
+   *  behaviour (§7). */
+  policyGates?: () => import("./confidence.ts").GateThresholds;
 }
 
   /** Sidecar singleton — one per process. */
@@ -447,12 +452,13 @@ export class RsiSidecar {
         // max()/min() against the locked defaults makes weakening
         // impossible even if the meta state file were tampered with.
         evaluateGate: (samples) => {
-          if (!meta) return evaluateGate(samples);
-          const gate = meta().confidence_gate;
+          const pg = this.deps.policyGates?.();
+          if (!meta && !pg) return evaluateGate(samples);
+          const gate = meta?.().confidence_gate;
           return evaluateGate(samples, {
-            pValueMax: Math.min(0.05, 1 - gate),
-            effectSizeMin: 0.1,
-            confidenceMin: Math.max(0.95, gate),
+            pValueMax: Math.min(0.05, gate != null ? 1 - gate : 0.05, pg?.pValueMax ?? 0.05),
+            effectSizeMin: Math.max(0.1, pg?.effectSizeMin ?? 0.1),
+            confidenceMin: Math.max(0.95, gate ?? 0.95, pg?.confidenceMin ?? 0.95),
           });
         },
         cycleId: () => cycleId,

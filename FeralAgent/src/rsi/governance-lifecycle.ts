@@ -37,6 +37,7 @@ import { appendChained, sha256Canonical, verifyChainFile } from "./hash-chain.ts
 import { appendGovernanceAudit } from "./governance-audit.ts";
 import {
   clampPolicy,
+  defaultGenesisPolicy,
   defaultGovernanceDir,
   loadPolicy,
   type FrozenFlags,
@@ -176,6 +177,45 @@ export interface GovernanceStatus {
    *  `prevHash` must match (chain gate §4.4). Null before genesis. */
   headHash: string | null;
   pending: Array<{ policyId: string; direction: Direction; status: ProposalStatus; requiredApproval: boolean }>;
+}
+
+// ── Genesis bootstrap ──────────────────────────────────────────────────────
+
+/** First-boot bootstrap: a dir with NO policy and NO history gets the
+ *  genesis policy (the pre-L5 hardcoded defaults — activating it changes
+ *  nothing). A dir with history but no policy.json is NOT bootstrapped:
+ *  that is a deletion, and it fail-closes per §9 / AC5. Returns whether
+ *  genesis was written. Called by the sidecar at startup. */
+export function ensureGenesisPolicy(
+  dir: string = defaultGovernanceDir(),
+  now: () => number = Date.now,
+): boolean {
+  const policyPath = join(dir, "policy.json");
+  const historyPath = join(dir, "policy_history.jsonl");
+  if (existsSync(policyPath) || existsSync(historyPath)) return false;
+  const doc: GovernancePolicy = { ...defaultGenesisPolicy(now()), activatedAt: now() };
+  appendChained(historyPath, {
+    policyId: doc.policyId,
+    parentId: null,
+    event: "activated",
+    timestamp: now(),
+    actor: "system",
+    diff: [],
+    reason: "genesis bootstrap — codifies the pre-L5 hardcoded defaults",
+    document: doc,
+    sourceId: doc.policyId,
+  });
+  const tmp = `${policyPath}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(doc, null, 2), "utf8");
+  renameSync(tmp, policyPath);
+  appendGovernanceAudit(dir, {
+    timestamp: now(),
+    source: "policy",
+    event: "activated",
+    refId: doc.policyId,
+    summary: "genesis bootstrap",
+  });
+  return true;
 }
 
 // ── The FSM ────────────────────────────────────────────────────────────────
