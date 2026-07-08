@@ -51,6 +51,9 @@ export interface InstancePaths {
    *  tenants today; per-instance split would require forking the
    *  substrate per tenant, which is its own refactor. */
   gitSubstrate: string;
+  /** L5 governance dir: `policy.json`, `policy_history.jsonl`,
+   *  `proposals/` (L5 spec §2). */
+  governance: string;
 }
 
 /** Compute the paths for a given tenant. v1 returns the shared layout
@@ -68,6 +71,7 @@ export function paths(tenant: string = DEFAULT_TENANT): InstancePaths {
     tasteState: join(root, "pbt_state.json"),
     envelopes: join(root, "envelopes"),
     gitSubstrate: join(root, "substrate.git"),
+    governance: join(root, "governance"),
   };
 }
 
