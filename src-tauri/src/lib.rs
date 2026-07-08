@@ -1045,6 +1045,42 @@ async fn feral_meta(state: State<'_, AppState>, op: String) -> Result<(), String
     Ok(())
 }
 
+/// Slice A6 (L5 Governance) — drive the sidecar's GovernanceLifecycle from
+/// the desktop Governance card. Fire-and-forget like `feral_meta`; the
+/// sidecar replies with one `governance_result` line over
+/// `feral://agent-output`. Only the ops the card needs are exposed — the
+/// full set lives in the gateway API + `feral governance` CLI. Approve
+/// deliberately omits `documentHash`: the sidecar computes it from the
+/// stored proposal (A5 convenience path).
+#[tauri::command]
+#[specta::specta]
+async fn feral_governance(
+    state: State<'_, AppState>,
+    op: String,
+    policy_id: Option<String>,
+    reason: Option<String>,
+) -> Result<(), String> {
+    if !matches!(op.as_str(), "status" | "verify" | "approve" | "reject") {
+        return Err(format!("invalid governance op '{op}'"));
+    }
+    let mut msg = serde_json::json!({ "type": format!("governance_{op}") });
+    if let Some(id) = policy_id {
+        msg["policyId"] = serde_json::Value::String(id);
+    }
+    if let Some(r) = reason {
+        msg["reason"] = serde_json::Value::String(r);
+    }
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg.to_string()).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// BRSI §2.8 `user` Wake trigger: ask the sidecar's Dream Cycle to run one
 /// evolutionary episode now, bypassing the idle/cooldown gate. Fire-and-forget
 /// like the benchmark command — the sidecar's scheduler launches on its next
@@ -3224,6 +3260,7 @@ pub fn run() {
             feral_run_fractal_benchmark,
             feral_dream_now,
             feral_meta,
+            feral_governance,
             feral_code_patches_list,
             feral_code_patch_resolve,
             feral_lora_reviews_list,

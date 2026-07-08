@@ -637,6 +637,10 @@ const raw = {
   // via a `meta_result` event (handled by `events.onMetaResult`).
   feralMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
     invoke<void>('feral_meta', { op }),
+  // Slice A6 (L5 Governance) — fire-and-forget; the sidecar replies async
+  // via a `governance_result` event (handled by `events.onGovernanceResult`).
+  feralGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
+    invoke<void>('feral_governance', { op, policyId: policyId ?? null, reason: reason ?? null }),
   // Faza 2 Slice 5 — code-patch approval gate. `feral_code_patches_list` is
   // fire-and-forget; the sidecar replies async via a `code_patches` event
   // (handled by `events.onCodePatches`). `feral_code_patch_resolve` is also
@@ -805,6 +809,10 @@ export const tauri = {
      *  Reply arrives async via `events.onMetaResult`. */
     meta:            async (op: 'status' | 'evolve' | 'rollback' | 'history') =>
       raw.feralMeta(op),
+    /** Slice A6 (L5 Governance) — safety-rules card + approval inbox.
+     *  Reply arrives async via `events.onGovernanceResult`. */
+    governance:      async (op: 'status' | 'verify' | 'approve' | 'reject', args?: { policyId?: string; reason?: string }) =>
+      raw.feralGovernance(op, args?.policyId, args?.reason),
     /** Faza 2 Slice 5 — ask the sidecar for the pending code-patch queue.
      *  The full snapshot arrives async via `events.onCodePatches`. */
     codePatchesList: async () => raw.feralCodePatchesList(),

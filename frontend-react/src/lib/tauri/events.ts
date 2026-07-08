@@ -190,6 +190,37 @@ export interface MetaResultLine {
   }>;
 }
 
+/** Slice A6 (L5 Governance) reply. `op` says which request it answers;
+ *  status carries the active policy + pending proposals, verify carries the
+ *  chain/journal tamper-check report, approve/reject carry `ok`/`reason`. */
+export interface GovernanceResultLine {
+  type: 'governance_result';
+  id: string;
+  op: 'status' | 'propose' | 'approve' | 'reject' | 'rollback' | 'freeze' | 'unfreeze' | 'verify' | 'history';
+  ok: boolean;
+  reason?: string;
+  // status payload
+  policy?: {
+    policyId: string;
+    parentId: string | null;
+    frozen: Record<string, boolean>;
+  } & Record<string, unknown>;
+  source?: 'file' | 'builtin';
+  failClosed?: boolean;
+  headHash?: string | null;
+  pending?: Array<{
+    policyId: string;
+    direction: 'tightening' | 'relaxing' | 'mixed';
+    status: string;
+    requiredApproval: boolean;
+  }>;
+  // verify payload
+  chains?: { ok: boolean } & Record<string, unknown>;
+  journal?: Array<{ file: string; ok: boolean; badRow?: number; reason?: string }>;
+  // approve convenience echo (hash computed sidecar-side)
+  documentHash?: string;
+}
+
 export interface LoraReviewsLine {
   type: 'lora_reviews';
   reviews: Array<{
@@ -421,6 +452,28 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'meta_result'
           ) {
             cb(parsed as MetaResultLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+/**
+   * Slice A6 (L5 Governance) replies (`governance_result`): status / verify /
+   * approve / reject payloads, requested via `tauri.rsi.governance(op)`.
+   */
+  onGovernanceResult: {
+    listen: (cb: (e: GovernanceResultLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'governance_result'
+          ) {
+            cb(parsed as GovernanceResultLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

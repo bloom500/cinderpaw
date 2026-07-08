@@ -21,8 +21,10 @@ function stubListener() {
   vi.spyOn(events.onLoraReviewResolved, 'listen').mockResolvedValue(() => {});
   vi.spyOn(events.onLoraTrainResult, 'listen').mockResolvedValue(() => {});
   vi.spyOn(events.onMetaResult, 'listen').mockResolvedValue(() => {});
+  vi.spyOn(events.onGovernanceResult, 'listen').mockResolvedValue(() => {});
   vi.spyOn(tauri.rsi, 'loraReviewsList').mockResolvedValue();
   vi.spyOn(tauri.rsi, 'meta').mockResolvedValue();
+  vi.spyOn(tauri.rsi, 'governance').mockResolvedValue();
 }
 
 const SUMMARY: DreamTelemetrySummary = {

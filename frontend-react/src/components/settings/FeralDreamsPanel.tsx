@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2, Brain } from 'lucide-react';
+import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2, Brain, Shield } from 'lucide-react';
 import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload } from '@/lib/tauri';
-import { events, type LoraReviewsLine, type MetaResultLine } from '@/lib/tauri/events';
+import { events, type LoraReviewsLine, type MetaResultLine, type GovernanceResultLine } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 
 /** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
@@ -75,6 +75,11 @@ export function FeralDreamsPanel() {
   const [metaStatus, setMetaStatus] = useState<MetaResultLine | null>(null);
   const [metaBusy, setMetaBusy] = useState(false);
   const [metaNote, setMetaNote] = useState<string | null>(null);
+  // Slice A6 (L5 Governance) — safety-rules snapshot + tamper check + inbox.
+  const [govStatus, setGovStatus] = useState<GovernanceResultLine | null>(null);
+  const [govVerify, setGovVerify] = useState<GovernanceResultLine | null>(null);
+  const [govResolving, setGovResolving] = useState<Set<string>>(new Set());
+  const [govNote, setGovNote] = useState<string | null>(null);
   const dreaming = useDream((s) => s.dreaming);
   const stage = useDream((s) => s.stage);
 
@@ -98,6 +103,27 @@ export function FeralDreamsPanel() {
       await tauri.rsi.meta(op);
     } catch {
       setMetaBusy(false); // sidecar not running — allow retry
+    }
+  };
+
+  // Slice A6 — approve or reject one pending rules proposal. The sidecar's
+  // ack (`governance_result` op approve/reject) clears the in-flight set and
+  // re-requests status; approve omits the document hash on purpose — the
+  // sidecar computes it from the stored proposal (A5 convenience path).
+  const resolveProposal = async (policyId: string, action: 'approve' | 'reject') => {
+    if (govResolving.has(policyId)) return;
+    setGovResolving((s) => new Set(s).add(policyId));
+    try {
+      await tauri.rsi.governance(action, {
+        policyId,
+        reason: action === 'reject' ? 'rejected from desktop' : undefined,
+      });
+    } catch {
+      setGovResolving((s) => {
+        const next = new Set(s);
+        next.delete(policyId);
+        return next;
+      });
     }
   };
 
@@ -203,6 +229,11 @@ export function FeralDreamsPanel() {
       try {
         await tauri.rsi.meta('status');
       } catch { /* sidecar not running — the listener will fill in later */ }
+      // Slice A6 (L5) — safety-rules status + tamper check, same discipline.
+      try {
+        await tauri.rsi.governance('status');
+        await tauri.rsi.governance('verify');
+      } catch { /* sidecar not running — the listener will fill in later */ }
     };
     void load();
     // A completed episode appends a new line → reload to pick it up.
@@ -279,8 +310,30 @@ export function FeralDreamsPanel() {
         void tauri.rsi.meta('status').catch(() => {});
       }
     });
+    // Slice A6 — governance_result stream: status/verify snapshots feed the
+    // card; approve/reject acks clear the in-flight set and re-request status.
+    const unlistenGov = events.onGovernanceResult.listen((e) => {
+      if (!alive) return;
+      if (e.op === 'status') {
+        setGovStatus(e);
+        return;
+      }
+      if (e.op === 'verify') {
+        setGovVerify(e);
+        return;
+      }
+      if (e.op === 'approve' || e.op === 'reject') {
+        // The ack doesn't echo the policyId, so clear the whole in-flight
+        // set — the inbox is small and status refresh follows immediately.
+        setGovResolving(new Set());
+        setGovNote(e.ok ? null : (e.reason ?? `${e.op} failed`));
+        void tauri.rsi.governance('status').catch(() => {});
+        void tauri.rsi.governance('verify').catch(() => {});
+      }
+    });
     return () => {
       alive = false;
+      void unlistenGov.then((u) => u()).catch(() => {});
       void unlistenMeta.then((u) => u()).catch(() => {});
       void unlistenDream.then((u) => u()).catch(() => {});
       void unlistenPatches.then((u) => u()).catch(() => {});
@@ -373,7 +426,148 @@ export function FeralDreamsPanel() {
         note={metaNote}
         onAction={runMetaAction}
       />
+
+      <GovernanceCard
+        status={govStatus}
+        verify={govVerify}
+        resolving={govResolving}
+        note={govNote}
+        onResolve={resolveProposal}
+      />
     </div>
+  );
+}
+
+/** Plain-language names for the self-improvement systems governance can
+ *  pause. Non-technical users see these, never the layer codes. */
+const LAYER_LABELS: Record<string, string> = {
+  l1: 'settings tuning',
+  l2: 'personal learning',
+  l3: 'code changes',
+  l4: 'internal re-wiring',
+  l6: 'learning strategy',
+};
+
+/** Slice A6 (L5 Governance) — the "Safety rules" card + approval inbox.
+ *  Copy is deliberately non-technical (Darius: people won't understand
+ *  policy/FSM/hash-chain talk): the policy is "the rulebook", frozen layers
+ *  are "paused", verify is a "tamper check", and a relaxing proposal "asks
+ *  for more freedom". Approving here is the only desktop writer of approval
+ *  records (G-INV-6); tightening proposals apply on their own and render
+ *  without buttons. */
+function GovernanceCard({
+  status,
+  verify,
+  resolving,
+  note,
+  onResolve,
+}: {
+  status: GovernanceResultLine | null;
+  verify: GovernanceResultLine | null;
+  resolving: Set<string>;
+  note: string | null;
+  onResolve: (policyId: string, action: 'approve' | 'reject') => void;
+}) {
+  if (!status) return null;
+  const paused = Object.entries(status.policy?.frozen ?? {})
+    .filter(([, v]) => v)
+    .map(([k]) => LAYER_LABELS[k] ?? k);
+  const pending = status.pending ?? [];
+  return (
+    <section className="space-y-1.5 border-t border-border-subtle pt-2">
+      <header className="flex items-center gap-1.5">
+        <Shield size={11} className="text-brand" />
+        <span className="text-[11px] font-medium text-text-primary">Safety rules</span>
+        <span className="text-[10px] text-text-muted">
+          the guardrails Feral follows while improving itself
+        </span>
+        {verify && (
+          <span
+            className="ml-auto flex items-center gap-1 text-[10px]"
+            title={
+              verify.ok
+                ? 'Every change to the rules is on record, and nothing has been altered.'
+                : 'The record of rule changes looks damaged or altered — Feral pauses self-improvement until this is resolved.'
+            }
+          >
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full ${verify.ok ? 'bg-emerald-500' : 'bg-amber-500'}`}
+            />
+            <span className={verify.ok ? 'text-text-muted' : 'text-amber-500'}>
+              {verify.ok ? 'records intact' : 'records check failed'}
+            </span>
+          </span>
+        )}
+      </header>
+
+      {status.failClosed ? (
+        <p className="flex items-center gap-1.5 text-[10px] text-amber-500">
+          <AlertTriangle size={10} />
+          The rulebook couldn&apos;t be read, so Feral switched to its strictest built-in
+          rules and paused all self-improvement until it&apos;s fixed.
+        </p>
+      ) : (
+        <p className="text-[10px] text-text-muted">
+          {paused.length === 0
+            ? 'All self-improvement systems are allowed to run.'
+            : `Paused right now: ${paused.join(', ')}.`}
+        </p>
+      )}
+
+      {pending.length > 0 && (
+        <ul className="space-y-1.5">
+          {pending.map((p) => {
+            const needsOk = p.requiredApproval;
+            return (
+              <li key={p.policyId} className="space-y-1 text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  {needsOk ? (
+                    <AlertTriangle size={10} className="shrink-0 text-amber-500" />
+                  ) : (
+                    <Check size={10} className="shrink-0 text-brand" />
+                  )}
+                  <span className="text-text-secondary">
+                    {needsOk
+                      ? 'Feral asks to loosen its rules — nothing changes without your OK.'
+                      : 'Feral is making its own rules stricter — this applies on its own.'}
+                  </span>
+                  <span className="ml-auto font-mono text-[10px] text-text-muted">{p.policyId}</span>
+                </div>
+                {needsOk && (
+                  <div className="flex items-center gap-1.5 pl-4">
+                    <button
+                      type="button"
+                      disabled={resolving.has(p.policyId)}
+                      onClick={() => onResolve(p.policyId, 'approve')}
+                      className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10px] text-brand hover:border-brand disabled:opacity-50"
+                    >
+                      <Check size={10} className="inline -mt-px mr-0.5" />
+                      Allow it
+                    </button>
+                    <button
+                      type="button"
+                      disabled={resolving.has(p.policyId)}
+                      onClick={() => onResolve(p.policyId, 'reject')}
+                      className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                    >
+                      <X size={10} className="inline -mt-px mr-0.5" />
+                      Keep things as they are
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {note && (
+        <p className="flex items-center gap-1 text-[10px] text-text-muted">
+          <AlertTriangle size={10} className="text-brand" />
+          {note}
+        </p>
+      )}
+    </section>
   );
 }
 
