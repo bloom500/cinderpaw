@@ -1101,6 +1101,10 @@ async fn governance_propose_route(
     State(state): State<ApiState>,
     body: Option<Json<Value>>,
 ) -> Response {
+    // The route's body IS the policy document (spec §12), but the sidecar
+    // handler reads it from `msg.document` — wrap it so the roundtrip's
+    // field-flattening doesn't smear the document over the envelope.
+    let body = body.map(|Json(v)| Json(json!({ "document": v })));
     governance_roundtrip(State(state), "governance_propose", body).await
 }
 

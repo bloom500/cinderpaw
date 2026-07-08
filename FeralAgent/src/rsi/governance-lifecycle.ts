@@ -602,6 +602,11 @@ export class GovernanceLifecycle {
     for (let i = rows.length - 1; i >= 0; i--) {
       const r = rows[i]!;
       if (r.event === "activated" && r.actor === "system") {
+        // Genesis bootstrap (parentId null) is written with actor "system"
+        // but is NOT an auto-adoption (§5 counts auto-adopted policies
+        // only) — counting it would queue every fresh install's first
+        // tightening proposal for 24h.
+        if (r.document?.parentId === null) continue;
         return this.now() - r.timestamp < AUTO_ADOPT_COOLDOWN_MS;
       }
     }

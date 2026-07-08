@@ -784,7 +784,10 @@ fn render_governance_read(
         return if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) { 0 } else { 1 };
     }
     let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false);
-    if !ok {
+    // A failed verify carries its detail in `chains`/`journal`, not a
+    // top-level `reason` — let it reach its renderer so the user sees
+    // WHICH file/row failed instead of "unknown error".
+    if !ok && !matches!(action, GovernanceAction::Verify) {
         let reason = v.get("reason").and_then(|r| r.as_str()).unwrap_or("unknown error");
         eprintln!("{FAIL}\u{2717} {reason}{RESET}");
         return 1;

@@ -27,6 +27,7 @@ import { sha256Canonical, verifyChainFile } from "../src/rsi/hash-chain.ts";
 import { loadPolicy, type GovernancePolicy } from "../src/rsi/governance.ts";
 import {
   computeDirection,
+  ensureGenesisPolicy,
   GovernanceLifecycle,
 } from "../src/rsi/governance-lifecycle.ts";
 
@@ -269,6 +270,24 @@ describe("auto-adoption (AC3)", () => {
     h.advance(25 * 60 * 60 * 1000);
     expect(h.gl.processQueue().activated).toBe(second.policyId);
     expect(h.gl.status().policy.policyId).toBe(second.policyId);
+  });
+
+  test("genesis bootstrap does not start the auto-adopt cooldown (A7 smoke regression)", () => {
+    // Genesis is written with actor "system" but is NOT an auto-adoption
+    // (§5 counts auto-adopted policies only) — a fresh install's first
+    // tightening proposal must activate immediately, not queue for 24h.
+    const dir = freshDir();
+    let t = T0;
+    const now = () => t;
+    ensureGenesisPolicy(dir, now);
+    const gl = new GovernanceLifecycle({ dir, now });
+    t += 60_000; // one minute after first boot — well inside 24h
+    const st = gl.status();
+    const doc = structuredClone(st.policy);
+    doc.gates.confidenceMin = Math.min(0.995, doc.gates.confidenceMin + 0.01);
+    doc.prevHash = st.headHash;
+    const res = gl.propose(doc, "operator");
+    expect(res.ok && res.status === "active").toBe(true);
   });
 });
 
