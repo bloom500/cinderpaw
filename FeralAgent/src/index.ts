@@ -1259,7 +1259,10 @@ export async function main(transportOverride?: Transport): Promise<void> {
         // pass an explicit hash still get the stale-hash safety net
         // (AC4) — pass nothing and we recompute, pass a wrong one and the
         // FSM rejects with a mismatch reason.
-        const policyId = (msg as { id?: string }).id ?? (msg as { policyId?: string }).policyId ?? "";
+        // `msg.id` is the transport correlation id (a UUID minted by
+        // governance_roundtrip), NOT the policy id — prefer `policyId`
+        // like the reject handler does.
+        const policyId = (msg as { policyId?: string }).policyId ?? "";
         let documentHash = (msg as { documentHash?: string }).documentHash ?? "";
         let computedHash = "";
         if (!documentHash) {
