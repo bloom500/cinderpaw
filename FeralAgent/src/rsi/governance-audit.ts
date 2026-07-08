@@ -11,7 +11,7 @@ import { appendChained } from "./hash-chain.ts";
 
 export interface AuditRow {
   timestamp: number;
-  source: "policy" | "l6";
+  source: "policy" | "l6" | "l4";
   event: string;
   refId: string;
   summary: string;

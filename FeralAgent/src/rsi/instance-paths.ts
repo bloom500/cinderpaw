@@ -54,6 +54,9 @@ export interface InstancePaths {
   /** L5 governance dir: `policy.json`, `policy_history.jsonl`,
    *  `proposals/` (L5 spec §2). */
   governance: string;
+  /** L4 modules dir: `registry.json`, `registry_history.jsonl`,
+   *  `<module-id>/` candidate dirs (L4 spec §2). */
+  modules: string;
 }
 
 /** Compute the paths for a given tenant. v1 returns the shared layout
@@ -72,6 +75,7 @@ export function paths(tenant: string = DEFAULT_TENANT): InstancePaths {
     envelopes: join(root, "envelopes"),
     gitSubstrate: join(root, "substrate.git"),
     governance: join(root, "governance"),
+    modules: join(root, "modules"),
   };
 }
 

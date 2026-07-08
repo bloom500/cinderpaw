@@ -53,6 +53,7 @@ export type ProvenanceKind =
   | "lora" // LoRA adapter (Layer 2+)
   | "demo" // UIA demonstration (Layer 2+)
   | "eval_task" // personal eval task (Layer 2+)
+  | "module" // L4 architecture module (Layer 4)
   | "unknown"; // kind not in metadata — defensive
 
 /** Typed envelope for non-code artifacts. Storage is TODO; the type
@@ -61,7 +62,7 @@ export interface ArtifactEnvelope {
   /** Stable id, e.g. "lora-v8" or "demo-2026-07-14-001". */
   id: string;
   /** What kind of artifact. */
-  kind: "lora" | "demo" | "eval_task";
+  kind: "lora" | "demo" | "eval_task" | "module";
   /** Parent envelope ids (BRSI §2.6: "LoRA v8 → LoRA v5 → LoRA v3 → Base Gemma"). */
   parents: string[];
   /** When it was created. */
