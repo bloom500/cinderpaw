@@ -117,8 +117,11 @@ describe("appendJournal — happy path", () => {
 
     const parsedA = JSON.parse(lines[0]!) as JournalEntry;
     const parsedB = JSON.parse(lines[1]!) as JournalEntry;
-    expect(parsedA).toEqual(a);
-    expect(parsedB).toEqual(b);
+    // Rows round-trip plus the writer-owned chain fields (G-INV-4).
+    expect(parsedA).toMatchObject(a);
+    expect(parsedB).toMatchObject(b);
+    expect(typeof parsedA.hash).toBe("string");
+    expect(parsedB.prevHash).toBe(parsedA.hash!);
   });
 
   test("appending once creates the file if it did not exist", () => {
@@ -130,7 +133,7 @@ describe("appendJournal — happy path", () => {
 
     const raw = readFileSync(path, "utf8");
     expect(raw.endsWith("\n")).toBe(true);
-    expect(JSON.parse(raw.trimEnd()) as JournalEntry).toEqual(entry);
+    expect(JSON.parse(raw.trimEnd()) as JournalEntry).toMatchObject(entry);
   });
 
   test("appending many entries keeps them in order and one-per-line", () => {
@@ -151,7 +154,7 @@ describe("appendJournal — happy path", () => {
       .filter((l) => l.length > 0);
     expect(lines).toHaveLength(30);
     for (let i = 0; i < 30; i++) {
-      expect(JSON.parse(lines[i]!) as JournalEntry).toEqual(entries[i]);
+      expect(JSON.parse(lines[i]!) as JournalEntry).toMatchObject(entries[i]!);
     }
   });
 });
@@ -195,7 +198,7 @@ describe("appendJournal — soft-failure contract", () => {
       .split("\n")
       .filter((l) => l.length > 0);
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!) as JournalEntry).toEqual(entry);
+    expect(JSON.parse(lines[0]!) as JournalEntry).toMatchObject(entry);
   });
 });
 

@@ -23,20 +23,19 @@
  *   observed / hypothesized / experimented / result / decided /
  *   budget_remaining.
  *
- * TODO(hash-chain, v2): mirror the tamper-evident discipline of
- *   `FeralAgent/src/sandbox/audit-log.ts:47-52` and
- *   `src-tauri/src/rsi/audit.rs:226-232` — sha256(prevHash || 0x02 ||
- *   canonical(row)) with `prev_hash` carried per row, genesis constant
- *   "GENESIS", chain marker `0x02` (same in TS and Rust so cross-language
- *   auditors can walk both). NOT in v1 — the journal is a soft trail
- *   today; corruption would manifest as a missing row, not silent loss.
- *   When the journal becomes a Layer-5 input (BRSI refactor sequence
- *   step 10), add a parallel `verifyJournal(path)` walker that mirrors
- *   `AuditLog.verify()` from `sandbox/audit-log.ts`.
+ * Hash chain (L5 G-INV-4, closes the old TODO(hash-chain, v2)): every
+ * appended row carries `prevHash`/`hash` per the audit-log discipline —
+ * sha256(prevHash || 0x02 || canonical(row)), genesis "GENESIS" (see
+ * `hash-chain.ts`). The chain is per-day-file: each file starts from
+ * GENESIS; cross-file chaining is v2. `verifyJournal(path)` walks a file
+ * and reports the first bad row. Back-compat: pre-L5 rows without `hash`
+ * verify as legacy and are accepted until the first chained row appears
+ * in a file; after that, unchained rows fail.
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { chainHash, GENESIS } from "./hash-chain.ts";
 import { paths } from "./instance-paths.ts";
 
 /** The six components of the BRSI fitness vector (BRSI §2.2).
@@ -128,6 +127,12 @@ export interface JournalEntry {
   decided: JournalDecision;
   /** Remaining budget at cycle end (BRSI §2.5). */
   budgetRemaining: BudgetRemaining;
+  /** Chain fields (G-INV-4) — writer-owned, set by `appendJournal`.
+   *  `prevHash` = previous row's `hash` (or "GENESIS");
+   *  `hash` = sha256(prevHash || 0x02 || canonical(row-without-chain-fields)).
+   *  Absent on pre-L5 legacy rows. */
+  prevHash?: string;
+  hash?: string;
 }
 
 /** Default journal directory. Mirrors `dream-telemetry.ts` pattern at
@@ -163,12 +168,85 @@ export function defaultJournalPath(date: Date = new Date()): string {
 export function appendJournal(path: string, entry: JournalEntry): void {
   try {
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + "\n", "utf8");
+    // Chain fields are writer-owned: recompute, never trust the caller.
+    const { prevHash: _p, hash: _h, ...body } = entry;
+    const prevHash = lastChainHash(path);
+    const hash = chainHash(prevHash, body);
+    appendFileSync(path, JSON.stringify({ ...body, prevHash, hash }) + "\n", "utf8");
   } catch {
     // Intentionally swallowed — see the file header. A failed journal
     // append is observable only via the missing row in the next read;
     // it never crashes the live engine.
   }
+}
+
+/** The `hash` of the file's last row, or GENESIS for a missing/empty
+ *  file or a legacy (unchained) tail — the chain (re)starts there.
+ *  ponytail: re-reads the whole file per append; per-day files are
+ *  tens-of-rows small, cache a Map<path,hash> if that ever changes. */
+function lastChainHash(path: string): string {
+  if (!existsSync(path)) return GENESIS;
+  const lines = readFileSync(path, "utf8").split("\n").filter((l) => l.trim().length > 0);
+  const last = lines[lines.length - 1];
+  if (!last) return GENESIS;
+  try {
+    const row = JSON.parse(last) as { hash?: unknown };
+    return typeof row.hash === "string" ? row.hash : GENESIS;
+  } catch {
+    return GENESIS;
+  }
+}
+
+/** Result of walking one journal file's chain. */
+export type JournalVerifyResult =
+  | { ok: true; entries: number; legacy: number }
+  | { ok: false; badRow: number; reason: string };
+
+/** Verify a journal file's hash chain (G-INV-4). Mirrors
+ *  `AuditLog.verify()`: legacy rows before the chain begins pass as
+ *  legacy; a break names the first bad row (1-based over non-blank
+ *  lines). Never throws — a malformed row is a verification failure. */
+export function verifyJournal(path: string): JournalVerifyResult {
+  if (!existsSync(path)) return { ok: true, entries: 0, legacy: 0 };
+  const lines = readFileSync(path, "utf8").split("\n").filter((l) => l.trim().length > 0);
+  let prev = GENESIS;
+  let started = false;
+  let entries = 0;
+  let legacy = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const badRow = i + 1;
+    let row: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(lines[i]!) as unknown;
+      if (!parsed || typeof parsed !== "object") throw new Error("not an object");
+      row = parsed as Record<string, unknown>;
+    } catch {
+      return { ok: false, badRow, reason: "malformed row" };
+    }
+    if (typeof row.hash !== "string") {
+      if (started) {
+        return { ok: false, badRow, reason: "unchained row after the chain started" };
+      }
+      legacy++;
+      continue;
+    }
+    if (!started) {
+      if (row.prevHash !== GENESIS) {
+        return { ok: false, badRow, reason: "chain does not start at GENESIS (head row deleted?)" };
+      }
+      started = true;
+    }
+    if (row.prevHash !== prev) {
+      return { ok: false, badRow, reason: "prevHash linkage broken (row deleted or reordered)" };
+    }
+    const { prevHash: _p, hash, ...body } = row;
+    if (chainHash(prev, body) !== hash) {
+      return { ok: false, badRow, reason: "hash mismatch (row content altered)" };
+    }
+    prev = hash as string;
+    entries++;
+  }
+  return { ok: true, entries, legacy };
 }
 
 /** Read all entries from a single journal file. Returns [] for a

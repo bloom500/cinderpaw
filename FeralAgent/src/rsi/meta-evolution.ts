@@ -43,7 +43,13 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { paths } from "./instance-paths.ts";
-import { readJournal, defaultJournalPath, type JournalEntry } from "./journal.ts";
+import {
+  defaultJournalDir,
+  journalFilename,
+  readJournal,
+  verifyJournal,
+  type JournalEntry,
+} from "./journal.ts";
 
 /** The ADN of the BRSI engine. Every field is a bounded metaparameter;
  *  none of them can name code, prompts, policies or paths. */
@@ -248,13 +254,27 @@ export interface MetaEvolutionOpts {
 
 /** Read the journal window the fitness is computed over: every entry
  *  written since `sinceMs`, across the per-day files of the last 7 UTC
- *  days. Malformed files are skipped (a corrupt day must not brick L6). */
-export function defaultReadWindow(sinceMs: number, now: number = Date.now()): JournalEntry[] {
+ *  days. Malformed files are skipped (a corrupt day must not brick L6).
+ *  G-INV-4: a day-file that fails hash-chain verification is EXCLUDED
+ *  from the window and surfaced via `onBadFile` — fitness may only
+ *  consume verified evidence (L5 spec §2.4). */
+export function defaultReadWindow(
+  sinceMs: number,
+  now: number = Date.now(),
+  opts: { dir?: string; onBadFile?: (path: string, reason: string) => void } = {},
+): JournalEntry[] {
+  const dir = opts.dir ?? defaultJournalDir();
   const out: JournalEntry[] = [];
   for (let i = 0; i < 7; i++) {
     const day = new Date(now - i * 86_400_000);
+    const path = join(dir, journalFilename(day));
+    const verdict = verifyJournal(path);
+    if (!verdict.ok) {
+      opts.onBadFile?.(path, `row ${verdict.badRow}: ${verdict.reason}`);
+      continue;
+    }
     try {
-      out.push(...readJournal(defaultJournalPath(day)));
+      out.push(...readJournal(path));
     } catch {
       // readJournal throws on malformed JSON — skip the day, keep going.
     }
@@ -276,7 +296,13 @@ export class MetaEvolution {
     this.statePath = join(dir, "meta_genome.json");
     this.historyPath = join(dir, "meta_history.jsonl");
     this.now = opts.now ?? Date.now;
-    this.readWindow = opts.readWindow ?? ((since) => defaultReadWindow(since, this.now()));
+    this.readWindow =
+      opts.readWindow ??
+      ((since) =>
+        defaultReadWindow(since, this.now(), {
+          onBadFile: (path, reason) =>
+            this.log(`[meta] journal verification failed, day excluded (G-INV-4): ${path} (${reason})`),
+        }));
     this.seedSource = opts.seedSource ?? (() => Math.floor(Math.random() * 0xffffffff));
     this.log = opts.log ?? (() => {});
     this.state = this.load();
