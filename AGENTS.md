@@ -64,6 +64,15 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   responsibility split (Registry=Data / Router=Policy / Health=Observation
   / Cost=Optimisation). **Read before touching any file in
   `FeralAgent/src/brain/`.**
+- **`project_memory_roadmap.md`** — rebalanced post-audit roadmap
+  (Memory Foundation before Onboarding). Three sharpenings to the
+  audit's implementation order + the writer contract design. Read
+  before touching `FeralAgent/src/memory/`, `FeralAgent/src/db.ts`,
+  `src-tauri/src/memory_*.rs`, or any `workspace_id` migration.
+  **Sprint 1 (Memory Foundation + Memory Resume) + Sprint 2 (Terminal +
+  Desktop Onboarding) shipped 2026-07-06** — see the Status table at
+  the bottom of the file for the file-level landing points of every
+  shipped item.
 - **`project_chat_tui.md`** — `feral chat` is a Go/Bubble Tea TUI
   (`tui/`, launched by `crates/feral-cli/src/chat.rs`). Also flags the
   open follow-up: local-Ollama reasoning for models like MiniMax-M3
@@ -71,6 +80,25 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   split it — needs a sidecar fix (`FeralAgent/src/sandbox/inference-providers.ts`
   local path) or a host-side `delta.reasoning_content` forward. **Read
   before touching chat reasoning rendering or the local Ollama path.**
+- **`project_tui_onboarding_sprint3.md`** — Sprint 3 onboarding in the
+  TUI (`tui/`): `WizTestIt` step (real "Hello." round-trip before chat
+  opens), "What's next" suggestions after wizard, recovery auto-retry on
+  backend disconnect, "Welcome back" last-task row, enhanced backend
+  liveness in header. Implemented 2026-07-06. **Read before touching
+  wizard flow, recovery, or the welcome screen.**
+- **`project_tui_connectors_f4.md`** — F4 real connectors: chat-platform
+  connector configuration from the wizard (Discord/Slack/WhatsApp/Telegram).
+  Token-based connectors get field-by-field masked input (like the API key
+  step); WhatsApp (QR) uses Y/n toggle. Config is persisted to
+  `~/.feral/connectors.json` and sidecar reloaded via
+  `POST /runtime/connectors/reload`. Implemented 2026-07-06. **Read before
+  touching WizConnectorPrompt, connector state fields, or
+  `api.SaveConnectorConfig`.**
+- **`project_tui_wizard_f3.md`** — F3 wizard health check (4-phase granular
+  checks: API reachable → auth valid → model accessible → streaming
+  round-trip with deterministic `FERAL_OK` prompt), model picker with
+  search, finish screen with bear compact + connection benchmark timing
+  metrics. Implemented 2026-07-06.
 - **`project_substrate_introspection.md`** — `self.*` runtime
   introspection surface (`FeralAgent/src/tools/builtin/self.ts`) +
   the `feral-self` and `feral-connectors` skills. This is the
@@ -104,6 +132,10 @@ cd frontend-react && bunx tsc --noEmit  # clean
 # Rebuild the sidecar
 cd FeralAgent && bun run build
 # + copy to src-tauri/binaries/
+
+# TUI (Go/Bubble Tea)
+cd tui && go test ./...          # all tests (4 packages — wizard, app, api, ui)
+cd tui && go build ./...         # verify compilation
 
 # Cargo (may need: vcvars64 + CMAKE_GENERATOR=Ninja + CARGO_TARGET_DIR=D:\fb)
 cargo build --features inference

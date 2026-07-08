@@ -16,7 +16,7 @@
 //!     crafted `name` like `../../../../etc/passwd` can no longer escape it.
 use axum::{
     extract::State,
-    http::{header, HeaderValue, Request, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
     middleware::{self, Next},
     response::sse::{Event, Sse},
     response::{IntoResponse, Response},
@@ -32,6 +32,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use crate::byok;
+use crate::connectors as connector_catalog;
 use crate::inference::{InferParams, Message, ModelManager};
 use crate::models;
 use crate::runtime::RuntimeState;
@@ -89,6 +91,37 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/lora", get(runtime_lora))
         .route("/runtime/manifest", get(runtime_manifest))
         .route("/runtime/sessions", get(runtime_sessions))
+        // Sprint 1.6 — Memory Resume. Headless / TUI clients hit this; the
+        // desktop Tauri app uses the `get_last_task` command which delegates
+        // to the same sidecar roundtrip but stays in-process. Same shape:
+        // subscribe-before-send, wait for `resume_get_result`.
+        .route("/runtime/resume", get(runtime_resume))
+        // Sprint 2 / audit C-1 — hardware probe for the TUI Setup Wizard.
+        // Same shape as the Tauri command `get_system_info`. The wizard used
+        // to hard-code "rtx 4070 · 12 GB" on every machine; now it reads
+        // the real GPU/VRAM/RAM/disk via sysinfo_mod::detect().
+        .route("/system_info", get(system_info))
+        // Sprint 2 / audit C-2 — real provider key validation for the wizard.
+        // Body: `{ provider_id, api_key, base_url? }`. Returns the provider's
+        // real status text — "401 Unauthorized", "Invalid API key", etc. —
+        // so the wizard can surface the actual reason instead of a fake ✓.
+        .route("/providers/test", post(providers_test))
+        // Phase 0b (2026-07-07, terminal-onboarding slice) — persist a
+        // provider's API key to the OS keychain and its metadata to
+        // `~/.feral/byok.json`. Body: `{ provider_id, enabled, api_key,
+        // base_url?, default_model? }`. Empty `api_key` leaves the keychain
+        // entry untouched (matches the existing `byok::save` semantics). The
+        // response never echoes the key. Closes the silent key-drop bug
+        // where the headless wizard validated a freshly-entered key against
+        // `/providers/test` but never persisted it to the keychain, so the
+        // next launch reported "No API key configured".
+        .route("/runtime/byok/save", post(runtime_byok_save))
+        // Sprint 2 / audit C-5 — real model download with progress.
+        // POST kicks off a background download and returns a download id;
+        // GET on the same id returns the latest progress + status.
+        // The TUI Setup Wizard polls the GET route every 500ms.
+        .route("/runtime/models/install", post(runtime_models_install))
+        .route("/runtime/models/download/:id", get(runtime_models_download))
         // Faza 6 (L6) Meta Evolution — sidecar round-trips correlated by id.
         // `/meta/evaluate` is an alias of `/meta/current`: the fitness is
         // computed live from the journal window on every status read.
@@ -98,6 +131,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/meta/evolve", post(meta_evolve))
         .route("/meta/rollback", post(meta_rollback))
         .route("/events", get(runtime_events))
+        // Phase 1 (2026-07-07) — canonical provider + connector catalogs.
+        // Both surfaces (Go TUI wizard, desktop React OnboardingWizard)
+        // hit these at boot instead of carrying their own copy. The
+        // response carries an `X-Feral-Catalog-Version` header —
+        // clients treat a mismatch as "fall back to the bundled slice
+        // with a clearly surfaced warning", never as a silent drop.
+        .route("/runtime/providers/catalog", get(runtime_providers_catalog))
+        .route("/runtime/connectors/catalog", get(runtime_connectors_catalog))
         // Auth runs before any handler. `from_fn_with_state` hands the token
         // to the middleware so it can compare in constant time.
         .layer(middleware::from_fn_with_state(state.clone(), require_token))
@@ -642,6 +683,12 @@ fn parse_agent_output(ev: &crate::host::HostEvent) -> Option<AgentOutputLine> {
 /// Flattened one-line view of a `feral://agent-output` payload, with the
 /// original `Value` retained so tool events can be re-serialised with their
 /// structured fields intact (`tool_start.tool`, `tool_done.result`, …).
+///
+/// `Debug` and `PartialEq` are derived so the test module below can use
+/// `assert_eq!`; the `Value` in `raw` participates in equality via serde_json's
+/// `Value` impls, which is fine because the fields are deterministic for
+/// each input.
+#[derive(Debug, PartialEq)]
 struct AgentOutputLine {
     ty: String,
     id: String,
@@ -810,6 +857,80 @@ async fn meta_rollback(state: State<ApiState>) -> Response {
 /// Send one meta_* command to the sidecar and return its `meta_result`
 /// reply, correlated by the generated `id` on the shared agent-output bus
 /// (same subscribe-before-send discipline as `/runtime/chat`).
+/// Sprint 1.6 — Memory Resume. Same subscribe-before-send discipline as
+/// `meta_roundtrip`; differs only in the inbound `type` ("resume_get") and
+/// the matched outbound reply type ("resume_get_result"). The Tauri desktop
+/// command `get_last_task` inlines the same pattern (see
+/// `src-tauri/src/memory_resume.rs`) so the two call paths can't drift.
+async fn runtime_resume(State(state): State<ApiState>) -> Response {
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        // Sidecar isn't running — first launch with no memory, or gateway
+        // running headless without the agent. Empty payload is the right
+        // safe default so the TUI / curl callers can render "fresh start".
+        return Json(json!({
+            "task": null,
+            "workspace_id": null,
+            "workspace_name": null,
+            "last_active_at": null,
+        }))
+        .into_response();
+    };
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let mut rx = state.runtime.events_tx.subscribe();
+    if tx
+        .send(json!({ "type": "resume_get", "id": msg_id }).to_string())
+        .await
+        .is_err()
+    {
+        return Json(json!({
+            "task": null,
+            "workspace_id": null,
+            "workspace_name": null,
+            "last_active_at": null,
+        }))
+        .into_response();
+    }
+    let deadline = std::time::Duration::from_millis(1500);
+    loop {
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "feral://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+                if v.get("type").and_then(|t| t.as_str()) == Some("resume_get_result")
+                    && v.get("id").and_then(|i| i.as_str()) == Some(msg_id.as_str())
+                {
+                    return Json(v).into_response();
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                return Json(json!({
+                    "task": null,
+                    "workspace_id": null,
+                    "workspace_name": null,
+                    "last_active_at": null,
+                }))
+                .into_response();
+            }
+            Err(_) => {
+                return Json(json!({
+                    "task": null,
+                    "workspace_id": null,
+                    "workspace_name": null,
+                    "last_active_at": null,
+                }))
+                .into_response();
+            }
+        }
+    }
+}
+
 async fn meta_roundtrip(State(state): State<ApiState>, op: &'static str) -> Response {
     let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
     let Some(tx) = tx else {
@@ -862,6 +983,285 @@ async fn runtime_shutdown(State(state): State<ApiState>) -> impl IntoResponse {
     // be lost if no task is parked yet.
     state.runtime.shutdown.notify_one();
     Json(json!({ "ok": true, "shutting_down": true }))
+}
+
+/// Sprint 2 / audit C-1 — real hardware probe for the TUI Setup Wizard.
+/// Returns the same `SystemInfo` shape the Tauri command exposes. The
+/// wizard previously hard-coded "rtx 4070 · 12 GB" on every machine; this
+/// reads the real GPU / VRAM / RAM via `sysinfo_mod::detect()` and the
+/// optional `gpu_detect` shim. The probe is bounded by sysinfo_mod's
+/// internal timeouts (a few seconds).
+async fn system_info() -> Json<crate::sysinfo_mod::SystemInfo> {
+    Json(crate::sysinfo_mod::collect())
+}
+
+/// Sprint 2 / audit C-2 — real provider key validation. Body:
+/// `{ "provider_id": "...", "api_key": "...", "base_url"?: "..." }`.
+/// Delegates to `byok::test_provider` so the desktop and headless paths
+/// share one probe implementation. The wizard previously accepted any
+/// pasted string; now a "401 Unauthorized" or "Invalid API key" surfaces
+/// verbatim so the user can act on the actual provider response.
+async fn providers_test(Json(req): Json<ProvidersTestReq>) -> Json<byok::TestProviderResponse> {
+    Json(
+        byok::test_provider(&req.provider_id, &req.api_key, req.base_url.as_deref()).await,
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct ProvidersTestReq {
+    provider_id: String,
+    api_key: String,
+    base_url: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct SaveByokReq {
+    provider_id: String,
+    enabled: bool,
+    api_key: String,
+    base_url: Option<String>,
+    default_model: Option<String>,
+}
+
+/// Persist a provider's API key to the OS keychain and its metadata to
+/// `~/.feral/byok.json`. Mirrors the Tauri `save_byok_provider` command in
+/// `src-tauri/src/lib.rs:2241` so the headless gateway exposes the same
+/// single-provider write path.
+///
+/// Response is always JSON. The `api_key` is never echoed on either success
+/// or failure — call sites already have the value from the input. Keyring
+/// failures are classified into typed HTTP statuses so the wizard can render
+/// an actionable message instead of a raw anyhow chain:
+///
+///   * `keyring::Error::NoStorageAccess` / `PlatformFailure` → 503
+///     `{"error":"keyring_unavailable", hint: ...}`. The hint points at the
+///     `api_key_source.kind: env` path for headless servers (per the
+///     Phase-3 non-interactive slice).
+///   * `keyring::Error::TooLong` / `Invalid` → 400 with a stable category.
+///   * Anything else → 500 with a generic message.
+///
+/// Provider id validation: `[a-z0-9_-]{1,64}`. This mirrors the existing
+/// default-provider ids (openai, anthropic, minnimax, etc.) and is the
+/// conservative subset supported by every keychain backend the workspace
+/// targets (Windows Credential Manager, macOS Keychain, Linux Secret
+/// Service). The keyring crate accepts broader input but the schema
+/// discipline here keeps lookup tables, filename components, and log lines
+/// unambiguously parseable downstream.
+async fn runtime_byok_save(Json(req): Json<SaveByokReq>) -> Response {
+    let provider_id = req.provider_id.trim().to_string();
+    if provider_id.is_empty() {
+        return byok_save_error(
+            StatusCode::BAD_REQUEST,
+            "provider_id_required",
+            "provider_id is required",
+            None,
+        );
+    }
+    if !is_safe_provider_id(&provider_id) {
+        return byok_save_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_provider_id",
+            "provider_id may only contain [a-z0-9_-] and be 1-64 chars",
+            None,
+        );
+    }
+
+    let config = byok::ProviderConfig {
+        enabled: req.enabled,
+        api_key: req.api_key,
+        base_url: req.base_url,
+        default_model: req.default_model,
+    };
+
+    match byok::save_provider(&provider_id, config) {
+        Ok(()) => Json(json!({
+            "ok": true,
+            "provider_id": provider_id,
+        }))
+        .into_response(),
+        Err(e) => {
+            // Walk the anyhow chain so we classify on the original
+            // keyring::Error (not a transcribed Display string).
+            for cause in e.chain() {
+                if let Some(kre) = cause.downcast_ref::<keyring::Error>() {
+                    let (status, code, hint) = classify_keyring_error(kre);
+                    // Log full detail server-side only; the response body
+                    // gets the sanitised category + hint.
+                    tracing::warn!(
+                        provider_id = %provider_id,
+                        keyring_error = %kre,
+                        category = %code,
+                        "runtime_byok_save: keyring failure"
+                    );
+                    return byok_save_error(status, code, summary_for(code), hint);
+                }
+            }
+            tracing::warn!(provider_id = %provider_id, error = %e, "runtime_byok_save: non-keyring failure");
+            byok_save_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "byok_save_failed",
+                "Could not save the provider configuration.",
+                Some(
+                    "Try the setup again. If the problem keeps happening, run `feral doctor` to diagnose.",
+                ),
+            )
+        }
+    }
+}
+
+/// Build a `{ok: false, error, message, hint?}` JSON error response with the
+/// given status. The `message` is a short user-facing summary; `hint` is an
+/// optional next-step pointer. Both are deliberately generic — they never
+/// echo the keyring error chain back to the caller (the server has already
+/// logged it). Wrapping in `Json(value)` plus the explicit
+/// `(axum::http::StatusCode, Json<Value>)` tuple keeps the inference
+/// unambiguous across the workspace's multiple `StatusCode` exports.
+fn byok_save_error(
+    status: StatusCode,
+    code: &'static str,
+    message: &str,
+    hint: Option<&'static str>,
+) -> Response {
+    let mut body = json!({
+        "ok": false,
+        "error": code,
+        "message": message,
+    });
+    if let Some(h) = hint {
+        body["hint"] = json!(h);
+    }
+    (status, Json(body)).into_response()
+}
+
+/// Map a `keyring::Error` to (http_status, error_code, optional_hint).
+fn classify_keyring_error(e: &keyring::Error) -> (StatusCode, &'static str, Option<&'static str>) {
+    match e {
+        keyring::Error::NoStorageAccess(_) | keyring::Error::PlatformFailure(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "keyring_unavailable",
+            Some(
+                "Could not access the OS credential store. On a headless server, \
+                 run `feral setup --non-interactive --config=...` with \
+                 `api_key_source.kind: env` to source the key from an environment variable.",
+            ),
+        ),
+        keyring::Error::TooLong(_, _) => (
+            StatusCode::BAD_REQUEST,
+            "key_too_long",
+            Some("The credential exceeds the platform length limit. Trim the key or use env-var sourcing."),
+        ),
+        keyring::Error::Invalid(_, _) => (
+            StatusCode::BAD_REQUEST,
+            "invalid_credential_attribute",
+            Some("The keyring rejected the credential attribute. Check the provider id format."),
+        ),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "byok_save_failed", None),
+    }
+}
+
+fn summary_for(code: &str) -> &'static str {
+    match code {
+        "keyring_unavailable" => "Couldn't reach the OS credential store.",
+        "key_too_long" => "The key is too long for this OS credential store.",
+        "invalid_credential_attribute" => "The provider id or credential attribute is invalid for this OS credential store.",
+        _ => "Could not save the provider configuration.",
+    }
+}
+
+/// `[a-z0-9_-]{1,64}` — a conservative, parseable subset of the keychain
+/// account-name character space that lines up with the existing default
+/// provider ids (openai, anthropic, minnimax, ...) and avoids quotes,
+/// backslashes, and Unicode line separators that some keychain backends
+/// treat as field separators.
+fn is_safe_provider_id(id: &str) -> bool {
+    let len = id.len();
+    if len == 0 || len > 64 {
+        return false;
+    }
+    id.bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+
+/// Sprint 2 / audit C-5 — start a model download. Returns immediately with
+/// a download id (uuid v4); the actual work runs on a detached Tokio task
+/// so the IPC reply never blocks. Progress is published via the
+/// `runtime.model_downloads` map; the GET handler reads it.
+async fn runtime_models_install(
+    State(state): State<ApiState>,
+    Json(req): Json<InstallModelReq>,
+) -> Json<serde_json::Value> {
+    use std::sync::atomic::AtomicBool;
+    let id = uuid::Uuid::new_v4().to_string();
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    // Insert an initial entry so the GET handler can find it immediately.
+    state.runtime.model_downloads.lock().insert(
+        id.clone(),
+        crate::runtime::ModelDownload {
+            id: id.clone(),
+            repo_id: req.repo_id.clone(),
+            filename: req.filename.clone(),
+            progress: 0.0,
+            status: "downloading".to_string(),
+            error: None,
+        },
+    );
+
+    let id_for_task = id.clone();
+    let repo = req.repo_id.clone();
+    let file = req.filename.clone();
+    let downloads_map = state.runtime.model_downloads.clone();
+    tokio::spawn(async move {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<f32>(32);
+        // Forward progress updates from the download task to the snapshot.
+        let downloads_for_forwarder = downloads_map.clone();
+        let id_for_forwarder = id_for_task.clone();
+        tokio::spawn(async move {
+            while let Some(p) = rx.recv().await {
+                if let Some(entry) = downloads_for_forwarder.lock().get_mut(&id_for_forwarder) {
+                    if entry.status == "downloading" {
+                        entry.progress = p;
+                    }
+                }
+            }
+        });
+        let result = models::download_hf_model(repo, file, tx, cancel).await;
+        if let Some(entry) = downloads_map.lock().get_mut(&id_for_task) {
+            match result {
+                Ok(_) => {
+                    entry.status = "complete".to_string();
+                    entry.progress = 1.0;
+                }
+                Err(e) => {
+                    entry.status = "failed".to_string();
+                    entry.error = Some(format!("{e:#}"));
+                }
+            }
+        }
+    });
+
+    Json(json!({ "id": id }))
+}
+
+#[derive(serde::Deserialize)]
+struct InstallModelReq {
+    repo_id: String,
+    filename: String,
+}
+
+async fn runtime_models_download(
+    State(state): State<ApiState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    let entry = state.runtime.model_downloads.lock().get(&id).cloned();
+    match entry {
+        Some(d) => axum::Json(d).into_response(),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            axum::Json(json!({ "error": "unknown download id" })),
+        )
+            .into_response(),
+    }
 }
 
 /// D3: loaded model, active LoRA, sidecar liveness, backend, RSI engine mirror.
@@ -1420,7 +1820,12 @@ mod tests {
         let ev = agent_output(r#"{"type":"chunk","id":"abc","content":"hel"}"#);
         assert_eq!(
             parse_agent_output(&ev),
-            Some(("chunk".into(), "abc".into(), "hel".into()))
+            Some(AgentOutputLine {
+                ty: "chunk".into(),
+                id: "abc".into(),
+                content: "hel".into(),
+                raw: json!({"type":"chunk","id":"abc","content":"hel"}),
+            })
         );
     }
 
@@ -1429,7 +1834,12 @@ mod tests {
         let ev = agent_output(r#"{"type":"done","id":"abc","content":"hello","stopped":false}"#);
         assert_eq!(
             parse_agent_output(&ev),
-            Some(("done".into(), "abc".into(), "hello".into()))
+            Some(AgentOutputLine {
+                ty: "done".into(),
+                id: "abc".into(),
+                content: "hello".into(),
+                raw: json!({"type":"done","id":"abc","content":"hello","stopped":false}),
+            })
         );
     }
 
@@ -1444,4 +1854,56 @@ mod tests {
         // A log line that isn't JSON must not crash the correlator.
         assert_eq!(parse_agent_output(&agent_output("not json")), None);
     }
+}
+
+// ── Phase 1 catalog handlers (2026-07-07) ──────────────────────────────────
+//
+// Both handlers attach the catalog-version header so a client built
+// against an older shape can detect the mismatch and fall back to its
+// bundled slice. The body shape mirrors the Rust types 1:1 — `Provider`
+// enum serialises to lowercase via `#[serde(rename_all = "lowercase")]`
+// (byok.rs:9), `PairingMethod` likewise. No server-side filtering:
+// clients get the full catalog so they can layer their own query
+// (search, "show only free tier", etc.) without a server round-trip.
+
+/// `GET /runtime/providers/catalog` — returns the canonical provider
+/// metadata. Header `X-Feral-Catalog-Version` carries the version
+/// clients pin against.
+///
+/// `pub` so `tests/catalog_endpoints.rs` can mount just the catalog
+/// routes on a fresh `axum::Router` without constructing the full
+/// `ApiState`. The handler is stateless and idempotent; exposing it
+/// doesn't widen the public API surface — the route is what's
+/// reachable from the host's actual router.
+pub async fn runtime_providers_catalog() -> Response {
+    let body = byok::provider_catalog();
+    catalog_response(byok::CATALOG_VERSION, body)
+}
+
+/// `GET /runtime/connectors/catalog` — returns the canonical connector
+/// metadata. Same header policy as `/runtime/providers/catalog`. `pub`
+/// for the same reason as `runtime_providers_catalog`.
+pub async fn runtime_connectors_catalog() -> Response {
+    let body = connector_catalog::connectors_catalog();
+    catalog_response(connector_catalog::CONNECTORS_CATALOG_VERSION, body)
+}
+
+/// Common response shape for both catalog endpoints. The header carries
+/// the catalog version; clients compare it to their own build-time pin
+/// and treat a mismatch as a drift signal — never silently drop
+/// providers.
+fn catalog_response<T: serde::Serialize>(version: u32, body: Vec<T>) -> Response {
+    let mut headers = HeaderMap::new();
+    let v = version.to_string();
+    // `X-Feral-Catalog-Version: <int>`. The header name is a static
+    // ASCII string (compile-time constant), so `from_static` is
+    // infallible in this `http` crate version. The value carries the
+    // version number, which is ASCII digits and therefore also
+    // infallible in practice — but we degrade gracefully if the value
+    // happens to be malformed (it never will be).
+    let name = HeaderName::from_static("x-feral-catalog-version");
+    if let Ok(value) = HeaderValue::from_str(&v) {
+        headers.insert(name, value);
+    }
+    (headers, Json(body)).into_response()
 }

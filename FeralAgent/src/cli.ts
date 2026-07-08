@@ -2,15 +2,23 @@
  * CLI subcommand routing — Feral headless slice 5.1.
  *
  * Maps `feral <subcommand> [args...]` to a handler. The handlers themselves
- * live in `src/tui/` (chat, setup) and in `src/index.ts` (the gateway).
- * This file is JUST routing — pure parse + dispatch table.
+ * live in `src/tui/chat.ts` (the chat TUI) and in `src/index.ts` (the gateway
+ * and the subcommand dispatch). This file is JUST routing — pure parse +
+ * dispatch table.
+ *
+ * `feral setup` is a known subcommand (so the redirect is friendly), but
+ * the actual wizard lives in the Rust CLI (`feral-cli`'s `admin::setup()`),
+ * which execs `feral-tui.exe --wizard`. The on-board setup wizard code that
+ * used to live in this sidecar binary was removed in the 2026-07-07
+ * terminal-onboarding slice — it hardcoded a cloud provider and silently
+ * dropped keys, neither of which we ship.
  *
  * Subcommand map (Faza 4.5 MVP):
  *
  *   feral (no subcommand)         → default = gateway (background daemon)
  *   feral gateway                  → gateway foreground (Ctrl+C to stop)
  *   feral chat                     → interactive TUI in the terminal
- *   feral setup                    → one-time wizard: writes ~/.feral/
+ *   feral setup                    → friendly redirect to the Rust CLI's setup
  *   feral models                   → list installed local models (stub for S5.4)
  *   feral providers                → list configured providers (stub for S5.4)
  *   feral brain                    → show brain.json + active routes (stub)
@@ -133,7 +141,8 @@ Usage:
   feral                  Run the gateway daemon in the foreground.
   feral gateway          Same, foreground. Ctrl+C to stop.
   feral chat             Interactive terminal chat over the gateway.
-  feral setup            One-time wizard: write ~/.feral/, seed brain.json.
+  feral setup            Set up Feral on this machine. (Headless / scripting:
+                         use 'feral setup --non-interactive --config=...'.)
   feral models           List installed local models.
   feral providers        List configured cloud providers.
   feral brain            Show brain.json + the active routing policy.
@@ -146,7 +155,10 @@ Environment:
   NO_COLOR               Disable ANSI colors in TUI output.
 
 First-time setup:
-  feral setup            writes ~/.feral/brain.json with sane defaults
+  feral setup            launch the wizard (Rust CLI → Go/Bubble Tea TUI)
+  feral setup --non-interactive --config=setup.yaml
+                         scripted setup for CI/enterprise; YAML schema in
+                         docs/agents-memory/ once the Phase-3 slice lands.
   feral chat             talk to Feral from the terminal
 `;
 

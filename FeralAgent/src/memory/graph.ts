@@ -27,6 +27,68 @@ export interface MemoryGraphData {
 
 const DEFAULT_GRAPH_PATH = path.join(os.homedir(), ".feral", "memory-graph.json");
 
+// ponytail: hand-rolled advisory file lock; cross-process via O_EXCL lockfile.
+// Single-machine only. For multi-machine coordination, swap to fs2 or sqlite.
+// 30s stale-lock ceiling assumes no legitimate write holds longer than that.
+const LOCK_TIMEOUT_MS = 5_000;
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_MS = 50;
+
+function lockPathOf(filePath: string): string {
+  return `${filePath}.lock`;
+}
+
+export function withFileLock<T>(filePath: string, fn: () => T): T {
+  const lp = lockPathOf(filePath);
+  const start = Date.now();
+  let acquired = false;
+  while (Date.now() - start < LOCK_TIMEOUT_MS) {
+    try {
+      const fd = fs.openSync(lp, "wx");
+      fs.closeSync(fd);
+      acquired = true;
+      break;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST") throw e;
+      try {
+        const stat = fs.statSync(lp);
+        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+          fs.unlinkSync(lp);
+          continue;
+        }
+      } catch {
+        continue; // lock disappeared between attempts
+      }
+      const until = Date.now() + LOCK_RETRY_MS;
+      while (Date.now() < until) { /* spin briefly */ }
+    }
+  }
+  if (!acquired) {
+    throw new Error(`withFileLock: timeout acquiring ${lp} after ${LOCK_TIMEOUT_MS}ms`);
+  }
+  try {
+    return fn();
+  } finally {
+    try { fs.unlinkSync(lp); } catch { /* best-effort */ }
+  }
+}
+
+// ponytail: write-temp + fsync + rename. Atomic on POSIX; best-effort on Windows.
+export function atomicWriteFileSync(filePath: string, contents: string): void {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeSync(fd, contents);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, filePath);
+}
+
 export interface MemoryGraphOptions {
   /** Override the on-disk path. Default: `~/.feral/memory-graph.json`. */
   path?: string;
@@ -55,9 +117,9 @@ export class MemoryGraph {
   }
 
   #save(g: MemoryGraphData): void {
-    const dir = path.dirname(this.#path);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this.#path, JSON.stringify(g, null, 2), "utf8");
+    withFileLock(this.#path, () => {
+      atomicWriteFileSync(this.#path, JSON.stringify(g, null, 2));
+    });
   }
 
   upsertNode(id: string, label: string, type: GraphNode["type"], properties: Record<string, string> = {}): void {
@@ -135,9 +197,11 @@ export class MemoryGraph {
     try {
       this.#save(this.#data);
     } catch {
-      // Retry once after 100 ms — the cleaner may be writing at this instant.
-      const snapshot = structuredClone(this.#data);
-      setTimeout(() => { try { this.#save(snapshot); } catch { /* best-effort */ } }, 100);
+      // Retry once after a brief backoff — the Rust side may be writing.
+      // ponytail: retry uses live this.#data, not snapshot — assumes single-threaded JS event loop.
+      setTimeout(() => {
+        try { this.#save(this.#data); } catch { /* best-effort */ }
+      }, 100);
     }
   }
 

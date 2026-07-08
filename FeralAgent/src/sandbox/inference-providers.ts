@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Inference providers — pluggable LLM backends for InferenceRouter.
  *
  * Each provider implements InferenceProvider, which has a single method:
@@ -115,6 +115,22 @@ export class OllamaProvider implements InferenceProvider {
     let content: string =
       (raw as { message?: { content?: string } }).message?.content ?? "";
 
+    // Reasoning models on local Ollama (qwen3, deepseek-r1, MiniMax-M3 thinking,
+    // …) return chain-of-thought in a separate `thinking` field via Ollama's
+    // `/api/chat` response when the model is in thinking mode. Without folding
+    // it back in, a turn whose visible answer is empty (all budget spent
+    // reasoning) looks like a fully empty response, and the TUI has no way to
+    // separate reasoning from answer — there are no `<think` markers in the
+    // visible content for the live thinking-splitter to find. Wrap in
+    // `<think>...</think>` tags the same way the cloud path does (and local
+    // thinking models emit), so stripThinking() and the live thinking-splitter
+    // handle it unchanged.
+    const reasoning =
+      (raw as { message?: { thinking?: string } }).message?.thinking ?? "";
+    if (reasoning) {
+      content = `<think>${reasoning}</think>${content}`;
+    }
+
     const toolCalls = (raw as { message?: { tool_calls?: any[] } }).message?.tool_calls;
     if (toolCalls && toolCalls.length > 0) {
       // Re-encode EVERY tool call (previously only [0], dropping parallel calls).
@@ -205,6 +221,35 @@ export class OllamaProvider implements InferenceProvider {
     }[] = [];
     let ollamaFinishReason: string | undefined;
 
+    // Reasoning models on local Ollama (qwen3, deepseek-r1, MiniMax-M3
+    // thinking, …) stream chain-of-thought as `message.thinking`, separate
+    // from `message.content`. Mirror the cloud path: track whether a
+    // <think> tag is open, emit the opener on first thinking chunk, the
+    // closer when content arrives (or at stream end for all-reasoning
+    // turns). Without this, the TUI has no `<think>` markers to split on
+    // and shows raw reasoning as answer text.
+    //
+    // The opener/closer are the literal six/nine-character tokens used
+    // throughout the codebase (`stripThinking`, `agent-loop.ts`,
+    // `frontend-react/src/components/chat/splitter`) for reasoning
+    // blocks. local Ollama reasoning-capable models (qwen3, deepseek-r1,
+    // MiniMax-M3 thinking, …) all stream the model that hides CoT in a
+    // separate `thinking` field. When the model doesn't run in
+    // thinking mode for a given prompt, `message.thinking` is absent
+    // and these helpers no-op — non-thinking prompts stream
+    // unchanged.
+    let inReasoning = false;
+    const emitPiece = (piece: string): void => {
+      content += piece;
+      req.onToken!(piece);
+    };
+    const closeReasoning = (): void => {
+      if (inReasoning) {
+        inReasoning = false;
+        emitPiece("</think>");
+      }
+    };
+
     try {
       const res = await fetchStream(url, body, {}, dc.signal);
       const reader = res.body!.getReader();
@@ -217,8 +262,21 @@ export class OllamaProvider implements InferenceProvider {
         let chunk: unknown;
         try { chunk = JSON.parse(trimmed); } catch { return; }
 
+        const thinkingTok =
+          (chunk as { message?: { thinking?: string } }).message?.thinking ?? "";
+        if (thinkingTok) {
+          if (!inReasoning) {
+            inReasoning = true;
+            emitPiece("<think>");
+          }
+          emitPiece(thinkingTok);
+        }
+
         const token = (chunk as { message?: { content?: string } }).message?.content ?? "";
-        if (token) { content += token; req.onToken!(token); }
+        if (token) {
+          closeReasoning();
+          emitPiece(token);
+        }
 
         const toolCalls = (chunk as { message?: { tool_calls?: any[] } }).message?.tool_calls;
         if (toolCalls) {
@@ -259,6 +317,12 @@ export class OllamaProvider implements InferenceProvider {
         for (const line of lines) processLine(line);
       }
       if (buf.trim()) processLine(buf);
+
+      // A turn can end while still inside reasoning (all-reasoning turn, or
+      // reasoning followed directly by a tool call) — close the tag so the
+      // <think> block is well-formed for stripThinking()/the frontend's live
+      // thinking-splitter.
+      closeReasoning();
 
       // Re-encode EVERY accumulated tool call (previously only [0], dropping
       // parallel calls). Appended to `content` only, NOT emitted via onToken —

@@ -655,25 +655,55 @@ fn check_token() -> Check {
     }
 }
 
-/// `feral setup` — first-run wizard. The rich wizard currently lives in the
-/// TS sidecar (`feral-agent setup`); we delegate to it so the user sees one
-/// `feral setup` regardless of where it's implemented. This is the command
-/// router pattern: when the wizard is rewritten in Rust (SP1), the user-facing
-/// `feral setup` is unchanged. Delegation is invisible — no "launching sidecar"
-/// wording leaks to the user; the wizard just runs.
+/// `feral setup` — launches the Go/Bubble Tea onboarding wizard (feral-tui).
+/// Replaces the old Bun sidecar path. The Rust side handles runtime auto-start
+/// so the TUI connects immediately. The TUI binary sits next to the CLI binary;
+/// build it with `cd tui && go build -o feral-tui.exe .`.
 pub fn setup() -> i32 {
-    let Palette { fail: FAIL, reset: RESET, .. } = palette();
-    let sidecar = match feral_core::feral_agent::find_binary(&[]) {
-        Some(p) => p,
-        None => {
-            eprintln!("{FAIL}feral: runtime component not found — reinstall feral-agent{RESET}");
+    // Auto-start the gateway if not already running (same as `feral chat`).
+    let port = api_port();
+    if !port_in_use(port) {
+        let Palette { meta: META, reset: RESET, .. } = palette();
+        println!("\n  {META}Runtime not running. Starting...{RESET}");
+        let code = gateway_start();
+        if code != 0 {
+            eprintln!("feral: could not start the runtime — run `feral doctor` to diagnose.");
+            return code;
+        }
+        for _ in 0..20 {
+            if port_in_use(port) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        if !port_in_use(port) {
+            eprintln!("feral: runtime started but not listening on port {port} after 4s");
             return 1;
         }
-    };
-    // Inherit stdio (default) so the interactive wizard reads the user's answers.
-    match std::process::Command::new(&sidecar).arg("setup").status() {
+    }
+
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let tui_bin = exe_dir.join("feral-tui.exe");
+
+    if !tui_bin.exists() {
+        eprintln!("feral: TUI binary not found at {}", tui_bin.display());
+        eprintln!("       build it with: cd tui && go build -o feral-tui.exe .");
+        return 1;
+    }
+
+	match std::process::Command::new(&tui_bin)
+		.arg("--wizard")
+		.stdin(std::process::Stdio::inherit())
+		.stdout(std::process::Stdio::inherit())
+		.stderr(std::process::Stdio::inherit())
+		.status()
+    {
         Ok(s) => s.code().unwrap_or(0),
         Err(e) => {
+            let Palette { fail: FAIL, reset: RESET, .. } = palette();
             eprintln!("{FAIL}feral: setup failed to start: {e}{RESET}");
             1
         }

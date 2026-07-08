@@ -7,11 +7,13 @@ import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
 import { useSettings } from '@/stores/settings';
 import { useOnboarding } from '@/stores/onboarding';
+import { useCatalog } from '@/stores/catalog';
 
 vi.mock('@/stores/systemInfo', () => ({ useSystemInfo: vi.fn() }));
 vi.mock('@/stores/download', () => ({ useDownload: vi.fn() }));
 vi.mock('@/stores/settings', () => ({ useSettings: vi.fn() }));
 vi.mock('@/stores/onboarding', () => ({ useOnboarding: vi.fn() }));
+vi.mock('@/stores/catalog', () => ({ useCatalog: vi.fn() }));
 
 const mockStart = vi.fn();
 const mockSave = vi.fn();
@@ -29,6 +31,21 @@ beforeEach(() => {
     sel({ saveByokProvider: mockSave, testByokProvider: vi.fn() }),
   );
   vi.mocked(useOnboarding).mockImplementation((sel: any) => sel({ finish: vi.fn() }));
+  // Phase 1 — CloudBranch now reads from the catalog store instead of
+  // calling tauri.raw.providerCatalog() inline. Pretend the gateway was
+  // reachable with one canned entry; the test then exercises both the
+  // curated card path (OpenAI matches) and (implicitly) the generic
+  // catalog-only path.
+  vi.mocked(useCatalog).mockImplementation((sel: any) =>
+    sel({
+      providerCatalog: [
+        { id: 'openai', name: 'OpenAI', provider: 'openai', default_base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', supports_custom_base_url: true, auth_style: 'bearer' },
+      ],
+      providerLoaded: true,
+      providerError: null,
+      loadProvider: vi.fn(),
+    }),
+  );
 });
 
 const renderStep = () => render(<MemoryRouter><ProviderStep /></MemoryRouter>);

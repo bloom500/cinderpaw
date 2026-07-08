@@ -2,6 +2,7 @@ package app
 
 import (
 	"feral-tui/api"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -246,7 +247,7 @@ func TestFormatRuntimeEventDreamCycle(t *testing.T) {
 		{ev: api.RuntimeEvent{Kind: "connector_event", Message: "telegram: reply sent to @dan"}, want: "telegram: reply sent to @dan"},
 		{ev: api.RuntimeEvent{Kind: "model_set", Model: "gpt-4o"}, want: "routed to gpt-4o"},
 		{ev: api.RuntimeEvent{Kind: "model_set", Model: "stepfun-ai/step-3.7-flash"}, want: "routed to step-3.7-flash"},
-		{ev: api.RuntimeEvent{Kind: "fallback", Message: "primary unreachable, switching to local"}, want: "⚠ primary unreachable, switching to local"},
+		{ev: api.RuntimeEvent{Kind: "fallback", Message: "primary unreachable, switching to local"}, want: "✗ primary unreachable, switching to local"},
 		// Unknown kind — forward-compatible fallback to Message
 		{ev: api.RuntimeEvent{Kind: "unknown_new_feature", Message: "something happened"}, want: "something happened"},
 	}
@@ -429,45 +430,49 @@ func TestToolResultBudget(t *testing.T) {
 	}
 }
 
-// TestWizardFlow — spec §22 acceptance #22-24: wizard flow, resume, key validation.
+// TestWizardFlow — P1 4-screen flow: Engine probe stays on-screen, Local
+// pick + Enter starts the download.
 func TestWizardFlow(t *testing.T) {
 	a := newTestApp()
-
-	// Start wizard.
 	a.startWizard()
 	if !a.Wizard.Show {
 		t.Fatal("startWizard should set Show=true")
 	}
-	if a.Wizard.Step != WizModelChoice {
-		t.Fatalf("expected WizModelChoice after hardware probe, got %v", a.Wizard.Step)
+	a.Wizard.SetupMode = SetupManual
+	a.Wizard.Step = WizHardware
+	a.Wizard.Path = wizardBasePath()
+	a.Wizard.PathIndex = 1
+	a.Update(HardwareProbeMsg{Info: &api.SystemInfo{
+		GpuName: "rtx 4070", VramTotalMB: 12 * 1024, RamTotalMB: 64 * 1024,
+	}})
+	// P1: the probe result stays on the Engine screen (no auto-advance).
+	if a.Wizard.Step != WizHardware {
+		t.Fatalf("expected to stay on Engine (WizHardware), got %v", a.Wizard.Step)
 	}
-
-	// Select local.
-	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
 	if a.Wizard.Choice != WizChoiceLocal {
-		t.Fatal("key 1 should select local")
+		t.Fatal("GPU probe should pre-select Local")
 	}
+	// Select local + Enter → download screen.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
 	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if a.Wizard.Step != WizLocalDownload {
 		t.Fatalf("expected WizLocalDownload after enter, got %v", a.Wizard.Step)
 	}
-
-	// Simulate download progress.
 	a.Wizard.Progress = 0.5
-	a.Wizard.ProgressMsg = "downloading — 3 minutes"
-	content := a.renderWizard()
-	if content == "" {
+	if a.renderWizard() == "" {
 		t.Fatal("wizard render should not be empty")
 	}
 }
 
-// TestWizardCloudKeyValidation — spec §22 acceptance #24.
+// TestWizardCloudKeyValidation — P1: key validate → save → health checks.
 func TestWizardCloudKeyValidation(t *testing.T) {
 	a := newTestApp()
 	a.startWizard()
 	a.Wizard.Choice = WizChoiceCloud
 	a.Wizard.Step = WizCloudKey
 	a.Wizard.Provider = "openai"
+	a.Wizard.Path = wizardPathFor(WizChoiceCloud)
+	a.Wizard.PathIndex = pathIndexOf(&a.Wizard, WizCloudKey)
 
 	// Enter with empty key: noop.
 	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -475,49 +480,44 @@ func TestWizardCloudKeyValidation(t *testing.T) {
 		t.Fatal("enter with empty key should stay on WizCloudKey")
 	}
 
-	// Type a key.
+	// Paste a key (multi-rune burst).
 	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("sk-xxxx")})
 	if a.Wizard.APIKey != "sk-xxxx" {
 		t.Fatalf("expected APIKey=sk-xxxx, got %q", a.Wizard.APIKey)
 	}
 
-	// Enter validates.
-	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if !a.Wizard.KeyValid {
-		t.Fatal("enter should validate key")
+	cmd := a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter should trigger the async provider test")
 	}
-	if a.Wizard.Step != WizConnectors {
-		t.Fatalf("expected WizConnectors after key val, got %v", a.Wizard.Step)
+	a.Update(ProvidersTestMsg{Success: true, Msg: "Connection successful"})
+	if !a.Wizard.KeyValid {
+		t.Fatal("enter should validate key (after ProvidersTestMsg)")
+	}
+	if a.Wizard.Step != WizTestIt {
+		t.Fatalf("expected WizTestIt (health checks) after key val, got %v", a.Wizard.Step)
 	}
 }
 
-// TestWizardConnectorPrompt — confirms W4 Enter goes to prompt, Y/n advances.
-func TestWizardConnectorPrompt(t *testing.T) {
+// TestWizardKeyScreenChangeProvider — P1: `p` on the empty key field returns
+// to the provider picker (no more per-step Esc/w.Step-- hacks).
+func TestWizardKeyScreenChangeProvider(t *testing.T) {
 	a := newTestApp()
 	a.startWizard()
-	a.Wizard.Step = WizConnectors
-	a.Wizard.connectorIdx = 0
+	a.Wizard.Choice = WizChoiceCloud
+	a.Wizard.Provider = "openai"
+	a.Wizard.Path = wizardPathFor(WizChoiceCloud)
+	a.Wizard.Step = WizCloudKey
+	a.Wizard.PathIndex = pathIndexOf(&a.Wizard, WizCloudKey)
 
-	// Enter with Discord selected.
-	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if a.Wizard.Step != WizConnectorPrompt {
-		t.Fatalf("expected WizConnectorPrompt, got %v", a.Wizard.Step)
-	}
-	if a.Wizard.ConnectorSelected != "Discord" {
-		t.Fatalf("expected ConnectorSelected=Discord, got %q", a.Wizard.ConnectorSelected)
-	}
-
-	// Press Y → connecting → WizFinish.
-	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
-	if !a.Wizard.Connecting {
-		t.Fatal("Y should set Connecting=true")
-	}
-	if a.Wizard.Step != WizFinish {
-		t.Fatalf("expected WizFinish after Y, got %v", a.Wizard.Step)
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	if a.Wizard.Step != WizCloudProvider {
+		t.Fatalf("p on empty key field should return to provider picker, got %v", a.Wizard.Step)
 	}
 }
 
-// TestWizardWelcomeMoment — finishWizard adds welcome turn to transcript.
+// TestWizardWelcomeMoment — finishWizard pre-fills the try-this suggestion
+// (P1), it no longer injects a transcript turn.
 func TestWizardWelcomeMoment(t *testing.T) {
 	a := newTestApp()
 	a.startWizard()
@@ -526,14 +526,8 @@ func TestWizardWelcomeMoment(t *testing.T) {
 	if a.Wizard.Show {
 		t.Fatal("finishWizard should hide wizard")
 	}
-	if len(a.Turns) != 1 {
-		t.Fatalf("expected 1 welcome turn, got %d", len(a.Turns))
-	}
-	if a.Turns[0].Role != RoleAssistant {
-		t.Fatalf("welcome turn should be assistant")
-	}
-	if !strings.Contains(a.Turns[0].Text, "Welcome to Feral") {
-		t.Fatalf("welcome turn missing 'Welcome to Feral', got %q", a.Turns[0].Text)
+	if got := a.Input.Value(); got != "summarize the files in this folder" {
+		t.Fatalf("finishWizard should pre-fill the suggestion, got %q", got)
 	}
 }
 
@@ -599,5 +593,211 @@ func TestRuntimeEventAppendsDirectlyWhenIdle(t *testing.T) {
 	}
 	if len(a.RuntimeEvents) != 1 {
 		t.Fatalf("expected 1 rendered event, got %d", len(a.RuntimeEvents))
+	}
+}
+
+// ── E2E wizard flow tests ──────────────────────────────────────
+
+// TestWizardE2ECloudPath — P1 4-screen cloud walkthrough: Welcome → Engine →
+// cloud form (provider+key, one screen 3) → Ready.
+func TestWizardE2ECloudPath(t *testing.T) {
+	a := newTestApp()
+	clearWizardProgress()
+	a.startWizard()
+	a.Wizard.HasExistingConfig = false
+
+	// Screen 1: Welcome — Quick start (idx 0) → Engine.
+	assertStep(t, a, WizWelcome, "startWizard")
+	a.Wizard.SetupModeIdx = 0
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	assertStep(t, a, WizHardware, "Welcome→Engine")
+	if a.State != StateDetectingHardware {
+		t.Fatal("enterEngine should set StateDetectingHardware")
+	}
+
+	// Screen 2: Engine — probe result stays on-screen; pick Cloud.
+	a.Update(HardwareProbeMsg{Info: &api.SystemInfo{
+		GpuName: "rtx 4070", VramTotalMB: 12 * 1024, RamTotalMB: 64 * 1024,
+	}})
+	assertStep(t, a, WizHardware, "probe stays on Engine")
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if a.Wizard.Choice != WizChoiceCloud {
+		t.Fatal("'2' should select Cloud")
+	}
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	assertStep(t, a, WizCloudProvider, "Engine→CloudProvider")
+
+	// Screen 3b: provider Enter (openai idx 0) → key field.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	assertStep(t, a, WizCloudKey, "CloudProvider→CloudKey")
+	if a.Wizard.Provider != "openai" {
+		t.Fatalf("expected Provider=openai, got %q", a.Wizard.Provider)
+	}
+	if a.Wizard.ModelID != "gpt-4o" {
+		t.Fatalf("expected ModelID=gpt-4o, got %q", a.Wizard.ModelID)
+	}
+
+	// Paste key + Enter → validation cmd.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("sk-test-key-12345")})
+	if a.Wizard.APIKey != "sk-test-key-12345" {
+		t.Fatalf("expected APIKey, got %q", a.Wizard.APIKey)
+	}
+	cmd := a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter with key should return validation cmd")
+	}
+	assertStep(t, a, WizCloudKey, "still on CloudKey during validation")
+
+	// Validation success → auto health checks (WizTestIt, same visible screen).
+	a.Update(ProvidersTestMsg{Success: true, Msg: "ok"})
+	assertStep(t, a, WizTestIt, "ProviderTest→TestIt")
+	if !a.Wizard.KeyValid {
+		t.Fatal("successful provider test should set KeyValid")
+	}
+	if !a.Wizard.TestItRunning {
+		t.Fatal("checks should auto-run after key save")
+	}
+
+	// Health check success → auto-advance to Ready.
+	a.Update(WizardTestItResult{
+		Response: "FERAL_OK", HealthLatency: 350 * time.Millisecond,
+		StreamLatency: 1800 * time.Millisecond, StreamVerified: true,
+	})
+	if !a.Wizard.TestItSucceeded {
+		t.Fatal("health check success should set TestItSucceeded")
+	}
+	assertStep(t, a, WizFinish, "TestIt→Ready (auto)")
+	if a.Wizard.HealthCheckLatency != 350*time.Millisecond {
+		t.Fatalf("expected HealthCheckLatency=350ms, got %v", a.Wizard.HealthCheckLatency)
+	}
+
+	// Ready: Enter finishes and pre-fills the suggestion.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.Wizard.Show {
+		t.Fatal("finishWizard should hide wizard")
+	}
+	if a.State != StateReady {
+		t.Fatal("finishWizard should set State=Ready")
+	}
+	if a.Input.Value() != "summarize the files in this folder" {
+		t.Fatalf("Ready should pre-fill suggestion, got %q", a.Input.Value())
+	}
+}
+
+// TestWizardE2ELocalPath — P1 4-screen local walkthrough: Welcome → Engine →
+// download+verify (screen 3) → Ready.
+func TestWizardE2ELocalPath(t *testing.T) {
+	a := newTestApp()
+	clearWizardProgress()
+	a.startWizard()
+	a.Wizard.HasExistingConfig = false
+
+	a.Wizard.SetupModeIdx = 0
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	assertStep(t, a, WizHardware, "Welcome→Engine")
+
+	// Engine: GPU probe pre-selects Local; Enter → download.
+	a.Update(HardwareProbeMsg{Info: &api.SystemInfo{
+		GpuName: "rtx 4070", VramTotalMB: 12 * 1024, RamTotalMB: 64 * 1024,
+	}})
+	if a.Wizard.Choice != WizChoiceLocal {
+		t.Fatal("GPU probe should pre-select Local")
+	}
+	cmd := a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	assertStep(t, a, WizLocalDownload, "Engine→LocalDownload")
+	if cmd == nil {
+		t.Fatal("local Enter should return download cmd")
+	}
+	if a.Wizard.ModelID == "" {
+		t.Fatal("ModelID should be set by startWizard")
+	}
+
+	a.Update(DownloadStartedMsg{ID: "e2e-test-dl"})
+	if a.Wizard.DownloadID != "e2e-test-dl" {
+		t.Fatalf("expected DownloadID=e2e-test-dl, got %q", a.Wizard.DownloadID)
+	}
+	a.Update(DownloadModelMsg{
+		Download: &api.ModelDownload{ID: "e2e-test-dl", Status: "complete", Progress: 1.0},
+	})
+	assertStep(t, a, WizTestIt, "Download complete→TestIt")
+	if !a.Wizard.TestItRunning {
+		t.Fatal("download complete should start health check")
+	}
+
+	a.Update(WizardTestItResult{
+		Response: "FERAL_OK", HealthLatency: 450 * time.Millisecond,
+		StreamLatency: 2200 * time.Millisecond, StreamVerified: true,
+	})
+	if !a.Wizard.TestItSucceeded {
+		t.Fatal("health check should succeed")
+	}
+	assertStep(t, a, WizFinish, "TestIt→Ready (auto)")
+
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.Wizard.Show {
+		t.Fatal("finishWizard should hide wizard")
+	}
+	if a.State != StateReady {
+		t.Fatal("finishWizard should set State=Ready")
+	}
+}
+
+// TestWizardE2EHealthCheckFailure — failure → retry → continue anyway (P0.9:
+// "continue anyway" sets TestItSkipped, not Succeeded).
+func TestWizardE2EHealthCheckFailure(t *testing.T) {
+	a := newTestApp()
+	a.startWizard()
+
+	a.Wizard.Step = WizTestIt
+	a.Wizard.TestItRunning = true
+	a.Wizard.Choice = WizChoiceCloud
+	a.Wizard.Provider = "openai"
+	a.Wizard.APIKey = "sk-test"
+	a.Wizard.KeyValid = true
+	a.Wizard.Path = wizardPathFor(WizChoiceCloud)
+	a.Wizard.PathIndex = pathIndexOf(&a.Wizard, WizTestIt)
+
+	a.Update(WizardTestItResult{Response: "", Err: fmt.Errorf("stream timeout after 60s")})
+	if a.Wizard.TestItSucceeded {
+		t.Fatal("should NOT succeed on error")
+	}
+	if a.Wizard.TestItError == "" {
+		t.Fatal("TestItError should be set on failure")
+	}
+	assertStep(t, a, WizTestIt, "should stay on TestIt after failure")
+
+	a.Wizard.TestItRunning = false
+	a.Update(WizardTestItResult{Response: "", Err: fmt.Errorf("stream timeout after 60s")})
+	if a.Wizard.TestItAttempts != 2 {
+		t.Fatalf("expected TestItAttempts=2, got %d", a.Wizard.TestItAttempts)
+	}
+
+	// 's' → continue anyway → Skipped, advance to Ready.
+	a.Wizard.TestItRunning = false
+	cmd := a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	assertStep(t, a, WizFinish, "Skip→Finish")
+	if cmd != nil {
+		t.Fatal("skip should return nil cmd")
+	}
+	if !a.Wizard.TestItSkipped {
+		t.Fatal("continue anyway should set TestItSkipped=true")
+	}
+	if a.Wizard.TestItSucceeded {
+		t.Fatal("continue anyway must NOT set TestItSucceeded")
+	}
+
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if a.Wizard.Show {
+		t.Fatal("finishWizard should hide wizard even after skip")
+	}
+}
+
+
+// assertStep is a helper that checks the wizard step and prints a friendly
+// label on failure.
+func assertStep(t *testing.T, a *App, expected WizardStep, label string) {
+	t.Helper()
+	if a.Wizard.Step != expected {
+		t.Fatalf("[%s] expected step %v, got %v", label, expected, a.Wizard.Step)
 	}
 }

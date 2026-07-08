@@ -60,10 +60,14 @@ Also includes the STT key for cloud transcription.
 | `src-tauri/src/byok.rs:237-242`               | RD  | `byok_get(provider_id)` → `get_password()`                             |
 | `src-tauri/src/byok.rs:248-252`               | RD  | `std::fs::read(byok.json)` — metadata only (no key on disk)            |
 | `src-tauri/src/byok.rs:256-263`               | WR  | migration path: legacy plaintext in byok.json → keychain               |
-| `src-tauri/src/byok.rs:272-276`               | WR  | `std::fs::remove_file(&path)` — delete legacy byok.json after migration|
+| `src-tauri/src/byok.rs:269-276`               | WR  | `std::fs::remove_file(&path)` — delete legacy byok.json after migration|
 | `src-tauri/src/byok.rs:289-296`               | WR  | `save()` → `byok_set` per provider + `write_metadata`                  |
 | `src-tauri/src/byok.rs:302-310`               | WR  | `remove_provider()` → `clear_key` + flip `enabled=false` in metadata   |
 | `src-tauri/src/byok.rs:323-326`               | WR  | `write_metadata()` → `byok.json` (api_key is `skip_serializing`)       |
+| `crates/feral-core/src/byok.rs:506-518`       | WR  | `save_provider(id, config)` — Phase 0b (2026-07-07) single-provider write used by `/runtime/byok/save`. Empty `api_key` skips the keychain write; metadata still goes to byok.json. Wraps `byok_set` + `load_metadata` + `write_metadata`. |
+| `crates/feral-core/src/api.rs:1030-1108`      | WR+RD | `POST /runtime/byok/save` (Phase 0b) — headless wizard's atomic key+metadata write. Body `{provider_id, enabled, api_key, base_url?, default_model?}`. Empty `api_key` is the explicit "leave keychain entry untouched" path. Walks the `anyhow::Error` chain to classify `keyring::Error` variants into typed 4xx (Bad Request for `TooLong`/`Invalid`) or 5xx (Service Unavailable for `NoStorageAccess`/`PlatformFailure`). Response never echoes the key. |
+| `tui/api/client.go:525-619`                   | WR+RD+NET | `SaveByokKey(baseURL, token, providerID, apiKey, baseURLOpt, defaultModelOpt)` — Phase 0b TUI client. POSTs to `/runtime/byok/save`. Bearer-token auth. `api_key` reaches the server verbatim (over loopback bearer-gated channel) and is never logged or surfaced in the typed result. Optional fields omitted via `*string` nil. |
+| `tui/app/update.go:1689-1759`                 | WR+RD+NET | `saveCloudProvider()` — wired (Phase 0b) so the validated wizard state is persisted through one atomic `SaveByokKey` call (key + metadata) before `SetModel` flips the runtime to the chosen provider. Empty-key guard rejects early. |
 | `src-tauri/src/lib.rs:1532`                   | RD+NET | `byok::byok_get(&provider)` then `Authorization: Bearer …` to Groq     |
 | `src-tauri/src/lib.rs:1564`                   | RD+NET | `byok::byok_get(provider)` — used for STT call (Bearer header)         |
 | `src-tauri/src/lib.rs:1826-1834`              | RD+NET | `test_byok_provider` — GET /models with provider's auth header         |

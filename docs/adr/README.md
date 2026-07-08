@@ -17,6 +17,7 @@ that supersedes the old one. Don't edit ADRs in place.
 | [0006](0006-append-only-provenance-graph.md) | Append-only provenance graph | Accepted | 2026-06-30 |
 | [0007](0007-trust-boundary-rust-immutable-scorer.md) | Trust boundary: Rust-immutable scorer | Accepted | 2026-06-30 |
 | [0008](0008-evolution-runtime-as-dag.md) | Evolution runtime as a DAG, not layers | Accepted | 2026-06-30 |
+| [0013](0013-ai-guided-onboarding.md) | AI-Guided Onboarding with Domain-Event Contracts | Accepted | 2026-07-05 |
 
 ## Format
 

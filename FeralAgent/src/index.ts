@@ -24,6 +24,8 @@ import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
+import { getCurrentTask, getLastActive } from "./memory/resume.ts";
+import { getActiveWorkspaceId, getWorkspace } from "./memory/workspaces.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
 import { createWriteFileTool } from "./tools/builtin/write-file.ts";
@@ -1191,6 +1193,35 @@ export async function main(transportOverride?: Transport): Promise<void> {
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "history", ok: true, history: metaEvolution.history() });
         break;
 
+      // Sprint 1.6 — Memory Resume. Read-only — never writes memory. Used by
+      // the React `WelcomeBack` banner and the TUI last-task row. The handler
+      // looks up `current_task` + `active_workspace_id` + `last_active_at` in
+      // `meta` and joins the workspace name from `workspaces`. On first launch
+      // every field is null and the host renders "fresh start" copy.
+      case "resume_get": {
+        const task = getCurrentTask(db.raw);
+        const workspaceId = getActiveWorkspaceId(db.raw);
+        const workspaceName = workspaceId
+          ? getWorkspace(db.raw, workspaceId)?.name ?? null
+          : null;
+        const lastActiveAt = getLastActive(db.raw);
+        transport.send({
+          type: "resume_get_result",
+          id: msg.id ?? "",
+          task: task
+            ? {
+                title: task.title,
+                ts: task.ts,
+                workspace_id: task.workspaceId ?? null,
+              }
+            : null,
+          workspace_id: workspaceId,
+          workspace_name: workspaceName,
+          last_active_at: lastActiveAt,
+        });
+        break;
+      }
+
       // Faza 2 Slice 5 — the code-patch approval gate. Store + apply live in
       // `pending-patches.ts`; this is only the IPC seam. Live apply needs the
       // real source repo (dev-mode knob FERAL_CODE_RSI_REPO); without it an
@@ -1901,7 +1932,10 @@ function log(message: string): void {
 // The process is started in one of three ways:
 //   1. By the Tauri host (no args) → default → main() with TauriTransport.
 //   2. By the user via `feral chat`  → TUI mode → main() with TuiTransport.
-//   3. By the user via `feral setup` → standalone wizard, no agent needed.
+//   3. By the user via `feral setup` / `feral-agent setup` → the headless
+//      wildcard handler redirects to the canonical `feral setup` (the Rust
+//      CLI, which launches the Go/Bubble Tea wizard). The on-board wizard
+//      code has been removed from this binary; nothing here configures Feral.
 //   4. By the user via `feral help/version` → print and exit.
 //
 // Dynamic imports break the circular dependency between index.ts and
@@ -1937,11 +1971,21 @@ if (import.meta.main) {
           break;
         }
         case "setup": {
-          const { runSetup } = await import("./tui/setup.ts");
-          await runSetup().catch((err: unknown) => {
-            log(`setup error: ${err instanceof Error ? err.message : String(err)}`);
-            process.exit(1);
-          });
+          // Phase 0a (2026-07-07): the on-board wizard lives in the
+          // headless `feral` (Rust) CLI's `--wizard` flow, which launches
+          // the Go/Bubble Tea TUI. `feral-agent setup` (this branch) used
+          // to run a hardcoded-Anthropic wizard that silently dropped
+          // keys; that surface is gone. Print exactly three lines so
+          // that scripted consumers (e.g. CI smoke tests that run the
+          // sidecar binary directly) see the canonical command and stop.
+          // See `docs/superpowers/specs/2026-07-03-sp0-unify-feral-cli-design.md`
+          // for the canonical command path.
+          console.error(
+            "feral-agent setup has moved.\n" +
+              "Run \`feral setup\` instead (the Rust CLI launches the same wizard).\n" +
+              "Docs: docs/superpowers/specs/2026-07-03-sp0-unify-feral-cli-design.md",
+          );
+          process.exit(2);
           break;
         }
         case "models":

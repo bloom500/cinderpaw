@@ -1,0 +1,127 @@
+[
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "provider": "openai",
+    "default_base_url": "https://api.openai.com/v1",
+    "default_model": "gpt-4o",
+    "console_url": "https://platform.openai.com/api-keys",
+    "key_format": "sk-",
+    "key_format_hint": "Begins with sk-…",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "provider": "anthropic",
+    "default_base_url": "https://api.anthropic.com/v1",
+    "default_model": "claude-sonnet-4-20250514",
+    "console_url": "https://console.anthropic.com/settings/keys",
+    "key_format": "sk-ant-",
+    "key_format_hint": "Begins with sk-ant-…",
+    "free_tier_note": "Free trial credits — no card required.",
+    "supports_custom_base_url": false,
+    "auth_style": "x_api_key"
+  },
+  {
+    "id": "google",
+    "name": "Google Gemini",
+    "provider": "google",
+    "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "default_model": "gemini-2.0-flash",
+    "console_url": "https://aistudio.google.com/apikey",
+    "free_tier_note": "Free tier: 15 req/min, 1500 req/day.",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "kimi",
+    "name": "Kimi (Moonshot AI)",
+    "provider": "kimi",
+    "default_base_url": "https://api.kimi.com/coding/v1",
+    "default_model": "moonshot-v1-8k",
+    "console_url": "https://platform.moonshot.ai/console/api-keys",
+    "supports_custom_base_url": false,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "glm",
+    "name": "GLM (Zhipu)",
+    "provider": "glm",
+    "default_base_url": "https://api.z.ai/api/coding/paas/v4",
+    "default_model": "glm-4-plus",
+    "console_url": "https://bigmodel.cn/console/overview",
+    "supports_custom_base_url": false,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "minimax",
+    "name": "MiniMax",
+    "provider": "minimax",
+    "default_base_url": "https://api.minimax.io/v1",
+    "default_model": "MiniMax-M3",
+    "console_url": "https://api.minimax.io/user-center/basic-information/api-keys",
+    "supports_custom_base_url": false,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "provider": "groq",
+    "default_base_url": "https://api.groq.com/openai/v1",
+    "default_model": "llama-3.1-70b-versatile",
+    "console_url": "https://console.groq.com/keys",
+    "key_format": "gsk_",
+    "key_format_hint": "Begins with gsk_…",
+    "free_tier_note": "Free tier: 30 req/min for most models.",
+    "supports_custom_base_url": false,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral AI",
+    "provider": "mistral",
+    "default_base_url": "https://api.mistral.ai/v1",
+    "default_model": "mistral-large-latest",
+    "console_url": "https://console.mistral.ai/api-keys",
+    "supports_custom_base_url": false,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "provider": "deepseek",
+    "default_base_url": "https://api.deepseek.com/v1",
+    "default_model": "deepseek-chat",
+    "console_url": "https://platform.deepseek.com/api_keys",
+    "supports_custom_base_url": false,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "provider": "openrouter",
+    "default_base_url": "https://openrouter.ai/api/v1",
+    "default_model": "openai/gpt-4o",
+    "console_url": "https://openrouter.ai/keys",
+    "key_format": "sk-or-",
+    "key_format_hint": "Begins with sk-or-…",
+    "free_tier_note": "Free credits on signup; per-model pay-as-you-go.",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "nvidia",
+    "name": "NVIDIA NIM",
+    "provider": "nvidia",
+    "default_base_url": "https://integrate.api.nvidia.com/v1",
+    "default_model": "stepfun-ai/step-3.7-flash",
+    "console_url": "https://build.nvidia.com/settings/api-keys",
+    "key_format": "nvapi-",
+    "key_format_hint": "Begins with nvapi-…",
+    "free_tier_note": "Free tier: 1000 req/month on most hosted models.",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  }
+]

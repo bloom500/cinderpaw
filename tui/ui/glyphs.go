@@ -25,6 +25,9 @@ type GlyphSet struct {
 	Up          string // ↑  / ^
 	Ellipsis    string // …  / ...
 	Cursor      string // ▍  / |
+	Stream      string // ▌  / |  (streaming cursor indicator)
+	Timer       string // ⏱  / t:  (elapsed timer glyph)
+	Stalled     string // ⏳  / ...  (stalled/thinking indicator)
 	Spinner     []string
 }
 
@@ -33,6 +36,7 @@ var Unicode = GlyphSet{
 	On: "●", Off: "○", Event: "◦", Spark: "✻", OK: "✓", Err: "✗",
 	Running: "⠿",
 	Down: "↓", Up: "↑", Ellipsis: "…", Cursor: "▍",
+	Stream: "▌", Timer: "⏱", Stalled: "⏳",
 	Spinner: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 }
 
@@ -41,6 +45,7 @@ var Ascii = GlyphSet{
 	On: "o", Off: ".", Event: "-", Spark: "*", OK: "ok", Err: "x",
 	Running: "|",
 	Down: "v", Up: "^", Ellipsis: "...", Cursor: "|",
+	Stream: "|", Timer: "t:", Stalled: "...",
 	Spinner: []string{"|", "/", "-", "\\"},
 }
 

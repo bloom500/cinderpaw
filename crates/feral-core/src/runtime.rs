@@ -11,12 +11,14 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use serde::Serialize;
 
 use crate::host::HostEvent;
 use crate::inference::ModelManager;
 use crate::rsi;
 use crate::rsi::runtime::{GoodhartSlot, RsiEngineState, RsiRequestRegistry};
 use crate::settings::Settings;
+use std::collections::HashMap;
 
 /// Why the next sidecar exit is expected. Whoever kills the child on
 /// purpose sets this BEFORE `start_kill()`; the supervisor takes it on
@@ -111,6 +113,32 @@ pub struct RuntimeState {
     /// A `broadcast::Sender` is always present so any host can subscribe even
     /// before a sink is wired — subscribers just see nothing until events flow.
     pub events_tx: tokio::sync::broadcast::Sender<HostEvent>,
+
+    /// Sprint 2 / audit C-5 — in-flight model downloads keyed by
+    /// download id (uuid v4). Each entry carries the latest progress the
+    /// download task forwarded via its mpsc channel, plus the final
+    /// status when it lands (`Ok`, `Failed`, `Cancelled`). The wizard's
+    /// `W3a` step polls `/runtime/models/download/:id` for updates — no
+    /// SSE needed on the TUI side, the gateway already streams via SSE
+    /// on `/events` if a richer view is wanted later.
+    pub model_downloads: Arc<Mutex<HashMap<String, ModelDownload>>>,
+}
+
+/// Snapshot of an in-flight model download. Surfaced by
+/// `GET /runtime/models/download/:id`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelDownload {
+    pub id: String,
+    pub repo_id: String,
+    pub filename: String,
+    /// 0.0 ..= 1.0. The download task emits per-percent updates; the
+    /// gateway stores only the latest, so the client never sees a
+    /// stale snapshot.
+    pub progress: f32,
+    /// One of `"downloading"`, `"complete"`, `"failed"`, `"cancelled"`.
+    pub status: String,
+    /// Populated when `status == "failed"`.
+    pub error: Option<String>,
 }
 
 impl RuntimeState {
@@ -132,6 +160,7 @@ impl RuntimeState {
             rsi_request_registry: RsiRequestRegistry::default(),
             active_agent_model: Arc::new(Mutex::new(None)),
             shutdown: Arc::new(tokio::sync::Notify::new()),
+            model_downloads: Arc::new(Mutex::new(HashMap::new())),
             events_tx,
         }
     }

@@ -936,11 +936,25 @@ export interface InboundMessage {
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
+    // Sprint 1.6 — Memory Resume. The host asks for the persisted
+    // `current_task` + active workspace + last-active timestamp; the sidecar
+    // replies with one `resume_get_result` paired by `id`. Powers the React
+    // WelcomeBack banner + TUI last-task row. Reads from `meta` + `workspaces`
+    // only — never writes, so no migration needed on the inbound path.
+    | "resume_get"
     // Bridge response delivery — every `rsi_request` the sidecar emits
     // is paired with exactly one `rsi_response` line by Rust. Routed
     // to `RsiBridge.onResponse` in the sidecar.
-    | "rsi_response";
+      | "rsi_response"
+      // Onboarding mode (Etapa 1): host asks the sidecar to prepare an
+      // onboarding profile and session. The sidecar replies with status
+      // events and awaits config tools on the special session.
+      | "start_onboarding"
+      // Onboarding confirmation response: the user's answer to a
+      // `confirmation_required` event. `ok` true = allow the gated tool.
+      | "tool_confirmation_response";
   id?: string;
+
   content?: string;
   sessionId?: string;
   /** RSI start payload (type === "rsi_start"). */
@@ -1108,6 +1122,20 @@ export type OutboundEvent =
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }
+  // Sprint 1.6 — Memory Resume reply. Mirrors the Rust `LastTaskView`
+  // wire shape (snake_case keys): `task` is null on first launch,
+  // `workspace_id` + `workspace_name` are the active workspace,
+  // `last_active_at` is the unix-ms of the most recent turn. The Tauri
+  // command `get_last_task` and the gateway `/runtime/resume` route
+  // both deserialize this shape verbatim.
+  | {
+      type: "resume_get_result";
+      id: string;
+      task: { title: string; ts: number; workspace_id?: string | null } | null;
+      workspace_id: string | null;
+      workspace_name: string | null;
+      last_active_at: number | null;
+    }
   // PROVISIONAL — temporary progress + result events for the Settings
   // Fractal Benchmark button. The sidecar emits any number of
   // `fractal_bench_progress` lines while the bench runs (so the panel
@@ -1262,7 +1290,58 @@ export type OutboundEvent =
       iterations?: number;
       ratchets?: number;
       stopReason?: string;
-    };
+    }
+  // ─── AI-Guided Onboarding (Etapa 1, ADR-0013) ─────────────────────────────
+  // Domain events emitted by the config tools in tools/builtin/config/. The
+  // TUI renders each directly (no generic "config_changed" parsing) so the
+  // onboarding chat can show "provider added", "connector connected",
+  // "download 47%", etc. as concise status lines and cards.
+  //
+  // Every config tool is gated by a `confirmation_required` ↔
+  // `tool_confirmation_response` round-trip (see the gate in agent-loop's
+  // #run): the model proposes, the user approves, the tool executes, the
+  // domain event fires. The `requestId` correlates the request with the
+  // user's reply.
+  // Provider config.
+  | { type: "provider_added"; id: string; model?: string }
+  | { type: "provider_removed"; id: string }
+  | { type: "provider_validated"; id: string; ok: boolean; error?: string; models?: string[] }
+  | { type: "provider_validation_failed"; id: string; error: string }
+  // Connector lifecycle. `qrPending` lets the TUI render a QR placeholder
+  // until the backend returns the real payload.
+  | { type: "connector_configured"; id: string; enabled: boolean; qrPending?: boolean }
+  | { type: "connector_connected"; id: string }
+  | { type: "connector_disconnected"; id: string }
+  | { type: "connector_connection_failed"; id: string; error: string }
+  // Memory mode (private | hybrid | cloud).
+  | { type: "memory_mode_changed"; mode: "private" | "hybrid" | "cloud" }
+  // Permission gate toggle (e.g. "shell_exec", "computer_use", "desktop_notify").
+  | { type: "permission_changed"; key: string; value: boolean }
+  // Model download lifecycle. Progress is emitted on the gateway's cadence;
+  // the TUI maps it to a percent + ETA strip.
+  | { type: "model_download_started"; model: string }
+  | { type: "model_download_progress"; model: string; bytesDone: number; bytesTotal: number; mbps: number }
+  | { type: "model_download_finished"; model: string }
+  | { type: "model_download_failed"; model: string; error: string }
+  // Onboarding flow state. `wizard_step_completed` marks one wizard screen
+  // done; `onboarding_goal_completed` reports the goal set progress; the
+  // session emits `onboarding_all_goals_done` once when every required goal
+  // is met (connectors optional). `onboarding_suggestion` is the sidecar's
+  // nudge text surfaced to the user (suggested next action, with optional
+  // quick-reply action labels the TUI renders as chips).
+  | { type: "wizard_step_completed"; step: string }
+  | { type: "onboarding_goal_completed"; goal: string; completed: string[]; pending: string[] }
+  | { type: "onboarding_all_goals_done" }
+  | { type: "onboarding_suggestion"; text: string; actions?: string[] }
+  // Confirmation gate. Emitted by agent-loop's #run when a tool whose profile
+  // marks it `requiresConfirmation` is about to run. The TUI shows the args +
+  // reason and replies with `tool_confirmation_response` carrying the same
+  // `requestId` and `ok` (true = run, false = deny). `confirmation_granted` /
+  // `confirmation_denied` are emitted back so other observers (and tests) can
+  // see the verdict alongside the tool's own domain event.
+  | { type: "confirmation_required"; tool: string; args: Record<string, unknown>; reason: string; requestId: string }
+  | { type: "confirmation_granted"; requestId: string }
+  | { type: "confirmation_denied"; requestId: string; reason?: string };
 
 export interface Transport {
   /** Emit an event to the host/user. */

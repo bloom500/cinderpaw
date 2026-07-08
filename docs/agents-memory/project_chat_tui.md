@@ -158,30 +158,50 @@ Source of truth for which commands open overlays is `handleSlash` in
 `update.go`; the autocomplete registry in `KnownCommands` mirrors
 the list for the slash popup.
 
-## Open question — reasoning for local Ollama models
+## Resolved (2026-07-07) — local Ollama reasoning now reaches the TUI tag pair
 
-**For local models (e.g. MiniMax-M3 via Ollama) that emit reasoning
-inline in `content` without `<think>` tags, the TUI has no clean way
-to separate reasoning from answer.** The cloud path works because the
-sidecar wraps `reasoning_content` in `<think>…</think>` before
-emitting chunks (`FeralAgent/src/sandbox/inference-providers.ts:374-378`
-and `:454-498`); the local Ollama path
-(`FeralAgent/src/sandbox/inference-providers.ts:220`) only reads
-`message.content`.
+**Decision:** Sidecar-side fix (option 2 above). `OllamaProvider` in
+`FeralAgent/src/sandbox/inference-providers.ts` now reads
+`message.thinking` and wraps it in `` tags the same
+way the cloud path wraps `reasoning_content`. The TUI is unchanged;
+its live thinking-splitter picks up the tag pair unchanged.
 
-**Decision pending from Opus / integration owner.** Two viable
-follow-ups (both leave the TUI untouched — it already handles
-`delta.reasoning_content` and `<think>`-tag paths):
+**Why sidecar-side over host-side:** Ollama's `/api/chat` doesn't
+have a `reasoning` field on the OpenAI-style chunk frame the host
+emits — reasoning only exists on the Ollama wire. Pushing the change
+back to the sidecar (where the Ollama wire is read) keeps the host
+unaware of the provider-specific term. Sidecar also stays the single
+place every `processLine`-shaped decoder lives.
 
-1. Host-side (`crates/feral-core/src/api.rs`) — forward any
-   `reasoning` field from the `feral://agent-output` `chunk` event
-   as `delta.reasoning_content` in the OpenAI-style chunk frame.
-   ~5 lines.
-2. Sidecar-side (`FeralAgent/src/sandbox/inference-providers.ts`) —
-   teach the local Ollama `processLine` to detect per-model
-   reasoning shapes (qwen3, deepseek-r1) and either wrap them in
-   `<think>…</think>` before `onToken`, or emit a separate
-   `reasoning_chunk` event. ~15 lines.
+**Implementation notes:**
 
-DO NOT add heuristics on the TUI side that try to guess where inline
-reasoning ends. The TUI is rendering-only.
+- `OllamaProvider.#nonStream` reads `message.thinking` and prepends
+  ``...`` so `stripThinking()` strips it from the final
+  answer (`agent-loop.ts:1511`).
+- `OllamaProvider.#stream` mirrors the cloud path's `inReasoning`
+  state — first thinking chunk opens the tag, the first content chunk
+  closes it. End-of-stream `closeReasoning()` call covers the
+  all-reasoning turn (no answer follows).
+- Detection is by API signal (`message.thinking` is present on the
+  chunk), not per-model name. The same code path now handles qwen3,
+  deepseek-r1, MiniMax-M3 thinking mode, and any future Ollama-native
+  reasoning model. Content-only prompts (non-thinking mode on a
+  capable model) stream unchanged — no phantom tag is emitted.
+
+**Pinned by `tests/ollama-reasoning.test.ts` (6 tests):**
+
+- non-stream: thinking wraps before the answer; no `thinking` →
+  content unchanged
+- stream: thinking emits open tag + chunks + close on first content
+- stream: end-of-stream close for all-reasoning turns
+- stream: thinking + content in the same NDJSON chunk → well-formed
+- stream: content-only on a thinking-capable model → unchanged
+
+**No heuristics on the TUI side — confirmed.** `tui/app/update.go`
+and the splitters are not modified.
+
+**Discovered while writing the tests:** the markdown pipeline that
+generates review specs occasionally encodes these tag pairs as
+Unicode glyphs (numbers-in-circles) in helper text. The tests build
+the tags from `char` codes so the test file stays ASCII-clean even
+when a reviewer asks for the literal text.

@@ -30,6 +30,7 @@ import { useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
 import { useSettings } from '@/stores/settings';
+import { useCatalog } from '@/stores/catalog';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus } from '@/lib/tauri';
 import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
@@ -475,7 +476,7 @@ function ForkCard({
 
 function LocalBranch() {
   const navigate = useNavigate();
-  const finish = useOnboarding((s) => s.finish);
+  const defer = useOnboarding((s) => s.defer);
   const sysInfo = useSystemInfo((s) => s.info);
   const fetchSysInfo = useSystemInfo((s) => s.fetch);
   useEffect(() => { void fetchSysInfo(); }, [fetchSysInfo]);
@@ -522,9 +523,17 @@ function LocalBranch() {
 
       {error && <p className="text-xs text-red-400">Download failed: {error}</p>}
 
+      {/*
+        Audit M-R2 fix (2026-07-07): was `finish()` then `navigate()`, which
+        persisted `completed: true` and closed the wizard forever. Calling
+        `defer()` instead hides the wizard without persisting a completion
+        record — the in-flight download keeps progressing under
+        `useDownload` (a global store), and the wizard re-opens on next
+        app launch since no completion record exists on disk.
+      */}
       <button
         type="button"
-        onClick={() => { void finish(); navigate('/models'); }}
+        onClick={() => { defer(); navigate('/models'); }}
         className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
       >
         Browse other models <ChevronRight size={12} />
@@ -535,14 +544,39 @@ function LocalBranch() {
 
 function CloudBranch() {
   const navigate = useNavigate();
-  const finish = useOnboarding((s) => s.finish);
+  const defer = useOnboarding((s) => s.defer);
   const [selected, setSelected] = useState<string | null>(null);
-  const def = CURATED_PROVIDERS.find((p) => p.id === selected) ?? null;
+  // Provider catalog comes from the shared useCatalog store (Phase 1
+  // DoD). One fetch per app lifetime; other tabs (Phase 2 Connectors,
+  // Settings → Cloud Keys) consume the same store without re-hitting
+  // the gateway. The store carries `loaded=true, list=[]` on offline,
+  // which is the same as the previous local useState behaviour so the
+  // wizard degrades to its bundled CURATED_PROVIDERS gracefully.
+  const catalogEntries = useCatalog((s) => s.providerCatalog);
+  const catalogLoaded = useCatalog((s) => s.providerLoaded);
+  const loadProvider = useCatalog((s) => s.loadProvider);
+
+  useEffect(() => {
+    void loadProvider();
+  }, [loadProvider]);
+
+  // Decision C: catalog overrides CURATED_PROVIDERS. Curated providers
+  // whose id appears in the catalog keep their rich UX (steps, keyPlaceholder,
+  // free tier badge). Catalog-only entries get a generic card with console_url.
+  const curatedIds = new Set(CURATED_PROVIDERS.map((p) => p.id));
+  const visibleCurated = catalogLoaded
+    ? CURATED_PROVIDERS.filter((p) => catalogEntries.some((c) => c.id === p.id))
+    : CURATED_PROVIDERS; // offline fallback: show all curated
+  const genericOnly = catalogLoaded
+    ? catalogEntries.filter((c) => !curatedIds.has(c.id))
+    : [];
+
+  const def = visibleCurated.find((p) => p.id === selected) ?? null;
 
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-4">
       <div className="grid grid-cols-2 gap-2">
-        {CURATED_PROVIDERS.map((p) => (
+        {visibleCurated.map((p) => (
           <button
             key={p.id}
             type="button"
@@ -556,13 +590,48 @@ function CloudBranch() {
             {p.free && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
           </button>
         ))}
+        {genericOnly.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => setSelected(c.id)}
+            className={cn(
+              'flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors',
+              selected === c.id ? 'border-brand bg-brand/10 text-text-primary' : 'border-border-subtle text-text-secondary hover:bg-bg-hover',
+            )}
+          >
+            <span>{c.name}</span>
+            {c.free_tier_note && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+          </button>
+        ))}
       </div>
 
       {def && <CloudProviderForm def={def} />}
 
+      {!def && selected && (() => {
+        const generic = genericOnly.find((c) => c.id === selected);
+        if (!generic) return null;
+        return (
+          <div className="space-y-2 pt-1">
+            {generic.free_tier_note && <p className="text-xs text-green-400/80">{generic.free_tier_note}</p>}
+            {generic.console_url && (
+              <a
+                href={generic.console_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline"
+              >
+                <ExternalLink size={12} /> Open {generic.name} console
+              </a>
+            )}
+            <p className="text-xs text-text-muted">Add your API key in Settings → Cloud Keys after the wizard.</p>
+          </div>
+        );
+      })()}
+
       <button
         type="button"
-        onClick={() => { void finish(); navigate('/settings'); }}
+        onClick={() => { defer(); navigate('/settings'); }}
         className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
       >
         More providers in Settings → Cloud Keys <ChevronRight size={12} />

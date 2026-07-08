@@ -2,6 +2,8 @@ package api
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const DefaultPort = 11435
@@ -163,6 +167,93 @@ func ReadToken() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+// EnsureToken returns the existing API token at `~/.feral/api-token` or, on
+// first run, generates a fresh 32-byte URL-safe random token, writes it
+// 0600-permissioned, and returns it. This is the Sprint 2 first-run
+// bootstrap (audit C-3) — a new user who runs `feral chat` with no prior
+// install used to hit a cryptic exit; now they get a fresh token and the
+// wizard opens automatically (audit J2.3).
+//
+// `seed` is exposed for tests so a deterministic fixture can be used; pass
+// `nil` to use crypto/rand. The byte count is fixed at 32; tokens of that
+// length are 43 base64url characters — comfortable entropy headroom for a
+// loopback-only bearer.
+func EnsureToken(seed []byte) (string, error) {
+	if existing, err := ReadToken(); err == nil && existing != "" {
+		return existing, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".feral")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "api-token")
+	var raw []byte
+	if len(seed) > 0 {
+		raw = make([]byte, 32)
+		copy(raw, seed)
+	} else {
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		raw = buf
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// StartGateway attempts to start the feral gateway process. It looks for
+// the gateway binary next to the TUI binary, then in PATH, and finally at
+// common install locations. Returns the process handle on success.
+func StartGateway(port int) (*os.Process, error) {
+	gatewayPath, err := findGateway()
+	if err != nil {
+		return nil, err
+	}
+	proc, err := os.StartProcess(gatewayPath, []string{gatewayPath, "gateway", "start", "--port", fmt.Sprintf("%d", port)},
+		&os.ProcAttr{
+			Files: []*os.File{nil, nil, os.Stderr},
+			Env:   os.Environ(),
+		})
+	if err != nil {
+		return nil, fmt.Errorf("starting gateway: %w", err)
+	}
+	return proc, nil
+}
+
+// findGateway looks for the feral binary next to the TUI binary, in PATH,
+// and at common install locations.
+func findGateway() (string, error) {
+	// Look next to the TUI binary first.
+	exe, err := os.Executable()
+	if err == nil {
+		dir := filepath.Dir(exe)
+		candidates := []string{
+			filepath.Join(dir, "feral.exe"),
+			filepath.Join(dir, "feral-gateway.exe"),
+			filepath.Join(dir, "feral"),
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				return c, nil
+			}
+		}
+	}
+	// Fall back to PATH.
+	look := "feral"
+	if _, err := os.Stat(look); err == nil {
+		return look, nil
+	}
+	return "", fmt.Errorf("feral binary not found — run `feral gateway start` manually")
 }
 
 func PortInUse(port int) bool {
@@ -346,6 +437,488 @@ func FetchSessions(baseURL, token string, limit int) ([]SessionSummary, error) {
 		return nil, err
 	}
 	return raw.Sessions, nil
+}
+
+// LastTask is the Sprint 1.6 payload returned by `/runtime/resume`. Every
+// field is the zero value on first launch. Mirrors the Rust `LastTaskView`
+// wire shape (snake_case JSON, no rename).
+type LastTask struct {
+	Title         string `json:"title"`
+	TS            int64  `json:"ts"`              // unix ms; 0 if absent
+	WorkspaceID   string `json:"workspace_id"`    // empty if absent
+}
+
+type ResumeView struct {
+	Task          *LastTask `json:"task"`           // nil on first launch
+	WorkspaceID   string    `json:"workspace_id"`   // empty if no workspace
+	WorkspaceName string    `json:"workspace_name"` // empty if no workspace
+	LastActiveAt  int64     `json:"last_active_at"` // unix ms; 0 if absent
+}
+
+// FetchResume hits `/runtime/resume` (Sprint 1.6 gateway route) and returns
+// the persisted `current_task` + active workspace + last-active timestamp.
+// The gateway forwards to the sidecar — TUI is a *reader* of memory state,
+// never a writer (see `docs/agents-memory/project_memory_roadmap.md`).
+//
+// Errors are swallowed by the caller and treated as "no prior task" so a
+// flaky first boot never blocks the welcome screen.
+func FetchResume(baseURL, token string) (*ResumeView, error) {
+	req, _ := http.NewRequest("GET", baseURL+"/runtime/resume", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var raw ResumeView
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+	return &raw, nil
+}
+
+// SystemInfo is the Sprint 2 / audit C-1 hardware probe. Mirrors the Rust
+// `crates/feral-core/src/sysinfo_mod.rs::SystemInfo` JSON wire shape (snake_case).
+type SystemInfo struct {
+	OS              string `json:"os"`
+	CPU             string `json:"cpu"`
+	Cores           int    `json:"cores"`
+	RamTotalMB      int64  `json:"ram_total_mb"`
+	RamUsedMB       int64  `json:"ram_used_mb"`
+	GpuName         string `json:"gpu_name"`
+	VramTotalMB     int64  `json:"vram_total_mb"`
+	VramUsedMB      int64  `json:"vram_used_mb"`
+	SupportsVulkan  bool   `json:"supports_vulkan"`
+}
+
+// FetchSystemInfo hits `/system_info` (audit C-1). Returns the probed GPU /
+// VRAM / RAM on every machine — replaces the previous wizard "rtx 4070"
+// hard-coded mock. Used by the Setup Wizard's first screen.
+func FetchSystemInfo(baseURL, token string) (*SystemInfo, error) {
+	req, _ := http.NewRequest("GET", baseURL+"/system_info", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	// Probe can take a few seconds (sysinfo_mod::detect waits on platform
+	// probes). 8s ceiling is comfortable for the gateway hop.
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var raw SystemInfo
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+	return &raw, nil
+}
+
+// TestProviderKey posts a key to `/providers/test` (audit C-2). Mirrors the
+// Tauri command `test_byok_provider`. Returns a friendly error string on
+// non-2xx (the body is the real provider message — "401 Unauthorized",
+// "Invalid API key", etc. — surfaced verbatim in the wizard so the user
+// can act on it).
+func TestProviderKey(baseURL, token, providerID, apiKey, baseURLOpt string) (string, error) {
+	payload := map[string]string{
+		"provider_id": providerID,
+		"api_key":     apiKey,
+	}
+	if baseURLOpt != "" {
+		payload["base_url"] = baseURLOpt
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", baseURL+"/providers/test", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Trim and surface the real provider message. Better than a generic
+		// "key invalid" so the user knows whether it's a typo, an expired
+		// key, or a billing issue.
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(respBody)))
+	}
+	return strings.TrimSpace(string(respBody)), nil
+}
+
+// SaveByokKeyResult is the parsed response from POST /runtime/byok/save.
+// Used by `saveCloudProvider` (tui/app/update.go) to surface typed
+// failures to the wizard's "✗ Connection failed" line.
+type SaveByokKeyResult struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+	Hint    string `json:"hint,omitempty"`
+}
+
+// SaveByokKey posts the provider's API key + metadata to
+// `/runtime/byok/save` (Phase 0b, 2026-07-07). The Rust gateway writes the
+// key to the OS keychain (Windows Credential Manager / macOS Keychain /
+// Linux Secret Service) and the metadata to `byok.json`. This closes the
+// "silent key-drop" bug where a fresh-install wizard completion saved
+// only metadata and the next launch couldn't find the key.
+//
+// Arguments:
+//   - providerID: lowercase a-z0-9_- identifier (validated server-side)
+//   - apiKey: the plaintext key the user pasted. NEVER written to disk
+//     or logs by this function or the receiving gateway; the key chain
+//     goes straight from here to the OS keychain on the server.
+//     `apiKey == ""` means "leave the keychain entry untouched" — used
+//     for metadata-only updates (e.g. changing `default_model`).
+//   - baseURL, defaultModel: optional metadata; pass `*string` so empty
+//     values are distinguishable from "set to literal empty string".
+//
+// The function never logs `apiKey` and never includes it in returned
+// error messages. On failure, the message is server-provided and
+// category-typed (keyring_unavailable / invalid_provider_id / etc.)
+// so the wizard can show an actionable hint.
+func SaveByokKey(baseURL, token, providerID, apiKey string, baseURLOpt, defaultModelOpt *string) (*SaveByokKeyResult, error) {
+	payload := map[string]interface{}{
+		"provider_id": providerID,
+		"enabled":     true,
+		"api_key":     apiKey, // sent over loopback HTTPS-equivalent (bearer + 127.0.0.1)
+	}
+	if baseURLOpt != nil {
+		payload["base_url"] = *baseURLOpt
+	}
+	if defaultModelOpt != nil {
+		payload["default_model"] = *defaultModelOpt
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", baseURL+"/runtime/byok/save", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	// 12s matches the rest of the wizard's HTTP budget. The keyring write
+	// on the server is normally sub-second; anything longer usually means
+	// D-Bus / credential-manager daemon is stuck.
+	client := &http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Best-effort parse so callers can read `error` + `hint` for the
+		// wizard's failure surface. Falls back to the raw body if the
+		// server's response wasn't JSON.
+		var parsed SaveByokKeyResult
+		if jerr := json.Unmarshal(respBody, &parsed); jerr == nil && parsed.Error != "" {
+			return &parsed, nil
+		}
+		return &SaveByokKeyResult{
+			OK:      false,
+			Error:   "byok_save_failed",
+			Message: strings.TrimSpace(string(respBody)),
+		}, nil
+	}
+	var parsed SaveByokKeyResult
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, fmt.Errorf("malformed /runtime/byok/save response: %w", err)
+	}
+	return &parsed, nil
+}
+
+// ── Phase 1 catalog types (2026-07-07) ──────────────────────────────────────
+//
+// Mirror types for the canonical catalogs served by the gateway at
+// /runtime/providers/catalog and /runtime/connectors/catalog. The TUI
+// wizard fetches these at boot and caches them for the wizard lifetime;
+// `tui/app/wizard.go` keeps the original local slices as offline
+// fallbacks (Decision C).
+
+// ProviderCatalogEntry is one row of the canonical provider catalog.
+// Mirrors `crates/feral-core/src/byok.rs::ProviderCatalogEntry`.
+type ProviderCatalogEntry struct {
+	ID                     string  `json:"id"`
+	Name                   string  `json:"name"`
+	Provider               string  `json:"provider"` // serialized Provider enum
+	DefaultBaseURL         string  `json:"default_base_url"`
+	DefaultModel           string  `json:"default_model"`
+	ConsoleURL             *string `json:"console_url,omitempty"`
+	KeyFormat              *string `json:"key_format,omitempty"`
+	KeyFormatHint          *string `json:"key_format_hint,omitempty"`
+	FreeTierNote           *string `json:"free_tier_note,omitempty"`
+	SupportsCustomBaseURL  bool    `json:"supports_custom_base_url"`
+	AuthStyle              string  `json:"auth_style"` // "bearer" | "x_api_key"
+}
+
+// ConnectorPairingFieldDef is one secret field a connector requires.
+// Mirrors `crates/feral-core/src/connectors.rs::PairingFieldDef`.
+type ConnectorPairingFieldDef struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Secret bool   `json:"secret"`
+}
+
+// ConnectorCatalogEntry is one row of the canonical connector catalog.
+// Mirrors `crates/feral-core/src/connectors.rs::ConnectorCatalogEntry`.
+//
+// v2 (2026-07-07) — added QRSetupEndpoint. QR-paired connectors (only
+// WhatsApp today) carry the gateway endpoint the wizard POSTs to in
+// order to obtain a fresh QR payload to render on screen. The refresh
+// cycle (default 60s) re-hits the same endpoint until `linked` flips
+// to true on the user's phone scan.
+type ConnectorCatalogEntry struct {
+	ID                  string                    `json:"id"`
+	Name                string                    `json:"name"`
+	Description         string                    `json:"description"`
+	Icon                string                    `json:"icon"`
+	LogoURL             *string                   `json:"logo_url,omitempty"`
+	PairingFields       []ConnectorPairingFieldDef `json:"pairing_fields"`
+	PairingMethod       string                    `json:"pairing_method"` // "bot_token" | "oauth" | "qr"
+	ComingSoon          bool                      `json:"coming_soon"`
+	ConsoleURL          *string                   `json:"console_url,omitempty"`
+	FreeTierNote        *string                   `json:"free_tier_note,omitempty"`
+	ValidateEndpoint    *string                   `json:"validate_endpoint,omitempty"`
+	OAuthScopes         []string                  `json:"oauth_scopes,omitempty"`
+	OAuthClientIDSource *string                   `json:"oauth_client_id_source,omitempty"`
+	QRSetupEndpoint     *string                   `json:"qr_setup_endpoint,omitempty"`
+}
+
+// ProviderCatalogVersionExpected pins the version this client expects
+// for `/runtime/providers/catalog`. Bumped in lockstep with
+// `byok::CATALOG_VERSION` on the Rust side. Today `1` (no schema
+// change yet on the byok side).
+const ProviderCatalogVersionExpected = 1
+
+// ConnectorCatalogVersionExpected pins the version this client expects
+// for `/runtime/connectors/catalog`. Bumped in lockstep with
+// `connectors::CONNECTORS_CATALOG_VERSION` on the Rust side.
+//
+// v2 (2026-07-07) — bumped from 1 to 2. QRSetupEndpoint added to
+// `ConnectorCatalogEntry`; `PairingMethod::Qr` connectors now carry
+// the gateway endpoint the wizard POSTs to for a fresh QR payload.
+// The shared CatalogVersionExpected constant was split because the
+// two catalogs track independent schema versions (a byok-side bump
+// does NOT also require a connector-side bump and vice versa).
+const ConnectorCatalogVersionExpected = 2
+
+// fetchCatalog is the shared GET-with-version-header helper for the
+// two catalog endpoints. On a non-2xx it returns a typed
+// `CatalogResult` with the parsed body, even on a known drift status
+// (the body is still useful as a fallback).
+func fetchCatalog(baseURL, token, path string, expectedVersion int) (*CatalogResult, error) {
+	req, err := http.NewRequest("GET", baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &CatalogResult{
+			OK:           false,
+			Error:        fmt.Sprintf("http_%d", resp.StatusCode),
+			HTTPBodyHint: strings.TrimSpace(string(body)),
+		}, nil
+	}
+	version := 0
+	if v := resp.Header.Get("X-Feral-Catalog-Version"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			version = n
+		}
+	}
+	return &CatalogResult{
+		OK:                true,
+		Body:              body,
+		Version:           version,
+		VersionMatchesExpected: version == expectedVersion,
+	}, nil
+}
+
+// CatalogResult is the parsed response of one catalog endpoint.
+// Version pin: clients treat Version != expected as drift (use the
+// bundled fallback slice and surface a banner).
+type CatalogResult struct {
+	OK                      bool
+	Body                    []byte
+	Version                 int
+	VersionMatchesExpected  bool
+	Error                   string // when OK is false
+	HTTPBodyHint            string // when OK is false — server-supplied hint, never the key
+}
+
+// FetchProviderCatalog calls GET /runtime/providers/catalog.
+// The body is the raw JSON — callers decode it via json.Unmarshal into
+// `[]ProviderCatalogEntry`.
+func FetchProviderCatalog(baseURL, token string) (*CatalogResult, error) {
+	return fetchCatalog(baseURL, token, "/runtime/providers/catalog", ProviderCatalogVersionExpected)
+}
+
+// FetchConnectorCatalog calls GET /runtime/connectors/catalog.
+func FetchConnectorCatalog(baseURL, token string) (*CatalogResult, error) {
+	return fetchCatalog(baseURL, token, "/runtime/connectors/catalog", ConnectorCatalogVersionExpected)
+}
+
+// ConnectorFileConfig is the on-disk format of `~/.feral/connectors.json`.
+// Mirrors the Rust `ConnectorConfigFile` shape in src-tauri/src/connectors.rs.
+type ConnectorFileConfig struct {
+	Connectors []ConnectorFileEntry `json:"connectors"`
+}
+
+// ConnectorFileEntry is one connector row in connectors.json.
+type ConnectorFileEntry struct {
+	ID        string            `json:"id"`
+	Enabled   bool              `json:"enabled"`
+	Secrets   map[string]string `json:"secrets"`
+	Allowlist []string          `json:"allowlist"`
+	Channels  []string          `json:"channels"`
+}
+
+// SaveConnectorConfig persists a connector's secrets and enabled flag to
+// `~/.feral/connectors.json`, then pokes the gateway to reload. F4
+// chat-platform connector counterpart to the cloud-provider keychain path
+// (SaveByokKey + /runtime/byok/save). Phase 2 of the terminal-onboarding
+// slice replaces this file-only writer with a keychain-backed endpoint
+// (`/runtime/connectors/:id/save`) per the locked plan, so this function
+// will be deleted then; the file-shape type and the reload call survive
+// in a narrower form.
+func SaveConnectorConfig(id string, secrets map[string]string, enable bool) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot find home directory: %w", err)
+	}
+	dir := filepath.Join(home, ".feral")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("cannot create %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "connectors.json")
+
+	cfg := ConnectorFileConfig{}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &cfg)
+	}
+
+	found := false
+	for i := range cfg.Connectors {
+		if cfg.Connectors[i].ID == id {
+			cfg.Connectors[i].Enabled = enable
+			if cfg.Connectors[i].Secrets == nil {
+				cfg.Connectors[i].Secrets = map[string]string{}
+			}
+			for k, v := range secrets {
+				cfg.Connectors[i].Secrets[k] = v
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		entry := ConnectorFileEntry{
+			ID:        id,
+			Enabled:   enable,
+			Secrets:   secrets,
+			Allowlist: []string{},
+			Channels:  []string{},
+		}
+		if entry.Secrets == nil {
+			entry.Secrets = map[string]string{}
+		}
+		cfg.Connectors = append(cfg.Connectors, entry)
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+// InstallModel posts to `/runtime/models/install` (Sprint 2 / audit C-5)
+// and returns the in-flight download id. The download runs on the gateway
+// in a background task; the wizard polls `DownloadModel` for progress.
+func InstallModel(baseURL, token, repoID, filename string) (string, error) {
+	payload := map[string]string{
+		"repo_id":  repoID,
+		"filename": filename,
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", baseURL+"/runtime/models/install", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	// The install endpoint returns immediately after spawning the
+	// background task; the actual download may run for many minutes. So
+	// 10s is comfortable — we are not waiting on the download itself.
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("install: %s", strings.TrimSpace(string(respBody)))
+	}
+	var raw struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return "", err
+	}
+	if raw.ID == "" {
+		return "", fmt.Errorf("install: empty id in response")
+	}
+	return raw.ID, nil
+}
+
+// ModelDownload is the polled snapshot returned by
+// `/runtime/models/download/:id`. Mirrors the Rust `runtime::ModelDownload`
+// shape (snake_case JSON). Progress is 0..1, status is one of
+// "downloading" | "complete" | "failed" | "cancelled".
+type ModelDownload struct {
+	ID       string  `json:"id"`
+	RepoID   string  `json:"repo_id"`
+	Filename string  `json:"filename"`
+	Progress float64 `json:"progress"`
+	Status   string  `json:"status"`
+	Error    string  `json:"error,omitempty"`
+}
+
+// DownloadModel fetches the latest snapshot of an in-flight model
+// download. The TUI wizard polls this every 500ms until Status reaches
+// a terminal value ("complete" | "failed" | "cancelled"). A 404 means
+// the gateway restarted and forgot the in-flight download — the caller
+// should treat that as "failed" and surface a Retry CTA.
+func DownloadModel(baseURL, token, id string) (*ModelDownload, error) {
+	req, _ := http.NewRequest("GET", baseURL+"/runtime/models/download/"+id, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		return nil, fmt.Errorf("download id not found (gateway restarted?)")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download poll: %s", strings.TrimSpace(string(respBody)))
+	}
+	var raw ModelDownload
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+	return &raw, nil
 }
 
 func StreamChat(baseURL, token, content, sessionID string, chunks chan<- Chunk, done chan<- error) {

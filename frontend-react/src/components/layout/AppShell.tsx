@@ -13,6 +13,7 @@ import { UpdateToast } from '@/components/UpdateToast';
 import { Toasts } from '@/components/Toasts';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
+import { WelcomeBack } from '@/components/shell/WelcomeBack';
 import { cn } from '@/lib/utils';
 
 function WinControls() {
@@ -79,6 +80,7 @@ export function AppShell() {
       <UpdateToast />
       <Toasts />
       <SkillHubDrawer />
+      <WelcomeBack />
       <OnboardingOrchestrator />
     </div>
   );

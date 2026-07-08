@@ -6,6 +6,7 @@ mod disk_encryption;
 mod events;
 mod mcp;
 mod memory_graph;
+mod memory_resume;
 mod projects;
 mod rsi;
 mod skills;
@@ -2235,6 +2236,15 @@ fn get_byok_settings() -> Vec<byok::ProviderInfo> {
     settings.get_all_providers()
 }
 
+/// Return the canonical provider catalog (Phase 1 — Decision C).
+/// The desktop OnboardingWizard consumes this to render provider cards
+/// instead of a hardcoded list, closing the three-source drift surface.
+#[tauri::command]
+#[specta::specta]
+fn provider_catalog() -> Vec<byok::ProviderCatalogEntry> {
+    byok::provider_catalog()
+}
+
 #[tauri::command]
 #[specta::specta]
 fn save_byok_provider(
@@ -2270,132 +2280,12 @@ fn remove_byok_provider(provider_id: String) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 async fn test_byok_provider(provider_id: String, api_key: String, base_url: Option<String>) -> Result<byok::TestProviderResponse, String> {
-    use byok::Provider;
-
-    let provider = match provider_id.as_str() {
-        "openai" => Provider::Openai,
-        "anthropic" => Provider::Anthropic,
-        "google" => Provider::Google,
-        "kimi" => Provider::Kimi,
-        "glm" => Provider::Glm,
-        "minimax" => Provider::Minimax,
-        "groq" => Provider::Groq,
-        "mistral" => Provider::Mistral,
-        "deepseek" => Provider::Deepseek,
-        "openrouter" => Provider::Openrouter,
-        _ => Provider::Custom,
-    };
-
-    let url = base_url.unwrap_or_else(|| provider.default_base_url().to_string());
-    let chat_endpoint = url_join(&url, provider.chat_endpoint_path());
-
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let header_key    = provider.api_key_header();
-    let header_prefix = provider.api_key_prefix();
-    let auth_value    = format!("{}{}", header_prefix, api_key);
-
-    // Anthropic does NOT publish a `/v1/models` endpoint, so the GET /models
-    // probe only applies to OpenAI-compatible providers. For Anthropic we
-    // skip straight to the chat-completion probe with the right headers.
-    let probe_status: Option<reqwest::Response> = if !provider.is_openai_compatible() {
-        None
-    } else {
-        let models_endpoint = url_join(&url, "models");
-        let resp = client
-            .get(&models_endpoint)
-            .header(header_key, &auth_value)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        Some(resp)
-    };
-
-    if let Some(models_resp) = probe_status {
-        let models_status = models_resp.status();
-
-        if models_status.is_success() {
-            #[derive(serde::Deserialize)]
-            struct ModelList { data: Option<Vec<serde_json::Value>> }
-            let models: Vec<String> = models_resp.json::<ModelList>().await
-                .ok()
-                .and_then(|r| r.data)
-                .map(|items| items.iter()
-                    .filter_map(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
-                    .collect())
-                .unwrap_or_default();
-            return Ok(byok::TestProviderResponse {
-                success: true,
-                message: "Connection successful".to_string(),
-                models,
-            });
-        }
-
-        // If /models returned 401/403 the key is wrong — report immediately.
-        if models_status == 401 || models_status == 403 {
-            let body = models_resp.text().await.unwrap_or_default();
-            return Ok(byok::TestProviderResponse {
-                success: false,
-                message: format!("Auth failed (HTTP {}): {}", models_status.as_u16(), body),
-                models: vec![],
-            });
-        }
-        // /models returned 404 or another non-auth error — fall through to the
-        // chat-endpoint probe below.
-    }
-
-    // /models unavailable (or provider doesn't expose it). Send a minimal
-    // non-streaming completion to verify credentials. Anthropic uses a
-    // different request shape: `system` is a top-level field, the model id is
-    // required, and `max_tokens` is mandatory.
-    let probe = if provider.is_openai_compatible() {
-        serde_json::json!({
-            "model": "__probe__",
-            "messages": [{ "role": "user", "content": "Hi" }],
-            "max_tokens": 1,
-            "stream": false,
-        })
-    } else {
-        serde_json::json!({
-            "model": "__probe__",
-            "messages": [{ "role": "user", "content": "Hi" }],
-            "max_tokens": 1,
-        })
-    };
-    let mut chat_req = client
-        .post(&chat_endpoint)
-        .header(header_key, &auth_value)
-        .header("Content-Type", "application/json")
-        .json(&probe);
-    for (name, value) in provider.extra_headers() {
-        chat_req = chat_req.header(name, value);
-    }
-    let chat_resp = chat_req
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let chat_status = chat_resp.status();
-    let chat_body   = chat_resp.text().await.unwrap_or_default();
-
-    // 401/403 = bad key; 4xx on model-not-found (404/400/422) = key is valid
-    if chat_status == 401 || chat_status == 403 {
-        Ok(byok::TestProviderResponse {
-            success: false,
-            message: format!("Auth failed (HTTP {}): {}", chat_status.as_u16(), chat_body),
-            models: vec![],
-        })
-    } else {
-        Ok(byok::TestProviderResponse {
-            success: true,
-            message: "Connection successful (auth verified via chat endpoint)".to_string(),
-            models: vec![],
-        })
-    }
+    // Sprint 2 / audit C-2 — delegate to feral-core so the headless gateway
+    // route `/providers/test` can serve the same probe. The previous local
+    // implementation is gone; behavior is identical (OpenAI-compatible
+    // providers get a GET /v1/models probe, Anthropic skips straight to a
+    // chat-completion probe). See `crates/feral-core/src/byok.rs`.
+    Ok(byok::test_provider(&provider_id, &api_key, base_url.as_deref()).await)
 }
 
 /// One-shot, non-streaming completion against the LOCAL loaded model.
@@ -3309,6 +3199,7 @@ pub fn run() {
             get_model_size_info,
             get_hf_model_size,
             get_byok_settings,
+            provider_catalog,
             save_byok_provider,
             remove_byok_provider,
             test_byok_provider,
@@ -3361,6 +3252,7 @@ pub fn run() {
             connectors::connectors_remove,
             memory_graph::get_memory_graph,
             memory_graph::add_memory_facts,
+            memory_resume::get_last_task,
             desktop_control::list_windows,
             desktop_control::get_accessibility_tree,
             desktop_control::find_elements,

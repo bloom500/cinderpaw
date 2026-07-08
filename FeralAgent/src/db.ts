@@ -8,21 +8,52 @@
  */
 
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, closeSync, openSync, unlinkSync } from "node:fs";
+import { dirname, sep } from "node:path";
 
 export interface FeralDb {  // exported for test helpers
   raw: Database;
+  /** Release the sidecar's writer lock + close the SQLite handle. */
   close(): void;
 }
 
 /**
  * Open (creating if needed) the Feral Agent database and ensure all tables
  * exist. Safe to call once at startup.
+ *
+ * Sprint 1.9 — single-writer discipline. On non-`:memory:` paths we acquire an
+ * exclusive `O_EXCL` lockfile at `~/.feral/.writer.lock` before opening SQLite.
+ * The sidecar is the sole writer of memory state; Tauri commands are readers
+ * + ack-only mutators (per `project_memory_roadmap.md`'s writer contract).
+ * The lock is released in `close()`. If the lock is already held by another
+ * sidecar (config bug), `openDatabase` throws — the second process exits with
+ * a clean error rather than corrupting state.
+ *
+ * The graph layer (`memory/graph.ts`) and the FMS tree have their own
+ * `*.lock` files for sub-second cross-process guards; the writer lock here is
+ * the *process-level* lock for the SQLite database itself.
  */
 export function openDatabase(path: string): FeralDb {
+  let lockPath: string | null = null;
+  let lockFd: number | null = null;
+
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
+    const dir = dirname(path);
+    lockPath = `${dir}${sep}.writer.lock`;
+    try {
+      lockFd = openSync(lockPath, "wx");
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "EEXIST") {
+        throw new Error(
+          `feral: another sidecar already holds the writer lock at ${lockPath} ` +
+            `— refusing to open the memory database. ` +
+            `If a previous sidecar crashed, remove the lockfile and retry.`,
+        );
+      }
+      throw e;
+    }
   }
 
   const db = new Database(path, { create: true });
@@ -36,7 +67,15 @@ export function openDatabase(path: string): FeralDb {
 
   return {
     raw: db,
-    close: () => db.close(),
+    close: () => {
+      db.close();
+      if (lockFd !== null) {
+        try { closeSync(lockFd); } catch { /* best-effort */ }
+        if (lockPath) {
+          try { unlinkSync(lockPath); } catch { /* best-effort */ }
+        }
+      }
+    },
   };
 }
 
@@ -56,6 +95,19 @@ function addColumnIfMissing(
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
   }
 }
+
+/**
+ * Sprint 1 — current memory schema version. Bump this in code whenever a
+ * migration in `migrate()` is more than an idempotent `addColumnIfMissing`
+ * (i.e. anything that changes a column type, drops a table, or alters the
+ * shape of a persisted JSON payload). The sidecar refuses to start when the
+ * on-disk `schema_version` exceeds this value (forward-compat protection —
+ * rolling back an install on top of a newer schema is the dangerous case).
+ *
+ *   v0 → 1: meta table created (current_task + embedding_model + schema_version)
+ *   v1 → 2: workspaces table + workspace_id column on episodic / semantic
+ */
+export const CURRENT_MEMORY_SCHEMA_VERSION = 2;
 
 function migrate(db: Database): void {
   db.exec(`
@@ -109,6 +161,17 @@ function migrate(db: Database): void {
   // one-shot backfill populates it.
   addColumnIfMissing(db, "episodic", "embedding", "BLOB");
 
+  // Sprint 1.4 — workspace scoping. `workspace_id` is the UUID assigned by
+  // `memory/workspaces.ts::createWorkspace`. Nullable because global facts
+  // (user identity, language preferences) live in `semantic` without a
+  // workspace; episodic is required to have one for every row written by the
+  // agent after this migration ships.
+  addColumnIfMissing(db, "episodic", "workspace_id", "TEXT");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_episodic_workspace
+      ON episodic (workspace_id, timestamp);
+  `);
+
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS episodic_fts USING fts5(
       content,
@@ -154,6 +217,11 @@ function migrate(db: Database): void {
       updated_at INTEGER NOT NULL
     );
   `);
+
+  // Sprint 1.4 — same workspace scoping as episodic. `semantic` rows MAY be
+  // global (`workspace_id IS NULL`) — user identity, language, communication
+  // style — to survive workspace switches.
+  addColumnIfMissing(db, "semantic", "workspace_id", "TEXT");
 
   // Inner-thoughts log: record of every proactive thought the agent generated,
   // whether it was surfaced to the user or suppressed by mood/threshold.
@@ -334,4 +402,75 @@ function migrate(db: Database): void {
       last_sync_at INTEGER
     );
   `);
+
+  // ── Memory meta (Sprint 1.2 — Memory Foundation) ────────────────────────────
+  //
+  // App-wide key-value meta: current task (Resume), embedding-model identity,
+  // last FMS rebuild timestamp, schema version. Distinct from `rsi_meta`
+  // (RSI-internal). The `key` is TEXT PK so the table is a stable contract
+  // for both read paths (the sidecar reading current_task on startup, the
+  // Tauri command `get_last_task` reading the same row). `value` is TEXT
+  // — JSON-encoded for structured payloads (current_task is `{title, ts,
+  // workspace_id}`, embedding_model is `{name, dim, last_built_at, sha}`).
+  //
+  // Reserved keys (see `docs/agents-memory/project_memory_roadmap.md`):
+  //   - "current_task"        → Memory Resume payload
+  //   - "embedding_model"     → {name, dim, last_built_at, sha}
+  //   - "schema_version"      → INTEGER-as-string; incremented on every
+  //                              migration. Sidecar refuses to start when
+  //                              this exceeds its expected version.
+  //   - "active_workspace_id" → UUID of the workspace the user last opened.
+  //                              Drives the WelcomeBack banner + the
+  //                              RecallEngine default workspace filter.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+
+  // ── Workspaces (Sprint 1.3 — Memory Foundation) ─────────────────────────────
+  //
+  // Stable identity per workspace. UUID on create, name is a display label
+  // only — two projects called "Agent" must not collide on
+  // `WHERE name = ?`. `root_path` is the directory the workspace was opened
+  // from; nullable for "scratch" workspaces the user opens without a path.
+  // `created_at` / `last_active_at` drive the "Recent workspaces" list and
+  // the WelcomeBack banner copy ("Welcome back to Feral — you were working
+  // in <workspace name>").
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      root_path TEXT,
+      created_at INTEGER NOT NULL,
+      last_active_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_workspaces_last_active
+      ON workspaces (last_active_at DESC);
+  `);
+
+  // Stamp the schema version after every successful migration. Done last so
+  // a partial migration (one that throws halfway) leaves `schema_version`
+  // pointing at the previous value — the next startup retries from there.
+  const row = db.query("SELECT value FROM meta WHERE key = 'schema_version'")
+    .get() as { value: string } | undefined;
+  const onDisk = row ? Number(row.value) : 0;
+  if (!Number.isFinite(onDisk) || onDisk < CURRENT_MEMORY_SCHEMA_VERSION) {
+    db.prepare(
+      "INSERT OR REPLACE INTO meta (key, value, updated_at) VALUES (?, ?, ?)",
+    ).run("schema_version", String(CURRENT_MEMORY_SCHEMA_VERSION), Date.now());
+  } else if (onDisk > CURRENT_MEMORY_SCHEMA_VERSION) {
+    // Forward-compat guard. The on-disk DB was written by a newer sidecar;
+    // we will corrupt memory if we keep opening it. Surface a clear error
+    // instead of a cryptic SQLite fault.
+    throw new Error(
+      `feral: on-disk memory schema version (${onDisk}) is newer than this ` +
+        `build supports (${CURRENT_MEMORY_SCHEMA_VERSION}). ` +
+        `Refusing to start — please upgrade Feral.`,
+    );
+  }
 }

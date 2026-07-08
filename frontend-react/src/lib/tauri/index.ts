@@ -85,6 +85,13 @@ export interface McpToolView { name: string; description: string }
 
 // Connectors — inbound messaging surfaces over the local agent. Field names
 // match Rust snake_case serialization exactly.
+//
+// v2 (2026-07-07) — Decision D Phase 1 delivered connector catalog with
+// rich metadata (`pairing_method`, `validate_endpoint`,
+// `oauth_client_id_source`, `qr_setup_endpoint`). Older React callers
+// that only read `id/name/icon/fields/auth_kind` keep working — every
+// new field is optional. The richer surface lands when the Connectors
+// tab lands as part of Phase 2.
 export interface ConnectorField { key: string; label: string; secret: boolean }
 export interface ConnectorCatalogEntry {
   id: string;
@@ -95,6 +102,19 @@ export interface ConnectorCatalogEntry {
   fields: ConnectorField[];
   auth_kind: string; // "token" | "qr"
   coming_soon: boolean;
+  /** Optional rich metadata exposed by v2+ catalog payloads. */
+  pairing_fields?: Array<{ key: string; label: string; secret: boolean }>;
+  pairing_method?: 'bot_token' | 'oauth' | 'qr';
+  console_url?: string | null;
+  free_tier_note?: string | null;
+  /** Gateway endpoint the wizard POSTs to for an OAuth/bot-token probe. */
+  validate_endpoint?: string | null;
+  /** OAuth scopes shown on the card so the user knows what they'll grant. */
+  oauth_scopes?: string[];
+  /** OAuth client-id source, when `pairing_method === 'oauth'`. */
+  oauth_client_id_source?: { kind: 'env' | 'keychain'; ref: string } | null;
+  /** QR pairing only — endpoint that returns a fresh QR payload. */
+  qr_setup_endpoint?: string | null;
 }
 export interface ConnectorView {
   id: string;
@@ -190,6 +210,27 @@ export interface ByokProvider {
   has_api_key: boolean;
   base_url?: string | null;
   default_model?: string | null;
+}
+
+// Phase 1 (2026-07-07) — canonical provider catalog row served by the
+// Rust `byok::provider_catalog()` function via the
+// `provider_catalog` Tauri command. Mirrors
+// `crates/feral-core/src/byok.rs::ProviderCatalogEntry` 1:1.
+// Optional fields come back as `null` from the Rust serde
+// `skip_serializing_if = "Option::is_none"` so we type them as
+// `T | null` (NOT `T | undefined`).
+export interface ProviderCatalogEntry {
+  id: string;
+  name: string;
+  provider: string;
+  default_base_url: string;
+  default_model: string;
+  console_url?: string | null;
+  key_format?: string | null;
+  key_format_hint?: string | null;
+  free_tier_note?: string | null;
+  supports_custom_base_url: boolean;
+  auth_style: 'bearer' | 'x_api_key';
 }
 
 // ── RSI (Fractal Memory) ────────────────────────────────────────────────────
@@ -387,6 +428,15 @@ export interface MemoryFactInput {
   object: string;
 }
 
+/** Sprint 1.6 — Memory Resume. Mirrors `src-tauri/src/memory_resume.rs`
+ *  `LastTaskView` (snake_case wire). Every field is null on first launch. */
+export interface LastTaskView {
+  task: { title: string; ts: number; workspace_id?: string | null } | null;
+  workspace_id: string | null;
+  workspace_name: string | null;
+  last_active_at: number | null;
+}
+
 // ── Agents ───────────────────────────────────────────────────────────────────
 /** Mirrors Rust AgentEvent — `#[serde(tag = "kind", rename_all = "snake_case")]` */
 export type AgentEvent =
@@ -540,6 +590,10 @@ const raw = {
   mcpCallTool:              (id: string, tool: string, argsJson: string) =>
     invoke<string>('mcp_call_tool', { id, tool, argsJson }),
   connectorsCatalog:        () => invoke<ConnectorCatalogEntry[]>('connectors_catalog'),
+  // Phase 1 (2026-07-07) — canonical provider catalog (decision locked:
+  // one source of truth in Rust). Replaces the desktop's hard-coded
+  // provider list at the wizard level; see OnboardingWizard.tsx.
+  providerCatalog:          () => invoke<ProviderCatalogEntry[]>('provider_catalog'),
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
   connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) =>
     invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels, mode, knowledgeBase }),
@@ -551,6 +605,12 @@ const raw = {
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
   addMemoryFacts:           (facts: MemoryFactInput[]) =>
     invoke<number>('add_memory_facts', { facts }),
+  // Sprint 1.6 — Memory Resume. Powers the React WelcomeBack banner and the
+  // TUI last-task row. Reads `meta` + `workspaces` via the sidecar (single-
+  // writer discipline: Tauri is a reader, never opens SQLite for writes).
+  // Returns `{ task, workspace_id, workspace_name, last_active_at }`; every
+  // field is null on first launch.
+  getLastTask:              () => invoke<LastTaskView>('get_last_task'),
   chatCompleteLocal:        (messages: Message[], params: InferParams) =>
     invoke<string>('chat_complete_local', { messages, params }),
   chatCloudComplete:        (providerId: string, model: string, messages: Message[], params: InferParams) =>
@@ -774,6 +834,8 @@ export const tauri = {
   memory: {
     getGraph: (): Promise<MemoryGraphSnapshot> => raw.getMemoryGraph(),
     addFacts: (facts: MemoryFactInput[]): Promise<number> => raw.addMemoryFacts(facts),
+    /** Sprint 1.6 — Memory Resume. First-launch safe (every field null). */
+    getLastTask: (): Promise<LastTaskView> => raw.getLastTask(),
   },
 };
 

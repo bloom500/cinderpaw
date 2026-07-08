@@ -16,10 +16,14 @@ import (
 
 func main() {
 	plain := false
+	forceWizard := false
 	args := os.Args[1:]
 	for _, a := range args {
 		if a == "--plain" {
 			plain = true
+		}
+		if a == "--wizard" {
+			forceWizard = true
 		}
 	}
 
@@ -30,36 +34,50 @@ func main() {
 	}
 	port := settings.APIPort
 
-	token, err := api.ReadToken()
+	token, err := api.EnsureToken(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "feral: no API token found at ~/.feral/api-token\n")
+		fmt.Fprintf(os.Stderr, "feral: could not read or create API token at ~/.feral/api-token (%v)\n", err)
 		os.Exit(1)
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	if !api.PortInUse(port) {
-		waited := false
-		for i := 0; i < 20; i++ {
-			time.Sleep(200 * time.Millisecond)
-			waited = true
+		// Auto-start the gateway (spec §2 J2.2).
+		fmt.Fprintf(os.Stderr, "feral: starting gateway on port %d…\n", port)
+		proc, err := api.StartGateway(port)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "feral: could not start gateway (%v)\n", err)
+			fmt.Fprintf(os.Stderr, "       start it manually: feral gateway start\n")
+			os.Exit(1)
+		}
+		defer proc.Release()
+		// Wait for the gateway to come online.
+		for i := 0; i < 40; i++ {
+			time.Sleep(250 * time.Millisecond)
 			if api.PortInUse(port) {
 				break
 			}
 		}
 		if !api.PortInUse(port) {
-			why := ""
-			if waited {
-				why = " (waited 4s)"
-			}
-			fmt.Fprintf(os.Stderr, "feral: runtime is not running on port %d%s\n", port, why)
-			fmt.Fprintf(os.Stderr, "       run `feral gateway start` first\n")
+			fmt.Fprintf(os.Stderr, "feral: gateway started but not responding after 10s\n")
+			proc.Kill()
 			os.Exit(1)
 		}
+		fmt.Fprintf(os.Stderr, "feral: gateway ready\n")
 	}
 
 	if _, err := api.FetchStatus(baseURL, token); err != nil {
 		fmt.Fprintf(os.Stderr, "feral: could not fetch runtime status (%v)\n", err)
 		os.Exit(1)
+	}
+
+	if forceWizard {
+		// Remove the wizard-done marker so the TUI shows the wizard on
+		// next launch (including this one). The user can complete it or
+		// Ctrl+C — either way the marker is rewritten on completion.
+		home, _ := os.UserHomeDir()
+		marker := home + "\\.feral\\.wizard-done"
+		os.Remove(marker)
 	}
 
 	if plain {
@@ -79,6 +97,7 @@ func runTUI(baseURL, token string) {
 	}
 	m := app.New(baseURL, token, status)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	m.Prog = p
 	defer func() {
 		if r := recover(); r != nil {
 			p.ReleaseTerminal()
@@ -90,6 +109,7 @@ func runTUI(baseURL, token string) {
 		fmt.Fprintf(os.Stderr, "feral: error: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Fprintln(os.Stderr, "session saved · resume with: feral chat")
 }
 
 // runPlain runs the simplified stdout REPL for screen-reader / low-vision

@@ -168,7 +168,17 @@ const INBOUND_TYPES = [
   "meta_evolve",
   "meta_rollback",
   "meta_history",
+  // Sprint 1.6 — Memory Resume. Host asks the sidecar for the persisted
+  // `current_task` + active workspace + last-active timestamp. Sidecar replies
+  // with one `resume_get_result` event paired by `id`. See
+  // `FeralAgent/src/memory/resume.ts` for the read-side helpers.
+  "resume_get",
   "rsi_response",
+  // AI-Guided Onboarding (Etapa 1, ADR-0013). `start_onboarding` prepares the
+  // onboarding profile + session; `tool_confirmation_response` carries the
+  // user's approve/deny reply to a `confirmation_required` event.
+  "start_onboarding",
+  "tool_confirmation_response",
 ] as const satisfies readonly InboundMessage["type"][];
 
 /**

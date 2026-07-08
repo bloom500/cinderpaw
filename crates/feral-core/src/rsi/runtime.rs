@@ -531,6 +531,12 @@ mod tests {
             events_tx: tokio::sync::broadcast::channel(16).0,
             active_agent_model: StdArc::new(PlMutex::new(None)),
             shutdown: StdArc::new(tokio::sync::Notify::new()),
+            // Sprint 2 / audit C-5 — in-flight model-download map. Tests
+            // start empty; `runtime_models_install` populates it on the
+            // real path and the GET handler reads it. Field added to
+            // `RuntimeState` along with `install_model`; this fixture
+            // closure grew one line at a time and was lagging the struct.
+            model_downloads: StdArc::new(PlMutex::new(std::collections::HashMap::new())),
         }
     }
 

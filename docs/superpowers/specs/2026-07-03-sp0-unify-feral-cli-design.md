@@ -44,7 +44,8 @@ wizard moves from TS to Rust in SP1), the user-facing `feral <cmd>` does not cha
 | Command | Runs in | Notes |
 |---|---|---|
 | `feral chat` | Rust (chat.rs) | **Primary entrypoint.** Auto-starts gateway if down (see below). |
-| `feral setup` | delegates → sidecar `feral-agent.exe setup` | Silent delegation. Wizard is today's fixed `tui/setup.ts`. |
+| `feral setup` | Rust (admin.rs) | Exec's `feral-tui.exe --wizard` (the Go/Bubble Tea onboarding TUI). The on-board wizard code that used to live in the sidecar's `tui/setup.ts` was removed 2026-07-07 in the terminal-onboarding slice (Phase 0a) — it hardcoded a cloud provider and silently dropped keys. |
+| `feral-agent setup` | sidecar CLI dispatch | Friendly redirect to `feral setup` with a non-zero exit. The `tui/setup.ts` path no longer exists in the compiled sidecar. |
 | `feral doctor` | Rust | Includes the brain-config check added 2026-07-03. |
 | `feral gateway start\|stop\|restart\|status` | Rust | Advanced/explicit (services, Discord bot, server, debug). |
 | `feral stop` | Rust | Top-level alias → `gateway stop`. |
@@ -87,15 +88,19 @@ Node is guaranteed by npm; Bun is not. The launcher:
 
 ### 3. `feral setup` bridge
 
-Add a `Setup` variant to the Rust `Command` enum. It execs the sidecar in setup
-mode: `spawn(find_binary(), ["setup"])` with inherited stdio, forward exit code.
-The sidecar's `import.meta.main` already dispatches `setup` → `runSetup()` (the
-wizard fixed 2026-07-03, which writes a valid `{enabled, mode, registry}`
-brain.json and is safe to decline when config already exists).
+Add a `Setup` variant to the Rust `Command` enum. It auto-starts the gateway
+if it is down, then execs `feral-tui.exe --wizard` (the Go/Bubble Tea
+onboarding TUI) with inherited stdio, forwarding the exit code. Idempotency
+is the wizard's responsibility — `WizResume` covers partial progress and
+`WizConfigHandling` covers existing config (Keep / Review / Reset); the Rust
+side just hands control over.
 
-Idempotency in SP0 = the existing safe behavior: `setup` detects an existing
-`brain.json`, prompts, and leaves it untouched on decline. The granular
-change-menu is SP1.
+> Note: `feral-agent setup` (the sidecar binary run directly) used to load
+> `tui/setup.ts` (the hardcoded-Anthropic wizard). That file was removed in
+> the 2026-07-07 terminal-onboarding slice (Phase 0a). The sidecar now
+> emits a friendly redirect with exit code 2 and points at `feral setup`.
+> Anyone using the sidecar binary directly is on a non-canonical path and
+> should switch to the Rust CLI.
 
 ### 4. `feral chat` auto-starts the gateway (the key UX change)
 

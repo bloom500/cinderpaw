@@ -33,8 +33,9 @@ pub struct MemoryFactInput {
 /// Merge extracted facts into `~/.feral/memory-graph.json` using the exact
 /// node/edge schema the agent sidecar's MemoryGraph writes, so both the
 /// sidecar and the Chat tab feed one shared knowledge graph. Returns the
-/// number of facts written. Best-effort read-modify-write: a concurrent
-/// sidecar write can win the race, which loses at most one extraction pass.
+/// number of facts written. The whole read-modify-write is held under an
+/// exclusive advisory lockfile shared with the TS sidecar; no concurrent
+/// writer can interleave.
 #[tauri::command]
 #[specta::specta]
 pub fn add_memory_facts(facts: Vec<MemoryFactInput>) -> Result<u32, String> {
@@ -45,6 +46,8 @@ pub fn add_memory_facts(facts: Vec<MemoryFactInput>) -> Result<u32, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("memory-graph.json");
 
+    // ponytail: whole read-modify-write is wrapped under an exclusive lockfile so the TS sidecar (MemoryGraph) and this command never write concurrently.
+    with_file_lock(&path, || -> Result<u32, String> {
     let mut graph: Value = std::fs::read_to_string(&path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
@@ -96,9 +99,10 @@ pub fn add_memory_facts(facts: Vec<MemoryFactInput>) -> Result<u32, String> {
 
     if written > 0 {
         let serialized = serde_json::to_string_pretty(&graph).map_err(|e| e.to_string())?;
-        std::fs::write(&path, serialized).map_err(|e| e.to_string())?;
+        atomic_write(&path, &serialized)?;
     }
     Ok(written)
+    })
 }
 
 fn normalize_id(label: &str) -> String {
@@ -189,4 +193,66 @@ pub fn get_memory_graph() -> MemoryGraphSnapshot {
             })
             .collect(),
     }
+}
+
+// ponytail: hand-rolled advisory file lock; cross-process via O_EXCL lockfile.
+// Mirrors FeralAgent/src/memory/graph.ts withFileLock contract — both sides share the same
+// `.lock` file so TS and Rust never write the memory graph concurrently.
+// 30s stale-lock ceiling assumes no legitimate write holds longer than that.
+fn lock_path(path: &std::path::Path) -> std::path::PathBuf {
+    let mut s = path.as_os_str().to_owned();
+    s.push(".lock");
+    s.into()
+}
+
+fn tmp_path(path: &std::path::Path) -> std::path::PathBuf {
+    let mut s = path.as_os_str().to_owned();
+    s.push(".tmp");
+    s.into()
+}
+
+fn with_file_lock<F, T>(path: &std::path::Path, f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String>,
+{
+    let lp = lock_path(path);
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(5);
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lp)
+        {
+            Ok(_) => break,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::AlreadyExists {
+                    return Err(e.to_string());
+                }
+                if let Ok(meta) = std::fs::metadata(&lp) {
+                    if let Ok(modified) = meta.modified() {
+                        if modified.elapsed().unwrap_or(std::time::Duration::MAX)
+                            > std::time::Duration::from_secs(30)
+                        {
+                            let _ = std::fs::remove_file(&lp);
+                            continue;
+                        }
+                    }
+                }
+                if start.elapsed() > timeout {
+                    return Err(format!("lock timeout on {}", path.display()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+    let result = f();
+    let _ = std::fs::remove_file(&lp);
+    result
+}
+
+fn atomic_write(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    let tmp = tmp_path(path);
+    std::fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }

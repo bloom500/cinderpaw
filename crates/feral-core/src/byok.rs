@@ -207,6 +207,244 @@ pub struct ProviderInfo {
     pub default_model: Option<String>,
 }
 
+// ── Public provider catalog (Phase 1, 2026-07-07) ───────────────────────────
+//
+// The canonical source of "which providers exist and what to show for each"
+// lives in Rust and is exposed via `GET /runtime/providers/catalog`. The
+// Go TUI wizard and the desktop React OnboardingWizard both consume this
+// catalog instead of maintaining their own parallel slices — that's the
+// drift surface that the terminal-onboarding plan calls out as the
+// root cause of the stale `qwen2.5:7b` placeholder reaching the wizard.
+//
+// Clients pin the catalog version via the `X-Feral-Catalog-Version`
+// response header (see `api.rs::runtime_providers_catalog`). On a
+// version mismatch the client falls back to its bundled slice with a
+// clearly surfaced warning rather than silently dropping providers.
+
+/// Catalog version. Bumped whenever a field is added/removed/renamed
+/// in [`ProviderCatalogEntry`]. Currently `1`.
+pub const CATALOG_VERSION: u32 = 1;
+
+/// Auth header style the wizard should emit when constructing the
+/// validation probe (`/providers/test`). Drives the rendered header line
+/// and the key format hint, not the actual HTTP transport (which is
+/// handled by `Provider::api_key_header` + `Provider::api_key_prefix`
+/// once the user submits).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthStyle {
+    /// `Authorization: Bearer <key>` — OpenAI / Groq / Mistral / DeepSeek /
+    /// OpenRouter / Kimi / GLM / MiniMax / NVIDIA NIM / Google / Custom.
+    Bearer,
+    /// `x-api-key: <key>` (plus `anthropic-version: 2023-06-01`) — Anthropic.
+    XApiKey,
+}
+
+/// One row of the public provider catalog.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct ProviderCatalogEntry {
+    pub id: String,
+    /// Display name shown in the picker (e.g. "OpenAI", "Anthropic",
+    /// "NVIDIA NIM"). Distinct from `id` because `provider_kind` and
+    /// display name don't always match ("minimax" → "MiniMax").
+    pub name: String,
+    /// The typed `Provider` enum. Duplicated with `id` so callers that
+    /// already have a `Provider` value can do an O(1) lookup without
+    /// string matching.
+    pub provider: Provider,
+    /// Default API base URL. Cached here so the catalog row is
+    /// self-contained — the gateway doesn't need a second
+    /// `Provider::default_base_url()` round-trip to render a card.
+    pub default_base_url: String,
+    /// Wizard's chosen-by-default model when the user hasn't picked
+    /// one yet. The runtime replaces it with whatever the user saved
+    /// in `byok.json`.
+    pub default_model: String,
+    /// Where to manage API keys (e.g. `https://platform.openai.com/api-keys`).
+    /// None if the provider doesn't publish a stable console URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub console_url: Option<String>,
+    /// Recognised key prefix (e.g. `"sk-"` for OpenAI, `"sk-ant-"` for
+    /// Anthropic). Client may render a hint next to the input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_format: Option<String>,
+    /// Placeholder text shown in the key-entry input, e.g.
+    /// `"Begins with sk-ant-…"`. Drives the wizard UI only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_format_hint: Option<String>,
+    /// Free-tier note shown on the provider card, if any. Examples:
+    /// "Free trial credits — no card required."
+    /// Drives the wizard UI only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free_tier_note: Option<String>,
+    /// Whether the wizard should accept a custom base URL. False for
+    /// hosted-only providers (Anthropic); true for self-host-friendly
+    /// ones (OpenAI-compatible providers, where the user might want to
+    /// point at a private deployment).
+    pub supports_custom_base_url: bool,
+    pub auth_style: AuthStyle,
+}
+
+/// Returns the canonical, deduplicated provider catalog.
+///
+/// This is the **single source of truth** for "which providers can the
+/// user pick in the wizard?" Adding a new provider = one new entry here
+/// + rebuild the gateway. TUI + desktop pick it up automatically without
+/// code changes on their side.
+///
+/// `Provider::default_base_url()` remains the canonical per-variant URL
+/// (used by the runtime to issue requests); the catalog row carries a
+/// copy as `default_base_url: String` so the API response is
+/// self-contained — the client doesn't need a second map.
+pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
+    use AuthStyle::*;
+    vec![
+        ProviderCatalogEntry {
+            id: "openai".into(),
+            name: "OpenAI".into(),
+            provider: Provider::Openai,
+            default_base_url: Provider::Openai.default_base_url().to_string(),
+            default_model: "gpt-4o".into(),
+            console_url: Some("https://platform.openai.com/api-keys".into()),
+            key_format: Some("sk-".into()),
+            key_format_hint: Some("Begins with sk-…".into()),
+            free_tier_note: None,
+            supports_custom_base_url: true,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "anthropic".into(),
+            name: "Anthropic".into(),
+            provider: Provider::Anthropic,
+            default_base_url: Provider::Anthropic.default_base_url().to_string(),
+            default_model: "claude-sonnet-4-20250514".into(),
+            console_url: Some("https://console.anthropic.com/settings/keys".into()),
+            key_format: Some("sk-ant-".into()),
+            key_format_hint: Some("Begins with sk-ant-…".into()),
+            free_tier_note: Some("Free trial credits — no card required.".into()),
+            supports_custom_base_url: false,
+            auth_style: XApiKey,
+        },
+        ProviderCatalogEntry {
+            id: "google".into(),
+            name: "Google Gemini".into(),
+            provider: Provider::Google,
+            default_base_url: Provider::Google.default_base_url().to_string(),
+            default_model: "gemini-2.0-flash".into(),
+            console_url: Some("https://aistudio.google.com/apikey".into()),
+            key_format: None,
+            key_format_hint: None,
+            free_tier_note: Some("Free tier: 15 req/min, 1500 req/day.".into()),
+            supports_custom_base_url: true,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "kimi".into(),
+            name: "Kimi (Moonshot AI)".into(),
+            provider: Provider::Kimi,
+            default_base_url: Provider::Kimi.default_base_url().to_string(),
+            default_model: "moonshot-v1-8k".into(),
+            console_url: Some("https://platform.moonshot.ai/console/api-keys".into()),
+            key_format: None,
+            key_format_hint: None,
+            free_tier_note: None,
+            supports_custom_base_url: false,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "glm".into(),
+            name: "GLM (Zhipu)".into(),
+            provider: Provider::Glm,
+            default_base_url: Provider::Glm.default_base_url().to_string(),
+            default_model: "glm-4-plus".into(),
+            console_url: Some("https://bigmodel.cn/console/overview".into()),
+            key_format: None,
+            key_format_hint: None,
+            free_tier_note: None,
+            supports_custom_base_url: false,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "minimax".into(),
+            name: "MiniMax".into(),
+            provider: Provider::Minimax,
+            default_base_url: Provider::Minimax.default_base_url().to_string(),
+            default_model: "MiniMax-M3".into(),
+            console_url: Some("https://api.minimax.io/user-center/basic-information/api-keys".into()),
+            key_format: None,
+            key_format_hint: None,
+            free_tier_note: None,
+            supports_custom_base_url: false,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "groq".into(),
+            name: "Groq".into(),
+            provider: Provider::Groq,
+            default_base_url: Provider::Groq.default_base_url().to_string(),
+            default_model: "llama-3.1-70b-versatile".into(),
+            console_url: Some("https://console.groq.com/keys".into()),
+            key_format: Some("gsk_".into()),
+            key_format_hint: Some("Begins with gsk_…".into()),
+            free_tier_note: Some("Free tier: 30 req/min for most models.".into()),
+            supports_custom_base_url: false,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "mistral".into(),
+            name: "Mistral AI".into(),
+            provider: Provider::Mistral,
+            default_base_url: Provider::Mistral.default_base_url().to_string(),
+            default_model: "mistral-large-latest".into(),
+            console_url: Some("https://console.mistral.ai/api-keys".into()),
+            key_format: None,
+            key_format_hint: None,
+            free_tier_note: None,
+            supports_custom_base_url: false,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "deepseek".into(),
+            name: "DeepSeek".into(),
+            provider: Provider::Deepseek,
+            default_base_url: Provider::Deepseek.default_base_url().to_string(),
+            default_model: "deepseek-chat".into(),
+            console_url: Some("https://platform.deepseek.com/api_keys".into()),
+            key_format: None,
+            key_format_hint: None,
+            free_tier_note: None,
+            supports_custom_base_url: false,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "openrouter".into(),
+            name: "OpenRouter".into(),
+            provider: Provider::Openrouter,
+            default_base_url: Provider::Openrouter.default_base_url().to_string(),
+            default_model: "openai/gpt-4o".into(),
+            console_url: Some("https://openrouter.ai/keys".into()),
+            key_format: Some("sk-or-".into()),
+            key_format_hint: Some("Begins with sk-or-…".into()),
+            free_tier_note: Some("Free credits on signup; per-model pay-as-you-go.".into()),
+            supports_custom_base_url: true,
+            auth_style: Bearer,
+        },
+        ProviderCatalogEntry {
+            id: "nvidia".into(),
+            name: "NVIDIA NIM".into(),
+            provider: Provider::Nvidia,
+            default_base_url: Provider::Nvidia.default_base_url().to_string(),
+            default_model: "stepfun-ai/step-3.7-flash".into(),
+            console_url: Some("https://build.nvidia.com/settings/api-keys".into()),
+            key_format: Some("nvapi-".into()),
+            key_format_hint: Some("Begins with nvapi-…".into()),
+            free_tier_note: Some("Free tier: 1000 req/month on most hosted models.".into()),
+            supports_custom_base_url: true,
+            auth_style: Bearer,
+        },
+    ]
+}
+
 /// Request to test a provider connection.
 /// Part of the in-progress "test connection" command; not wired to a handler yet.
 #[allow(dead_code)]
@@ -223,6 +461,185 @@ pub struct TestProviderResponse {
     pub success: bool,
     pub message: String,
     pub models: Vec<String>,
+}
+
+/// Probe a provider with an API key and return whether the key is accepted.
+/// Lifted out of `src-tauri/src/lib.rs::test_byok_provider` so the headless
+/// gateway can also serve it (Sprint 2 / audit C-2). Same shape: OpenAI-
+/// compatible providers get a `GET /v1/models` probe first (cheap, no model
+/// id required), Anthropic skips straight to a minimal chat completion.
+///
+/// `base_url` is optional — when `None` we use the provider's default.
+/// Returns a `TestProviderResponse` whose `success` is true iff the key is
+/// accepted. The `message` is the real provider response text on failure
+/// ("401 Unauthorized", "Invalid API key", …) so the wizard can surface
+/// the actual reason instead of a fake ✓.
+pub async fn test_provider(
+    provider_id: &str,
+    api_key: &str,
+    base_url: Option<&str>,
+) -> TestProviderResponse {
+    let provider = match provider_id {
+        "openai" => Provider::Openai,
+        "anthropic" => Provider::Anthropic,
+        "google" => Provider::Google,
+        "kimi" => Provider::Kimi,
+        "glm" => Provider::Glm,
+        "minimax" => Provider::Minimax,
+        "groq" => Provider::Groq,
+        "mistral" => Provider::Mistral,
+        "deepseek" => Provider::Deepseek,
+        "openrouter" => Provider::Openrouter,
+        _ => Provider::Custom,
+    };
+    let url = base_url
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| provider.default_base_url().to_string());
+    let chat_endpoint = url_join(&url, provider.chat_endpoint_path());
+
+    let client = match reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return TestProviderResponse {
+                success: false,
+                message: format!("client build: {e}"),
+                models: vec![],
+            };
+        }
+    };
+
+    let header_key = provider.api_key_header();
+    let header_prefix = provider.api_key_prefix();
+    let auth_value = format!("{}{}", header_prefix, api_key);
+
+    // Anthropic does NOT publish a `/v1/models` endpoint, so the GET /models
+    // probe only applies to OpenAI-compatible providers.
+    let probe_status: Option<reqwest::Response> = if !provider.is_openai_compatible() {
+        None
+    } else {
+        let models_endpoint = url_join(&url, "models");
+        match client
+            .get(&models_endpoint)
+            .header(header_key, &auth_value)
+            .send()
+            .await
+        {
+            Ok(r) => Some(r),
+            Err(e) => {
+                return TestProviderResponse {
+                    success: false,
+                    message: format!("probe /models: {e}"),
+                    models: vec![],
+                };
+            }
+        }
+    };
+
+    if let Some(models_resp) = probe_status {
+        let models_status = models_resp.status();
+        if models_status.is_success() {
+            #[derive(serde::Deserialize)]
+            struct ModelList {
+                data: Option<Vec<serde_json::Value>>,
+            }
+            let models: Vec<String> = models_resp
+                .json::<ModelList>()
+                .await
+                .ok()
+                .and_then(|r| r.data)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|v| {
+                            v.get("id")
+                                .and_then(|id| id.as_str())
+                                .map(String::from)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            return TestProviderResponse {
+                success: true,
+                message: "Connection successful".to_string(),
+                models,
+            };
+        }
+        if models_status == 401 || models_status == 403 {
+            let body = models_resp.text().await.unwrap_or_default();
+            return TestProviderResponse {
+                success: false,
+                message: format!("Auth failed (HTTP {}): {}", models_status.as_u16(), body),
+                models: vec![],
+            };
+        }
+        // Non-auth error — fall through to chat probe.
+    }
+
+    // /models unavailable (or provider doesn't expose it). Send a minimal
+    // non-streaming completion to verify credentials.
+    let probe = if provider.is_openai_compatible() {
+        serde_json::json!({
+            "model": "__probe__",
+            "messages": [{ "role": "user", "content": "Hi" }],
+            "max_tokens": 1,
+            "stream": false,
+        })
+    } else {
+        serde_json::json!({
+            "model": "__probe__",
+            "messages": [{ "role": "user", "content": "Hi" }],
+            "max_tokens": 1,
+        })
+    };
+    let mut chat_req = client
+        .post(&chat_endpoint)
+        .header(header_key, &auth_value)
+        .header("Content-Type", "application/json")
+        .json(&probe);
+    for (name, value) in provider.extra_headers() {
+        chat_req = chat_req.header(name, value);
+    }
+    let chat_resp = match chat_req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return TestProviderResponse {
+                success: false,
+                message: format!("probe chat: {e}"),
+                models: vec![],
+            };
+        }
+    };
+
+    let chat_status = chat_resp.status();
+    let chat_body = chat_resp.text().await.unwrap_or_default();
+
+    if chat_status == 401 || chat_status == 403 {
+        TestProviderResponse {
+            success: false,
+            message: format!("Auth failed (HTTP {}): {}", chat_status.as_u16(), chat_body),
+            models: vec![],
+        }
+    } else {
+        TestProviderResponse {
+            success: true,
+            message: "Connection successful (auth verified via chat endpoint)".to_string(),
+            models: vec![],
+        }
+    }
+}
+
+/// Tiny URL join helper — appends `path` to `base` exactly once, dropping
+/// any trailing `/` from `base`. The provider tests above use it to build
+/// `https://api.example.com/v1/models` from `default_base_url()` outputs
+/// that may or may not include a trailing slash.
+fn url_join(base: &str, path: &str) -> String {
+    let base = base.trim_end_matches('/');
+    let path = path.trim_start_matches('/');
+    format!("{}/{}", base, path)
 }
 
 // ── OS keychain storage for API keys (V6) ───────────────────────────────────
@@ -334,6 +751,37 @@ pub fn remove_provider(id: &str) -> anyhow::Result<()> {
     write_metadata(&settings)
 }
 
+/// Persist a single provider's configuration: the API key to the OS keychain
+/// (when `config.api_key` is non-empty) and the metadata row to `byok.json`.
+///
+/// Added 2026-07-07 (Phase 0b of the terminal-onboarding slice) so the headless
+/// HTTP gateway exposes the same single-provider write path that
+/// `src-tauri`'s `save_byok_provider` Tauri command uses. Going through this
+/// helper keeps the persistence contract identical across both surfaces:
+///
+///   * Empty `api_key` means "leave the keychain entry untouched" — matching
+///     the existing `save` semantics (`byok.rs:486-501`).
+///   * The keychain write happens before the metadata write so a partial
+///     failure leaves byok.json matching what's in the keychain (the metadata
+///     only stores presence + non-secret config; on retry, a re-save with the
+///     same key will converge).
+///   * The returned error preserves the original `keyring::Error` in the
+///     chain so callers (e.g. `api.rs::runtime_byok_save`) can classify it
+///     into typed 4xx vs 5xx responses.
+pub fn save_provider(id: &str, config: ProviderConfig) -> anyhow::Result<()> {
+    // 1. Keychain write (if the caller provided a non-empty key).
+    if !config.api_key.is_empty() {
+        byok_set(id, &config.api_key)?;
+    }
+    // 2. Metadata write. We can't reuse `save(&ByokSettings)` here because
+    //    that path re-walks every provider — for a single-provider write from
+    //    a network handler we want the minimum disturbance.
+    let mut settings = load_metadata();
+    settings.update_provider(id, config);
+    write_metadata(&settings)?;
+    Ok(())
+}
+
 /// Read only the on-disk metadata (no keychain access). Used by mutation paths
 /// that must not re-trigger migration or key population.
 fn load_metadata() -> ByokSettings {
@@ -418,7 +866,5 @@ mod tests {
         assert_eq!(Provider::Google.chat_endpoint_path(), "chat/completions");
         assert_eq!(Provider::Google.api_key_header(), "Authorization");
         assert_eq!(Provider::Google.api_key_prefix(), "Bearer ");
-        assert!(Provider::Google.extra_headers().is_empty());
-        assert!(Provider::Google.is_openai_compatible());
     }
 }

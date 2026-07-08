@@ -14,9 +14,38 @@
  * agent-side system prompt (USER block — see FeralAgent/system-prompt
  * integration). The user can re-open the wizard from Settings to
  * rename themselves or the agent.
+ *
+ * Step model (audit M-R1 fix, 2026-07-07):
+ *   The wizard's steps live in `STEP_IDS` below. `totalSteps` is
+ *   derived from its length, so adding/removing/reordering a step
+ *   updates the progress bar, the nav buttons, and the gate logic
+ *   in one place. The previous design used a hand-managed
+ *   `totalSteps: 5` constant which broke silently when a step was
+ *   added or removed (`Math.min(s.step + 1, s.totalSteps - 1)`).
+ *
+ * Defer-vs-finish split (audit M-R2 fix, 2026-07-07):
+ *   Footer links in the Provider step ("Browse other models",
+ *   "More providers in Settings") used to call `finish()`, which
+ *   persisted a `completed: true` record and closed the wizard
+ *   forever. Any in-flight download or key test was silently
+ *   abandoned. They now call `defer()`: the wizard hides, nothing
+ *   is written to disk, and the wizard can re-open on next app
+ *   launch (`loadPersisted()` finds no record and starts fresh).
+ *   `finish()` remains the only path that writes `completed:true`.
  */
 
 import { create } from 'zustand';
+
+/**
+ * Wizard steps in render order. The provider step currently branches
+ * internally on `local` vs `cloud`; if we ever split that into two
+ * distinct wizard steps, add them here — `totalSteps`, the progress
+ * dots, and the next/prev bounds all derive from this list.
+ */
+const STEP_IDS = ['welcome', 'personalize', 'provider', 'showcase', 'done'] as const;
+const TOTAL_STEPS: number = STEP_IDS.length;
+const FIRST_STEP: number = 0;
+const LAST_STEP: number = STEP_IDS.length - 1;
 
 export interface OnboardingState {
   active: boolean;
@@ -31,7 +60,8 @@ export interface OnboardingState {
   completedAt: number | null;
   /** True when the persisted record says "this user has already onboarded". */
   hasOnboardedBefore: boolean;
-  /** Total number of steps in the wizard (used by progress bar + next/prev). */
+  /** Total number of steps in the wizard (used by progress bar + next/prev).
+   *  Derived from STEP_IDS.length — see audit M-R1 fix. */
   totalSteps: number;
 
   start: () => void;
@@ -41,6 +71,14 @@ export interface OnboardingState {
   setAgentName: (name: string) => void;
   skip: () => void;
   finish: () => Promise<void>;
+  /** Close the wizard without persisting a completion record (audit M-R2
+   *  fix). Footer links in the Provider step use this so an in-flight
+   *  download or key test is preserved across the navigation — the user
+   *  can come back to it on next launch (no `completed: true` on disk
+   *  means the wizard re-opens on its own). For the user to make the
+   *  "done" state permanent, they must still hit "Open chat" on the
+   *  Done step (which calls `finish()`). */
+  defer: () => void;
   /** Programmatically re-open the wizard (e.g. from Settings → "Show welcome"). */
   reopen: () => void;
   /** Load the persisted record from disk and decide whether to show the wizard. */
@@ -54,26 +92,29 @@ const DEFAULTS = {
   skipped: false,
   completedAt: null,
   active: false,
-  step: 0,
-  // Welcome → Personalize → Provider → Showcase → Done
-  totalSteps: 5,
+  step: FIRST_STEP,
+  totalSteps: TOTAL_STEPS,
 } as const;
 
 export const useOnboarding = create<OnboardingState>((set, get) => ({
   ...DEFAULTS,
 
-  start: () => set({ active: true, step: 0, completedAt: null, skipped: false }),
+  start: () => set({ active: true, step: FIRST_STEP, completedAt: null, skipped: false }),
 
-  reopen: () => set({ active: true, step: 0 }),
+  reopen: () => set({ active: true, step: FIRST_STEP }),
 
+  // Audit M-R1 fix: derive next/prev bounds from STEP_IDS instead of the
+  // hand-managed `totalSteps` constant. Adding a step means inserting a
+  // string in STEP_IDS — every consumer (progress dots, nav buttons,
+  // bounds) follows automatically.
   next: () =>
     set((s) => ({
-      step: Math.min(s.step + 1, s.totalSteps - 1),
+      step: s.step >= LAST_STEP ? LAST_STEP : s.step + 1,
     })),
 
   prev: () =>
     set((s) => ({
-      step: Math.max(0, s.step - 1),
+      step: s.step <= FIRST_STEP ? FIRST_STEP : s.step - 1,
     })),
 
   setUserName: (name) => set({ userName: name.trim() }),
@@ -100,6 +141,24 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       agentName: s.agentName || 'Feral',
     });
   },
+
+  // Audit M-R2 fix. The Provider step's footer links ("Browse other
+  // models", "More providers in Settings") used to call `finish()`,
+  // which persisted a `completed: true` record. That closed the wizard
+  // forever and abandoned any in-flight download / key test. `defer()`
+  // closes the wizard without writing anything — the user can resume
+  // by re-opening from Settings (or the wizard will auto-show again on
+  // next launch since no completion record exists).
+  //
+  // We intentionally do NOT set `hasOnboardedBefore: true` here. The
+  // orchestrator at OnboardingOrchestrator.tsx checks
+  // `hasOnboardedBefore && !active` to hide on subsequent visits; if we
+  // flipped that flag, a deferred user would never see the wizard again
+  // — defeating the point of "I'll come back to this later." The
+  // `loadPersisted()` path remains the only thing that flips
+  // `hasOnboardedBefore` to true, and it only does so when a record
+  // with `completed: true` is found.
+  defer: () => set({ active: false }),
 
   // (no helper functions below — the persistence layer lives in
   // onboardingPersistence.ts and is invoked through the actions above.)

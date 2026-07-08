@@ -45,6 +45,7 @@ func newTestApp() *App {
 		ChatVP:    vp,
 		Loader:    sp,
 		State:     StateReady,
+		Now:       time.Now(),
 	}
 	return a
 }

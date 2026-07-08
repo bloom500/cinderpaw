@@ -101,3 +101,4 @@ node_modules/.vite/
 
 # Locally-installed Claude Code plugin skills (.claude/ config IS tracked, these aren't)
 .claude/skills/
+.aider*

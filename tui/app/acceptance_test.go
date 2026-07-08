@@ -191,12 +191,15 @@ func TestIdleStateNoAnimation(t *testing.T) {
 // TestFrameTickMsgOnlyInStreaming — FrameTickMsg triggers rebuild only when
 // the state is StateStreaming.
 func TestFrameTickMsgOnlyInStreaming(t *testing.T) {
+	fixedTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	for _, s := range []State{StateReady, StateIdle, StateError, StateBoot, StateThinking} {
 		a := newTestApp()
 		a.State = s
+		a.Now = fixedTime
 		origContent := a.buildChatContent()
 		// Send a FrameTickMsg — should be a no-op when !streaming.
 		a.Update(FrameTickMsg(time.Now()))
+		a.Now = fixedTime
 		afterContent := a.buildChatContent()
 		if afterContent != origContent {
 			t.Fatalf("state %v: FrameTickMsg changed chat content", s)
@@ -263,10 +266,10 @@ func TestNoGlyphLiteralsInAppCode(t *testing.T) {
 				continue
 			}
 			for _, g := range glyphs {
-				if strings.Contains(raw, g) {
-					t.Errorf("%s:%d contains glyph literal %q — use ui.G.* instead (full line: %q)", name, ln+1, g, raw)
-				}
+			if strings.Contains(raw, g) {
+				t.Errorf("%s:%d contains glyph literal %q — use ui.G.* instead (full line: %q)", name, ln+1, g, raw)
 			}
 		}
 	}
+}
 }

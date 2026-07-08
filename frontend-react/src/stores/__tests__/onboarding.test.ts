@@ -45,6 +45,21 @@ describe('useOnboarding', () => {
     expect(useOnboarding.getState().step).toBe(useOnboarding.getState().totalSteps - 1);
   });
 
+  it('totalSteps is derived from the wizard step list (M-R1 fix)', () => {
+    // Audit M-R1 fix (2026-07-07): `totalSteps` was a hand-managed
+    // constant (`5`) that broke silently when a step was added. It's
+    // now derived from STEP_IDS.length — pin the contract that adding
+    // a step means inserting one entry in the list.
+    expect(useOnboarding.getState().totalSteps).toBe(5);
+    expect(useOnboarding.getState().totalSteps).toBeGreaterThan(0);
+    // The last reachable step index is totalSteps - 1 — pins the
+    // boundary any `next()` caller can reach.
+    useOnboarding.getState().start();
+    for (let i = 0; i < 99; i++) useOnboarding.getState().next();
+    expect(useOnboarding.getState().step).toBe(4);
+    expect(useOnboarding.getState().step).toBe(useOnboarding.getState().totalSteps - 1);
+  });
+
   it('prev() clamps to 0', () => {
     useOnboarding.getState().start();
     useOnboarding.getState().prev();
@@ -104,5 +119,60 @@ describe('useOnboarding', () => {
     expect(useOnboarding.getState().step).toBe(0);
     // userName is preserved across reopen
     expect(useOnboarding.getState().userName).toBe('X');
+  });
+
+  it('defer() hides the wizard without marking it completed (M-R2 fix)', () => {
+    // Audit M-R2 fix (2026-07-07): the Provider step's footer links
+    // ("Browse other models", "More providers in Settings") used to
+    // call `finish()`, which persisted `completed: true` and closed the
+    // wizard forever — abandoning any in-flight download / key test.
+    // They now call `defer()`, which hides the overlay with NO side
+    // effects on persistence or `hasOnboardedBefore`, so the wizard
+    // can re-open on next launch (and the user can pick up where they
+    // left off).
+    useOnboarding.getState().start();
+    useOnboarding.getState().setUserName('Halfway');
+    useOnboarding.getState().defer();
+    const s = useOnboarding.getState();
+    expect(s.active).toBe(false);
+    // M-R2 contract: the defer path must NOT look like "the user
+    // finished onboarding" to loadPersisted(). Otherwise the wizard
+    // would never re-open after a defer.
+    expect(s.hasOnboardedBefore).toBe(false);
+    expect(s.completedAt).toBeNull();
+    expect(s.skipped).toBe(false);
+    // Names typed so far are preserved — the next launch starts the
+    // wizard fresh from step 0 but the typed name doesn't vanish.
+    expect(s.userName).toBe('Halfway');
+  });
+
+  it('defer() does not advance `step` — closing the overlay is not progress', () => {
+    // Catches a regression where defer ended up calling `next()` as a
+    // side effect. The wizard should stay at whatever step the user
+    // had reached so a future `start()` (or auto re-mount) reopens
+    // them at the same place.
+    useOnboarding.getState().start();
+    useOnboarding.getState().next(); // step 1
+    useOnboarding.getState().next(); // step 2
+    const before = useOnboarding.getState().step;
+    useOnboarding.getState().defer();
+    expect(useOnboarding.getState().step).toBe(before);
+  });
+
+  it('start() after defer() keeps the user-typed name', () => {
+    // The defer path is followed by the user navigating to /models
+    // or /settings. When they come back to the wizard later (either
+    // manually via Settings, or automatically because no completion
+    // record exists on disk), the half-typed name must not vanish.
+    useOnboarding.getState().start();
+    useOnboarding.getState().setUserName('Darius');
+    useOnboarding.getState().defer();
+    // Simulate next session: start() again resets step/active but
+    // names are app-wide (kept on the store, reloaded via loadPersisted
+    // on real boot).
+    useOnboarding.getState().start();
+    expect(useOnboarding.getState().active).toBe(true);
+    expect(useOnboarding.getState().step).toBe(0);
+    expect(useOnboarding.getState().userName).toBe('Darius');
   });
 });

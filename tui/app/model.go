@@ -165,6 +165,43 @@ type SessionsMsg struct {
 	Err      error
 }
 
+// LastTaskMsg is the Sprint 1.8 payload for the welcome-screen last-task
+// row. View is the gateway `/runtime/resume` response (nil on transport
+// failure or first launch — both render the same "fresh start" copy).
+type LastTaskMsg struct {
+	View *api.ResumeView
+	Err  error
+}
+
+// HardwareProbeMsg is the Sprint 2 / audit C-1 payload. On success Info is
+// the real `/system_info` response (GPU/VRAM/RAM) and the wizard advances
+// to WizModelChoice. On failure the wizard surfaces a Retry CTA so the
+// user can recover from a transient gateway hiccup.
+type HardwareProbeMsg struct {
+	Info *api.SystemInfo
+	Err  error
+}
+
+// ProvidersTestMsg is the Sprint 2 / audit C-2 payload. On success the
+// wizard advances to WizConnectors; on failure the user sees the real
+// provider error verbatim ("401 Unauthorized", "Invalid API key", …).
+// `Msg` is empty on success.
+type ProvidersTestMsg struct {
+	Success bool
+	Msg     string
+	Err     error
+}
+
+// DownloadModelMsg is the Sprint 2 / audit C-5 payload. The wizard's
+// `W3a` step POSTs `/runtime/models/install` (gets back a download id),
+// then polls `/runtime/models/download/:id` every 500ms; each poll
+// returns one of these. Status == "complete" advances the wizard;
+// status == "failed" / "cancelled" surfaces the real error verbatim.
+type DownloadModelMsg struct {
+	Download *api.ModelDownload
+	Err      error
+}
+
 // RuntimeEventMsg wraps one event from the /events SSE stream.
 type RuntimeEventMsg struct {
 	Event api.RuntimeEvent
@@ -174,9 +211,15 @@ type RuntimeEventMsg struct {
 // renders at least once with "○ starting" before transitioning (§2 J2.1).
 type BootComplete struct{}
 
-// wizardDoneMarker is written by finishWizard and checked on every launch
-// to decide whether to auto-open the setup flow (§2 J2.3).
-const wizardDoneMarker = "~/.feral/.wizard-done"
+// StatusPollTickMsg drives the 5s header refresh — fetches /runtime/status
+// so model/lora/backend/online never go stale after launch (spec §29).
+type StatusPollTickMsg struct{}
+
+// StatusPollResult holds the response from FetchStatus for the poll handler.
+type StatusPollResult struct {
+	Status *api.StatusSnapshot
+	Err    error
+}
 
 type App struct {
 	Width, Height int
@@ -188,9 +231,23 @@ type App struct {
 	Turns []Turn
 	State State
 
+	// connectorTipArmed is set when the wizard finishes; after the first
+	// clean StreamDoneMsg one connector-discovery tip is pushed (P1.1).
+	connectorTipArmed bool
+
 	Sessions      []api.SessionSummary
 	SessionsErr   error
 	SessionsAt    time.Time
+
+	// Sprint 1.8 — Memory Resume. Last-task row on the welcome screen.
+	// Populated by fetchResumeCmd on init; nil on first launch. Cached for
+	// 30s so window resize / Tab navigation doesn't refetch. The row renders
+	// as "Welcome back to <title> · in <workspace>" and is suppressed when
+	// stale (>30 days) or absent.
+	LastTask      *api.LastTask
+	LastTaskView  *api.ResumeView
+	LastTaskErr   error
+	LastTaskAt    time.Time
 
 	ChatVP      viewport.Model
 	Input       textarea.Model
@@ -208,8 +265,16 @@ type App struct {
 	// stops streaming tokens from yanking the view back down mid-read.
 	FollowBottom bool
 
+	// needsRebuild is set when the viewport content or dimensions change
+	// and cleared after rebuildViewport() runs. View() checks this flag
+	// instead of unconditionally rebuilding on every frame.
+	needsRebuild bool
+	// prevChatH tracks the chat viewport height from the last rebuild so
+	// View() can detect height changes (auxH transitions) and set
+	// needsRebuild without running the full rebuild itself.
+	prevChatH int
+
 	ShowHelp    bool
-	ShowHistory bool
 	// ToolViewer is the full-screen tool-result overlay. Built lazily
 	// from the current Turns when `/tools` fires (so re-opening reflects
 	// any tools that completed since the last open). Idx is the row
@@ -223,6 +288,12 @@ type App struct {
 
 	FlashText  string
 	FlashUntil time.Time
+
+	// PendingSubmit holds text the user typed while a stream was running
+	// (P2.3). Enter during StateStreaming captures the composed text into
+	// this field and clears the textarea; the next clean StreamDoneMsg
+	// auto-submits it. Empty when nothing queued.
+	PendingSubmit string
 
 	StreamBuf strings.Builder
 	Prog      *tea.Program
@@ -255,6 +326,18 @@ type App struct {
 	// token arrives. Used to transition StateThinking → StateStreaming
 	// (the thinking footer hints only while reasoning precedes text).
 	streamHasContent bool
+
+	// RecoverAttempts counts how many reconnect attempts have happened in
+	// the current Recovery cycle (spec §3: footer reads "reconnecting…
+	// (attempt N)"). Reset to 0 on successful return to StateReady.
+	RecoverAttempts int
+
+	// DownloadProgress is the current download byte count + total for the
+	// DownloadingModel footer progress line (spec §3). Zero values mean
+	// no active download.
+	DownloadBytesDone int64
+	DownloadBytesTot  int64
+	DownloadMBps      float64
 
 	// Completion is one entry in the slash-command autocomplete popup that
 	// floats above the input while the user types `/`.
@@ -311,6 +394,11 @@ type App struct {
 	// ApprovalToolID is the tool call ID currently awaiting user approval
 	// in StateWaiting. Empty when not in an approval flow.
 	ApprovalToolID string
+
+	// Now is the cached wall-clock time for the current Update/View cycle.
+	// View() and all renderers read this instead of calling time.Now()
+	// directly (spec §34.4: "View and renderers never call time.Now()").
+	Now time.Time
 }
 
 // ToolViewerRow is one entry in the `/tools` overlay — the flattened
@@ -323,12 +411,16 @@ type ToolViewerRow struct {
 
 // ToolViewerState holds the open state of the overlay. `Rows` is rebuilt
 // every time the overlay opens, so a tool that finished after the last
-// open automatically appears.
+// open automatically appears. PreviewOffset tracks the scroll position
+// inside an expanded preview (P2.4): PgUp/PgDn advances/retreats the
+// window of preview lines shown when the result is taller than the
+// visible cap.
 type ToolViewerState struct {
-	Show     bool
-	Rows     []ToolViewerRow
-	Idx      int
-	Expanded bool
+	Show          bool
+	Rows          []ToolViewerRow
+	Idx           int
+	Expanded      bool
+	PreviewOffset int
 }
 
 // ModelEntry is one selectable row in the model picker overlay. `ID`
@@ -380,17 +472,19 @@ func New(baseURL, token string, status *api.StatusSnapshot) *App {
 	cwd, _ := os.Getwd()
 
 	return &App{
-		Status:       status,
-		BaseURL:      baseURL,
-		Token:        token,
-		Input:        ti,
-		ChatVP:       vp,
-		Loader:       sp,
-		StartedAt:    time.Now(),
-		FollowBottom: true,
-		Cwd:          cwd,
-		State:        StateBoot,
-		HistoryIdx:   -1,
+		Status:        status,
+		BaseURL:       baseURL,
+		Token:         token,
+		Input:         ti,
+		ChatVP:        vp,
+		Loader:        sp,
+		StartedAt:     time.Now(),
+		FollowBottom:  true,
+		needsRebuild:  true,
+		Cwd:           cwd,
+		State:         StateBoot,
+		HistoryIdx:    -1,
+		Now:           time.Now(),
 	}
 }
 
@@ -427,10 +521,27 @@ func (a *App) lastAssistantTurn() *Turn {
 	return nil
 }
 
-// gutter is the blank left margin every continuation line (wrapped message
-// lines, thinking lines) aligns under — one space past the tag column, so
-// text starts at the same column the tag's own text ends on.
-var gutter = strings.Repeat(" ", ui.TagWidth+1)
+// runningToolName returns the name of the currently-running tool, or "" if
+// no tool is in flight. Drives the ToolRunning footer text (§3).
+func (a *App) runningToolName() string {
+	for i := len(a.Turns) - 1; i >= 0; i-- {
+		t := a.Turns[i]
+		if t.Role != RoleAssistant {
+			continue
+		}
+		for j := range t.Tools {
+			if t.Tools[j].Status == ToolRunning {
+				return t.Tools[j].Name
+			}
+		}
+		break
+	}
+	return ""
+}
+
+// gutter is the 2-space left margin for all transcript content (spec §5).
+// Continuation lines, thinking lines, and tool pills all align under this.
+var gutter = strings.Repeat(" ", ui.ContentIndent)
 
 // narrowToolLayout reports whether the terminal is in the 60–79 col range
 // where the tool tail moves onto the ⎿ line (spec §17).
@@ -453,7 +564,10 @@ func (a *App) buildChatContent() string {
 		}
 		return welcome
 	}
-	msgWidth := a.ChatVP.Width - ui.TagWidth - 1
+	msgWidth := a.ChatVP.Width - ui.ContentIndent
+	if msgWidth > ui.MaxProseWidth {
+		msgWidth = ui.MaxProseWidth
+	}
 	widthOK := msgWidth == a.renderWidth
 
 	var b strings.Builder
@@ -490,9 +604,8 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 	var b strings.Builder
 	switch turn.Role {
 	case RoleUser:
-		tag := ui.TagYou.Render("you")
 		lines := reflow(turn.Text, msgWidth)
-		b.WriteString(tag + " " + ui.UserContent.Render(lines[0]))
+		b.WriteString(gutter + ui.MetaStyle.Render(ui.G.Prompt) + " " + ui.UserContent.Render(lines[0]))
 		b.WriteByte('\n')
 		for _, line := range lines[1:] {
 			b.WriteString(gutter + ui.UserContent.Render(line))
@@ -518,7 +631,7 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 				var prefix string
 				if turn.Streaming {
 					prefix = a.Loader.View() + " thinking"
-					if elapsed := time.Since(a.StreamStartedAt); elapsed > 3*time.Second {
+					if elapsed := a.Now.Sub(a.StreamStartedAt); elapsed > 3*time.Second {
 						prefix += fmt.Sprintf(" · %s", formatElapsed(elapsed))
 					}
 				} else {
@@ -534,38 +647,37 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 			}
 		}
 
-		tag := ui.TagFeral.Render("◆ feral")
-		if turn.Text == "" && len(turn.Tools) == 0 {
-			b.WriteString(tag)
-			if turn.Streaming {
-				b.WriteString(" " + a.Loader.View())
-			}
-			b.WriteByte('\n')
+		if turn.Text == "" && len(turn.Tools) == 0 && !turn.Streaming && turn.Reasoning == "" {
+			// Empty, finished assistant turn with no tools — skip rendering
+			// (no content, no tag, nothing to show).
 			b.WriteByte('\n')
 			return b.String()
 		}
 		if turn.Text != "" {
-			rendered := turn.renderMarkdownCached(msgWidth)
+			// Plain text during streaming, markdown on completion
+			// (§30.8: partial fences produce garbage; defer glamour).
+			var rendered string
+			if turn.Streaming {
+				rendered = turn.Text
+			} else {
+				rendered = turn.renderMarkdownCached(msgWidth)
+			}
 			lines := strings.Split(rendered, "\n")
 			for i, line := range lines {
 				if turn.Streaming && i == len(lines)-1 {
 					line += ui.Cursor.Render(ui.G.Cursor)
 				}
-				if i == 0 {
-					b.WriteString(tag + " " + ui.FeralContent.Render(line))
-				} else {
-					b.WriteString(gutter + ui.FeralContent.Render(line))
-				}
+				b.WriteString(gutter + ui.FeralContent.Render(line))
 				b.WriteByte('\n')
 			}
 		} else {
-			b.WriteString(tag)
+			b.WriteString(gutter)
 			if turn.Streaming {
-				b.WriteString(" " + a.Loader.View())
+				b.WriteString(a.Loader.View())
 			}
 			b.WriteByte('\n')
 		}
-		if collapsed := collapsedToolSummary(turn, gutter); collapsed != "" {
+		if collapsed := collapsedToolSummary(turn, gutter, a.Now); collapsed != "" {
 			b.WriteString(collapsed)
 			b.WriteByte('\n')
 		} else {
@@ -576,7 +688,7 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 			}
 		}
 		for _, e := range turn.Errors {
-			b.WriteString(gutter + a.renderErrorCard(e, msgWidth-TagIndent))
+			b.WriteString(gutter + a.renderErrorCard(e, msgWidth))
 			b.WriteByte('\n')
 		}
 		if turn.Meta != "" {
@@ -595,13 +707,12 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 
 func (a *App) rebuildViewport() {
 	content := a.buildChatContent()
-	if content != a.PrevContent {
-		a.ChatVP.SetContent(content)
-		a.PrevContent = content
-		if a.FollowBottom {
-			a.ChatVP.GotoBottom()
-		}
+	a.PrevContent = content
+	a.ChatVP.SetContent(content)
+	if a.FollowBottom {
+		a.ChatVP.GotoBottom()
 	}
+	a.needsRebuild = false
 }
 
 // formatRuntimeEvent renders one event line — the part after the `◦` glyph
@@ -632,7 +743,7 @@ func formatRuntimeEvent(ev api.RuntimeEvent) string {
 		}
 		return "routed"
 	case "fallback":
-		return "⚠ " + ev.Message
+		return ui.G.Err + " " + ev.Message
 	default:
 		if ev.Message != "" {
 			return ev.Message

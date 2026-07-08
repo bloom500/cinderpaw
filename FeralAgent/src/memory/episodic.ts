@@ -141,12 +141,25 @@ export class EpisodicMemory {
    * were cleared. Used when the embedding model changes: the stored vectors'
    * dimensionality no longer matches the new model, so they must be discarded
    * and re-embedded. The text is untouched — only the vectors are dropped.
+   *
+   * The count is computed by a SELECT before the UPDATE because the FTS5
+   * `episodic_au` trigger fires from this same UPDATE and bumps SQLite's
+   * `sqlite3_changes()` counter far beyond the actual number of `episodic`
+   * rows modified — each FTS5 maintenance insert is counted, so on this
+   * schema the bare `changes` value is meaningless. A pre-count is the
+   * cheapest, most honest fix; the Sprint 1.10 tests pin it.
    */
   clearEmbeddings(): number {
-    const res = this.#db
+    const before = this.#db
+      .query<{ n: number }, []>(
+        `SELECT count(*) AS n FROM episodic WHERE embedding IS NOT NULL`,
+      )
+      .get();
+    if (!before || before.n === 0) return 0;
+    this.#db
       .query(`UPDATE episodic SET embedding = NULL WHERE embedding IS NOT NULL`)
       .run();
-    return Number(res.changes ?? 0);
+    return before.n;
   }
 
   /**
