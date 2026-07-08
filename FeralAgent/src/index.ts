@@ -67,13 +67,14 @@ import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
 import { shouldAutostartPassive } from "./rsi/passive-supervisor.ts";
 import { createDreamCycle } from "./rsi/dream-cycle.ts";
-import { defaultJournalPath } from "./rsi/journal.ts";
+import { defaultJournalPath, defaultJournalDir, journalFilename, verifyJournal } from "./rsi/journal.ts";
+import { sha256Canonical } from "./rsi/hash-chain.ts";
 import { ActivityMonitor } from "./rsi/activity-monitor.ts";
 import { resolveDreamConfig, dreamCloudGate } from "./rsi/dream-config.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/episode-options.ts";
 import { MetaEvolution } from "./rsi/meta-evolution.ts";
 import { effectiveGates, governanceCheck, loadPolicy } from "./rsi/governance.ts";
-import { ensureGenesisPolicy } from "./rsi/governance-lifecycle.ts";
+import { ensureGenesisPolicy, GovernanceLifecycle } from "./rsi/governance-lifecycle.ts";
 import {
   mapGenomeToAgentConfig,
   readChampion,
@@ -1137,6 +1138,17 @@ export async function main(transportOverride?: Transport): Promise<void> {
     return codePatchGatePromise;
   };
 
+  // Slice A5 (L5 Governance) — the policy FSM. Lazy singleton, sync init
+  // (GovernanceLifecycle has no async deps; only the journal dir resolution
+  // touches the filesystem and that's deferred to the first read). Same
+  // discipline as `codePatchGate` above: installs that never touch
+  // governance (the majority of them) pay nothing.
+  let glInstance: GovernanceLifecycle | null = null;
+  const governanceGate = () => {
+    glInstance ??= new GovernanceLifecycle({ log });
+    return glInstance;
+  };
+
   // Faza 4 (L2 LoRA) — the personal-adaptation gate, same lazy-on-first-touch
   // discipline as the code-patch gate. Registry + review inbox persist next
   // to the journal; `sendLoraReviews` is the one shape the UI card renders.
@@ -1213,6 +1225,157 @@ export async function main(transportOverride?: Transport): Promise<void> {
       case "meta_history":
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "history", ok: true, history: metaEvolution.history() });
         break;
+
+      // Slice A5 (L5 Governance) — host drives the `GovernanceLifecycle`
+      // FSM through one inbound message per op, paired by `id` with the
+      // `governance_result` reply the gateway + CLI consume. Mirrors the
+      // meta_* handlers above: spread the lifecycle result onto the reply,
+      // keep the handler synchronous, and bubble `{ ok:false, reason }`
+      // results through unchanged (they're policy outcomes, not transport
+      // errors — see brief §1 "Results that are `{ok:false, reason}` from
+      // the FSM are NOT transport errors").
+      case "governance_status": {
+        const gl = governanceGate();
+        transport.send({ type: "governance_result", id: msg.id ?? "", op: "status", ...gl.status() });
+        break;
+      }
+      case "governance_propose": {
+        const gl = governanceGate();
+        const document = (msg as { document?: unknown }).document;
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "propose",
+          ...gl.propose(document, "operator"),
+        });
+        break;
+      }
+      case "governance_approve": {
+        const gl = governanceGate();
+        // Brief: "if msg.documentHash is absent, compute it via
+        // sha256Canonical(gl.proposalDocument(msg.id)) and echo the hash
+        // in the result." Lets the CLI `feral governance approve <id>`
+        // skip the canonical-JSON roundtrip in Rust; API callers that DO
+        // pass an explicit hash still get the stale-hash safety net
+        // (AC4) — pass nothing and we recompute, pass a wrong one and the
+        // FSM rejects with a mismatch reason.
+        const policyId = (msg as { id?: string }).id ?? (msg as { policyId?: string }).policyId ?? "";
+        let documentHash = (msg as { documentHash?: string }).documentHash ?? "";
+        let computedHash = "";
+        if (!documentHash) {
+          const doc = gl.proposalDocument(policyId);
+          if (!doc) {
+            transport.send({
+              type: "governance_result",
+              id: msg.id ?? "",
+              op: "approve",
+              ok: false,
+              reason: `unknown proposal: ${policyId}`,
+            });
+            break;
+          }
+          computedHash = sha256Canonical(doc);
+          documentHash = computedHash;
+        }
+        const note = (msg as { note?: string }).note ?? "";
+        const result = gl.approve(policyId, documentHash, note, "operator");
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "approve",
+          ...result,
+          ...(computedHash ? { documentHash: computedHash } : {}),
+        });
+        break;
+      }
+      case "governance_reject": {
+        const gl = governanceGate();
+        const policyId = (msg as { policyId?: string }).policyId ?? (msg as { id?: string }).id ?? "";
+        const reason = (msg as { reason?: string }).reason ?? "";
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "reject",
+          ...gl.reject(policyId, reason, "operator"),
+        });
+        break;
+      }
+      case "governance_rollback": {
+        const gl = governanceGate();
+        const reason = (msg as { reason?: string }).reason ?? "operator rollback";
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "rollback",
+          ...gl.rollback(reason, "operator"),
+        });
+        break;
+      }
+      case "governance_freeze": {
+        const gl = governanceGate();
+        const layers = (msg as { layers?: string[] }).layers ?? [];
+        const reason = (msg as { reason?: string }).reason ?? "";
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "freeze",
+          ...gl.freeze(layers as ("l1" | "l2" | "l3" | "l4" | "l6")[], reason, "operator"),
+        });
+        break;
+      }
+      case "governance_unfreeze": {
+        const gl = governanceGate();
+        const layers = (msg as { layers?: string[] }).layers ?? [];
+        const reason = (msg as { reason?: string }).reason ?? "";
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "unfreeze",
+          ...gl.unfreeze(layers as ("l1" | "l2" | "l3" | "l4" | "l6")[], reason, "operator"),
+        });
+        break;
+      }
+      case "governance_verify": {
+        const gl = governanceGate();
+        // Brief: gl.verify() PLUS verifyJournal on last 7 UTC days. The
+        // audit/chain verification is fast (in-process SHA256); the journal
+        // walk caps at 7 to keep this snappy even on long-running installs.
+        const chains = gl.verify();
+        const journal: Array<{ file: string; ok: boolean; badRow?: number; reason?: string }> = [];
+        const dir = defaultJournalDir();
+        for (let offset = 0; offset < 7; offset++) {
+          const d = new Date(Date.now() - offset * 24 * 60 * 60 * 1000);
+          const file = journalFilename(d);
+          const res = verifyJournal(`${dir}/${file}`);
+          journal.push(
+            res.ok
+              ? { file, ok: true }
+              : { file, ok: false, badRow: res.badRow, reason: res.reason },
+          );
+        }
+        const allOk = chains.ok && journal.every((j) => j.ok);
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "verify",
+          ok: allOk,
+          chains,
+          journal,
+        });
+        break;
+      }
+      case "governance_history": {
+        const gl = governanceGate();
+        const limit = (msg as { limit?: number }).limit ?? 50;
+        transport.send({
+          type: "governance_result",
+          id: msg.id ?? "",
+          op: "history",
+          ok: true,
+          history: gl.historyRows(limit),
+        });
+        break;
+      }
 
       // Sprint 1.6 — Memory Resume. Read-only — never writes memory. Used by
       // the React `WelcomeBack` banner and the TUI last-task row. The handler

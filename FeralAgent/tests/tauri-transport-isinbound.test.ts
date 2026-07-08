@@ -44,6 +44,18 @@ describe("isInbound — exhaustive coverage of InboundMessage union", () => {
     "rsi_stop",
     "rsi_set_concurrency",
     "rsi_response",
+    // Slice A5 (L5 Governance) — must stay in lockstep with INBOUND_TYPES
+    // in src/transports/tauri.ts. Drift here means a governance op would be
+    // silently dropped by the transport before the handler sees it.
+    "governance_status",
+    "governance_propose",
+    "governance_approve",
+    "governance_reject",
+    "governance_rollback",
+    "governance_freeze",
+    "governance_unfreeze",
+    "governance_verify",
+    "governance_history",
   ];
   for (const t of expected) {
     it(`accepts "${t}"`, () => {

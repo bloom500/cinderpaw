@@ -81,6 +81,13 @@ enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Slice A5 (L5 Governance) — drive the policy FSM end-to-end
+    /// (status / propose / approve / freeze / verify …). Mirrors `meta …`
+    /// for surface + JSON plumbing; operations live in `admin::governance`.
+    Governance {
+        #[command(subcommand)]
+        action: admin::GovernanceAction,
+    },
     /// Generate a shell completion script
     Completion {
         /// bash | zsh | fish | powershell | elvish
@@ -175,6 +182,7 @@ fn main() {
             ConfigAction::Get { key } => admin::config_get(key.as_deref()),
             ConfigAction::Set { key, value } => admin::config_set(&key, &value),
         },
+        Some(Command::Governance { action }) => admin::governance(action),
         Some(Command::Completion { shell }) => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "feral", &mut std::io::stdout());
@@ -265,5 +273,130 @@ mod tests {
     #[test]
     fn cli_tree_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    /// Slice A5 — parse the `feral governance …` subcommands exactly the way
+    /// clap will see them on the command line. The variants live in
+    /// `crate::admin::GovernanceAction` (mirrors `meta` CLI parsing for
+    /// A6+). Each test also pins the variant discriminant so a future
+    /// clap attribute change that would silently re-shape the parser
+    /// fails CI.
+    #[test]
+    fn parses_governance_status() {
+        let cli = Cli::try_parse_from(["feral", "governance", "status"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Governance { action: crate::admin::GovernanceAction::Status })
+        ));
+    }
+
+    #[test]
+    fn parses_governance_history() {
+        let cli = Cli::try_parse_from(["feral", "governance", "history"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Governance { action: crate::admin::GovernanceAction::History })
+        ));
+    }
+
+    #[test]
+    fn parses_governance_proposals() {
+        let cli = Cli::try_parse_from(["feral", "governance", "proposals"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Governance { action: crate::admin::GovernanceAction::Proposals })
+        ));
+    }
+
+    #[test]
+    fn parses_governance_verify() {
+        let cli = Cli::try_parse_from(["feral", "governance", "verify"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Governance { action: crate::admin::GovernanceAction::Verify })
+        ));
+    }
+
+    #[test]
+    fn parses_governance_propose_with_file() {
+        let cli = Cli::try_parse_from([
+            "feral", "governance", "propose", "/tmp/policy.json",
+        ]).unwrap();
+        if let Some(Command::Governance {
+            action: crate::admin::GovernanceAction::Propose { file },
+        }) = cli.command
+        {
+            assert_eq!(file.to_str(), Some("/tmp/policy.json"));
+        } else {
+            panic!("expected Governance::Propose");
+        }
+    }
+
+    #[test]
+    fn parses_governance_approve_id_only() {
+        let cli = Cli::try_parse_from(["feral", "governance", "approve", "gp-3"]).unwrap();
+        if let Some(Command::Governance {
+            action: crate::admin::GovernanceAction::Approve { id },
+        }) = cli.command
+        {
+            assert_eq!(id, "gp-3");
+        } else {
+            panic!("expected Governance::Approve");
+        }
+    }
+
+    #[test]
+    fn parses_governance_reject_with_reason() {
+        let cli = Cli::try_parse_from([
+            "feral", "governance", "reject", "gp-3", "-m", "gate too loose",
+        ]).unwrap();
+        if let Some(Command::Governance {
+            action: crate::admin::GovernanceAction::Reject { id, message },
+        }) = cli.command
+        {
+            assert_eq!(id, "gp-3");
+            assert_eq!(message.as_deref(), Some("gate too loose"));
+        } else {
+            panic!("expected Governance::Reject");
+        }
+    }
+
+    #[test]
+    fn parses_governance_freeze_multiple_layers_with_message() {
+        let cli = Cli::try_parse_from([
+            "feral", "governance", "freeze", "l3", "l6", "-m", "audit pause",
+        ]).unwrap();
+        if let Some(Command::Governance {
+            action: crate::admin::GovernanceAction::Freeze { layers, message },
+        }) = cli.command
+        {
+            assert_eq!(layers, vec!["l3", "l6"]);
+            assert_eq!(message.as_deref(), Some("audit pause"));
+        } else {
+            panic!("expected Governance::Freeze");
+        }
+    }
+
+    #[test]
+    fn parses_governance_unfreeze_layers() {
+        let cli = Cli::try_parse_from(["feral", "governance", "unfreeze", "l4"]).unwrap();
+        if let Some(Command::Governance {
+            action: crate::admin::GovernanceAction::Unfreeze { layers, message },
+        }) = cli.command
+        {
+            assert_eq!(layers, vec!["l4"]);
+            assert!(message.is_none());
+        } else {
+            panic!("expected Governance::Unfreeze");
+        }
+    }
+
+    #[test]
+    fn parses_governance_rollback_no_args() {
+        let cli = Cli::try_parse_from(["feral", "governance", "rollback"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Governance { action: crate::admin::GovernanceAction::Rollback })
+        ));
     }
 }

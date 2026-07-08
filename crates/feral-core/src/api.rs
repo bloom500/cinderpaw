@@ -15,7 +15,7 @@
 //!     containment inside the models directory before touching the disk, so a
 //!     crafted `name` like `../../../../etc/passwd` can no longer escape it.
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
     middleware::{self, Next},
     response::sse::{Event, Sse},
@@ -130,6 +130,22 @@ pub fn router(state: ApiState) -> Router {
         .route("/meta/history", get(meta_history))
         .route("/meta/evolve", post(meta_evolve))
         .route("/meta/rollback", post(meta_rollback))
+        // Slice A5 (L5 Governance API — spec §12). Same posture as /meta/*:
+        // 127.0.0.1 + bearer token, sidecar roundtrip per op, single
+        // governance_result reply paired by `id`. Routes are tagged with
+        // their operation class (read/evolve/govern) as code comments; v1
+        // honors all three under the same token. The helper below mirrors
+        // `meta_roundtrip` line-by-line but filters on governance_result.
+        .route("/governance/policy",   get(governance_policy))             // read
+        .route("/governance/proposals", get(governance_proposals))          // read
+        .route("/governance/history",  get(governance_history_route))       // read
+        .route("/governance/verify",   get(governance_verify_route))        // read
+        .route("/governance/propose",   post(governance_propose_route))      // evolve
+        .route("/governance/approve",   post(governance_approve_route))      // govern
+        .route("/governance/reject",    post(governance_reject_route))       // govern
+        .route("/governance/rollback",  post(governance_rollback_route))     // govern
+        .route("/governance/freeze",    post(governance_freeze_route))       // govern
+        .route("/governance/unfreeze",  post(governance_unfreeze_route))     // govern
         .route("/events", get(runtime_events))
         // Phase 1 (2026-07-07) — canonical provider + connector catalogs.
         // Both surfaces (Go TUI wizard, desktop React OnboardingWizard)
@@ -968,6 +984,164 @@ async fn meta_roundtrip(State(state): State<ApiState>, op: &'static str) -> Resp
             }
         }
     }
+}
+
+// ── Slice A5 (L5 Governance API — spec §12) ─────────────────────────────
+//
+// Mirrors `meta_roundtrip` line-by-line: subscribe-before-send, wait on the
+// runtime event bus for one `governance_result` correlated by `id`. Differs
+// in three ways:
+//   1. Filters on `type == "governance_result"` (the new reply union in
+//      `FeralAgent/src/types.ts`) instead of `"meta_result"`.
+//   2. Accepts an optional JSON body whose top-level fields are flattened
+//      onto the outbound message alongside `type` + `id`. The sidecar's
+//      handler (`FeralAgent/src/index.ts`) reads these fields directly —
+//      no per-op message shape was added.
+//   3. Per spec §12 the routes are tagged read/evolve/govern in comments
+//      (no enforcement in v1; a future RBAC layer will branch on the tag).
+
+/// Forward a governance op to the sidecar and return its `governance_result`.
+/// Optional `body` fields are flattened onto the outbound message envelope.
+async fn governance_roundtrip(
+    State(state): State<ApiState>,
+    op: &'static str,
+    body: Option<Json<Value>>,
+) -> Response {
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+            .into_response();
+    };
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let mut rx = state.runtime.events_tx.subscribe();
+
+    // Build the outbound envelope. Body fields overwrite defaults; missing
+    // body → minimal `{ type, id }` envelope (the sidecar's handler defaults
+    // missing fields to sensible empties — see brief §1 op-mapping table).
+    let mut payload = json!({ "type": op, "id": msg_id });
+    if let Some(Json(Value::Object(map))) = body {
+        for (k, v) in map {
+            payload[k] = v;
+        }
+    }
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    let deadline = std::time::Duration::from_secs(10);
+    loop {
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "feral://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if v.get("type").and_then(|t| t.as_str()) == Some("governance_result")
+                    && v.get("id").and_then(|i| i.as_str()) == Some(msg_id.as_str())
+                {
+                    return Json(v).into_response();
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "runtime event bus closed")
+                    .into_response();
+            }
+            Err(_) => {
+                return (StatusCode::GATEWAY_TIMEOUT, "timed out waiting for governance_result")
+                    .into_response();
+            }
+        }
+    }
+}
+
+/// Query params for `GET /governance/history?limit=N`. Mirrors the sidecar's
+/// `historyRows(limit)` default of 50 (governance-lifecycle.ts:270).
+#[derive(serde::Deserialize)]
+struct GovernanceHistoryQuery {
+    #[serde(default)]
+    limit: Option<u64>,
+}
+
+/// `GET /governance/policy` — full active policy + head hash + pending list.
+async fn governance_policy(State(state): State<ApiState>) -> Response {
+    governance_roundtrip(State(state), "governance_status", None).await
+}
+
+/// `GET /governance/proposals` — pending proposals. The brief notes that
+/// `governance_status` already carries `pending[]` in its payload, so this
+/// route is a thin alias that returns the same shape — clients that want
+/// ONLY pending proposals can ignore the rest.
+async fn governance_proposals(State(state): State<ApiState>) -> Response {
+    governance_roundtrip(State(state), "governance_status", None).await
+}
+
+/// `GET /governance/history?limit=N` — history rows, newest last (clamped
+/// server-side by the lifecycle's default of 200).
+async fn governance_history_route(
+    State(state): State<ApiState>,
+    Query(q): Query<GovernanceHistoryQuery>,
+) -> Response {
+    let body = q.limit.map(|l| Json(json!({ "limit": l })));
+    governance_roundtrip(State(state), "governance_history", body).await
+}
+
+/// `GET /governance/verify` — chain + journal verification report.
+async fn governance_verify_route(State(state): State<ApiState>) -> Response {
+    governance_roundtrip(State(state), "governance_verify", None).await
+}
+
+/// `POST /governance/propose` — body: full policy JSON document.
+async fn governance_propose_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    governance_roundtrip(State(state), "governance_propose", body).await
+}
+
+/// `POST /governance/approve` — body: {policyId, documentHash, note}.
+async fn governance_approve_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    governance_roundtrip(State(state), "governance_approve", body).await
+}
+
+/// `POST /governance/reject` — body: {policyId, reason}.
+async fn governance_reject_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    governance_roundtrip(State(state), "governance_reject", body).await
+}
+
+/// `POST /governance/rollback` — body optional (default reason: "operator rollback").
+async fn governance_rollback_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    governance_roundtrip(State(state), "governance_rollback", body).await
+}
+
+/// `POST /governance/freeze` — body: {layers, reason}.
+async fn governance_freeze_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    governance_roundtrip(State(state), "governance_freeze", body).await
+}
+
+/// `POST /governance/unfreeze` — body: {layers, reason}.
+async fn governance_unfreeze_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    governance_roundtrip(State(state), "governance_unfreeze", body).await
 }
 
 /// Slice 4: request a graceful shutdown. Fires the runtime's shutdown signal;

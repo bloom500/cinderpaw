@@ -168,6 +168,19 @@ const INBOUND_TYPES = [
   "meta_evolve",
   "meta_rollback",
   "meta_history",
+  // Slice A5 (L5 Governance) — host drives the policy FSM through
+  // `GovernanceLifecycle`. Replies with one `governance_result` paired by
+  // `id`; payload fields (`document`, `policyId`, `documentHash`, `layers`,
+  // `note`, `reason`, `limit`) are flattened onto the inbound message.
+  "governance_status",
+  "governance_propose",
+  "governance_approve",
+  "governance_reject",
+  "governance_rollback",
+  "governance_freeze",
+  "governance_unfreeze",
+  "governance_verify",
+  "governance_history",
   // Sprint 1.6 — Memory Resume. Host asks the sidecar for the persisted
   // `current_task` + active workspace + last-active timestamp. Sidecar replies
   // with one `resume_get_result` event paired by `id`. See

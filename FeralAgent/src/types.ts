@@ -936,6 +936,16 @@ export interface InboundMessage {
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
+    // Slice A5 (L5 Governance) — host drives the policy FSM through the
+    // `GovernanceLifecycle` (see `rsi/governance-lifecycle.ts`). Nine ops,
+    // all reply with one `governance_result` paired by `id`. The transport
+    // payload fields (`document`, `policyId`, `documentHash`, `layers`,
+    // `note`, `reason`, `limit`) are flattened into the inbound message
+    // alongside `type` + `id`; missing fields default to sensible empties
+    // in the handler (see `index.ts` case "governance_*").
+    | "governance_status" | "governance_propose" | "governance_approve" | "governance_reject"
+    | "governance_rollback" | "governance_freeze" | "governance_unfreeze" | "governance_verify"
+    | "governance_history"
     // Sprint 1.6 — Memory Resume. The host asks for the persisted
     // `current_task` + active workspace + last-active timestamp; the sidecar
     // replies with one `resume_get_result` paired by `id`. Powers the React
@@ -1122,6 +1132,23 @@ export type OutboundEvent =
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }
+  // Slice A5 (L5 Governance) reply — payload shape depends on `op`
+  // (status/propose/approve/reject/rollback/freeze/unfreeze/verify/history);
+  // always `ok:boolean` so the gateway + CLI can route without knowing the
+  // op-specific extra fields. `ok:false` carries a `reason`. The
+  // `documentHash` field is echoed by the `approve` handler when the
+  // caller omits it, so the CLI's plain `feral governance approve <id>`
+  // (which doesn't compute the sha256 itself) still gets a verifiable
+  // record.
+  | {
+      type: "governance_result";
+      id: string;
+      op: string;
+      ok: boolean;
+      reason?: string;
+      documentHash?: string;
+      [key: string]: unknown;
+    }
   // Sprint 1.6 — Memory Resume reply. Mirrors the Rust `LastTaskView`
   // wire shape (snake_case keys): `task` is null on first launch,
   // `workspace_id` + `workspace_name` are the active workspace,

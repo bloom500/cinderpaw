@@ -6,10 +6,62 @@
 #![allow(non_snake_case)]
 
 use std::io::{Read, Seek, Write};
+use std::path::PathBuf;
 
+use clap::Subcommand;
 use futures_util::StreamExt;
+use serde_json::json;
 
 use crate::common::{api_port, base_url, json, palette, port_in_use, read_token, Palette};
+
+/// Operations mirrored 1:1 from spec §13. Note: `Approve`, `Reject`,
+/// `Freeze`, `Unfreeze` accept `-m <reason>` (an optional note); `Approve`
+/// additionally fetches the proposal to confirm interactively before
+/// POSTing (per brief §3 — CLI doesn't recompute the sha256 itself, the
+/// sidecar handler in `index.ts` does that when `documentHash` is absent).
+///
+/// Lives in `admin` (not `main`) so `governance()` can pattern-match on
+/// the variants without crossing module boundaries in the other
+/// direction. `main.rs` references this via `crate::admin::GovernanceAction`.
+#[derive(Subcommand)]
+pub enum GovernanceAction {
+    /// Show the active policy + frozen-layer flags + pending proposals
+    Status,
+    /// Print the append-only policy transition history
+    History,
+    /// List pending proposals awaiting human approval
+    Proposals,
+    /// Verify all hash-chained files (policy_history + audit + approvals)
+    /// plus the last 7 UTC days of journal. Exit 0 = clean.
+    Verify,
+    /// Propose a new policy read from a JSON file on disk
+    Propose { file: PathBuf },
+    /// Approve a pending proposal — fetches the doc + asks to confirm,
+    /// then POSTs to the gateway (sidecar computes the sha256 if absent)
+    Approve { id: String },
+    /// Reject a pending proposal with an optional reason
+    Reject {
+        id: String,
+        /// Optional note attached to the rejection row in `policy_history.jsonl`
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+    /// Roll the active policy back one step to its parent's document
+    Rollback,
+    /// Freeze one or more layers (l1/l2/l3/l4/l6). Refuses l6 evolution
+    /// while any layer is frozen.
+    Freeze {
+        layers: Vec<String>,
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+    /// Unfreeze one or more layers. Always human-only (G-INV-6).
+    Unfreeze {
+        layers: Vec<String>,
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+}
 
 /// One blocking tokio runtime for the short HTTP calls these commands make.
 fn block_on<F: std::future::Future>(f: F) -> F::Output {
@@ -516,6 +568,419 @@ pub fn meta(op: &str) -> i32 {
     0
 }
 
+// ── Slice A5 (L5 Governance CLI — spec §13) ───────────────────────────────
+//
+// Mirrors `meta(op)` for surface + JSON plumbing. Reads (`status`,
+// `history`, `proposals`, `verify`) call `fetch_json`; mutations
+// (`propose`, `approve`, `reject`, `freeze`, `unfreeze`) call
+// `post_json_with_body` with the op-specific payload. `rollback` is a
+// mutation that takes no body in practice (the sidecar's handler
+// defaults `reason` to `"operator rollback"` if absent).
+//
+// `approve` is the one op that the brief asks us to make interactive —
+// fetch the proposal from `/governance/proposals`, render its diff, ask
+// for a y/N confirm, then POST. The CLI does NOT recompute the
+// documentHash; the sidecar handler computes it server-side when the
+/// field is absent (brief §3 "simplest correct path").
+
+pub fn governance(action: GovernanceAction) -> i32 {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, ok: OK, reset: RESET, .. } =
+        palette();
+    if !port_in_use(api_port()) {
+        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        return 1;
+    }
+    let Some(token) = read_token() else {
+        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        return 1;
+    };
+
+    // Reads use `fetch_json` against the four GET routes; mutations build an
+    // op-specific JSON body and use `post_json_with_body` against the six
+    // POST routes. The dispatch is a flat match — reads and mutations own
+    // their respective op variants so no state has to leak across arms.
+    match action {
+        // ── Reads ────────────────────────────────────────────────────────
+        GovernanceAction::Status => {
+            let result = block_on(fetch_json(&token, "/governance/policy"));
+            render_governance_read(&result, &GovernanceAction::Status, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+        GovernanceAction::Proposals => {
+            let result = block_on(fetch_json(&token, "/governance/proposals"));
+            render_governance_read(&result, &GovernanceAction::Proposals, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+        GovernanceAction::History => {
+            let result = block_on(fetch_json(&token, "/governance/history?limit=50"));
+            render_governance_read(&result, &GovernanceAction::History, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+        GovernanceAction::Verify => {
+            let result = block_on(fetch_json(&token, "/governance/verify"));
+            // Verify op drives the exit code (AC 8/11: exit 0 iff every
+            // chain + journal row verified). The renderer prints the same
+            // shape; we just translate the boolean into the shell exit.
+            let code = render_governance_read(&result, &GovernanceAction::Verify, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET);
+            match &result {
+                Ok(v) => {
+                    let chains_ok = v.get("chains").and_then(|c| c.get("ok")).and_then(|b| b.as_bool()).unwrap_or(false);
+                    let journal_ok = v.get("journal").and_then(|j| j.as_array())
+                        .map(|a| a.iter().all(|e| e.get("ok").and_then(|b| b.as_bool()).unwrap_or(false)))
+                        .unwrap_or(false);
+                    if chains_ok && journal_ok { 0 } else { code.max(1) }
+                }
+                Err(_) => code,
+            }
+        }
+
+        // ── Mutations ────────────────────────────────────────────────────
+        // Propose: reads the policy JSON from disk, validates it's an object,
+        // POSTs the document as-is (the gateway roundtrip flattens it onto
+        // the governance_propose message envelope).
+        GovernanceAction::Propose { file } => {
+            let raw = match std::fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{FAIL}cannot read {}{RESET}: {e}", file.display());
+                    return 1;
+                }
+            };
+            let document: serde_json::Value = match serde_json::from_str(&raw) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{FAIL}invalid JSON in {}{RESET}: {e}", file.display());
+                    return 1;
+                }
+            };
+            if !document.is_object() {
+                eprintln!("{FAIL}proposal must be a JSON object (got {}){RESET}", document_kind(&document));
+                return 1;
+            }
+            let result = block_on(post_json_with_body(&token, "/governance/propose", document));
+            render_governance_mutation(result, "propose", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+
+        // Approve: fetch the proposal (status + proposals endpoints both
+        // carry the pending list), render its diff, ask for a y/N confirm,
+        // POST. We deliberately omit `documentHash` — the sidecar handler
+        // computes it server-side and echoes it back in the result so the
+        // caller can see what was recorded.
+        GovernanceAction::Approve { id } => {
+            let status = match block_on(fetch_json(&token, "/governance/proposals")) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{FAIL}governance proposals fetch failed{RESET}: {e}");
+                    return 1;
+                }
+            };
+            let pending: Vec<&serde_json::Value> = status
+                .get("pending")
+                .and_then(|p| p.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter(|row| row.get("policyId").and_then(|v| v.as_str()) == Some(&id))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if pending.is_empty() {
+                eprintln!("{FAIL}no pending proposal with id '{id}' (already approved? check `feral governance proposals`){RESET}");
+                return 1;
+            }
+            println!("  {ACCENT}approve proposal {id}{RESET}");
+            for row in &pending {
+                let dir = row.get("direction").and_then(|v| v.as_str()).unwrap_or("?");
+                let req = row.get("requiredApproval").and_then(|v| v.as_bool()).unwrap_or(true);
+                println!(
+                    "    direction: {TEXT}{dir}{RESET}    required approval: {TEXT}{}{RESET}",
+                    if req { "yes" } else { "no (auto)" }
+                );
+            }
+            eprint!("  {META}proceed?{RESET} [y/N] ");
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+            let mut answer = String::new();
+            if std::io::stdin().read_line(&mut answer).is_err() {
+                eprintln!("{FAIL}could not read confirmation{RESET}");
+                return 1;
+            }
+            let answer = answer.trim().to_ascii_lowercase();
+            if answer != "y" && answer != "yes" {
+                println!("  {DIM}cancelled{RESET}");
+                return 1;
+            }
+            // No documentHash — the sidecar handler in index.ts computes it
+            // via sha256Canonical(gl.proposalDocument(msg.id)) and echoes the
+            // hash in the result. See brief §3.
+            let body = json!({ "policyId": id });
+            let result = block_on(post_json_with_body(&token, "/governance/approve", body));
+            render_governance_mutation(result, "approve", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+
+        GovernanceAction::Reject { id, message } => {
+            let body = json!({
+                "policyId": id,
+                "reason": message.unwrap_or_default(),
+            });
+            let result = block_on(post_json_with_body(&token, "/governance/reject", body));
+            render_governance_mutation(result, "reject", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+
+        GovernanceAction::Rollback => {
+            let result = block_on(post_json_with_body(&token, "/governance/rollback", json!({})));
+            render_governance_mutation(result, "rollback", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+
+        GovernanceAction::Freeze { layers, message } => {
+            let body = json!({
+                "layers": layers,
+                "reason": message.unwrap_or_default(),
+            });
+            let result = block_on(post_json_with_body(&token, "/governance/freeze", body));
+            render_governance_mutation(result, "freeze", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+
+        GovernanceAction::Unfreeze { layers, message } => {
+            let body = json!({
+                "layers": layers,
+                "reason": message.unwrap_or_default(),
+            });
+            let result = block_on(post_json_with_body(&token, "/governance/unfreeze", body));
+            render_governance_mutation(result, "unfreeze", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+        }
+    }
+}
+
+/// Shared pretty-printer for the four read ops (status / history /
+/// proposals / verify). Honors `--json`. The verify op also drives the
+/// exit code (AC 8/11): exit 0 iff every chain + journal row verified.
+///
+/// Takes `&Result` so callers don't have to pre-handle the network
+/// failure case (printing a one-line error and returning 1). On `Err` we
+/// mirror what the mutation renderer does — surface the message + 1.
+fn render_governance_read(
+    result: &Result<serde_json::Value, String>,
+    action: &GovernanceAction,
+    ACCENT: &str,
+    TEXT: &str,
+    META: &str,
+    DIM: &str,
+    OK: &str,
+    FAIL: &str,
+    RESET: &str,
+) -> i32 {
+    let v = match result {
+        Ok(v) => v,
+        Err(e) => {
+            let op = match action {
+                GovernanceAction::Status => "status",
+                GovernanceAction::Proposals => "proposals",
+                GovernanceAction::History => "history",
+                GovernanceAction::Verify => "verify",
+                _ => "read",
+            };
+            eprintln!("{FAIL}governance {op} request failed{RESET}: {e}");
+            return 1;
+        }
+    };
+    if json() {
+        println!("{}", serde_json::to_string_pretty(v).unwrap_or_default());
+        return if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) { 0 } else { 1 };
+    }
+    let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false);
+    if !ok {
+        let reason = v.get("reason").and_then(|r| r.as_str()).unwrap_or("unknown error");
+        eprintln!("{FAIL}\u{2717} {reason}{RESET}");
+        return 1;
+    }
+    match action {
+        GovernanceAction::Status => render_governance_status(v, ACCENT, TEXT, META, DIM, RESET),
+        GovernanceAction::Proposals => render_governance_status(v, ACCENT, TEXT, META, DIM, RESET),
+        GovernanceAction::History => render_governance_history(v, ACCENT, TEXT, META, DIM, RESET),
+        GovernanceAction::Verify => render_governance_verify(v, OK, FAIL, META, TEXT, DIM, RESET),
+        _ => unreachable!("non-read action reached render_governance_read"),
+    }
+    0
+}
+
+/// Shared pretty-printer for mutation results. Mirrors `meta`'s `ok / reason`
+/// banner; on success prints `policyId / direction / status` when present
+/// (useful after `propose`).
+fn render_governance_mutation(
+    result: Result<serde_json::Value, String>,
+    op: &str,
+    ACCENT: &str,
+    TEXT: &str,
+    META: &str,
+    DIM: &str,
+    OK: &str,
+    FAIL: &str,
+    RESET: &str,
+) -> i32 {
+    let v = match result {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{FAIL}governance {op} failed{RESET}: {e}");
+            return 1;
+        }
+    };
+    if json() {
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        return if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) { 0 } else { 1 };
+    }
+    let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false);
+    if !ok {
+        let reason = v.get("reason").and_then(|r| r.as_str()).unwrap_or("unknown error");
+        eprintln!("{FAIL}\u{2717} {op}: {reason}{RESET}");
+        return 1;
+    }
+    println!("{OK}\u{2713}{RESET} {TEXT}{op}{RESET} {OK}ok{RESET}");
+    if let Some(pid) = v.get("policyId").and_then(|p| p.as_str()) {
+        let dir = v.get("direction").and_then(|d| d.as_str()).unwrap_or("");
+        let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("");
+        println!("    {META}policyId  {RESET}{TEXT}{pid}{RESET}");
+        if !dir.is_empty() {
+            println!("    {META}direction {RESET}{TEXT}{dir}{RESET}");
+        }
+        if !status.is_empty() {
+            println!("    {META}status    {RESET}{TEXT}{status}{RESET}");
+        }
+    }
+    if let Some(hash) = v.get("documentHash").and_then(|h| h.as_str()) {
+        println!("    {META}documentHash {RESET}{TEXT}{}{RESET}", &hash[..16.min(hash.len())]);
+    }
+    let _ = (ACCENT, DIM); // suppress unused warnings on minimal renderers
+    0
+}
+
+fn render_governance_status(
+    v: &serde_json::Value,
+    ACCENT: &str,
+    TEXT: &str,
+    META: &str,
+    DIM: &str,
+    RESET: &str,
+) {
+    let source = v.get("source").and_then(|s| s.as_str()).unwrap_or("?");
+    let fail_closed = v.get("failClosed").and_then(|b| b.as_bool()).unwrap_or(false);
+    let head_hash = v.get("headHash").and_then(|h| h.as_str());
+    println!("  {ACCENT}\u{2726} governance{RESET}  {META}source={source}{RESET}  {DIM}failClosed={fail_closed}{RESET}");
+    if let Some(h) = head_hash {
+        println!("    {META}headHash  {RESET}{TEXT}{}{RESET}", &h[..16.min(h.len())]);
+    }
+    if let Some(policy) = v.get("policy").and_then(|p| p.as_object()) {
+        if let Some(pid) = policy.get("policyId").and_then(|p| p.as_str()) {
+            println!("    {META}policyId  {RESET}{TEXT}{pid}{RESET}");
+        }
+        if let Some(parent) = policy.get("parentId").and_then(|p| p.as_str()) {
+            println!("    {META}parentId  {RESET}{TEXT}{parent}{RESET}");
+        }
+        if let Some(frozen) = policy.get("frozen").and_then(|f| f.as_object()) {
+            let active: Vec<String> = frozen
+                .iter()
+                .filter_map(|(k, v)| v.as_bool().filter(|b| *b).map(|_| k.clone()))
+                .collect();
+            if active.is_empty() {
+                println!("    {META}frozen    {RESET}{DIM}none{RESET}");
+            } else {
+                println!("    {META}frozen    {RESET}{TEXT}{}{RESET}", active.join(", "));
+            }
+        }
+    }
+    if let Some(pending) = v.get("pending").and_then(|p| p.as_array()) {
+        if pending.is_empty() {
+            println!("    {META}pending   {RESET}{DIM}none{RESET}");
+        } else {
+            println!("    {META}pending   {RESET}{TEXT}{} proposal(s){RESET}", pending.len());
+            for row in pending {
+                let pid = row.get("policyId").and_then(|p| p.as_str()).unwrap_or("?");
+                let dir = row.get("direction").and_then(|d| d.as_str()).unwrap_or("?");
+                let req = row.get("requiredApproval").and_then(|b| b.as_bool()).unwrap_or(true);
+                println!(
+                    "      {TEXT}{pid:<10}{RESET} {META}direction={dir:<11}{RESET} {META}required={}{RESET}",
+                    if req { "yes" } else { "no (auto)" }
+                );
+            }
+        }
+    }
+}
+
+fn render_governance_history(
+    v: &serde_json::Value,
+    ACCENT: &str,
+    TEXT: &str,
+    META: &str,
+    DIM: &str,
+    RESET: &str,
+) {
+    println!("  {ACCENT}\u{2726} governance history{RESET}");
+    let rows = v
+        .get("history")
+        .and_then(|h| h.as_array())
+        .into_iter()
+        .flatten();
+    for row in rows {
+        let pid = row.get("policyId").and_then(|p| p.as_str()).unwrap_or("?");
+        let event = row.get("event").and_then(|e| e.as_str()).unwrap_or("?");
+        let actor = row.get("actor").and_then(|a| a.as_str()).unwrap_or("?");
+        let reason = row.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+        println!(
+            "    {TEXT}{pid:<14}{RESET} {META}{event:<11}{RESET} {META}actor={actor:<8}{RESET} {DIM}{reason}{RESET}"
+        );
+    }
+}
+
+fn render_governance_verify(
+    v: &serde_json::Value,
+    OK: &str,
+    FAIL: &str,
+    META: &str,
+    TEXT: &str,
+    DIM: &str,
+    RESET: &str,
+) {
+    println!("  {TEXT}governance verify{RESET}");
+    if let Some(chains) = v.get("chains") {
+        if chains.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
+            let h = chains.get("historyRows").and_then(|n| n.as_u64()).unwrap_or(0);
+            let a = chains.get("auditRows").and_then(|n| n.as_u64()).unwrap_or(0);
+            let p = chains.get("approvalRows").and_then(|n| n.as_u64()).unwrap_or(0);
+            println!(
+                "    {OK}\u{2713}{RESET} {TEXT}chains  {RESET}history={h} audit={a} approvals={p}"
+            );
+        } else {
+            let file = chains.get("file").and_then(|s| s.as_str()).unwrap_or("?");
+            let row = chains.get("badRow").and_then(|n| n.as_u64()).unwrap_or(0);
+            let reason = chains.get("reason").and_then(|s| s.as_str()).unwrap_or("?");
+            println!(
+                "    {FAIL}\u{2717}{RESET} {TEXT}chains  {RESET}file={file} row={row} {DIM}{reason}{RESET}"
+            );
+        }
+    }
+    if let Some(journal) = v.get("journal").and_then(|j| j.as_array()) {
+        for entry in journal {
+            let file = entry.get("file").and_then(|s| s.as_str()).unwrap_or("?");
+            if entry.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
+                println!("    {OK}\u{2713}{RESET} {TEXT}journal  {RESET}{DIM}{file}{RESET}");
+            } else {
+                let row = entry.get("badRow").and_then(|n| n.as_u64()).unwrap_or(0);
+                let reason = entry.get("reason").and_then(|s| s.as_str()).unwrap_or("?");
+                println!(
+                    "    {FAIL}\u{2717}{RESET} {TEXT}journal  {RESET}{DIM}{file} row={row} {RESET}{DIM}{reason}{RESET}"
+                );
+            }
+        }
+    }
+}
+
+/// Returns a short noun describing a `serde_json::Value` for error messages.
+fn document_kind(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
 // ── config ─────────────────────────────────────────────────────────────────
 
 pub fn config_get(key: Option<&str>) -> i32 {
@@ -586,6 +1051,7 @@ pub fn doctor() -> i32 {
         ("sidecar", check_sidecar()),
         ("gpu", check_gpu()),
         ("connectors", check_connectors()),
+        ("governance", check_governance()),
     ];
 
     if json() {
@@ -775,6 +1241,76 @@ fn check_brain() -> Check {
     ))
 }
 
+/// Slice A5 (L5 Governance) — verifies the policy FSM is reachable, the
+/// active policy is loaded from disk (not the fail-closed builtin), and
+/// the hash chains + last 7 UTC days of journal all verify. The brief
+/// (spec §15 doctor check) says "one check" so this single function
+/// surfaces all three sub-results joined with ` · `.
+///
+/// Gate choice: this is WARN, not FAIL, when the gateway is offline or
+/// the policy hasn't been seeded yet — first-run users without a
+/// `~/.feral/governance/policy.json` shouldn't see a red row. It becomes
+/// FAIL when the gateway is reachable AND the policy is the builtin
+/// (G-INV-5 fail-closed is still functional but operators need to know
+/// they're on the safety default) or when the verify report says any
+/// chain or journal file is broken.
+fn check_governance() -> Check {
+    let Some(token) = read_token() else {
+        return Check::Warn("no api-token — gateway offline; skipping governance check".into());
+    };
+    if !port_in_use(api_port()) {
+        return Check::Warn("gateway offline; skipping governance check".into());
+    }
+    let policy = block_on(fetch_json(&token, "/governance/policy"));
+    let verify = block_on(fetch_json(&token, "/governance/verify"));
+    let policy_ok = policy.as_ref().map(|v| v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false)).unwrap_or(false);
+    let source = policy.as_ref().ok().and_then(|v| v.get("source").and_then(|s| s.as_str())).unwrap_or("");
+    let verify_ok = verify.as_ref().map(|v| v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false)).unwrap_or(false);
+    let chains_ok = verify.as_ref().ok()
+        .and_then(|v| v.get("chains").and_then(|c| c.get("ok")).and_then(|b| b.as_bool()))
+        .unwrap_or(false);
+    let journal_ok = verify.as_ref().ok()
+        .and_then(|v| v.get("journal").and_then(|j| j.as_array()))
+        .map(|a| a.iter().all(|e| e.get("ok").and_then(|b| b.as_bool()).unwrap_or(false)))
+        .unwrap_or(false);
+    if source == "builtin" {
+        return Check::Fail(
+            "policy is the fail-closed builtin (no user policy on disk) — propose one with `feral governance propose <file>`".into(),
+        );
+    }
+    if !policy_ok {
+        return Check::Fail(format!(
+            "/governance/policy returned {policy_err}",
+            policy_err = policy.as_ref().err().cloned().unwrap_or_else(|| "ok:false".into())
+        ));
+    }
+    if !verify_ok || !chains_ok || !journal_ok {
+        let why: String = match verify.as_ref() {
+            Err(e) => e.clone(),
+            Ok(v) => {
+                if !chains_ok {
+                    let file = v.get("chains").and_then(|c| c.get("file")).and_then(|s| s.as_str()).unwrap_or("?");
+                    format!("chain broken in {file}")
+                } else if !journal_ok {
+                    let bad = v.get("journal").and_then(|j| j.as_array())
+                        .into_iter()
+                        .flatten()
+                        .find(|e| !e.get("ok").and_then(|b| b.as_bool()).unwrap_or(true))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let file = bad.get("file").and_then(|s| s.as_str()).unwrap_or("?");
+                    let reason = bad.get("reason").and_then(|s| s.as_str()).unwrap_or("?");
+                    format!("journal broken in {file}: {reason}")
+                } else {
+                    "unknown verify failure".into()
+                }
+            }
+        };
+        return Check::Fail(format!("verify not clean: {why}"));
+    }
+    Check::Ok(format!("source={source} · chains ok · last 7 UTC days ok"))
+}
+
 fn check_sidecar() -> Check {
     match feral_core::feral_agent::find_binary(&[]) {
         Some(p) => Check::Ok(format!("{}", p.display())),
@@ -826,6 +1362,29 @@ async fn post_json(token: &str, path: &str) -> Result<serde_json::Value, String>
     reqwest::Client::new()
         .post(format!("{}{}", base_url(), path))
         .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// `POST` with a JSON body. Mirrors `post_json` but serialises the body and
+/// sets `Content-Type: application/json`. Used by `/governance/propose`,
+/// `/approve`, `/reject`, `/freeze`, `/unfreeze` — the legacy `post_json`
+/// stays for `/meta/evolve` and `/meta/rollback` which carry no body.
+async fn post_json_with_body(
+    token: &str,
+    path: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    reqwest::Client::new()
+        .post(format!("{}{}", base_url(), path))
+        .bearer_auth(token)
+        .json(&body)
         .send()
         .await
         .map_err(|e| e.to_string())?
