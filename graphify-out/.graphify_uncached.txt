@@ -1,21 +1,0 @@
-D:\FeralLocalAI\README.md
-D:\FeralLocalAI\.github\workflowselease.yml
-D:\FeralLocalAIrontend\index.html
-D:\FeralLocalAIrontend\public\mascot_3d.html
-D:\FeralLocalAIrontend\public\LOGO NO BG.png
-D:\FeralLocalAI\src-tauri\icons
-8x128.png
-D:\FeralLocalAI\src-tauri\icons
-8x128@2x.png
-D:\FeralLocalAI\src-tauri\iconsx32.png
-D:\FeralLocalAI\src-tauri\icons\icon.png
-D:\FeralLocalAI\src-tauri\icons\Square107x107Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square142x142Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square150x150Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square284x284Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square30x30Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square310x310Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square44x44Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square71x71Logo.png
-D:\FeralLocalAI\src-tauri\icons\Square89x89Logo.png
-D:\FeralLocalAI\src-tauri\icons\StoreLogo.png

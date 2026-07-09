@@ -7,6 +7,18 @@
 
 ## Unreleased
 
+### Repository hygiene
+
+- **Removed committed graphify output.** `graphify-out/` (16 files:
+  graph JSON, cached chunks, generated HTML report) is no longer
+  tracked. `.gitignore` now ignores the whole directory instead of
+  only the `cache/` subfolder — the dir is reproducible output of the
+  `graphify` skill and should never be committed. The .gitignore
+  patterns for `tui/target/`, `tui/feral-tui.exe`, `target-check/`,
+  and `data/` were already in place; this commit closes the
+  `graphify-out/` gap. No code or behavior changes; a fresh clone is
+  a few hundred KB smaller.
+
 ### Removed
 
 - **Auto-load of the last model on startup.** The Tauri host used to

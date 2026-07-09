@@ -36,7 +36,7 @@ tui/feral-tui
 .worktrees/
 
 # Graphify cache / output
-graphify-out/cache/
+graphify-out/
 
 # OS
 .DS_Store
