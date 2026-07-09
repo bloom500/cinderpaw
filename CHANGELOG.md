@@ -7,6 +7,38 @@
 
 ## Unreleased
 
+### Safety smoke e2e tests (B5)
+
+- **Four new `FERAL_E2E`-gated e2e files** in `FeralAgent/tests/`,
+  one per safety path the marketing copy promises:
+  - `l0-journal-tamper.e2e.test.ts` — flip one byte in a chained
+    journal file, assert `verifyJournal` flags the row AND
+    `defaultReadWindow` excludes the file (failure surfaced, not
+    silent drop). Negative control: same window accepts the file
+    after the tamper is reverted.
+  - `l4-module-quarantine.e2e.test.ts` — promote a deliberately-
+    broken module id, fail-spawn `maxStrikes` times, assert registry
+    re-pointed to `builtin`, `module_quarantined` row lands in the
+    chained audit, last history row's actor is `watchdog`, post-
+    quarantine invokes never spawn. Negative control: builtin-active
+    path makes zero spawn attempts even with a faulty spawn stub.
+  - `l5-governance-fail-closed.e2e.test.ts` — drives `loadPolicy`
+    through every failure mode (missing / unparseable / G0-violation
+    / valid) and asserts `governanceCheck` refuses every action under
+    the fail-closed builtin (per-layer frozen).
+  - `l3-watchdog.e2e.test.ts` — `spawnSync`'s `cargo test -p
+    feral-core -- watchdog` to wrap the 16 Rust watchdog unit tests
+    into the e2e gate. The full Faza-3 rebuild cycle is out of scope
+    per spec; the pure decision + persistence contracts are pinned.
+  Default `bun test` skips all four (skip pattern mirrors
+  `fractal-scale.test.ts`); run explicitly with
+  `FERAL_E2E=1 bun test FeralAgent/tests/*.e2e.test.ts`.
+  Granular tests already exist in `rsi-seam-adapter.test.ts`,
+  `rsi-governance.test.ts`, `rsi-governance-integration.test.ts`,
+  `rsi-journal-chain.test.ts`, and
+  `crates/feral-core/src/rsi/watchdog.rs`; the e2e files are the
+  assembled view a reviewer can read in 60 seconds.
+
 ### HTTP API stability contract (B1, unstable pre-2.0)
 
 - **Per-response `X-Feral-Api-Stability: stable|unstable` header.**
