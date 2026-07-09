@@ -959,6 +959,12 @@ export interface InboundMessage {
     // WelcomeBack banner + TUI last-task row. Reads from `meta` + `workspaces`
     // only — never writes, so no migration needed on the inbound path.
     | "resume_get"
+    // R5 — MCP over stdin. The host manages `~/.feral/mcp.json` and pokes
+    // `mcp_reload` after every change; `mcp_status` / `mcp_list_tools` /
+    // `mcp_call_tool` serve the Extensions page's live queries. All four
+    // reply with one `mcp_result` paired by `id`. Payload fields
+    // (`serverId`, `tool`, `args`) are flattened alongside `type` + `id`.
+    | "mcp_reload" | "mcp_status" | "mcp_list_tools" | "mcp_call_tool"
     // Bridge response delivery — every `rsi_request` the sidecar emits
     // is paired with exactly one `rsi_response` line by Rust. Routed
     // to `RsiBridge.onResponse` in the sidecar.
@@ -1166,6 +1172,19 @@ export type OutboundEvent =
       op: string;
       ok: boolean;
       reason?: string;
+      [key: string]: unknown;
+    }
+  // R5 — MCP reply. Payload depends on `op`: reload/status carry
+  // `servers` (per-config rows: id/running/toolCount/error?), list_tools
+  // carries `tools` (name/description), call_tool carries `result`
+  // (already-flattened text). `ok:false` carries `error` (raw — the Rust
+  // host humanizes before the frontend sees it).
+  | {
+      type: "mcp_result";
+      id: string;
+      op: string;
+      ok: boolean;
+      error?: string;
       [key: string]: unknown;
     }
   // Sprint 1.6 — Memory Resume reply. Mirrors the Rust `LastTaskView`

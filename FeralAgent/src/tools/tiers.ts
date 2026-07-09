@@ -50,7 +50,12 @@ export const CONNECTOR_TOOLS = new Set<string>([
   "schedule_meeting",
 ]);
 
-export const isExtendedTool = (name: string): boolean => EXTENDED_TOOLS.has(name);
+export const isExtendedTool = (name: string): boolean =>
+  // MCP tools (dynamic, registered by sandbox/mcp-manager.ts as `mcp_<tool>`)
+  // always live in the drawer: a user with several extensions installed
+  // would otherwise re-inflate the per-turn schema bloat this file exists
+  // to prevent. `list_tools` → `load_tool` reaches them on demand.
+  EXTENDED_TOOLS.has(name) || name.startsWith("mcp_");
 export const isConnectorTool = (name: string): boolean => CONNECTOR_TOOLS.has(name);
 
 /** Advertised to the owner agent by default: not extended, not connector-only. */

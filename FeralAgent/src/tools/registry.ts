@@ -149,6 +149,12 @@ export class ToolRegistry {
     return this.#tools.has(name);
   }
 
+  /** Remove a dynamically-registered tool (MCP servers on teardown).
+   *  Returns false if the name was not registered. */
+  unregister(name: string): boolean {
+    return this.#tools.delete(name);
+  }
+
   /** All registered tools, for prompt construction. */
   list(): Tool[] {
     return [...this.#tools.values()];

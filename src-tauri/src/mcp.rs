@@ -1,25 +1,27 @@
-//! MCP (Model Context Protocol) client manager — "Extensions" backend.
+//! MCP (Model Context Protocol) — "Extensions" backend: config + catalog +
+//! sidecar proxy.
 //!
-//! Feral consumes external MCP servers through the official `rmcp` SDK.
-//! Design rules (non-technical-first, see docs/32):
+//! R5 (docs/2026-07-09-v1-architecture-hardening-spec.md): live MCP
+//! connections are owned by the Bun sidecar (`FeralAgent/src/sandbox/
+//! mcp-manager.ts`) so the AGENT can call MCP tools and no server is ever
+//! double-spawned by two clients. This module keeps what is genuinely the
+//! desktop host's job:
+//!   - the curated catalog and install flow (command lines are built HERE,
+//!     never by the frontend),
+//!   - persistence of `~/.feral/mcp.json` (secrets stay in the backend),
+//!   - proxying the Extensions page's live queries to the sidecar over the
+//!     stdin protocol (`mcp_reload` / `mcp_status` / `mcp_list_tools` /
+//!     `mcp_call_tool` → one id-correlated `mcp_result` line back).
+//!
+//! Design rules unchanged (non-technical-first, see docs/32):
 //!   - The frontend NEVER sees transports, JSON-RPC, raw `serde_json::Value`
 //!     results, internal paths, or secrets. Only display-safe view structs.
 //!   - Errors are humanized before they cross the IPC boundary.
-//!   - Install = pick from a curated catalog + optional config values;
-//!     the backend builds the actual command line.
-//!
-//! Server configs persist at `~/.feral/mcp.json`. Connections are spawned
-//! lazily on enable and torn down on disable/remove.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use rmcp::model::CallToolRequestParams;
-use rmcp::service::{RoleClient, RunningService};
-use rmcp::transport::TokioChildProcess;
-use rmcp::ServiceExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 use crate::paths;
 
@@ -843,146 +845,119 @@ pub struct McpToolView {
 // Manager
 // ---------------------------------------------------------------------------
 
-pub struct McpManager {
-    connections: Mutex<HashMap<String, RunningService<RoleClient, ()>>>,
-}
-
-impl McpManager {
-    pub fn new() -> Self {
-        Self {
-            connections: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Start every enabled server from config. Called once at app startup;
-    /// failures are logged, never fatal (a broken extension must not block
-    /// the app).
-    pub async fn start_enabled(&self) {
-        let cfg = load_config();
-        for server in cfg.servers.iter().filter(|s| s.enabled) {
-            if let Err(e) = self.connect(server).await {
-                tracing::warn!("MCP server '{}' failed to start: {e}", server.id);
-            }
-        }
-    }
-
-    async fn connect(&self, server: &McpServerConfig) -> Result<(), String> {
-        let mut conns = self.connections.lock().await;
-        if conns.contains_key(&server.id) {
-            return Ok(());
-        }
-
-        // On Windows the child is launched via `cmd /c <command> <args...>`
-        // (npx/node are `.cmd` shims `CreateProcess` can't exec directly).
-        // cmd.exe re-parses its command line, so a server config carrying
-        // metacharacters (`&`, `|`, `<`, `>`, `^`, newlines) could chain
-        // arbitrary commands — a BatBadBut-style hole (CVE-2024-24576). Reject
-        // those before spawning. Legitimate stdio MCP servers use plain tokens
-        // (package names, flags, paths), so this never trips on real configs.
-        #[cfg(target_os = "windows")]
-        {
-            // `%` is included so a config can't smuggle cmd.exe env-var
-            // expansion (`%CD%`, `%PATH%`). `(`/`)` are deliberately NOT blocked
-            // — they appear in legitimate Windows paths (`C:\Program Files (x86)\…`).
-            // Rust 1.77.2+ std already fixes the BatBadBut arg-quoting CVE; this
-            // denylist is defense-in-depth on top of it.
-            let bad = |s: &str| s.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '\n' | '\r' | '\0'));
-            if bad(&server.command) || server.args.iter().any(|a| bad(a)) {
-                return Err(humanize("This extension's command contains characters that aren't allowed for security reasons."));
-            }
-        }
-
-        let cmd = build_command(&server.command, &server.args, &server.env);
-        let transport = match TokioChildProcess::new(cmd) {
-            Ok(t) => t,
-            Err(e) => return Err(connect_error(&server.command, &format!("spawn failed: {e}")).await),
-        };
-        let service = match ().serve(transport).await {
-            Ok(s) => s,
-            Err(e) => return Err(connect_error(&server.command, &e.to_string()).await),
-        };
-        conns.insert(server.id.clone(), service);
-        tracing::info!("MCP server '{}' connected", server.id);
-        Ok(())
-    }
-
-    async fn disconnect(&self, id: &str) {
-        let service = self.connections.lock().await.remove(id);
-        if let Some(service) = service {
-            // Best-effort: a hung server must not block the UI.
-            let _ = service.cancel().await;
-        }
-    }
-
-    async fn is_running(&self, id: &str) -> bool {
-        self.connections.lock().await.contains_key(id)
-    }
-}
-
-/// Build the child-process command. On Windows, `npx`/`node` shims are
-/// `.cmd` files which `CreateProcess` can't exec directly — route through
-/// `cmd /c`.
-fn build_command(
-    command: &str,
-    args: &[String],
-    env: &HashMap<String, String>,
-) -> tokio::process::Command {
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut c = tokio::process::Command::new("cmd");
-        c.arg("/c").arg(command).args(args);
-        c
+/// Reject command/args carrying cmd.exe metacharacters BEFORE they are ever
+/// persisted to `mcp.json`. The sidecar spawns servers via `cmd /c` on
+/// Windows (npx/node are `.cmd` shims), and cmd.exe re-parses its command
+/// line, so a config carrying `&`, `|`, `<`, `>`, `^`, `%` or newlines could
+/// chain arbitrary commands — a BatBadBut-style hole (CVE-2024-24576).
+/// Legitimate stdio MCP servers use plain tokens (package names, flags,
+/// paths), so this never trips on real configs. `(`/`)` are deliberately NOT
+/// blocked — they appear in legitimate Windows paths
+/// (`C:\Program Files (x86)\…`).
+///
+/// Enforced on every platform at install time (configs travel with user
+/// profiles), and enforced AGAIN at spawn time in the sidecar
+/// (`FeralAgent/src/sandbox/mcp-manager.ts` `hasWindowsMetachars`) —
+/// defense-in-depth; neither layer may be relaxed without a security review.
+fn validate_config_tokens(command: &str, args: &[String]) -> Result<(), String> {
+    let bad = |s: &str| {
+        s.chars().any(|c| {
+            matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '\n' | '\r' | '\0')
+        })
     };
-    #[cfg(not(target_os = "windows"))]
-    let mut cmd = {
-        let mut c = tokio::process::Command::new(command);
-        c.args(args);
-        c
-    };
-    for (k, v) in env {
-        cmd.env(k, v);
+    if bad(command) || args.iter().any(|a| bad(a)) {
+        return Err(
+            "This extension's command contains characters that aren't allowed for security reasons."
+                .to_string(),
+        );
     }
-    #[cfg(target_os = "windows")]
-    {
-        // CREATE_NO_WINDOW — don't flash a console per extension.
-        cmd.creation_flags(0x0800_0000);
-    }
-    cmd
+    Ok(())
 }
 
-/// Build the user-facing error for a failed MCP connect. A missing Node
-/// runtime is the most common non-technical failure (Q2): on Windows it doesn't
-/// look like a spawn failure at all — `cmd` launches fine, then the missing
-/// `npx` shim makes the child exit, which `humanize()` would mislabel as
-/// "stopped unexpectedly, turn it off and on again" (an infinite loop for the
-/// user). So when a Node-based server fails, probe for Node and, if it's
-/// genuinely absent, say THAT with an actionable next step.
-async fn connect_error(command: &str, raw: &str) -> String {
-    if (command == "npx" || command == "node") && !node_installed().await {
-        tracing::warn!("MCP error (Node runtime missing): {raw}");
-        return "This extension needs Node.js installed. Install it from nodejs.org and try again.".into();
+/// Send one MCP op to the sidecar and wait for its id-correlated
+/// `mcp_result` line. Same discipline as `governance_roundtrip` in
+/// `feral-core/src/api.rs`: subscribe the runtime event bus FIRST, then
+/// send, then filter `feral://agent-output` lines for our reply. The
+/// desktop bus is fed by `TauriEvents` (lib.rs), which fans every host
+/// event onto `runtime.events_tx`.
+async fn sidecar_roundtrip(
+    state: &crate::AppState,
+    mut payload: serde_json::Value,
+    timeout: std::time::Duration,
+) -> Result<serde_json::Value, String> {
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard.as_ref().cloned()
     }
-    humanize(raw)
+    .ok_or_else(|| "Feral is still starting up — try again in a moment.".to_string())?;
+
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    payload["id"] = serde_json::Value::String(msg_id.clone());
+    let mut rx = state.runtime.events_tx.subscribe();
+    tx.send(payload.to_string())
+        .await
+        .map_err(|_| "Feral is still starting up — try again in a moment.".to_string())?;
+
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(humanize("timed out"));
+        }
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "feral://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+                    continue;
+                };
+                if v.get("type").and_then(|t| t.as_str()) == Some("mcp_result")
+                    && v.get("id").and_then(|i| i.as_str()) == Some(msg_id.as_str())
+                {
+                    return Ok(v);
+                }
+            }
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(_)) => return Err(humanize("closed")),
+            Err(_) => return Err(humanize("timed out")),
+        }
+    }
 }
 
-/// True iff a Node runtime is callable. Probes `node --version` the same way
-/// servers are spawned (`cmd /c` on Windows for the `.cmd` shim); Node is
-/// present iff it exits 0. Called ONLY on the connect failure path, so a
-/// healthy install never pays for the probe.
-async fn node_installed() -> bool {
-    let mut cmd = build_command("node", &["--version".to_string()], &HashMap::new());
-    probe_command(&mut cmd).await
+/// Ask the sidecar to re-reconcile `mcp.json` and return the per-server
+/// status rows from its reply (`running` / `toolCount` / `error` by id).
+async fn reload_and_status(
+    state: &crate::AppState,
+    timeout: std::time::Duration,
+) -> Result<HashMap<String, (bool, Option<String>)>, String> {
+    let v = sidecar_roundtrip(state, serde_json::json!({ "type": "mcp_reload" }), timeout).await?;
+    let mut out = HashMap::new();
+    if let Some(rows) = v.get("servers").and_then(|s| s.as_array()) {
+        for row in rows {
+            let Some(id) = row.get("id").and_then(|i| i.as_str()) else {
+                continue;
+            };
+            let running = row.get("running").and_then(|r| r.as_bool()).unwrap_or(false);
+            let error = row
+                .get("error")
+                .and_then(|e| e.as_str())
+                .map(|s| s.to_string());
+            out.insert(id.to_string(), (running, error));
+        }
+    }
+    Ok(out)
 }
 
-/// Run the probe to completion and return true iff the child exited 0.
-/// Extracted so tests can drive it with a known-bad command instead of
-/// touching the live PATH.
-async fn probe_command(cmd: &mut tokio::process::Command) -> bool {
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    matches!(cmd.status().await, Ok(s) if s.success())
-}
+/// Reload timeout: first connect of an npx-based server may cold-download
+/// the package; the sidecar's per-server init timeout is 10 s, so 30 s
+/// covers a couple of servers connecting sequentially.
+const RELOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Translate transport/protocol errors into messages a non-technical user
 /// can act on. The raw error is logged for diagnostics, never displayed.
@@ -1034,18 +1009,43 @@ pub fn mcp_catalog() -> Vec<McpCatalogEntry> {
     catalog().into_iter().map(|d| d.entry).collect()
 }
 
-/// Installed servers with live status.
+/// Installed servers with live status (running state queried from the
+/// sidecar; sidecar unavailable → everything shows as not running, which
+/// is the truth: no sidecar, no connections).
 #[tauri::command]
 #[specta::specta]
 pub async fn mcp_list(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<Vec<McpServerView>, String> {
     let cfg = load_config();
-    let mut out = Vec::with_capacity(cfg.servers.len());
-    for s in &cfg.servers {
-        out.push(view_of(s, state.mcp.is_running(&s.id).await));
-    }
-    Ok(out)
+    let running_by_id: HashMap<String, bool> = match sidecar_roundtrip(
+        &state,
+        serde_json::json!({ "type": "mcp_status" }),
+        QUERY_TIMEOUT,
+    )
+    .await
+    {
+        Ok(v) => v
+            .get("servers")
+            .and_then(|s| s.as_array())
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        Some((
+                            row.get("id")?.as_str()?.to_string(),
+                            row.get("running").and_then(|r| r.as_bool()).unwrap_or(false),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Err(_) => HashMap::new(),
+    };
+    Ok(cfg
+        .servers
+        .iter()
+        .map(|s| view_of(s, running_by_id.get(&s.id).copied().unwrap_or(false)))
+        .collect())
 }
 
 /// One-click install from the catalog. `values` carries the user's answers
@@ -1095,14 +1095,19 @@ pub async fn mcp_install(
         env,
         enabled: true,
     };
+    validate_config_tokens(&server.command, &server.args)?;
 
     let mut cfg = load_config();
     cfg.servers.retain(|s| s.id != server.id);
     cfg.servers.push(server.clone());
     save_config(&cfg)?;
 
-    state.mcp.connect(&server).await?;
-    Ok(view_of(&server, true))
+    let status = reload_and_status(&state, RELOAD_TIMEOUT).await?;
+    match status.get(&server.id) {
+        Some((true, _)) => Ok(view_of(&server, true)),
+        Some((false, err)) => Err(humanize(err.as_deref().unwrap_or("closed"))),
+        None => Err(humanize("closed")),
+    }
 }
 
 /// Toggle an installed extension on/off (connect / disconnect).
@@ -1123,12 +1128,15 @@ pub async fn mcp_set_enabled(
     let snapshot = server.clone();
     save_config(&cfg)?;
 
-    if enabled {
-        state.mcp.connect(&snapshot).await?;
-    } else {
-        state.mcp.disconnect(&id).await;
+    let status = reload_and_status(&state, RELOAD_TIMEOUT).await?;
+    let (running, err) = status
+        .get(&id)
+        .cloned()
+        .unwrap_or((false, None));
+    if enabled && !running {
+        return Err(humanize(err.as_deref().unwrap_or("closed")));
     }
-    Ok(view_of(&snapshot, state.mcp.is_running(&id).await))
+    Ok(view_of(&snapshot, running))
 }
 
 /// Uninstall: disconnect and forget the config (including stored keys).
@@ -1138,10 +1146,13 @@ pub async fn mcp_remove(
     state: tauri::State<'_, crate::AppState>,
     id: String,
 ) -> Result<(), String> {
-    state.mcp.disconnect(&id).await;
     let mut cfg = load_config();
     cfg.servers.retain(|s| s.id != id);
-    save_config(&cfg)
+    save_config(&cfg)?;
+    // Best-effort teardown poke — removal must succeed even with the
+    // sidecar down (it reconciles from the file at next boot anyway).
+    let _ = reload_and_status(&state, QUERY_TIMEOUT).await;
+    Ok(())
 }
 
 /// What an enabled extension can do — names + descriptions only.
@@ -1151,22 +1162,36 @@ pub async fn mcp_list_tools(
     state: tauri::State<'_, crate::AppState>,
     id: String,
 ) -> Result<Vec<McpToolView>, String> {
-    let conns = state.mcp.connections.lock().await;
-    let service = conns
-        .get(&id)
-        .ok_or_else(|| "This extension is turned off. Turn it on first.".to_string())?;
-    let tools = service
-        .list_tools(Default::default())
-        .await
-        .map_err(|e| humanize(&e.to_string()))?;
-    Ok(tools
-        .tools
-        .into_iter()
-        .map(|t| McpToolView {
-            name: t.name.to_string(),
-            description: t.description.map(|d| d.to_string()).unwrap_or_default(),
+    let v = sidecar_roundtrip(
+        &state,
+        serde_json::json!({ "type": "mcp_list_tools", "serverId": id }),
+        QUERY_TIMEOUT,
+    )
+    .await?;
+    if v.get("ok").and_then(|o| o.as_bool()) != Some(true) {
+        let raw = v.get("error").and_then(|e| e.as_str()).unwrap_or("closed");
+        if raw.contains("not running") {
+            return Err("This extension is turned off. Turn it on first.".to_string());
+        }
+        return Err(humanize(raw));
+    }
+    Ok(v.get("tools")
+        .and_then(|t| t.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    Some(McpToolView {
+                        name: row.get("name")?.as_str()?.to_string(),
+                        description: row
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                })
+                .collect()
         })
-        .collect())
+        .unwrap_or_default())
 }
 
 /// Call a tool on an enabled extension. `args_json` is a JSON object string;
@@ -1188,50 +1213,43 @@ pub async fn mcp_call_tool(
         )
     };
 
-    let conns = state.mcp.connections.lock().await;
-    let service = conns
-        .get(&id)
-        .ok_or_else(|| "This extension is turned off. Turn it on first.".to_string())?;
-    let mut params = CallToolRequestParams::new(tool);
-    if let Some(args) = arguments {
-        params = params.with_arguments(args);
-    }
-    let result = service
-        .call_tool(params)
-        .await
-        .map_err(|e| humanize(&e.to_string()))?;
-
-    // Flatten content blocks to plain text. Serialize-then-walk keeps us
-    // independent of rmcp's content enum shape.
-    let raw = serde_json::to_value(&result.content).unwrap_or_default();
-    let mut text = String::new();
-    if let Some(items) = raw.as_array() {
-        for item in items {
-            if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
-                if !text.is_empty() {
-                    text.push('\n');
-                }
-                text.push_str(t);
-            }
+    let v = sidecar_roundtrip(
+        &state,
+        serde_json::json!({
+            "type": "mcp_call_tool",
+            "serverId": id,
+            "tool": tool,
+            "args": arguments.map(serde_json::Value::Object).unwrap_or_else(|| serde_json::json!({})),
+        }),
+        CALL_TIMEOUT,
+    )
+    .await?;
+    if v.get("ok").and_then(|o| o.as_bool()) != Some(true) {
+        let raw = v.get("error").and_then(|e| e.as_str()).unwrap_or("closed");
+        if raw.contains("not running") {
+            return Err("This extension is turned off. Turn it on first.".to_string());
         }
+        return Err(humanize(raw));
     }
-    if result.is_error.unwrap_or(false) {
-        return Err(humanize(&text));
-    }
-    if text.is_empty() {
-        text = "Done.".to_string();
-    }
-    Ok(text)
+    // The sidecar already flattens MCP content blocks to plain text
+    // (MCPClient.callTool) — never surface raw JSON to the user.
+    let text = v
+        .get("result")
+        .and_then(|r| r.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(if text.is_empty() { "Done.".to_string() } else { text })
 }
 
 // ---------------------------------------------------------------------------
-// Tests — pin the Windows-only cmd /c denylist in `connect`.
+// Tests — pin the install-time metachar denylist (`validate_config_tokens`).
 // ---------------------------------------------------------------------------
 //
 // The denylist is the defense-in-depth layer on top of the Rust 1.77.2+ std
-// BatBadBut arg-quoting fix (CVE-2024-24576). Because the rejection lives
-// inside an `async fn` and uses a closure, the test asserts behavior through
-// the public-ish `connect` path with a hand-built `McpServerConfig`. Any
+// BatBadBut arg-quoting fix (CVE-2024-24576). Spawn moved to the sidecar
+// (R5), which enforces the SAME set at spawn time
+// (FeralAgent/src/sandbox/mcp-manager.ts, hasWindowsMetachars + its tests);
+// this layer rejects bad tokens before they are ever persisted. Any
 // character that survives this assertion would be a chain-into-arbitrary-
 // command hole on Windows — these tests must NEVER be relaxed without a
 // security review.
@@ -1239,124 +1257,60 @@ pub async fn mcp_call_tool(
 #[cfg(test)]
 mod cmd_denylist_tests {
     use super::*;
-    use std::collections::HashMap;
 
-    /// The exact set of chars the closure rejects. Adding or removing one is
-    /// a contract change; pinning the set here means a refactor of the closure
-    /// body (or its removal) fails the test instead of silently regressing.
+    /// The exact set of rejected chars. Adding or removing one is a contract
+    /// change; pinning the set here means a refactor of the validator (or its
+    /// removal) fails the test instead of silently regressing.
     const DENIED: &[char] = &[
         '&', '|', '<', '>', '^', '%', '\n', '\r', '\0',
     ];
 
-    fn cfg_with(command: &str, args: &[&str]) -> McpServerConfig {
-        McpServerConfig {
-            id: format!(
-                "denylist-test-{}",
-                std::process::id() as u64 ^ command.len() as u64
-                    ^ args.iter().map(|a| a.len() as u64).sum::<u64>()
-            ),
-            name: "denylist-test".into(),
-            description: "".into(),
-            category: "".into(),
-            command: command.into(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-            env: HashMap::new(),
-            enabled: true,
-        }
-    }
-
-    /// Run one async `connect` call on a current-thread runtime. Used because
-    /// the project's `Cargo.toml` doesn't pull `tokio` with the `test-util`
-    /// feature, so `#[tokio::test]` isn't available — but `features = ["full"]`
-    /// gives us `tokio::runtime::Builder` for free.
-    fn block_on_connect(cfg: McpServerConfig) -> Result<(), String> {
-        let mgr = McpManager::new();
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime");
-        rt.block_on(mgr.connect(&cfg))
-    }
-
-    /// On Windows, every denied char in `command` must be rejected BEFORE
-    /// `connect` reaches the spawn step. We assert via the user-visible error
-    /// (`humanize` rewrites the internal denylist message into one of a few
-    /// generic strings — so we pin the *outcome*, not the inner wording, and
-    /// confirm it's the humanize path that fired by matching the generic
-    /// fallback the denylist currently produces).
     #[test]
-    fn windows_denylist_rejects_each_metachar_in_command() {
-        if cfg!(not(target_os = "windows")) {
-            // The closure is `#[cfg(target_os = "windows")]`; non-Windows
-            // builds have no denylist to test. Returning early keeps the
-            // assertion honest (we never claim protection we don't have).
-            return;
-        }
+    fn denylist_rejects_each_metachar_in_command() {
         for &ch in DENIED {
             let s = ch.to_string();
-            let res = block_on_connect(cfg_with(&s, &[]));
-            let err = res.expect_err(&format!(
+            assert!(
+                validate_config_tokens(&s, &[]).is_err(),
                 "command {:?} must be rejected by the denylist",
                 ch
-            ));
-            // The denylist's specific message is humanized into a generic
-            // user-facing string; pin the outcome (Err) and confirm it is
-            // the humanize generic fallback, NOT one of the more specific
-            // humanize paths (which would mean we reached the spawn step).
-            assert!(
-                err.contains("Something went wrong"),
-                "expected the denylist humanized fallback for command {:?}, got: {}",
-                ch,
-                err
-            );
-            assert!(
-                !err.contains("needs Node.js installed"),
-                "command {:?} should be rejected before spawn, got Node.js hint: {}",
-                ch,
-                err
             );
         }
     }
 
-    /// Same contract, but for individual `args[i]`. Realistic threat: a
-    /// catalog entry ships a clean `command` but a user-supplied config value
-    /// (e.g. an API key string) sneaks a metachar into one argument.
     #[test]
-    fn windows_denylist_rejects_each_metachar_in_args() {
-        if cfg!(not(target_os = "windows")) {
-            return;
-        }
+    fn denylist_rejects_each_metachar_in_args() {
         for &ch in DENIED {
-            let s = ch.to_string();
-            let res = block_on_connect(cfg_with("npx", &[&s]));
-            let err = res.expect_err(&format!(
-                "arg {:?} must be rejected by the denylist",
+            let arg = format!("pkg{}name", ch);
+            assert!(
+                validate_config_tokens("npx", &[arg]).is_err(),
+                "arg containing {:?} must be rejected by the denylist",
                 ch
-            ));
-            assert!(
-                err.contains("Something went wrong"),
-                "expected the denylist humanized fallback for arg {:?}, got: {}",
-                ch,
-                err
-            );
-            assert!(
-                !err.contains("stopped unexpectedly"),
-                "arg {:?} should be rejected before spawn, got stopped-unexpectedly: {}",
-                ch,
-                err
             );
         }
     }
 
-    /// Pin the closed set: every `char` in the closure's `matches!` arm.
-    /// The first arm pins the nine denied chars; the second pins a sample of
-    /// chars that MUST stay allowed (paths, flags, brackets) so a "be safe,
-    /// deny everything" shortcut fails the test.
+    /// Legitimate tokens must pass: package names, flags, Windows paths with
+    /// parens/brackets. A "be safe, deny everything" shortcut fails here.
+    #[test]
+    fn denylist_allows_legitimate_tokens() {
+        for (cmd, args) in [
+            ("npx", vec!["-y".to_string(), "@modelcontextprotocol/server-pdf".to_string()]),
+            ("node", vec!["C:\\Program Files (x86)\\thing\\server.js".to_string()]),
+            ("uvx", vec!["mcp-server-git".to_string(), "--repository=.".to_string()]),
+        ] {
+            assert!(
+                validate_config_tokens(cmd, &args).is_ok(),
+                "legitimate command {:?} {:?} must not be rejected",
+                cmd,
+                args
+            );
+        }
+    }
+
+    /// Pin the DENIED set size + chars that MUST stay allowed (paths, flags,
+    /// brackets).
     #[test]
     fn denylist_set_is_exactly_these_nine_chars() {
-        // Build the closure locally to read its allow-list via the contract
-        // above, not via the closure itself — duplicating the set keeps this
-        // test stable across refactors that move the closure around.
         assert_eq!(DENIED.len(), 9, "DENIED set size changed — update this test");
         for allowed in ['/', '\\', '.', '-', '_', '=', ':', ' ', '(', ')', '[', ']', ',', '@', '#', '?', '*'] {
             assert!(
@@ -1365,75 +1319,6 @@ mod cmd_denylist_tests {
                 allowed
             );
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tests — pin the Node-detection probe (Q2 / C3).
-//
-// `node_installed()` only runs on the connect-failure path for `npx`/`node`
-// MCP servers, so a bug that makes it always return `true` would silently
-// swallow the "install Node.js from nodejs.org" guidance and degrade back to
-// the unhelpful "stopped unexpectedly" generic message. These tests exercise
-// the probe directly so the failure mode can't sneak in.
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod node_installed_tests {
-    use super::*;
-    use tokio::runtime::Builder;
-
-    fn rt() -> tokio::runtime::Runtime {
-        Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime")
-    }
-
-    /// The probe must return false when the child command fails to launch
-    /// (e.g. no `node` on PATH). On Windows `cmd /c <bogus>` exits non-zero
-    /// because the shim can't find the binary; on POSIX, `Command::new` of a
-    /// nonexistent name returns an error from `status()`. Both are "Node is
-    /// not installed" from the user's perspective.
-    #[test]
-    fn probe_returns_false_when_command_cannot_run() {
-        let rt = rt();
-        let installed = rt.block_on(async {
-            let mut cmd = tokio::process::Command::new(
-                "feral-nonexistent-node-probe-xyzzy-do-not-create-this-binary",
-            );
-            probe_command(&mut cmd).await
-        });
-        assert!(
-            !installed,
-            "probe must return false when the command can't run"
-        );
-    }
-
-    /// And the symmetrical case: a benign process that exits 0 must report
-    /// the probe as "installed". We use the platform's own shell with a
-    /// no-op so we don't depend on Node being installed in the CI env.
-    #[test]
-    fn probe_returns_true_when_command_exits_zero() {
-        let rt = rt();
-        let installed = rt.block_on(async {
-            #[cfg(target_os = "windows")]
-            let mut cmd = {
-                let mut c = tokio::process::Command::new("cmd");
-                c.arg("/c").arg("exit").arg("0");
-                c
-            };
-            #[cfg(not(target_os = "windows"))]
-            let mut cmd = {
-                let mut c = tokio::process::Command::new("true");
-                c
-            };
-            probe_command(&mut cmd).await
-        });
-        assert!(
-            installed,
-            "probe must return true when the child process exits 0"
-        );
     }
 }
 

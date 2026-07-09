@@ -30,9 +30,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"
 
-# MCP client — official Rust SDK (Model Context Protocol)
-rmcp = { version = "1.7", features = ["client", "transport-child-process"] }
-
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"

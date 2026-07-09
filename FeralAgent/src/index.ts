@@ -9,7 +9,7 @@
  */
 
 import { join, resolve, delimiter, sep } from "node:path";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { AuditLog } from "./sandbox/audit-log.ts";
@@ -27,6 +27,7 @@ import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getCurrentTask, getLastActive } from "./memory/resume.ts";
 import { getActiveWorkspaceId, getWorkspace } from "./memory/workspaces.ts";
 import { ToolRegistry } from "./tools/registry.ts";
+import { McpManager } from "./sandbox/mcp-manager.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
 import { createWriteFileTool } from "./tools/builtin/write-file.ts";
 import { createListDirectoryTool } from "./tools/builtin/list-directory.ts";
@@ -114,20 +115,16 @@ const FERAL_HOME = resolve(homedir(), ".feral");
 
 /**
  * Sidecar version, surfaced verbatim in the runtime identity doc emitted
- * by `self_describe`. Read once at startup from package.json (with an
- * env-var override + dev fallback). Cheap — package.json is bundled in
- * the binary, the read is one fs op.
+ * by `self_describe` and used as the L4 manifest `compat.runtime` floor.
+ * Static import so `bun --compile` bundles it — the previous
+ * `readFileSync(new URL("../package.json", …))` silently fell back to
+ * "0.0.0-dev" inside the compiled binary (caught live by the B7 smoke:
+ * every module manifest failed its runtime floor). Env override kept.
  */
-const VERSION: string = (() => {
-  const fallback = process.env.FERAL_VERSION ?? "0.0.0-dev";
-  try {
-    const text = readFileSync(new URL("../package.json", import.meta.url), "utf8");
-    const pkg = JSON.parse(text) as { version?: string };
-    return pkg.version ?? fallback;
-  } catch {
-    return fallback;
-  }
-})();
+import pkgJson from "../package.json" with { type: "json" };
+const VERSION: string =
+  process.env.FERAL_VERSION ??
+  ((pkgJson as { version?: string }).version || "0.0.0-dev");
 
 /** When this sidecar process started, for uptime reports. */
 const BOOT_EPOCH_MS = Date.now();
@@ -552,6 +549,20 @@ export async function main(transportOverride?: Transport): Promise<void> {
   });
 
   const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
+
+  // R5: the sidecar is the single owner of live MCP connections (see
+  // sandbox/mcp-manager.ts). Boot reconcile runs in the background — a
+  // slow or broken extension must never delay agent startup. The desktop
+  // pokes `mcp_reload` after every config change (install/toggle/remove).
+  const mcpManager = new McpManager(registry, audit.logger);
+  void mcpManager
+    .reconcile()
+    .then(() => {
+      const running = mcpManager.status().filter((s) => s.running).length;
+      if (running > 0) log(`mcp: ${running} server(s) connected`);
+    })
+    .catch((e) => log(`mcp: boot reconcile failed: ${String(e)}`));
+
   registry.register(createReadFileTool(config.workspaceRoots));
   registry.register(createWriteFileTool(config.workspaceRoots));
   registry.register(createListDirectoryTool(config.workspaceRoots));
@@ -1566,6 +1577,88 @@ export async function main(transportOverride?: Transport): Promise<void> {
       }
 
       // Sprint 1.6 — Memory Resume. Read-only — never writes memory. Used by
+      // R5 — MCP over stdin. The desktop's Extensions page (and any future
+      // gateway route) drives the sidecar-owned MCP connections through
+      // these four ops; every reply is one `mcp_result` line correlated by
+      // `id`, mirroring the governance_result discipline.
+      case "mcp_reload": {
+        void mcpManager
+          .reconcile()
+          .then(() =>
+            transport.send({
+              type: "mcp_result",
+              id: msg.id ?? "",
+              op: "reload",
+              ok: true,
+              servers: mcpManager.status(),
+            }),
+          )
+          .catch((e) =>
+            transport.send({
+              type: "mcp_result",
+              id: msg.id ?? "",
+              op: "reload",
+              ok: false,
+              error: String(e),
+            }),
+          );
+        break;
+      }
+      case "mcp_status": {
+        transport.send({
+          type: "mcp_result",
+          id: msg.id ?? "",
+          op: "status",
+          ok: true,
+          servers: mcpManager.status(),
+        });
+        break;
+      }
+      case "mcp_list_tools": {
+        const serverId = (msg as { serverId?: string }).serverId ?? "";
+        void mcpManager.listTools(serverId).then(
+          (tools) =>
+            transport.send({
+              type: "mcp_result",
+              id: msg.id ?? "",
+              op: "list_tools",
+              ok: true,
+              tools,
+            }),
+          (e) =>
+            transport.send({
+              type: "mcp_result",
+              id: msg.id ?? "",
+              op: "list_tools",
+              ok: false,
+              error: String(e),
+            }),
+        );
+        break;
+      }
+      case "mcp_call_tool": {
+        const m = msg as { serverId?: string; tool?: string; args?: Record<string, unknown> };
+        void mcpManager.callTool(m.serverId ?? "", m.tool ?? "", m.args ?? {}).then(
+          (result) =>
+            transport.send({
+              type: "mcp_result",
+              id: msg.id ?? "",
+              op: "call_tool",
+              ok: true,
+              result,
+            }),
+          (e) =>
+            transport.send({
+              type: "mcp_result",
+              id: msg.id ?? "",
+              op: "call_tool",
+              ok: false,
+              error: String(e),
+            }),
+        );
+        break;
+      }
+
       // the React `WelcomeBack` banner and the TUI last-task row. The handler
       // looks up `current_task` + `active_workspace_id` + `last_active_at` in
       // `meta` and joins the workspace name from `workspaces`. On first launch
@@ -1946,6 +2039,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
       case "shutdown":
         log(`shutdown requested`);
         askUser.cancelAll("shutdown");
+        mcpManager.killAll();
         db.close();
         process.exit(0);
         break;
@@ -2394,16 +2488,7 @@ if (import.meta.main) {
       break;
 
     case "version": {
-      let ver = "0.0.0-dev";
-      try {
-        const fs = await import("node:fs");
-        const text = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
-        const pkg = JSON.parse(text) as { version?: string };
-        ver = pkg.version ?? ver;
-      } catch {
-        ver = process.env.FERAL_VERSION ?? ver;
-      }
-      console.log(`Feral v${ver}`);
+      console.log(`Feral v${VERSION}`);
       break;
     }
 

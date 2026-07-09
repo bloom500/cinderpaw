@@ -197,6 +197,11 @@ const INBOUND_TYPES = [
   // user's approve/deny reply to a `confirmation_required` event.
   "start_onboarding",
   "tool_confirmation_response",
+  // R5 — MCP over stdin (host manages config, sidecar owns connections).
+  "mcp_reload",
+  "mcp_status",
+  "mcp_list_tools",
+  "mcp_call_tool",
 ] as const satisfies readonly InboundMessage["type"][];
 
 /**

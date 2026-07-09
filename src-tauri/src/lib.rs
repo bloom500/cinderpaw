@@ -30,12 +30,23 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 /// `HostEvents` for the desktop entry point (Faza 4.5 Slice 2): forwards
-/// every runtime event to the webview via `app.emit`. The headless gateway
-/// uses `feral_core::host::LogEvents` instead — see `crates/feral-cli`.
-struct TauriEvents(tauri::AppHandle);
+/// every runtime event to the webview via `app.emit` AND onto the runtime's
+/// broadcast bus (`events_tx`). The bus fan-out matches the headless
+/// `BusEvents` sink — without it, the desktop's embedded HTTP API (`/events`
+/// SSE, the id-correlated roundtrips in `api.rs`, and the MCP roundtrips in
+/// `mcp.rs`) would never observe sidecar output. The headless gateway uses
+/// `feral_core::host::LogEvents`/`BusEvents` instead — see `crates/feral-cli`.
+struct TauriEvents(
+    tauri::AppHandle,
+    tokio::sync::broadcast::Sender<feral_core::host::HostEvent>,
+);
 impl feral_core::host::HostEvents for TauriEvents {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        let _ = self.0.emit(event, payload);
+        let _ = self.0.emit(event, payload.clone());
+        let _ = self.1.send(feral_core::host::HostEvent {
+            event: event.to_string(),
+            payload,
+        });
     }
 }
 
@@ -75,9 +86,6 @@ pub struct AppState {
     /// Cached display-safe view of the model the sidecar is currently using.
     /// Updated optimistically by feral_set_model; None until first set_model call.
     pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
-    /// MCP "Extensions" client manager (rmcp). Holds live connections to
-    /// installed servers; configs persist at ~/.feral/mcp.json.
-    pub mcp: Arc<mcp::McpManager>,
 }
 
 impl std::ops::Deref for AppState {
@@ -3207,7 +3215,6 @@ pub fn run() {
         stop_signal: Arc::new(AtomicBool::new(false)),
         system_info_cache,
         feral_model_config: Arc::new(Mutex::new(None)),
-        mcp: Arc::new(mcp::McpManager::new()),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -3392,7 +3399,7 @@ pub fn run() {
             // background — same pattern the MCP reconnect below uses.
             let runtime = app.handle().state::<AppState>().runtime.clone();
             let events: Arc<dyn feral_core::host::HostEvents> =
-                Arc::new(TauriEvents(app.handle().clone()));
+                Arc::new(TauriEvents(app.handle().clone(), runtime.events_tx.clone()));
             let desktop_control: Option<feral_core::host::DesktopControlHandler> = {
                 let dc: feral_core::host::DesktopControlHandler =
                     Arc::new(|action, params| {
@@ -3410,15 +3417,10 @@ pub fn run() {
                 feral_core::boot::start(runtime, events, desktop_control, extra_bin_dirs).await;
             });
 
-            // Reconnect enabled MCP extensions in the background. Failures
-            // are logged per-server — a broken extension never blocks launch.
-            // Tauri-only wiring (uses AppState via Tauri's manage); the
-            // headless gateway reconnects MCP extensions via its own
-            // mcp::start_enabled task after boot::start returns.
-            let mcp_manager = app.handle().state::<AppState>().mcp.clone();
-            tauri::async_runtime::spawn(async move {
-                mcp_manager.start_enabled().await;
-            });
+            // MCP extensions: no host-side reconnect anymore (R5). The
+            // sidecar's McpManager reconciles `~/.feral/mcp.json` at its own
+            // boot and on every `mcp_reload` poke — desktop and headless
+            // gateway get identical behavior for free.
 
             // No model auto-load. The user picks a model explicitly from the UI
             // (Local Models tab / Onboarding). Auto-loading on every startup
