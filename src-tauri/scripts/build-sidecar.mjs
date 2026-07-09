@@ -154,6 +154,47 @@ function main() {
     }
   }
   log(`copied → ${targetBinaryPath}`);
+
+  // Also copy next to the gateway exe (target/{release,debug}/) so dev
+  // builds (`cargo build -p feral-cli` from the repo root, or
+  // `cargo tauri dev`) don't get stuck on a stale sidecar sitting there.
+  // `find_binary()` probes next to `current_exe` FIRST and matches the
+  // plain name `feral-agent.exe` over the triple-suffixed copy under
+  // `src-tauri/binaries/`, so any stale plain-named copy wins and
+  // shadows the fresh build. Keeping the target dir in sync on every
+  // rebuild closes that gap. See the B7 smoke
+  // (docs/2026-07-09-l4-b7-smoke.md, "stale sidecar shadowing").
+  const sidecarTargetDirs = [];
+  if (process.env.CARGO_TARGET_DIR) {
+    const ct = resolve(process.env.CARGO_TARGET_DIR);
+    sidecarTargetDirs.push(join(ct, "release"), join(ct, "debug"));
+  } else {
+    sidecarTargetDirs.push(
+      join(REPO_ROOT, "target", "release"),
+      join(REPO_ROOT, "target", "debug"),
+      join(TAURI_DIR, "target", "release"),
+      join(TAURI_DIR, "target", "debug"),
+    );
+  }
+  for (const dir of sidecarTargetDirs) {
+    if (!existsSync(dir)) continue;
+    const dest = join(dir, distBinaryName);
+    try {
+      copyFileSync(distBinaryPath, dest);
+      if (process.platform !== "win32") {
+        try {
+          chmodSync(dest, 0o755);
+        } catch {
+          // best effort
+        }
+      }
+      log(`copied → ${dest}`);
+    } catch (e) {
+      // best effort — the target-dir copy is dev-only hygiene; the
+      // canonical copy under src-tauri/binaries/ is what Tauri bundles.
+      log(`warn: could not copy to ${dest}: ${e.message}`);
+    }
+  }
 }
 
 function walkIsStale(dir, cutoffMtime) {
