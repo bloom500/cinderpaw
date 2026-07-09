@@ -7,6 +7,29 @@
 
 ## Unreleased
 
+### HTTP API stability contract (B1, unstable pre-2.0)
+
+- **Per-response `X-Feral-Api-Stability: stable|unstable` header.**
+  A single middleware in `crates/feral-core/src/api.rs`
+  (`api_stability_header`) inspects the request path and tags every
+  response. Stable prefixes are exclusively the third-party protocol
+  compat: `/api/*` (Ollama) and `/v1/*` (OpenAI). Everything else
+  — `/runtime/*`, `/meta/*`, `/governance/*`, `/modules/*`,
+  `/system_info`, `/providers/test`, `/tokenize`, `/events`, the
+  catalog reads — is `unstable` until v2.0. Header is set on 401s
+  too, so clients can rely on it even before they auth.
+  - 9 new unit tests in `crates/feral-core/tests/api_stability.rs`
+    pin the contract: stable on `/api/*` + `/v1/*`, unstable on every
+    other routed path, present on auth failures, behavior preserved
+    for the dynamic `/runtime/models/download/:id` route.
+- **`docs/API.md`** lists all 47 routes (47/47 — checked) grouped by
+  operation class (read/evolve/govern) with stability tags.
+- **`scripts/check-api-docs.mjs`** greps `api.rs::router()` for every
+  `.route("/path", verb(...))` line, diffs against a fenced
+  `feral-api-routes` block in `docs/API.md`, fails if any are
+  missing. Wired into `bun test` via
+  `FeralAgent/tests/api-docs.test.ts`.
+
 ### Architecture overview
 
 - **New `ARCHITECTURE.md`** (B4 of

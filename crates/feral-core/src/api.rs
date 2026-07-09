@@ -170,6 +170,44 @@ pub fn router(state: ApiState) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), require_token))
         .with_state(state)
         .layer(cors)
+        // B1 spec gate — per-response `X-Feral-Api-Stability: stable|unstable`.
+        // The middleware is the single point that decides stability from the
+        // request path: `/api/*` + `/v1/*` (Ollama/OpenAI-compat aliases) are
+        // the only stable surface; everything else is `unstable` pre-2.0
+        // (decision recorded in `docs/API.md`). The header is added on every
+        // response — including 401s — so clients know the surface they tried
+        // is still unstable even if their token was wrong. The middleware
+        // sits as the outermost layer so it observes the final response
+        // shape after auth + CORS.
+        .layer(middleware::from_fn(api_stability_header))
+}
+
+/// B1 spec gate. Adds `X-Feral-Api-Stability: <stable|unstable>` on every
+/// response based on the request path. See `docs/API.md` for the canonical
+/// list.
+///
+/// Stable prefixes (Ollama + OpenAI compat only — these are the third-party
+/// protocol surfaces):
+///   * `/api/`  — Ollama-compatible.
+///   * `/v1/`   — OpenAI-compatible.
+///
+/// Everything else, including `/tokenize` (llama.cpp-server sidecar helper),
+/// the runtime/governance/modules/meta surfaces, `/events`, `/system_info`,
+/// `/providers/test`, `/runtime/*`, `/meta/*`, `/governance/*`, `/modules/*`
+/// — is `unstable` until v2.0.
+async fn api_stability_header(req: Request<axum::body::Body>, next: Next) -> Response {
+    let path = req.uri().path();
+    let stability = if path.starts_with("/api/") || path.starts_with("/v1/") {
+        "stable"
+    } else {
+        "unstable"
+    };
+    let mut response = next.run(req).await;
+    response.headers_mut().insert(
+        HeaderName::from_static("x-feral-api-stability"),
+        HeaderValue::from_static(stability),
+    );
+    response
 }
 
 /// Reject any request without a valid bearer token. CORS preflight
