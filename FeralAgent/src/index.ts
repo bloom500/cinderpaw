@@ -12,6 +12,7 @@ import { join, resolve, delimiter, sep } from "node:path";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
+import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { AuditLog } from "./sandbox/audit-log.ts";
 import { EgressProxy } from "./sandbox/egress-proxy.ts";
 import { RealProcessSandbox } from "./sandbox/process-sandbox.ts";
@@ -2314,6 +2315,16 @@ export async function main(transportOverride?: Transport): Promise<void> {
   });
 
   transport.onReady(() => {
+    // R1: the very first line of protocol traffic — before any other stdout
+    // write — so the host can pin the sidecar's wire version. Skipped when
+    // `transportOverride` is set (TUI mode fans events out in-process, not
+    // over real stdout, so a raw JSON line here would just pollute the
+    // terminal). `transport.onReady` fires on the next microtask after
+    // `start()`, which is the earliest point the transport itself considers
+    // safe to receive/emit — writing any earlier risks racing its own setup.
+    if (!transportOverride) {
+      console.log(JSON.stringify({ type: "hello", protocol: SIDECAR_PROTOCOL }));
+    }
     log(
       `ready — transport=${config.transport} model=${config.inference.primary.model} ` +
         `workspace=${config.workspaceRoots.join(", ")}`,

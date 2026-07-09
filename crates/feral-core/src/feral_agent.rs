@@ -671,6 +671,7 @@ async fn stdout_reader(
     planned_exit: PlannedExitSlot,
 ) {
     let mut lines = BufReader::new(stdout).lines();
+    let mut seen_first_line = false;
     while let Ok(Some(line)) = lines.next_line().await {
         let line = line.trim().to_string();
         if line.is_empty() {
@@ -678,6 +679,27 @@ async fn stdout_reader(
         }
 
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+            // R1: the sidecar's first stdout line is a `hello` announcing its
+            // protocol version. v1 is warn-only — an old sidecar binary that
+            // never sends `hello` (or a mismatched version) must not stop the
+            // reader loop, so this just logs and moves on.
+            if !seen_first_line {
+                seen_first_line = true;
+                if v.get("type").and_then(|t| t.as_str()) == Some("hello") {
+                    match v.get("protocol").and_then(|p| p.as_u64()) {
+                        Some(p) if p as u32 == crate::sidecar_protocol::SIDECAR_PROTOCOL => {}
+                        Some(p) => tracing::warn!(
+                            "feral-agent: sidecar protocol mismatch (sidecar={p}, host={})",
+                            crate::sidecar_protocol::SIDECAR_PROTOCOL
+                        ),
+                        None => tracing::warn!(
+                            "feral-agent: hello line missing 'protocol' field: {v}"
+                        ),
+                    }
+                    continue;
+                }
+            }
+
             match v.get("type").and_then(|t| t.as_str()) {
                 Some("desktop_control_request") => {
                     let tx = response_tx.clone();
