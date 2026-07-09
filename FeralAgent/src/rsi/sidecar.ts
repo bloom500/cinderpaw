@@ -40,7 +40,8 @@ import {
 import { makeRunEval } from "./run-eval.ts";
 import { makeGetSpecs } from "./get-specs.ts";
 import { makeInvokeAgent, type InvokeRouter } from "./invoke-agent.ts";
-import { builtinPlanSteps, liveSeamAdapter, repliesToSteps } from "./seam-runtime.ts";
+import { builtinPlanSteps, itemsToHits, liveSeamAdapter, repliesToSteps } from "./seam-runtime.ts";
+import { spawnModuleHost } from "./module-host-client.ts";
 import { selectCrossoverPairs } from "./crossover-selection.ts";
 import { PopulationManager, type GenomeSpec } from "./population-manager.ts";
 import { EventBus } from "./event-bus.ts";
@@ -177,6 +178,12 @@ export interface RsiSidecarDeps {
    *  same max()/min() discipline as `metaParams`. Absent → pre-L5
    *  behaviour (§7). */
   policyGates?: () => import("./confidence.ts").GateThresholds;
+  /** Optional: L4 seam builtins for the paired module eval (§5) — the
+   *  INCUMBENT implementation per seam, keyed by seam name. index.ts
+   *  provides `retrieval_strategy` (FractalMemory-backed); `planner`
+   *  defaults to the builtin split. Absent seam → that seam's method is
+   *  left unbound on BOTH eval runs (symmetric pairing). */
+  seamBuiltins?: Record<string, (method: string, params: unknown) => Promise<unknown>>;
 }
 
   /** Sidecar singleton — one per process. */
@@ -196,6 +203,158 @@ export class RsiSidecar {
   /** The engine is running. */
   isRunning(): boolean {
     return this.engine !== null;
+  }
+
+  // ── Eval-harness building blocks (shared by start() and L4 §5) ───────
+
+  /** Tier 0 fetcher over the bridge (the frozen sanity bar). */
+  private fetchTier0() {
+    return async () => {
+      try {
+        return await this.deps.bridge.request<
+          Array<{
+            id: string;
+            name: string;
+            description: string;
+            prompt: string;
+            kind: EvalKind;
+            expected: EvalExpected;
+          }>
+        >("rsi_get_tier0_specs", {});
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        this.deps.log?.(`rsi_get_tier0_specs bridge error: ${detail}`);
+        throw err;
+      }
+    };
+  }
+
+  /** Tier-0 evals are short factual answers — they never need the
+   *  4096-token default budget. On slow local hardware the budget is the
+   *  difference between a 50s eval and a 5-minute timeout (thinking-mode
+   *  models like Qwen3.5 will happily burn the whole window "reasoning").
+   *  ponytail: flat env knob; per-spec budgets if Tier 1/2 ever need more. */
+  private evalTokenBudget(): number {
+    const n = Number(process.env.FERAL_RSI_EVAL_TOKEN_BUDGET);
+    return n > 0 ? n : 1024;
+  }
+
+  /** Identity line: tier0/identity_honesty expects "bloom", and the
+   *  production agent DOES carry its identity in the system prompt —
+   *  evals grade the agent-as-shipped, not an anonymous model. Qwen3/3.5
+   *  honor the `/no_think` soft switch; without it the model spends the
+   *  whole eval budget inside <think>. */
+  private evalSystemPrompt(id: number): string {
+    return (
+      "You are Feral, a local AI agent made by bloom. " +
+      (this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT) +
+      " /no_think"
+    );
+  }
+
+  /** The live planner seam (§1.2) — builtin is today's `[Part k/N]` split. */
+  private livePlannerSeam() {
+    return liveSeamAdapter(
+      "planner",
+      async (_method, params) => {
+        const p = params as { goal: string; maxDepth: number };
+        return { steps: builtinPlanSteps(p.goal, Math.max(1, p.maxDepth)) };
+      },
+      this.deps.log,
+    );
+  }
+
+  /**
+   * L4 §5 — the paired-eval harness for one candidate module. Returns
+   * the `ModuleEvalDeps` (minus policy thresholds — the lifecycle owns
+   * those) that run the SAME suite on the SAME champion genome twice:
+   * `incumbent` uses the live seam bindings; `candidate` routes the
+   * module's seam to a host spawned on `moduleDir` for the duration of
+   * the run (never the live registry — shadow eval is invisible, §5).
+   */
+  moduleEvalDeps(args: {
+    seam: string;
+    moduleDir: string;
+    limits: { timeoutMs: number; maxRssMb: number };
+  }): Omit<import("./module-eval.ts").ModuleEvalDeps, "thresholds"> {
+    const getSpecs = makeGetSpecs({ fetchTier0: this.fetchTier0() });
+    const genome =
+      championSeed(readChampion(this.deps.championPath ?? defaultChampionPath())) ??
+      defaultEngineSeedsWithExtras(this.deps.extraSeeds)[0]!;
+
+    const runSuite = async (binding: "incumbent" | "candidate") => {
+      // Candidate binding: one host for the whole run, stopped after.
+      let host: import("./module-host-client.ts").ModuleHost | null = null;
+      if (binding === "candidate") {
+        const res = await spawnModuleHost({
+          moduleDir: args.moduleDir,
+          limits: args.limits,
+          log: this.deps.log,
+        });
+        if (!res.ok) throw new Error(`module host spawn failed: ${res.reason}`);
+        host = res.host;
+      }
+      const seamInvoke = async (method: string, params: unknown): Promise<unknown> => {
+        if (host) {
+          const reply = await host.request(method, params);
+          if (reply.ok) return reply.result;
+          throw new Error(reply.error);
+        }
+        const builtin = this.deps.seamBuiltins?.[args.seam];
+        if (!builtin) throw new Error(`no builtin bound for seam ${args.seam}`);
+        return builtin(method, params);
+      };
+
+      const invokeAgent = makeInvokeAgent({
+        router: this.deps.router,
+        contextBudget: this.evalTokenBudget(),
+        getSystemPrompt: (id) => this.evalSystemPrompt(id),
+        // The module's seam differs between runs; every other seam keeps
+        // its live binding so the pair isolates ONE variable.
+        ...(args.seam === "retrieval_strategy"
+          ? {
+              recall: async (o: { query: string; sessionId: string }) => {
+                try {
+                  const reply = await seamInvoke("retrieve", { query: o.query, k: 5, sessionId: o.sessionId });
+                  const hits = itemsToHits(reply, 5);
+                  return hits.length === 0
+                    ? ""
+                    : `[Memory context]\n${hits.map((h) => `- ${h.text}`).join("\n")}\n[End memory context]`;
+                } catch {
+                  return ""; // recall failure never crashes a task (§4)
+                }
+              },
+            }
+          : {}),
+        plan: async (req) => {
+          if (args.seam === "planner") {
+            try {
+              return repliesToSteps(await seamInvoke("plan", req));
+            } catch {
+              return null; // fall back to the builtin split
+            }
+          }
+          return repliesToSteps(await this.livePlannerSeam().invoke("plan", req));
+        },
+      });
+
+      try {
+        const runEval = makeRunEval({ getSpecs, invokeAgent, log: this.deps.log });
+        return await runEval(genome);
+      } finally {
+        if (host) {
+          host.stop();
+          await host.exited;
+        }
+      }
+    };
+
+    return {
+      getSpecs,
+      runSuite,
+      genomeId: genome.id,
+      modelId: process.env.FERAL_BYOK_PROVIDER ?? "live-router",
+    };
   }
 
   /** Build + run the engine. Idempotent on a `restart`-style call from
@@ -246,26 +405,7 @@ export class RsiSidecar {
       bridge: this.deps.bridge,
     });
     const scoreGenome = makeScoreGenomeAdapter({ bridge: this.deps.bridge, log: this.deps.log });
-    const fetchTier0 = async () => {
-      try {
-        const wire = await this.deps.bridge.request<
-          Array<{
-            id: string;
-            name: string;
-            description: string;
-            prompt: string;
-            kind: EvalKind;
-            expected: EvalExpected;
-          }>
-        >("rsi_get_tier0_specs", {});
-        return wire;
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        this.deps.log?.(`rsi_get_tier0_specs bridge error: ${detail}`);
-        throw err;
-      }
-    };
-    const getSpecs = makeGetSpecs({ fetchTier0 });
+    const getSpecs = makeGetSpecs({ fetchTier0: this.fetchTier0() });
 
     // Empty-response telemetry. A model that returns empty/whitespace
     // content makes every eval score ~0 (validateOutcome fails) while
@@ -276,39 +416,14 @@ export class RsiSidecar {
     // immediately whether the MODEL (not the engine) is the problem.
     let emptyResponses = 0;
     let emptyWarned = false;
-    // Tier-0 evals are short factual answers — they never need the 4096-token
-    // default budget. On slow local hardware the budget is the difference
-    // between a 50s eval and a 5-minute timeout (thinking-mode models like
-    // Qwen3.5 will happily burn the whole window "reasoning").
-    // ponytail: flat env knob; per-spec budgets if Tier 1/2 specs ever need more.
-    const evalBudget =
-      Number(process.env.FERAL_RSI_EVAL_TOKEN_BUDGET) > 0
-        ? Number(process.env.FERAL_RSI_EVAL_TOKEN_BUDGET)
-        : 1024;
-    // Qwen3/3.5 honor a `/no_think` soft switch in the prompt; without it the
-    // model spends the whole eval budget inside <think> and the graded answer
-    // never arrives. Models without the switch see one line of harmless text.
-    // L4 planner seam (§1.2): eval decomposition consults the live seam —
-    // a promoted planner module shapes the sub-prompts; the builtin is
-    // today's `[Part k/N]` split, byte-identical when nothing is promoted.
-    const plannerSeam = liveSeamAdapter(
-      "planner",
-      async (_method, params) => {
-        const p = params as { goal: string; maxDepth: number };
-        return { steps: builtinPlanSteps(p.goal, Math.max(1, p.maxDepth)) };
-      },
-      this.deps.log,
-    );
     const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
-      contextBudget: evalBudget,
-      getSystemPrompt: (id) =>
-        // Identity line: tier0/identity_honesty expects "bloom", and the
-        // production agent DOES carry its identity in the system prompt —
-        // evals grade the agent-as-shipped, not an anonymous model.
-        "You are Feral, a local AI agent made by bloom. " +
-        (this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT) + " /no_think",
-      plan: async (req) => repliesToSteps(await plannerSeam.invoke("plan", req)),
+      contextBudget: this.evalTokenBudget(),
+      getSystemPrompt: (id) => this.evalSystemPrompt(id),
+      // L4 planner seam (§1.2): eval decomposition consults the live seam —
+      // a promoted planner module shapes the sub-prompts; the builtin is
+      // today's `[Part k/N]` split, byte-identical when nothing is promoted.
+      plan: async (req) => repliesToSteps(await this.livePlannerSeam().invoke("plan", req)),
     });
     const invokeAgent: typeof baseInvokeAgent = async (prompt, genome) => {
       try {

@@ -1081,6 +1081,50 @@ async fn feral_governance(
     Ok(())
 }
 
+/// Phase B (L4 Architecture Evolution) — drive the sidecar's module
+/// lifecycle from the desktop Architecture card. Fire-and-forget like
+/// `feral_governance`; the sidecar replies with one `modules_result` line
+/// over `feral://agent-output`. Only the card's ops are exposed (list /
+/// approve / reject / demote) — `evaluate` lives in the gateway API + CLI
+/// (it monopolises the model for minutes; not a card button).
+#[tauri::command]
+#[specta::specta]
+async fn feral_modules(
+    state: State<'_, AppState>,
+    op: String,
+    module_id: Option<String>,
+    seam: Option<String>,
+    note: Option<String>,
+) -> Result<(), String> {
+    let msg_type = match op.as_str() {
+        "list" => "modules_list",
+        "approve" | "reject" | "demote" => "module_resolve",
+        _ => return Err(format!("invalid modules op '{op}'")),
+    };
+    let mut msg = serde_json::json!({ "type": msg_type });
+    if msg_type == "module_resolve" {
+        msg["moduleAction"] = serde_json::Value::String(op);
+    }
+    if let Some(id) = module_id {
+        msg["moduleId"] = serde_json::Value::String(id);
+    }
+    if let Some(s) = seam {
+        msg["seam"] = serde_json::Value::String(s);
+    }
+    if let Some(n) = note {
+        msg["note"] = serde_json::Value::String(n);
+    }
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg.to_string()).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// BRSI §2.8 `user` Wake trigger: ask the sidecar's Dream Cycle to run one
 /// evolutionary episode now, bypassing the idle/cooldown gate. Fire-and-forget
 /// like the benchmark command — the sidecar's scheduler launches on its next
@@ -3261,6 +3305,7 @@ pub fn run() {
             feral_dream_now,
             feral_meta,
             feral_governance,
+            feral_modules,
             feral_code_patches_list,
             feral_code_patch_resolve,
             feral_lora_reviews_list,

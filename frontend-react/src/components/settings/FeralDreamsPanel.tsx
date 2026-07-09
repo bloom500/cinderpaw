@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2, Brain, Shield } from 'lucide-react';
 import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload } from '@/lib/tauri';
-import { events, type LoraReviewsLine, type MetaResultLine, type GovernanceResultLine } from '@/lib/tauri/events';
+import { events, type LoraReviewsLine, type MetaResultLine, type GovernanceResultLine, type ModulesResultLine } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 
 /** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
@@ -80,6 +80,10 @@ export function FeralDreamsPanel() {
   const [govVerify, setGovVerify] = useState<GovernanceResultLine | null>(null);
   const [govResolving, setGovResolving] = useState<Set<string>>(new Set());
   const [govNote, setGovNote] = useState<string | null>(null);
+  // Phase B (L4 Architecture Evolution) — module inbox + quarantine toast.
+  const [modulesList, setModulesList] = useState<ModulesResultLine | null>(null);
+  const [modulesResolving, setModulesResolving] = useState<Set<string>>(new Set());
+  const [modulesNote, setModulesNote] = useState<string | null>(null);
   const dreaming = useDream((s) => s.dreaming);
   const stage = useDream((s) => s.stage);
 
@@ -122,6 +126,27 @@ export function FeralDreamsPanel() {
       setGovResolving((s) => {
         const next = new Set(s);
         next.delete(policyId);
+        return next;
+      });
+    }
+  };
+
+  // Phase B (L4) — approve / reject a module candidate, or demote a seam
+  // back to its builtin. The ack (`modules_result` op resolve) clears the
+  // in-flight set and re-requests the list.
+  const resolveModule = async (
+    action: 'approve' | 'reject' | 'demote',
+    args: { moduleId?: string; seam?: string },
+  ) => {
+    const key = args.moduleId ?? args.seam ?? '';
+    if (modulesResolving.has(key)) return;
+    setModulesResolving((s) => new Set(s).add(key));
+    try {
+      await tauri.rsi.modules(action, args);
+    } catch {
+      setModulesResolving((s) => {
+        const next = new Set(s);
+        next.delete(key);
         return next;
       });
     }
@@ -234,6 +259,10 @@ export function FeralDreamsPanel() {
         await tauri.rsi.governance('status');
         await tauri.rsi.governance('verify');
       } catch { /* sidecar not running — the listener will fill in later */ }
+      // Phase B (L4) — module inbox, same discipline.
+      try {
+        await tauri.rsi.modules('list');
+      } catch { /* sidecar not running — the listener will fill in later */ }
     };
     void load();
     // A completed episode appends a new line → reload to pick it up.
@@ -331,8 +360,31 @@ export function FeralDreamsPanel() {
         void tauri.rsi.governance('verify').catch(() => {});
       }
     });
+    // Phase B (L4) — modules_result stream: list snapshots feed the card;
+    // resolve acks clear the in-flight set + re-request; an unpaired
+    // `quarantined` row surfaces the watchdog rollback as a note.
+    const unlistenModules = events.onModulesResult.listen((e) => {
+      if (!alive) return;
+      if (e.op === 'list') {
+        setModulesList(e);
+        return;
+      }
+      if (e.op === 'resolve') {
+        setModulesResolving(new Set());
+        setModulesNote(e.ok ? null : (e.reason ?? 'action failed'));
+        void tauri.rsi.modules('list').catch(() => {});
+        return;
+      }
+      if (e.op === 'quarantined') {
+        setModulesNote(
+          `A part Feral built (${e.moduleId ?? 'unknown'}) kept failing, so it was switched off and the original took over.`,
+        );
+        void tauri.rsi.modules('list').catch(() => {});
+      }
+    });
     return () => {
       alive = false;
+      void unlistenModules.then((u) => u()).catch(() => {});
       void unlistenGov.then((u) => u()).catch(() => {});
       void unlistenMeta.then((u) => u()).catch(() => {});
       void unlistenDream.then((u) => u()).catch(() => {});
@@ -433,6 +485,13 @@ export function FeralDreamsPanel() {
         resolving={govResolving}
         note={govNote}
         onResolve={resolveProposal}
+      />
+
+      <ArchitectureCard
+        list={modulesList}
+        resolving={modulesResolving}
+        note={modulesNote}
+        onResolve={resolveModule}
       />
     </div>
   );
@@ -559,6 +618,135 @@ function GovernanceCard({
             );
           })}
         </ul>
+      )}
+
+      {note && (
+        <p className="flex items-center gap-1 text-[10px] text-text-muted">
+          <AlertTriangle size={10} className="text-brand" />
+          {note}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** Plain-language names for the seams (the swappable parts). Mirrors the
+ *  LAYER_LABELS discipline: users see these, never the seam keys. */
+const SEAM_LABELS: Record<string, string> = {
+  retrieval_strategy: 'memory search',
+  planner: 'task planning',
+};
+
+/** Phase B (L4 Architecture Evolution) — the "Architecture" card: which
+ *  swappable parts run a Feral-built module vs the original, plus the
+ *  approval inbox for candidates that passed their exam. Copy is
+ *  non-technical (same rule as GovernanceCard): a seam is a "part",
+ *  promotion is "take over", demote is "switch back to the original".
+ *  Approving here is the ONLY desktop writer of module promotions (AC6). */
+function ArchitectureCard({
+  list,
+  resolving,
+  note,
+  onResolve,
+}: {
+  list: ModulesResultLine | null;
+  resolving: Set<string>;
+  note: string | null;
+  onResolve: (
+    action: 'approve' | 'reject' | 'demote',
+    args: { moduleId?: string; seam?: string },
+  ) => void;
+}) {
+  if (!list) return null;
+  const seams = Object.entries(list.seams ?? {});
+  const rows = list.modules ?? [];
+  const pending = rows.filter((m) => m.state === 'awaiting_approval');
+  const active = rows.filter((m) => m.active);
+  // Nothing brewing and everything on the original → one quiet line.
+  const allBuiltin = active.length === 0 && pending.length === 0;
+  return (
+    <section className="space-y-1.5 border-t border-border-subtle pt-2">
+      <header className="flex items-center gap-1.5">
+        <GitMerge size={11} className="text-brand" />
+        <span className="text-[11px] font-medium text-text-primary">Architecture</span>
+        <span className="text-[10px] text-text-muted">
+          replacement parts Feral built for itself
+        </span>
+      </header>
+
+      {allBuiltin ? (
+        <p className="text-[10px] text-text-muted">
+          Every part runs the original — no replacements active or waiting.
+        </p>
+      ) : (
+        <>
+          {active.map((m) => {
+            const chip = SEAM_LABELS[m.seam] ?? m.seam;
+            return (
+              <div key={m.id} className="flex items-center gap-1.5 text-[11px]">
+                <Check size={10} className="shrink-0 text-brand" />
+                <span className="text-text-secondary">
+                  {chip} runs a part Feral built: {m.displayName}
+                </span>
+                <button
+                  type="button"
+                  disabled={resolving.has(m.seam)}
+                  onClick={() => onResolve('demote', { seam: m.seam })}
+                  title="Instantly switch this part back to the original"
+                  className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                >
+                  <Undo2 size={10} className="inline -mt-px mr-0.5" />
+                  Use the original
+                </button>
+              </div>
+            );
+          })}
+          {pending.map((m) => {
+            const chip = SEAM_LABELS[m.seam] ?? m.seam;
+            return (
+              <div key={m.id} className="space-y-1 text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle size={10} className="shrink-0 text-amber-500" />
+                  <span className="text-text-secondary">
+                    Feral built a new {chip} part ({m.displayName}) and it passed its exam
+                    {m.eval?.reason ? '' : ''} — nothing changes without your OK.
+                  </span>
+                </div>
+                {m.eval && (
+                  <p className="pl-4 text-[10px] text-text-muted">{m.eval.reason}</p>
+                )}
+                <div className="flex items-center gap-1.5 pl-4">
+                  <button
+                    type="button"
+                    disabled={resolving.has(m.id)}
+                    onClick={() => onResolve('approve', { moduleId: m.id })}
+                    className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10px] text-brand hover:border-brand disabled:opacity-50"
+                  >
+                    <Check size={10} className="inline -mt-px mr-0.5" />
+                    Let it take over
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resolving.has(m.id)}
+                    onClick={() => onResolve('reject', { moduleId: m.id })}
+                    className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                  >
+                    <X size={10} className="inline -mt-px mr-0.5" />
+                    Keep the original
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {seams.length > 0 && !allBuiltin && (
+        <p className="text-[10px] text-text-muted">
+          {seams
+            .map(([seam, e]) => `${SEAM_LABELS[seam] ?? seam}: ${e.active === 'builtin' ? 'original' : 'Feral-built'}`)
+            .join(' · ')}
+        </p>
       )}
 
       {note && (

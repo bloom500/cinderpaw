@@ -221,6 +221,38 @@ export interface GovernanceResultLine {
   documentHash?: string;
 }
 
+/** Phase B (L4 Architecture Evolution) reply. `op` says which request it
+ *  answers; `list` carries seams + module rows, resolve carries `ok`/
+ *  `reason`, and an UNPAIRED `op:"quarantined"` row (empty `id`) is the
+ *  watchdog toast — a module was auto-demoted after repeated failures. */
+export interface ModulesResultLine {
+  type: 'modules_result';
+  id: string;
+  op: 'list' | 'resolve' | 'evaluate' | 'quarantined';
+  ok: boolean;
+  reason?: string;
+  // list payload
+  seams?: Record<string, { seamApiVersion: number; active: string; candidates: string[] }>;
+  modules?: Array<{
+    id: string;
+    seam: string;
+    state: string;
+    displayName: string;
+    active: boolean;
+    eval?: {
+      accept: boolean;
+      reason: string;
+      bootstrap: Record<string, unknown>;
+      latency: Record<string, unknown>;
+    };
+  }>;
+  // resolve payload
+  action?: string;
+  state?: string;
+  // quarantined payload
+  moduleId?: string;
+}
+
 export interface LoraReviewsLine {
   type: 'lora_reviews';
   reviews: Array<{
@@ -474,6 +506,29 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'governance_result'
           ) {
             cb(parsed as GovernanceResultLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+/**
+   * Phase B (L4 Architecture Evolution) replies (`modules_result`): list /
+   * resolve payloads requested via `tauri.rsi.modules(op)`, plus the
+   * unpaired watchdog `quarantined` toast row.
+   */
+  onModulesResult: {
+    listen: (cb: (e: ModulesResultLine) => void): Promise<UnlistenFn> =>
+      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'modules_result'
+          ) {
+            cb(parsed as ModulesResultLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

@@ -146,6 +146,16 @@ pub fn router(state: ApiState) -> Router {
         .route("/governance/rollback",  post(governance_rollback_route))     // govern
         .route("/governance/freeze",    post(governance_freeze_route))       // govern
         .route("/governance/unfreeze",  post(governance_unfreeze_route))     // govern
+        // Phase B (L4 Architecture Evolution — spec §10). Same posture as
+        // /governance/*: sidecar roundtrip per op, one modules_result reply
+        // paired by `id`. `/modules/evaluate` runs the paired eval suite on
+        // the live model — its roundtrip uses a long deadline.
+        .route("/modules",              get(modules_list_route))              // read
+        .route("/modules/evaluate",     post(module_evaluate_route))          // evolve
+        .route("/modules/:id",          get(module_show_route))               // read
+        .route("/modules/:id/approve",  post(module_approve_route))           // govern
+        .route("/modules/:id/reject",   post(module_reject_route))            // govern
+        .route("/modules/:id/demote",   post(module_demote_route))            // govern
         .route("/events", get(runtime_events))
         // Phase 1 (2026-07-07) — canonical provider + connector catalogs.
         // Both surfaces (Go TUI wizard, desktop React OnboardingWizard)
@@ -1146,6 +1156,177 @@ async fn governance_unfreeze_route(
     body: Option<Json<Value>>,
 ) -> Response {
     governance_roundtrip(State(state), "governance_unfreeze", body).await
+}
+
+// ── Phase B (L4 Architecture Evolution API — spec §10) ─────────────────
+//
+// Mirrors `governance_roundtrip` but filters on `modules_result` and takes
+// a per-op deadline: list/resolve are instant sidecar reads (10s), while
+// `evaluate` runs the full paired eval suite twice on the live model —
+// minutes on local hardware (30min wall).
+
+/// Forward a modules op to the sidecar and return its `modules_result`.
+async fn modules_roundtrip(
+    State(state): State<ApiState>,
+    op: &'static str,
+    body: Option<Json<Value>>,
+    deadline: std::time::Duration,
+) -> Response {
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+            .into_response();
+    };
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let mut rx = state.runtime.events_tx.subscribe();
+
+    let mut payload = json!({ "type": op, "id": msg_id });
+    if let Some(Json(Value::Object(map))) = body {
+        for (k, v) in map {
+            payload[k] = v;
+        }
+    }
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    loop {
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "feral://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if v.get("type").and_then(|t| t.as_str()) == Some("modules_result")
+                    && v.get("id").and_then(|i| i.as_str()) == Some(msg_id.as_str())
+                {
+                    return Json(v).into_response();
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "runtime event bus closed")
+                    .into_response();
+            }
+            Err(_) => {
+                return (StatusCode::GATEWAY_TIMEOUT, "timed out waiting for modules_result")
+                    .into_response();
+            }
+        }
+    }
+}
+
+const MODULES_READ_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+const MODULES_EVAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// `GET /modules` — registry snapshot + per-module states + eval summaries.
+async fn modules_list_route(State(state): State<ApiState>) -> Response {
+    modules_roundtrip(State(state), "modules_list", None, MODULES_READ_DEADLINE).await
+}
+
+/// `GET /modules/:id` — one module's row from the list reply (manifest
+/// display name, state, eval summary). 404 when the id is unknown.
+async fn module_show_route(
+    State(state): State<ApiState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let resp = modules_roundtrip(State(state), "modules_list", None, MODULES_READ_DEADLINE).await;
+    // Filter the one row out of the list reply; non-200s pass through.
+    let (parts, body) = resp.into_parts();
+    if parts.status != StatusCode::OK {
+        return Response::from_parts(parts, body);
+    }
+    let Ok(bytes) = axum::body::to_bytes(body, 1024 * 1024).await else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "list reply unreadable").into_response();
+    };
+    let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "list reply not JSON").into_response();
+    };
+    let found = v
+        .get("modules")
+        .and_then(|m| m.as_array())
+        .and_then(|rows| {
+            rows.iter()
+                .find(|r| r.get("id").and_then(|i| i.as_str()) == Some(id.as_str()))
+        });
+    match found {
+        Some(row) => Json(row.clone()).into_response(),
+        None => (StatusCode::NOT_FOUND, format!("unknown module: {id}")).into_response(),
+    }
+}
+
+/// `POST /modules/:id/approve` — body optional: {note}. The recorded human
+/// decision (AC6: promotion is impossible without this call).
+async fn module_approve_route(
+    State(state): State<ApiState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    body: Option<Json<Value>>,
+) -> Response {
+    modules_roundtrip(
+        State(state),
+        "module_resolve",
+        Some(Json(with_fields(body, &[("moduleId", id), ("moduleAction", "approve".into())]))),
+        MODULES_READ_DEADLINE,
+    )
+    .await
+}
+
+/// `POST /modules/:id/reject` — body optional: {note}.
+async fn module_reject_route(
+    State(state): State<ApiState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    body: Option<Json<Value>>,
+) -> Response {
+    modules_roundtrip(
+        State(state),
+        "module_resolve",
+        Some(Json(with_fields(body, &[("moduleId", id), ("moduleAction", "reject".into())]))),
+        MODULES_READ_DEADLINE,
+    )
+    .await
+}
+
+/// `POST /modules/:id/demote` — `:id` is the SEAM (rollback restores the
+/// builtin on a seam, spec §8.1). Body optional: {note}.
+async fn module_demote_route(
+    State(state): State<ApiState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    body: Option<Json<Value>>,
+) -> Response {
+    modules_roundtrip(
+        State(state),
+        "module_resolve",
+        Some(Json(with_fields(body, &[("seam", id), ("moduleAction", "demote".into())]))),
+        MODULES_READ_DEADLINE,
+    )
+    .await
+}
+
+/// `POST /modules/evaluate` — body: {moduleId}. Runs the paired shadow
+/// eval (spec §5); long deadline, one at a time (the sidecar refuses a
+/// second concurrent eval).
+async fn module_evaluate_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    modules_roundtrip(State(state), "module_evaluate", body, MODULES_EVAL_DEADLINE).await
+}
+
+/// Merge fixed fields into an optional JSON body (fields win on conflict).
+fn with_fields(body: Option<Json<Value>>, fields: &[(&str, String)]) -> Value {
+    let mut v = match body {
+        Some(Json(Value::Object(map))) => Value::Object(map),
+        _ => json!({}),
+    };
+    for (k, val) in fields {
+        v[*k] = Value::String(val.clone());
+    }
+    v
 }
 
 /// Slice 4: request a graceful shutdown. Fires the runtime's shutdown signal;

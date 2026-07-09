@@ -63,6 +63,39 @@ pub enum GovernanceAction {
     },
 }
 
+/// Phase B (L4 Architecture Evolution, spec §10) — `feral modules …`.
+/// Mirrors the `governance` surface: reads via GET, mutations via POST,
+/// `--json` honored, exit 0 on `ok:true`.
+#[derive(Subcommand)]
+pub enum ModulesAction {
+    /// List seams + candidate/promoted modules with their states
+    List,
+    /// Show one module (state, eval summary)
+    Show { id: String },
+    /// Approve a candidate awaiting approval — THE human promotion record
+    Approve {
+        id: String,
+        /// Optional note attached to the approval
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+    /// Reject a candidate awaiting approval
+    Reject {
+        id: String,
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+    /// Demote a SEAM back to its builtin (instant rollback, no approval)
+    Demote {
+        seam: String,
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+    /// Run the paired shadow eval for a module candidate (slow: the full
+    /// suite runs twice on the live model)
+    Evaluate { id: String },
+}
+
 /// One blocking tokio runtime for the short HTTP calls these commands make.
 fn block_on<F: std::future::Future>(f: F) -> F::Output {
     tokio::runtime::Runtime::new()
@@ -747,6 +780,106 @@ pub fn governance(action: GovernanceAction) -> i32 {
     }
 }
 
+/// Phase B (L4) — `feral modules …`. Same plumbing as `governance`:
+/// gateway must be up, token from `~/.feral/api-token`, one HTTP call per
+/// op. `evaluate` waits for the paired suite to finish (minutes on local
+/// hardware) — it uses a long-timeout client + the spinner.
+pub fn modules(action: ModulesAction) -> i32 {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, ok: OK, reset: RESET, .. } =
+        palette();
+    if !port_in_use(api_port()) {
+        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        return 1;
+    }
+    let Some(token) = read_token() else {
+        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        return 1;
+    };
+
+    let note = |m: &Option<String>| json!({ "note": m.clone().unwrap_or_default() });
+    let result = match &action {
+        ModulesAction::List => block_on(fetch_json(&token, "/modules")),
+        ModulesAction::Show { id } => block_on(fetch_json(&token, &format!("/modules/{id}"))),
+        ModulesAction::Approve { id, message } => {
+            block_on(post_json_with_body(&token, &format!("/modules/{id}/approve"), note(message)))
+        }
+        ModulesAction::Reject { id, message } => {
+            block_on(post_json_with_body(&token, &format!("/modules/{id}/reject"), note(message)))
+        }
+        ModulesAction::Demote { seam, message } => {
+            block_on(post_json_with_body(&token, &format!("/modules/{seam}/demote"), note(message)))
+        }
+        ModulesAction::Evaluate { id } => {
+            println!("{META}running paired eval (the suite runs twice on the live model — this takes a while)…{RESET}");
+            block_on(post_json_slow(&token, "/modules/evaluate", json!({ "moduleId": id })))
+        }
+    };
+
+    let v = match result {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{FAIL}modules request failed{RESET}: {e}");
+            return 1;
+        }
+    };
+    if json() {
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        return if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(v.get("id").is_some()) { 0 } else { 1 };
+    }
+    match &action {
+        ModulesAction::List => {
+            let empty = vec![];
+            let rows = v.get("modules").and_then(|m| m.as_array()).unwrap_or(&empty);
+            // Seams always print, even with zero modules — the operator
+            // sees what CAN evolve, not just what has.
+            if let Some(seams) = v.get("seams").and_then(|s| s.as_object()) {
+                for (seam, entry) in seams {
+                    let active = entry.get("active").and_then(|a| a.as_str()).unwrap_or("builtin");
+                    println!("{ACCENT}{seam}{RESET}  {TEXT}active: {active}{RESET}");
+                }
+            }
+            if rows.is_empty() {
+                println!("{DIM}no module candidates{RESET}");
+            }
+            for r in rows {
+                let id = r.get("id").and_then(|x| x.as_str()).unwrap_or("?");
+                let seam = r.get("seam").and_then(|x| x.as_str()).unwrap_or("?");
+                let state = r.get("state").and_then(|x| x.as_str()).unwrap_or("?");
+                let name = r.get("displayName").and_then(|x| x.as_str()).unwrap_or("");
+                println!("  {TEXT}{id}{RESET}  {META}{seam} · {state}{RESET}  {DIM}{name}{RESET}");
+            }
+            0
+        }
+        ModulesAction::Show { .. } => {
+            println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            0
+        }
+        _ => {
+            let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false);
+            if ok {
+                let state = v.get("state").and_then(|s| s.as_str()).unwrap_or("done");
+                println!("{OK}✓ {state}{RESET}");
+                if let Some(rep) = v.get("report") {
+                    let accept = rep.get("accept").and_then(|b| b.as_bool()).unwrap_or(false);
+                    let reason = rep.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+                    println!("  {META}eval: {}{RESET} {DIM}{reason}{RESET}", if accept { "accept" } else { "reject" });
+                }
+                0
+            } else {
+                let reason = v.get("reason").and_then(|r| r.as_str()).unwrap_or("unknown error");
+                eprintln!("{FAIL}✗ {reason}{RESET}");
+                // An eval that ran but REJECTED the candidate still carries
+                // the report — show why.
+                if let Some(rep) = v.get("report") {
+                    let reason = rep.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+                    eprintln!("  {META}eval detail:{RESET} {DIM}{reason}{RESET}");
+                }
+                1
+            }
+        }
+    }
+}
+
 /// Shared pretty-printer for the four read ops (status / history /
 /// proposals / verify). Honors `--json`. The verify op also drives the
 /// exit code (AC 8/11): exit 0 iff every chain + journal row verified.
@@ -1385,6 +1518,30 @@ async fn post_json_with_body(
     body: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     reqwest::Client::new()
+        .post(format!("{}{}", base_url(), path))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// POST with a long client timeout — `/modules/evaluate` runs the paired
+/// eval suite twice on the live model (the gateway side waits 30min).
+async fn post_json_slow(
+    token: &str,
+    path: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(31 * 60))
+        .build()
+        .map_err(|e| e.to_string())?
         .post(format!("{}{}", base_url(), path))
         .bearer_auth(token)
         .json(&body)

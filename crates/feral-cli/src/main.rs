@@ -88,6 +88,13 @@ enum Command {
         #[command(subcommand)]
         action: admin::GovernanceAction,
     },
+    /// Phase B (L4 Architecture Evolution) — module candidates per seam:
+    /// list / show / approve / reject / demote / evaluate. Approval is
+    /// the only path that promotes a module (spec §6).
+    Modules {
+        #[command(subcommand)]
+        action: admin::ModulesAction,
+    },
     /// Generate a shell completion script
     Completion {
         /// bash | zsh | fish | powershell | elvish
@@ -183,6 +190,7 @@ fn main() {
             ConfigAction::Set { key, value } => admin::config_set(&key, &value),
         },
         Some(Command::Governance { action }) => admin::governance(action),
+        Some(Command::Modules { action }) => admin::modules(action),
         Some(Command::Completion { shell }) => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "feral", &mut std::io::stdout());
@@ -281,6 +289,49 @@ mod tests {
     /// A6+). Each test also pins the variant discriminant so a future
     /// clap attribute change that would silently re-shape the parser
     /// fails CI.
+    /// Phase B (L4) — pin the `feral modules …` parser shape.
+    #[test]
+    fn parses_modules_list() {
+        let cli = Cli::try_parse_from(["feral", "modules", "list"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Modules { action: crate::admin::ModulesAction::List })
+        ));
+    }
+
+    #[test]
+    fn parses_modules_approve_with_note() {
+        let cli =
+            Cli::try_parse_from(["feral", "modules", "approve", "mod-x", "-m", "looks good"]).unwrap();
+        match cli.command {
+            Some(Command::Modules {
+                action: crate::admin::ModulesAction::Approve { id, message },
+            }) => {
+                assert_eq!(id, "mod-x");
+                assert_eq!(message.as_deref(), Some("looks good"));
+            }
+            other => panic!("wrong parse: {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn parses_modules_demote() {
+        let cli = Cli::try_parse_from(["feral", "modules", "demote", "retrieval_strategy"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Modules { action: crate::admin::ModulesAction::Demote { .. } })
+        ));
+    }
+
+    #[test]
+    fn parses_modules_evaluate() {
+        let cli = Cli::try_parse_from(["feral", "modules", "evaluate", "mod-x"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Modules { action: crate::admin::ModulesAction::Evaluate { .. } })
+        ));
+    }
+
     #[test]
     fn parses_governance_status() {
         let cli = Cli::try_parse_from(["feral", "governance", "status"]).unwrap();

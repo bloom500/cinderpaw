@@ -181,6 +181,11 @@ const INBOUND_TYPES = [
   "governance_unfreeze",
   "governance_verify",
   "governance_history",
+  // Phase B (L4 Architecture Evolution) — modules surface. Sidecar replies
+  // with one `modules_result` event paired by `id` (op list/resolve/evaluate).
+  "modules_list",
+  "module_resolve",
+  "module_evaluate",
   // Sprint 1.6 — Memory Resume. Host asks the sidecar for the persisted
   // `current_task` + active workspace + last-active timestamp. Sidecar replies
   // with one `resume_get_result` event paired by `id`. See

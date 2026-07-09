@@ -8,7 +8,7 @@
  * router exist before any tool is registered or any message is handled.
  */
 
-import { resolve, delimiter, sep } from "node:path";
+import { join, resolve, delimiter, sep } from "node:path";
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
@@ -65,7 +65,7 @@ import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-me
 import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
-import { hitsToItems, itemsToHits, liveSeamAdapter } from "./rsi/seam-runtime.ts";
+import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/seam-runtime.ts";
 import { shouldAutostartPassive } from "./rsi/passive-supervisor.ts";
 import { createDreamCycle } from "./rsi/dream-cycle.ts";
 import { defaultJournalPath, defaultJournalDir, journalFilename, verifyJournal } from "./rsi/journal.ts";
@@ -1166,6 +1166,36 @@ export async function main(transportOverride?: Transport): Promise<void> {
     return glInstance;
   };
 
+  // Phase B (L4 Architecture Evolution) — the module lifecycle. Lazy
+  // singleton over the SAME registry the live seam adapters read
+  // (`liveModuleRegistry`), so an approve here is visible to the recall
+  // tool's next request without a restart (§6). One eval at a time —
+  // the paired suite fights for the model exactly like LoRA training.
+  let mlInstance: import("./rsi/module-lifecycle.ts").ModuleLifecycle | null = null;
+  let moduleEvalBusy = false;
+  const modulesGate = async () => {
+    if (!mlInstance) {
+      const { ModuleLifecycle } = await import("./rsi/module-lifecycle.ts");
+      mlInstance = new ModuleLifecycle({
+        registry: liveModuleRegistry(),
+        runtimeVersion: VERSION,
+        log,
+      });
+    }
+    return mlInstance;
+  };
+  // Watchdog auto-quarantine (§8.2) → desktop toast, unpaired event.
+  onModuleQuarantine((moduleId, reason) => {
+    transport.send({
+      type: "modules_result",
+      id: "",
+      op: "quarantined",
+      ok: true,
+      moduleId,
+      reason,
+    });
+  });
+
   // Faza 4 (L2 LoRA) — the personal-adaptation gate, same lazy-on-first-touch
   // discipline as the code-patch gate. Registry + review inbox persist next
   // to the journal; `sendLoraReviews` is the one shape the UI card renders.
@@ -1394,6 +1424,144 @@ export async function main(transportOverride?: Transport): Promise<void> {
           ok: true,
           history: gl.historyRows(limit),
         });
+        break;
+      }
+
+      // Phase B (L4 Architecture Evolution) — modules surface (spec §10).
+      // Same conventions as governance_*: one `modules_result` per request
+      // paired by `id`; `{ok:false, reason}` results are lifecycle
+      // outcomes, not transport errors.
+      case "modules_list": {
+        void (async () => {
+          const ml = await modulesGate();
+          const registry = liveModuleRegistry();
+          const snap = registry.snapshot();
+          const modules: Array<Record<string, unknown>> = [];
+          for (const [seam, entry] of Object.entries(snap.seams)) {
+            const ids = new Set(entry.candidates);
+            if (entry.active !== "builtin") ids.add(entry.active);
+            for (const moduleId of ids) {
+              const env = ml.envelopeOf(moduleId);
+              const report = env?.data.evalReport as
+                | { accept?: boolean; reason?: string; gate?: { bootstrap?: Record<string, unknown> }; latency?: Record<string, unknown> }
+                | undefined;
+              modules.push({
+                id: moduleId,
+                seam,
+                state: (env?.data.state as string | undefined) ?? "unknown",
+                displayName: ml.manifestOf(moduleId)?.displayName ?? moduleId,
+                active: entry.active === moduleId,
+                ...(report
+                  ? {
+                      eval: {
+                        accept: report.accept ?? false,
+                        reason: report.reason ?? "",
+                        bootstrap: report.gate?.bootstrap ?? {},
+                        latency: report.latency ?? {},
+                      },
+                    }
+                  : {}),
+              });
+            }
+          }
+          transport.send({
+            type: "modules_result",
+            id: msg.id ?? "",
+            op: "list",
+            ok: true,
+            seams: snap.seams,
+            modules,
+          });
+        })();
+        break;
+      }
+      case "module_resolve": {
+        void (async () => {
+          const ml = await modulesGate();
+          const moduleId = (msg as { moduleId?: string }).moduleId ?? "";
+          const action = (msg as { moduleAction?: string }).moduleAction ?? "";
+          const note = (msg as { note?: string }).note ?? "";
+          const seam = (msg as { seam?: string }).seam ?? "";
+          const result =
+            action === "approve"
+              ? ml.approve(moduleId, "operator")
+              : action === "reject"
+                ? ml.reject(moduleId, "operator", note || "rejected by operator")
+                : action === "demote"
+                  ? ml.demote(seam, "operator", note || "manual demote")
+                  : { ok: false as const, reason: `invalid moduleAction '${action}' (approve|reject|demote)` };
+          transport.send({
+            type: "modules_result",
+            id: msg.id ?? "",
+            op: "resolve",
+            action,
+            ...result,
+          });
+        })();
+        break;
+      }
+      case "module_evaluate": {
+        void (async () => {
+          const reply = (extra: Record<string, unknown>): void => {
+            transport.send({ type: "modules_result", id: msg.id ?? "", op: "evaluate", ...extra } as never);
+          };
+          if (moduleEvalBusy) {
+            reply({ ok: false, reason: "a module evaluation is already running" });
+            return;
+          }
+          if (rsiSidecar.isRunning()) {
+            reply({ ok: false, reason: "RSI engine is running — the eval suite would fight it for the model; retry after the episode" });
+            return;
+          }
+          moduleEvalBusy = true;
+          try {
+            const ml = await modulesGate();
+            const moduleId = (msg as { moduleId?: string }).moduleId ?? "";
+            // Walk the pre-eval states as needed (idempotent re-entry:
+            // a module already `built`/`quarantined` goes straight to eval).
+            if (!ml.stateOf(moduleId)) {
+              const p = ml.propose(moduleId);
+              if (!p.ok) return reply({ ok: false, reason: p.reason });
+            }
+            if (ml.stateOf(moduleId) === "proposed") {
+              const s = ml.sandbox(moduleId);
+              if (!s.ok) return reply({ ok: false, reason: s.reason });
+            }
+            if (ml.stateOf(moduleId) === "sandboxed") {
+              const b = await ml.build(moduleId);
+              if (!b.ok) return reply({ ok: false, reason: b.reason });
+            }
+            const manifest = ml.manifestOf(moduleId);
+            if (!manifest) return reply({ ok: false, reason: "manifest unreadable" });
+            const { defaultModulesDir } = await import("./rsi/module-registry.ts");
+            const evalDeps = rsiSidecar.moduleEvalDeps({
+              seam: manifest.seam,
+              moduleDir: join(defaultModulesDir(), moduleId),
+              limits: manifest.limits,
+            });
+            const res = await ml.evaluate(moduleId, evalDeps);
+            reply({
+              ok: res.ok,
+              ...(res.ok ? { state: res.state } : { reason: res.reason }),
+              ...(res.report
+                ? {
+                    report: {
+                      accept: res.report.accept,
+                      reason: res.report.reason,
+                      pairs: res.report.pairs.length,
+                      bootstrap: res.report.gate.bootstrap,
+                      latency: res.report.latency,
+                      capabilitiesMeasured: res.report.capabilitiesMeasured,
+                    },
+                  }
+                : {}),
+            });
+          } catch (err) {
+            reply({ ok: false, reason: err instanceof Error ? err.message : String(err) });
+          } finally {
+            moduleEvalBusy = false;
+          }
+        })();
         break;
       }
 

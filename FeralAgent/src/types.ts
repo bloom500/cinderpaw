@@ -946,6 +946,13 @@ export interface InboundMessage {
     | "governance_status" | "governance_propose" | "governance_approve" | "governance_reject"
     | "governance_rollback" | "governance_freeze" | "governance_unfreeze" | "governance_verify"
     | "governance_history"
+    // Phase B (L4 Architecture Evolution) — host drives the module
+    // lifecycle (see `rsi/module-lifecycle.ts`). Three ops, all reply
+    // with one `modules_result` paired by `id` (ops: list / resolve /
+    // evaluate; watchdog quarantines arrive unpaired as op "quarantined").
+    // Payload fields (`moduleId`, `moduleAction`, `seam`, `note`) are
+    // flattened into the inbound message alongside `type` + `id`.
+    | "modules_list" | "module_resolve" | "module_evaluate"
     // Sprint 1.6 — Memory Resume. The host asks for the persisted
     // `current_task` + active workspace + last-active timestamp; the sidecar
     // replies with one `resume_get_result` paired by `id`. Powers the React
@@ -1147,6 +1154,18 @@ export type OutboundEvent =
       ok: boolean;
       reason?: string;
       documentHash?: string;
+      [key: string]: unknown;
+    }
+  // Phase B (L4 Architecture Evolution) reply — payload shape depends on
+  // `op` (list/resolve/evaluate); watchdog auto-quarantine arrives as an
+  // UNPAIRED `op:"quarantined"` row (empty `id`) so the desktop toast can
+  // fire without a request in flight. `ok:false` carries a `reason`.
+  | {
+      type: "modules_result";
+      id: string;
+      op: string;
+      ok: boolean;
+      reason?: string;
       [key: string]: unknown;
     }
   // Sprint 1.6 — Memory Resume reply. Mirrors the Rust `LastTaskView`

@@ -641,6 +641,10 @@ const raw = {
   // via a `governance_result` event (handled by `events.onGovernanceResult`).
   feralGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
     invoke<void>('feral_governance', { op, policyId: policyId ?? null, reason: reason ?? null }),
+  // Phase B (L4 Architecture Evolution) — fire-and-forget; the sidecar
+  // replies async via a `modules_result` event (events.onModulesResult).
+  feralModules:       (op: 'list' | 'approve' | 'reject' | 'demote', moduleId?: string, seam?: string, note?: string) =>
+    invoke<void>('feral_modules', { op, moduleId: moduleId ?? null, seam: seam ?? null, note: note ?? null }),
   // Faza 2 Slice 5 — code-patch approval gate. `feral_code_patches_list` is
   // fire-and-forget; the sidecar replies async via a `code_patches` event
   // (handled by `events.onCodePatches`). `feral_code_patch_resolve` is also
@@ -813,6 +817,10 @@ export const tauri = {
      *  Reply arrives async via `events.onGovernanceResult`. */
     governance:      async (op: 'status' | 'verify' | 'approve' | 'reject', args?: { policyId?: string; reason?: string }) =>
       raw.feralGovernance(op, args?.policyId, args?.reason),
+    /** Phase B (L4 Architecture Evolution) — the Architecture card.
+     *  Reply arrives async via `events.onModulesResult`. */
+    modules:         async (op: 'list' | 'approve' | 'reject' | 'demote', args?: { moduleId?: string; seam?: string; note?: string }) =>
+      raw.feralModules(op, args?.moduleId, args?.seam, args?.note),
     /** Faza 2 Slice 5 — ask the sidecar for the pending code-patch queue.
      *  The full snapshot arrives async via `events.onCodePatches`. */
     codePatchesList: async () => raw.feralCodePatchesList(),
