@@ -1773,10 +1773,14 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
             .find(|p| p.id == provider_id)
             .and_then(|p| p.base_url.clone())
             .map(|u| u.trim_end_matches('/').trim_end_matches("/v1").to_string())
-            .or_else(|| match provider_id.as_str() {
-                "minimax" => Some("https://api.minimax.chat/v1".into()),
-                "groq"    => Some("https://api.groq.com/openai/v1".into()),
-                _         => None,
+            // Canonical default from the Provider enum — the previous
+            // hand-rolled map here had drifted (api.minimax.chat vs the
+            // corrected api.minimax.io in byok.rs). Custom has no real
+            // default, so unknown ids still surface the 404 below.
+            .or_else(|| {
+                let p = crate::byok::Provider::from_id(&provider_id);
+                (p != crate::byok::Provider::Custom)
+                    .then(|| p.default_base_url().to_string())
             });
         let Some(base_url) = base_url else {
             return (
@@ -1796,11 +1800,7 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
             )
                 .into_response();
         };
-        let provider_kind = match provider_id.as_str() {
-            "anthropic" => "anthropic",
-            "google" => "google",
-            _ => "openai_compatible",
-        };
+        let provider_kind = crate::byok::Provider::from_id(&provider_id).family();
         // Cloud context windows are usually 200K-1M; default to 200K so the
         // sidecar's transcript budget matches the cloud model's real KV.
         let context_window = 200_000u32;

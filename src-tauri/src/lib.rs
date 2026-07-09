@@ -2415,19 +2415,7 @@ async fn chat_cloud_complete(
         return Err(format!("No API key configured for provider '{}'", provider_id));
     }
 
-    let provider = match provider_id.as_str() {
-        "openai"     => byok::Provider::Openai,
-        "anthropic"  => byok::Provider::Anthropic,
-        "google"     => byok::Provider::Google,
-        "kimi"       => byok::Provider::Kimi,
-        "glm"        => byok::Provider::Glm,
-        "minimax"    => byok::Provider::Minimax,
-        "groq"       => byok::Provider::Groq,
-        "mistral"    => byok::Provider::Mistral,
-        "deepseek"   => byok::Provider::Deepseek,
-        "openrouter" => byok::Provider::Openrouter,
-        _            => byok::Provider::Custom,
-    };
+    let provider = byok::Provider::from_id(&provider_id);
     let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
     let endpoint = url_join(&base_url, provider.chat_endpoint_path());
     let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
@@ -2545,19 +2533,7 @@ async fn chat_cloud_stream(
     if !cfg.enabled   { emit_err!(format!("Provider '{}' is not enabled", provider_id)); }
     if cfg.api_key.is_empty() { emit_err!(format!("No API key configured for provider '{}'", provider_id)); }
 
-    let provider = match provider_id.as_str() {
-        "openai"     => byok::Provider::Openai,
-        "anthropic"  => byok::Provider::Anthropic,
-        "google"     => byok::Provider::Google,
-        "kimi"       => byok::Provider::Kimi,
-        "glm"        => byok::Provider::Glm,
-        "minimax"    => byok::Provider::Minimax,
-        "groq"       => byok::Provider::Groq,
-        "mistral"    => byok::Provider::Mistral,
-        "deepseek"   => byok::Provider::Deepseek,
-        "openrouter" => byok::Provider::Openrouter,
-        _            => byok::Provider::Custom,
-    };
+    let provider = byok::Provider::from_id(&provider_id);
 
     let base_url = cfg.base_url.unwrap_or_else(|| provider.default_base_url().to_string());
     let endpoint = url_join(&base_url, provider.chat_endpoint_path());

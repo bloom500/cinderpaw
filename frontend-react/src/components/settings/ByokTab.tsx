@@ -1,11 +1,26 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
+import { useCatalog } from '@/stores/catalog';
 import type { ByokProvider } from '@/lib/tauri';
 
-const PROVIDER_DEFS = [
+/** One provider row as the UI renders it. Canonical identity/URL/key-format
+ *  data comes from the gateway catalog (`useCatalog` →
+ *  `byok::provider_catalog()` in Rust); `PROVIDER_DEFS` below is the bundled
+ *  OFFLINE FALLBACK plus the carrier of UI-only curation the catalog does
+ *  not know (`availableModels` pick lists, the Custom Endpoint row). */
+interface ProviderDef {
+  id: string;
+  name: string;
+  hasBaseUrl: boolean;
+  baseUrlHint: string;
+  availableModels?: readonly string[];
+  keyPrefix?: string;
+}
+
+const PROVIDER_DEFS: readonly ProviderDef[] = [
   { id: 'openai',     name: 'OpenAI',         hasBaseUrl: true,  baseUrlHint: 'https://api.openai.com/v1',     availableModels: undefined,                                                                                      keyPrefix: undefined  },
   { id: 'anthropic',  name: 'Anthropic',       hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
   { id: 'google',     name: 'Google Gemini',   hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
@@ -20,9 +35,7 @@ const PROVIDER_DEFS = [
   // DeepSeek, etc.). Base URL is editable in case NVIDIA rotates the host.
   { id: 'nvidia',     name: 'NVIDIA NIM',      hasBaseUrl: true,  baseUrlHint: 'https://integrate.api.nvidia.com/v1', availableModels: undefined,                                                                                keyPrefix: undefined  },
   { id: 'custom',     name: 'Custom Endpoint', hasBaseUrl: true,  baseUrlHint: 'https://your-endpoint/v1',      availableModels: undefined,                                                                                      keyPrefix: undefined  },
-] as const;
-
-type ProviderDef = typeof PROVIDER_DEFS[number];
+];
 
 function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider }) {
   const saveByokProvider = useSettings((s) => s.saveByokProvider);
@@ -203,8 +216,44 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
   );
 }
 
+/** Merge the gateway catalog with the bundled defs. Catalog wins on
+ *  identity data (name, base-URL support, key format); local defs
+ *  contribute `availableModels` and any row the catalog doesn't carry
+ *  (Custom Endpoint, or curated rows when the gateway is older).
+ *  Offline (empty catalog) → bundled defs unchanged, exactly as before. */
+function mergeProviderDefs(
+  catalog: ReturnType<typeof useCatalog.getState>['providerCatalog'],
+): ProviderDef[] {
+  if (catalog.length === 0) return [...PROVIDER_DEFS];
+  const localById = new Map(PROVIDER_DEFS.map((d) => [d.id, d]));
+  const merged: ProviderDef[] = catalog.map((entry) => {
+    const local = localById.get(entry.id);
+    return {
+      id: entry.id,
+      name: entry.name,
+      hasBaseUrl: entry.supports_custom_base_url,
+      baseUrlHint: entry.supports_custom_base_url ? entry.default_base_url : '',
+      availableModels: local?.availableModels,
+      keyPrefix: entry.key_format ?? local?.keyPrefix,
+    };
+  });
+  const catalogIds = new Set(catalog.map((e) => e.id));
+  for (const def of PROVIDER_DEFS) {
+    if (!catalogIds.has(def.id)) merged.push(def);
+  }
+  return merged;
+}
+
 export function ByokTab() {
   const byok = useSettings((s) => s.byok);
+  const providerCatalog = useCatalog((s) => s.providerCatalog);
+  const loadProvider = useCatalog((s) => s.loadProvider);
+
+  useEffect(() => {
+    void loadProvider();
+  }, [loadProvider]);
+
+  const defs = mergeProviderDefs(providerCatalog);
 
   return (
     <div className="space-y-6">
@@ -213,7 +262,7 @@ export function ByokTab() {
         <p className="text-xs text-text-muted mt-1">Add API keys to use cloud AI providers alongside local models.</p>
       </div>
       <div className="space-y-2">
-        {PROVIDER_DEFS.map((def) => (
+        {defs.map((def) => (
           <ProviderRow key={def.id} def={def} state={byok.find((b) => b.id === def.id)} />
         ))}
       </div>

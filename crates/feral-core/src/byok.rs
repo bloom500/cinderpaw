@@ -103,6 +103,41 @@ impl Provider {
     pub fn is_openai_compatible(&self) -> bool {
         !matches!(self, Provider::Anthropic)
     }
+
+    /// THE canonical provider-id → `Provider` mapping. Every call site that
+    /// receives a provider id string (IPC commands, HTTP routes, CLI) must
+    /// resolve through here — hand-rolled `match provider_id` copies drifted
+    /// (three sites were missing `"nvidia"` and fell through to `Custom`,
+    /// whose default base URL is a placeholder). Unknown ids map to
+    /// `Custom`, which only works with an explicit user-supplied base URL.
+    pub fn from_id(id: &str) -> Provider {
+        match id {
+            "openai" => Provider::Openai,
+            "anthropic" => Provider::Anthropic,
+            "google" => Provider::Google,
+            "kimi" => Provider::Kimi,
+            "glm" => Provider::Glm,
+            "minimax" => Provider::Minimax,
+            "groq" => Provider::Groq,
+            "mistral" => Provider::Mistral,
+            "deepseek" => Provider::Deepseek,
+            "openrouter" => Provider::Openrouter,
+            "nvidia" => Provider::Nvidia,
+            _ => Provider::Custom,
+        }
+    }
+
+    /// Protocol family as the sidecar's `set_model` handler understands it
+    /// (`FeralAgent/src/sandbox/inference-router.ts` `#providers` map:
+    /// unknown families default to OpenAI-compatible). Single source for
+    /// the `provider_kind` previously matched inline in `api.rs`.
+    pub fn family(&self) -> &'static str {
+        match self {
+            Provider::Anthropic => "anthropic",
+            Provider::Google => "google",
+            _ => "openai_compatible",
+        }
+    }
 }
 
 impl std::fmt::Display for Provider {
@@ -166,22 +201,14 @@ impl ByokSettings {
         }).collect()
     }
 
-    /// Get default configurations for all known providers
+    /// Get default configurations for all known providers.
+    /// Derived from `provider_catalog()` so the wizard catalog and the
+    /// settings page can never list different providers.
     fn default_provider_configs() -> Vec<(String, String, Provider)> {
-        vec![
-            ("openai".to_string(), "OpenAI".to_string(), Provider::Openai),
-            ("anthropic".to_string(), "Anthropic".to_string(), Provider::Anthropic),
-            ("google".to_string(), "Google".to_string(), Provider::Google),
-            ("kimi".to_string(), "Kimi".to_string(), Provider::Kimi),
-            ("glm".to_string(), "GLM".to_string(), Provider::Glm),
-            ("minimax".to_string(), "MiniMax".to_string(), Provider::Minimax),
-            ("groq".to_string(), "Groq".to_string(), Provider::Groq),
-            ("mistral".to_string(), "Mistral".to_string(), Provider::Mistral),
-            ("deepseek".to_string(), "DeepSeek".to_string(), Provider::Deepseek),
-            ("openrouter".to_string(), "OpenRouter".to_string(), Provider::Openrouter),
-            // NVIDIA NIM — OpenAI-compatible hosted models (Llama, Mistral, etc.).
-            ("nvidia".to_string(), "NVIDIA NIM".to_string(), Provider::Nvidia),
-        ]
+        provider_catalog()
+            .into_iter()
+            .map(|e| (e.id, e.name, e.provider))
+            .collect()
     }
 
     /// Update config for a specific provider
@@ -479,19 +506,7 @@ pub async fn test_provider(
     api_key: &str,
     base_url: Option<&str>,
 ) -> TestProviderResponse {
-    let provider = match provider_id {
-        "openai" => Provider::Openai,
-        "anthropic" => Provider::Anthropic,
-        "google" => Provider::Google,
-        "kimi" => Provider::Kimi,
-        "glm" => Provider::Glm,
-        "minimax" => Provider::Minimax,
-        "groq" => Provider::Groq,
-        "mistral" => Provider::Mistral,
-        "deepseek" => Provider::Deepseek,
-        "openrouter" => Provider::Openrouter,
-        _ => Provider::Custom,
-    };
+    let provider = Provider::from_id(provider_id);
     let url = base_url
         .map(|s| s.to_string())
         .unwrap_or_else(|| provider.default_base_url().to_string());
@@ -866,5 +881,63 @@ mod tests {
         assert_eq!(Provider::Google.chat_endpoint_path(), "chat/completions");
         assert_eq!(Provider::Google.api_key_header(), "Authorization");
         assert_eq!(Provider::Google.api_key_prefix(), "Bearer ");
+    }
+
+    /// R4 (single provider record): every catalog row's id must round-trip
+    /// through `Provider::from_id` back to the row's own `provider`. This is
+    /// the drift check that would have caught the three call sites whose
+    /// hand-rolled matches were missing "nvidia".
+    #[test]
+    fn catalog_ids_round_trip_through_from_id() {
+        let catalog = provider_catalog();
+        assert!(!catalog.is_empty());
+        for entry in &catalog {
+            assert_eq!(
+                Provider::from_id(&entry.id),
+                entry.provider,
+                "catalog id {:?} does not resolve to its own provider",
+                entry.id
+            );
+            assert_ne!(
+                entry.provider,
+                Provider::Custom,
+                "catalog must not list Custom (id {:?})",
+                entry.id
+            );
+        }
+        assert_eq!(Provider::from_id("no-such-provider"), Provider::Custom);
+    }
+
+    /// The catalog's `auth_style` is a second representation of
+    /// `api_key_header()` — assert they can never disagree.
+    #[test]
+    fn catalog_auth_style_matches_enum_header() {
+        for entry in provider_catalog() {
+            let expected = match entry.provider.api_key_header() {
+                "Authorization" => AuthStyle::Bearer,
+                "x-api-key" => AuthStyle::XApiKey,
+                other => panic!("unmapped api_key_header {other:?} for {:?}", entry.id),
+            };
+            assert_eq!(
+                std::mem::discriminant(&entry.auth_style),
+                std::mem::discriminant(&expected),
+                "auth_style drift for {:?}",
+                entry.id
+            );
+        }
+    }
+
+    /// `default_base_url` in the catalog row must be the enum's canonical
+    /// URL — the row carries a copy for self-containedness, not a fork.
+    #[test]
+    fn catalog_base_urls_match_enum() {
+        for entry in provider_catalog() {
+            assert_eq!(
+                entry.default_base_url,
+                entry.provider.default_base_url(),
+                "default_base_url drift for {:?}",
+                entry.id
+            );
+        }
     }
 }
