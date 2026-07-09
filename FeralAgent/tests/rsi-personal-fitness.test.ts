@@ -23,7 +23,7 @@ import {
   recallCountsToUserSignals,
   type UserSignal,
   type UserSignalKind,
-} from "../src/rsi/personal-fitness.ts";
+} from "../src/rsi/l2-adapt/personal-fitness.ts";
 
 const NOW = 1_752_000_000_000; // fixed for determinism
 const DAY = 24 * 60 * 60 * 1000;

@@ -26,13 +26,13 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { RsiBridge, type RsiResponse } from "../src/rsi/bridge.ts";
+import { RsiBridge, type RsiResponse } from "../src/rsi/infra/bridge.ts";
 import {
   makeCommitGenomeAdapter,
   makeRatchetAttemptAdapter,
-} from "../src/rsi/adapters.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+} from "../src/rsi/infra/adapters.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 import type { Database } from "bun:sqlite";
 
 const CFG: GenomeConfig = {

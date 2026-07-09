@@ -23,14 +23,14 @@ import { join } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 
 import { openDatabase, type FeralDb } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
-import { InferenceRouter } from "../src/sandbox/inference-router.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { RecallEngine } from "../src/memory/recall.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
-import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
 import { createWebSearchTool } from "../src/tools/builtin/web-search.ts";
 import { createReadFileTool } from "../src/tools/builtin/read-file.ts";
 import { AgentLoop } from "../src/core/agent-loop.ts";

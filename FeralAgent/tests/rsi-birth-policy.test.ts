@@ -14,13 +14,13 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { planBirth } from "../src/rsi/birth-policy.ts";
-import { crossoverConfigs } from "../src/rsi/crossover.ts";
-import { applyTasteToConfig } from "../src/rsi/taste.ts";
-import { mutateConfig, type MutationGrammar } from "../src/rsi/mutation.ts";
-import { applyZoom } from "../src/rsi/fractal.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
-import type { Genome } from "../src/rsi/population-manager.ts";
+import { planBirth } from "../src/rsi/l1-config/birth-policy.ts";
+import { crossoverConfigs } from "../src/rsi/l1-config/crossover.ts";
+import { applyTasteToConfig } from "../src/rsi/l1-config/taste.ts";
+import { mutateConfig, type MutationGrammar } from "../src/rsi/l1-config/mutation.ts";
+import { applyZoom } from "../src/rsi/l1-config/fractal.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import type { Genome } from "../src/rsi/l1-config/population-manager.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,

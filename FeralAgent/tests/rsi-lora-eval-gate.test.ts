@@ -3,8 +3,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { evaluateLoraGate } from "../src/rsi/lora-eval-gate.ts";
-import type { PairedSample } from "../src/rsi/confidence.ts";
+import { evaluateLoraGate } from "../src/rsi/l2-adapt/lora-eval-gate.ts";
+import type { PairedSample } from "../src/rsi/infra/confidence.ts";
 
 /** 12 paired samples where the candidate beats the baseline by a clear,
  *  low-variance margin — comfortably past the confidence gate. */

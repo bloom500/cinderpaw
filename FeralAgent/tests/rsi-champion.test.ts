@@ -18,8 +18,8 @@ import {
   readChampion,
   championSeed,
   type ChampionRecord,
-} from "../src/rsi/champion.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+} from "../src/rsi/l1-config/champion.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,

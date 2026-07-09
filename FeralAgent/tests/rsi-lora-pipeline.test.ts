@@ -8,14 +8,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PairedSample } from "../src/rsi/confidence.ts";
+import type { PairedSample } from "../src/rsi/infra/confidence.ts";
 import {
   LoraReviewStore,
   applyLoraReview,
   deriveAdapterId,
   runLoraTrainingCycle,
-} from "../src/rsi/lora-pipeline.ts";
-import { LoraRegistry, type TrainerBackend } from "../src/rsi/lora-registry.ts";
+} from "../src/rsi/l2-adapt/lora-pipeline.ts";
+import { LoraRegistry, type TrainerBackend } from "../src/rsi/l2-adapt/lora-registry.ts";
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), "lora-pipe-"));

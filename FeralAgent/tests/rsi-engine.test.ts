@@ -11,8 +11,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { createRsiEngine } from "../src/rsi/engine.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
-import type { RsiEvent } from "../src/rsi/event-bus.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import type { RsiEvent } from "../src/rsi/infra/event-bus.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,

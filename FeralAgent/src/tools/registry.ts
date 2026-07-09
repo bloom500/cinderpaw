@@ -27,9 +27,9 @@
  * faster and the added wall-clock per attempt is trivial.
  */
 
-import type { EgressProxy } from "../sandbox/egress-proxy.ts";
-import type { AuditLog } from "../sandbox/audit-log.ts";
-import { validateManifest } from "../sandbox/tool-permissions.ts";
+import type { EgressProxy } from "../egress/egress-proxy.ts";
+import type { AuditLog } from "../egress/audit-log.ts";
+import { validateManifest } from "../egress/tool-permissions.ts";
 import type {
   AskUserBridge,
   DesktopControlBridge,
@@ -44,7 +44,7 @@ import type {
   ToolProgressEvent,
 } from "../types.ts";
 import type { ToolObservationLog } from "../telemetry/tool-observations.ts";
-import { CircuitBreaker } from "../sandbox/circuit-breaker.ts";
+import { CircuitBreaker } from "../egress/circuit-breaker.ts";
 
 export class ToolRegistry {
   readonly #tools = new Map<string, Tool>();

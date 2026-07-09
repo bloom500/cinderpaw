@@ -15,16 +15,16 @@ import {
   type CodeGenome,
   type ParsedDiff,
   type ParsedDiffFile,
-} from "../src/rsi/code-genome.ts";
+} from "../src/rsi/l3-code/code-genome.ts";
 import {
   serializeCodeGenome,
   deserializeCodeGenome,
-} from "../src/rsi/code-genome-io.ts";
+} from "../src/rsi/l3-code/code-genome-io.ts";
 
 function file(over: Partial<ParsedDiffFile> = {}): ParsedDiffFile {
   return {
-    oldPath: "src/rsi/selection-handler.ts",
-    newPath: "src/rsi/selection-handler.ts",
+    oldPath: "src/rsi/l1-config/selection-handler.ts",
+    newPath: "src/rsi/l1-config/selection-handler.ts",
     addedLines: 5,
     removedLines: 3,
     binary: false,
@@ -86,7 +86,7 @@ describe("validateCodePatch — the Faza 2 policy wall", () => {
     v = validateCodePatch(diff(file({ oldPath: "src/tools/escape.ts" })));
     expect(v.ok).toBe(false);
     // rename onto a denylisted basename
-    v = validateCodePatch(diff(file({ newPath: "src/rsi/ratchet-handler.ts" })));
+    v = validateCodePatch(diff(file({ newPath: "src/rsi/l1-config/ratchet-handler.ts" })));
     expect(v.ok).toBe(false);
   });
 
@@ -106,7 +106,7 @@ describe("validateCodePatch — the Faza 2 policy wall", () => {
     const v = validateCodePatch(
       diff(
         file({ addedLines: 100, removedLines: 50 }),
-        file({ oldPath: "src/rsi/taste-miner.ts", newPath: "src/rsi/taste-miner.ts", addedLines: 40, removedLines: 20 }),
+        file({ oldPath: "src/rsi/l1-config/taste-miner.ts", newPath: "src/rsi/l1-config/taste-miner.ts", addedLines: 40, removedLines: 20 }),
       ),
     );
     expect(v.ok).toBe(false);

@@ -14,8 +14,8 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import { RatchetHandler } from "../src/rsi/ratchet-handler.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import { RatchetHandler } from "../src/rsi/l1-config/ratchet-handler.ts";
 
 /** Scratch journal path so the per-candidate Contract rows never touch the
  *  real ~/.feral/rsi/journal during tests. */

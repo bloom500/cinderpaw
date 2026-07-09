@@ -13,20 +13,20 @@ import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
 import { Database } from "bun:sqlite";
 
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
 import {
   EgressProxy,
   EgressBlockedError,
   isBlockedHost,
   hostMatchesWhitelist,
-} from "../src/sandbox/egress-proxy.ts";
+} from "../src/egress/egress-proxy.ts";
 import {
   validateManifest,
   resolveAllowedPath,
   ManifestError,
   PermissionDeniedError,
-} from "../src/sandbox/tool-permissions.ts";
-import { InferenceRouter, BudgetExhaustedError } from "../src/sandbox/inference-router.ts";
+} from "../src/egress/tool-permissions.ts";
+import { InferenceRouter, BudgetExhaustedError } from "../src/egress/inference-router.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
 import { createReadFileTool } from "../src/tools/builtin/read-file.ts";
 import { createWebSearchTool } from "../src/tools/builtin/web-search.ts";

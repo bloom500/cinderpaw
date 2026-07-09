@@ -14,7 +14,7 @@ import {
   hasWindowsMetachars,
   loadMcpConfig,
   spawnSpecFor,
-} from "../src/sandbox/mcp-manager.ts";
+} from "../src/egress/mcp-manager.ts";
 
 // ---------------------------------------------------------------------------
 // Denylist — ported from Rust; NEVER relax without a security review.

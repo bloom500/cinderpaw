@@ -13,14 +13,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
-import { contractDepsFrom } from "../src/rsi/contract-deps.ts";
-import { runContract } from "../src/rsi/contract-runner.ts";
-import { makeInitialState } from "../src/rsi/contract.ts";
-import type { StageHandlerDeps } from "../src/rsi/contract-stages.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/budget.ts";
-import { readJournal } from "../src/rsi/journal.ts";
-import type { PairedSample } from "../src/rsi/confidence.ts";
-import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/fitness.ts";
+import { contractDepsFrom } from "../src/rsi/infra/contract-deps.ts";
+import { runContract } from "../src/rsi/infra/contract-runner.ts";
+import { makeInitialState } from "../src/rsi/infra/contract.ts";
+import type { StageHandlerDeps } from "../src/rsi/infra/contract-stages.ts";
+import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
+import { readJournal } from "../src/rsi/infra/journal.ts";
+import type { PairedSample } from "../src/rsi/infra/confidence.ts";
+import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/l1-config/fitness.ts";
 
 /** Happy-path stage leaves — the injectable half. The benchmark returns paired
  *  samples where the candidate beats the baseline on MOST tasks (not all): the

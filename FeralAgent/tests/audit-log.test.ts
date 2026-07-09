@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { AuditLog, recentToolCalls } from "../src/sandbox/audit-log.ts";
+import { AuditLog, recentToolCalls } from "../src/egress/audit-log.ts";
 import type { AuditEntry } from "../src/types.ts";
 
 function entry(over: Partial<AuditEntry> = {}): AuditEntry {

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
 
 describe("RSI event bus", () => {
   test("emit invokes only handlers registered for that event type", async () => {

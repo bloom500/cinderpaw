@@ -19,7 +19,7 @@ import { join } from "node:path";
 import {
   appendDreamTelemetry,
   type DreamEpisodeRecord,
-} from "../src/rsi/dream-telemetry.ts";
+} from "../src/rsi/l1-config/dream-telemetry.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {

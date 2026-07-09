@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 
 describe("PopulationManager snapshot/restore", () => {
   /** Build a population whose Hall of Fame is path-dependent: g1 becomes

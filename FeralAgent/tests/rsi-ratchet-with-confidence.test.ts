@@ -14,14 +14,14 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
 import {
   RatchetHandler,
   buildPairedSamples,
   tier0FloorBreach,
-} from "../src/rsi/ratchet-handler.ts";
-import type { GateDecision } from "../src/rsi/confidence.ts";
+} from "../src/rsi/l1-config/ratchet-handler.ts";
+import type { GateDecision } from "../src/rsi/infra/confidence.ts";
 
 /** Default tier is 1 (a normal task), NOT 0 — a tier-0 failure trips the
  *  sanity floor (INVARIANT I8) and blocks promotion regardless of the gate,

@@ -14,8 +14,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import { RecalcitranceTracker } from "../src/rsi/recalcitrance.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import { RecalcitranceTracker } from "../src/rsi/l1-config/recalcitrance.ts";
 
 /** Emit a RatchetAdvanced whose improvement_difficulty = tokenCost / Δscore. */
 async function ratchet(bus: EventBus, previousBest: number, score: number, tokenCost: number) {

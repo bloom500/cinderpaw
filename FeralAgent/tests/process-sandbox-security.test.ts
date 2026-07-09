@@ -17,8 +17,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync, mkdirSync } from "node:fs";
 import { join, resolve as pathResolve } from "node:path";
-import { RealProcessSandbox, which } from "../src/sandbox/process-sandbox.ts";
-import { resolveAllowedPath } from "../src/sandbox/tool-permissions.ts";
+import { RealProcessSandbox, which } from "../src/egress/process-sandbox.ts";
+import { resolveAllowedPath } from "../src/egress/tool-permissions.ts";
 import type { AuditLogger, ToolManifest } from "../src/types.ts";
 
 function noopAudit(): AuditLogger {

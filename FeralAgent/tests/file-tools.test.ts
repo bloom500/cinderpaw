@@ -13,12 +13,12 @@ import { join } from "node:path";
 import { createEditFileTool } from "../src/tools/builtin/edit-file.ts";
 import { createFileSearchTool } from "../src/tools/builtin/file-search.ts";
 import { createGrepTool } from "../src/tools/builtin/grep.ts";
-import { resolveAllowedPath } from "../src/sandbox/tool-permissions.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
+import { resolveAllowedPath } from "../src/egress/tool-permissions.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
 import { openDatabase } from "../src/db.ts";
 import type { ToolContext } from "../src/types.ts";
-import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
 
 function makeCtx(allowedPaths: string[]): { ctx: ToolContext; cleanup: () => void } {
   // A real but throwaway DB so the AuditLog has somewhere to write.

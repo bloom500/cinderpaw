@@ -15,10 +15,10 @@
 
 import { Subagent } from "../../core/subagent.ts";
 import { ToolRegistry } from "../../tools/registry.ts";
-import type { AuditLog } from "../../sandbox/audit-log.ts";
-import type { EgressProxy } from "../../sandbox/egress-proxy.ts";
+import type { AuditLog } from "../../egress/audit-log.ts";
+import type { EgressProxy } from "../../egress/egress-proxy.ts";
 import type { ProcessSandbox } from "../../types.ts";
-import type { InferenceRouter } from "../../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../../egress/inference-router.ts";
 import type { ToolObservationLog } from "../../telemetry/tool-observations.ts";
 import type { EpisodicMemory } from "../../memory/episodic.ts";
 import type { HookRegistry } from "../../core/hook-registry.ts";

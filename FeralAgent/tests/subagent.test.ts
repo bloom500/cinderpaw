@@ -27,12 +27,12 @@ import { Subagent } from "../src/core/subagent.ts";
 import { HookRegistry } from "../src/core/hook-registry.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
 import { openDatabase, type FeralDb } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
-import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { ToolObservationLog } from "../src/telemetry/tool-observations.ts";
-import type { InferenceRouter } from "../src/sandbox/inference-router.ts";
+import type { InferenceRouter } from "../src/egress/inference-router.ts";
 import type { Tool, ToolContext, ToolManifest, ToolResult } from "../src/types.ts";
 import type { FeralFetch } from "../src/types.ts";
 

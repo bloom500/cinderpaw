@@ -13,8 +13,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { makeGetSpecs } from "../src/rsi/get-specs.ts";
-import type { EvalSpec } from "../src/rsi/eval-spec.ts";
+import { makeGetSpecs } from "../src/rsi/infra/get-specs.ts";
+import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 
 /** A Rust Tier0Spec as it arrives over the bridge (no `tier` field). */
 const rustTier0 = [

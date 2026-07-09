@@ -25,15 +25,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
-import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
-import { InferenceRouter } from "../src/sandbox/inference-router.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { AgentLoop } from "../src/core/agent-loop.ts";
 import { BrainStack } from "../src/brain/brain-stack.ts";
-import { CircuitBreaker } from "../src/sandbox/circuit-breaker.ts";
+import { CircuitBreaker } from "../src/egress/circuit-breaker.ts";
 import type { InferenceConfig } from "../src/types.ts";
 import type { BrainModel } from "../src/brain/capability-registry.ts";
 

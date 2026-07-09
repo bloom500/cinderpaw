@@ -17,8 +17,8 @@ import {
   clampMetaGenome,
   metaFitness,
   mutateMetaGenome,
-} from "../src/rsi/meta-evolution.ts";
-import type { JournalEntry } from "../src/rsi/journal.ts";
+} from "../src/rsi/l6-meta/meta-evolution.ts";
+import type { JournalEntry } from "../src/rsi/infra/journal.ts";
 
 const cycle = (
   action: "accept" | "reject" | "halt",

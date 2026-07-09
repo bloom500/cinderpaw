@@ -23,13 +23,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sha256Canonical, verifyChainFile } from "../src/rsi/hash-chain.ts";
-import { loadPolicy, type GovernancePolicy } from "../src/rsi/governance.ts";
+import { sha256Canonical, verifyChainFile } from "../src/rsi/infra/hash-chain.ts";
+import { loadPolicy, type GovernancePolicy } from "../src/rsi/l5-gov/governance.ts";
 import {
   computeDirection,
   ensureGenesisPolicy,
   GovernanceLifecycle,
-} from "../src/rsi/governance-lifecycle.ts";
+} from "../src/rsi/l5-gov/governance-lifecycle.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -524,7 +524,7 @@ describe("audit mirror + verify (AC8, §11)", () => {
 
 describe("L6 audit mirror (G-INV-5, §7)", () => {
   test("MetaEvolution evolve and rollback each land one chained audit row", async () => {
-    const { MetaEvolution } = await import("../src/rsi/meta-evolution.ts");
+    const { MetaEvolution } = await import("../src/rsi/l6-meta/meta-evolution.ts");
     const dir = freshDir();
     // Enough fake journal evidence to let evolve() proceed.
     const entries = Array.from({ length: 6 }, (_, i) => ({

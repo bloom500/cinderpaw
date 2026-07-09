@@ -13,11 +13,11 @@
  *   - budget exhaustion triggers compression or a clean stop, per config
  */
 
-import type { InferenceRouter } from "../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../egress/inference-router.ts";
 import {
   BudgetExhaustedError,
   InferenceError,
-} from "../sandbox/inference-router.ts";
+} from "../egress/inference-router.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
 import type { EpisodicMemory } from "../memory/episodic.ts";
 import type { RecallResult } from "../memory/recall.ts";

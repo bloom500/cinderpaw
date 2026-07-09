@@ -8,8 +8,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { RETRIEVAL_STRATEGIES, type GenomeConfig } from "../src/rsi/genome.ts";
-import { mutateConfig, type MutationGrammar } from "../src/rsi/mutation.ts";
+import { RETRIEVAL_STRATEGIES, type GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import { mutateConfig, type MutationGrammar } from "../src/rsi/l1-config/mutation.ts";
 
 const PARENT: GenomeConfig = {
   promptTemplateId: 0,

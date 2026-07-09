@@ -20,15 +20,15 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus } from "../src/rsi/event-bus.ts";
+import { EventBus } from "../src/rsi/infra/event-bus.ts";
 import {
   EscapeTimeTracker,
   regionKey,
-} from "../src/rsi/escape-time.ts";
-import { EscapeTimeRecorder } from "../src/rsi/escape-time-recorder.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
+} from "../src/rsi/l1-config/escape-time.ts";
+import { EscapeTimeRecorder } from "../src/rsi/l1-config/escape-time-recorder.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 import { createRsiEngine } from "../src/rsi/engine.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const CFG_A: GenomeConfig = {
   promptTemplateId: 0,

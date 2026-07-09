@@ -15,7 +15,7 @@ import {
   passiveStartOptions,
   PassiveSupervisor,
   STANDING_GOAL,
-} from "../src/rsi/passive-supervisor.ts";
+} from "../src/rsi/l1-config/passive-supervisor.ts";
 
 describe("shouldAutostartPassive", () => {
   test("enabled with a real model", () => {

@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { RecallEngine } from "../src/memory/recall.ts";

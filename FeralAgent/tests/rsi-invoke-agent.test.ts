@@ -18,13 +18,13 @@ import {
   makeInvokeAgent,
   selectTools,
   MAX_DECOMPOSITION,
-} from "../src/rsi/invoke-agent.ts";
+} from "../src/rsi/infra/invoke-agent.ts";
 import type {
   InvokeRouter,
   InvokeTool,
-} from "../src/rsi/invoke-agent.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
-import type { GenomeSpec } from "../src/rsi/population-manager.ts";
+} from "../src/rsi/infra/invoke-agent.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import type { GenomeSpec } from "../src/rsi/l1-config/population-manager.ts";
 import type { InferenceRequest } from "../src/types.ts";
 
 const CFG: GenomeConfig = {

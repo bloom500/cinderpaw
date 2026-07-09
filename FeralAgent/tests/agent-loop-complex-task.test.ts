@@ -1,13 +1,13 @@
 import { describe, it, expect } from "bun:test";
 import { isComplexTask, AgentLoop } from "../src/core/agent-loop.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
-import { InferenceRouter } from "../src/sandbox/inference-router.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { RecallEngine } from "../src/memory/recall.ts";
-import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
 import { openDatabase } from "../src/db.ts";
 import type { Tool, ToolManifest, ToolResult, ToolContext } from "../src/types.ts";
 

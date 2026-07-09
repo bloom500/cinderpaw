@@ -14,8 +14,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { makeRunEval } from "../src/rsi/run-eval.ts";
-import type { EvalSpec } from "../src/rsi/eval-spec.ts";
+import { makeRunEval } from "../src/rsi/infra/run-eval.ts";
+import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 
 const GENOME = { id: "g1", generation: 0, lineage: [] };
 

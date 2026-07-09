@@ -23,7 +23,7 @@ import {
   type BudgetSpend,
   remaining,
   zeroSpend,
-} from "../src/rsi/budget.ts";
+} from "../src/rsi/infra/budget.ts";
 
 describe("DEFAULT_BUDGET_CAPS — BRSI §2.5 alignment", () => {
   test("matches the spec's default cap table exactly", () => {

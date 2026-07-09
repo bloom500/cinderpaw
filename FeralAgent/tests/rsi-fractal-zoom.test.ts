@@ -21,8 +21,8 @@ import {
   coarseGrammar,
   isWildExplorer,
   WILD_EXPLORER_FRACTION,
-} from "../src/rsi/fractal.ts";
-import type { MutationGrammar } from "../src/rsi/mutation.ts";
+} from "../src/rsi/l1-config/fractal.ts";
+import type { MutationGrammar } from "../src/rsi/l1-config/mutation.ts";
 
 const base: MutationGrammar = {
   templatePoolSize: 8,

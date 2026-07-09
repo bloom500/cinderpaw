@@ -22,7 +22,7 @@ import {
   randomWalkInt,
   resampleIndex,
   transferMutation,
-} from "../src/rsi/mutation.ts";
+} from "../src/rsi/l1-config/mutation.ts";
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 

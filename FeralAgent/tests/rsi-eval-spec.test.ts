@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { validateOutcome, type EvalSpec } from "../src/rsi/eval-spec.ts";
+import { validateOutcome, type EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 
 const spec = (over: Partial<EvalSpec>): EvalSpec => ({
   id: "t/x",

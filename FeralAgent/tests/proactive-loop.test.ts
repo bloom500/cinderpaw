@@ -14,8 +14,8 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { InferenceRouter } from "../src/sandbox/inference-router.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { MoodEngine } from "../src/core/mood.ts";
 import { InnerThoughtsLoop } from "../src/core/inner-thoughts.ts";

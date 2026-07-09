@@ -23,35 +23,35 @@
  * bridge adapters + agent loop in the sidecar.
  */
 
-import { EventBus } from "./event-bus.ts";
+import { EventBus } from "./infra/event-bus.ts";
 import {
   PopulationManager,
   type GenomeSpec,
-} from "./population-manager.ts";
-import { EvalWorker, type EvalWorkerDeps } from "./eval-worker.ts";
-import { RatchetHandler, type RatchetDeps } from "./ratchet-handler.ts";
+} from "./l1-config/population-manager.ts";
+import { EvalWorker, type EvalWorkerDeps } from "./infra/eval-worker.ts";
+import { RatchetHandler, type RatchetDeps } from "./l1-config/ratchet-handler.ts";
 import {
   SelectionMutationHandler,
   type SelectionDeps,
-} from "./selection-handler.ts";
+} from "./l1-config/selection-handler.ts";
 import {
   RecalcitranceTracker,
   type RecalcitranceOptions,
-} from "./recalcitrance.ts";
-import { ExtinctionHandler, type ExtinctionDeps } from "./extinction-handler.ts";
+} from "./l1-config/recalcitrance.ts";
+import { ExtinctionHandler, type ExtinctionDeps } from "./l1-config/extinction-handler.ts";
 import {
   GoalMode,
   attachPopulationRecorder,
   type GoalConfig,
   type GoalResult,
-} from "./goal-mode.ts";
+} from "./l1-config/goal-mode.ts";
 import {
   EscapeTimeTracker,
   type EscapeTimeOptions,
-} from "./escape-time.ts";
-import { EscapeTimeRecorder } from "./escape-time-recorder.ts";
-import type { RsiBridge } from "./bridge.ts";
-import { TasteMiner, makeTasteDeps } from "./taste-miner.ts";
+} from "./l1-config/escape-time.ts";
+import { EscapeTimeRecorder } from "./l1-config/escape-time-recorder.ts";
+import type { RsiBridge } from "./infra/bridge.ts";
+import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
 
 export interface RsiEngineDeps {
   /** Initial population (the bootstrap strategy seeds). */

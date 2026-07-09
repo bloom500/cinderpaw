@@ -16,7 +16,7 @@
 
 import type { Tool, ToolManifest, ProcessRunResult } from "../../types.ts";
 import { resolveExecutables } from "../../core/executables.ts";
-import { firstAllowedPath } from "../../sandbox/tool-permissions.ts";
+import { firstAllowedPath } from "../../egress/tool-permissions.ts";
 
 const GIT_ALLOWED = resolveExecutables(["git"]);
 

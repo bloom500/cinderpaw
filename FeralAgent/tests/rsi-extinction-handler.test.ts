@@ -14,9 +14,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
-import { ExtinctionHandler } from "../src/rsi/extinction-handler.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
+import { ExtinctionHandler } from "../src/rsi/l1-config/extinction-handler.ts";
 
 /** Record ExtinctionTriggered + GenomeDied events for assertions. */
 function recorder(bus: EventBus) {

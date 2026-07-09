@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 
 describe("RSI population manager", () => {
   test("born genomes enter the alive set; recordEval attaches score + fingerprint", () => {

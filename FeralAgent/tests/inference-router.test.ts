@@ -13,12 +13,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
 import {
   InferenceRouter,
   InferenceError,
   normalizeBaseUrl,
-} from "../src/sandbox/inference-router.ts";
+} from "../src/egress/inference-router.ts";
 import type { InferenceConfig } from "../src/types.ts";
 
 const BUDGET = {

@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadTierSpecs } from "../src/rsi/tier-loader.ts";
+import { loadTierSpecs } from "../src/rsi/infra/tier-loader.ts";
 
 let dir: string;
 

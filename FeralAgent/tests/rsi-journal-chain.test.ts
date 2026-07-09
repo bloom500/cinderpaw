@@ -17,15 +17,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GENESIS, canonicalJson, chainHash } from "../src/rsi/hash-chain.ts";
+import { GENESIS, canonicalJson, chainHash } from "../src/rsi/infra/hash-chain.ts";
 import {
   appendJournal,
   journalFilename,
   readJournal,
   verifyJournal,
   type JournalEntry,
-} from "../src/rsi/journal.ts";
-import { defaultReadWindow } from "../src/rsi/meta-evolution.ts";
+} from "../src/rsi/infra/journal.ts";
+import { defaultReadWindow } from "../src/rsi/l6-meta/meta-evolution.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {

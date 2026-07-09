@@ -1,11 +1,11 @@
 // FeralAgent/tests/rsi-goal-cost.test.ts
 import { describe, it, expect } from "bun:test";
-import { estimateUsd, blendedPricePer1kUsd } from "../src/rsi/rsi-cost.ts";
+import { estimateUsd, blendedPricePer1kUsd } from "../src/rsi/infra/rsi-cost.ts";
 
 // This test pins the cost-cap *decision* function in isolation. GoalMode
 // exposes `costStop(totalCostUsd, maxTotalCostUsd)` as a pure static helper
 // so the stop rule is testable without driving a full engine run.
-import { costStop } from "../src/rsi/goal-mode.ts";
+import { costStop } from "../src/rsi/l1-config/goal-mode.ts";
 
 describe("GoalMode cost cap", () => {
   it("no cap (undefined) never stops on cost", () => {

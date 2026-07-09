@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { FractalMemory, type RecallFallback } from "../src/memory/fractal/fractal-memory.ts";
 import type { Leaf } from "../src/memory/fractal/types.ts";

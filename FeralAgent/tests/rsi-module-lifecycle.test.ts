@@ -19,11 +19,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureGenesisPolicy } from "../src/rsi/governance-lifecycle.ts";
-import type { EvalSpec } from "../src/rsi/eval-spec.ts";
-import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
-import { ModuleLifecycle, STALE_CANDIDATE_MS } from "../src/rsi/module-lifecycle.ts";
-import { ModuleRegistry } from "../src/rsi/module-registry.ts";
+import { ensureGenesisPolicy } from "../src/rsi/l5-gov/governance-lifecycle.ts";
+import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
+import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
+import { ModuleLifecycle, STALE_CANDIDATE_MS } from "../src/rsi/l4-modules/module-lifecycle.ts";
+import { ModuleRegistry } from "../src/rsi/l4-modules/module-registry.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "modules");
 const MOD_ID = "mod-retrieval-fixture-01";

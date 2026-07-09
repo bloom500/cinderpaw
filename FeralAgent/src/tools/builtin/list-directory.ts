@@ -7,7 +7,7 @@
 
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { resolveAllowedPath } from "../../sandbox/tool-permissions.ts";
+import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_ENTRIES = 200;

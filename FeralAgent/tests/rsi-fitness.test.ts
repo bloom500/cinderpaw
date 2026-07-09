@@ -21,7 +21,7 @@ import {
   fitnessVectorAggregate,
   NEUTRAL_COMPONENT,
   scoreToFitnessVector,
-} from "../src/rsi/fitness.ts";
+} from "../src/rsi/l1-config/fitness.ts";
 
 describe("DEFAULT_FITNESS_WEIGHTS — BRSI §2.2 / D4 alignment", () => {
   test("matches the spec exactly", () => {

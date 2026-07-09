@@ -11,10 +11,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
-import { SelectionMutationHandler } from "../src/rsi/selection-handler.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
+import { SelectionMutationHandler } from "../src/rsi/l1-config/selection-handler.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,

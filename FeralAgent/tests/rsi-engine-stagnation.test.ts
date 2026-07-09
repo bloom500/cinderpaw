@@ -21,8 +21,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { EventBus } from "../src/rsi/event-bus.ts";
-import type { RsiEvent } from "../src/rsi/event-bus.ts";
+import { EventBus } from "../src/rsi/infra/event-bus.ts";
+import type { RsiEvent } from "../src/rsi/infra/event-bus.ts";
 import type { OutboundEvent } from "../src/types.ts";
 import { mirrorEngineEvents } from "../src/rsi/sidecar.ts";
 

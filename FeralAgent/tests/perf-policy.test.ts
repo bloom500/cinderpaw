@@ -15,7 +15,7 @@ import {
   resolvePerfPolicy,
   __TEST_DEFAULTS,
   type PerfPolicy,
-} from "../src/sandbox/perf-policy.ts";
+} from "../src/egress/perf-policy.ts";
 
 const EMPTY_ENV: Record<string, string | undefined> = {};
 

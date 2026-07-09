@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LoraRegistry, type LoraAdapterRecord } from "../src/rsi/lora-registry.ts";
+import { LoraRegistry, type LoraAdapterRecord } from "../src/rsi/l2-adapt/lora-registry.ts";
 
 function tmpFile(): string {
   return join(mkdtempSync(join(tmpdir(), "lora-reg-")), "lora-registry.json");

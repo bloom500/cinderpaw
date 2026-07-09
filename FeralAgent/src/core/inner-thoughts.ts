@@ -34,7 +34,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { InferenceRouter } from "../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../egress/inference-router.ts";
 import type { EpisodicMemory } from "../memory/episodic.ts";
 import type { MoodEngine } from "./mood.ts";
 import type { EventSink } from "./agent-loop.ts";

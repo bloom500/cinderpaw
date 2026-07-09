@@ -16,9 +16,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
-import { selectCrossoverPairs } from "../src/rsi/crossover-selection.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
+import { selectCrossoverPairs } from "../src/rsi/l1-config/crossover-selection.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,

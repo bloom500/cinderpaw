@@ -21,7 +21,7 @@ import { describe, expect, test } from "bun:test";
 import {
   PbtController,
   type StrategyGenome,
-} from "../src/rsi/pbt-controller.ts";
+} from "../src/rsi/l1-config/pbt-controller.ts";
 
 /** Deterministic rng cycling through a fixed sequence in [0,1). */
 function seqRng(values: number[]): () => number {

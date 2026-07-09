@@ -1,6 +1,6 @@
 // FeralAgent/tests/rsi-cost.test.ts
 import { describe, it, expect } from "bun:test";
-import { blendedPricePer1kUsd, estimateUsd } from "../src/rsi/rsi-cost.ts";
+import { blendedPricePer1kUsd, estimateUsd } from "../src/rsi/infra/rsi-cost.ts";
 
 describe("rsi-cost", () => {
   it("local (loopback) is always free regardless of model id", () => {

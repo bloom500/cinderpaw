@@ -17,10 +17,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_GATE_THRESHOLDS } from "../src/rsi/confidence.ts";
-import { readEnvelope } from "../src/rsi/envelope-store.ts";
-import type { EvalSpec } from "../src/rsi/eval-spec.ts";
-import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
+import { DEFAULT_GATE_THRESHOLDS } from "../src/rsi/infra/confidence.ts";
+import { readEnvelope } from "../src/rsi/infra/envelope-store.ts";
+import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
+import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
 import {
   domainOf,
   LATENCY_FLOOR_RATIO,
@@ -28,7 +28,7 @@ import {
   runModuleEval,
   type ModuleEvalDeps,
   type SuiteBinding,
-} from "../src/rsi/module-eval.ts";
+} from "../src/rsi/l4-modules/module-eval.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {

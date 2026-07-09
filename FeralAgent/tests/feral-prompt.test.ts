@@ -20,9 +20,9 @@ import {
   FERAL_AGENT_BASE_PROMPT,
   buildMidConversationReminder,
 } from "../src/core/feral-prompt.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
-import { InferenceRouter } from "../src/sandbox/inference-router.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { RecallEngine } from "../src/memory/recall.ts";

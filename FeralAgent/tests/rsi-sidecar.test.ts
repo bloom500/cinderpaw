@@ -13,16 +13,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { RsiBridge, type RsiResponse } from "../src/rsi/bridge.ts";
+import { RsiBridge, type RsiResponse } from "../src/rsi/infra/bridge.ts";
 import {
   RsiSidecar,
   mirrorEngineEvents,
 } from "../src/rsi/sidecar.ts";
-import type { InvokeRouter } from "../src/rsi/invoke-agent.ts";
+import type { InvokeRouter } from "../src/rsi/infra/invoke-agent.ts";
 import { openDatabase } from "../src/db.ts";
-import { EventBus } from "../src/rsi/event-bus.ts";
-import type { EvalSpec } from "../src/rsi/eval-spec.ts";
-import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
+import { EventBus } from "../src/rsi/infra/event-bus.ts";
+import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
+import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
 import { resolve } from "node:path";
 
 class FakeRouter implements InvokeRouter {
@@ -418,7 +418,7 @@ describe("RsiSidecar — champion hook (the Crux)", () => {
       expect(typeof champions[0]!.genomeId).toBe("string");
       expect((champions[0]!.config as { temperature?: number }).temperature).toBeTypeOf("number");
       // It was persisted too.
-      const { readChampion } = await import("../src/rsi/champion.ts");
+      const { readChampion } = await import("../src/rsi/l1-config/champion.ts");
       expect(readChampion(tmp)).not.toBeNull();
     } finally {
       rmSync(tmp, { force: true });

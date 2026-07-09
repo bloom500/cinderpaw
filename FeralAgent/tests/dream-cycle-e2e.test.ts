@@ -19,12 +19,12 @@ import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RsiSidecar } from "../src/rsi/sidecar.ts";
-import { RsiBridge, type RsiResponse } from "../src/rsi/bridge.ts";
-import type { InvokeRouter } from "../src/rsi/invoke-agent.ts";
+import { RsiBridge, type RsiResponse } from "../src/rsi/infra/bridge.ts";
+import type { InvokeRouter } from "../src/rsi/infra/invoke-agent.ts";
 import { openDatabase } from "../src/db.ts";
-import { ActivityMonitor } from "../src/rsi/activity-monitor.ts";
-import { createDreamCycle } from "../src/rsi/dream-cycle.ts";
-import type { DreamConfig } from "../src/rsi/dream-config.ts";
+import { ActivityMonitor } from "../src/rsi/l1-config/activity-monitor.ts";
+import { createDreamCycle } from "../src/rsi/l1-config/dream-cycle.ts";
+import type { DreamConfig } from "../src/rsi/l1-config/dream-config.ts";
 import type { OutboundEvent } from "../src/types.ts";
 
 class FakeRouter implements InvokeRouter {

@@ -4,13 +4,13 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
+import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
 import {
   makeLoraEvalRunner,
   pairOutcomes,
   tier0Of,
-} from "../src/rsi/lora-eval-runner.ts";
-import type { GenomeSpec } from "../src/rsi/population-manager.ts";
+} from "../src/rsi/l2-adapt/lora-eval-runner.ts";
+import type { GenomeSpec } from "../src/rsi/l1-config/population-manager.ts";
 
 const GENOME = { id: "eval-identity" } as GenomeSpec;
 

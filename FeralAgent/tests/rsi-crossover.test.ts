@@ -16,8 +16,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { crossoverConfigs } from "../src/rsi/crossover.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+import { crossoverConfigs } from "../src/rsi/l1-config/crossover.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const fitter: GenomeConfig = {
   promptTemplateId: 3,

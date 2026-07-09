@@ -21,8 +21,8 @@ import {
   type ArtifactEnvelope,
   type CommitMetaLike,
   type ProvenanceKind,
-} from "../src/rsi/provenance.ts";
-import type { RsiBridge, RsiResponse } from "../src/rsi/bridge.ts";
+} from "../src/rsi/infra/provenance.ts";
+import type { RsiBridge, RsiResponse } from "../src/rsi/infra/bridge.ts";
 
 /** Build a small synthetic commit chain for tests. */
 function commit(
@@ -314,7 +314,7 @@ describe("rsiProvenanceGraph — bridge caching", () => {
       commit("B", ["A"]),
       commit("C", ["B"]),
     ]);
-    const { rsiProvenanceGraph } = await import("../src/rsi/provenance.ts");
+    const { rsiProvenanceGraph } = await import("../src/rsi/infra/provenance.ts");
     const g = rsiProvenanceGraph(fake as unknown as RsiBridge);
     await g.show("C");
     await g.show("B");
@@ -325,7 +325,7 @@ describe("rsiProvenanceGraph — bridge caching", () => {
 
   test("commonAncestor uses the bridge, not the cache", async () => {
     const fake = new FakeBridge([commit("A", []), commit("B", ["A"])]);
-    const { rsiProvenanceGraph } = await import("../src/rsi/provenance.ts");
+    const { rsiProvenanceGraph } = await import("../src/rsi/infra/provenance.ts");
     const g = rsiProvenanceGraph(fake as unknown as RsiBridge);
     await g.commonAncestor("A", "B");
     await g.commonAncestor("A", "B");

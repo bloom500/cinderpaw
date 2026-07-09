@@ -18,8 +18,8 @@ import {
   firstNonEmptyLine,
   parseMetrics,
   toKebab,
-} from "../src/rsi/trainers/cli-trainer.ts";
-import type { ExecFn, ExecResult } from "../src/rsi/code-sandbox.ts";
+} from "../src/rsi/l2-adapt/trainers/cli-trainer.ts";
+import type { ExecFn, ExecResult } from "../src/rsi/l3-code/code-sandbox.ts";
 
 const ok = (stdout = "", stderr = ""): ExecResult => ({
   exitCode: 0,

@@ -24,7 +24,7 @@ import {
   normalizeAllowedPaths,
   resolveAllowedPath,
   validateManifest,
-} from "../src/sandbox/tool-permissions.ts";
+} from "../src/egress/tool-permissions.ts";
 import type { PathAccess, ToolManifest } from "../src/types.ts";
 
 function makeManifest(overrides: Partial<ToolManifest> = {}): ToolManifest {

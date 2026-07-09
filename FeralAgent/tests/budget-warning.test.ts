@@ -12,8 +12,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { InferenceRouter } from "../src/sandbox/inference-router.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
 import type { BudgetWarning } from "../src/types.ts";
 
 const BUDGET = {

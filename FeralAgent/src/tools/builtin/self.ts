@@ -36,7 +36,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
 import type { ToolRegistry } from "../registry.ts";
-import type { InferenceRouter } from "../../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../../egress/inference-router.ts";
 
 // ── Shared context ─────────────────────────────────────────────────────────
 //

@@ -16,7 +16,7 @@ import {
   bunExec,
   type ExecFn,
   type ExecResult,
-} from "../src/rsi/code-sandbox.ts";
+} from "../src/rsi/l3-code/code-sandbox.ts";
 
 const ok = (stdout = ""): ExecResult => ({ exitCode: 0, stdout, stderr: "", timedOut: false });
 const fail = (stderr = "boom", exitCode = 1): ExecResult => ({

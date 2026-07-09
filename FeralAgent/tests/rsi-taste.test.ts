@@ -15,8 +15,8 @@ import {
   configToVector,
   mineTasteVector,
   TASTE_DIMS,
-} from "../src/rsi/taste.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+} from "../src/rsi/l1-config/taste.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const cfg = (over: Partial<GenomeConfig> = {}): GenomeConfig => ({
   promptTemplateId: 0,

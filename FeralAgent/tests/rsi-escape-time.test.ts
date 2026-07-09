@@ -15,8 +15,8 @@ import {
   EscapeTimeTracker,
   escapeTimeOf,
   regionKey,
-} from "../src/rsi/escape-time.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+} from "../src/rsi/l1-config/escape-time.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const cfg = (over: Partial<GenomeConfig> = {}): GenomeConfig => ({
   promptTemplateId: 0,

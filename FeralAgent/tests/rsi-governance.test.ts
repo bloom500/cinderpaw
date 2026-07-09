@@ -20,9 +20,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_GATE_THRESHOLDS } from "../src/rsi/confidence.ts";
-import { META_BOUNDS, META_ACCEPT_MARGIN, MIN_META_CYCLES } from "../src/rsi/meta-evolution.ts";
-import { paths } from "../src/rsi/instance-paths.ts";
+import { DEFAULT_GATE_THRESHOLDS } from "../src/rsi/infra/confidence.ts";
+import { META_BOUNDS, META_ACCEPT_MARGIN, MIN_META_CYCLES } from "../src/rsi/l6-meta/meta-evolution.ts";
+import { paths } from "../src/rsi/infra/instance-paths.ts";
 import {
   builtinFailClosedPolicy,
   clampPolicy,
@@ -30,7 +30,7 @@ import {
   effectiveMetaBounds,
   loadPolicy,
   type GovernancePolicy,
-} from "../src/rsi/governance.ts";
+} from "../src/rsi/l5-gov/governance.ts";
 
 function freshDir(): string {
   return mkdtempSync(join(tmpdir(), "feral-gov-"));

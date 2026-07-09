@@ -16,13 +16,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { verifyChainFile } from "../src/rsi/hash-chain.ts";
-import { SEAM_CATALOG, catalogRow, type SeamCatalogRow } from "../src/rsi/seam-catalog.ts";
+import { verifyChainFile } from "../src/rsi/infra/hash-chain.ts";
+import { SEAM_CATALOG, catalogRow, type SeamCatalogRow } from "../src/rsi/l4-modules/seam-catalog.ts";
 import {
   ModuleRegistry,
   validateManifest,
   type ModuleManifest,
-} from "../src/rsi/module-registry.ts";
+} from "../src/rsi/l4-modules/module-registry.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {

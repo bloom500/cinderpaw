@@ -13,10 +13,10 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
-import { AuditLog } from "./sandbox/audit-log.ts";
-import { EgressProxy } from "./sandbox/egress-proxy.ts";
-import { RealProcessSandbox } from "./sandbox/process-sandbox.ts";
-import { InferenceRouter } from "./sandbox/inference-router.ts";
+import { AuditLog } from "./egress/audit-log.ts";
+import { EgressProxy } from "./egress/egress-proxy.ts";
+import { RealProcessSandbox } from "./egress/process-sandbox.ts";
+import { InferenceRouter } from "./egress/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { SemanticMemory } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
@@ -28,7 +28,7 @@ import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getCurrentTask, getLastActive } from "./memory/resume.ts";
 import { getActiveWorkspaceId, getWorkspace } from "./memory/workspaces.ts";
 import { ToolRegistry } from "./tools/registry.ts";
-import { McpManager } from "./sandbox/mcp-manager.ts";
+import { McpManager } from "./egress/mcp-manager.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
 import { createWriteFileTool } from "./tools/builtin/write-file.ts";
 import { createListDirectoryTool } from "./tools/builtin/list-directory.ts";
@@ -60,29 +60,29 @@ import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
-import { RsiBridge } from "./rsi/bridge.ts";
+import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
 import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
-import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/seam-runtime.ts";
-import { shouldAutostartPassive } from "./rsi/passive-supervisor.ts";
-import { createDreamCycle } from "./rsi/dream-cycle.ts";
-import { defaultJournalPath, defaultJournalDir, journalFilename, verifyJournal } from "./rsi/journal.ts";
-import { sha256Canonical } from "./rsi/hash-chain.ts";
-import { ActivityMonitor } from "./rsi/activity-monitor.ts";
-import { resolveDreamConfig, dreamCloudGate } from "./rsi/dream-config.ts";
-import { episodeStartOptions, episodeBudgetCaps } from "./rsi/episode-options.ts";
-import { MetaEvolution } from "./rsi/meta-evolution.ts";
-import { effectiveGates, governanceCheck, loadPolicy } from "./rsi/governance.ts";
-import { ensureGenesisPolicy, GovernanceLifecycle } from "./rsi/governance-lifecycle.ts";
+import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/l4-modules/seam-runtime.ts";
+import { shouldAutostartPassive } from "./rsi/l1-config/passive-supervisor.ts";
+import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
+import { defaultJournalPath, defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
+import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
+import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
+import { resolveDreamConfig, dreamCloudGate } from "./rsi/l1-config/dream-config.ts";
+import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
+import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
+import { effectiveGates, governanceCheck, loadPolicy } from "./rsi/l5-gov/governance.ts";
+import { ensureGenesisPolicy, GovernanceLifecycle } from "./rsi/l5-gov/governance-lifecycle.ts";
 import {
   mapGenomeToAgentConfig,
   readChampion,
   defaultChampionPath,
-} from "./rsi/champion.ts";
+} from "./rsi/l1-config/champion.ts";
 import type { DeliveryTarget, Schedule } from "./types.ts";
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
@@ -95,7 +95,7 @@ import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
 import { createScheduleMeetingTool } from "./tools/builtin/schedule-meeting.ts";
 import type { InferenceConfig, ModelTarget, Transport } from "./types.ts";
-import { CircuitBreaker } from "./sandbox/circuit-breaker.ts";
+import { CircuitBreaker } from "./egress/circuit-breaker.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { loadBrainConfig } from "./brain/brain-config.ts";
 
@@ -1014,9 +1014,9 @@ export async function main(transportOverride?: Transport): Promise<void> {
     }
     codeRsiBusy = true;
     try {
-      const { proposeCodePatch } = await import("./rsi/code-proposer.ts");
-      const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/code-rsi.ts");
-      const { bunExec } = await import("./rsi/code-sandbox.ts");
+      const { proposeCodePatch } = await import("./rsi/l3-code/code-proposer.ts");
+      const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/l3-code/code-rsi.ts");
+      const { bunExec } = await import("./rsi/l3-code/code-sandbox.ts");
       const { readdir, readFile } = await import("node:fs/promises");
       const rsiDir = require("node:path").join(repoRoot, "FeralAgent", "src", "rsi");
 
@@ -1035,8 +1035,14 @@ export async function main(transportOverride?: Transport): Promise<void> {
           });
           return res.content;
         },
-        listRsiFiles: () => readdir(rsiDir),
-        readRsiFile: (basename) => readFile(require("node:path").join(rsiDir, basename), "utf8"),
+        // R2: rsi/ is now layered into subdirs (l1-config/, l3-code/, …), so
+        // this must recurse and return rsi/-relative paths (e.g.
+        // "l1-config/mutation.ts") — readRsiFile/proposeCodePatch already
+        // treat the listRsiFiles entries as opaque relative paths, not bare
+        // basenames, so no other call site changes.
+        listRsiFiles: async () =>
+          (await readdir(rsiDir, { recursive: true })).filter((f) => f.endsWith(".ts")).map((f) => f.replace(/\\/g, "/")),
+        readRsiFile: (relPath) => readFile(require("node:path").join(rsiDir, relPath), "utf8"),
         baseCommit: async () =>
           (await bunExec(["git", "rev-parse", "HEAD"], { cwd: repoRoot, timeoutMs: 30_000 }))
             .stdout.trim(),
@@ -1135,13 +1141,13 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // IPC touch (installs that never use code-RSI pay nothing). One store per
   // process, persisted next to the journal.
   let codePatchGatePromise: Promise<{
-    store: import("./rsi/pending-patches.ts").PendingPatchStore;
+    store: import("./rsi/l3-code/pending-patches.ts").PendingPatchStore;
     sendCodePatches: () => void;
   }> | null = null;
   const codePatchGate = () => {
     codePatchGatePromise ??= (async () => {
       const { PendingPatchStore, defaultPendingPatchesPath } = await import(
-        "./rsi/pending-patches.ts"
+        "./rsi/l3-code/pending-patches.ts"
       );
       const store = new PendingPatchStore(defaultPendingPatchesPath());
       const sendCodePatches = (): void => {
@@ -1183,11 +1189,11 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // (`liveModuleRegistry`), so an approve here is visible to the recall
   // tool's next request without a restart (§6). One eval at a time —
   // the paired suite fights for the model exactly like LoRA training.
-  let mlInstance: import("./rsi/module-lifecycle.ts").ModuleLifecycle | null = null;
+  let mlInstance: import("./rsi/l4-modules/module-lifecycle.ts").ModuleLifecycle | null = null;
   let moduleEvalBusy = false;
   const modulesGate = async () => {
     if (!mlInstance) {
-      const { ModuleLifecycle } = await import("./rsi/module-lifecycle.ts");
+      const { ModuleLifecycle } = await import("./rsi/l4-modules/module-lifecycle.ts");
       mlInstance = new ModuleLifecycle({
         registry: liveModuleRegistry(),
         runtimeVersion: VERSION,
@@ -1212,14 +1218,14 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // discipline as the code-patch gate. Registry + review inbox persist next
   // to the journal; `sendLoraReviews` is the one shape the UI card renders.
   let loraGatePromise: Promise<{
-    registry: import("./rsi/lora-registry.ts").LoraRegistry;
-    reviews: import("./rsi/lora-pipeline.ts").LoraReviewStore;
+    registry: import("./rsi/l2-adapt/lora-registry.ts").LoraRegistry;
+    reviews: import("./rsi/l2-adapt/lora-pipeline.ts").LoraReviewStore;
     sendLoraReviews: () => void;
   }> | null = null;
   const loraGate = () => {
     loraGatePromise ??= (async () => {
-      const { LoraRegistry } = await import("./rsi/lora-registry.ts");
-      const { LoraReviewStore, loraStats } = await import("./rsi/lora-pipeline.ts");
+      const { LoraRegistry } = await import("./rsi/l2-adapt/lora-registry.ts");
+      const { LoraReviewStore, loraStats } = await import("./rsi/l2-adapt/lora-pipeline.ts");
       const registry = new LoraRegistry();
       const reviews = new LoraReviewStore();
       const sendLoraReviews = (): void => {
@@ -1545,7 +1551,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
             }
             const manifest = ml.manifestOf(moduleId);
             if (!manifest) return reply({ ok: false, reason: "manifest unreadable" });
-            const { defaultModulesDir } = await import("./rsi/module-registry.ts");
+            const { defaultModulesDir } = await import("./rsi/l4-modules/module-registry.ts");
             const evalDeps = rsiSidecar.moduleEvalDeps({
               seam: manifest.seam,
               moduleDir: join(defaultModulesDir(), moduleId),
@@ -1730,7 +1736,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
               ack("approved", "live apply unavailable: set FERAL_CODE_RSI_REPO to the source repo");
               return;
             }
-            const { applyPatchLive } = await import("./rsi/pending-patches.ts");
+            const { applyPatchLive } = await import("./rsi/l3-code/pending-patches.ts");
             const r = await applyPatchLive({ store, id: patchId, repoRoot });
             ack(store.get(patchId)?.status ?? "error", r.ok ? undefined : r.reason);
           } catch (err) {
@@ -1770,7 +1776,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
                 return;
               }
             }
-            const { applyLoraReview } = await import("./rsi/lora-pipeline.ts");
+            const { applyLoraReview } = await import("./rsi/l2-adapt/lora-pipeline.ts");
             const { record } = applyLoraReview(registry, reviews, cardId, action);
             if (action === "approve") {
               // Promotion is live: stage the new champion adapter and reload
@@ -1811,16 +1817,16 @@ export async function main(transportOverride?: Transport): Promise<void> {
               return;
             }
             const { registry, reviews, sendLoraReviews } = await loraGate();
-            const { runLoraTrainingCycle, deriveAdapterId } = await import("./rsi/lora-pipeline.ts");
-            const { CliTrainer } = await import("./rsi/trainers/cli-trainer.ts");
-            const { writeDataset } = await import("./rsi/dataset-builder.ts");
-            const { makeLoraEvalRunner } = await import("./rsi/lora-eval-runner.ts");
-            const { makeRunEval } = await import("./rsi/run-eval.ts");
-            const { makeGetSpecs } = await import("./rsi/get-specs.ts");
-            const { makeInvokeAgent } = await import("./rsi/invoke-agent.ts");
-            const { championSeed } = await import("./rsi/champion.ts");
+            const { runLoraTrainingCycle, deriveAdapterId } = await import("./rsi/l2-adapt/lora-pipeline.ts");
+            const { CliTrainer } = await import("./rsi/l2-adapt/trainers/cli-trainer.ts");
+            const { writeDataset } = await import("./rsi/l2-adapt/dataset-builder.ts");
+            const { makeLoraEvalRunner } = await import("./rsi/l2-adapt/lora-eval-runner.ts");
+            const { makeRunEval } = await import("./rsi/infra/run-eval.ts");
+            const { makeGetSpecs } = await import("./rsi/infra/get-specs.ts");
+            const { makeInvokeAgent } = await import("./rsi/infra/invoke-agent.ts");
+            const { championSeed } = await import("./rsi/l1-config/champion.ts");
             const { DEFAULT_SYSTEM_PROMPT } = await import("./rsi/sidecar.ts");
-            const { paths } = await import("./rsi/instance-paths.ts");
+            const { paths } = await import("./rsi/infra/instance-paths.ts");
             const pathMod = require("node:path") as typeof import("node:path");
 
             const domainRaw = msg.loraDomain ?? "general";

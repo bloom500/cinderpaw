@@ -23,12 +23,12 @@ import {
   stageStaticAnalysis,
   stageTests,
   type StageHandlerDeps,
-} from "../src/rsi/contract-stages.ts";
-import { makeInitialState, type ContractState, type StageResult } from "../src/rsi/contract.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/budget.ts";
-import type { PairedSample } from "../src/rsi/confidence.ts";
-import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/fitness.ts";
-import type { FitnessVector } from "../src/rsi/journal.ts";
+} from "../src/rsi/infra/contract-stages.ts";
+import { makeInitialState, type ContractState, type StageResult } from "../src/rsi/infra/contract.ts";
+import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
+import type { PairedSample } from "../src/rsi/infra/confidence.ts";
+import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/l1-config/fitness.ts";
+import type { FitnessVector } from "../src/rsi/infra/journal.ts";
 
 /** Hand-written fake — no real eval, no real bridge. Each test overrides
  *  only the dep(s) it cares about; defaults are happy-path. */

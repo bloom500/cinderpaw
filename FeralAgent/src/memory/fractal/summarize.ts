@@ -13,7 +13,7 @@
  * `maxTokens` field passed by the prod factory. If a model ignores both,
  * we truncate so the tree builder never blows the prompt budget.
  */
-import type { InferenceRouter } from "../../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../../egress/inference-router.ts";
 import { stripThinking } from "../../core/agent-loop.ts";
 
 /**

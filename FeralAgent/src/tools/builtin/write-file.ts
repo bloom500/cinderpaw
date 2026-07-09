@@ -8,7 +8,7 @@
 
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { resolveAllowedPath } from "../../sandbox/tool-permissions.ts";
+import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_WRITE_BYTES = 1024 * 1024; // 1 MB guard

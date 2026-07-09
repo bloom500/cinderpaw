@@ -16,7 +16,7 @@
  * PATH.
  */
 
-import { which as sandboxWhich } from "../sandbox/process-sandbox.ts";
+import { which as sandboxWhich } from "../egress/process-sandbox.ts";
 
 /** Source of PATH used for resolution. Defaults to the parent process PATH. */
 function getPathEnv(): string {

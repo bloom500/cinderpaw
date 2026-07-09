@@ -21,7 +21,7 @@
  *     sidecar startup with the real bridge; tests pass an invoker
  *     directly to `embed(texts, invoker)`.
  */
-import type { RsiBridge } from "../../rsi/bridge.ts";
+import type { RsiBridge } from "../../rsi/infra/bridge.ts";
 
 /**
  * Function that takes a batch of texts and returns one L2-normalized

@@ -25,7 +25,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { CircuitBreaker } from "../src/sandbox/circuit-breaker.ts";
+import { CircuitBreaker } from "../src/egress/circuit-breaker.ts";
 import {
   BrainError,
   BrainStack,

@@ -29,50 +29,50 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { RsiBridge, RsiResponse } from "./bridge.ts";
+import type { RsiBridge, RsiResponse } from "./infra/bridge.ts";
 import { createRsiEngine, makeTasteMiner, type RsiEngine } from "./engine.ts";
 import {
   makeCommitGenomeAdapter,
   makeRatchetAttemptAdapter,
   makeScoreGenomeAdapter,
   makeLcaAdapter,
-} from "./adapters.ts";
-import { makeRunEval } from "./run-eval.ts";
-import { makeGetSpecs } from "./get-specs.ts";
-import { makeInvokeAgent, type InvokeRouter } from "./invoke-agent.ts";
-import { builtinPlanSteps, itemsToHits, liveSeamAdapter, repliesToSteps } from "./seam-runtime.ts";
-import { spawnModuleHost } from "./module-host-client.ts";
-import { selectCrossoverPairs } from "./crossover-selection.ts";
-import { PopulationManager, type GenomeSpec } from "./population-manager.ts";
-import { EventBus } from "./event-bus.ts";
-import { TasteMiner, makeTasteDeps } from "./taste-miner.ts";
-import type { GenomeConfig } from "./genome.ts";
-import type { EvalKind, EvalExpected } from "./eval-spec.ts";
-import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./strategy-seeds.ts";
-import { blendedPricePer1kUsd } from "./rsi-cost.ts";
-import { evaluateGate } from "./confidence.ts";
-import { recentToolCalls } from "../sandbox/audit-log.ts";
-import { PbtController, type StrategyGenome } from "./pbt-controller.ts";
-import { DEFAULT_META_GENOME } from "./meta-evolution.ts";
-import { PbtHandler } from "./pbt-handler.ts";
+} from "./infra/adapters.ts";
+import { makeRunEval } from "./infra/run-eval.ts";
+import { makeGetSpecs } from "./infra/get-specs.ts";
+import { makeInvokeAgent, type InvokeRouter } from "./infra/invoke-agent.ts";
+import { builtinPlanSteps, itemsToHits, liveSeamAdapter, repliesToSteps } from "./l4-modules/seam-runtime.ts";
+import { spawnModuleHost } from "./l4-modules/module-host-client.ts";
+import { selectCrossoverPairs } from "./l1-config/crossover-selection.ts";
+import { PopulationManager, type GenomeSpec } from "./l1-config/population-manager.ts";
+import { EventBus } from "./infra/event-bus.ts";
+import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
+import type { GenomeConfig } from "./l1-config/genome.ts";
+import type { EvalKind, EvalExpected } from "./infra/eval-spec.ts";
+import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./l1-config/strategy-seeds.ts";
+import { blendedPricePer1kUsd } from "./infra/rsi-cost.ts";
+import { evaluateGate } from "./infra/confidence.ts";
+import { recentToolCalls } from "../egress/audit-log.ts";
+import { PbtController, type StrategyGenome } from "./l1-config/pbt-controller.ts";
+import { DEFAULT_META_GENOME } from "./l6-meta/meta-evolution.ts";
+import { PbtHandler } from "./l1-config/pbt-handler.ts";
 import {
   writeChampion,
   readChampion,
   championSeed,
   defaultChampionPath,
   type ChampionRecord,
-} from "./champion.ts";
+} from "./l1-config/champion.ts";
 import {
   readChampionTree,
   writeChampionTree,
   defaultChampionTreePath,
   nicheOf,
-} from "./champion-tree.ts";
+} from "./l1-config/champion-tree.ts";
 import {
   readPopulationSnapshot,
   writePopulationSnapshot,
   defaultPopulationSnapshotPath,
-} from "./population-snapshot.ts";
+} from "./l1-config/population-snapshot.ts";
 
 /** Tiny contract the sidecar needs from the host's transport: a
  *  function that writes one outbound event as JSON. */
@@ -172,12 +172,12 @@ export interface RsiSidecarDeps {
    *  present, its ratio-to-default fields scale the PBT-driven selection
    *  knobs and (tighten-only) the confidence-gate thresholds. Absent →
    *  exact pre-L6 behaviour. */
-  metaParams?: () => import("./meta-evolution.ts").MetaGenome;
+  metaParams?: () => import("./l6-meta/meta-evolution.ts").MetaGenome;
   /** Optional: L5 governance gates (already composed with the locked
    *  floor via `effectiveGates`). Tightens the promotion gate further —
    *  same max()/min() discipline as `metaParams`. Absent → pre-L5
    *  behaviour (§7). */
-  policyGates?: () => import("./confidence.ts").GateThresholds;
+  policyGates?: () => import("./infra/confidence.ts").GateThresholds;
   /** Optional: L4 seam builtins for the paired module eval (§5) — the
    *  INCUMBENT implementation per seam, keyed by seam name. index.ts
    *  provides `retrieval_strategy` (FractalMemory-backed); `planner`
@@ -276,7 +276,7 @@ export class RsiSidecar {
     seam: string;
     moduleDir: string;
     limits: { timeoutMs: number; maxRssMb: number };
-  }): Omit<import("./module-eval.ts").ModuleEvalDeps, "thresholds"> {
+  }): Omit<import("./l4-modules/module-eval.ts").ModuleEvalDeps, "thresholds"> {
     const getSpecs = makeGetSpecs({ fetchTier0: this.fetchTier0() });
     const genome =
       championSeed(readChampion(this.deps.championPath ?? defaultChampionPath())) ??
@@ -284,7 +284,7 @@ export class RsiSidecar {
 
     const runSuite = async (binding: "incumbent" | "candidate") => {
       // Candidate binding: one host for the whole run, stopped after.
-      let host: import("./module-host-client.ts").ModuleHost | null = null;
+      let host: import("./l4-modules/module-host-client.ts").ModuleHost | null = null;
       if (binding === "candidate") {
         const res = await spawnModuleHost({
           moduleDir: args.moduleDir,
@@ -463,7 +463,7 @@ export class RsiSidecar {
     // `escapeTracker` is a mutable holder so we can inject the engine's
     // tracker AFTER `createRsiEngine` returns it — that avoids the
     // chicken-and-egg between engine and selection construction.
-    const escapeTrackerHolder: { current: import("./escape-time.ts").EscapeTimeTracker | undefined } = {
+    const escapeTrackerHolder: { current: import("./l1-config/escape-time.ts").EscapeTimeTracker | undefined } = {
       current: undefined,
     };
     // Same live-binding trick for taste: the miner must subscribe to the

@@ -19,16 +19,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus } from "../src/rsi/event-bus.ts";
-import { RsiBridge } from "../src/rsi/bridge.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
+import { EventBus } from "../src/rsi/infra/event-bus.ts";
+import { RsiBridge } from "../src/rsi/infra/bridge.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 import {
   TasteMiner,
   makeTasteDeps,
   type CommitMetaWire,
   type PbtState,
-} from "../src/rsi/taste-miner.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+} from "../src/rsi/l1-config/taste-miner.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const CFG_BASE: GenomeConfig = {
   promptTemplateId: 0,

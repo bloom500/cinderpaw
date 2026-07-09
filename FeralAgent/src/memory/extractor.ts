@@ -24,7 +24,7 @@
  * Both passes use a minimal token budget and never block the user response.
  */
 
-import type { InferenceRouter } from "../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../egress/inference-router.ts";
 import type { SemanticMemory } from "./semantic.ts";
 import type { EpisodicMemory } from "./episodic.ts";
 import type { ChatMessage, AfterMemoryWritePayload } from "../types.ts";

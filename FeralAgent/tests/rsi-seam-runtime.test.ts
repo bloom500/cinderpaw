@@ -10,14 +10,14 @@
  *     reply falls back to the builtin split byte-identically.
  */
 import { describe, expect, test } from "bun:test";
-import { makeInvokeAgent } from "../src/rsi/invoke-agent.ts";
+import { makeInvokeAgent } from "../src/rsi/infra/invoke-agent.ts";
 import {
   builtinPlanSteps,
   hitsToItems,
   itemsToHits,
   repliesToSteps,
-} from "../src/rsi/seam-runtime.ts";
-import type { GenomeSpec } from "../src/rsi/population-manager.ts";
+} from "../src/rsi/l4-modules/seam-runtime.ts";
+import type { GenomeSpec } from "../src/rsi/l1-config/population-manager.ts";
 
 const GENOME = (depth: number): GenomeSpec =>
   ({

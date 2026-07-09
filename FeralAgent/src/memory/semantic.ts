@@ -13,7 +13,7 @@
 import type { Database } from "bun:sqlite";
 import type { AuditLogger } from "../types.ts";
 import { redactPII, piiRedactionEnabled } from "./privacy.ts";
-import { encryptField, decryptField } from "../sandbox/field-crypto.ts";
+import { encryptField, decryptField } from "../egress/field-crypto.ts";
 
 export interface SemanticFact {
   key: string;

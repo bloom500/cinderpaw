@@ -26,7 +26,7 @@ import { describe, expect, test } from "bun:test";
 import {
   resolveDreamConfig,
   dreamCloudGate,
-} from "../src/rsi/dream-config.ts";
+} from "../src/rsi/l1-config/dream-config.ts";
 
 describe("resolveDreamConfig — defaults", () => {
   test("empty env yields exactly the documented defaults", () => {

@@ -8,18 +8,18 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CodeGenome } from "../src/rsi/code-genome.ts";
-import type { ExecFn, ExecResult } from "../src/rsi/code-sandbox.ts";
+import type { CodeGenome } from "../src/rsi/l3-code/code-genome.ts";
+import type { ExecFn, ExecResult } from "../src/rsi/l3-code/code-sandbox.ts";
 import {
   APPROVALS_BEFORE_AUTO,
   PendingPatchStore,
   applyPatchLive,
   revertPatchLive,
-} from "../src/rsi/pending-patches.ts";
+} from "../src/rsi/l3-code/pending-patches.ts";
 
 const genome: CodeGenome = {
-  patch: "--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n",
-  affectedFiles: ["src/rsi/mutation.ts"],
+  patch: "--- a/src/rsi/l1-config/mutation.ts\n+++ b/src/rsi/l1-config/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n",
+  affectedFiles: ["src/rsi/l1-config/mutation.ts"],
   baseCommit: "base123",
   proposal: { rationale: "r", riskAssessment: "ra", testPlan: "tp" },
 };

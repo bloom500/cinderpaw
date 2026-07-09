@@ -9,10 +9,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
-import { CircuitBreaker } from "../src/sandbox/circuit-breaker.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
-import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { CircuitBreaker } from "../src/egress/circuit-breaker.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool, ToolManifest, ToolResult } from "../src/types.ts";
 import { openDatabase } from "../src/db.ts";

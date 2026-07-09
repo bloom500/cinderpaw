@@ -20,10 +20,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   makeLcaAdapter,
-} from "../src/rsi/adapters.ts";
-import { RsiBridge, type RsiResponse } from "../src/rsi/bridge.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+} from "../src/rsi/infra/adapters.ts";
+import { RsiBridge, type RsiResponse } from "../src/rsi/infra/bridge.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,

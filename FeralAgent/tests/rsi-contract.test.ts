@@ -19,8 +19,8 @@ import {
   makeInitialState,
   STAGE_ORDER,
   type ContractStage,
-} from "../src/rsi/contract.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/budget.ts";
+} from "../src/rsi/infra/contract.ts";
+import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
 
 describe("STAGE_ORDER — pipeline shape", () => {
   test("has 9 entries (entry + 8 BRSI §2.1 stages)", () => {

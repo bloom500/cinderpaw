@@ -10,8 +10,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { TIER1_SPECS, TIER2_SPECS } from "../src/rsi/default-tier-specs.ts";
-import { validateOutcome, type EvalSpec } from "../src/rsi/eval-spec.ts";
+import { TIER1_SPECS, TIER2_SPECS } from "../src/rsi/infra/default-tier-specs.ts";
+import { validateOutcome, type EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 
 /** A response that should pass `spec` — derived from its expected payload. */
 function passingResponse(spec: EvalSpec): string {

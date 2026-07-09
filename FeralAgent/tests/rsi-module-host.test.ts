@@ -12,8 +12,8 @@
  */
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { wallCheck } from "../src/rsi/module-wall.ts";
-import { spawnModuleHost, HOST_PROTOCOL } from "../src/rsi/module-host-client.ts";
+import { wallCheck } from "../src/rsi/l4-modules/module-wall.ts";
+import { spawnModuleHost, HOST_PROTOCOL } from "../src/rsi/l4-modules/module-host-client.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "modules");
 const LIMITS = { timeoutMs: 5_000, maxRssMb: 512 };

@@ -16,7 +16,7 @@
 
 import { readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { resolveAllowedPath, firstAllowedPath } from "../../sandbox/tool-permissions.ts";
+import { resolveAllowedPath, firstAllowedPath } from "../../egress/tool-permissions.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const DEFAULT_MAX_RESULTS = 200;

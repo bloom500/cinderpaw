@@ -20,13 +20,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { GENESIS } from "../src/rsi/hash-chain.ts";
+import { GENESIS } from "../src/rsi/infra/hash-chain.ts";
 import {
   appendJournal,
   journalFilename,
   type JournalEntry,
-} from "../src/rsi/journal.ts";
-import { defaultReadWindow } from "../src/rsi/meta-evolution.ts";
+} from "../src/rsi/infra/journal.ts";
+import { defaultReadWindow } from "../src/rsi/l6-meta/meta-evolution.ts";
 
 const ENABLED = process.env.FERAL_E2E === "1";
 
@@ -80,7 +80,7 @@ describe("L0 — journal tamper detection (FERAL_E2E)", () => {
       //  we re-parse by reading the file via appendJournal's loader,
       //  but the canonical entry is `verifyJournal` which itself does
       //  the parse; we exercise the same shape through the import.)
-      const { verifyJournal } = await import("../src/rsi/journal.ts");
+      const { verifyJournal } = await import("../src/rsi/infra/journal.ts");
       const res = verifyJournal(path);
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.badRow).toBe(2);
@@ -117,7 +117,7 @@ describe("L0 — journal tamper detection (FERAL_E2E)", () => {
       const now = Date.UTC(2026, 6, 9, 12, 0, 0);
       const path = join(dir, journalFilename(new Date(now)));
       appendJournal(path, entry("c-only", now));
-      const { verifyJournal } = await import("../src/rsi/journal.ts");
+      const { verifyJournal } = await import("../src/rsi/infra/journal.ts");
       const res = verifyJournal(path);
       expect(res.ok).toBe(true);
       expect(res.entries).toBe(1);

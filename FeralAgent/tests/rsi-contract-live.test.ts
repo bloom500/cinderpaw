@@ -15,11 +15,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import { RatchetHandler } from "../src/rsi/ratchet-handler.ts";
-import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
-import type { JournalEntry } from "../src/rsi/journal.ts";
-import type { GateDecision } from "../src/rsi/confidence.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import { RatchetHandler } from "../src/rsi/l1-config/ratchet-handler.ts";
+import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
+import type { JournalEntry } from "../src/rsi/infra/journal.ts";
+import type { GateDecision } from "../src/rsi/infra/confidence.ts";
 
 const JOURNAL = join(tmpdir(), `rsi-contract-live-test-${process.pid}.jsonl`);
 const journalPath = () => JOURNAL;

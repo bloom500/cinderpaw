@@ -29,7 +29,7 @@ import {
   type BudgetRemaining,
   type FitnessVector,
   type JournalEntry,
-} from "../src/rsi/journal.ts";
+} from "../src/rsi/infra/journal.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {

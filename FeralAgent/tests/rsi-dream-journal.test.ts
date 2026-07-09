@@ -14,10 +14,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { makeCycleSummary } from "../src/rsi/dream-cycle.ts";
-import { readJournal } from "../src/rsi/journal.ts";
-import { episodeBudgetCaps } from "../src/rsi/episode-options.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/budget.ts";
+import { makeCycleSummary } from "../src/rsi/l1-config/dream-cycle.ts";
+import { readJournal } from "../src/rsi/infra/journal.ts";
+import { episodeBudgetCaps } from "../src/rsi/l1-config/episode-options.ts";
+import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
 
 const START = Date.UTC(2026, 6, 1, 12, 0, 0); // 2026-07-01T12:00:00Z
 const END = START + 90_000; // +1.5 min
@@ -138,7 +138,7 @@ describe("journal round-trips through readJournal", () => {
   afterEach(() => rmSync(path, { force: true }));
 
   test("a written cycle summary reads back with its decision intact", () => {
-    const { appendJournal } = require("../src/rsi/journal.ts");
+    const { appendJournal } = require("../src/rsi/infra/journal.ts");
     appendJournal(
       path,
       makeCycleSummary(

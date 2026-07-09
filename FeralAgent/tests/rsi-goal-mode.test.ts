@@ -12,14 +12,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus } from "../src/rsi/event-bus.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
-import { EvalWorker } from "../src/rsi/eval-worker.ts";
-import { RatchetHandler } from "../src/rsi/ratchet-handler.ts";
-import { SelectionMutationHandler } from "../src/rsi/selection-handler.ts";
-import { RecalcitranceTracker } from "../src/rsi/recalcitrance.ts";
-import { GoalMode, attachPopulationRecorder, type GoalConfig } from "../src/rsi/goal-mode.ts";
+import { EventBus } from "../src/rsi/infra/event-bus.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
+import { EvalWorker } from "../src/rsi/infra/eval-worker.ts";
+import { RatchetHandler } from "../src/rsi/l1-config/ratchet-handler.ts";
+import { SelectionMutationHandler } from "../src/rsi/l1-config/selection-handler.ts";
+import { RecalcitranceTracker } from "../src/rsi/l1-config/recalcitrance.ts";
+import { GoalMode, attachPopulationRecorder, type GoalConfig } from "../src/rsi/l1-config/goal-mode.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,

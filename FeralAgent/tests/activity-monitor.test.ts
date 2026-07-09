@@ -16,7 +16,7 @@
  * deterministic; no `Date.now()`, no `setTimeout`.
  */
 import { describe, expect, test } from "bun:test";
-import { ActivityMonitor } from "../src/rsi/activity-monitor.ts";
+import { ActivityMonitor } from "../src/rsi/l1-config/activity-monitor.ts";
 
 const MIN = 60_000;
 

@@ -20,20 +20,20 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeDataset, type EpisodicRow } from "../src/rsi/dataset-builder.ts";
-import type { EvalSpec } from "../src/rsi/eval-spec.ts";
-import { makeLoraEvalRunner } from "../src/rsi/lora-eval-runner.ts";
+import { writeDataset, type EpisodicRow } from "../src/rsi/l2-adapt/dataset-builder.ts";
+import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
+import { makeLoraEvalRunner } from "../src/rsi/l2-adapt/lora-eval-runner.ts";
 import {
   LoraReviewStore,
   applyLoraReview,
   deriveAdapterId,
   runLoraTrainingCycle,
-} from "../src/rsi/lora-pipeline.ts";
-import { LoraRegistry } from "../src/rsi/lora-registry.ts";
-import { makeRunEval } from "../src/rsi/run-eval.ts";
-import { CliTrainer } from "../src/rsi/trainers/cli-trainer.ts";
-import type { ExecFn } from "../src/rsi/code-sandbox.ts";
-import type { GenomeSpec } from "../src/rsi/population-manager.ts";
+} from "../src/rsi/l2-adapt/lora-pipeline.ts";
+import { LoraRegistry } from "../src/rsi/l2-adapt/lora-registry.ts";
+import { makeRunEval } from "../src/rsi/infra/run-eval.ts";
+import { CliTrainer } from "../src/rsi/l2-adapt/trainers/cli-trainer.ts";
+import type { ExecFn } from "../src/rsi/l3-code/code-sandbox.ts";
+import type { GenomeSpec } from "../src/rsi/l1-config/population-manager.ts";
 
 /** 12 fact-lookup tasks — enough samples for the confidence gate
  *  (MIN_SAMPLES = 10). The model under the adapter answers all of them;

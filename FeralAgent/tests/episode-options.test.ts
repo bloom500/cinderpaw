@@ -16,7 +16,7 @@ import { describe, expect, test } from "bun:test";
 import {
   episodeStartOptions,
   STANDING_GOAL,
-} from "../src/rsi/episode-options.ts";
+} from "../src/rsi/l1-config/episode-options.ts";
 
 describe("episodeStartOptions — defaults", () => {
   test("empty env yields exactly the documented defaults", () => {

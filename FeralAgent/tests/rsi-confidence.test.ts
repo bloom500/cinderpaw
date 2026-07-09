@@ -28,7 +28,7 @@ import {
   MIN_SAMPLES,
   type GateThresholds,
   type PairedSample,
-} from "../src/rsi/confidence.ts";
+} from "../src/rsi/infra/confidence.ts";
 
 /** Build N paired samples with a constant Δ. Bootstrap should make
  *  effectSize, pValue etc. trivial to assert. */

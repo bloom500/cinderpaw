@@ -30,12 +30,12 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { seedStrategyGenomes } from "./strategy-seeds.ts";
+import { seedStrategyGenomes } from "./l1-config/strategy-seeds.ts";
 
 // ── Re-exports ──────────────────────────────────────────────────────────────
 
-export { STRATEGY_SEED_VERSION, seedStrategyGenomes } from "./strategy-seeds.ts";
-export type { StrategyGenomeSeed } from "./strategy-seeds.ts";
+export { STRATEGY_SEED_VERSION, seedStrategyGenomes } from "./l1-config/strategy-seeds.ts";
+export type { StrategyGenomeSeed } from "./l1-config/strategy-seeds.ts";
 
 // ── One-time bootstrap (sidecar-owned slice only) ──────────────────────────
 

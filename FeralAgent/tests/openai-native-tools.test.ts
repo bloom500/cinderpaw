@@ -4,7 +4,7 @@ import {
   stripToolsFromSystemPrompt,
   OpenAICompatibleProvider,
   OllamaProvider,
-} from "../src/sandbox/inference-providers.ts";
+} from "../src/egress/inference-providers.ts";
 import type { Tool, ToolRegistry } from "../src/types.ts";
 
 describe("buildOpenAITools", () => {

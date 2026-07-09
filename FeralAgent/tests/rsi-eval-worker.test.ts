@@ -13,8 +13,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import { EvalWorker, type EvalOutcome } from "../src/rsi/eval-worker.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import { EvalWorker, type EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
 
 const GENOME = { id: "g1", generation: 0, lineage: [] };
 

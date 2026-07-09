@@ -15,17 +15,17 @@
  *   6. Every terminal writes exactly one journal row.
  */
 import { describe, expect, test } from "bun:test";
-import { runContract } from "../src/rsi/contract-runner.ts";
+import { runContract } from "../src/rsi/infra/contract-runner.ts";
 import {
   makeInitialState,
   type ContractDeps,
   type ContractStage,
   type StageResult,
-} from "../src/rsi/contract.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/budget.ts";
-import type { GateDecision, PairedSample } from "../src/rsi/confidence.ts";
-import type { JournalEntry } from "../src/rsi/journal.ts";
-import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/fitness.ts";
+} from "../src/rsi/infra/contract.ts";
+import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
+import type { GateDecision, PairedSample } from "../src/rsi/infra/confidence.ts";
+import type { JournalEntry } from "../src/rsi/infra/journal.ts";
+import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/l1-config/fitness.ts";
 
 const CALLS: ContractStage[] = [];
 

@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { RsiBridge } from "../src/rsi/bridge.ts";
+import { RsiBridge } from "../src/rsi/infra/bridge.ts";
 
 describe("RSI protocol-(a) bridge client", () => {
   test("request sends a correlated rsi_request and resolves on a matching ok response", async () => {

@@ -18,9 +18,9 @@ import {
   writeChampionTree,
   readChampionTree,
   type ChampionTreeState,
-} from "../src/rsi/champion-tree.ts";
-import type { ChampionRecord } from "../src/rsi/champion.ts";
-import type { GenomeConfig } from "../src/rsi/genome.ts";
+} from "../src/rsi/l1-config/champion-tree.ts";
+import type { ChampionRecord } from "../src/rsi/l1-config/champion.ts";
+import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 
 function champ(score: number, id = `g-${score}`): ChampionRecord {
   return {

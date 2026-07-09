@@ -11,9 +11,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { RsiBridge, type RsiResponse } from "../src/rsi/bridge.ts";
-import { makeScoreGenomeAdapter } from "../src/rsi/adapters.ts";
-import type { EvalOutcome } from "../src/rsi/eval-worker.ts";
+import { RsiBridge, type RsiResponse } from "../src/rsi/infra/bridge.ts";
+import { makeScoreGenomeAdapter } from "../src/rsi/infra/adapters.ts";
+import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
 
 class MockBridge extends RsiBridge {
   readonly sent: Array<{ id: string; method: string; params: unknown }> = [];

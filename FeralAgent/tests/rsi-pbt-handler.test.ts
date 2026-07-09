@@ -10,9 +10,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { EventBus, type RsiEvent } from "../src/rsi/event-bus.ts";
-import { PbtController, type StrategyGenome } from "../src/rsi/pbt-controller.ts";
-import { PbtHandler } from "../src/rsi/pbt-handler.ts";
+import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
+import { PbtController, type StrategyGenome } from "../src/rsi/l1-config/pbt-controller.ts";
+import { PbtHandler } from "../src/rsi/l1-config/pbt-handler.ts";
 
 function strat(id: string): StrategyGenome {
   return {

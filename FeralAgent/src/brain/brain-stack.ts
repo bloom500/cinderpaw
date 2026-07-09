@@ -42,7 +42,7 @@
  * via `brain?.enabled` in S5).
  */
 
-import type { CircuitBreaker } from "../sandbox/circuit-breaker.ts";
+import type { CircuitBreaker } from "../egress/circuit-breaker.ts";
 import type { ModelTarget } from "../types.ts";
 import {
   CapabilityRegistry,

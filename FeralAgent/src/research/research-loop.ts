@@ -16,7 +16,7 @@
  * within the loop). Every LLM call still counts against the session budget.
  */
 
-import type { InferenceRouter } from "../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../egress/inference-router.ts";
 import type { FeralFetch, ToolProgressPayload } from "../types.ts";
 
 export type ResearchProgressStage =

@@ -40,7 +40,7 @@ import {
   governanceCheck,
   layerFrozen,
   loadPolicy,
-} from "../src/rsi/governance.ts";
+} from "../src/rsi/l5-gov/governance.ts";
 
 const ENABLED = process.env.FERAL_E2E === "1";
 

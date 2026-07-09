@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildInstructionPairs,
   type EpisodicRow,
-} from "../src/rsi/dataset-builder.ts";
+} from "../src/rsi/l2-adapt/dataset-builder.ts";
 
 function row(sessionId: string, timestamp: number, role: string, content: string): EpisodicRow {
   return { sessionId, timestamp, role, content };

@@ -25,10 +25,10 @@ import {
   defaultGenesisPolicy,
   governanceCheck,
   loadPolicy,
-} from "../src/rsi/governance.ts";
-import { ensureGenesisPolicy, GovernanceLifecycle } from "../src/rsi/governance-lifecycle.ts";
-import { verifyChainFile } from "../src/rsi/hash-chain.ts";
-import { appendJournal, journalFilename, type JournalEntry } from "../src/rsi/journal.ts";
+} from "../src/rsi/l5-gov/governance.ts";
+import { ensureGenesisPolicy, GovernanceLifecycle } from "../src/rsi/l5-gov/governance-lifecycle.ts";
+import { verifyChainFile } from "../src/rsi/infra/hash-chain.ts";
+import { appendJournal, journalFilename, type JournalEntry } from "../src/rsi/infra/journal.ts";
 import {
   defaultReadWindowVerified,
   MetaEvolution,
@@ -36,8 +36,8 @@ import {
   mutateMetaGenome,
   DEFAULT_META_GENOME,
   type MetaGenome,
-} from "../src/rsi/meta-evolution.ts";
-import type { GovernancePolicy } from "../src/rsi/governance.ts";
+} from "../src/rsi/l6-meta/meta-evolution.ts";
+import type { GovernancePolicy } from "../src/rsi/l5-gov/governance.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {

@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { DreamScheduler, type DreamTrigger } from "../src/rsi/dream-scheduler.ts";
+import { DreamScheduler, type DreamTrigger } from "../src/rsi/l1-config/dream-scheduler.ts";
 
 function harness(overrides: Partial<Parameters<typeof DreamScheduler.prototype.constructor>[0]> = {}) {
   let running = false;

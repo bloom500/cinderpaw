@@ -15,7 +15,7 @@
  */
 
 import type { Tool, ToolManifest } from "../../types.ts";
-import type { InferenceRouter } from "../../sandbox/inference-router.ts";
+import type { InferenceRouter } from "../../egress/inference-router.ts";
 import { ResearchLoop } from "../../research/research-loop.ts";
 
 /**

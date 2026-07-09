@@ -18,7 +18,7 @@ import {
   DEFAULT_TENANT,
   paths,
   type InstancePaths,
-} from "../src/rsi/instance-paths.ts";
+} from "../src/rsi/infra/instance-paths.ts";
 
 describe("DEFAULT_TENANT", () => {
   test("is the literal string 'default'", () => {

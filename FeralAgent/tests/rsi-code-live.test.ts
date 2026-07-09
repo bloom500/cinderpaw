@@ -9,12 +9,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CodeGenome } from "../src/rsi/code-genome.ts";
-import type { CodeEvalMeasurements } from "../src/rsi/code-sandbox.ts";
-import type { CodeStageDeps } from "../src/rsi/code-leaves.ts";
-import { makeCodeStageAdapters, runCodeCandidate } from "../src/rsi/code-rsi.ts";
-import type { RsiBridge } from "../src/rsi/bridge.ts";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
+import type { CodeGenome } from "../src/rsi/l3-code/code-genome.ts";
+import type { CodeEvalMeasurements } from "../src/rsi/l3-code/code-sandbox.ts";
+import type { CodeStageDeps } from "../src/rsi/l3-code/code-leaves.ts";
+import { makeCodeStageAdapters, runCodeCandidate } from "../src/rsi/l3-code/code-rsi.ts";
+import type { RsiBridge } from "../src/rsi/infra/bridge.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 import {
   affectedFilesOf,
   applyEditBlocks,
@@ -23,8 +23,8 @@ import {
   parseEditBlocks,
   proposableFiles,
   proposeCodePatch,
-} from "../src/rsi/code-proposer.ts";
-import { parseUnifiedDiff } from "../src/rsi/code-genome.ts";
+} from "../src/rsi/l3-code/code-proposer.ts";
+import { parseUnifiedDiff } from "../src/rsi/l3-code/code-genome.ts";
 
 const genome: CodeGenome = {
   patch: "--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n",

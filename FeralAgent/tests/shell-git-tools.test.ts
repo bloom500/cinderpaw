@@ -15,10 +15,10 @@ import {
   createGitStatusTool, createGitDiffTool, createGitLogTool,
   createGitCommitTool, createGitBranchTool,
 } from "../src/tools/builtin/git.ts";
-import { AuditLog } from "../src/sandbox/audit-log.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
 import { openDatabase } from "../src/db.ts";
-import { EgressProxy } from "../src/sandbox/egress-proxy.ts";
-import { RealProcessSandbox } from "../src/sandbox/process-sandbox.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
 import type { ToolContext } from "../src/types.ts";
 
 function makeCtx(allowedPaths: string[]): { ctx: ToolContext; cleanup: () => void } {

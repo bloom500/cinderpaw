@@ -7,13 +7,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loraStats, type LoraReviewCard } from "../src/rsi/lora-pipeline.ts";
-import type { LoraAdapterRecord } from "../src/rsi/lora-registry.ts";
+import { loraStats, type LoraReviewCard } from "../src/rsi/l2-adapt/lora-pipeline.ts";
+import type { LoraAdapterRecord } from "../src/rsi/l2-adapt/lora-registry.ts";
 import {
   dirSizeMb,
   endResourceSample,
   startResourceSample,
-} from "../src/rsi/resource-monitor.ts";
+} from "../src/rsi/infra/resource-monitor.ts";
 
 describe("resource sampling", () => {
   test("measures real cpu/ram/wall over a window", () => {

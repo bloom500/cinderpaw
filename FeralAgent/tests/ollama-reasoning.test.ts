@@ -27,7 +27,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { OllamaProvider } from "../src/sandbox/inference-providers.ts";
+import { OllamaProvider } from "../src/egress/inference-providers.ts";
 import type {
   InferenceRequest,
   ModelTarget,

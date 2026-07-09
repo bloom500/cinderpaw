@@ -23,9 +23,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ModuleRegistry } from "../src/rsi/module-registry.ts";
-import { SeamAdapter } from "../src/rsi/seam-adapter.ts";
-import type { SpawnResult } from "../src/rsi/module-host-client.ts";
+import { ModuleRegistry } from "../src/rsi/l4-modules/module-registry.ts";
+import { SeamAdapter } from "../src/rsi/l4-modules/seam-adapter.ts";
+import type { SpawnResult } from "../src/rsi/l4-modules/module-host-client.ts";
 
 const ENABLED = process.env.FERAL_E2E === "1";
 

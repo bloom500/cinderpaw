@@ -4,7 +4,7 @@ import {
   encryptField,
   decryptField,
   fieldEncryptionEnabled,
-} from "../src/sandbox/field-crypto.ts";
+} from "../src/egress/field-crypto.ts";
 import { openDatabase } from "../src/db.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 

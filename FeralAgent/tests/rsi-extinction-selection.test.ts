@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { PopulationManager } from "../src/rsi/population-manager.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 
 /** Add a genome and give it a fingerprint + score so it has shared fitness. */
 function seed(pop: PopulationManager, id: string, score: number) {
