@@ -13,6 +13,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
+import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -124,7 +125,7 @@ const FERAL_HOME = resolve(homedir(), ".feral");
  */
 import pkgJson from "../package.json" with { type: "json" };
 const VERSION: string =
-  process.env.FERAL_VERSION ??
+  cfgPath("FERAL_VERSION") ??
   ((pkgJson as { version?: string }).version || "0.0.0-dev");
 
 /** When this sidecar process started, for uptime reports. */
@@ -375,8 +376,8 @@ export async function main(transportOverride?: Transport): Promise<void> {
     ? config.inference.primary
     : {
         provider: "openai_compatible",
-        model: process.env.FERAL_MODEL ?? "qwen2.5:7b",
-        baseUrl: process.env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
+        model: cfgPath("FERAL_MODEL")!,
+        baseUrl: cfgPath("FERAL_BASE_URL")!,
       };
 
   // --- Layer 2: Memory ---
@@ -451,7 +452,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
     // Dev-only subset cap for the benchmark gate: build/measure over the first
     // N leaves so we get real numbers in minutes on CPU instead of hours over
     // the full corpus. Unset in production (whole corpus). See FractalMemoryDeps.
-    maxLeaves: Number(process.env.FERAL_FRACTAL_BENCH_MAX_LEAVES) || 0,
+    maxLeaves: cfgInt("FERAL_FRACTAL_BENCH_MAX_LEAVES"),
     log,
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
     clearEmbeddings: () => episodic.clearEmbeddings(),
@@ -467,9 +468,9 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // tree, 0% recall on both engines). Warn loudly so the next operator
   // sees it before clicking Run Benchmark.
   {
-    const baseUrl = process.env.FERAL_BASE_URL ?? "";
+    const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
     const isLoopback = baseUrl === "" || /^(https?:\/\/)?(127\.|localhost)/i.test(baseUrl);
-    const cap = Number(process.env.FERAL_FRACTAL_BENCH_MAX_LEAVES) || 0;
+    const cap = cfgInt("FERAL_FRACTAL_BENCH_MAX_LEAVES");
     if (!isLoopback && cap === 0) {
       log(
         `[bench-cap] WARN: FERAL_BASE_URL=${baseUrl} is non-loopback but ` +
@@ -638,7 +639,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // The Rust host ALSO independently gates every call on the same flag plus an
   // app allow/deny policy, so even if this registration is reached the host is
   // the final authority. Default OFF.
-  if (process.env.FERAL_ENABLE_DESKTOP_CONTROL === "true") {
+  if (cfgBool("FERAL_ENABLE_DESKTOP_CONTROL")) {
     registry.register(createControlAppTool());
     log("control_app enabled (FERAL_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
   }
@@ -716,7 +717,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // so a sidecar that never opts in pays zero cost — no eager class
   // definitions, no startup work, no `setInterval` ticking, no router
   // contention, no audit-log writes from `#persistThought`.
-  const proactiveEnabled = process.env.FERAL_PROACTIVE_ENABLED === "true";
+  const proactiveEnabled = cfgBool("FERAL_PROACTIVE_ENABLED");
   let mood: import("./core/mood.ts").MoodEngine | null = null;
   let innerThoughts: import("./core/inner-thoughts.ts").InnerThoughtsLoop | null = null;
   if (proactiveEnabled) {
@@ -1006,7 +1007,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // (spec §2.5: no network during proposal). At most one round in flight.
   let codeRsiBusy = false;
   const maybeCodeRsiRound = async (): Promise<void> => {
-    const repoRoot = process.env.FERAL_CODE_RSI_REPO;
+    const repoRoot = cfgPath("FERAL_CODE_RSI_REPO");
     if (!repoRoot || codeRsiBusy) return;
     if (!router.isPrimaryLocal) {
       log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5)");
@@ -1731,7 +1732,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
               ack(resolved.status);
               return;
             }
-            const repoRoot = process.env.FERAL_CODE_RSI_REPO;
+            const repoRoot = cfgPath("FERAL_CODE_RSI_REPO");
             if (!repoRoot) {
               ack("approved", "live apply unavailable: set FERAL_CODE_RSI_REPO to the source repo");
               return;
@@ -2364,7 +2365,7 @@ export async function main(transportOverride?: Transport): Promise<void> {
     if (!decision.enabled) {
       log(`rsi dream: not arming scheduler (${decision.reason})`);
     } else {
-      const baseUrl = process.env.FERAL_BASE_URL ?? "";
+      const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
       let isLoopback = baseUrl === "";
       try {
         const h = new URL(baseUrl).hostname;

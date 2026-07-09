@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * check-env-docs.mjs — B2 spec gate.
+ * check-env-docs.mjs — B2 spec gate, extended by R3.
  *
  * The configuration doc (`docs/CONFIGURATION.md`) MUST list every
  * `FERAL_*` env var that appears in source. The spec calls for a
  * machine-checkable drift detector so the doc cannot silently rot
  * when someone adds a new env var.
  *
- * Strategy:
+ * Strategy (unchanged from B2):
  *   1. Grep FeralAgent/src, src-tauri/src, crates/ for `FERAL_[A-Z_]+`
  *      (rg --no-filename; fall back to a node walker if rg is missing).
  *   2. Parse `docs/CONFIGURATION.md` and extract the canonical list
@@ -20,6 +20,18 @@
  *      Test sentinels (`FERAL_DOES_NOT_EXIST_XYZ`, `FERAL_TEST_*`) are
  *      hard-coded excludes; add to this list only with consensus.
  *
+ * R3 additions — the TS side now has a single source of truth,
+ * `FeralAgent/src/config.ts`'s `CONFIG_SCHEMA`. Two new checks:
+ *   4. Every `CONFIG_SCHEMA` entry name must appear in the doc's
+ *      `feral-env-vars` fence (schema-missing — always fails).
+ *   5. The doc's generated `<!-- TS-SCHEMA-TABLE -->` section must equal
+ *      what `scripts/gen-config-docs.mjs` would produce right now
+ *      (doc-stale — always fails). This is the literal "is the committed
+ *      doc stale vs a fresh generator run" check.
+ * Neither of these widens what the original MISSING/UNLISTED check
+ * tolerates — they are strictly additional, always-on gates layered on
+ * top of the unchanged B2 logic.
+ *
  * Usage:
  *   node scripts/check-env-docs.mjs            # exit 0 if clean
  *   node scripts/check-env-docs.mjs --strict   # exit 1 on MISSING
@@ -31,10 +43,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseConfigSchema, renderTable } from "./gen-config-docs.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const DOC = join(ROOT, "docs", "CONFIGURATION.md");
+const CONFIG_TS = join(ROOT, "FeralAgent", "src", "config.ts");
 
 const SOURCE_ROOTS = [
   join("FeralAgent", "src"),
@@ -134,19 +148,76 @@ function documentedVars() {
   );
 }
 
+/**
+ * R3 check 4: every CONFIG_SCHEMA entry name must be in the doc's
+ * feral-env-vars fence. Always fails (not gated by --strict) — the
+ * schema is the TS source of truth now, so drift here is a hard bug.
+ */
+function checkSchemaNamesDocumented(doc) {
+  const configSrc = readFileSync(CONFIG_TS, "utf8");
+  const schema = parseConfigSchema(configSrc);
+  const missing = schema.map((e) => e.name).filter((n) => !doc.has(n)).sort();
+  return { schema, missing };
+}
+
+/**
+ * R3 check 5: the doc's <!-- TS-SCHEMA-TABLE --> section must equal what
+ * gen-config-docs.mjs would produce right now. Always fails — a stale
+ * generated section defeats the point of generating it.
+ */
+function checkGeneratedTableFresh(configSrc) {
+  const md = readFileSync(DOC, "utf8");
+  const marker = "<!-- TS-SCHEMA-TABLE -->";
+  const endMarker = "<!-- /TS-SCHEMA-TABLE -->";
+  const start = md.indexOf(marker);
+  const end = md.indexOf(endMarker);
+  if (start === -1 || end === -1) {
+    return { stale: true, reason: `docs/CONFIGURATION.md is missing ${marker}/${endMarker}` };
+  }
+  const committed = md.slice(start + marker.length, end).trim();
+  const fresh = renderTable(parseConfigSchema(configSrc)).trim();
+  if (committed !== fresh) {
+    return {
+      stale: true,
+      reason: "docs/CONFIGURATION.md's TS-SCHEMA-TABLE is stale vs FeralAgent/src/config.ts. Run `node scripts/gen-config-docs.mjs` and commit the result.",
+    };
+  }
+  return { stale: false };
+}
+
 function main() {
   const strict = process.argv.includes("--strict");
   const src = harvestVars();
   const doc = documentedVars();
   const missing = [...src].filter((v) => !doc.has(v)).sort();
   const unlisted = [...doc].filter((v) => !src.has(v)).sort();
-  if (missing.length === 0 && unlisted.length === 0) {
-    console.log(`[check-env-docs] OK — ${src.size} env vars documented, none missing.`);
+
+  const configSrc = readFileSync(CONFIG_TS, "utf8");
+  const { schema, missing: schemaMissing } = checkSchemaNamesDocumented(doc);
+  const { stale, reason: staleReason } = checkGeneratedTableFresh(configSrc);
+
+  let hardFail = false;
+  if (schemaMissing.length > 0) {
+    hardFail = true;
+    for (const v of schemaMissing) {
+      console.error(`SCHEMA-MISSING (config.ts CONFIG_SCHEMA has it, docs/CONFIGURATION.md fence does not): ${v}`);
+    }
+  }
+  if (stale) {
+    hardFail = true;
+    console.error(staleReason);
+  }
+
+  if (missing.length === 0 && unlisted.length === 0 && !hardFail) {
+    console.log(
+      `[check-env-docs] OK — ${src.size} env vars documented, none missing. ` +
+        `${schema.length} config.ts schema rows verified fresh.`,
+    );
     return;
   }
   for (const v of missing) console.error(`MISSING (source has it, doc does not): ${v}`);
   for (const v of unlisted) console.warn(`UNLISTED (doc has it, no source reference): ${v}`);
-  if (strict && missing.length > 0) {
+  if (hardFail || (strict && missing.length > 0)) {
     process.exit(1);
   } else if (!strict) {
     console.log(

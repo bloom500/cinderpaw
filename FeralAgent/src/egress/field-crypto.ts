@@ -20,6 +20,7 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { cfgPath } from "../config.ts";
 
 const PREFIX = "enc:v1:";
 const IV_BYTES = 12; // standard GCM nonce length
@@ -31,7 +32,7 @@ const TAG_BYTES = 16;
  * semantic ops are infrequent, so the cost is irrelevant and testability wins.
  */
 function loadKey(): Buffer | null {
-  const raw = process.env.FERAL_DB_KEY;
+  const raw = cfgPath("FERAL_DB_KEY");
   if (!raw) return null;
   try {
     const key = Buffer.from(raw, "base64");

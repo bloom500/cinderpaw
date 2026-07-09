@@ -30,6 +30,7 @@
  */
 
 import type { Tool, ToolResult, AskUserQuestion } from "../../types.ts";
+import { cfgBool } from "../../config.ts";
 
 type Action =
   | "list_windows"
@@ -381,7 +382,7 @@ async function confirmWrite(
     // state-changing action and we cannot obtain it; the host denylist is a
     // separate gate, not a substitute for per-action consent. A trusted/headless
     // transport that genuinely has no askUser bridge can opt out explicitly.
-    return process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK === "true";
+    return cfgBool("FERAL_DESKTOP_CONTROL_NO_PROMPT_OK");
   }
   const target = typeof args.element_id === "string" ? args.element_id : "(focused element)";
   const detail =

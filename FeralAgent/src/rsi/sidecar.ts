@@ -43,6 +43,7 @@ import { makeInvokeAgent, type InvokeRouter } from "./infra/invoke-agent.ts";
 import { builtinPlanSteps, itemsToHits, liveSeamAdapter, repliesToSteps } from "./l4-modules/seam-runtime.ts";
 import { spawnModuleHost } from "./l4-modules/module-host-client.ts";
 import { selectCrossoverPairs } from "./l1-config/crossover-selection.ts";
+import { cfgPath } from "../config.ts";
 import { PopulationManager, type GenomeSpec } from "./l1-config/population-manager.ts";
 import { EventBus } from "./infra/event-bus.ts";
 import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
@@ -542,7 +543,7 @@ export class RsiSidecar {
     };
 
     // ── Compose ───────────────────────────────────────────────────────
-    const baseUrl = process.env.FERAL_BASE_URL ?? "";
+    const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
     let isLoopback = false;
     try {
       const host = new URL(baseUrl).hostname;

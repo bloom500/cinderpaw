@@ -18,6 +18,7 @@ import {
   terminalWidth,
 } from "./render.ts";
 import type { OutboundEvent } from "../types.ts";
+import { cfgPath } from "../config.ts";
 
 export async function runChat(): Promise<void> {
   const useColor = shouldUseColor();
@@ -90,7 +91,7 @@ export async function runChat(): Promise<void> {
   const { main } = await import("../index.ts");
   await main(transport);
 
-  const model = process.env.FERAL_MODEL ?? "qwen2.5:7b";
+  const model = cfgPath("FERAL_MODEL")!;
   console.log();
   console.log(renderStatusBar(model, width, useColor));
   console.log();
@@ -158,8 +159,8 @@ export async function runChat(): Promise<void> {
         return;
 
       case "/model": {
-        const cfg = process.env.FERAL_MODEL ?? "qwen2.5:7b";
-        const prov = process.env.FERAL_PROVIDER ?? "openai_compatible";
+        const cfg = cfgPath("FERAL_MODEL")!;
+        const prov = cfgPath("FERAL_PROVIDER")!;
         console.log(secondary(`  ${prov}/${cfg}`, clr));
         console.log();
         break;

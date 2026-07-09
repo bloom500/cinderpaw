@@ -19,6 +19,7 @@ import {
   InferenceError,
 } from "../egress/inference-router.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
+import { cfgInt } from "../config.ts";
 import type { EpisodicMemory } from "../memory/episodic.ts";
 import type { RecallResult } from "../memory/recall.ts";
 
@@ -1028,7 +1029,7 @@ export class AgentLoop {
     }
     // Prefer the engine's real active window (forwarded by Rust on set_model);
     // fall back to the env / conservative default before the first set_model.
-    const ctx = this.#router.contextWindow || Number(process.env.FERAL_MAX_CONTEXT) || 8192;
+    const ctx = this.#router.contextWindow || cfgInt("FERAL_MAX_CONTEXT");
     const outputReserve = Math.min(this.#config.maxTokensPerCall, 2048);
     // ponytail: covers the CORE advertised tool schemas (~2-3K) plus headroom
     // for a few drawer-loaded tools — not counted by estimatedTokens(). Was

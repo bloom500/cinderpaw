@@ -37,6 +37,7 @@ import { join } from "node:path";
 import { MCPClient } from "./mcp-client.ts";
 import type { AuditLogger } from "../types.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
+import { cfgPath } from "../config.ts";
 
 /** Mirrors `McpServerConfig` in `src-tauri/src/mcp.rs` (serde field names). */
 export interface McpServerConfig {
@@ -60,7 +61,7 @@ export interface McpServerStatus {
 
 /** Default config path — the file `src-tauri/src/mcp.rs` persists. */
 export function defaultMcpConfigPath(): string {
-  const feralHome = process.env.FERAL_HOME ?? join(homedir(), ".feral");
+  const feralHome = cfgPath("FERAL_HOME") ?? join(homedir(), ".feral");
   return join(feralHome, "mcp.json");
 }
 

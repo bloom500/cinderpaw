@@ -22,6 +22,7 @@ import type {
   StreamProgressEvent,
 } from "../types.ts";
 import { resolvePerfPolicy, type PerfPolicy } from "./perf-policy.ts";
+import { cfgInt } from "../config.ts";
 
 // Defined here (not imported from inference-router) to avoid a circular dep.
 // inference-router re-exports its own InferenceError class; both throw the
@@ -39,8 +40,8 @@ class InferenceError extends Error {
 // Kept for back-compat with the old idleAbortController — the new
 // `deadlineController` honors it via the resolver's
 // `FERAL_CLOUD_IDLE_TIMEOUT_MS` env override (see perf-policy.ts).
-const _cit = process.env.FERAL_CLOUD_IDLE_TIMEOUT_MS;
-const CLOUD_IDLE_MS: number = _cit && Number.isFinite(+_cit) && +_cit > 0 ? +_cit : 60_000;
+const _cit = cfgInt("FERAL_CLOUD_IDLE_TIMEOUT_MS");
+const CLOUD_IDLE_MS: number = _cit > 0 ? _cit : 60_000;
 
 // ---------------------------------------------------------------------------
 // Provider interface
