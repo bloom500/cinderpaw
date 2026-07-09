@@ -40,6 +40,7 @@ import {
 import { makeRunEval } from "./run-eval.ts";
 import { makeGetSpecs } from "./get-specs.ts";
 import { makeInvokeAgent, type InvokeRouter } from "./invoke-agent.ts";
+import { builtinPlanSteps, liveSeamAdapter, repliesToSteps } from "./seam-runtime.ts";
 import { selectCrossoverPairs } from "./crossover-selection.ts";
 import { PopulationManager, type GenomeSpec } from "./population-manager.ts";
 import { EventBus } from "./event-bus.ts";
@@ -287,6 +288,17 @@ export class RsiSidecar {
     // Qwen3/3.5 honor a `/no_think` soft switch in the prompt; without it the
     // model spends the whole eval budget inside <think> and the graded answer
     // never arrives. Models without the switch see one line of harmless text.
+    // L4 planner seam (§1.2): eval decomposition consults the live seam —
+    // a promoted planner module shapes the sub-prompts; the builtin is
+    // today's `[Part k/N]` split, byte-identical when nothing is promoted.
+    const plannerSeam = liveSeamAdapter(
+      "planner",
+      async (_method, params) => {
+        const p = params as { goal: string; maxDepth: number };
+        return { steps: builtinPlanSteps(p.goal, Math.max(1, p.maxDepth)) };
+      },
+      this.deps.log,
+    );
     const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
       contextBudget: evalBudget,
@@ -296,6 +308,7 @@ export class RsiSidecar {
         // evals grade the agent-as-shipped, not an anonymous model.
         "You are Feral, a local AI agent made by bloom. " +
         (this.deps.systemPrompts?.[id] ?? DEFAULT_SYSTEM_PROMPT) + " /no_think",
+      plan: async (req) => repliesToSteps(await plannerSeam.invoke("plan", req)),
     });
     const invokeAgent: typeof baseInvokeAgent = async (prompt, genome) => {
       try {

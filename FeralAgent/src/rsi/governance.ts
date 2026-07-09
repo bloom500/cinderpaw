@@ -214,6 +214,20 @@ export function governanceCheck(
   return { allowed: true, reason: `allowed by policy ${policy.policyId}` };
 }
 
+/** Freeze-only check for lifecycle transitions that are not governed
+ *  actions themselves (L4 spec §7: `frozen.l4` refuses EVERY l4.* step —
+ *  scaffold/build/evaluate — not just promotion). Same one-door rule as
+ *  `governanceCheck`: layers never read `policy.frozen` ad hoc. */
+export function layerFrozen(
+  layer: keyof FrozenFlags,
+  dir = defaultGovernanceDir(),
+): { frozen: boolean; reason: string } {
+  const policy = loadPolicy(dir).policy;
+  return policy.frozen[layer]
+    ? { frozen: true, reason: `frozen by governance (frozen.${layer})` }
+    : { frozen: false, reason: `not frozen (policy ${policy.policyId})` };
+}
+
 // ── Clamp (the single door) ────────────────────────────────────────────────
 
 export interface ClampResult {

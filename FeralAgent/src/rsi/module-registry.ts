@@ -180,6 +180,9 @@ export interface RegistryHistoryRow {
   to: string;
   actor: string;
   reason: string;
+  /** Present on lifecycle STATE rows (spec §3: every transition appends
+   *  here). Absent on active-repoint rows — `from`/`to` are then impls. */
+  moduleId?: string;
 }
 
 export function defaultModulesDir(): string {
@@ -302,6 +305,20 @@ export class ModuleRegistry {
       summary: `${seam}: ${from} → ${to} (${reason})`,
     });
     return { ok: true };
+  }
+
+  /** Append a lifecycle state-transition row (spec §3: every transition
+   *  lands in registry_history.jsonl). Forensics only — the envelope owns
+   *  the operative state; this is the ordered timeline beside repoints. */
+  recordStateTransition(
+    seam: string,
+    moduleId: string,
+    from: string,
+    to: string,
+    actor: string,
+    reason: string,
+  ): void {
+    this.appendHistory({ timestamp: this.now(), seam, from, to, actor, reason, moduleId });
   }
 
   // ── Internals ────────────────────────────────────────────────────────

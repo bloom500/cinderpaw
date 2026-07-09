@@ -47,6 +47,10 @@ export interface ModuleHost {
   /** Failure counters for the B3 watchdog. */
   stats(): { requests: number; failures: number; consecutiveTimeouts: number };
   stop(): void;
+  /** Resolves when the child process has fully exited. `stop()` is
+   *  fire-and-forget; await this when the caller needs the process gone
+   *  (e.g. before removing the module dir — Windows holds the cwd). */
+  exited: Promise<unknown>;
 }
 
 export type SpawnResult =
@@ -209,6 +213,7 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
     alive: () => alive,
     stats: () => ({ requests, failures, consecutiveTimeouts }),
     stop: () => kill("stopped by runtime"),
+    exited: proc.exited,
     request(method: string, params: unknown): Promise<HostReply> {
       if (!alive) return Promise.resolve({ ok: false, error: "host not running" });
       requests++;

@@ -65,6 +65,7 @@ import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-me
 import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { RsiSidecar } from "./rsi/sidecar.ts";
+import { hitsToItems, itemsToHits, liveSeamAdapter } from "./rsi/seam-runtime.ts";
 import { shouldAutostartPassive } from "./rsi/passive-supervisor.ts";
 import { createDreamCycle } from "./rsi/dream-cycle.ts";
 import { defaultJournalPath, defaultJournalDir, journalFilename, verifyJournal } from "./rsi/journal.ts";
@@ -633,8 +634,24 @@ export async function main(transportOverride?: Transport): Promise<void> {
   // recall — read-only on-demand semantic search over past conversations,
   // backed by Fractal Memory Search. Capture stays reactive (MemoryExtractor);
   // this is the explicit-search counterpart to per-turn auto-injection.
+  // L4 (§1.1): the search routes through the retrieval_strategy seam — a
+  // promoted module replaces the ranking; with none promoted the builtin
+  // fast-path calls FractalMemory.query directly (no process boundary).
+  const retrievalSeam = liveSeamAdapter(
+    "retrieval_strategy",
+    async (_method, params) => {
+      const p = params as { query: string; k: number };
+      return hitsToItems(await fractalMemory.query(p.query, p.k));
+    },
+    log,
+  );
   registry.register(
-    createRecallTool((q, limit) => fractalMemory.query(q, limit)),
+    createRecallTool(async (q, limit) =>
+      itemsToHits(
+        await retrievalSeam.invoke("retrieve", { query: q, k: limit, sessionId: "recall-tool" }),
+        limit,
+      ),
+    ),
   );
 
   // P0-1: delegate_task — spawn a subagent for an isolated, bounded

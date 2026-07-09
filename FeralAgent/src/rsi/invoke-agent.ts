@@ -118,6 +118,13 @@ export interface InvokeAgentDeps {
   /** Hard cap on the decompositionDepth → sub-call count.
    *  Default MAX_DECOMPOSITION (4). */
   maxDecomposition?: number;
+  /** Optional L4 planner seam (catalog §1.2). Consulted only when
+   *  decomposition actually splits (n > 1); returns the sub-prompts.
+   *  Absent, a null reply, or a throw → the builtin `[Part k/N]` split —
+   *  byte-identical to the historical behavior (AC10). */
+  plan?: (req: { goal: string; maxDepth: number; toolNames: string[] }) => Promise<
+    Array<{ description: string; suggestedTools: string[] }> | null
+  >;
 }
 
 /** Hard ceiling on the depth→sub-call expansion so a single genome
@@ -152,6 +159,7 @@ export function makeInvokeAgent(
       sessionId: sessionIdFor(genome.id),
       prompt,
       config,
+      plan: deps.plan,
     });
   };
 }
@@ -167,6 +175,7 @@ async function runOnce(args: {
   sessionId: string;
   prompt: string;
   config: GenomeConfig;
+  plan?: InvokeAgentDeps["plan"];
 }): Promise<AgentResponse> {
   const systemPrompt = args.getSystemPrompt(args.config.systemPromptId);
   const recallBlock = args.recall
@@ -219,7 +228,31 @@ async function runOnce(args: {
     return { response: res.content, tokens: res.totalTokens };
   }
 
-  const subCalls = Array.from({ length: n }, (_, k) =>
+  // L4 planner seam (§1.2): when a planner module is active it produces
+  // the sub-prompts; any failure or malformed reply falls back to the
+  // builtin `[Part k/N]` split (the adapter already falls back to the
+  // builtin implementation — this guard covers a schema-breaching reply).
+  let parts: string[] | null = null;
+  if (args.plan) {
+    try {
+      const steps = await args.plan({
+        goal: userContent,
+        maxDepth: n,
+        toolNames: (args.toolRegistry?.tools() ?? []).map((t) => t.name),
+      });
+      if (steps && steps.length > 0) {
+        parts = steps.slice(0, n).map((s) => s.description);
+      }
+    } catch {
+      parts = null;
+    }
+  }
+  parts ??= Array.from(
+    { length: n },
+    (_, k) => `[Part ${k + 1}/${n}]\n${userContent}`,
+  );
+
+  const subCalls = parts.map((content, k) =>
     args.router.complete({
       ...baseRequest,
       // The first sub-call uses the canonical per-genome sessionId so
@@ -231,10 +264,7 @@ async function runOnce(args: {
       sessionId: k === 0 ? args.sessionId : `${args.sessionId}#p${k + 1}`,
       messages: [
         { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `[Part ${k + 1}/${n}]\n${userContent}`,
-        },
+        { role: "user", content },
       ],
     }),
   );
