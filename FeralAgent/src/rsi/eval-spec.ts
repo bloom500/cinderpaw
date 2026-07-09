@@ -41,6 +41,11 @@ export interface EvalSpec {
   prompt: string;
   kind: EvalKind;
   expected: EvalExpected;
+  /** Capability domain for `capabilitiesMeasured` aggregation (L4 spec §5).
+   *  Brain Stack vocabulary (`capability-registry.ts` `Capability`).
+   *  Optional: specs without one fall back to a deterministic kind→domain
+   *  map in `module-eval.ts`. */
+  domain?: string;
 }
 
 /**
