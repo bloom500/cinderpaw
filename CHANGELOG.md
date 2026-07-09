@@ -7,6 +7,26 @@
 
 ## Unreleased
 
+### Configuration documentation
+
+- **New `docs/CONFIGURATION.md`** (B2 of
+  `docs/2026-07-09-v1-architecture-hardening-spec.md`). Catalogs all
+  95 `FERAL_*` env vars that source code reads, grouped by domain,
+  with type/default for every var and an explicit threat note for
+  every security-critical knob (`FERAL_ENABLE_SHELL_EXEC`,
+  `FERAL_ENABLE_CODE_EXEC`, `FERAL_ENABLE_DESKTOP_CONTROL`,
+  `FERAL_DESKTOP_CONTROL_*`, `FERAL_DB_KEY`, `FERAL_AGENT_WORKSPACE`,
+  `FERAL_WORKSPACE`, `FERAL_FETCH_DOMAINS`, `FERAL_HTTP_DOMAINS`,
+  `FERAL_TRUSTED_BASE_URLS`, `FERAL_SHELL_WHITELIST`,
+  `FERAL_PROACTIVE_ENABLED`, `FERAL_INNER_THOUGHTS_ENABLED`,
+  `FERAL_JINA_API_KEY`, `FERAL_PII_REDACTION`). The
+  `FERAL_WORKSPACE` (TS list) vs `FERAL_AGENT_WORKSPACE` (Rust single
+  path) trap is called out in its own section.
+- **`scripts/check-env-docs.mjs`** greps source for `FERAL_*` and
+  diffs against a fenced `feral-env-vars` block in the doc. Wired
+  into the bun suite via `FeralAgent/tests/env-docs.test.ts` — any
+  new env var that isn't added to the doc fails CI.
+
 ### Repository hygiene
 
 - **Removed committed graphify output.** `graphify-out/` (16 files:
