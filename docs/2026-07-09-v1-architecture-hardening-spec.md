@@ -264,7 +264,21 @@ security vars all flow through config.ts.
 faithfully. **Trap:** several vars have *different* defaults in different call sites
 today; when found, report each in the PR instead of silently unifying.
 
-## R4. Single provider record
+## R4. Single provider record — ✅ DONE 2026-07-09 (Fable, commit 73fe35c)
+
+Implemented findings differed from the original scope (verified against code):
+the catalog WAS already the wizard's single source (TUI + Onboarding consume it
+with bundled fallbacks — the designed pattern). The real duplication was four
+hand-rolled `match provider_id` copies (three missing "nvidia", one with a
+drifted MiniMax URL `api.minimax.chat` vs `.io`) and Settings→Cloud Keys
+(`ByokTab.tsx`) never consuming the catalog. Fixed: `Provider::from_id()` +
+`Provider::family()` canonical mappings, `default_provider_configs()` derived
+from the catalog, ByokTab wired to `useCatalog` (PROVIDER_DEFS kept as offline
+fallback + `availableModels` carrier), 3 drift tests added. The TS sidecar
+needed nothing: unknown provider ids already default to the OpenAI-compatible
+family in `inference-router.ts`.
+
+Original scope (kept for reference):
 
 **Problem.** Adding a provider touches 3 places in 2 languages:
 `FeralAgent/src/sandbox/inference-providers.ts` (protocol adapter) +
@@ -291,7 +305,22 @@ the BYOK/extensible positioning.
 trust config (`trustedBaseUrls` in `inference-router.ts` — the catalog must feed it,
 never bypass it; the egress trust check is a security invariant, keep it fail-closed).
 
-## R5. Unify MCP on one client
+## R5. Unify MCP on one client — ✅ DONE 2026-07-09 (Fable, commit f7913c0)
+
+Implemented. Key finding vs. original scope: the sidecar's `mcp-client.ts` was
+DEAD code (zero consumers — the agent↔MCP bridge never existed), so R5
+delivered the bridge and the unification in one move. New
+`sandbox/mcp-manager.ts` owns connections (reconcile from `~/.feral/mcp.json`,
+tools registered as `mcp_<name>` in the drawer tier); `index.ts` serves
+`mcp_reload/status/list_tools/call_tool` → `mcp_result`; Rust `mcp.rs` is now
+catalog + config CRUD + humanize + stdin proxy; rmcp removed; Windows
+metachar denylist enforced at install (Rust) AND spawn (TS). Bonus fix:
+desktop `TauriEvents` now fans onto `runtime.events_tx` (embedded HTTP API
+roundtrips were blind before). Headless gateway gets MCP for free.
+⚠️ Remaining for the smoke pass: drive the Extensions page live
+(install → toggle → tools list → agent calls an MCP tool).
+
+Original scope (kept for reference):
 
 **Problem.** Two full MCP client stacks: `rmcp` in `src-tauri/src/mcp.rs` (Extensions
 page) and hand-rolled JSON-RPC in `FeralAgent/src/sandbox/mcp-client.ts` (agent
