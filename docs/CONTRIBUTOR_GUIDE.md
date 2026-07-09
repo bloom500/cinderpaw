@@ -5,6 +5,10 @@ read that first for the 60-second version. This guide covers the architecture in
 depth, how the three runtimes talk to each other, how to run every test suite,
 and how builds and releases work.
 
+> **For the layer model (L0–L6), Faza ↔ L-layer translation, file map
+> and glossary, see [ARCHITECTURE.md](../ARCHITECTURE.md). For every
+> `FERAL_*` env var, see [CONFIGURATION.md](./CONFIGURATION.md).**
+
 ---
 
 ## 1. The three runtimes

@@ -7,6 +7,26 @@
 
 ## Unreleased
 
+### Architecture overview
+
+- **New `ARCHITECTURE.md`** (B4 of
+  `docs/2026-07-09-v1-architecture-hardening-spec.md`) at the repo
+  root. The single map a senior contributor needs to self-orient:
+  - The four runtimes (Desktop UI, Rust host, sidecar, TUI) and the
+    three protocols (Tauri IPC, stdin JSON-lines, loopback HTTP).
+  - L0–L6 layer model with file locations on both sides
+    (`FeralAgent/src/rsi/`, `crates/feral-core/src/rsi/`,
+    `src-tauri/src/rsi/`).
+  - Faza ↔ L-layer ↔ spec doc ↔ code-path translation table,
+    verified against `git log --grep="Faza"` on this branch.
+  - Glossary of evocative terms (BRSI, ratchet, escape-time,
+    recalcitrance, taste, champion-tree, FMS, seam, SandboxBounds,
+    strikes, …) with owning file per term.
+  - "Where do I add X" cheat sheet for provider / tool / connector /
+    seam module / memory strategy.
+  `docs/CONTRIBUTING.md` and `docs/CONTRIBUTOR_GUIDE.md` updated to
+  link to the new file (no duplication of the runtime narrative).
+
 ### Configuration documentation
 
 - **New `docs/CONFIGURATION.md`** (B2 of

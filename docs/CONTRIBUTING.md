@@ -2,6 +2,13 @@
 
 > Want the deep dive? See the full [Contributor Guide](./CONTRIBUTOR_GUIDE.md)
 > — architecture in depth, IPC protocols, test matrix, build & release flow.
+>
+> **For the layer map (L0–L6), file locations, Faza ↔ L-layer
+> translation, and the glossary of evocative terms, see
+> [ARCHITECTURE.md](../ARCHITECTURE.md).**
+>
+> **For every `FERAL_*` env var (security-group with threat notes
+> included), see [CONFIGURATION.md](./CONFIGURATION.md).**
 
 ## Architecture in 60 seconds
 
