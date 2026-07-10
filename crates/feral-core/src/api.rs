@@ -83,6 +83,10 @@ pub fn router(state: ApiState) -> Router {
         // observability stream; the sidecar-round-trip endpoints
         // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
         .route("/runtime/chat", post(runtime_chat))
+        .route(
+            "/runtime/connectors",
+            get(runtime_connectors_list).post(runtime_connectors_save),
+        )
         .route("/runtime/connectors/reload", post(runtime_connectors_reload))
         .route("/runtime/shutdown", post(runtime_shutdown))
         .route("/runtime/status", get(runtime_status))
@@ -878,6 +882,83 @@ fn sse_from_agent_reply(
         }
     };
     Sse::new(s)
+}
+
+/// R6: `GET /runtime/connectors` — the redacted state (enabled, which secret
+/// fields are filled, allowlist, channels, mode) for every persisted
+/// connector. Static catalog metadata (name, pairing fields, icon…) lives at
+/// `GET /runtime/connectors/catalog`; join client-side by `id`. Never returns
+/// a raw secret value.
+async fn runtime_connectors_list() -> Response {
+    let views: Vec<_> = connector_catalog::load_connector_configs()
+        .iter()
+        .map(connector_catalog::redact_for_frontend)
+        .collect();
+    Json(views).into_response()
+}
+
+#[derive(Deserialize)]
+struct RuntimeConnectorSaveBody {
+    id: String,
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    secrets: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    allowlist: Option<Vec<String>>,
+    #[serde(default)]
+    channels: Option<Vec<String>>,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default, rename = "knowledgeBase")]
+    knowledge_base: Option<String>,
+}
+
+/// R6: `POST /runtime/connectors` — upsert one connector's config (only
+/// non-empty secret values override existing ones, matching the desktop
+/// command's merge semantics), then poke the sidecar to reload — same
+/// mechanism as `POST /runtime/connectors/reload`. Returns the redacted view.
+async fn runtime_connectors_save(
+    State(state): State<ApiState>,
+    Json(body): Json<RuntimeConnectorSaveBody>,
+) -> Response {
+    if connector_catalog::connector_by_id(&body.id).is_none() {
+        return (StatusCode::BAD_REQUEST, "unknown connector id").into_response();
+    }
+    let mut cfg = connector_catalog::load_connector_config(&body.id)
+        .unwrap_or_else(|| connector_catalog::blank_connector_config(&body.id));
+    if let Some(enabled) = body.enabled {
+        cfg.enabled = enabled;
+    }
+    if let Some(secrets) = body.secrets {
+        for (k, v) in secrets {
+            let v = v.trim();
+            if !v.is_empty() {
+                cfg.secrets.insert(k, v.to_string());
+            }
+        }
+    }
+    if let Some(allowlist) = body.allowlist {
+        cfg.allowlist = allowlist;
+    }
+    if let Some(channels) = body.channels {
+        cfg.channels = channels;
+    }
+    if let Some(mode) = body.mode {
+        cfg.mode = Some(if mode == "public" { "public".into() } else { "owner".into() });
+    }
+    if let Some(kb) = body.knowledge_base {
+        let kb = kb.trim();
+        cfg.knowledge_base = if kb.is_empty() { None } else { Some(kb.to_string()) };
+    }
+    if let Err(e) = connector_catalog::save_connector_config(&cfg) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+    }
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    if let Some(tx) = tx {
+        let _ = tx.send(json!({ "type": "connectors_reload" }).to_string()).await;
+    }
+    Json(connector_catalog::redact_for_frontend(&cfg)).into_response()
 }
 
 /// Slice 4b: poke the sidecar to reconcile connectors against the on-disk

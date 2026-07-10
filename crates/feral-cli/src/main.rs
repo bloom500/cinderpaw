@@ -120,6 +120,26 @@ enum ConnectorsAction {
     List,
     /// Reload connectors.json into a running gateway
     Reload,
+    /// Configure a connector against a running gateway
+    Set {
+        /// Connector id (discord, slack, whatsapp, telegram)
+        id: String,
+        /// A secret field, KEY=VALUE (repeatable). E.g. --secret DISCORD_TOKEN=abc
+        #[arg(long = "secret")]
+        secrets: Vec<String>,
+        /// Turn the connector on
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+        /// Turn the connector off
+        #[arg(long)]
+        disable: bool,
+        /// Allowed sender id (repeatable)
+        #[arg(long = "allow")]
+        allowlist: Vec<String>,
+        /// Channel/chat id the agent answers without an @mention (repeatable)
+        #[arg(long = "channel")]
+        channels: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -177,6 +197,9 @@ fn main() {
         Some(Command::Connectors { action }) => match action {
             None | Some(ConnectorsAction::List) => admin::connectors_list(),
             Some(ConnectorsAction::Reload) => admin::connectors_reload(),
+            Some(ConnectorsAction::Set { id, secrets, enable, disable, allowlist, channels }) => {
+                admin::connectors_set(&id, secrets, enable, disable, allowlist, channels)
+            }
         },
         Some(Command::Dreams) => admin::dreams(),
         Some(Command::Meta { action }) => match action {

@@ -402,13 +402,37 @@ pub fn connectors_list() -> i32 {
             return 0;
         }
     };
-    let v: serde_json::Value = match serde_json::from_str(&raw) {
+    let mut v: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{}connectors.json is invalid JSON{}: {e}", palette().fail, RESET);
             return 1;
         }
     };
+    // R6: redact secret values in place — replace `secrets: {KEY: VALUE}`
+    // with `filled: [KEY]` so this file's own real secrets are never printed,
+    // in JSON mode or otherwise. Reads the file directly (no gateway
+    // required, matching this command's existing offline-friendly design)
+    // but must never echo what it reads verbatim.
+    if let Some(rows) = v.get_mut("connectors").and_then(|c| c.as_array_mut()) {
+        for row in rows.iter_mut() {
+            if let Some(obj) = row.as_object_mut() {
+                let filled: Vec<serde_json::Value> = obj
+                    .get("secrets")
+                    .and_then(|s| s.as_object())
+                    .map(|m| {
+                        m.iter()
+                            .filter(|(_, val)| val.as_str().is_some_and(|s| !s.trim().is_empty()))
+                            .map(|(k, _)| serde_json::Value::String(k.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                obj.remove("secrets");
+                obj.remove("token"); // legacy single-token field, same rule
+                obj.insert("filled".into(), serde_json::Value::Array(filled));
+            }
+        }
+    }
     if json() {
         println!("{v}");
         return 0;
@@ -453,6 +477,80 @@ pub fn connectors_reload() -> i32 {
         }
         Err(e) => {
             eprintln!("{FAIL}reload failed{RESET}: {e}");
+            1
+        }
+    }
+}
+
+/// `feral connectors set <id> --secret KEY=VALUE [--enable|--disable] [--allow ID]
+/// [--channel ID]` — configures one connector against a running gateway via
+/// `POST /runtime/connectors` (R6). Same in-process-vs-remote posture as
+/// `reload`: requires a live gateway, no local-file fallback. Never echoes a
+/// raw secret value to stdout — only the `filled` flags the route returns.
+pub fn connectors_set(
+    id: &str,
+    secrets: Vec<String>,
+    enable: bool,
+    disable: bool,
+    allowlist: Vec<String>,
+    channels: Vec<String>,
+) -> i32 {
+    let Palette { ok: OK, fail: FAIL, meta: META, reset: RESET, .. } = palette();
+    if !port_in_use(api_port()) {
+        eprintln!("{META}gateway offline — start it first (`feral gateway start`){RESET}");
+        return 1;
+    }
+    let Some(token) = read_token() else {
+        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        return 1;
+    };
+
+    let mut secret_map = serde_json::Map::new();
+    for kv in &secrets {
+        match kv.split_once('=') {
+            Some((k, v)) => {
+                secret_map.insert(k.to_string(), serde_json::Value::String(v.to_string()));
+            }
+            None => {
+                eprintln!("{FAIL}--secret must be KEY=VALUE, got: {kv}{RESET}");
+                return 1;
+            }
+        }
+    }
+
+    let mut body = serde_json::json!({ "id": id });
+    let obj = body.as_object_mut().unwrap();
+    if !secret_map.is_empty() {
+        obj.insert("secrets".into(), serde_json::Value::Object(secret_map));
+    }
+    if enable {
+        obj.insert("enabled".into(), serde_json::Value::Bool(true));
+    } else if disable {
+        obj.insert("enabled".into(), serde_json::Value::Bool(false));
+    }
+    if !allowlist.is_empty() {
+        obj.insert("allowlist".into(), serde_json::json!(allowlist));
+    }
+    if !channels.is_empty() {
+        obj.insert("channels".into(), serde_json::json!(channels));
+    }
+
+    match block_on(post_json_with_body(&token, "/runtime/connectors", body)) {
+        Ok(v) => {
+            if json() {
+                println!("{v}");
+                return 0;
+            }
+            let filled = v.get("filled").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+            let enabled = v.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false);
+            let (dot, label) = if enabled { (OK, "on ") } else { (META, "off") };
+            let fields: Vec<&str> = filled.iter().filter_map(|f| f.as_str()).collect();
+            let filled_str = if fields.is_empty() { String::new() } else { format!(" · filled: {}", fields.join(", ")) };
+            println!("{dot}●{RESET} {id} {label}{filled_str}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{FAIL}connectors set failed{RESET}: {e}");
             1
         }
     }

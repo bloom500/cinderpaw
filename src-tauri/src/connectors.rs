@@ -18,88 +18,20 @@
 //! the frontend only learns WHICH fields are filled (`filled`), never values.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::paths;
 
-// ---------------------------------------------------------------------------
-// Persisted config
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectorConfig {
-    pub id: String,
-    #[serde(default)]
-    pub enabled: bool,
-    /// Secret values keyed by catalog field key (e.g. DISCORD_TOKEN,
-    /// SLACK_APP_TOKEN). Stays backend-side; never sent to the frontend.
-    #[serde(default)]
-    pub secrets: HashMap<String, String>,
-    /// Allowed sender IDs (exact platform user IDs / phone numbers). Empty =
-    /// nobody. Senders not on the list are ignored.
-    #[serde(default)]
-    pub allowlist: Vec<String>,
-    /// Channel/chat IDs where the agent answers EVERY allowlisted message
-    /// without needing an @mention — e.g. a dedicated #bot channel.
-    #[serde(default)]
-    pub channels: Vec<String>,
-    /// Legacy single-token field (pre-multi-secret configs). Migrated into
-    /// `secrets` on load, then dropped.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-    /// WhatsApp operating mode: "owner" (default) = allowlist + full agent;
-    /// "public" = answer strangers (leads) via the restricted sales persona.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<String>,
-    /// Inline knowledge-base text (products/prices/FAQ) the public persona
-    /// answers from. Stored inline so non-technical users never touch a file.
-    #[serde(
-        default,
-        rename = "knowledgeBase",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub knowledge_base: Option<String>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct ConnectorConfigFile {
-    connectors: Vec<ConnectorConfig>,
-}
-
-fn config_path() -> PathBuf {
-    paths::feral_dir().join("connectors.json")
-}
-
-fn load_config() -> ConnectorConfigFile {
-    let mut cfg: ConnectorConfigFile = match std::fs::read_to_string(config_path()) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => ConnectorConfigFile::default(),
-    };
-    // Migrate the old single `token` field into the per-field secrets map.
-    for c in &mut cfg.connectors {
-        if let Some(tok) = c.token.take() {
-            if !tok.trim().is_empty() {
-                if let Some(primary) = primary_field_key(&c.id) {
-                    c.secrets.entry(primary.to_string()).or_insert(tok);
-                }
-            }
-        }
-    }
-    cfg
-}
-
-fn save_config(cfg: &ConnectorConfigFile) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    std::fs::write(config_path(), raw)
-        .map_err(|e| format!("Couldn't save connector settings: {e}"))
-}
-
-/// First secret field key for a connector (used for legacy-token migration).
-fn primary_field_key(id: &str) -> Option<&'static str> {
-    catalog_def().into_iter().find(|c| c.id == id).and_then(|c| c.fields.first().map(|f| f.key))
-}
+// R6: persisted config (ConnectorConfig, load/save, legacy-token migration)
+// moved to `feral_core::connectors` so the headless gateway + CLI can read/
+// write `~/.feral/connectors.json` without a Tauri command. Re-export the
+// type so the rest of this file (and any external caller) keeps working
+// unchanged.
+pub use feral_core::connectors::ConnectorConfig;
+use feral_core::connectors::{
+    blank_connector_config, load_connector_configs, save_connector_configs,
+};
 
 /// Pull the Discord bot token the user already entered for the `mcp-discord`
 /// extension (`~/.feral/mcp.json` → server `discord` → env `DISCORD_TOKEN`), so
@@ -338,19 +270,6 @@ fn seed_discord(cfg: &mut ConnectorConfig) {
     }
 }
 
-fn blank_config(id: &str) -> ConnectorConfig {
-    ConnectorConfig {
-        id: id.to_string(),
-        enabled: false,
-        secrets: HashMap::new(),
-        allowlist: Vec::new(),
-        channels: Vec::new(),
-        token: None,
-        mode: None,
-        knowledge_base: None,
-    }
-}
-
 /// Tell the sidecar to reconcile its live connectors after a config change.
 async fn notify_sidecar(state: &crate::AppState) {
     let tx = { state.feral_agent_tx.lock().clone() };
@@ -372,15 +291,15 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
 #[tauri::command]
 #[specta::specta]
 pub fn connectors_list() -> Vec<ConnectorView> {
-    let cfg = load_config();
-    let mut views: Vec<ConnectorView> = cfg.connectors.iter().map(view_of).collect();
+    let connectors = load_connector_configs();
+    let mut views: Vec<ConnectorView> = connectors.iter().map(view_of).collect();
 
     // Surface the Discord token the user already entered for the mcp-discord
     // extension even before they save a connector row, so the card shows
     // "saved" and can be turned on straight away.
     if !views.iter().any(|v| v.id == "discord") {
         if let Some(token) = discord_token_from_mcp() {
-            let mut row = blank_config("discord");
+            let mut row = blank_connector_config("discord");
             row.secrets.insert("DISCORD_TOKEN".into(), token);
             views.push(view_of(&row));
         }
@@ -412,8 +331,8 @@ pub async fn connectors_save(
     let allowlist = clean_ids(allowlist);
     let channels = clean_ids(channels);
 
-    let mut cfg = load_config();
-    let mut row = cfg.connectors.iter().find(|c| c.id == id).cloned().unwrap_or_else(|| blank_config(&id));
+    let mut connectors = load_connector_configs();
+    let mut row = connectors.iter().find(|c| c.id == id).cloned().unwrap_or_else(|| blank_connector_config(&id));
 
     // Merge: only overwrite a secret when the user typed a new non-empty value.
     for field in &entry.fields {
@@ -437,9 +356,9 @@ pub async fn connectors_save(
         row.knowledge_base = if kb.is_empty() { None } else { Some(kb.to_string()) };
     }
 
-    cfg.connectors.retain(|c| c.id != id);
-    cfg.connectors.push(row.clone());
-    save_config(&cfg)?;
+    connectors.retain(|c| c.id != id);
+    connectors.push(row.clone());
+    save_connector_configs(&connectors)?;
     notify_sidecar(&state).await;
     Ok(view_of(&row))
 }
@@ -453,15 +372,14 @@ pub async fn connectors_set_enabled(
     id: String,
     enabled: bool,
 ) -> Result<ConnectorView, String> {
-    let mut cfg = load_config();
-    if !cfg.connectors.iter().any(|c| c.id == id) {
-        let mut row = blank_config(&id);
+    let mut connectors = load_connector_configs();
+    if !connectors.iter().any(|c| c.id == id) {
+        let mut row = blank_connector_config(&id);
         seed_discord(&mut row);
-        cfg.connectors.push(row);
+        connectors.push(row);
     }
 
-    let row = cfg
-        .connectors
+    let row = connectors
         .iter_mut()
         .find(|c| c.id == id)
         .ok_or_else(|| "Unknown connector.".to_string())?;
@@ -472,7 +390,7 @@ pub async fn connectors_set_enabled(
     }
     row.enabled = enabled;
     let snapshot = row.clone();
-    save_config(&cfg)?;
+    save_connector_configs(&connectors)?;
     notify_sidecar(&state).await;
     Ok(view_of(&snapshot))
 }
@@ -483,9 +401,9 @@ pub async fn connectors_remove(
     state: tauri::State<'_, crate::AppState>,
     id: String,
 ) -> Result<(), String> {
-    let mut cfg = load_config();
-    cfg.connectors.retain(|c| c.id != id);
-    save_config(&cfg)?;
+    let mut connectors = load_connector_configs();
+    connectors.retain(|c| c.id != id);
+    save_connector_configs(&connectors)?;
     notify_sidecar(&state).await;
     Ok(())
 }

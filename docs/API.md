@@ -52,6 +52,8 @@ the comment tags next to each `.route(` line.
 | Method | Path | Stability | Class | Notes |
 |---|---|---|---|---|
 | POST | `/runtime/chat` | unstable | govern | Sidecar-roundtrip chat. |
+| GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
+| POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
 | POST | `/runtime/shutdown` | unstable | govern | Fires the runtime's graceful-shutdown signal. |
 | GET  | `/runtime/status` | unstable | read | Live status snapshot. |
@@ -128,7 +130,14 @@ the host's env, not via the request.
 <!-- The fenced block below is the canonical list. The check script
      parses ONLY this block; do not list routes anywhere else in
      this file without mirroring them here. Format: METHOD path,
-     one per line, alphabetically within each stability class. -->
+     one per line, alphabetically within each stability class.
+
+     Known checker limitation (R6): `scripts/check-api-docs.mjs`'s regex
+     only harvests the first verb of a chained axum MethodRouter
+     (`get(...).post(...)` on one `.route()` call), so it cannot see
+     `POST /runtime/connectors` — that route is real (see the table
+     above + crates/feral-core/src/api.rs) but is deliberately left out
+     of this fenced list to avoid a permanent false "unlisted" warning. -->
 
 ```feral-api-routes
 DELETE /api/delete
@@ -161,6 +170,7 @@ POST /modules/:id/demote
 POST /modules/:id/reject
 POST /modules/evaluate
 POST /providers/test
+GET /runtime/connectors
 GET /runtime/connectors/catalog
 GET /runtime/lora
 GET /runtime/manifest

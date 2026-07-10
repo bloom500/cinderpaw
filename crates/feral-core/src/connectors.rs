@@ -255,3 +255,167 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
 pub fn connector_by_id(id: &str) -> Option<ConnectorCatalogEntry> {
     connectors_catalog().into_iter().find(|c| c.id == id)
 }
+
+// ---------------------------------------------------------------------------
+// R6: persisted connector configuration (moved from src-tauri/src/connectors.rs
+// so the headless gateway + CLI can read/write `~/.feral/connectors.json`
+// without going through a Tauri command. The desktop app's own catalog/view
+// types (src-tauri/src/connectors.rs) are unrelated to this file's richer
+// Decision-D catalog above and keep their own shape for the existing UI —
+// this section only owns the on-disk record and generic secret redaction.
+// ---------------------------------------------------------------------------
+
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectorConfig {
+    pub id: String,
+    #[serde(default)]
+    pub enabled: bool,
+    /// Secret values keyed by catalog field key (e.g. DISCORD_TOKEN,
+    /// SLACK_APP_TOKEN). Stays backend-side; never sent to the frontend.
+    #[serde(default)]
+    pub secrets: HashMap<String, String>,
+    /// Allowed sender IDs (exact platform user IDs / phone numbers). Empty =
+    /// nobody. Senders not on the list are ignored.
+    #[serde(default)]
+    pub allowlist: Vec<String>,
+    /// Channel/chat IDs where the agent answers EVERY allowlisted message
+    /// without needing an @mention — e.g. a dedicated #bot channel.
+    #[serde(default)]
+    pub channels: Vec<String>,
+    /// Legacy single-token field (pre-multi-secret configs). Migrated into
+    /// `secrets` on load, then dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// WhatsApp operating mode: "owner" (default) = allowlist + full agent;
+    /// "public" = answer strangers (leads) via the restricted sales persona.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Inline knowledge-base text (products/prices/FAQ) the public persona
+    /// answers from. Stored inline so non-technical users never touch a file.
+    #[serde(
+        default,
+        rename = "knowledgeBase",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub knowledge_base: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct ConnectorConfigFile {
+    connectors: Vec<ConnectorConfig>,
+}
+
+fn config_path() -> std::path::PathBuf {
+    crate::paths::feral_dir().join("connectors.json")
+}
+
+pub fn blank_connector_config(id: &str) -> ConnectorConfig {
+    ConnectorConfig {
+        id: id.to_string(),
+        enabled: false,
+        secrets: HashMap::new(),
+        allowlist: Vec::new(),
+        channels: Vec::new(),
+        token: None,
+        mode: None,
+        knowledge_base: None,
+    }
+}
+
+/// Load every persisted connector config, migrating the legacy single-`token`
+/// field into `secrets` under the connector's primary field key.
+pub fn load_connector_configs() -> Vec<ConnectorConfig> {
+    let mut cfg: ConnectorConfigFile = match std::fs::read_to_string(config_path()) {
+        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        Err(_) => ConnectorConfigFile::default(),
+    };
+    for c in &mut cfg.connectors {
+        if let Some(tok) = c.token.take() {
+            if !tok.trim().is_empty() {
+                if let Some(primary) = connector_by_id(&c.id)
+                    .and_then(|entry| entry.pairing_fields.first().map(|f| f.key.clone()))
+                {
+                    c.secrets.entry(primary).or_insert(tok);
+                }
+            }
+        }
+    }
+    cfg.connectors
+}
+
+pub fn save_connector_configs(connectors: &[ConnectorConfig]) -> Result<(), String> {
+    let raw = serde_json::to_string_pretty(&ConnectorConfigFile { connectors: connectors.to_vec() })
+        .map_err(|e| e.to_string())?;
+    std::fs::write(config_path(), raw).map_err(|e| format!("Couldn't save connector settings: {e}"))
+}
+
+pub fn load_connector_config(id: &str) -> Option<ConnectorConfig> {
+    load_connector_configs().into_iter().find(|c| c.id == id)
+}
+
+/// Upsert one connector's config into the persisted file.
+pub fn save_connector_config(cfg: &ConnectorConfig) -> Result<(), String> {
+    let mut connectors = load_connector_configs();
+    connectors.retain(|c| c.id != cfg.id);
+    connectors.push(cfg.clone());
+    save_connector_configs(&connectors)
+}
+
+/// Frontend-safe view of a persisted connector config — secret values never
+/// cross this boundary, only which field keys are currently filled.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ConnectorRedactedView {
+    pub id: String,
+    pub enabled: bool,
+    /// Field keys with a non-empty secret value. Never the values themselves.
+    pub filled: Vec<String>,
+    pub allowlist: Vec<String>,
+    pub channels: Vec<String>,
+    /// "owner" (default) or "public". WhatsApp only; harmless for others.
+    pub mode: String,
+    #[serde(rename = "knowledgeBase")]
+    pub knowledge_base: String,
+}
+
+pub fn redact_for_frontend(cfg: &ConnectorConfig) -> ConnectorRedactedView {
+    let mut filled: Vec<String> = cfg
+        .secrets
+        .iter()
+        .filter(|(_, v)| !v.trim().is_empty())
+        .map(|(k, _)| k.clone())
+        .collect();
+    filled.sort();
+    ConnectorRedactedView {
+        id: cfg.id.clone(),
+        enabled: cfg.enabled,
+        filled,
+        allowlist: cfg.allowlist.clone(),
+        channels: cfg.channels.clone(),
+        mode: cfg.mode.clone().unwrap_or_else(|| "owner".into()),
+        knowledge_base: cfg.knowledge_base.clone().unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+
+    #[test]
+    fn save_then_load_round_trips_and_redacts_secrets_on_read_view() {
+        crate::rsi::test_support::with_temp_feral_home(|_dir| {
+            let mut cfg = blank_connector_config("discord");
+            cfg.enabled = true;
+            cfg.secrets.insert("DISCORD_TOKEN".to_string(), "sekret".to_string());
+
+            save_connector_config(&cfg).unwrap();
+            let loaded = load_connector_config("discord").unwrap();
+            assert_eq!(loaded.secrets.get("DISCORD_TOKEN"), Some(&"sekret".to_string()));
+
+            let view = redact_for_frontend(&loaded);
+            assert!(view.filled.contains(&"DISCORD_TOKEN".to_string()));
+            assert!(!format!("{view:?}").contains("sekret"));
+        });
+    }
+}
