@@ -36,8 +36,8 @@ warrant its own row.)
 
 | Protocol | Direction | Wire format | Validator | Canonical spec |
 |---|---|---|---|---|
-| **Tauri IPC** | UI ↔ host | `invoke()` / `listen('feral://…')` | Tauri command registry in `src-tauri/src/lib.rs` | `docs/CONTRIBUTOR_GUIDE.md §2` |
-| **Stdout/stderr JSON-lines** | host ↔ sidecar | `{type:"…", …}\n` per line | `FeralAgent/src/transports/tauri.ts` (`isInbound`) + `types.ts` (`InboundMessage` / `OutboundEvent`) | This doc's runtime story + `index.ts` switch (R1 will make it a schema const). |
+| **Tauri IPC** | UI ↔ host | `invoke()` / `listen('feral://…')` | Tauri command registry in `src-tauri/src/commands/` | `docs/CONTRIBUTOR_GUIDE.md §2` |
+| **Stdout/stderr JSON-lines** | host ↔ sidecar | `{type:"…", …}\n` per line | `FeralAgent/src/transports/tauri.ts` (`isInbound`) + `types.ts` (`InboundMessage` / `OutboundEvent`) | This doc's runtime story + `FeralAgent/src/protocol.ts` (schema const, R1) + `dispatch.ts`'s `dispatchMessage` (routing, R7). |
 | **OpenAI/Ollama-compat HTTP** | sidecar (or any client) ↔ host loopback | JSON over HTTP | `crates/feral-core/src/api.rs` `router()` + per-launch bearer token | `docs/API.md` (B1 in flight) |
 
 API keys never reach React: Tauri commands inject BYOK keys in Rust
@@ -151,7 +151,7 @@ FeralAgent/src/tools/builtin/<name>.ts
 ```
 
 Declare a manifest (permissions, parameters) in the same file; the
-tool registry in `index.ts` will pick it up. Add a smoke test under
+tool registry in `boot.ts` will pick it up. Add a smoke test under
 `FeralAgent/tests/`.
 
 ### "I'm adding a new chat-platform connector."
@@ -163,7 +163,9 @@ FeralAgent/src/egress/mcp-manager.ts         # connection owner (R5)
 ```
 
 Persistence (`~/.feral/connectors.json`) flows through `feral-core`
-after R6 lands; before that, it's desktop-only.
+(`crates/feral-core/src/connectors.rs`) — both the desktop Tauri
+commands and the headless gateway/CLI (`GET`/`POST /runtime/connectors`,
+`feral connectors set`) read/write through it.
 
 ### "I'm adding a new L4 seam module."
 
