@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { useSystemInfo } from '@/stores/systemInfo';
+import { BackendBadge } from '@/components/BackendBadge';
 
 export function HardwareTab() {
   const settings = useSettings((s) => s.settings);
@@ -32,7 +33,12 @@ export function HardwareTab() {
       {/* GPU toggle */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-text-primary">GPU acceleration</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-text-primary">GPU acceleration</p>
+            {/* What the loaded model ACTUALLY ran on — "Vulkan available" above
+                describes the card, not whether we managed to use it. */}
+            <BackendBadge />
+          </div>
           <p className="text-xs text-text-muted mt-0.5">
             {info
               ? `${info.gpu_name} · ${info.supports_vulkan ? 'Vulkan available' : 'Vulkan unavailable'}`

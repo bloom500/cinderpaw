@@ -77,6 +77,15 @@ pub struct LoadedModel {
     /// The active `ctx_len` defaults conservatively below this; the Hardware
     /// UI uses it as the slider ceiling so a user can opt into the full window.
     pub n_ctx_train: u32,
+    /// Where this model actually RAN — "GPU (vulkan, 24/32 layers)", "CPU (GPU
+    /// build, but offload unavailable)", "CPU". Carried on the load payload
+    /// because it is only knowable after the load: the GPU attempt may have
+    /// failed and fallen back. The UI badges it so a user whose expensive card
+    /// is idle finds out from the app, not from the app merely feeling slow.
+    pub backend: String,
+    /// Layers that landed on the GPU, and the model's total. `0 / n` = pure CPU.
+    pub gpu_layers: u32,
+    pub gpu_layers_total: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -288,7 +297,18 @@ impl ModelManager {
         #[cfg(not(feature = "inference"))]
         let (ctx_len, n_ctx_train) = (max_context.unwrap_or(4096), 4096u32);
 
-        let loaded = LoadedModel { path, name, ctx_len, n_ctx_train };
+        // Read AFTER the load — the GPU attempt may have fallen back, and the
+        // whole point of these fields is to report what actually happened.
+        let (gpu_layers, gpu_layers_total) = gpu_layer_split().unwrap_or((0, 0));
+        let loaded = LoadedModel {
+            path,
+            name,
+            ctx_len,
+            n_ctx_train,
+            backend: active_backend_label(),
+            gpu_layers,
+            gpu_layers_total,
+        };
         *self.current.lock() = Some(loaded.clone());
         Ok(loaded)
     }

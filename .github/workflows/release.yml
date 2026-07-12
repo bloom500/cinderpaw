@@ -300,3 +300,133 @@ jobs:
           gh release upload $tag "$($signed.FullName)" latest.json --clobber
           $msi = Get-ChildItem -Recurse -Path signpath-out -Include *.msi | Select-Object -First 1
           if ($msi) { gh release upload $tag "$($msi.FullName)" --clobber }
+
+  # ── NVIDIA / CUDA build (opt-in download, not the default) ──────────────────
+  #
+  # Why a SEPARATE job and a separate asset instead of another matrix entry:
+  #
+  #   * One binary carries exactly one GPU backend (see Cargo.toml — enabling two
+  #     produces duplicate symbols in llama-cpp-sys-2). So CUDA cannot simply be
+  #     "added" to the Windows/Linux build.
+  #   * A CUDA-compiled binary links cudart/cublas and needs the NVIDIA runtime
+  #     present. Shipping it as THE Windows build would break every user without
+  #     an NVIDIA card. Vulkan therefore stays the default for everyone (it runs
+  #     on NVIDIA too — just leaves some performance on the table), and this is
+  #     the faster download for people who know they have an NVIDIA GPU.
+  #   * A second matrix entry would also collide on the release: identical bundle
+  #     filenames, and tauri-action would merge a second entry into latest.json,
+  #     pointing the auto-updater at a build most users cannot run.
+  #
+  # Consequence, deliberately: these assets are NOT in latest.json, so the CUDA
+  # build does not auto-update. It is an opt-in download, re-downloaded on each
+  # release. Wiring a second updater channel is the follow-up if demand appears.
+  cuda:
+    name: NVIDIA CUDA build (${{ matrix.name }})
+    needs: release            # the GitHub release must exist before we upload to it
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false        # a CUDA failure must never sink the main release
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-2022
+            asset_glob: "*-setup.exe"
+          - name: Linux x64
+            os: ubuntu-22.04
+            asset_glob: "*.AppImage"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            cmake libfuse2 libclang-dev clang \
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+          echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> "$GITHUB_ENV"
+
+      # CUDA Toolkit — provides nvcc, cudart and cuBLAS headers/libs that
+      # llama.cpp's GGML_CUDA backend compiles against. ~3 GB, so it is cached.
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: "12.6.0"
+          method: "network"
+          # Only what llama.cpp links; the full toolkit is needlessly large.
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+
+      - name: Setup MSVC dev environment (Windows)
+        if: runner.os == 'Windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v3.0.2
+        with:
+          arch: x64
+
+      # llama-cpp-sys-2's build.rs forwards every CMAKE_* env var to CMake, so
+      # this pins the GPU architectures the fat binary is compiled for. Without
+      # it the build targets the RUNNER's GPU — and CI runners have none.
+      #   75 Turing (RTX 20xx) · 80/86 Ampere (RTX 30xx) · 89 Ada (RTX 40xx,
+      #   including the 4050/4060/4070) · 90 Hopper.
+      # Blackwell (RTX 50xx, sm_120) needs CUDA 12.8+; those cards run the
+      # Vulkan build until this is bumped.
+      - name: Pin CUDA architectures
+        shell: bash
+        run: echo "CMAKE_CUDA_ARCHITECTURES=75;80;86;89;90" >> "$GITHUB_ENV"
+
+      - name: Install frontend dependencies
+        working-directory: frontend-react
+        run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: cuda
+
+      - name: Install Feral Agent sidecar dependencies
+        working-directory: FeralAgent
+        run: bun install
+
+      # No tagName/releaseId ⇒ tauri-action BUILDS but does not upload, so it
+      # cannot clobber the Vulkan assets or touch latest.json. We rename and
+      # upload the bundles ourselves below.
+      - name: Build (CUDA)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NO_STRIP: "true"
+        with:
+          args: --features inference-cuda
+
+      # Suffix the bundles so they sit next to the Vulkan ones on the release
+      # instead of overwriting them, and so the filename tells the user what it
+      # is before they download 100+ MB.
+      - name: Upload CUDA bundles to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          shopt -s globstar nullglob
+          found=0
+          for f in src-tauri/target/**/bundle/**/${{ matrix.asset_glob }}; do
+            base="$(basename "$f")"
+            ext="${base##*.}"
+            stem="${base%.*}"
+            out="$(dirname "$f")/${stem}-nvidia-cuda.${ext}"
+            mv "$f" "$out"
+            echo "uploading $(basename "$out")"
+            gh release upload "$tag" "$out" --clobber
+            found=1
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no CUDA bundle matched ${{ matrix.asset_glob }}"
+            exit 1
+          fi

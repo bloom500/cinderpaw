@@ -22,11 +22,14 @@ export function UpdateToast() {
     <AnimatePresence>
       {open && info && (
         <motion.div
-          initial={{ opacity: 0, y: 24, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 24, scale: 0.96 }}
-          transition={{ duration: 0.22, ease: 'easeOut' }}
-          className="fixed bottom-4 right-4 z-50 w-80 rounded-xl border border-border-default bg-bg-surface shadow-2xl p-4"
+          // Positioned by AppShell's NotificationLayer (top-right, under the
+          // window controls) — it slides in from the right like the toasts it
+          // now shares a column with, instead of rising from the corner.
+          initial={{ opacity: 0, x: 24, scale: 0.96 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={{ opacity: 0, x: 24, scale: 0.96 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
+          className="pointer-events-auto w-full rounded-xl border border-border-default bg-bg-elevated/85 backdrop-blur-xl shadow-xl shadow-black/25 p-4"
         >
           <div className="flex items-start gap-2.5">
             <div className="mt-0.5 shrink-0 text-brand">

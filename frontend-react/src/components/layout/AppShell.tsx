@@ -79,8 +79,17 @@ export function AppShell() {
         <WinControls />
       </div>
       {searchOpen && <SearchOverlay />}
-      <UpdateToast />
-      <Toasts />
+      {/* Notification layer — one column, top-right, tucked under the window
+          controls (h-8 = 32px, so top-11 clears them with air to spare). Toasts
+          and the update card used to be two separate `fixed` elements: one in
+          the bottom-right, colliding with the chat composer, the other in the
+          corner beneath it. They now stack together where the eye already goes.
+          pointer-events-none so the empty column never swallows clicks meant
+          for the page; each card re-enables them. */}
+      <div className="fixed top-11 right-4 z-[100] w-80 flex flex-col gap-2 pointer-events-none">
+        <UpdateToast />
+        <Toasts />
+      </div>
       <SkillHubDrawer />
       <OnboardingOrchestrator />
     </div>

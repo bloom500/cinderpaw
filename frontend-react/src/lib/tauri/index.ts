@@ -31,7 +31,9 @@ export interface InferParams   {
   system_prompt?: string | null;
   tools?: string[] | null;
 }
-export interface LoadedModel   { path: string; name: string; ctx_len: number; n_ctx_train: number }
+export interface LoadedModel   { path: string; name: string; ctx_len: number; n_ctx_train: number;
+                                 /** e.g. "GPU (vulkan, 24/32 layers)" · "CPU (GPU build, but offload unavailable)" · "CPU" */
+                                 backend: string; gpu_layers: number; gpu_layers_total: number }
 export interface ModelInfo     {
   id: string; name: string; path: string; size_bytes: number;
   quant?: string | null; ctx_len?: number | null; loaded: boolean;

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { tauri, events, type LoadedModel } from '@/lib/tauri';
+import { useNotifications } from '@/stores/notifications';
 
 type UnlistenFn = () => void;
 
@@ -38,6 +39,25 @@ interface ModelStore {
 
 let progressUnlisten: UnlistenFn | null = null;
 
+/**
+ * Tell the user once, at load time, when their GPU was available but ended up
+ * unused — the model fell back to CPU (VRAM too small, or the driver refused
+ * the allocation). Until now this only existed as a line in a log file, so the
+ * symptom the user actually got was "Feral is slow" with no cause attached.
+ *
+ * Only the bad case is announced. A successful GPU load is visible in the
+ * badge and does not deserve an interruption.
+ */
+function notifyIfGpuUnused(loaded: LoadedModel) {
+  if (!loaded.backend?.includes('GPU build')) return;
+  useNotifications.getState().push(
+    'info',
+    'Running on CPU — your GPU is not being used',
+    `${loaded.name} did not fit in VRAM, so every layer runs on the CPU and replies will be slow. ` +
+      'A smaller model, or a shorter context window in Settings → Hardware, will fit on the card.',
+  );
+}
+
 // Persisted: cloudModel + inferParams survive app restarts, so a returning
 // user lands straight back on their chosen cloud model instead of an empty
 // state. `loaded` (the local llama.cpp model) is process state and cannot be
@@ -68,6 +88,7 @@ export const useModel = create<ModelStore>()(persist((set) => ({
       const maxContext = useModel.getState().contextByModel[path];
       const loaded = await tauri.models.startLoad(path, maxContext);
       set({ loaded, isLoading: false, loadProgress: null });
+      notifyIfGpuUnused(loaded);
     } catch (err) {
       set({ isLoading: false, loadProgress: null });
       throw err;

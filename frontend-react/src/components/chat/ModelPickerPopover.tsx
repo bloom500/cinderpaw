@@ -13,6 +13,7 @@ import { useUI } from '@/stores/ui';
 import { useFeralStore } from '@/stores/feral';
 import { useNotifications } from '@/stores/notifications';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
+import { BackendBadge } from '@/components/BackendBadge';
 
 // Feral's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
@@ -111,6 +112,9 @@ export function ModelPickerPopover() {
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-2 h-full px-4 text-sm font-medium text-text-primary hover:text-text-primary/70 transition-colors outline-none">
           <span className="truncate max-w-[200px]">{label}</span>
+          {/* Only meaningful for a local model — BackendBadge renders nothing
+              when none is loaded, so a cloud route stays clean. */}
+          {!cloudModel && !isLoading && <BackendBadge />}
           <ChevronDown size={12} className="shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
