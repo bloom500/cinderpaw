@@ -133,6 +133,11 @@ export interface ConnectorView {
   mode: string;            // "owner" | "public" (WhatsApp)
   knowledgeBase: string;   // inline KB text for public mode
 }
+export interface WhatsappQr {
+  qr: string;     // raw pairing payload
+  ascii: string;  // terminal-style QR art, scannable in a monospace block
+  ts: number;     // Unix ms when the sidecar wrote this code (rotates ~20s)
+}
 
 // HF types — field names match Rust snake_case serialization exactly
 export interface HfModelSummary {
@@ -231,6 +236,45 @@ export interface ProviderCatalogEntry {
   free_tier_note?: string | null;
   supports_custom_base_url: boolean;
   auth_style: 'bearer' | 'x_api_key';
+}
+
+// Guided setup (2026-07-10 OpenClaw onboarding parity). Mirrors
+// `crates/feral-core/src/setup.rs::Candidate` / `VerifyOutcome` 1:1 —
+// the detection ladder + real-completion verification the CLI's
+// `feral setup` and the TUI consume over `/runtime/setup/*`.
+export type SetupCandidateKind =
+  | 'existing_config'
+  | 'local_gguf'
+  | 'hardware_download'
+  | 'env_key'
+  | 'ollama'
+  | 'openclaw_import';
+
+export interface SetupCandidate {
+  kind: SetupCandidateKind;
+  id: string;
+  label: string;
+  detail: string;
+  provider_id?: string | null;
+  model?: string | null;
+  base_url?: string | null;
+  env_var?: string | null;
+  recommended: boolean;
+  download?: {
+    repo_id: string;
+    filename: string;
+    label: string;
+    approx_size: string;
+  } | null;
+}
+
+export interface SetupVerifyOutcome {
+  ok: boolean;
+  status: 'ok' | 'auth' | 'rate_limit' | 'billing' | 'timeout' | 'format' | 'unavailable' | 'unknown';
+  message: string;
+  latency_ms?: number | null;
+  reply?: string | null;
+  persisted: boolean;
 }
 
 // ── RSI (Fractal Memory) ────────────────────────────────────────────────────
@@ -594,12 +638,18 @@ const raw = {
   // one source of truth in Rust). Replaces the desktop's hard-coded
   // provider list at the wizard level; see OnboardingWizard.tsx.
   providerCatalog:          () => invoke<ProviderCatalogEntry[]>('provider_catalog'),
+  // Guided setup — detection ladder + real-completion verify (persist only
+  // on success; the invariant lives in feral-core, not here).
+  setupDetect:              () => invoke<SetupCandidate[]>('setup_detect'),
+  setupVerify:              (candidate: SetupCandidate, apiKey: string | undefined, persist: boolean) =>
+    invoke<SetupVerifyOutcome>('setup_verify', { candidate, apiKey: apiKey ?? null, persist }),
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
   connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) =>
     invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels, mode, knowledgeBase }),
   connectorsSetEnabled:     (id: string, enabled: boolean) =>
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
+  connectorsWhatsappQr:     () => invoke<WhatsappQr | null>('connectors_whatsapp_qr'),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
@@ -787,6 +837,7 @@ export const tauri = {
     save:       async (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) => raw.connectorsSave(id, secrets, allowlist, channels, mode, knowledgeBase),
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
+    whatsappQr: async () => raw.connectorsWhatsappQr(),
   },
 
   feralAgent: {

@@ -21,6 +21,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 mod admin;
 mod chat;
 mod common;
+mod guided;
 
 /// Feral — your local AI runtime, headless. One brain, many faces: the same
 /// memory, LoRA, dreams and tools as the desktop app, reachable over a small
@@ -38,8 +39,24 @@ struct Cli {
     command: Option<Command>,
 }
 
+// Declaration order = `feral --help` order (clap). Daily commands first,
+// evolution/operator plumbing last, marked "(advanced)" — a first `--help`
+// should read as a product, not a research tool (audit 2026-07-10 Part 2).
 #[derive(Subcommand)]
 enum Command {
+    /// Interactive chat in the terminal
+    Chat,
+    /// Connect your AI: detects what you already have, verifies it with a
+    /// real completion, and only then saves it (guided; --classic = wizard)
+    #[command(alias = "onboard")]
+    Setup {
+        /// Use the full step-by-step wizard instead of the guided flow
+        #[arg(long)]
+        classic: bool,
+        /// Skip the one-time security acknowledgement prompt
+        #[arg(long)]
+        accept_risk: bool,
+    },
     /// Run or manage the background gateway (no subcommand = run in foreground)
     Gateway {
         #[command(subcommand)]
@@ -49,47 +66,44 @@ enum Command {
     Status,
     /// Stop the running gateway (alias for `gateway stop`)
     Stop,
-    /// First-run wizard: configure your models, providers and connectors
-    Setup,
-    /// Interactive chat in the terminal
-    Chat,
-    /// Interactive chat in the terminal (alias for `chat`)
-    Tui,
     /// Diagnose the install (port, token, model, sidecar, GPU, connectors)
     Doctor,
-    /// Print the gateway log (`-f` to follow)
-    Logs {
-        #[arg(short, long)]
-        follow: bool,
-    },
     /// List installed models
     Model,
     /// Inspect or reload connectors (Discord/Slack/…)
+    #[command(alias = "channels")]
     Connectors {
         #[command(subcommand)]
         action: Option<ConnectorsAction>,
     },
     /// Watch the Dream Cycle live
     Dreams,
-    /// Inspect or drive L6 Meta Evolution (the engine's own strategy)
-    Meta {
-        #[command(subcommand)]
-        action: Option<MetaAction>,
+    /// Print the gateway log (`-f` to follow)
+    Logs {
+        #[arg(short, long)]
+        follow: bool,
     },
     /// Read or write settings.json
     Config {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Slice A5 (L5 Governance) — drive the policy FSM end-to-end
+    /// Interactive chat in the terminal (alias for `chat`)
+    Tui,
+    /// (advanced) Inspect or drive L6 Meta Evolution (the engine's own strategy)
+    Meta {
+        #[command(subcommand)]
+        action: Option<MetaAction>,
+    },
+    /// (advanced) Slice A5 (L5 Governance) — drive the policy FSM end-to-end
     /// (status / propose / approve / freeze / verify …). Mirrors `meta …`
     /// for surface + JSON plumbing; operations live in `admin::governance`.
     Governance {
         #[command(subcommand)]
         action: admin::GovernanceAction,
     },
-    /// Phase B (L4 Architecture Evolution) — module candidates per seam:
-    /// list / show / approve / reject / demote / evaluate. Approval is
+    /// (advanced) Phase B (L4 Architecture Evolution) — module candidates per
+    /// seam: list / show / approve / reject / demote / evaluate. Approval is
     /// the only path that promotes a module (spec §6).
     Modules {
         #[command(subcommand)]
@@ -176,6 +190,12 @@ fn main() {
 
     let code: i32 = match cli.command {
         None => {
+            // OpenClaw parity: plain `feral` in a terminal opens the chat TUI
+            // (like plain `openclaw`). Piped/non-TTY keeps help + exit 2 so
+            // scripts that probe the binary don't hang on an interactive app.
+            if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                chat::run() // never returns
+            }
             let _ = Cli::command().print_help();
             println!();
             2
@@ -189,7 +209,13 @@ fn main() {
         },
         Some(Command::Status) => admin::gateway_status(),
         Some(Command::Stop) => admin::gateway_stop(),
-        Some(Command::Setup) => admin::setup(),
+        Some(Command::Setup { classic, accept_risk }) => {
+            if classic {
+                admin::setup()
+            } else {
+                guided::run(accept_risk)
+            }
+        }
         Some(Command::Chat) | Some(Command::Tui) => chat::run(), // never returns
         Some(Command::Doctor) => admin::doctor(),
         Some(Command::Logs { follow }) => admin::logs(follow),
@@ -304,6 +330,20 @@ mod tests {
     #[test]
     fn cli_tree_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    /// OpenClaw-parity aliases: `feral onboard` = setup, `feral channels` =
+    /// connectors (their naming) — muscle-memory for switchers.
+    #[test]
+    fn parses_onboard_alias_as_setup() {
+        let cli = Cli::try_parse_from(["feral", "onboard"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Setup { classic: false, accept_risk: false })));
+    }
+
+    #[test]
+    fn parses_channels_alias_as_connectors() {
+        let cli = Cli::try_parse_from(["feral", "channels"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Connectors { action: None })));
     }
 
     /// Slice A5 — parse the `feral governance …` subcommands exactly the way

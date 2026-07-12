@@ -31,6 +31,7 @@ const en = {
   'empty.greeting.3': 'How can I assist you today?',
   'empty.greeting.4': 'What would you like to explore?',
   'empty.greeting.5': 'What can I help you build?',
+  'empty.welcomeBack': 'Welcome back to',
   // Truncated-response banner
   'chat.truncated.title': 'Response truncated.',
   'chat.truncated.body': 'The model hit its token limit before finishing',
@@ -74,6 +75,7 @@ const ro: Strings = {
   'empty.greeting.3': 'Cum te pot ajuta azi?',
   'empty.greeting.4': 'Ce ai vrea să explorezi?',
   'empty.greeting.5': 'Ce construim împreună?',
+  'empty.welcomeBack': 'Bine ai revenit la',
   'chat.truncated.title': 'Răspuns trunchiat.',
   'chat.truncated.body': 'Modelul a atins limita de tokeni înainte să termine',
   'chat.truncated.hint.pre': 'Mărește',

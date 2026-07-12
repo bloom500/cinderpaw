@@ -38,6 +38,21 @@ pub struct Settings {
     /// positive value allows bounded cloud spend. `None` = no cap (advanced).
     #[serde(default = "default_rsi_budget")]
     pub rsi_max_cost_usd: Option<f64>,
+    /// One-time security acknowledgement (guided setup, OpenClaw parity):
+    /// ISO timestamp of when the user confirmed the personal-by-default
+    /// disclaimer. `Some(_)` = never re-prompt. Set via
+    /// `POST /runtime/setup/ack`.
+    #[serde(default)]
+    pub security_acknowledged_at: Option<String>,
+    /// The verified/chosen inference route, persisted so a gateway restart
+    /// boots the sidecar on the SAME model the user picked. Written by
+    /// `POST /runtime/model` and guided setup's verify-persist; read at
+    /// sidecar spawn. Shapes: `"<provider>:<model>"` (BYOK cloud) or
+    /// `"local:<file>"` (bundled llama.cpp — the default boot path anyway).
+    /// Before this field, model switches lived only in process env vars and
+    /// silently reverted to the local CPU model on every gateway restart.
+    #[serde(default)]
+    pub active_route: Option<String>,
 }
 
 fn default_rsi_budget() -> Option<f64> { Some(0.0) }
@@ -54,6 +69,8 @@ impl Default for Settings {
             desktop_control_yolo: false,
             token_budget_conversation: None,
             rsi_max_cost_usd: Some(0.0),
+            security_acknowledged_at: None,
+            active_route: None,
         }
     }
 }

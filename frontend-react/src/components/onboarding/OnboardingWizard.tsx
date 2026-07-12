@@ -1,11 +1,12 @@
 /**
  * OnboardingWizard — first-run experience.
  *
- * 4 steps, each with a single clear purpose:
+ * 5 steps, each with a single clear purpose:
  *   1. Welcome          — greet the user, set expectations
  *   2. Personalize      — ask for the user's name + a name for the agent
- *   3. Showcase         — 3 example capabilities (read-only cards)
- *   4. Done             — final CTA: open the chat
+ *   3. Provider         — "Choose your brain": local one-click model or BYOK
+ *   4. Showcase         — 3 example capabilities (read-only cards)
+ *   5. Done             — final CTA: open the chat
  *
  * Why so short: the user just opened the app. They don't want to fill in
  * 5 forms about workspace, model, permissions, etc. — that's the agent's
@@ -32,7 +33,7 @@ import { useDownload } from '@/stores/download';
 import { useSettings } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
 import { recommendModel } from '@/lib/hardwareRecommendation';
-import { tauri, type DiskEncryptionStatus } from '@/lib/tauri';
+import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
 import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
 import { cn } from '@/lib/utils';
 
@@ -283,7 +284,7 @@ function Preview({ userName, agentName }: { userName: string; agentName: string 
   );
 }
 
-// ── Step 3: Showcase ────────────────────────────────────────────────────────
+// ── Step 4: Showcase ────────────────────────────────────────────────────────
 
 function ShowcaseStep() {
   return (
@@ -301,17 +302,17 @@ function ShowcaseStep() {
         <ShowcaseCard
           icon={<FileText size={20} />}
           title="Read and write files"
-          example={'„Summarize README.md" or „Create a notes.md file with today\'s ideas"'}
+          example={'“Summarize README.md” or “Create a notes.md file with today\'s ideas”'}
         />
         <ShowcaseCard
           icon={<Search size={20} />}
           title="Search the web"
-          example={'„Look up the best practices for Rust error handling"'}
+          example={'“Look up the best practices for Rust error handling”'}
         />
         <ShowcaseCard
           icon={<Terminal size={20} />}
           title="Run commands, tests, builds"
-          example={'„Run the tests and show me what failed"'}
+          example={'“Run the tests and show me what failed”'}
         />
       </div>
     </div>
@@ -341,6 +342,7 @@ function ShowcaseCard({
 }
 
 // ── Step 3: Provider — "Choose your brain" ──────────────────────────────────
+// (render order: Welcome → Personalize → Provider → Showcase → Done)
 
 // ponytail: pinned curated GGUFs per hardware tier (keys match
 // recommendModel().sizeClass exactly — the key describes the hardware budget,
@@ -348,7 +350,8 @@ function ShowcaseCard({
 // repos/files resolve on Hugging Face before each release; swap when a better
 // small model ships. An unresolvable repo makes the one-click download fail.
 // `approxSize` is the real Q4_K_M download size (shown on the button) — keep it
-// in sync when swapping models. Qwen3.5 verified live on HF 2026-06-28.
+// in sync when swapping models. All 4 repos + exact Q4_K_M filenames verified
+// live on HF 2026-07-10 (huggingface.co/api/models/<repo>/tree/main).
 const TIER_MODELS: Record<string, { repoId: string; filename: string; label: string; approxSize: string }> = {
   '1–2B':   { repoId: 'bartowski/Qwen_Qwen3.5-2B-GGUF',  filename: 'Qwen_Qwen3.5-2B-Q4_K_M.gguf',  label: 'Qwen3.5 2B',  approxSize: '~1.5 GB' },
   '3–4B':   { repoId: 'bartowski/Qwen_Qwen3.5-4B-GGUF',  filename: 'Qwen_Qwen3.5-4B-Q4_K_M.gguf',  label: 'Qwen3.5 4B',  approxSize: '~2.5 GB' },
@@ -425,6 +428,8 @@ export function ProviderStep() {
         </p>
       </div>
 
+      <DetectedSection />
+
       <div className="grid grid-cols-2 gap-3">
         <ForkCard
           icon={<HardDrive size={18} />}
@@ -444,6 +449,90 @@ export function ProviderStep() {
 
       {choice === 'local' && <LocalBranch />}
       {choice === 'cloud' && <CloudBranch />}
+    </div>
+  );
+}
+
+/**
+ * Guided-setup rung (OpenClaw parity, 2026-07-10): before asking the user
+ * to choose, show what the machine already has — an enabled provider, a
+ * GGUF on disk, an env API key, a running Ollama, or an OpenClaw config —
+ * and verify the pick with a REAL completion before calling it ready.
+ * The detection + persistence logic lives in feral-core (`setup_detect` /
+ * `setup_verify`), the same ladder `feral setup` uses.
+ */
+function DetectedSection() {
+  const [candidates, setCandidates] = useState<SetupCandidate[] | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, SetupVerifyOutcome>>({});
+
+  useEffect(() => {
+    tauri.raw
+      .setupDetect()
+      // The download rung is already the LocalBranch's one-click button —
+      // listing it twice would duplicate the CTA.
+      .then((c) => setCandidates(c.filter((x) => x.kind !== 'hardware_download')))
+      .catch(() => setCandidates([]));
+  }, []);
+
+  if (!candidates?.length) return null;
+
+  const useThis = async (c: SetupCandidate) => {
+    setTestingId(c.id);
+    try {
+      const outcome = await tauri.raw.setupVerify(c, undefined, true);
+      setResults((r) => ({ ...r, [c.id]: outcome }));
+    } catch (e) {
+      setResults((r) => ({
+        ...r,
+        [c.id]: { ok: false, status: 'unknown', message: String(e), persisted: false },
+      }));
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-brand/30 bg-brand/5 p-4 space-y-2.5">
+      <p className="text-xs font-medium text-brand flex items-center gap-1.5">
+        <Sparkles size={13} /> Found on your machine
+      </p>
+      {candidates.map((c) => {
+        const outcome = results[c.id];
+        const isTesting = testingId === c.id;
+        return (
+          <div key={c.id} className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm text-text-primary truncate">{c.label}</p>
+              <p className="text-xs text-text-muted truncate">
+                {outcome && !outcome.ok ? (
+                  <span className="text-red-400">{outcome.message}</span>
+                ) : (
+                  c.detail
+                )}
+              </p>
+            </div>
+            {outcome?.ok ? (
+              <span className="flex items-center gap-1.5 text-xs text-green-400 shrink-0">
+                <Check size={13} /> ready — I'll use it ({outcome.message})
+              </span>
+            ) : isTesting ? (
+              <span className="flex items-center gap-1.5 text-xs text-text-muted shrink-0">
+                <Loader2 size={12} className="animate-spin" /> Testing — real completion…
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void useThis(c)}
+                disabled={testingId !== null}
+                className="shrink-0 px-3 py-1.5 rounded-md bg-brand/15 text-brand text-xs font-medium hover:bg-brand/25 transition-colors disabled:opacity-50"
+              >
+                {outcome ? 'Retry' : 'Use this'}
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

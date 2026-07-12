@@ -22,15 +22,15 @@ do I add X" cheat sheet.
 | # | Runtime | Stack | Path | Owns |
 |---|---|---|---|---|
 | 1 | **Desktop UI** | React 18 + Vite + Zustand | `frontend-react/` | Rendering, chat surfaces, mascot, settings UX. |
-| 2 | **Rust host** | Tauri 2 + llama.cpp | `src-tauri/` + `crates/feral-core/` | IPC, file system, GGUF inference, `127.0.0.1:11435` HTTP API, sidecar supervision. |
+| 2a | **Rust host** (desktop) | Tauri 2 + llama.cpp | `src-tauri/` + `crates/feral-core/` | IPC, file system, GGUF inference, `127.0.0.1:11435` HTTP API, sidecar supervision. |
+| 2b | **Rust host** (headless gateway) | Rust | `crates/feral-cli/` | Same `feral-core`, no UI. Exposes `feral` subcommands and the HTTP API for terminal + automation. |
 | 3 | **Sidecar** | Bun + TypeScript (compiled to one `.exe`) | `FeralAgent/` | Agent loop, BRSI engine, memory, tools, sandboxed inference router. |
-| 4 | **Headless CLI** (gateway) | Rust | `crates/feral-cli/` | Same Rust host, no UI. Exposes `feral` subcommands and the HTTP API for terminal + automation. |
-| 5 | **TUI** | Go + Bubble Tea | `tui/` | Terminal chat + onboarding + connectors wizard. API client only. |
+| 4 | **TUI** | Go + Bubble Tea | `tui/` | Terminal chat + onboarding + connectors wizard. API client only. |
 
-(Runtimes 2 and 4 share the same `feral-core` crate — they are two hosts of
-one runtime, not two runtimes. The CONTRIBUTOR_GUIDE counts three;
-this file counts four because the TUI shares enough surface area to
-warrant its own row.)
+(2a and 2b share the same `feral-core` crate — two hosts of one runtime, so
+five rows are **four** runtimes. The CONTRIBUTOR_GUIDE's "three runtimes,
+three languages" predates the Go TUI; this file counts the TUI because it
+ships as its own binary with its own build.)
 
 ## 2. The three protocols
 

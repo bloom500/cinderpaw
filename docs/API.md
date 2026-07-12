@@ -63,9 +63,13 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/manifest` | unstable | read | Active module manifest snapshot. |
 | GET  | `/runtime/sessions` | unstable | read | Lists sessions. |
 | GET  | `/runtime/resume` | unstable | read | Memory Resume — last-task row for clients. |
+| POST | `/runtime/session/compact` | unstable | evolve | Summarize the older portion of one session's transcript now (`{ session_id? }`, default "default"). Sidecar round-trip; the summarizer is a real LLM completion (120s cap). |
 | POST | `/runtime/byok/save` | unstable | govern | Persist provider key + metadata; never echoes the key. |
 | POST | `/runtime/models/install` | unstable | evolve | Kick off a background model download; returns download id. |
 | GET  | `/runtime/models/download/:id` | unstable | read | Polled by the wizard for download progress. |
+| GET  | `/runtime/setup/detect` | unstable | read | Guided-setup detection ladder (existing config → local GGUFs → hardware download → env keys → Ollama → OpenClaw import) + hardware summary + security-ack state. |
+| POST | `/runtime/setup/verify` | unstable | govern | Real-completion test of a detected candidate ("Reply with the single word OK…", 32 tok, 90s); `persist:true` writes the route only on success. |
+| POST | `/runtime/setup/ack` | unstable | govern | Persist the one-time security-acknowledgement timestamp in settings.json. |
 | GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Feral-Catalog-Version`. |
 | GET  | `/runtime/connectors/catalog` | unstable | read | Connector catalog; same versioning header. |
 
@@ -177,6 +181,7 @@ GET /runtime/manifest
 GET /runtime/models
 GET /runtime/providers/catalog
 GET /runtime/resume
+POST /runtime/session/compact
 GET /runtime/sessions
 GET /runtime/status
 POST /runtime/byok/save
@@ -184,6 +189,9 @@ POST /runtime/chat
 POST /runtime/connectors/reload
 POST /runtime/model
 POST /runtime/models/install
+GET /runtime/setup/detect
+POST /runtime/setup/verify
+POST /runtime/setup/ack
 POST /runtime/shutdown
 GET /runtime/models/download/:id
 GET /system_info

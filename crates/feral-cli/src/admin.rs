@@ -97,10 +97,35 @@ pub enum ModulesAction {
 }
 
 /// One blocking tokio runtime for the short HTTP calls these commands make.
-fn block_on<F: std::future::Future>(f: F) -> F::Output {
+pub(crate) fn block_on<F: std::future::Future>(f: F) -> F::Output {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime")
         .block_on(f)
+}
+
+/// Auto-start the gateway if the loopback port is free, then wait for it to
+/// bind. Shared by `feral chat`, `feral setup` (guided + classic). Returns a
+/// non-zero exit code on failure.
+pub(crate) fn ensure_gateway() -> Result<(), i32> {
+    let port = api_port();
+    if port_in_use(port) {
+        return Ok(());
+    }
+    let Palette { meta: META, reset: RESET, .. } = palette();
+    println!("\n  {META}Gateway not running. Starting...{RESET}");
+    let code = gateway_start();
+    if code != 0 {
+        eprintln!("feral: could not start the gateway — run `feral doctor` to diagnose.");
+        return Err(code);
+    }
+    for _ in 0..20 {
+        if port_in_use(port) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    eprintln!("feral: gateway started but not listening on port {port} after 4s");
+    Err(1)
 }
 
 fn feral_file(name: &str) -> std::path::PathBuf {
@@ -824,6 +849,7 @@ pub fn governance(action: GovernanceAction) -> i32 {
                     if req { "yes" } else { "no (auto)" }
                 );
             }
+            crate::common::reset_console_mode();
             eprint!("  {META}proceed?{RESET} [y/N] ");
             let _ = std::io::Write::flush(&mut std::io::stderr());
             let mut answer = String::new();
@@ -1361,25 +1387,8 @@ fn check_token() -> Check {
 /// build it with `cd tui && go build -o feral-tui.exe .`.
 pub fn setup() -> i32 {
     // Auto-start the gateway if not already running (same as `feral chat`).
-    let port = api_port();
-    if !port_in_use(port) {
-        let Palette { meta: META, reset: RESET, .. } = palette();
-        println!("\n  {META}Runtime not running. Starting...{RESET}");
-        let code = gateway_start();
-        if code != 0 {
-            eprintln!("feral: could not start the runtime — run `feral doctor` to diagnose.");
-            return code;
-        }
-        for _ in 0..20 {
-            if port_in_use(port) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-        if !port_in_use(port) {
-            eprintln!("feral: runtime started but not listening on port {port} after 4s");
-            return 1;
-        }
+    if let Err(code) = ensure_gateway() {
+        return code;
     }
 
     let exe_dir = std::env::current_exe()
@@ -1394,7 +1403,7 @@ pub fn setup() -> i32 {
         return 1;
     }
 
-	match std::process::Command::new(&tui_bin)
+	let code = match std::process::Command::new(&tui_bin)
 		.arg("--wizard")
 		.stdin(std::process::Stdio::inherit())
 		.stdout(std::process::Stdio::inherit())
@@ -1407,7 +1416,10 @@ pub fn setup() -> i32 {
             eprintln!("{FAIL}feral: setup failed to start: {e}{RESET}");
             1
         }
-    }
+    };
+    // Un-poison the console if the TUI exited without restoring it.
+    crate::common::reset_console_mode();
+    code
 }
 
 fn check_models() -> Check {
@@ -1578,7 +1590,7 @@ fn check_connectors() -> Check {
 
 // ── shared HTTP helpers ────────────────────────────────────────────────────
 
-async fn fetch_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
+pub(crate) async fn fetch_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
     reqwest::Client::new()
         .get(format!("{}{}", base_url(), path))
         .bearer_auth(token)
@@ -1610,7 +1622,7 @@ async fn post_json(token: &str, path: &str) -> Result<serde_json::Value, String>
 /// sets `Content-Type: application/json`. Used by `/governance/propose`,
 /// `/approve`, `/reject`, `/freeze`, `/unfreeze` — the legacy `post_json`
 /// stays for `/meta/evolve` and `/meta/rollback` which carry no body.
-async fn post_json_with_body(
+pub(crate) async fn post_json_with_body(
     token: &str,
     path: &str,
     body: serde_json::Value,

@@ -10,32 +10,13 @@
 
 use std::io::Write as _;
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
 use crate::common::{self, Palette};
 
 /// Entry point for `feral-cli chat`. Never returns — exits the process.
 pub fn run() -> ! {
-    let port = common::api_port();
-    if !common::port_in_use(port) {
-        let Palette { meta: META, reset: RESET, .. } = common::palette();
-        println!("\n  {META}Runtime not running. Starting...{RESET}");
-        let code = crate::admin::gateway_start();
-        if code != 0 {
-            eprintln!("feral: could not start the runtime — run `feral doctor` to diagnose.");
-            std::process::exit(code);
-        }
-        // gateway_start spawns a process — wait for the port to actually bind
-        for _ in 0..20 {
-            if common::port_in_use(port) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-        if !common::port_in_use(port) {
-            eprintln!("feral: runtime started but not listening on port {port} after 4s");
-            std::process::exit(1);
-        }
+    if let Err(code) = crate::admin::ensure_gateway() {
+        std::process::exit(code);
     }
 
     let exe_dir = std::env::current_exe()
@@ -67,6 +48,9 @@ pub fn run() -> ! {
     };
 
     let code = status.code().unwrap_or(1);
+    // If the TUI died without restoring the terminal (crash, kill), put the
+    // console back in cooked mode so the parent shell isn't left mute.
+    common::reset_console_mode();
     let Palette { meta: META, reset: RESET, .. } = common::palette();
     let _ = writeln!(std::io::stderr(), "\n  {META}stay feral. ↝{RESET}");
     std::process::exit(code);

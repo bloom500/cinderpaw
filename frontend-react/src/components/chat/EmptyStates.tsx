@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Info, X } from 'lucide-react';
+import { FolderOpen, Info, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useResumeTask, formatRelative } from '@/components/shell/WelcomeBack';
 import { getRandomSuggestions } from '@/lib/suggestions';
 import { useT } from '@/lib/i18n';
 import { useUI } from '@/stores/ui';
@@ -84,12 +85,14 @@ interface NewChatEmptyStateProps {
 export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStateProps) {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
   const t = useT();
+  const resume = useResumeTask();
   const [suggestions] = useState(() => getRandomSuggestions(3));
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [greetingVisible, setGreetingVisible] = useState(true);
 
   useEffect(() => {
-    if (!isEmpty) return;
+    // Memory Resume takes the hero slot — no greeting rotation.
+    if (!isEmpty || resume) return;
     const id = setInterval(() => {
       setGreetingVisible(false);
       setTimeout(() => {
@@ -98,7 +101,7 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
       }, 350);
     }, 4000);
     return () => clearInterval(id);
-  }, [isEmpty]);
+  }, [isEmpty, resume]);
 
   return (
     <div
@@ -109,12 +112,30 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
     >
       {/* Greeting + pills as one column, pushed above the centered input */}
       <div className="absolute inset-0 flex flex-col items-center justify-center pb-72">
-        <h1
-          className="text-2xl font-semibold text-text-primary select-none transition-opacity duration-300"
-          style={{ opacity: greetingVisible ? 1 : 0 }}
-        >
-          {t(GREETING_KEYS[greetingIndex])}
-        </h1>
+        {resume ? (
+          <>
+            <h1 className="text-2xl font-semibold text-text-primary select-none">
+              {t('empty.welcomeBack')} <span className="text-brand">{resume.title}</span>
+            </h1>
+            <span className="mt-1.5 flex items-center gap-1 text-xs text-text-muted select-none">
+              {resume.workspaceName && (
+                <>
+                  <FolderOpen size={11} aria-hidden />
+                  <span>in {resume.workspaceName}</span>
+                  <span aria-hidden>·</span>
+                </>
+              )}
+              <span>{formatRelative(resume.ts)}</span>
+            </span>
+          </>
+        ) : (
+          <h1
+            className="text-2xl font-semibold text-text-primary select-none transition-opacity duration-300"
+            style={{ opacity: greetingVisible ? 1 : 0 }}
+          >
+            {t(GREETING_KEYS[greetingIndex])}
+          </h1>
+        )}
 
         <div className="mt-5 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">
           {suggestions.map((s) => (

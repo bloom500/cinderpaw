@@ -13,6 +13,7 @@ pub mod files;
 pub mod models;
 pub mod projects;
 pub mod settings;
+pub mod setup;
 pub mod system;
 pub mod voice;
 
@@ -25,6 +26,7 @@ pub(crate) use files::*;
 pub(crate) use models::*;
 pub(crate) use projects::*;
 pub(crate) use settings::*;
+pub(crate) use setup::*;
 pub(crate) use system::*;
 pub(crate) use voice::*;
 
@@ -36,7 +38,9 @@ mod command_count_test {
     /// commands referenced via qualified paths like `mcp::mcp_catalog`).
     /// Update this constant ONLY when a command is deliberately added or
     /// removed, and note the change in that PR's description.
-    const EXPECTED_COMMAND_COUNT: usize = 128;
+    // 130 = 128 baseline + setup_detect + setup_verify (guided onboarding,
+    // 2026-07-10).
+    const EXPECTED_COMMAND_COUNT: usize = 130;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

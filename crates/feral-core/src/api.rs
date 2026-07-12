@@ -100,6 +100,12 @@ pub fn router(state: ApiState) -> Router {
         // to the same sidecar roundtrip but stays in-process. Same shape:
         // subscribe-before-send, wait for `resume_get_result`.
         .route("/runtime/resume", get(runtime_resume))
+        // /compact (OpenClaw slash parity) — summarize the older portion of
+        // one session's transcript now. Body: `{ session_id? }` (default
+        // "default"). Sidecar round-trip correlated by id, reply type
+        // `compact_result`. The summarizer is a full LLM completion, so the
+        // wait is generous (120s) — on CPU it can take as long as a turn.
+        .route("/runtime/session/compact", post(runtime_session_compact))
         // Sprint 2 / audit C-1 — hardware probe for the TUI Setup Wizard.
         // Same shape as the Tauri command `get_system_info`. The wizard used
         // to hard-code "rtx 4070 · 12 GB" on every machine; now it reads
@@ -167,6 +173,15 @@ pub fn router(state: ApiState) -> Router {
         // response carries an `X-Feral-Catalog-Version` header —
         // clients treat a mismatch as "fall back to the bundled slice
         // with a clearly surfaced warning", never as a silent drop.
+        // Guided setup (2026-07-10 OpenClaw onboarding-parity spec). One
+        // ladder, every surface: `feral setup`, the Go TUI, the desktop
+        // wizard all consume the same detect → verify → persist seam.
+        // Verify runs a REAL completion (not a ping); `persist: true` is
+        // honored only on success, so config can never end up pointing at
+        // an unverified route through this surface.
+        .route("/runtime/setup/detect", get(runtime_setup_detect))
+        .route("/runtime/setup/verify", post(runtime_setup_verify))
+        .route("/runtime/setup/ack", post(runtime_setup_ack))
         .route("/runtime/providers/catalog", get(runtime_providers_catalog))
         .route("/runtime/connectors/catalog", get(runtime_connectors_catalog))
         // Auth runs before any handler. `from_fn_with_state` hands the token
@@ -1076,6 +1091,64 @@ async fn runtime_resume(State(state): State<ApiState>) -> Response {
     }
 }
 
+/// POST /runtime/session/compact — one sidecar round-trip (subscribe-before-
+/// send, correlate by id) asking the agent loop to summarize the older
+/// portion of a session's transcript now. Mirrors `runtime_resume`'s wire
+/// discipline; differs in the inbound type ("compact_session"), the reply
+/// ("compact_result"), and a 120s deadline (the summarizer is a real LLM
+/// completion, not a lookup).
+async fn runtime_session_compact(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let session_id = body
+        .as_ref()
+        .and_then(|b| b.get("session_id"))
+        .and_then(|s| s.as_str())
+        .unwrap_or("default")
+        .to_string();
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+            .into_response();
+    };
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let mut rx = state.runtime.events_tx.subscribe();
+    if tx
+        .send(
+            json!({ "type": "compact_session", "id": msg_id, "sessionId": session_id })
+                .to_string(),
+        )
+        .await
+        .is_err()
+    {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    let deadline = std::time::Duration::from_secs(120);
+    loop {
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "feral://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+                if v.get("type").and_then(|t| t.as_str()) == Some("compact_result")
+                    && v.get("id").and_then(|i| i.as_str()) == Some(msg_id.as_str())
+                {
+                    return Json(v).into_response();
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => {
+                return (StatusCode::GATEWAY_TIMEOUT, "no compact_result from the sidecar")
+                    .into_response();
+            }
+        }
+    }
+}
+
 async fn meta_roundtrip(State(state): State<ApiState>, op: &'static str) -> Response {
     let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
     let Some(tx) = tx else {
@@ -1941,7 +2014,7 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
         }
         *state.runtime.active_agent_model.lock() = Some(model.clone());
         // Mirror the choice into env vars so runtime_status reports it and
-        // a subsequent restart doesn't lose track of which cloud we picked.
+        // this process doesn't lose track of which cloud we picked.
         // SAFETY: we are single-threaded inside the router task at this point
         // and `provider_id` is not borrowed anywhere else after this block.
         unsafe {
@@ -1949,6 +2022,14 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
             std::env::set_var("FERAL_BASE_URL", &base_url);
             std::env::set_var("FERAL_MODEL", &model);
             std::env::set_var("FERAL_BYOK_PROVIDER", &provider_id);
+        }
+        // Env vars die with the process — persist the route so a gateway
+        // restart boots the sidecar on the SAME model (2026-07-11: restarts
+        // silently reverted to the local CPU model → 90s ttft timeouts).
+        let mut s = crate::settings::load();
+        s.active_route = Some(format!("{provider_id}:{model}"));
+        if let Err(e) = crate::settings::save(&s) {
+            tracing::warn!(error = %e, "could not persist active_route");
         }
         return Json(json!({
             "active": model,
@@ -2029,6 +2110,12 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
         std::env::set_var("FERAL_BASE_URL", format!("http://127.0.0.1:{}", state.runtime.settings.api_port));
         std::env::set_var("FERAL_MODEL", &loaded.name);
         std::env::remove_var("FERAL_BYOK_PROVIDER");
+    }
+    // Persist so a restart doesn't resurrect a stale cloud route.
+    let mut s = crate::settings::load();
+    s.active_route = Some(format!("local:{}", loaded.name));
+    if let Err(e) = crate::settings::save(&s) {
+        tracing::warn!(error = %e, "could not persist active_route");
     }
 
     Json(json!({ "active": loaded.name, "backend": "llama.cpp", "ctx_len": loaded.ctx_len })).into_response()
@@ -2384,4 +2471,83 @@ fn catalog_response<T: serde::Serialize>(version: u32, body: Vec<T>) -> Response
         headers.insert(name, value);
     }
     (headers, Json(body)).into_response()
+}
+
+// ── Guided setup: detect → verify → persist ──────────────────────────────────
+// (2026-07-10 OpenClaw onboarding-parity spec, Part 6.)
+
+/// `GET /runtime/setup/detect` — run the detection ladder and report the
+/// one-time security-ack state + a hardware summary alongside, so a client
+/// renders the whole guided screen from one call.
+async fn runtime_setup_detect() -> impl IntoResponse {
+    let candidates = crate::setup::detect().await;
+    let hardware = tokio::task::spawn_blocking(crate::sysinfo_mod::collect)
+        .await
+        .ok();
+    let ack = crate::settings::load().security_acknowledged_at;
+    Json(json!({
+        "candidates": candidates,
+        "hardware": hardware,
+        "security_acknowledged_at": ack,
+    }))
+}
+
+/// `POST /runtime/setup/ack` — persist the one-time security acknowledgement
+/// (ISO timestamp in settings.json). Idempotent: a second ack keeps the
+/// original timestamp, matching OpenClaw's `wizard.securityAcknowledgedAt`.
+async fn runtime_setup_ack() -> Response {
+    let mut s = crate::settings::load();
+    if s.security_acknowledged_at.is_none() {
+        s.security_acknowledged_at = Some(chrono::Utc::now().to_rfc3339());
+        if let Err(e) = crate::settings::save(&s) {
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("settings save: {e}"))
+                .into_response();
+        }
+    }
+    Json(json!({ "ok": true, "security_acknowledged_at": s.security_acknowledged_at }))
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct SetupVerifyReq {
+    /// The candidate exactly as `/runtime/setup/detect` returned it.
+    candidate: crate::setup::Candidate,
+    /// Explicit key override (manual "paste a key" stage). When absent the
+    /// key is resolved server-side: keychain / env var / OpenClaw config.
+    #[serde(default)]
+    api_key: Option<String>,
+    /// Explicit model override (manual stage). Defaults to the candidate's.
+    #[serde(default)]
+    model: Option<String>,
+    /// Persist the route on success — key to the OS keychain, metadata to
+    /// byok.json, and (local models) the sidecar re-pointed. Honored only
+    /// when the completion round-trips; a failing candidate never touches
+    /// config (the OpenClaw invariant).
+    #[serde(default)]
+    persist: bool,
+}
+
+/// `POST /runtime/setup/verify` — a REAL completion against the candidate
+/// (OpenClaw's prompt verbatim: "Reply with the single word OK. Do not use
+/// tools.", 32 tokens, 90s), typed failure taxonomy, optional persist. The
+/// whole flow lives in `setup::verify_candidate`, shared with the desktop
+/// Tauri command.
+async fn runtime_setup_verify(
+    State(state): State<ApiState>,
+    Json(req): Json<SetupVerifyReq>,
+) -> Response {
+    use crate::setup::VerifyError;
+    match crate::setup::verify_candidate(
+        &state.runtime,
+        &req.candidate,
+        req.api_key.as_deref(),
+        req.model.as_deref(),
+        req.persist,
+    )
+    .await
+    {
+        Ok(outcome) => Json(outcome).into_response(),
+        Err(VerifyError::BadRequest(m)) => (StatusCode::BAD_REQUEST, m).into_response(),
+        Err(VerifyError::Internal(m)) => (StatusCode::INTERNAL_SERVER_ERROR, m).into_response(),
+    }
 }

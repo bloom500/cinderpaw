@@ -91,3 +91,34 @@ pub fn read_token() -> Option<String> {
 pub fn port_in_use(port: u16) -> bool {
     std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
 }
+
+/// Restore cooked console input (echo + line buffering) on Windows before a
+/// `read_line` prompt. A TUI that died without cleanup (force-kill, crash)
+/// leaves the console in raw/VT mode — every later `read_line` in that window
+/// looks dead: keys neither echo nor submit. No-op on non-Windows and when
+/// stdin isn't a console (pipes keep working untouched).
+#[cfg(windows)]
+pub fn reset_console_mode() {
+    use std::os::windows::io::AsRawHandle;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetConsoleMode(handle: isize, mode: *mut u32) -> i32;
+        fn SetConsoleMode(handle: isize, mode: u32) -> i32;
+    }
+    const ENABLE_PROCESSED_INPUT: u32 = 0x0001;
+    const ENABLE_LINE_INPUT: u32 = 0x0002;
+    const ENABLE_ECHO_INPUT: u32 = 0x0004;
+    const ENABLE_VIRTUAL_TERMINAL_INPUT: u32 = 0x0200;
+    let handle = std::io::stdin().as_raw_handle() as isize;
+    unsafe {
+        let mut mode = 0u32;
+        if GetConsoleMode(handle, &mut mode) != 0 {
+            let cooked = (mode | ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)
+                & !ENABLE_VIRTUAL_TERMINAL_INPUT;
+            SetConsoleMode(handle, cooked);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn reset_console_mode() {}
