@@ -440,13 +440,67 @@ pub fn active_backend_label() -> String {
     match compiled_backend() {
         b @ ("cuda" | "vulkan" | "metal") => {
             if gpu_active() {
-                format!("GPU ({b})")
+                // Name the split: a partial offload is a hybrid run, and calling
+                // it a flat "GPU" would hide the reason it's slower than the card
+                // should be. `n/total` is what LM Studio and Jan show, for the
+                // same reason.
+                match gpu_layer_split() {
+                    Some((n, total)) if n < total => format!("GPU ({b}, {n}/{total} layers)"),
+                    _ => format!("GPU ({b})"),
+                }
             } else {
                 "CPU (GPU build, but offload unavailable)".to_string()
             }
         }
         "cpu" => "CPU".to_string(),
         _ => "stub (no inference backend)".to_string(),
+    }
+}
+
+/// How many of a model's `n_layer` layers fit in `vram_mb`, alongside the KV
+/// cache those layers need at `ctx_len`. Pure — the arithmetic half of
+/// `backend::plan_gpu_layers`, split out so it is testable without a GPU.
+///
+/// Per layer:  weights (file_size / n_layer)  +  KV (2 tensors * 2 bytes f16 *
+/// kv_dim * ctx / n_layer). `kv_dim` already accounts for GQA.
+///
+/// `HEADROOM_MB` is withheld for compute buffers, the driver, and whatever the
+/// desktop already holds — reported VRAM is TOTAL, not free. Being greedy here
+/// is precisely what makes a load fail and drop the whole model to CPU, so the
+/// budget errs small: one layer too few costs a little speed, one too many costs
+/// the entire GPU.
+pub(crate) fn fit_gpu_layers(
+    vram_mb: u64,
+    weights_bytes: u64,
+    kv_dim: u64,
+    ctx_len: u32,
+    n_layer: u32,
+) -> u32 {
+    const HEADROOM_MB: u64 = 1024;
+    if n_layer == 0 || vram_mb == 0 {
+        return 0;
+    }
+    let kv_bytes = 2 * 2 * kv_dim * u64::from(ctx_len) * u64::from(n_layer);
+    let per_layer = (weights_bytes + kv_bytes) / u64::from(n_layer);
+    if per_layer == 0 {
+        return 0;
+    }
+    let usable = vram_mb
+        .saturating_mul(1024 * 1024)
+        .saturating_sub(HEADROOM_MB * 1024 * 1024);
+    (usable / per_layer).min(u64::from(n_layer)) as u32
+}
+
+/// `(layers_on_gpu, total_layers)` for the loaded model, or None when nothing is
+/// loaded / this is not a GPU build.
+pub fn gpu_layer_split() -> Option<(u32, u32)> {
+    #[cfg(feature = "inference")]
+    {
+        backend::gpu_layer_split()
+    }
+    #[cfg(not(feature = "inference"))]
+    {
+        None
     }
 }
 
@@ -701,8 +755,77 @@ mod backend {
     /// the module-level `inference::gpu_active()`.
     static GPU_ACTIVE: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
+    /// `(layers_on_gpu, total_layers)` for the last load. Surfaced so the UI can
+    /// say "GPU (vulkan, 24/32 layers)" instead of a bare "GPU", which would hide
+    /// a mostly-CPU hybrid run.
+    static GPU_LAYERS: Lazy<Mutex<(u32, u32)>> = Lazy::new(|| Mutex::new((0, 0)));
+
     pub(super) fn gpu_active() -> bool {
         *GPU_ACTIVE.lock()
+    }
+
+    pub(super) fn gpu_layer_split() -> Option<(u32, u32)> {
+        let (n, total) = *GPU_LAYERS.lock();
+        if total == 0 { None } else { Some((n, total)) }
+    }
+
+    /// How many of the model's layers fit on the GPU alongside their KV cache.
+    ///
+    /// The llama.cpp/LM Studio/Jan sizing, from the model's REAL geometry rather
+    /// than a guess: mmap the file with 0 offloaded layers (cheap — no weights
+    /// are read, and the OS page cache keeps the real load warm), read
+    /// `n_layer` / `n_embd` / `n_head_kv`, then divide the VRAM budget by the
+    /// per-layer cost.
+    ///
+    /// Per layer we must fit:
+    ///   weights  ≈ file_size / n_layer        (quantized, whatever the quant is)
+    ///   KV cache ≈ 2 (K and V) * kv_dim * ctx_len * 2 bytes (f16) / n_layer
+    /// where kv_dim = n_embd * n_head_kv / n_head, which is what makes GQA models
+    /// (most modern ones) far cheaper per token than the naive n_embd estimate.
+    ///
+    /// Returns `None` when we cannot size it (no VRAM reading, probe failed) —
+    /// the caller then keeps the old "request everything" behaviour and lets the
+    /// retry ladder sort it out.
+    fn plan_gpu_layers(path: &Path, ctx_len: u32) -> Option<u32> {
+        let gpu = crate::gpu_detect::detect();
+        if gpu.vram_mb == 0 {
+            return None; // unknown card — don't pretend to compute a budget
+        }
+        let backend = BACKEND.get().or_else(|| BACKEND.get())?;
+        // Probe load: 0 offloaded layers = metadata + mmap only.
+        let params = LlamaModelParams::default().with_n_gpu_layers(0);
+        let probe = LlamaModel::load_from_file(backend, path, &params).ok()?;
+
+        let n_layer = probe.n_layer();
+        if n_layer == 0 {
+            return None;
+        }
+        let n_embd = probe.n_embd().max(1) as u64;
+        let n_head = probe.n_head().max(1) as u64;
+        let n_head_kv = probe.n_head_kv().max(1) as u64;
+        drop(probe);
+
+        let weights_bytes = std::fs::metadata(path).ok()?.len();
+        // kv_dim = n_embd * n_head_kv / n_head — GQA models share KV heads across
+        // query heads, which is what makes their cache far cheaper than n_embd
+        // would suggest. Using n_embd flat would badly under-offload them.
+        let kv_dim = n_embd * n_head_kv / n_head;
+        let fits = super::fit_gpu_layers(
+            gpu.vram_mb,
+            weights_bytes,
+            kv_dim,
+            ctx_len,
+            n_layer,
+        );
+
+        tracing::info!(
+            gpu = %gpu.name,
+            vram_mb = gpu.vram_mb,
+            n_layer,
+            planned_layers = fits,
+            "planned GPU offload"
+        );
+        Some(fits)
     }
 
     /// P6: pool cap. Each context allocates a full `n_ctx`-sized KV cache
@@ -1070,7 +1193,23 @@ mod backend {
         // silently serving the bare model (see LoraState docblock).
         let staged_lora = PENDING_LORA.lock().clone();
         let attempt = |ngl: u32| -> Result<(Arc<LlamaModel>, u32, PooledContext, Option<LoraState>)> {
+            // ngl == 0 is the CPU last resort, and it must be a TRUE CPU load:
+            // with a GPU device still attached, llama.cpp routes buffers through
+            // it even with zero layers offloaded, so a card that cannot allocate
+            // (AMD Polaris on the proprietary Vulkan driver — no resizable BAR,
+            // large allocations just fail) takes the CPU fallback down with it
+            // and the model does not load AT ALL. Verified on an RX 580: a GPU
+            // build failed every attempt including ngl=0, while the CPU build
+            // loaded the same model fine. Detaching the device makes the
+            // fallback as reliable as a CPU-only build.
             let params = LlamaModelParams::default().with_n_gpu_layers(ngl);
+            let params = if ngl == 0 {
+                params.with_devices(&[]).unwrap_or_else(|_| {
+                    LlamaModelParams::default().with_n_gpu_layers(0)
+                })
+            } else {
+                params
+            };
             let model = Arc::new(
                 LlamaModel::load_from_file(backend, path, &params)
                     .map_err(|e| anyhow!("load weights: {}", e))?,
@@ -1092,32 +1231,89 @@ mod backend {
             Ok((model, ctx_len, first, lora))
         };
 
-        // Try GPU first; on ANY failure — weights won't load, OR the KV cache
-        // won't fit in VRAM ("create context: null reference" for a model too
-        // big for the GPU) — fall back to CPU so the model still loads (slower)
-        // instead of erroring out. A hard GPU *driver crash* can't be caught
-        // here, but a clean error can.
-        let mut offloaded = requested > 0;
-        let (model, ctx_len, first, lora) = match attempt(requested) {
-            Ok(v) => v,
-            Err(e) if requested > 0 => {
-                tracing::warn!(
-                    error = %e,
-                    requested_gpu_layers = requested,
-                    "GPU load failed (weights or KV cache) — falling back to CPU"
-                );
-                offloaded = false; // CPU fallback — GPU is NOT active for this load
-                attempt(0)
-                    .map_err(|e2| anyhow!("load {:?} on CPU after GPU failure: {}", path, e2))?
-            }
-            Err(e) => return Err(anyhow!("load {:?}: {}", path, e)),
-        };
-        // GPU is genuinely active only when this is a GPU-compiled build AND we
-        // requested + kept GPU offload. In a CPU-only build llama.cpp ignores
-        // `n_gpu_layers`, so `offloaded` alone would lie.
         let is_gpu_build = matches!(super::compiled_backend(), "cuda" | "vulkan" | "metal");
-        let gpu_active_now = is_gpu_build && offloaded;
+
+        // PARTIAL OFFLOAD (the llama.cpp / LM Studio / Jan behaviour).
+        //
+        // Offload used to be all-or-nothing: request every layer, and on ANY
+        // failure — including "the KV cache doesn't fit in VRAM" — drop straight
+        // to 0 layers, i.e. full CPU. A 6-8 GB card holding a model that misses
+        // the cut by a few hundred MB therefore ran ENTIRELY on CPU, even though
+        // it could have taken most of the layers. That is the single biggest
+        // reason users see "why is this on CPU?".
+        //
+        // The standard fix is to fit as many layers as VRAM allows and leave the
+        // rest on CPU. `plan_gpu_layers` sizes that from the model's real
+        // geometry, and the ladder below still catches an over-estimate (VRAM
+        // reported != VRAM free — another app may hold some) by retrying with
+        // progressively fewer layers instead of collapsing to CPU.
+        //
+        // ponytail: `auto` (-1) plans; an explicit user layer count is honored
+        // as-is (they overrode us on purpose) but still gets the ladder.
+        let planned = if n_gpu_layers < 0 && is_gpu_build {
+            plan_gpu_layers(path, cap).unwrap_or(requested)
+        } else {
+            requested
+        };
+
+        // Descending attempts: planned → 3/4 → 1/2 → 1/4 → CPU. Each step is a
+        // real load, so a clean VRAM failure costs one retry, not a crash.
+        let mut ladder: Vec<u32> = Vec::new();
+        if planned > 0 {
+            for frac in [4u32, 3, 2, 1] {
+                let n = planned * frac / 4;
+                if n > 0 && ladder.last() != Some(&n) {
+                    ladder.push(n);
+                }
+            }
+        }
+        ladder.push(0); // CPU — always the last resort, never the first.
+
+        let mut offloaded_layers = 0u32;
+        let mut last_err: Option<anyhow::Error> = None;
+        let mut loaded: Option<(Arc<LlamaModel>, u32, PooledContext, Option<LoraState>)> = None;
+        for ngl in ladder {
+            match attempt(ngl) {
+                Ok(v) => {
+                    offloaded_layers = ngl;
+                    loaded = Some(v);
+                    break;
+                }
+                Err(e) => {
+                    if ngl > 0 {
+                        tracing::warn!(
+                            error = %e,
+                            gpu_layers = ngl,
+                            "GPU load failed (weights or KV cache) — retrying with fewer layers"
+                        );
+                    }
+                    last_err = Some(e);
+                }
+            }
+        }
+        let (model, ctx_len, first, lora) = loaded.ok_or_else(|| {
+            anyhow!(
+                "load {:?}: {}",
+                path,
+                last_err.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".into())
+            )
+        })?;
+
+        // GPU is genuinely active only when this is a GPU-compiled build AND at
+        // least one layer actually stayed on the card. In a CPU-only build
+        // llama.cpp ignores `n_gpu_layers`, so the count alone would lie.
+        let gpu_active_now = is_gpu_build && offloaded_layers > 0;
+        let total_layers = model.n_layer();
+        // llama clamps a request above the model's layer count, so report what
+        // actually landed on the card, not what we asked for.
+        let on_gpu = if gpu_active_now { offloaded_layers.min(total_layers) } else { 0 };
         *GPU_ACTIVE.lock() = gpu_active_now;
+        *GPU_LAYERS.lock() = (on_gpu, total_layers);
+        if gpu_active_now {
+            tracing::info!(gpu_layers = on_gpu, n_layer = total_layers, "GPU offload active");
+        } else if is_gpu_build {
+            tracing::warn!("model runs fully on CPU — GPU offload unavailable");
+        }
 
         // The model's real training window — the ceiling the UI offers and the
         // value `ctx_len` was already clamped against inside `attempt`.
@@ -1130,7 +1326,6 @@ mod backend {
         // A4: prefer the template the model itself declares over anything
         // guessed from the filename.
         let chat_template = model.chat_template(None).ok();
-        let gpu_active_now = is_gpu_build && offloaded;
         let max = effective_pool_cap(gpu_active_now);
         if gpu_active_now && max == 1 && std::env::var_os("FERAL_MAX_LOCAL_CONTEXTS").is_none() {
             tracing::info!(
@@ -1535,6 +1730,76 @@ mod backend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── fit_gpu_layers (partial offload sizing) ───────────────────────────────
+
+    const MB: u64 = 1024 * 1024;
+    const GB: u64 = 1024 * MB;
+
+    #[test]
+    fn offloads_every_layer_when_the_model_fits_comfortably() {
+        // 8B Q4 (~4.5 GB) on a 24 GB card: everything goes on the GPU.
+        let n = fit_gpu_layers(24 * 1024, 4_500 * MB, 1024, 8192, 32);
+        assert_eq!(n, 32);
+    }
+
+    #[test]
+    fn offloads_partially_instead_of_collapsing_to_cpu() {
+        // THE case this exists for: a 7 GB model on an 8 GB card. It does NOT
+        // fit whole — the old all-or-nothing path therefore ran the entire model
+        // on CPU. It must now keep most layers on the GPU.
+        let n = fit_gpu_layers(8 * 1024, 7 * GB, 1024, 8192, 32);
+        assert!(n > 0, "must not collapse to CPU when the card can hold layers");
+        assert!(n < 32, "must not claim the whole model fits");
+    }
+
+    #[test]
+    fn keeps_headroom_so_the_load_does_not_fail() {
+        // Model exactly the size of VRAM: without headroom this would "fit" and
+        // then fail to allocate compute buffers, dropping to CPU.
+        let n = fit_gpu_layers(8 * 1024, 8 * GB, 1024, 8192, 32);
+        assert!(n < 32);
+    }
+
+    #[test]
+    fn a_bigger_context_costs_layers() {
+        // KV cache is per-layer and scales with the window, so a longer context
+        // must offload fewer layers — not silently overcommit VRAM.
+        let short = fit_gpu_layers(8 * 1024, 6 * GB, 1024, 4096, 32);
+        let long = fit_gpu_layers(8 * 1024, 6 * GB, 1024, 65536, 32);
+        assert!(long < short, "long context must reserve more KV and offload less");
+    }
+
+    #[test]
+    fn gqa_model_offloads_more_than_a_wide_kv_one() {
+        // Same weights, smaller KV head dim (GQA) → cheaper cache → more layers.
+        let gqa = fit_gpu_layers(8 * 1024, 6 * GB, 512, 32768, 32);
+        let mha = fit_gpu_layers(8 * 1024, 6 * GB, 4096, 32768, 32);
+        assert!(gqa > mha);
+    }
+
+    #[test]
+    fn unknown_vram_or_empty_model_plans_nothing() {
+        assert_eq!(fit_gpu_layers(0, 4 * GB, 1024, 8192, 32), 0);
+        assert_eq!(fit_gpu_layers(8 * 1024, 4 * GB, 1024, 8192, 0), 0);
+    }
+
+    #[test]
+    fn a_tiny_card_takes_only_the_few_layers_it_can_hold() {
+        // 2 GB card, 13 GB model: after headroom there is ~1 GB, and a layer
+        // costs ~356 MB — so a couple of layers go to the GPU and the rest stay
+        // on CPU. Small, but that IS the llama.cpp behaviour, and it never
+        // overcommits: the count stays far below the model's 40 layers.
+        let n = fit_gpu_layers(2 * 1024, 13 * GB, 1024, 8192, 40);
+        assert!(n <= 3, "must not overcommit a small card, got {n}");
+        assert!(n < 40);
+    }
+
+    #[test]
+    fn no_vram_left_after_headroom_means_cpu() {
+        // A 1 GB card: headroom alone consumes the budget → honest CPU.
+        assert_eq!(fit_gpu_layers(1024, 4 * GB, 1024, 8192, 32), 0);
+    }
 
     // ── detect_template ───────────────────────────────────────────────────────
 
