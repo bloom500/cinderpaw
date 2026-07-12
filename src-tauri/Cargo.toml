@@ -3,7 +3,7 @@ name = "feral"
 version = "2026.6.29"
 description = "Feral — local AI desktop runtime"
 authors = ["Feral Contributors"]
-license = "MIT"
+license = "BUSL-1.1"
 edition = "2021"
 rust-version = "1.77.2"
 

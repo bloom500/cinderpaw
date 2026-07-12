@@ -10,9 +10,9 @@ The switch at the right of the typing bar changes who answers you.
 | | **Chat** | **Agent** |
 |---|---|---|
 | What it is | A direct line to the model | An autonomous assistant wrapped around the model |
-| Can read/write files | No | Yes (workspace-contained) |
-| Can search the web | No | Yes (`web_search`, `deep_research`, `read_webpage`) |
-| Can run commands | No | Optional, off by default |
+| Can read/write files | No | Yes (across your home folder; `~/.feral` and `~/.ssh` are always off-limits) |
+| Can search the web | No | Yes (`web_search`, `deep_research`, `read_webpage`, `fetch_url`) |
+| Can run commands | No | Yes (`shell_exec`; disable with `FERAL_ENABLE_SHELL_EXEC=false`) |
 | Remembers across sessions | No (per-conversation history only) | Yes — 4-layer persistent memory |
 | Speed | Fastest (one completion per message) | Slower (may loop through several tool calls) |
 | Best for | Quick questions, drafting, brainstorming | Tasks: "summarize this folder", "research X and write a report" |
@@ -32,11 +32,13 @@ Agent mode.
 | `web_search` | DuckDuckGo search | no API key needed |
 | `read_webpage` | Fetches a URL as clean Markdown | via Jina Reader |
 | `deep_research` | Multi-step research → cited Markdown report | takes minutes; shows progress |
-| `read_file` / `write_file` / `list_directory` | Workspace file access | contained to the workspace root |
+| `read_file` / `write_file` / `list_directory` | File access across your workspace roots (launch dir + home by default) | `~/.feral`, `~/.ssh`, and anything in `FERAL_FS_DENY` are always refused |
+| `fetch_url` / `http_request` | Fetch any public URL / call any API | SSRF-guarded, rate-limited, audited |
 | `read_skill` | Loads an installed skill's instructions | see Skills below |
+| `connectors_manage` | The agent sets up its own WhatsApp/Discord/Slack connectors when you ask | it can write tokens but never read them back |
 | `tool_health` | The agent reports its own tool success rates | |
 | `scan_workspace` | Finds hardcoded secrets / risky patterns in your code | never prints the secret values |
-| `shell_exec` | Run whitelisted commands | **off by default** (`FERAL_ENABLE_SHELL_EXEC=true` to enable) |
+| `shell_exec` | Run shell commands | **on by default**; disable with `FERAL_ENABLE_SHELL_EXEC=false` |
 
 While the agent works, tool calls appear as small bubbles next to the mascot —
 click a finished bubble to see exactly what the tool returned.
@@ -64,6 +66,19 @@ Skills are instruction packs that teach the agent new workflows.
   `SKILL.md` inside. Front matter (name, description) + Markdown body with the
   instructions. The description is what the agent uses to decide when your
   skill applies — make it specific.
+
+## Connectors (WhatsApp, Discord, Slack)
+
+Your agent can answer you from your messaging apps — same brain, same memory,
+still running on your machine.
+
+- **Set up:** sidebar → Connectors, or just ask the agent in chat ("connect
+  yourself to Discord"). WhatsApp pairs by scanning a QR code; Discord and
+  Slack take a bot token.
+- **Only allowlisted people** can talk to your agent — you choose who when
+  enabling the connector.
+- In the terminal: `feral connectors` (and `/connectors add whatsapp` inside
+  `feral chat` shows the QR right in the transcript).
 
 ## Memory and privacy
 

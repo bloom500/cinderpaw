@@ -104,6 +104,13 @@ mid-stream, send again.
   processes in the sidecar goes through the sandbox layers (see SECURITY.md).
   New tools must declare manifest permissions.
 
+## License of contributions
+
+Feral is licensed under the [Business Source License 1.1](../LICENSE) (free
+for individuals and small organizations, converts to Apache 2.0 after four
+years per version). By submitting a contribution you agree it's licensed
+under the same terms.
+
 ## Release
 
 See `docs/UPDATER_KEY_MIGRATION.md` for the 0.1.x → 0.2.0 signing-key

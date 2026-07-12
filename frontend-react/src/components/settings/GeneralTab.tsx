@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { RefreshCw, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
@@ -40,6 +41,9 @@ export function GeneralTab() {
     await shellOpen(parent || settings.models_dir);
   };
 
+  const [autoUpdateCheck, setAutoUpdateCheck] = useState(
+    localStorage.getItem('feral.autoUpdateCheck') !== 'off',
+  );
   const updateStatus = useUpdater((s) => s.status);
   const updateError  = useUpdater((s) => s.error);
   const check        = useUpdater((s) => s.check);
@@ -81,6 +85,26 @@ export function GeneralTab() {
             </span>
           </button>
         </div>
+      </div>
+
+      {/* Automatic update check (privacy: the check contacts GitHub Releases) */}
+      <div className={rowCls}>
+        <div>
+          <p className="text-sm font-medium text-text-primary">Check for updates at startup</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            Compares your version against GitHub Releases once per launch. Only the version request
+            is sent — no usage data. Turn off for a fully offline app.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          checked={autoUpdateCheck}
+          onChange={(e) => {
+            setAutoUpdateCheck(e.target.checked);
+            localStorage.setItem('feral.autoUpdateCheck', e.target.checked ? 'on' : 'off');
+          }}
+          className="h-4 w-4 accent-orange-500 shrink-0"
+        />
       </div>
 
       {/* Language */}

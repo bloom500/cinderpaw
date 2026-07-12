@@ -13,7 +13,6 @@ import { UpdateToast } from '@/components/UpdateToast';
 import { Toasts } from '@/components/Toasts';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
-import { WelcomeBack } from '@/components/shell/WelcomeBack';
 import { cn } from '@/lib/utils';
 
 function WinControls() {
@@ -59,8 +58,11 @@ export function AppShell() {
   const searchOpen  = useUI((s) => s.searchOpen);
 
   // Silent update check once on startup; the toast appears only if one is available.
+  // Opt-out via Settings → General (privacy: the check contacts GitHub Releases).
   const checkForUpdate = useUpdater((s) => s.check);
-  useEffect(() => { void checkForUpdate(); }, [checkForUpdate]);
+  useEffect(() => {
+    if (localStorage.getItem('feral.autoUpdateCheck') !== 'off') void checkForUpdate();
+  }, [checkForUpdate]);
 
   return (
     <div className="h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
@@ -80,7 +82,6 @@ export function AppShell() {
       <UpdateToast />
       <Toasts />
       <SkillHubDrawer />
-      <WelcomeBack />
       <OnboardingOrchestrator />
     </div>
   );

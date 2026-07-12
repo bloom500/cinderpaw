@@ -7,7 +7,12 @@ and how builds and releases work.
 
 > **For the layer model (L0–L6), Faza ↔ L-layer translation, file map
 > and glossary, see [ARCHITECTURE.md](../ARCHITECTURE.md). For every
-> `FERAL_*` env var, see [CONFIGURATION.md](./CONFIGURATION.md).**
+> `FERAL_*` env var, see [CONFIGURATION.md](./CONFIGURATION.md). For the
+> Go terminal client (user guide + build instructions), see [TUI.md](./TUI.md).**
+
+> This guide's "three runtimes" narrative predates the Go TUI (`tui/`), a
+> fourth runtime that ships as its own binary — [ARCHITECTURE.md](../ARCHITECTURE.md)
+> §1 has the current count and table.
 
 ---
 

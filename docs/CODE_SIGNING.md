@@ -1,9 +1,16 @@
 # Windows Code Signing (Authenticode) — via SignPath Foundation
 
-> Status: **pipeline wired, FREE, pending project approval.** Every signing step
-> in the release workflow is gated on `SIGNPATH_API_TOKEN`. Until you register
-> the project and add the values below, releases ship **unsigned** exactly as
-> today — nothing breaks.
+> Status: **pipeline wired but BLOCKED by license choice (2026-07-12).**
+> SignPath Foundation's free OSS program requires an OSI-approved license;
+> Feral moved to BSL 1.1, which is source-available, not OSI open source —
+> so the free program no longer applies. The signing steps in the release
+> workflow stay gated on `SIGNPATH_API_TOKEN` and releases ship **unsigned**.
+> Cheapest paid path when budget exists: Azure Trusted Signing ($9.99/mo).
+> Current mitigation: documented SmartScreen bypass in the README install
+> section + reproducible public CI builds; SmartScreen reputation accrues
+> with clean downloads over time. macOS notarization needs a $99/yr Apple
+> Developer account — the `xattr -cr` workaround in the README covers it
+> until then.
 
 ## Why
 

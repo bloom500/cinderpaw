@@ -102,3 +102,20 @@ node_modules/.vite/
 # Locally-installed Claude Code plugin skills (.claude/ config IS tracked, these aren't)
 .claude/skills/
 .aider*
+
+# Internal process artifacts (session briefs, audits, plans, strategy drafts)
+# — kept locally, never published. Untracked pre-v1.0 launch.
+PLAN.md
+.run-tauri-dev.ps1
+run-*.bat
+docs/agents-memory/
+docs/audits/
+docs/marketing/
+docs/superpowers/
+docs/opus-handoff-brief.md
+docs/continual-personal-adaptation-plan.md
+docs/*-minimax-brief.md
+docs/code-rsi-*.md
+docs/session-*.md
+docs/2026-*.md
+.superpowers/

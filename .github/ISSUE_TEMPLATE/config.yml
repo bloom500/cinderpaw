@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & ideas
+    url: https://github.com/bloom500/feral/discussions
+    about: For anything that isn't a bug — feature ideas, setup help, model recommendations.

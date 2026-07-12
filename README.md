@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/bloom500/feral/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/feral?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
-  <img src="https://img.shields.io/badge/license-MIT%20%2B%20Apache--2.0-green?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/license-BSL%201.1-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=for-the-badge&logo=tauri" alt="Tauri" />
 </p>
@@ -29,18 +29,18 @@ Feral is a desktop app that runs AI on your machine. With local GGUF models, eve
 
 ---
 
-## What's new in v2026.06.29
+## What's new — July 2026 release
 
 *Power-user preview — we're looking for testers and contributors.*
 
-- 🧠 **Memory Layers** — a clean, non-technical view of everything Feral remembers about you: Today, This Week, This Month, Older. Live RSI status and dream cycle history included.
-- 🔄 **RSI (Recursive Self-Improvement)** — Feral tunes its own parameters while you're away. An evolutionary algorithm tests configurations against a frozen eval suite and keeps what works. Early-stage but functional.
-- 🖥️ **GPU acceleration** — Vulkan on Windows/Linux, Metal on macOS. Auto-fallback to CPU when GPU isn't available.
-- ⚡ **Inference deadlines** — TTFT, total, and stall timers with live progress. No more wondering if the model is stuck.
+- 🚀 **Guided setup** — `feral setup` (and the desktop wizard) now detects what's already on your machine: existing models, API keys in your environment, a running Ollama, even an OpenClaw config to import. Every route is verified with a real completion before it's saved — no more "configured but broken".
+- 💬 **Connectors** — talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**. Same brain, same memory — your messages never leave your machine except to the messaging platform itself. The agent can even configure its own connectors in chat.
+- 🤖 **Agent unleashed** — the sandbox is now allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.feral`, `~/.ssh`, and anything you list in `FERAL_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
+- 🖥️ **Terminal parity** — full-screen TUI chat (`feral chat`), guided first-run, `/compact`, `/think`, `/usage`, `/restart`, and a documented local HTTP API.
+- 🧠 **Memory Layers + RSI** — see everything Feral remembers, grouped by recency; Feral tunes its own parameters while you're away and keeps only what measurably works.
 - 🔑 **BYOK (Bring Your Own Key)** — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
-- 🛡️ **Security hardening** — sandboxed tools, encrypted memory, tamper-evident audit log, CVE-2026-0187 fix.
 
-Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDADER_KEY_MIGRATION.md) first.
+Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
 
 ---
 
@@ -53,6 +53,8 @@ Grab the latest installer from [Releases](https://github.com/bloom500/feral/rele
 | **Windows 10/11** (x64) | `.msi` / `.exe` | 🟢 Stable — primary target |
 | **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/feral/issues). |
 | **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/feral/issues). |
+
+> **Windows first launch:** the installer isn't code-signed yet (certificates cost real money and Feral is free), so SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The installer is built by public GitHub Actions CI from this repository — you can audit exactly what went into it.
 
 > **macOS first launch:** Feral isn't notarized by Apple (yet), so macOS will warn you on first open. If you see *"Feral.app is damaged"* or *"can't be opened"*, run this once in Terminal and you're set:
 > ```bash
@@ -84,6 +86,14 @@ Every model card shows a **0–100 fitness score** for *your* hardware before yo
 
 For deep research, ask the agent something like *"Research the current state of open-source LLMs"* — it calls `deep_research` on its own and comes back with a cited Markdown report.
 
+### Prefer the terminal?
+
+The same brain is fully drivable headless: `feral chat` opens a full-screen
+terminal chat (same sessions, memory and models as the desktop app), `feral setup`
+runs the wizard, `feral gateway start` runs everything as a background service,
+and `feral doctor` diagnoses the install. See [docs/TUI.md](docs/TUI.md) for the
+terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
+
 | Dark mode | Connectors (Discord, Slack, …) | Memory Layers |
 |---|---|---|
 | ![Dark theme](frontend-react/public/READMEdemo2.png) | ![Connectors](frontend-react/public/READMEdemo3.png) | ![Memory Layers](frontend-react/public/READMEdemo5.png) |
@@ -92,7 +102,8 @@ For deep research, ask the agent something like *"Research the current state of 
 
 - **Local models:** inference, conversations, and memory never leave your machine. No background network requests, no telemetry, no analytics — by design.
 - **Cloud models (BYOK):** your messages go to the provider you configured (OpenAI, Anthropic, …) when — and only when — you hit send. Feral talks to their API directly with your key; nothing is routed through our servers, because we don't have any. Their privacy policy applies to what you send them.
-- **Web tools:** agent tools like `web_search` and `deep_research` make outbound requests (DuckDuckGo, Jina) when the agent uses them — through an egress proxy with domain allowlists and an audit log.
+- **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo, Jina, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
+- **Update check:** once per launch, Feral asks GitHub Releases whether a newer version exists. Only the version request is sent — no usage data, no identifiers beyond a normal HTTP request. Turn it off in **Settings → General** for a fully offline app.
 
 | | |
 |---|---|
@@ -108,6 +119,7 @@ For deep research, ask the agent something like *"Research the current state of 
 | **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, and an agentic loop. It thinks. Sometimes too much. |
 | **Memory Layers** | See everything Feral remembers about you — grouped by recency (Today / This Week / This Month / Older). Live RSI status and dream cycle history. |
 | **RSI (Self-Improvement)** | Feral tunes its own parameters while you're away. Evolutionary algorithm tests configs, keeps what works. Early-stage, functional. |
+| **Connectors** | Talk to your agent from WhatsApp (QR pairing), Discord, or Slack. Same brain, same memory — running on your machine, not a cloud. |
 | **Deep Research** | Multi-step autonomous web research: searches, reads pages, extracts findings, synthesizes a cited Markdown report. Like having a very caffeinated research assistant who never sleeps. |
 | **Local Models** | Load GGUF models from disk. One-click load/unload with live Active status and hardware fitness scoring. |
 | **Model Fitness Scoring** | Every local model gets a 0–100 score across memory fit, quality, speed, and context window — so you stop loading models that make your CPU cry. |
@@ -197,9 +209,11 @@ Feral Agent has 4 memory layers that persist across sessions:
 
 Every tool call passes through a security layer before execution:
 
+The philosophy is **capable by default, restrictable by choice**: the agent can browse the open web and work across your files out of the box, while hard guarantees stay call-time enforced:
+
 - **Manifest validation** — tools declare `permissions: ["fs:read" | "fs:write" | "network:outbound" | "process:spawn"]` at registration; undeclared permissions are blocked
-- **Egress proxy** — all network requests go through `ctx.fetch()` (never raw `fetch()`), which enforces per-tool domain allowlists, blocks SSRF (loopback / private / link-local ranges), rate-limits (30 req/60s), and audits every call
-- **Path containment** — filesystem tools resolve paths against declared `allowedPaths`; directory traversal (`../`) is blocked before any disk access
+- **Egress proxy** — all network requests go through `ctx.fetch()` (never raw `fetch()`), which blocks SSRF (loopback / private / link-local ranges, re-checked on every redirect hop), rate-limits (30 req/60s), and audits every call. Open to all public hosts by default; set `FERAL_FETCH_DOMAINS` / `FERAL_HTTP_DOMAINS` to restrict to an allowlist.
+- **Filesystem deny wall** — file tools work across your workspace roots (launch dir + home by default, `FERAL_WORKSPACE` to restrict), but `~/.feral` (your agent's own config, memory, and keys), `~/.ssh`, and anything in `FERAL_FS_DENY` are refused at call time — always, regardless of roots. Directory traversal (`../`) is resolved before any disk access.
 - **Audit log** — every tool call, network request, and inference call is written to SQLite
 
 ### Built-in tools
@@ -212,6 +226,10 @@ Every tool call passes through a security layer before execution:
 | `read_file` | `fs:read` | Read files from the workspace. 64 KB cap. |
 | `write_file` | `fs:write` | Write files to the workspace. 1 MB cap. Creates intermediate directories. |
 | `list_directory` | `fs:read` | List directory contents. 200 entries max. |
+| `fetch_url` | `network:outbound` | Fetch any public URL (SSRF-guarded, rate-limited, audited). |
+| `http_request` | `network:outbound` | Generic HTTP client for APIs — GET/POST/PUT/DELETE with headers and JSON bodies. |
+| `shell_exec` | `process:spawn` | Run shell commands. On by default; disable with `FERAL_ENABLE_SHELL_EXEC=false`. |
+| `connectors_manage` | — | The agent can list and configure its own messaging connectors (tokens are write-only — it can never read them back). |
 | `tool_health` | — | ECC-style health report: success rates, average latency, recurring errors per tool. The agent can diagnose its own reliability. |
 | `scan_workspace` | `fs:read` | ECC AgentShield-style scanner: detects hardcoded secrets (API keys, passwords, tokens, JWT) and code anti-patterns (`eval()`, `innerHTML=`, SQL injection, `dangerouslySetInnerHTML`). Never exposes secret values — only file paths and line numbers. |
 
@@ -297,24 +315,27 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 | Variable | Default | Description |
 |---|---|---|
 | `FERAL_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
-| `FERAL_WORKSPACE` | cwd | Root for filesystem tools |
+| `FERAL_WORKSPACE` | cwd + home | Path-list of filesystem roots. Unset = launch dir + your home dir; set it to RESTRICT |
+| `FERAL_FS_DENY` | — | Extra paths file tools may never touch (on top of the built-in `~/.feral` + `~/.ssh` deny wall) |
 | `FERAL_MODEL` | `qwen2.5:7b` | Model name (overridden to `feral-local` by the app) |
-| `FERAL_BASE_URL` | `http://localhost:11434` | Inference endpoint (app injects `http://127.0.0.1:11435`) |
-| `FERAL_PROVIDER` | `ollama` | Provider (`ollama` or `openai_compatible`; app injects `openai_compatible`) |
+| `FERAL_BASE_URL` | `http://127.0.0.1:11435` | Inference endpoint — Feral's bundled llama.cpp engine |
+| `FERAL_PROVIDER` | `openai_compatible` | Provider (`openai_compatible` or `ollama` for a legacy Ollama setup) |
+| `FERAL_FALLBACK_BASE_URL` | `http://localhost:11434` | Fallback endpoint if the primary is unreachable (e.g. a local Ollama) |
 | `FERAL_API_KEY` | — | Bearer token for the inference endpoint (app injects the local API token) |
-| `FERAL_ENABLE_SHELL_EXEC` | `false` | Register the generic `shell_exec` tool (argv-only, no shell). Off by default. |
+| `FERAL_ENABLE_SHELL_EXEC` | `true` | Register the `shell_exec` tool. Set `false` to disable shell access entirely. |
 | `FERAL_SHELL_WHITELIST` | `git,node,python,…` | Comma-separated binaries `shell_exec` may run |
 | `FERAL_TOOL_GRAMMAR` | `false` | Grammar-constrain tool calls on the bundled engine (lazy GBNF) |
 | `FERAL_JINA_API_KEY` | — | Jina API key for higher rate limits on search + reader |
-| `FERAL_FETCH_DOMAINS` | — | Comma-separated domain allowlist for `fetch_url` tool |
-| `FERAL_BUDGET_CONVERSATION` | `50000` | Max tokens per conversation |
-| `FERAL_BUDGET_DAY` | `500000` | Max tokens per day |
+| `FERAL_FETCH_DOMAINS` | — | Domain allowlist for `fetch_url`. Unset = all public hosts (SSRF guard still applies); set to RESTRICT |
+| `FERAL_HTTP_DOMAINS` | — | Same as above, for the `http_request` tool |
+| `FERAL_BUDGET_CONVERSATION` | `5000000` | Per-conversation token ceiling |
+| `FERAL_BUDGET_DAY` | `50000000` | Per-day token ceiling |
 
 ---
 
 ## Roadmap
 
-- [x] Chat with local models (Ollama / llama.cpp)
+- [x] Chat with local models (bundled llama.cpp)
 - [x] HuggingFace model browser and downloader
 - [x] SkillHub — install, discover, and import agent skills
 - [x] BYOK cloud keys (10+ providers)
@@ -327,7 +348,7 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 - [x] Privacy tags — `<private>` blocks never written to memory
 - [x] Tool health monitoring — ECC-style per-tool success rate tracking
 - [x] Workspace security scanner — detect secrets and code anti-patterns
-- [ ] Local API server — expose a local endpoint for other apps to consume
+- [x] Local API server — 47 documented routes, OpenAI- and Ollama-compatible (see [docs/API.md](docs/API.md))
 - [ ] RAG on local documents — chat with your PDFs without sending them anywhere
 - [ ] Multi-agent workflows — skills that spawn sub-agents and coordinate results
 
@@ -353,7 +374,14 @@ Contributions are welcome — code, docs, bug reports, model recommendations, or
 
 ## License
 
-MIT + Apache 2.0 — see the repository for details.
+Feral is source-available under the [Business Source License 1.1](LICENSE) (BSL).
+
+**What that means in practice:**
+- ✅ **Free forever for you** — personal use, small businesses (under $2M annual revenue), education, research, self-hosting, modifying, redistributing.
+- 🚫 **Not free for big enterprise** — organizations above the revenue threshold, or anyone offering Feral as a hosted/managed service, need a [commercial license](mailto:bloommediacorporation@gmail.com).
+- 🕓 **Becomes fully open source automatically** — each version converts to Apache 2.0 four years after its release.
+
+This protects a small independent project from being repackaged by large companies while keeping it free for the people it's built for.
 
 ---
 
@@ -362,7 +390,7 @@ MIT + Apache 2.0 — see the repository for details.
 </p>
 
 <p align="center">
-  <em>Built with 🦁 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
+  <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
 </p>
 
 *Feral does not phone home, does not collect telemetry, and has never once asked you to "sign up to unlock the full experience." That would be very un-feral of it.*

@@ -1,0 +1,51 @@
+name: Bug report
+description: Something broke or didn't behave as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time! The `feral doctor` output below answers 90% of
+        our first questions — please include it if you can.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+      placeholder: I clicked … and expected … but got …
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Diagnostic output
+      description: |
+        Run `feral doctor` in a terminal and paste the output here.
+        (No terminal? Tell us your OS, how you installed Feral, and whether you
+        use a local model or a cloud key.)
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Feral version
+      description: Settings → General → App version, or `feral --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10/11
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, logs, the model you were using, etc.
