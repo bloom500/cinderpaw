@@ -25,8 +25,8 @@ export function createHttpRequestTool(allowedDomains: string[]): Tool {
   const manifest: ToolManifest = {
     name: "http_request",
     description:
-      "Send an HTTP request through the sandboxed egress proxy (domain " +
-      "whitelist, SSRF guard, rate-limited). Supports GET, POST, PUT, " +
+      "Send an HTTP request to any public host (internal/private addresses " +
+      "are blocked; rate-limited and audited). Supports GET, POST, PUT, " +
       "PATCH, DELETE, HEAD. The response body is returned as text and " +
       "capped at 256 KB. Use `json` for a sugar that stringifies the " +
       "body and sets `Content-Type: application/json`.",
@@ -45,7 +45,7 @@ export function createHttpRequestTool(allowedDomains: string[]): Tool {
       },
       url: {
         type: "string",
-        description: "Absolute URL. Must be HTTPS and on a domain the tool's manifest whitelists.",
+        description: "Absolute HTTPS URL of a public host.",
         required: true,
       },
       headers: {

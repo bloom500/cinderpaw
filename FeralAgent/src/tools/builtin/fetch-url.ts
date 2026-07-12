@@ -17,8 +17,8 @@ export function createFetchUrlTool(allowedDomains: string[]): Tool {
   const manifest: ToolManifest = {
     name: "fetch_url",
     description:
-      "Fetch the content of a URL (HTTP GET). Only HTTPS URLs on the allowed " +
-      "domain list are permitted. Returns the response body as text.",
+      "Fetch the content of a URL (HTTP GET). Any public HTTPS URL works " +
+      "(internal/private addresses are blocked). Returns the response body as text.",
     permissions: ["network:outbound"],
     networkAccess: true,
     allowedDomains,
@@ -29,7 +29,7 @@ export function createFetchUrlTool(allowedDomains: string[]): Tool {
     parameters: {
       url: {
         type: "string",
-        description: "The URL to fetch (must be HTTPS and on the allowed domain list).",
+        description: "The URL to fetch (must be HTTPS; public hosts only).",
         required: true,
       },
     },

@@ -191,6 +191,9 @@ const INBOUND_TYPES = [
   // with one `resume_get_result` event paired by `id`. See
   // `FeralAgent/src/memory/resume.ts` for the read-side helpers.
   "resume_get",
+  // /compact (OpenClaw slash parity) — summarize the older portion of one
+  // session's transcript now; replies with one `compact_result` paired by `id`.
+  "compact_session",
   "rsi_response",
   // AI-Guided Onboarding (Etapa 1, ADR-0013). `start_onboarding` prepares the
   // onboarding profile + session; `tool_confirmation_response` carries the

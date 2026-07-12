@@ -17,6 +17,8 @@
 
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { cfgList, cfgPath } from "../config.ts";
 
 /**
  * Canonicalize a path even when it does not exist yet: realpath the deepest
@@ -204,6 +206,31 @@ function modePermits(
 }
 
 /**
+ * Deny wall — paths no fs tool may touch even when an allowed root contains
+ * them. Workspace roots are broad by default (the user's whole home dir), so
+ * the self-protection guarantee ("the agent can't modify its own brain") and
+ * the credential guard live HERE, at call time, instead of restricting which
+ * roots may exist:
+ *   - ~/.feral (RSI repo, db, SOUL, connector secrets) — except the scratch
+ *     subtree ~/.feral/workspace, which the agent fully owns
+ *   - ~/.ssh (private keys)
+ *   - anything listed in FERAL_FS_DENY (path-list, same separator as PATH)
+ * Privileged built-ins that must write inside ~/.feral (e.g. connectors_manage)
+ * do NOT route through resolveAllowedPath — they own their fixed path.
+ */
+function deniedPaths(): { deny: string[]; exempt: string[] } {
+  const feralHome = realpathBestEffort(
+    cfgPath("FERAL_HOME") ?? resolve(homedir(), ".feral"),
+  );
+  const deny = [
+    feralHome,
+    realpathBestEffort(resolve(homedir(), ".ssh")),
+    ...cfgList("FERAL_FS_DENY").map((p) => realpathBestEffort(p)),
+  ];
+  return { deny, exempt: [join(feralHome, "workspace")] };
+}
+
+/**
  * Resolve and validate a filesystem path against a tool's manifest. Returns the
  * absolute, normalized path when allowed; throws PermissionDeniedError when the
  * requested permission is undeclared or the path escapes every allowed root.
@@ -214,6 +241,8 @@ function modePermits(
  *   - symlink escape: a symlink inside an allowed root that points OUTSIDE
  *     the root must not be followed. We resolve the REAL path of the target
  *     (following symlinks) and check containment against THAT.
+ *   - the deny wall: targets inside ~/.feral (non-scratch), ~/.ssh, or
+ *     FERAL_FS_DENY are refused regardless of the allowed roots.
  */
 export function resolveAllowedPath(
   manifest: ToolManifest,
@@ -235,6 +264,20 @@ export function resolveAllowedPath(
   // live behind the /var → /private/var symlink and a plain resolve() of a
   // not-yet-created file never matches the realpath'd root.
   const target = realpathBestEffort(requestedPath);
+
+  // Deny wall first — an allowed root may legitimately CONTAIN a denied
+  // subtree (home contains ~/.feral), so containment success is not enough.
+  const { deny, exempt } = deniedPaths();
+  const within = (child: string, parent: string): boolean =>
+    child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+  if (
+    deny.some((d) => within(target, d)) &&
+    !exempt.some((e) => within(target, e))
+  ) {
+    throw new PermissionDeniedError(
+      `path "${target}" is protected (agent state/credentials) — denied for "${manifest.name}"`,
+    );
+  }
 
   // Two checks, in order:
   //   1. Path containment (with symlink-safe realpath)

@@ -14,13 +14,20 @@ export class EpisodicMemory {
   readonly #db: Database;
   readonly #audit: AuditLogger;
   readonly #insert: ReturnType<Database["query"]>;
+  readonly #getWorkspaceId: (() => string | null) | null;
 
-  constructor(db: Database, audit: AuditLogger) {
+  /**
+   * `getWorkspaceId` resolves the active workspace at write time so every
+   * `record()` is scoped without each caller having to thread the id through.
+   * Null (tests, legacy callers) writes an unscoped row — same as before.
+   */
+  constructor(db: Database, audit: AuditLogger, getWorkspaceId?: () => string | null) {
     this.#db = db;
     this.#audit = audit;
+    this.#getWorkspaceId = getWorkspaceId ?? null;
     this.#insert = db.query(`
-      INSERT INTO episodic (session_id, timestamp, role, content)
-      VALUES ($sessionId, $timestamp, $role, $content)
+      INSERT INTO episodic (session_id, timestamp, role, content, workspace_id)
+      VALUES ($sessionId, $timestamp, $role, $content, $workspaceId)
     `);
   }
 
@@ -39,6 +46,7 @@ export class EpisodicMemory {
         $timestamp: ts,
         $role: role,
         $content: content,
+        $workspaceId: this.#getWorkspaceId?.() ?? null,
       });
       // `lastInsertRowid` exists at runtime on bun:sqlite's `Database` but
       // isn't surfaced on the TypeScript types, so go through a one-shot

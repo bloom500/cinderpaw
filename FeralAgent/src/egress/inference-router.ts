@@ -53,6 +53,27 @@ export class InferenceError extends Error {
   }
 }
 
+/**
+ * Background session ids — inference work no human is waiting on. These
+ * yield to interactive sessions at the router's priority gate. Everything
+ * not listed here is treated as interactive (chat, api, plain, connector
+ * sessions, recall-tool, …) so a new background caller must opt in
+ * explicitly rather than accidentally competing with the user.
+ */
+const BACKGROUND_SESSION_PREFIXES = [
+  "rsi-eval",
+  "code-rsi",
+  "inner-thoughts",
+  "semantic",
+  "migration",
+  "dream",
+  "meta",
+] as const;
+
+export function isBackgroundSession(sessionId: string): boolean {
+  return BACKGROUND_SESSION_PREFIXES.some((p) => sessionId.startsWith(p));
+}
+
 export class InferenceRouter {
   // Mutable so reconfigure() can hot-swap the active model at runtime.
   #primary: ModelTarget;
@@ -312,6 +333,58 @@ export class InferenceRouter {
    * time (S5 will validate this).
    */
   async completeWith(
+    primary: ModelTarget,
+    fallback: ModelTarget | undefined,
+    req: InferenceRequest,
+  ): Promise<InferenceResponse> {
+    // Interactive-priority gate (2026-07-11): background work (RSI evals,
+    // dreams, semantic indexing, …) must never starve a user-facing chat.
+    // Observed failure: an RSI eval sweep saturated the provider while the
+    // user's TUI message waited >90s for its first token → TtftTimeoutError
+    // on "the most basic request". Background calls now wait while any
+    // interactive request is in flight (plus a short cooldown so an active
+    // conversation keeps priority between turns); interactive calls are
+    // counted so the gate knows when the coast is clear.
+    const interactive = !isBackgroundSession(req.sessionId);
+    if (!interactive) {
+      await this.#yieldToInteractive();
+    } else {
+      this.#interactiveInFlight++;
+    }
+    try {
+      return await this.#completeWithPrioritized(primary, fallback, req);
+    } finally {
+      if (interactive) {
+        this.#interactiveInFlight--;
+        this.#lastInteractiveDoneAt = Date.now();
+      }
+    }
+  }
+
+  /** Count of user-facing requests currently inside #completeWithPrioritized. */
+  #interactiveInFlight = 0;
+  /** When the last interactive request finished (ms epoch). */
+  #lastInteractiveDoneAt = 0;
+
+  /** Background calls poll here until no interactive work is in flight and
+   *  the cooldown since the last interactive completion has passed. Bounded
+   *  so a marathon chat session can't starve background work forever —
+   *  after the cap the background call proceeds anyway (it will simply
+   *  share the provider like before this gate existed). */
+  async #yieldToInteractive(): Promise<void> {
+    const COOLDOWN_MS = 15_000;
+    const MAX_WAIT_MS = 10 * 60_000;
+    const start = Date.now();
+    while (
+      (this.#interactiveInFlight > 0 ||
+        Date.now() - this.#lastInteractiveDoneAt < COOLDOWN_MS) &&
+      Date.now() - start < MAX_WAIT_MS
+    ) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  async #completeWithPrioritized(
     primary: ModelTarget,
     fallback: ModelTarget | undefined,
     req: InferenceRequest,

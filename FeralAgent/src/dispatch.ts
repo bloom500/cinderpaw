@@ -485,6 +485,21 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      // /compact (OpenClaw slash parity) — summarize the older portion of one
+      // session's transcript now. Replies with one `compact_result` paired by
+      // `id`. The summarizer is a full LLM completion, so this can take a
+      // while on CPU — the caller owns its own timeout.
+      case "compact_session": {
+        const sessionId = msg.sessionId ?? "default";
+        try {
+          const result = await agent.compactSession(sessionId);
+          transport.send({ type: "compact_result", id: msg.id ?? "", ok: true, result });
+        } catch (err) {
+          transport.send({ type: "compact_result", id: msg.id ?? "", ok: false, error: String(err) });
+        }
+        break;
+      }
+
       // Faza 2 Slice 5 — the code-patch approval gate. Store + apply live in
       // `pending-patches.ts`; this is only the IPC seam. Live apply needs the
       // real source repo (dev-mode knob FERAL_CODE_RSI_REPO); without it an

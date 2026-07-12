@@ -287,16 +287,50 @@ describe("memory/resilience: version upgrade", () => {
 });
 
 describe("memory/resilience: workspace switch", () => {
+  test("record() stamps the active workspace_id via the resolver; switching scopes new rows", () => {
+    const db = openDatabase(dbPath);
+    const epi = new EpisodicMemory(db.raw, quietAudit, () => getActiveWorkspaceId(db.raw));
+    const wsA = createWorkspace(db.raw, "Work", "/work");
+    const wsB = createWorkspace(db.raw, "Personal", "/personal");
+
+    // Production writer path: record() resolves the active workspace at
+    // write time — same wiring as boot.ts.
+    setActiveWorkspace(db.raw, wsA.id);
+    epi.record("sA", "user", "secret project thing");
+    setActiveWorkspace(db.raw, wsB.id);
+    epi.record("sB", "user", "family trip plan");
+
+    const rows = db.raw.query(
+      "SELECT workspace_id, content FROM episodic ORDER BY id ASC",
+    ).all() as Array<{ workspace_id: string; content: string }>;
+    expect(rows[0].workspace_id).toBe(wsA.id);
+    expect(rows[1].workspace_id).toBe(wsB.id);
+
+    // No resolver (legacy/tests) → unscoped row, not a crash.
+    const bare = new EpisodicMemory(db.raw, quietAudit);
+    bare.record("sC", "user", "unscoped note");
+    const last = db.raw.query(
+      "SELECT workspace_id FROM episodic ORDER BY id DESC LIMIT 1",
+    ).get() as { workspace_id: string | null };
+    expect(last.workspace_id).toBeNull();
+
+    // Active workspace pointer survives restart.
+    expect(getActiveWorkspaceId(db.raw)).toBe(wsB.id);
+    db.close();
+    const db2 = openDatabase(dbPath);
+    expect(getActiveWorkspaceId(db2.raw)).toBe(wsB.id);
+    db2.close();
+    teardown();
+  });
+
   test("episodic rows are scoped to a workspace_id; facts do not leak across workspaces", () => {
     const db = openDatabase(dbPath);
     const epi = new EpisodicMemory(db.raw, quietAudit);
     const wsA = createWorkspace(db.raw, "Work", "/work");
     const wsB = createWorkspace(db.raw, "Personal", "/personal");
 
-    // Direct row insert with explicit workspace_id — the production writer
-    // path (EpisodicMemory.record) doesn't take workspaceId yet; Sprint 1.4
-    // added the column so the writer hook can fill it next sprint. The
-    // storage layer's filterability is what this test pins.
+    // Direct row insert with explicit workspace_id — pins the storage
+    // layer's filterability independent of the writer path.
     const insert = db.raw.prepare(
       "INSERT INTO episodic (session_id, timestamp, role, content, workspace_id) VALUES (?, ?, ?, ?, ?)",
     );

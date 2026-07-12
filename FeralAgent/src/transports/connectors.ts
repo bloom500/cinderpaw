@@ -15,7 +15,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, unlink } from "node:fs/promises";
 import {
   Client,
   GatewayIntentBits,
@@ -605,15 +605,27 @@ export class WhatsAppConnector {
       const { connection, lastDisconnect, qr } = u;
       if (qr) {
         this.#log("whatsapp: scan this QR with WhatsApp → Settings → Linked devices:");
-        qrcode.generate(qr, { small: true }, (ascii) => process.stderr.write("\n" + ascii + "\n"));
+        qrcode.generate(qr, { small: true }, (ascii) => {
+          process.stderr.write("\n" + ascii + "\n");
+          // Mirror the QR to a file so GUI surfaces (desktop Connectors page)
+          // can render it — a GUI user has no terminal to scan from.
+          void writeFile(
+            join(homedir(), ".feral", "whatsapp-qr.json"),
+            JSON.stringify({ ts: Date.now(), qr, ascii }),
+          ).catch(() => {});
+        });
       }
-      if (connection === "open") this.#log("whatsapp connector online (linked)");
+      if (connection === "open") {
+        this.#log("whatsapp connector online (linked)");
+        void unlink(join(homedir(), ".feral", "whatsapp-qr.json")).catch(() => {});
+      }
       if (connection === "close") {
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         if (this.#stopped) return;
         if (loggedOut) {
           this.#log("whatsapp: logged out — toggle the connector off and on to re-link.");
+          void unlink(join(homedir(), ".feral", "whatsapp-qr.json")).catch(() => {});
         } else {
           this.#log("whatsapp: connection closed, reconnecting…");
           void this.#connect().catch((e) => this.#log(`whatsapp reconnect failed: ${String(e)}`));
@@ -637,6 +649,7 @@ export class WhatsAppConnector {
       // already closed
     }
     this.#sock = null;
+    void unlink(join(homedir(), ".feral", "whatsapp-qr.json")).catch(() => {});
   }
 
   async #onMessage(msg: WAMessage): Promise<void> {
@@ -726,7 +739,7 @@ export class WhatsAppConnector {
 // Manager — reconciles live connectors against ~/.feral/connectors.json
 // ---------------------------------------------------------------------------
 
-interface ConnectorRow {
+export interface ConnectorRow {
   id: string;
   enabled?: boolean;
   secrets?: Record<string, string>;
@@ -741,7 +754,7 @@ interface ConnectorRow {
   knowledgeBase?: string;
 }
 
-function configPath(): string {
+export function configPath(): string {
   return join(homedir(), ".feral", "connectors.json");
 }
 

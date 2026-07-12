@@ -31,7 +31,7 @@ runner, or anything that handles untrusted input.**
 | `FERAL_DESKTOP_CONTROL_NO_PROMPT_OK` | off | Sidecar-internal kill-switch that the desktop host uses to remember "user already approved this exact action"; see `control-app.ts`. | Not a security boundary; remains a UX shortcut only. |
 | `FERAL_DB_KEY` | unset (no encryption at rest) | 32-byte key for the agent's SQLite DB. **Anyone who can read this value can read the DB.** Treat it as a root secret. | Generate once per install; persist in OS keychain, not dotfiles. |
 | `FERAL_AGENT_WORKSPACE` | unset (deny all tool access to host FS) | Sidecar-internal Rust tools accept absolute paths under this value. Set to `/` on Unix or `C:\` on Windows to grant full disk access to code-exec and shell. | Always absolute, never `/`, never `C:\`. |
-| `FERAL_WORKSPACE` | (TS list — see trap below) | Comma-separated agent FS roots. Anything in this list, plus any child, is exposed to write tools. | Do not include `~/.feral/`; the loader refuses (see `workspace-roots.ts`). |
+| `FERAL_WORKSPACE` | (TS list — see trap below) | Agent FS roots. Anything in this list, plus any child, is exposed to write tools. Unset = launch cwd + the user's home dir. | The call-time deny wall (`tool-permissions.ts`) refuses `~/.feral` (except scratch), `~/.ssh`, and `FERAL_FS_DENY` targets on every access, whatever the roots. |
 | `FERAL_FETCH_DOMAINS` | empty | Comma-separated URL allowlist for the `fetch_url` tool. Empty = tool fails closed. With this set, the agent can pull arbitrary HTML from each listed origin. | Add only origins you trust to serve benign HTML. |
 | `FERAL_HTTP_DOMAINS` | empty | Same shape, for the lower-level `http_request` tool. | Same advice. |
 | `FERAL_TRUSTED_BASE_URLS` | empty | Comma-separated base URLs the inference router may call beyond the loopback default. Bypasses the egression posture in `inference-router.ts`. | List one provider base URL per entry; never `*`. |
@@ -47,7 +47,7 @@ There are **two** env vars with confusingly similar names. They are
 | Var | Runtime | Type | Default | Effect |
 |---|---|---|---|---|
 | `FERAL_AGENT_WORKSPACE` | Rust host (`crates/feral-core`) | single absolute path | unset | Sidecar-internal Rust tools (e.g. raw FS access) accept absolute paths only under this single root. |
-| `FERAL_WORKSPACE` | TS sidecar (`FeralAgent/src/workspace-roots.ts`) | comma-separated list of paths | project dir(s) + scratch | Write tools and the agent's filesystem exposure are rooted at this list, plus an automatic scratch dir. |
+| `FERAL_WORKSPACE` | TS sidecar (`FeralAgent/src/boot.ts` `loadWorkspaceRoots`) | path-list | launch cwd + home + scratch | Write tools and the agent's filesystem exposure are rooted at this list, plus an automatic scratch dir. `~/.feral`/`~/.ssh`/`FERAL_FS_DENY` are denied at call time regardless. |
 
 If you set one and meant the other, the agent will fail in confusing
 ways (Rust tools will deny paths the TS sidecar allowed, or vice versa).
@@ -83,14 +83,15 @@ they remain hand-maintained here and are still covered by
 | Var | Type | Default | Security | Description |
 |---|---|---|---|---|
 | `FERAL_DB_KEY` | string | `null` | yes | 32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB. |
-| `FERAL_WORKSPACE` | list | `null` | yes | TS sidecar comma/semicolon-separated FS root list. Loader refuses roots that expose ~/.feral (see workspace-roots.ts). |
+| `FERAL_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.feral, ~/.ssh and FERAL_FS_DENY regardless of roots. |
+| `FERAL_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.feral + ~/.ssh deny wall. |
 | `FERAL_ENABLE_SHELL_EXEC` | bool | `true` | yes | Registers shell_exec (argv-only, whitelisted). On by default; set to "false" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON. |
 | `FERAL_ENABLE_DESKTOP_CONTROL` | bool | `false` | yes | Registers control_app (OS accessibility-tree control). Off by default; set to "true" to enable. |
 | `FERAL_DESKTOP_CONTROL_CONFIRM` | bool | `true` | yes | Per-action confirmation dialog for control_app writes. On by default; set to "false" to disable (inverse-toggle var — see report for why this call site is not migrated to cfgBool). |
 | `FERAL_DESKTOP_CONTROL_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, a transport with no askUser bridge may proceed without confirmation instead of failing closed. |
 | `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` | list | `null` | yes | Comma-separated allowlist of app names control_app may target. Empty = fail closed. (Read by the Rust host, not FeralAgent/src.) |
-| `FERAL_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Empty = tool not registered. |
-| `FERAL_HTTP_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for http_request. Empty = tool not registered. |
+| `FERAL_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
+| `FERAL_HTTP_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for http_request. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
 | `FERAL_TRUSTED_BASE_URLS` | list | `null` | yes | Extra base URLs the inference router may call beyond loopback. |
 | `FERAL_SHELL_WHITELIST` | list | `null` | yes | Extends the spawn whitelist for shell_exec. |
 | `FERAL_PROACTIVE_ENABLED` | bool | `false` | yes | Master enable for the proactive/mood-engine loop. |
@@ -233,6 +234,7 @@ FERAL_FRACTAL_BENCH_COUNT
 FERAL_FRACTAL_BENCH_MAX_LEAVES
 FERAL_FRACTAL_BENCH_QUERIES
 FERAL_FRACTAL_BENCH_SEED
+FERAL_FS_DENY
 FERAL_HEARTBEAT_INTERVAL_MS
 FERAL_HOME
 FERAL_HTTP_DOMAINS

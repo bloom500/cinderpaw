@@ -27,6 +27,7 @@ import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
+import { getActiveWorkspaceId } from "./memory/workspaces.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { McpManager } from "./egress/mcp-manager.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
@@ -48,11 +49,13 @@ import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
+import { createProductInfoTool } from "./tools/builtin/product-info.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
+import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
@@ -131,16 +134,17 @@ const BOOT_EPOCH_MS = Date.now();
  * Resolve the agent's filesystem sandbox roots.
  *
  * - `FERAL_WORKSPACE` is a path-list (`;` on Windows, `:` elsewhere). When
- *   unset it defaults to the launch cwd, so "work in the project I opened"
- *   keeps working.
+ *   unset it defaults to the launch cwd PLUS the user's home directory — the
+ *   agent is a local assistant and should be able to work anywhere the user
+ *   can, not just in one project folder. Set FERAL_WORKSPACE to RESTRICT.
  * - A dedicated scratch dir under ~/.feral/workspace is ALWAYS added, so a
  *   task always has somewhere it fully owns to read/write even if cwd is
  *   read-only.
- * - Self-protection wall: the agent gets broad file + shell access, but never
- *   to its own brain. Any root that OVERLAPS ~/.feral — whether it contains it
- *   (an ancestor, including the filesystem root) or sits inside it (RSI repo,
- *   db, SOUL) — is dropped with a warning. The scratch subtree is the one
- *   allowed exception. This is the "can't modify its own code/state" guarantee.
+ * - Self-protection wall: broad roots are fine because the real guarantee
+ *   moved to CALL TIME — resolveAllowedPath (tool-permissions.ts) denies any
+ *   target inside ~/.feral (except scratch), ~/.ssh, or FERAL_FS_DENY on every
+ *   single access. Here we only drop roots that sit ENTIRELY inside ~/.feral
+ *   (every call through them would fail anyway — better to warn at boot).
  */
 
 /** True iff `child` is `parent` or lies beneath it. Appends a separator before
@@ -158,7 +162,7 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
   const raw = env.FERAL_WORKSPACE;
   const requested = raw && raw.trim()
     ? raw.split(delimiter).map((s) => s.trim()).filter(Boolean)
-    : [process.cwd()];
+    : [process.cwd(), homedir()];
   const roots = requested.map((p) => resolve(p));
 
   const scratch = resolve(FERAL_HOME, "workspace");
@@ -167,12 +171,14 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
 
   const guarded = roots.filter((r) => {
     if (isWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.feral
-    // Drop any root that overlaps the brain in EITHER direction: an ancestor
-    // that contains ~/.feral (isWithin(FERAL_HOME, r)) OR a path inside ~/.feral
-    // that isn't scratch (isWithin(r, FERAL_HOME)). Both would expose RSI/db/SOUL.
-    if (isWithin(FERAL_HOME, r) || isWithin(r, FERAL_HOME)) {
+    // Only drop roots that sit INSIDE ~/.feral (RSI repo, db, SOUL): every
+    // access through them would be refused by the call-time deny wall in
+    // resolveAllowedPath, so registering them just produces confusing tools.
+    // Ancestors of ~/.feral (home, drive root) are ALLOWED — the deny wall
+    // guards the brain per-access, not per-root.
+    if (isWithin(r, FERAL_HOME)) {
       console.warn(
-        `[config] dropping workspace root "${r}" — it would expose ${FERAL_HOME} ` +
+        `[config] dropping workspace root "${r}" — it is inside ${FERAL_HOME} ` +
           `(agent state/identity). Point FERAL_WORKSPACE at a project dir instead.`,
       );
       return false;
@@ -381,7 +387,7 @@ export async function boot(transportOverride?: Transport) {
       };
 
   // --- Layer 2: Memory ---
-  const episodic = new EpisodicMemory(db.raw, audit.logger);
+  const episodic = new EpisodicMemory(db.raw, audit.logger, () => getActiveWorkspaceId(db.raw));
   const semantic = new SemanticMemory(db.raw, audit.logger);
   const recall = new RecallEngine(episodic, semantic);
 
@@ -586,22 +592,21 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createGitLogTool(config.workspaceRoots));
   registry.register(createGitCommitTool(config.workspaceRoots));
   registry.register(createGitBranchTool(config.workspaceRoots));
-  // http_request: only registered when at least one domain is whitelisted
+  // http_request: open egress by default ("*" = any public host; the egress
+  // proxy still blocks loopback/private/link-local, rate-limits, and audits
+  // every call). Set FERAL_HTTP_DOMAINS to RESTRICT to a comma-separated list.
   const httpDomains = (process.env.FERAL_HTTP_DOMAINS ?? "")
     .split(",").map((d) => d.trim()).filter(Boolean);
-  if (httpDomains.length > 0) {
-    registry.register(createHttpRequestTool(httpDomains));
-  }
+  registry.register(createHttpRequestTool(httpDomains.length > 0 ? httpDomains : ["*"]));
   // time_date + calculator: pure utilities, no permissions
   registry.register(createTimeDateTool());
   registry.register(createCalculatorTool());
   registry.register(createWebSearchTool());
-  // fetch_url: extend FERAL_FETCH_DOMAINS env (comma-separated) to whitelist domains
+  // fetch_url: open egress by default, same posture as http_request above.
+  // Set FERAL_FETCH_DOMAINS to RESTRICT.
   const fetchDomains = (process.env.FERAL_FETCH_DOMAINS ?? "")
     .split(",").map((d) => d.trim()).filter(Boolean);
-  if (fetchDomains.length > 0) {
-    registry.register(createFetchUrlTool(fetchDomains));
-  }
+  registry.register(createFetchUrlTool(fetchDomains.length > 0 ? fetchDomains : ["*"]));
   // read_webpage: Jina Reader — extracts clean markdown from any URL (no API key needed)
   const jinaApiKey = process.env.FERAL_JINA_API_KEY;
   registry.register(createReadWebpageTool(jinaApiKey));
@@ -618,6 +623,9 @@ export async function boot(transportOverride?: Transport) {
   // list_skills: the drawer index. Skills are no longer dumped into every
   // prompt; the model calls this to discover ids, then read_skill to load one.
   registry.register(createListSkillsTool(`${homedir()}/.feral/skills`));
+  // product_info: bundled PRODUCT.md — the agent's factual reference about
+  // Feral itself (setup, connectors, commands). Zero permissions.
+  registry.register(createProductInfoTool());
 
   // F7 — code-quality tools. Auto-detect project type and run the
   // appropriate command (npm test, cargo test, pytest, go test, make test,
@@ -1119,6 +1127,11 @@ export async function boot(transportOverride?: Transport) {
   // `connectors_reload`; reconcile here. Started in onReady once the agent and
   // tools are fully wired.
   const connectors = new ConnectorManager(agent, log, leadDesk);
+
+  // connectors_manage — the agent's self-service door for connecting itself
+  // to Discord/Slack/WhatsApp on user request. Writes ~/.feral/connectors.json
+  // (the one deliberate exception to the deny wall) and hot-reloads the manager.
+  registry.register(createConnectorsManageTool(connectors));
 
   // F6 — self.* runtime introspection tools (the agent's mental model of
   // its own substrate). Registered after `connectors` so the connector

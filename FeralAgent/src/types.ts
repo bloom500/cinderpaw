@@ -959,6 +959,10 @@ export interface InboundMessage {
     // WelcomeBack banner + TUI last-task row. Reads from `meta` + `workspaces`
     // only — never writes, so no migration needed on the inbound path.
     | "resume_get"
+    // /compact (OpenClaw slash parity) — the host asks the loop to summarize
+    // the older portion of one session's transcript NOW (not only when over
+    // budget); the sidecar replies with one `compact_result` paired by `id`.
+    | "compact_session"
     // R5 — MCP over stdin. The host manages `~/.feral/mcp.json` and pokes
     // `mcp_reload` after every change; `mcp_status` / `mcp_list_tools` /
     // `mcp_call_tool` serve the Extensions page's live queries. All four
@@ -1145,6 +1149,9 @@ export type OutboundEvent =
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }
+  // /compact reply — `result` is "compacted" or "not needed"; `error` set
+  // when the summarizer itself failed (ok=false).
+  | { type: "compact_result"; id: string; ok: boolean; result?: string; error?: string }
   // Slice A5 (L5 Governance) reply — payload shape depends on `op`
   // (status/propose/approve/reject/rollback/freeze/unfreeze/verify/history);
   // always `ok:boolean` so the gateway + CLI can route without knowing the

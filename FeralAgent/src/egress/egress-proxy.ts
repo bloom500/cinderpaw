@@ -331,10 +331,14 @@ function parseIPv4(host: string): [number, number, number, number] | null {
 
 /**
  * A host matches the whitelist if it equals an entry exactly or is a subdomain
- * of an entry (so `api.example.com` matches `example.com`).
+ * of an entry (so `api.example.com` matches `example.com`). The single entry
+ * `"*"` matches every host — used for open-egress tools. This is NOT an SSRF
+ * bypass: isBlockedHost() runs before the whitelist on every hop, so loopback/
+ * private/link-local destinations stay blocked even under `"*"`.
  */
 export function hostMatchesWhitelist(host: string, whitelist: string[]): boolean {
   return whitelist.some((entry) => {
+    if (entry === "*") return true;
     const e = entry.toLowerCase().replace(/^\*\./, "");
     return host === e || host.endsWith(`.${e}`);
   });

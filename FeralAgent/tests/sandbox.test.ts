@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
 import { Database } from "bun:sqlite";
@@ -119,6 +119,66 @@ describe("path permission enforcement", () => {
   });
 });
 
+describe("call-time deny wall (~/.feral, ~/.ssh, FERAL_FS_DENY)", () => {
+  // Broad root: the user's whole home dir — the lax-sandbox default.
+  const homeManifest: ToolManifest = {
+    name: "read_file",
+    description: "d",
+    permissions: ["fs:read", "fs:write"],
+    networkAccess: false,
+    allowedPaths: [homedir()],
+  };
+  const FERAL_HOME = join(homedir(), ".feral");
+
+  test("targets inside ~/.feral are denied even under an allowed root", () => {
+    for (const p of [
+      join(FERAL_HOME, "connectors.json"),
+      join(FERAL_HOME, "rsi", "repo", "x.ts"),
+      FERAL_HOME,
+    ]) {
+      expect(() => resolveAllowedPath(homeManifest, "fs:read", p)).toThrow(
+        PermissionDeniedError,
+      );
+    }
+  });
+
+  test("the scratch subtree ~/.feral/workspace stays allowed", () => {
+    const p = resolveAllowedPath(
+      homeManifest,
+      "fs:write",
+      join(FERAL_HOME, "workspace", "notes.txt"),
+    );
+    expect(p.endsWith("notes.txt")).toBe(true);
+  });
+
+  test("~/.ssh is denied", () => {
+    expect(() =>
+      resolveAllowedPath(homeManifest, "fs:read", join(homedir(), ".ssh", "id_rsa")),
+    ).toThrow(PermissionDeniedError);
+  });
+
+  test("FERAL_FS_DENY extends the wall", () => {
+    const extra = join(homedir(), "very-secret-dir");
+    process.env.FERAL_FS_DENY = extra;
+    try {
+      expect(() =>
+        resolveAllowedPath(homeManifest, "fs:read", join(extra, "f.txt")),
+      ).toThrow(PermissionDeniedError);
+    } finally {
+      delete process.env.FERAL_FS_DENY;
+    }
+  });
+
+  test("ordinary home paths pass", () => {
+    const p = resolveAllowedPath(
+      homeManifest,
+      "fs:read",
+      join(homedir(), "Documents", "todo.txt"),
+    );
+    expect(p.endsWith("todo.txt")).toBe(true);
+  });
+});
+
 describe("host blocking", () => {
   test("loopback and private ranges are blocked", () => {
     for (const h of [
@@ -143,6 +203,13 @@ describe("host blocking", () => {
     expect(hostMatchesWhitelist("api.example.com", ["example.com"])).toBe(true);
     expect(hostMatchesWhitelist("example.com", ["example.com"])).toBe(true);
     expect(hostMatchesWhitelist("evil.com", ["example.com"])).toBe(false);
+  });
+
+  test('"*" matches any public host (open-egress default)', () => {
+    expect(hostMatchesWhitelist("anything.example.org", ["*"])).toBe(true);
+    expect(hostMatchesWhitelist("example.com", ["*"])).toBe(true);
+    // "*" does NOT bypass the SSRF guard — isBlockedHost runs first.
+    expect(isBlockedHost("127.0.0.1")).toBe(true);
   });
 });
 

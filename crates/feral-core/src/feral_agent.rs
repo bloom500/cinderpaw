@@ -327,7 +327,6 @@ pub async fn spawn(
     tracing::info!("feral-agent: binary resolved to {:?}", binary);
 
     let db_path = paths::feral_agent_db_path();
-    let workspace = paths::feral_agent_workspace_path();
 
     // Faza 4.5 Slice 2 (post-acceptance, user-driven): env-var overrides for
     // the provider + base URL + API key. Defaults preserve the pre-change
@@ -342,8 +341,18 @@ pub async fn spawn(
     // the command line or the env we log) + default model. This makes the
     // headless gateway a true peer of the desktop app: same configured
     // providers, one brain. Explicit FERAL_BASE_URL/API_KEY/MODEL still win.
-    let byok = std::env::var("FERAL_BYOK_PROVIDER")
-        .ok()
+    // Persisted route (settings.json `active_route`, written by
+    // `POST /runtime/model` and guided setup): `"provider:model"` boots the
+    // sidecar on that BYOK provider; `"local:…"` (or absent) keeps the
+    // default local engine. Explicit FERAL_BYOK_PROVIDER still wins.
+    let persisted_route = crate::settings::load().active_route.and_then(|r| {
+        let (pid, model) = r.split_once(':')?;
+        (pid != "local").then(|| (pid.to_string(), model.to_string()))
+    });
+    let env_byok = std::env::var("FERAL_BYOK_PROVIDER").ok();
+    let route_is_source = env_byok.is_none() && persisted_route.is_some();
+    let byok = env_byok
+        .or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()))
         .and_then(|pid| load_byok_provider_endpoint(&pid));
 
     let provider = std::env::var("FERAL_PROVIDER")
@@ -357,9 +366,15 @@ pub async fn spawn(
         .or_else(|| byok.as_ref().map(|b| b.api_key.clone()));
     let api_key = resolve_sidecar_api_key(&base_url, api_token, env_or_byok_key)?;
 
+    // FERAL_WORKSPACE is deliberately NOT set here. It used to be pinned to
+    // ~/.feral/workspace (the scratch dir), which silently reduced the agent's
+    // filesystem to a sandbox nobody's files live in — the #1 "the agent can't
+    // do anything" complaint. The sidecar's own default (launch cwd + the
+    // user's home, with the call-time deny wall over ~/.feral and ~/.ssh) is
+    // the intended posture; a user-set FERAL_WORKSPACE in the host environment
+    // still passes through via normal env inheritance.
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.env("FERAL_DB", &db_path)
-        .env("FERAL_WORKSPACE", &workspace)
         .env("FERAL_PROVIDER", &provider)
         .env("FERAL_BASE_URL", &base_url)
         .env("FERAL_API_KEY", &api_key);
@@ -371,6 +386,10 @@ pub async fn spawn(
     // honour FERAL_MODEL when present so the caller can override.
     let model_name = if let Ok(m) = std::env::var("FERAL_MODEL") {
         m
+    } else if let Some((_, m)) = persisted_route.as_ref().filter(|_| route_is_source && byok.is_some()) {
+        // The persisted route names the exact model the user verified/picked
+        // (byok default_model may lag behind a later /model switch).
+        m.clone()
     } else if let Some(m) = byok.as_ref().and_then(|b| b.model.clone()) {
         m
     } else {

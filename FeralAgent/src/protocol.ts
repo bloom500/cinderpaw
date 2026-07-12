@@ -25,7 +25,7 @@ export const INBOUND_TYPES = [
   "governance_reject", "governance_rollback", "governance_freeze",
   "governance_unfreeze", "governance_verify", "governance_history",
   "modules_list", "module_resolve", "module_evaluate",
-  "resume_get", "rsi_response", "start_onboarding",
+  "resume_get", "compact_session", "rsi_response", "start_onboarding",
   "tool_confirmation_response",
   "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
 ] as const;
@@ -37,7 +37,7 @@ export const OUTBOUND_TYPES = [
   "heartbeat", "stream_progress", "cron_fired", "cron_error",
   "desktop_control_request", "rsi_engine_event", "rsi_request",
   "meta_result", "governance_result", "modules_result", "mcp_result",
-  "resume_get_result", "fractal_bench_progress", "fractal_bench_result",
+  "resume_get_result", "compact_result", "fractal_bench_progress", "fractal_bench_result",
   "code_patches", "code_patch_resolved", "lora_reviews",
   "lora_review_resolved", "lora_train_result", "fractal_activity",
   "fractal_cluster_leaves_result", "dream_cycle", "provider_added",

@@ -40,6 +40,7 @@ export interface Recaller {
 }
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
+import { countTokens } from "./tokenizer.ts";
 import { stripPrivate } from "../memory/privacy.ts";
 import type { BrainStack } from "../brain/brain-stack.ts";
 import type { ModelTarget } from "../types.ts";
@@ -547,6 +548,37 @@ export class AgentLoop {
   }
 
   /**
+   * Manual `/compact` (OpenClaw slash parity): summarize the older portion
+   * of one session's transcript NOW, not just when over budget. Targets
+   * half the current estimate (capped at the normal transcript budget) so
+   * a long transcript always has something to fold; a short one reports
+   * "not needed". Reuses the same summarizer + compression path the
+   * automatic pre-send compaction runs, so behavior can't drift.
+   */
+  async compactSession(sessionId: string): Promise<"compacted" | "not needed"> {
+    const entry = this.#sessions.get(sessionId);
+    if (!entry) return "not needed";
+    const memory = entry.memory;
+    // Size the target from the TRANSCRIPT, not estimatedTokens() — the
+    // latter counts the (large) system prompt, which would make a 2-line
+    // chat look compactable. A short transcript answers "not needed".
+    const transcriptTokens = memory.turns.reduce((n, m) => n + countTokens(m.content), 0);
+    if (memory.turns.length < 4 || transcriptTokens < 1024) return "not needed";
+    // Fold roughly the older half of the transcript (cap at the normal
+    // pre-send budget so /compact never targets LOOSER than automatic
+    // compaction would).
+    const target = Math.min(
+      this.#transcriptBudget(),
+      memory.estimatedTokens() - Math.floor(transcriptTokens / 2),
+    );
+    const compressed = await memory.maybeCompress(
+      (msgs) => this.#summarize(sessionId, msgs),
+      target,
+    );
+    return compressed ? "compacted" : "not needed";
+  }
+
+  /**
    * P2: number of session mutex chains currently held in `#sessionLocks`.
    * Exposed for tests so they can verify the cleanup path actually fires
    * (was always non-zero after the bug fix landed; should be 0 in a
@@ -790,14 +822,23 @@ export class AgentLoop {
     let toolRepeatCount = 0;
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
-      // Stream tokens live. We optimistically stream every completion; if the
-      // model ends up emitting a tool call the accumulated tokens are discarded
-      // from the UI perspective (the tool events replace them), but the model
-      // rarely mixes prose + tool call in one turn in practice.
+      // Stream tokens live — EXCEPT tool-call-shaped output. Once the stream
+      // hits a tool-call opener (canonical tag, invoke-XML, or bare
+      // {"name … JSON) everything from that point is held back: if the turn
+      // parses as a tool call the pill events render it, and if it's
+      // malformed garbage (observed: MiniMax M3 emitting `]<]minimax[>[`
+      // token debris inside <tool_call>) the user never sees it — the old
+      // behavior streamed the raw garbage into the chat and the malformed
+      // retry then streamed a second full answer on top (the duplicated-
+      // reply report, 2026-07-11). Held text that turns out to be plain
+      // prose is flushed after parse, so nothing is ever lost.
       let streamedSoFar = "";
+      const hold = createStreamHoldback((content) =>
+        ctx.emit({ type: "chunk", id: messageId, content, traceId }),
+      );
       const onToken = (token: string) => {
         streamedSoFar += token;
-        ctx.emit({ type: "chunk", id: messageId, content: token, traceId });
+        hold.push(token);
       };
 
       const { content: completion, finishReason, promptTokens, completionTokens } = await this.#complete(
@@ -815,6 +856,10 @@ export class AgentLoop {
       ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
       const parsed = parseResponse(completion);
 
+      // Resolve the stream holdback: tool call or malformed garbage → the
+      // held text never reaches the UI; plain prose → flush it now.
+      hold.resolve(parsed.toolCalls.length === 0 && !parsed.malformedToolCall);
+
       if (parsed.toolCalls.length === 0 && parsed.malformedToolCall) {
         if (malformedRetries < MAX_MALFORMED_RETRIES) {
           malformedRetries++;
@@ -830,7 +875,8 @@ export class AgentLoop {
               "JSON, so it was NOT executed. Re-emit the call as a single valid " +
               'JSON object — {"name": "tool_name", "args": {…}} inside ' +
               "<tool_call></tool_call> tags — or answer in plain text if you no " +
-              "longer need the tool.)",
+              "longer need the tool. Do NOT repeat any prose you already wrote; " +
+              "the user has seen it.)",
           );
           continue;
         }
@@ -1552,6 +1598,85 @@ export function stripThinking(raw: string): string {
  * Malformed blocks are silently ignored; partial / extra text around a tool
  * call is preserved as the text portion.
  */
+/**
+ * Stream-holdback openers: the first occurrence of any of these in a live
+ * completion stops chunks from reaching the UI until parseResponse decides
+ * whether the tail was a tool call (drop — the pill events render it),
+ * malformed garbage (drop — the retry nudge handles it), or prose (flush).
+ * Mirrors the shapes parseResponse/extractBareToolCalls recognise.
+ */
+export const STREAM_HOLD_OPENERS = [
+  "<tool_call",
+  "<invoke",
+  '{"name',
+  '{"tool',
+  '{"invoke',
+] as const;
+export const STREAM_HOLD_MAX_OPENER = Math.max(
+  ...STREAM_HOLD_OPENERS.map((o) => o.length),
+);
+
+/**
+ * Stream holdback state machine. `push(token)` forwards prose to `emit`
+ * but stops at the first tool-call opener (handling openers split across
+ * token boundaries); `resolve(wasProse)` flushes the held tail to `emit`
+ * when the finished completion turned out to be plain prose, or drops it
+ * when it was a (possibly malformed) tool call.
+ */
+export function createStreamHoldback(emit: (text: string) => void): {
+  push: (token: string) => void;
+  resolve: (wasProse: boolean) => void;
+} {
+  let held = "";
+  let holding = false;
+  const openerAt = (s: string): number => {
+    let best = -1;
+    for (const o of STREAM_HOLD_OPENERS) {
+      const idx = s.indexOf(o);
+      if (idx >= 0 && (best < 0 || idx < best)) best = idx;
+    }
+    return best;
+  };
+  // Longest suffix of `s` that is a strict prefix of an opener — kept back
+  // so an opener split across token boundaries is still caught.
+  const tailKeep = (s: string): number => {
+    const max = Math.min(s.length, STREAM_HOLD_MAX_OPENER - 1);
+    for (let k = max; k > 0; k--) {
+      const tail = s.slice(-k);
+      if (STREAM_HOLD_OPENERS.some((o) => o.length > k && o.startsWith(tail))) return k;
+    }
+    return 0;
+  };
+  return {
+    push(token: string) {
+      if (holding) {
+        // Keep accumulating while held — if resolve() decides this was
+        // prose after all, the WHOLE tail must flush, not just the opener.
+        held += token;
+        return;
+      }
+      held += token;
+      const idx = openerAt(held);
+      if (idx >= 0) {
+        if (idx > 0) emit(held.slice(0, idx));
+        held = held.slice(idx);
+        holding = true;
+        return;
+      }
+      const keep = tailKeep(held);
+      if (held.length > keep) {
+        emit(held.slice(0, held.length - keep));
+        held = held.slice(held.length - keep);
+      }
+    },
+    resolve(wasProse: boolean) {
+      if (wasProse && held !== "") emit(held);
+      held = "";
+      holding = false;
+    },
+  };
+}
+
 export function parseResponse(raw: string): ParsedResponse {
   const toolCalls: ParsedToolCall[] = [];
   let text = raw;
