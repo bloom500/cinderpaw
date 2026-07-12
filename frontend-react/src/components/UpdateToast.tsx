@@ -29,7 +29,15 @@ export function UpdateToast() {
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, x: 24, scale: 0.96 }}
           transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
-          className="pointer-events-auto w-full rounded-xl border border-border-default bg-bg-elevated/85 backdrop-blur-xl shadow-xl shadow-black/25 p-4"
+          // Same glass as the toasts it stacks with (see Toasts.tsx): blurred
+          // slab, top-lit sheen, 1px inner ring for the lit edge.
+          className={cn(
+            'pointer-events-auto relative w-full rounded-xl border border-border-default/60 p-4',
+            'bg-bg-elevated/80 backdrop-blur-xl backdrop-saturate-150',
+            'shadow-xl shadow-black/25 ring-1 ring-inset ring-white/10',
+            'before:absolute before:inset-0 before:rounded-xl before:pointer-events-none',
+            'before:bg-gradient-to-b before:from-white/[0.06] before:to-transparent',
+          )}
         >
           <div className="flex items-start gap-2.5">
             <div className="mt-0.5 shrink-0 text-brand">

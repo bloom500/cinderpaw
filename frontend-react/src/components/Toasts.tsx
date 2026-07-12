@@ -36,9 +36,15 @@ export function Toasts() {
             exit={{ opacity: 0, x: 24, scale: 0.96, transition: { duration: 0.15 } }}
             transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
             className={cn(
-              'group pointer-events-auto flex items-start gap-2 rounded-xl border px-3 py-2.5',
-              'bg-bg-elevated/85 backdrop-blur-xl shadow-xl shadow-black/25',
-              t.kind === 'error' ? 'border-rose-500/40' : 'border-border-default/80',
+              'group pointer-events-auto relative flex items-start gap-2 rounded-xl border px-3 py-2.5',
+              // Glass: a blurred, semi-opaque slab, a faint top-lit sheen, and a
+              // 1px inner ring for the lit edge real glass has. Without the ring
+              // the card reads as flat translucent plastic.
+              'bg-bg-elevated/80 backdrop-blur-xl backdrop-saturate-150',
+              'shadow-xl shadow-black/25 ring-1 ring-inset ring-white/10',
+              'before:absolute before:inset-0 before:rounded-xl before:pointer-events-none',
+              'before:bg-gradient-to-b before:from-white/[0.06] before:to-transparent',
+              t.kind === 'error' ? 'border-rose-500/40' : 'border-border-default/60',
             )}
           >
             {ICONS[t.kind]}

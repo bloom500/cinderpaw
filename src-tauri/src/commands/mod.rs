@@ -40,7 +40,11 @@ mod command_count_test {
     /// removed, and note the change in that PR's description.
     // 130 = 128 baseline + setup_detect + setup_verify (guided onboarding,
     // 2026-07-10).
-    const EXPECTED_COMMAND_COUNT: usize = 130;
+    // 131 = + connectors::connectors_whatsapp_qr (GUI QR pairing, fe5b5b6).
+    // That commit added the command without bumping this constant, so the test
+    // has been failing on main ever since — CI does not run the src-tauri
+    // suite, which is why it went unnoticed.
+    const EXPECTED_COMMAND_COUNT: usize = 131;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
