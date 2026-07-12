@@ -395,6 +395,45 @@ pub async fn connectors_set_enabled(
     Ok(view_of(&snapshot))
 }
 
+/// Pending WhatsApp pairing QR. The sidecar mirrors each fresh QR to
+/// `~/.feral/whatsapp-qr.json` (and deletes it once linked) so GUI surfaces
+/// can render it — a GUI user has no terminal window to scan from.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct WhatsappQr {
+    /// Raw pairing payload (what the QR encodes).
+    pub qr: String,
+    /// Terminal-style half-block ASCII rendering of the QR, scannable when
+    /// shown in a monospace block.
+    pub ascii: String,
+    /// When the sidecar wrote this code (Unix ms). Baileys rotates the QR
+    /// every ~20s — the UI derives a countdown from this.
+    pub ts: f64,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
+    #[derive(serde::Deserialize)]
+    struct QrFile {
+        ts: f64,
+        qr: String,
+        ascii: String,
+    }
+    let raw = std::fs::read_to_string(paths::feral_dir().join("whatsapp-qr.json")).ok()?;
+    let f: QrFile = serde_json::from_str(&raw).ok()?;
+    // Baileys rotates the QR every ~20s and the sidecar rewrites the file each
+    // time; a stale timestamp means pairing is no longer in progress (e.g. the
+    // sidecar died without cleaning up).
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis() as f64;
+    if now_ms - f.ts > 120_000.0 {
+        return None;
+    }
+    Some(WhatsappQr { qr: f.qr, ascii: f.ascii, ts: f.ts })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn connectors_remove(

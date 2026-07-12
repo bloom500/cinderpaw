@@ -17,6 +17,7 @@ import {
   tauri,
   type ConnectorCatalogEntry,
   type ConnectorView,
+  type WhatsappQr,
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 
@@ -88,7 +89,10 @@ export function ConnectorsPage() {
 
           {!loading && !error && (
             <div className="grid grid-cols-2 gap-3">
-              {catalog.map((entry) => (
+              {/* coming_soon connectors stay out of the grid — shelf space
+                  advertising an absence (audit 2026-07-10, Part 2). The
+                  "More connectors coming" line below covers the promise. */}
+              {catalog.filter((entry) => !entry.coming_soon).map((entry) => (
                 <ConnectorCard
                   key={entry.id}
                   entry={entry}
@@ -135,6 +139,53 @@ function ConnectorCard({
   const configured = state !== null;
   const isQr = entry.auth_kind === 'qr';
   const linked = state?.linked ?? false;
+  const [waQr, setWaQr] = useState<WhatsappQr | null>(null);
+  const [stuckPolls, setStuckPolls] = useState(0); // consecutive polls with no QR on disk
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // While a QR connector is on but not yet linked, poll for the pairing QR
+  // the sidecar mirrors to disk, and re-fetch the card so `linked` flips as
+  // soon as the user scans. The GUI must be able to complete the pairing it
+  // starts — no terminal window required.
+  useEffect(() => {
+    if (!isQr || !enabled || linked) {
+      setWaQr(null);
+      setStuckPolls(0);
+      return;
+    }
+    let alive = true;
+    const tick = () => {
+      tauri.connectors
+        .whatsappQr()
+        .then((q) => {
+          if (!alive) return;
+          setWaQr(q);
+          setStuckPolls((n) => (q ? 0 : n + 1));
+        })
+        .catch(() => {});
+    };
+    tick();
+    const qrTimer = setInterval(tick, 3000);
+    const linkTimer = setInterval(onChanged, 10000);
+    return () => {
+      alive = false;
+      clearInterval(qrTimer);
+      clearInterval(linkTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onChanged is a fresh closure every render; re-subscribing on it would reset the timers
+  }, [isQr, enabled, linked]);
+
+  // 1s clock for the QR countdown — only ticks while a code is on screen.
+  useEffect(() => {
+    if (!waQr) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [waQr]);
+
+  // Baileys rotates the pairing code every ~20s; the sidecar rewrites the
+  // file on each rotation, so the countdown just restarts at the next poll.
+  const QR_TTL_MS = 20_000;
+  const qrSecondsLeft = waQr ? Math.max(0, Math.ceil((waQr.ts + QR_TTL_MS - nowMs) / 1000)) : 0;
   const filled = new Set(state?.filled ?? []);
   // Ready to turn on: QR connectors link on connect; token connectors need every
   // field either already saved or freshly typed.
@@ -295,9 +346,38 @@ function ConnectorCard({
             <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-[11px] leading-relaxed">
               {linked ? (
                 <span className="text-emerald-400">✅ Linked to WhatsApp.</span>
+              ) : enabled && waQr ? (
+                <div className="space-y-1.5">
+                  <span className="text-text-muted">
+                    Scan with <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>:
+                  </span>
+                  <pre
+                    aria-label="WhatsApp pairing QR code"
+                    className="mx-auto w-fit rounded bg-black text-white p-2 font-mono text-[8px] leading-[8px] select-none"
+                  >
+                    {waQr.ascii}
+                  </pre>
+                  <span className="block text-text-muted tabular-nums" role="timer">
+                    {qrSecondsLeft > 0
+                      ? `New code in ~${qrSecondsLeft}s — no rush, it refreshes here automatically.`
+                      : 'Getting a fresh code…'}
+                  </span>
+                  <span className="block text-amber-300/90">
+                    Use a secondary number — automation can get a number banned.
+                  </span>
+                </div>
+              ) : enabled && stuckPolls > 10 ? (
+                <span className="text-amber-300/90">
+                  No pairing code is arriving — turn the connector off and on to retry.
+                </span>
+              ) : enabled ? (
+                <span className="text-text-muted">
+                  <Loader2 size={10} className="inline animate-spin mr-1 -mt-0.5" />
+                  Getting a QR code ready…
+                </span>
               ) : (
                 <span className="text-text-muted">
-                  Turn this on, then scan the QR code shown in the app's terminal window with{' '}
+                  Turn this on and a QR code will appear here — scan it with{' '}
                   <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>.{' '}
                   <span className="text-amber-300/90">Use a secondary number — automation can get a number banned.</span>
                 </span>

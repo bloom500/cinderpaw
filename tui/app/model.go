@@ -147,6 +147,12 @@ type FlashMsg struct {
 	Text string
 }
 
+// TranscriptLinesMsg appends informational lines to the transcript from an
+// async tea.Cmd (e.g. the WhatsApp pairing QR fetched off the UI thread).
+type TranscriptLinesMsg struct {
+	Lines []string
+}
+
 type ModelListMsg struct {
 	IDs    []string
 	Active string
@@ -254,6 +260,14 @@ type App struct {
 	Loader      spinner.Model
 	PrevContent string
 	Wizard      WizardState
+	// Guided is the OpenClaw-parity guided first-run flow (guided.go) —
+	// the default on a fresh install; the classic Wizard stays behind
+	// `/setup classic` and `--wizard`.
+	Guided GuidedState
+	// ForceClassicWizard is set by the `--wizard` CLI flag (the
+	// `feral setup --classic` path) so BootComplete opens the classic
+	// wizard instead of the guided flow.
+	ForceClassicWizard bool
 	// renderWidth tracks the msgWidth used during the last buildChatContent
 	// pass. When it matches, per-turn caches are valid (spec §16).
 	renderWidth int
@@ -382,6 +396,20 @@ type App struct {
 	// flush into RuntimeEvents when the stream ends.
 	RuntimeEvents   []api.RuntimeEvent
 	PendingEvents   []api.RuntimeEvent
+
+	// UsageMode controls the per-turn meta footnote (/usage off|tokens|full,
+	// OpenClaw slash parity). "" and "tokens" render the default
+	// "12.4s · 842 tok" line; "off" drops it; "full" adds prompt/completion
+	// split. Events keep collecting regardless — this is display only.
+	UsageMode string
+
+	// EventsHidden suppresses runtime-event lines in the transcript
+	// (/verbose off). Default false = curated events shown.
+	EventsHidden bool
+
+	// VerboseEvents (/verbose on) shows every raw runtime event instead of
+	// the curated allowlist in visibleRuntimeEvents.
+	VerboseEvents bool
 
 	// eventsCtx is cancelled when the events SSE goroutine should stop.
 	// Set when the app shuts down so we don't leak the HTTP reader.
@@ -552,11 +580,11 @@ func (a *App) narrowToolLayout() bool {
 func (a *App) buildChatContent() string {
 	if len(a.Turns) == 0 {
 		welcome := a.renderWelcomeContent()
-		if len(a.RuntimeEvents) > 0 {
+		if evs := a.visibleRuntimeEvents(); len(evs) > 0 {
 			var b strings.Builder
 			b.WriteString(welcome)
 			b.WriteByte('\n')
-			for _, ev := range a.RuntimeEvents {
+			for _, ev := range evs {
 				b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" "+formatRuntimeEvent(ev)))
 				b.WriteByte('\n')
 			}
@@ -591,11 +619,43 @@ func (a *App) buildChatContent() string {
 	a.renderWidth = msgWidth
 
 	// Runtime events (§11) — rendered after all turns, between-turn position.
-	for _, ev := range a.RuntimeEvents {
+	// Display only; the slice keeps collecting so /verbose on shows what
+	// happened meanwhile.
+	for _, ev := range a.visibleRuntimeEvents() {
 		b.WriteString(gutter + ui.EventStyle.Render(ui.G.Event+" "+formatRuntimeEvent(ev)))
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// visibleRuntimeEvents is the display filter between the raw event slice
+// and the transcript (Claude-Code-quiet by default). Three modes:
+//   - /verbose off  → nothing
+//   - default       → only kinds a user can act on (allowlist), last 3
+//   - /verbose on   → everything, uncapped
+func (a *App) visibleRuntimeEvents() []api.RuntimeEvent {
+	if a.EventsHidden || len(a.RuntimeEvents) == 0 {
+		return nil
+	}
+	if a.VerboseEvents {
+		return a.RuntimeEvents
+	}
+	out := make([]api.RuntimeEvent, 0, 4)
+	for _, ev := range a.RuntimeEvents {
+		switch ev.Kind {
+		case "dream_cycle", "memory_indexed", "memory_indexing",
+			"lora_training", "genome_evolution", "genome_tick",
+			"meta_evolution", "model_set", "fallback", "tip",
+			"connector_event":
+			out = append(out, ev)
+		}
+		// Everything else (heartbeat, usage, done, chunk, fractal_activity,
+		// empty kinds…) is plumbing — hidden unless /verbose on.
+	}
+	if len(out) > 3 {
+		out = out[len(out)-3:]
+	}
+	return out
 }
 
 // renderTurn renders one full turn block — the tag line, any reasoning,

@@ -1,4 +1,4 @@
-﻿package app
+package app
 
 import (
 	"fmt"
@@ -14,11 +14,11 @@ import (
 
 func (a *App) View() string {
 	if a.Width == 0 {
-		return "Loadingâ€¦"
+		return "Loading…"
 	}
-	// Freeze frame on too-small terminals (Â§17).
+	// Freeze frame on too-small terminals (§17).
 	if a.Width < 40 || a.Height < 10 {
-		return ui.MetaStyle.Render("terminal too small (min 40Ã—10)")
+		return ui.MetaStyle.Render("terminal too small (min 40×10)")
 	}
 
 	headerH := 1
@@ -29,6 +29,15 @@ func (a *App) View() string {
 		maxInH = a.Height / 4
 	}
 	inH := clamp(1, a.Input.Height()+2, maxInH)
+
+	// Guided mode: same layout as the wizard — header, guided content,
+	// guided footer, no input.
+	if a.Guided.Show {
+		header := a.renderHeader()
+		chat := a.renderGuided()
+		footer := ui.FooterStyle.Render(a.Guided.footerHint())
+		return lipgloss.JoinVertical(lipgloss.Top, header, chat, "", footer)
+	}
 
 	// Wizard mode: input hidden, wizard footer, wizard content in chat area.
 	if a.Wizard.Show {
@@ -50,7 +59,7 @@ func (a *App) View() string {
 		return main
 	}
 
-	// Auxiliary strips above the input â€” the streaming status line and the
+	// Auxiliary strips above the input — the streaming status line and the
 	// autocomplete popup. Each takes from the chat height so the layout
 	// stays exact even when both are visible.
 	auxH := 0
@@ -75,7 +84,7 @@ func (a *App) View() string {
 	a.ChatVP.Width = a.Width - 2
 
 	// Detect auxH changes (streaming start/stop, completion popup) that
-	// affect viewport height â€” force a rebuild when the layout shifts.
+	// affect viewport height — force a rebuild when the layout shifts.
 	if chatH != a.prevChatH {
 		a.needsRebuild = true
 	}
@@ -91,20 +100,23 @@ func (a *App) View() string {
 	completions := a.renderCompletions()
 	input := a.renderInput(inH)
 	footer := a.renderFooter()
-	sep := ""
 
-	// Order matters â€” JoinVertical drops empty strings, so the layout
-	// gracefully shrinks when none of the aux strips are active.
-	main := lipgloss.JoinVertical(
-		lipgloss.Top,
-		header,
-		chat,
-		sep,
-		streamLine,
-		completions,
-		input,
-		footer,
-	)
+	// JoinVertical does NOT drop empty strings — each "" contributes one
+	// blank line. Inactive aux strips must be skipped explicitly, or the
+	// frame ends up taller than the terminal, the terminal scrolls on every
+	// repaint, and the diff renderer desyncs — the "blank screen, only the
+	// input row visible" bug (2026-07-11). The one literal "" kept below is
+	// the budgeted blank separator between chat and input (sepH in chatH).
+	segs := make([]string, 0, 7)
+	segs = append(segs, header, chat, "")
+	if streamLine != "" {
+		segs = append(segs, streamLine)
+	}
+	if completions != "" {
+		segs = append(segs, completions)
+	}
+	segs = append(segs, input, footer)
+	main := lipgloss.JoinVertical(lipgloss.Top, segs...)
 	if a.ShowHelp {
 		main = a.renderHelpOverlay(main)
 	}
@@ -117,7 +129,7 @@ func (a *App) View() string {
 	return main
 }
 
-// renderWelcomeContent draws the once-per-session welcome text â€” a plain,
+// renderWelcomeContent draws the once-per-session welcome text — a plain,
 // left-aligned block (brand line, status line, recent sessions, shortcut
 // hint) with no border and no ASCII logo, matching Claude Code's flat
 // welcome screen. Centered as a block so it doesn't hug the left edge on
@@ -155,9 +167,9 @@ func (a *App) renderWelcomeContent() string {
 // renderWelcomeStatus builds the right-aligned-label / left-aligned-value
 // rows that show what model is loaded and how healthy the runtime is.
 func (a *App) renderWelcomeStatus() []string {
-	m := orStr(a.Status.Model, "â€”")
+	m := orStr(a.Status.Model, "—")
 	l := orStr(a.Status.LoRA, "none")
-	// Prefer the human-friendly BYOK provider id when set â€” "nvidia" is
+	// Prefer the human-friendly BYOK provider id when set — "nvidia" is
 	// more useful than "openai_compatible" on a glance, but the raw
 	// backend stays available so the user can still tell which protocol
 	// the sidecar is using underneath.
@@ -176,7 +188,7 @@ func (a *App) renderWelcomeStatus() []string {
 		{"model", m},
 		{"lora", l},
 		{"backend", backend},
-		{"session", fmt.Sprintf("%s %s Â· â± %s", dot, state, elapsed)},
+		{"session", fmt.Sprintf("%s %s · ⏱ %s", dot, state, elapsed)},
 	}
 	out := make([]string, 0, len(rows)+1)
 	for _, r := range rows {
@@ -186,8 +198,8 @@ func (a *App) renderWelcomeStatus() []string {
 		))
 	}
 
-	// Sprint 1.8 â€” Memory Resume last-task row. Sits below the status block,
-	// renders "â†» <title> Â· <workspace> Â· <relative>" or is suppressed when
+	// Sprint 1.8 — Memory Resume last-task row. Sits below the status block,
+	// renders "↻ <title> · <workspace> · <relative>" or is suppressed when
 	// (a) no task, (b) stale (>30 days), (c) a transient fetch error. The
 	// same staleness rule the React WelcomeBack banner uses.
 	if resumeLine := a.renderWelcomeResume(); resumeLine != "" {
@@ -196,8 +208,8 @@ func (a *App) renderWelcomeStatus() []string {
 	return out
 }
 
-// Sprint 1.8 â€” Memory Resume last-task row. Sits below the status block,
-// renders "â†» <title> Â· <workspace> Â· <relative>" or is suppressed when
+// Sprint 1.8 — Memory Resume last-task row. Sits below the status block,
+// renders "↻ <title> · <workspace> · <relative>" or is suppressed when
 // (a) no task, (b) stale (>30 days), (c) a transient fetch error. The
 // same staleness rule the React WelcomeBack banner uses.
 func (a *App) renderWelcomeResume() string {
@@ -217,22 +229,22 @@ func (a *App) renderWelcomeResume() string {
 	}
 	rel := formatRelativeMs(ref, a.Now)
 	ws := a.LastTaskView.WorkspaceName
-	line := fmt.Sprintf("welcome back Â· %s", task.Title)
+	line := fmt.Sprintf("welcome back · %s", task.Title)
 	if ws != "" {
-		line = fmt.Sprintf("%s Â· in %s", line, ws)
+		line = fmt.Sprintf("%s · in %s", line, ws)
 	}
-	line = fmt.Sprintf("%s Â· %s", line, rel)
+	line = fmt.Sprintf("%s · %s", line, rel)
 	return fmt.Sprintf("%s %s",
 		ui.WelcomeLabel.Render("resume"),
 		ui.WelcomeValue.Render(line),
 	)
 }
 
-// formatRelativeMs is the unix-ms variant of formatRelative â€” same labels
+// formatRelativeMs is the unix-ms variant of formatRelative — same labels
 // ("5m ago", "yesterday"), different input. Used by renderWelcomeResume.
 func formatRelativeMs(ms int64, now time.Time) string {
 	if ms <= 0 {
-		return "â€”"
+		return "—"
 	}
 	return formatRelative(time.UnixMilli(ms).UTC().Format(time.RFC3339Nano), now)
 }
@@ -250,28 +262,28 @@ func (a *App) renderWelcomeSessions() []string {
 	for i, s := range a.Sessions {
 		out = append(out, fmt.Sprintf("  %s %s   %s", ui.G.ThinkClosed,
 			ui.WelcomeSess.Render(truncate(s.Title, 38)),
-			ui.WelcomeSessMeta.Render("Â· "+formatRelative(s.UpdatedAt, a.Now)),
+			ui.WelcomeSessMeta.Render("· "+formatRelative(s.UpdatedAt, a.Now)),
 		))
 		_ = i
 	}
 	return out
 }
 
-// renderWelcomeShortcuts is the bottom keymap hint row â€” kept identical to
+// renderWelcomeShortcuts is the bottom keymap hint row — kept identical to
 // the in-chat footer so muscle memory carries across.
 func (a *App) renderWelcomeShortcuts() []string {
 	row := func(k, d string) string {
 		return fmt.Sprintf("  %s  %s", ui.KbdStyle.Render(k), ui.WelcomeSessMeta.Render(d))
 	}
 	return []string{
-		row("â†µ", "send") + "  " + row("â‡§â†µ", "newline") + "  " + row("/help", "commands"),
+		row("↵", "send") + "  " + row("⇧↵", "newline") + "  " + row("/help", "commands"),
 		row("^R", "thinking") + "  " + row("^C ×2", "exit"),
 	}
 }
 
 // formatRelative turns an ISO-8601 timestamp into a coarse "5m / 2h /
 // yesterday" label. Falls back to the raw string on parse error.
-// `now` is injected by the caller (spec Â§34.4: View never calls time.Now).
+// `now` is injected by the caller (spec §34.4: View never calls time.Now).
 func formatRelative(iso string, now time.Time) string {
 	t, err := time.Parse(time.RFC3339Nano, iso)
 	if err != nil {
@@ -317,14 +329,14 @@ func truncate(s string, max int) string {
 	if max == 1 {
 		return string(runes[:1])
 	}
-	return string(runes[:max-1]) + "â€¦"
+	return string(runes[:max-1]) + "…"
 }
 
 func (a *App) renderHeader() string {
 	dot := ui.StatusOffline.Render(ui.G.Off)
 	state := "starting"
 	if a.State == StateBoot {
-		// Boot flash â€” show "â—‹ starting" (Â§2 J2.1).
+		// Boot flash — show "○ starting" (§2 J2.1).
 	} else if a.Status.Online {
 		dot = ui.StatusOnline.Render(ui.G.On)
 		state = "online"
@@ -337,14 +349,14 @@ func (a *App) renderHeader() string {
 	right := fmt.Sprintf("%s %s", dot, state)
 
 	// Build left segments right-to-left, dropping the rightmost segment
-	// when it doesn't fit (spec Â§29 segment-drop loop).
+	// when it doesn't fit (spec §29 segment-drop loop).
 	type segment struct {
 		label string // e.g. "model", "lora", "backend"
 		value string
 	}
 	var segs []segment
 	if a.Width >= 60 {
-		segs = append(segs, segment{"model", orStr(a.Status.Model, "â€”")})
+		segs = append(segs, segment{"model", orStr(a.Status.Model, "—")})
 	}
 	if a.Width >= 80 {
 		segs = append(segs, segment{"lora", orStr(a.Status.LoRA, "none")})
@@ -405,7 +417,7 @@ func (a *App) renderInput(h int) string {
 }
 
 func (a *App) renderFooter() string {
-	// Narrow terminal: shorten hints (Â§17 40â€“59 cols).
+	// Narrow terminal: shorten hints (§17 40–59 cols).
 	short := a.Width < 60 && !a.IsStreaming() && a.State != StateError && a.State != StateWaiting
 
 	if a.State == StateError {
@@ -415,26 +427,26 @@ func (a *App) renderFooter() string {
 		return ui.FooterStyle.Render(ui.FlashStyle.Render(a.FlashText))
 	}
 
-	// State-specific dynamic rendering (Â§3). The bare text lives in
+	// State-specific dynamic rendering (§3). The bare text lives in
 	// FooterHint() but live data (model name, tool name, attempt count,
 	// progress bytes, dimmer) is added here.
 	var hint string
 	switch a.State {
 	case StateLoadingModel:
 		name := orStr(a.Status.Model, "model")
-		hint = fmt.Sprintf("loading %sâ€¦", name)
+		hint = fmt.Sprintf("loading %s…", name)
 	case StateToolRunning:
 		if name := a.runningToolName(); name != "" {
-			hint = fmt.Sprintf("running %sâ€¦", name)
+			hint = fmt.Sprintf("running %s…", name)
 		} else {
-			hint = "runningâ€¦"
+			hint = "running…"
 		}
 	case StateDownloadingModel:
 		hint = a.renderDownloadProgress()
 	case StateRecovery:
-		hint = fmt.Sprintf("reconnectingâ€¦ (attempt %d)", a.RecoverAttempts)
+		hint = fmt.Sprintf("reconnecting… (attempt %d)", a.RecoverAttempts)
 	case StateIdle:
-		hint = ui.MetaStyle.Render("F1 for shortcuts Â· Ctrl+C to exit")
+		hint = ui.MetaStyle.Render("F1 for shortcuts · Ctrl+C to exit")
 	default:
 		hint = a.State.FooterHint()
 	}
@@ -444,9 +456,9 @@ func (a *App) renderFooter() string {
 	return ui.FooterStyle.Render(hint)
 }
 
-// renderErrorFooter renders the StateError footer line â€” kind + hint per
-// spec Â§14. The kind and hint come from the trailing assistant turn's
-// ErrorCard (filled by pushAssistantError â†’ inferErrorKind).
+// renderErrorFooter renders the StateError footer line — kind + hint per
+// spec §14. The kind and hint come from the trailing assistant turn's
+// ErrorCard (filled by pushAssistantError → inferErrorKind).
 func (a *App) renderErrorFooter() string {
 	kind, hint := "error", "r to retry"
 	if !a.RateLimitUntil.IsZero() {
@@ -454,13 +466,13 @@ func (a *App) renderErrorFooter() string {
 		if remaining < 0 {
 			remaining = 0
 		}
-		kind = "error Â· rate limited"
-		hint = fmt.Sprintf("cooling down %ds â€” r to retry now", remaining)
+		kind = "error · rate limited"
+		hint = fmt.Sprintf("cooling down %ds — r to retry now", remaining)
 	} else if t := a.lastAssistantTurn(); t != nil {
 		for i := len(t.Errors) - 1; i >= 0; i-- {
 			e := t.Errors[i]
 			if e.Kind != "" && e.Kind != "unknown" {
-				kind = "error Â· " + humanKind(e.Kind)
+				kind = "error · " + humanKind(e.Kind)
 				if e.Hint != "" {
 					hint = e.Hint
 				}
@@ -472,13 +484,16 @@ func (a *App) renderErrorFooter() string {
 }
 
 // humanKind maps inferErrorKind machine tokens to human footer labels
-// per spec Â§14's table ("no model", "offline", "provider down", etc.).
+// per spec §14's table ("no model", "offline", "provider down", etc.).
 func humanKind(k string) string {
 	switch k {
 	case "no_model":
 		return "no model"
 	case "runtime_lost":
-		return "runtime lost"
+		// Terminal surfaces say "gateway" — the same noun as the CLI's
+		// `feral gateway` command — so a user can transfer the word straight
+		// into the fix (audit 2026-07-10 Part 5, gateway had 4 names).
+		return "gateway lost"
 	case "rate_limited":
 		return "rate limited"
 	case "provider_down":
@@ -488,8 +503,8 @@ func humanKind(k string) string {
 	}
 }
 
-// renderDownloadProgress renders the Â§3 DownloadingModel footer line:
-// "â†“ name 38% Â· 1.6/4.1 GB Â· 12 MB/s". Returns empty string when no
+// renderDownloadProgress renders the §3 DownloadingModel footer line:
+// "↓ name 38% · 1.6/4.1 GB · 12 MB/s". Returns empty string when no
 // active download is reported.
 func (a *App) renderDownloadProgress() string {
 	if a.DownloadBytesTot <= 0 {
@@ -508,11 +523,11 @@ func (a *App) renderDownloadProgress() string {
 }
 
 // shortHint returns a compressed version of the footer hint for narrow
-// terminals (Â§17 <60 cols). Key names only, no descriptions.
+// terminals (§17 <60 cols). Key names only, no descriptions.
 func shortHint(hint string) string {
 	switch hint {
-	case "F1 for shortcuts Â· Ctrl+C to exit":
-		return "F1 Â· ^C"
+	case "F1 for shortcuts · Ctrl+C to exit":
+		return "F1 · ^C"
 	default:
 		return hint
 	}
@@ -551,10 +566,10 @@ func (a *App) renderHelpOverlay(under string) string {
 }
 
 // composeOverlay places a centered overlay box on top of an existing
-// frame string (`under`), per spec Â§4: "Backdrop is the dimmed
+// frame string (`under`), per spec §4: "Backdrop is the dimmed
 // transcript (no fill)". Cells inside the overlay's bounding box come
 // from the overlay; cells outside come from the underlying frame. Both
-// inputs are expected to be exactly `width Ã— height` in dimensions;
+// inputs are expected to be exactly `width × height` in dimensions;
 // anything else gets padded with spaces.
 func composeOverlay(under, overlay string, width, height int) string {
 	if under == "" {
@@ -576,7 +591,7 @@ func composeOverlay(under, overlay string, width, height int) string {
 	boxLeft := (width - boxW) / 2
 	_ = boxLeft
 
-	// Pad both to width Ã— height.
+	// Pad both to width × height.
 	for len(underLines) < height {
 		underLines = append(underLines, strings.Repeat(" ", width))
 	}
@@ -612,7 +627,7 @@ func composeOverlay(under, overlay string, width, height int) string {
 }
 
 // renderWizResume renders the F2 partial-progress resume screen
-// (spec Â§PARTIAL PROGRESS PERSISTENCE). Shown when a previous run
+// (spec §PARTIAL PROGRESS PERSISTENCE). Shown when a previous run
 // exited mid-onboarding: progress file exists, wizard-done does not.
 // The user can Resume from the saved step or Start Over.
 func renderWizResume(w *WizardState, width int) string {
@@ -693,19 +708,19 @@ func resumeStepLabel(s WizardStep) string {
 // renderToolViewerOverlay draws the full-screen tool-result browser.
 // Layout:
 //
-//   tools  Â· 3 calls
-//   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-//   â–¸ â— read_file (project_local_models_gpu.md)  â± 0.1s âœ“
-//     â— scan_workspace                           â± 1.2s âœ“
-//     â— tool_health                              â± 0.4s âœ“
-//   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-//   â–¸ result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//   tools  · 3 calls
+//   ───────────────────────────────────────────────────────────
+//   ▸ ● read_file (project_local_models_gpu.md)  ⏱ 0.1s ✓
+//     ● scan_workspace                           ⏱ 1.2s ✓
+//     ● tool_health                              ⏱ 0.4s ✓
+//   ───────────────────────────────────────────────────────────
+//   ▸ result ────────────────────────────────────────────────
 //   # project_local_models_gpu.md
 //   On-disk models:
 //   - bge-small-en-v1.5 (default embed)
 //   ...
-//   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-//   â†‘â†“ navigate Â· enter expand Â· esc close
+//   ───────────────────────────────────────────────────────────
+//   ↑↓ navigate · enter expand · esc close
 //
 // The expanded preview panel appears under the list only when
 // `ToolViewer.Expanded` is true; otherwise the box closes after the
@@ -718,19 +733,19 @@ func (a *App) renderToolViewerOverlay(under string) string {
 	if boxW > 100 {
 		boxW = 100
 	}
-	headerLine := fmt.Sprintf(" tools  Â·  %d call%s", len(a.ToolViewer.Rows), plural(len(a.ToolViewer.Rows)))
+	headerLine := fmt.Sprintf(" tools  ·  %d call%s", len(a.ToolViewer.Rows), plural(len(a.ToolViewer.Rows)))
 	// P2.4: when the row count exceeds the visible cap (12), surface the
 	// current 1-based position so the user can see how deep they are
 	// without expanding the preview.
 	if len(a.ToolViewer.Rows) > 12 {
-		headerLine += fmt.Sprintf("  Â·  %d/%d", a.ToolViewer.Idx+1, len(a.ToolViewer.Rows))
+		headerLine += fmt.Sprintf("  ·  %d/%d", a.ToolViewer.Idx+1, len(a.ToolViewer.Rows))
 	}
 	header := ui.ToolViewerTitle.Render(headerLine)
 
 	if len(a.ToolViewer.Rows) == 0 {
 		rows := []string{
 			"",
-			ui.ToolViewerMeta.Render("  no tool calls yet â€” type a message that triggers one"),
+			ui.ToolViewerMeta.Render("  no tool calls yet — type a message that triggers one"),
 		}
 		content := strings.Join(rows, "\n")
 		box := ui.ToolViewerBox.Width(boxW).Render(content)
@@ -742,9 +757,9 @@ func (a *App) renderToolViewerOverlay(under string) string {
 	}
 
 	// Cap visible rows so a chat with 200 tool calls doesn't make the
-	// overlay overflow the terminal â€” scrolling within the overlay is a
+	// overlay overflow the terminal — scrolling within the overlay is a
 	// future enhancement. 12 rows + 2 for borders + preview footer fits
-	// any terminal â‰¥ 24 rows tall.
+	// any terminal ≥ 24 rows tall.
 	maxRows := 12
 	end := a.ToolViewer.Idx + maxRows/2
 	start := end - maxRows
@@ -774,9 +789,9 @@ func (a *App) renderToolViewerOverlay(under string) string {
 		preview := formatToolViewerPreview(a.ToolViewer.Rows[a.ToolViewer.Idx], boxW-8, &a.ToolViewer.PreviewOffset)
 		body += "\n\n" + preview
 	}
-	hint := ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate Â· enter expand Â· esc close", ui.G.Up, ui.G.Down))
+	hint := ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate · enter expand · esc close", ui.G.Up, ui.G.Down))
 	if a.ToolViewer.Expanded {
-		hint = ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate Â· %s%s page preview Â· enter collapse Â· esc close",
+		hint = ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate · %s%s page preview · enter collapse · esc close",
 			ui.G.Up, ui.G.Down, ui.G.Up, ui.G.Down))
 	}
 	body += "\n" + hint
@@ -791,15 +806,15 @@ func (a *App) renderToolViewerOverlay(under string) string {
 
 // renderModelPickerOverlay draws the full-screen model picker. Layout:
 //
-//   models  Â·  2 available
-//   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-//   â–¸ cloud nvidia:stepfun-ai/step-3.7-flash   cloud Â· nvidia
-//     local Qwen_Qwen3-4B-Q5_K_M.gguf          local Â· llama.cpp
-//   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-//   â†‘â†“ navigate Â· enter switch Â· esc close
+//   models  ·  2 available
+//   ─────────────────────────────────────────────────────────
+//   ▸ cloud nvidia:stepfun-ai/step-3.7-flash   cloud · nvidia
+//     local Qwen_Qwen3-4B-Q5_K_M.gguf          local · llama.cpp
+//   ─────────────────────────────────────────────────────────
+//   ↑↓ navigate · enter switch · esc close
 //
 // The kind column (cloud / local) replaces an icon, the active model is
-// marked with a leading "â–¸".
+// marked with a leading "▸".
 func (a *App) renderModelPickerOverlay(under string) string {
 	boxW := a.Width - 8
 	if boxW < 50 {
@@ -810,7 +825,7 @@ func (a *App) renderModelPickerOverlay(under string) string {
 	}
 
 	if a.ModelPicker.Loading {
-		content := "\n" + ui.ToolViewerMeta.Render("  loading modelsâ€¦")
+		content := "\n" + ui.ToolViewerMeta.Render("  loading models…")
 		box := ui.ToolViewerBox.Width(boxW).Render(content)
 		box = ui.ToolViewerTitle.Render(" models ") + "\n" + box
 		overlay := lipgloss.Place(a.Width, a.Height,
@@ -829,11 +844,11 @@ func (a *App) renderModelPickerOverlay(under string) string {
 		return composeOverlay(under, overlay, a.Width, a.Height)
 	}
 
-	headerLine := fmt.Sprintf(" models  Â·  %d available", len(a.ModelPicker.Rows))
+	headerLine := fmt.Sprintf(" models  ·  %d available", len(a.ModelPicker.Rows))
 	// P2.4: when more rows than fit in the visible cap, show the
 	// current position so the user knows how deep they are.
 	if len(a.ModelPicker.Rows) > 14 {
-		headerLine += fmt.Sprintf("  Â·  %d/%d", a.ModelPicker.Idx+1, len(a.ModelPicker.Rows))
+		headerLine += fmt.Sprintf("  ·  %d/%d", a.ModelPicker.Idx+1, len(a.ModelPicker.Rows))
 	}
 	header := ui.ToolViewerTitle.Render(headerLine)
 
@@ -863,7 +878,7 @@ func (a *App) renderModelPickerOverlay(under string) string {
 		if row.Kind == "cloud" {
 			kind = "cloud"
 			if row.Provider != "" {
-				kind = "cloud Â· " + row.Provider
+				kind = "cloud · " + row.Provider
 			}
 		}
 		marker := " "
@@ -880,7 +895,7 @@ func (a *App) renderModelPickerOverlay(under string) string {
 		rowLines = append(rowLines, line)
 	}
 	body := strings.Join(rowLines, "\n")
-	hint := ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate Â· enter switch Â· tab cycle Â· esc close", ui.G.Up, ui.G.Down))
+	hint := ui.ToolViewerMeta.Render(fmt.Sprintf("  %s%s navigate · enter switch · tab cycle · esc close", ui.G.Up, ui.G.Down))
 	body += "\n" + hint
 
 	box := ui.ToolViewerBox.Width(boxW).Render(body)
@@ -903,19 +918,19 @@ func formatToolViewerRow(row ToolViewerRow, now time.Time) string {
 	elapsed := ui.G.Running
 	switch row.Call.Status {
 	case ToolDone:
-		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("â± %s %s", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt)), ui.G.OK))
+		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s %s", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt)), ui.G.OK))
 	case ToolError:
-		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("â± %s %s", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt)), ui.G.Err))
+		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s %s", formatElapsed(row.Call.EndedAt.Sub(row.Call.StartedAt)), ui.G.Err))
 	default:
-		// Running â€” show elapsed-so-far.
-		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("â± %s %s", formatElapsed(now.Sub(row.Call.StartedAt)), ui.G.Running))
+		// Running — show elapsed-so-far.
+		elapsed = ui.ToolViewerMeta.Render(fmt.Sprintf("⏱ %s %s", formatElapsed(now.Sub(row.Call.StartedAt)), ui.G.Running))
 	}
 	return fmt.Sprintf("%s %s%s   %s", ui.ToolMark.Render(ui.G.ToolMark), name, arg, elapsed)
 }
 
 // formatToolViewerPreview renders the expanded preview panel for the
 // highlighted row. Caps at 16 lines so the overlay stays scannable;
-// `tool_call: â€¦` results that don't fit get a "(N more chars)" hint so
+// `tool_call: …` results that don't fit get a "(N more chars)" hint so
 // formatToolViewerPreview renders the expanded preview panel for the
 // highlighted tool call. The preview is line-truncated to maxLines; if
 // the result has more lines than fit, *offset is consulted (P2.4) so
@@ -927,7 +942,7 @@ func formatToolViewerRow(row ToolViewerRow, now time.Time) string {
 func formatToolViewerPreview(row ToolViewerRow, width int, offset *int) string {
 	tc := row.Call
 	if tc.Preview == "" {
-		return ui.ToolViewerMeta.Render("  (no result preview available â€” tool is still running or didn't return data)")
+		return ui.ToolViewerMeta.Render("  (no result preview available — tool is still running or didn't return data)")
 	}
 	preview := tc.Preview
 	allLines := strings.Split(preview, "\n")
@@ -990,7 +1005,7 @@ func formatToolViewerPreview(row ToolViewerRow, width int, offset *int) string {
 }
 
 // looksLikeDiff reports whether text is unified-diff shaped (git_diff tool
-// output, or any tool result that happens to embed one) â€” enough of the
+// output, or any tool result that happens to embed one) — enough of the
 // standard markers that plain prose won't false-positive.
 func looksLikeDiff(text string) bool {
 	for _, line := range strings.Split(text, "\n") {
@@ -1005,7 +1020,7 @@ func looksLikeDiff(text string) bool {
 	return false
 }
 
-// renderDiffLine colors one line of a unified diff â€” added lines green,
+// renderDiffLine colors one line of a unified diff — added lines green,
 // removed lines red, hunk headers and file markers dim/accent, everything
 // else (context lines) in the plain preview style.
 func renderDiffLine(line string) string {
@@ -1023,7 +1038,7 @@ func renderDiffLine(line string) string {
 	}
 }
 
-// plural returns "s" when n != 1, else "" â€” keeps the overlay header
+// plural returns "s" when n != 1, else "" — keeps the overlay header
 // grammatical without dragging in a third-party inflector.
 func plural(n int) string {
 	if n == 1 {
@@ -1032,9 +1047,9 @@ func plural(n int) string {
 	return "s"
 }
 
-// stripAnsiLocal is a tiny CSI-only stripper for the overlay â€” same
+// stripAnsiLocal is a tiny CSI-only stripper for the overlay — same
 // approach as the test helper, kept local so the viewer file stays
-// self-contained. Drops `\x1b[â€¦m` runs.
+// self-contained. Drops `\x1b[…m` runs.
 func stripAnsiLocal(s string) string {
 	var b strings.Builder
 	i := 0
@@ -1061,8 +1076,8 @@ func helpLine(key, desc string) string {
 	return fmt.Sprintf("  %s  %s", ui.HelpKey.Render(key), ui.HelpDesc.Render(desc))
 }
 
-// renderErrorCard draws a flat, unboxed error line â€” matches the tool-pill
-// shape: "âº error Â· kind" then indented message/hint lines, colored by
+// renderErrorCard draws a flat, unboxed error line — matches the tool-pill
+// shape: "⏺ error · kind" then indented message/hint lines, colored by
 // Kind (see inferErrorKind) so the eye still categorises the failure
 // before reading text, just without a drawn border around it.
 func (a *App) renderErrorCard(e ErrorCard, width int) string {
@@ -1071,7 +1086,7 @@ func (a *App) renderErrorCard(e ErrorCard, width int) string {
 	}
 	mark := ui.ErrorTitle.Render(ui.G.ToolMark + " error")
 	if e.Kind != "" && e.Kind != "unknown" {
-		mark = mark + ui.ErrorTitle.Render("  Â·  "+e.Kind)
+		mark = mark + ui.ErrorTitle.Render("  ·  "+e.Kind)
 	}
 	body := ui.ErrorMsg.Render(truncateRunes(e.Message, width*3))
 	lines := []string{mark, "  " + body}
@@ -1083,13 +1098,13 @@ func (a *App) renderErrorCard(e ErrorCard, width int) string {
 
 // renderCompletions renders the slash-command autocomplete popup as a
 // dim-bordered box anchored to the width of the input area. Empty string
-// when the popup is hidden â€” JoinVertical drops it cleanly.
+// when the popup is hidden — JoinVertical drops it cleanly.
 //
 // Layout per row:
 //
-//   â–¸ /help              show this overlay
+//   ▸ /help              show this overlay
 //
-// where `â–¸` marks the highlighted row and the right column shows the
+// where `▸` marks the highlighted row and the right column shows the
 // command's one-line description. The bottom strip carries a hint so the
 // user knows Tab cycles and Enter accepts.
 func (a *App) renderCompletions() string {
@@ -1097,7 +1112,7 @@ func (a *App) renderCompletions() string {
 		return ""
 	}
 	// Cap the visible list so a tall registry + narrow terminal still
-	// leaves room for the chat viewport. 8 items per spec Â§28.11.
+	// leaves room for the chat viewport. 8 items per spec §28.11.
 	shown := a.Completion.List
 	if len(shown) > 8 {
 		shown = shown[:8]
@@ -1119,7 +1134,7 @@ func (a *App) renderCompletions() string {
 		}
 		rows = append(rows, name)
 	}
-	hint := ui.CompletionHint.Render(fmt.Sprintf("  tab/%s%s cycle Â· enter accept Â· esc dismiss", ui.G.Up, ui.G.Down))
+	hint := ui.CompletionHint.Render(fmt.Sprintf("  tab/%s%s cycle · enter accept · esc dismiss", ui.G.Up, ui.G.Down))
 	rows = append(rows, hint)
 
 	boxW := a.Width - 2
@@ -1134,7 +1149,7 @@ func (a *App) renderCompletions() string {
 }
 
 // renderStreamingStatus is the 1-line status strip that replaces the
-// spinner-only "streamingâ€¦" indicator while a turn is in flight. Shows
+// spinner-only "streaming…" indicator while a turn is in flight. Shows
 // elapsed wall time, total tokens emitted so far, and a live tokens-per-
 // second number so the user can tell at a glance whether the model is
 // making progress.
@@ -1144,8 +1159,8 @@ func (a *App) renderStreamingStatus() string {
 	if !a.IsStreaming() && a.State != StateThinking {
 		return ""
 	}
-	// Thinking phase (reasoning before first content token) â€” show latency
-	// hiding line per spec Â§9 (100ms+, 3s+, 15s+ ladders).
+	// Thinking phase (reasoning before first content token) — show latency
+	// hiding line per spec §9 (100ms+, 3s+, 15s+ ladders).
 	if a.State == StateThinking {
 		elapsed := a.Now.Sub(a.StreamStartedAt)
 		status := ui.StreamStatus.Render(fmt.Sprintf("%s thinking %s", ui.G.Stream, a.Loader.View()))
@@ -1162,15 +1177,15 @@ func (a *App) renderStreamingStatus() string {
 	elapsed := formatElapsed(a.Now.Sub(a.StreamStartedAt))
 	tokens := a.StreamCompletionTokens
 	if tokens <= 0 {
-		// No `usage` event yet â€” show what we know (elapsed + spinner). Past
+		// No `usage` event yet — show what we know (elapsed + spinner). Past
 		// 8s with zero tokens the model is almost certainly still prefilling
 		// the prompt (long context + CPU inference can take tens of seconds
-		// before the first token), not hung â€” say so explicitly, otherwise a
+		// before the first token), not hung — say so explicitly, otherwise a
 		// bare spinner + growing timer is indistinguishable from a freeze.
 		status := ui.StreamStatus.Render(fmt.Sprintf("%s streaming %s", ui.G.Stream, a.Loader.View())) +
 			"  " + ui.StreamDim.Render(fmt.Sprintf("%s %s", ui.G.Timer, elapsed))
 		if a.Now.Sub(a.StreamStartedAt) > 8*time.Second {
-			status += "  " + ui.StreamStalled.Render(fmt.Sprintf("%s prefilling prompt â€” first token can take a while on CPU", ui.G.Stalled))
+			status += "  " + ui.StreamStalled.Render(fmt.Sprintf("%s prefilling prompt — first token can take a while on CPU", ui.G.Stalled))
 		}
 		status += "  " + ui.StreamHint.Render("esc to cancel")
 		return status
@@ -1184,11 +1199,11 @@ func (a *App) renderStreamingStatus() string {
 		"  " + ui.StreamDim.Render(fmt.Sprintf("%.1f t/s", tps)) +
 		"  " + ui.StreamDim.Render(fmt.Sprintf("%s %s", ui.G.Timer, elapsed))
 
-	// Stall hint â€” if the model hasn't emitted a token for >3s, surface it
+	// Stall hint — if the model hasn't emitted a token for >3s, surface it
 	// in the warning color so the user knows the agent is still working
 	// but the rate has dropped (e.g. tool call in flight, GPU stall).
 	if !a.LastTokenAt.IsZero() && a.Now.Sub(a.LastTokenAt) > 3*time.Second {
-		status += "  " + ui.StreamStalled.Render(fmt.Sprintf("%s thinkingâ€¦", ui.G.Stalled))
+		status += "  " + ui.StreamStalled.Render(fmt.Sprintf("%s thinking…", ui.G.Stalled))
 	}
 
 	// Right-aligned cancel hint so the eye knows the affordance is at the
@@ -1203,7 +1218,7 @@ const collapseToolThreshold = 4
 
 // collapsedToolSummary returns the one-line "ran N tool calls" summary for
 // turn, or "" if the turn should render every pill individually (still
-// streaming, too few calls, or at least one error/running call â€” those
+// streaming, too few calls, or at least one error/running call — those
 // need to stay visible on their own).
 func collapsedToolSummary(turn *Turn, gutter string, now time.Time) string {
 	if turn.Streaming || len(turn.Tools) < collapseToolThreshold {
@@ -1219,25 +1234,25 @@ func collapsedToolSummary(turn *Turn, gutter string, now time.Time) string {
 	line := fmt.Sprintf("%s %s  %s",
 		ui.ToolDone.Render(ui.ToolMark.Render(ui.G.ToolMark)),
 		fmt.Sprintf("ran %d tool calls", len(turn.Tools)),
-		ui.MetaStyle.Render(fmt.Sprintf("â± %s total Â· /tools for details", formatElapsed(total))))
+		ui.MetaStyle.Render(fmt.Sprintf("⏱ %s total · /tools for details", formatElapsed(total))))
 	return gutter + line
 }
 
 // renderToolPill renders one tool call as flat lines:
-//   âº tool_name(main arg)  â± 0.4s âœ“
-//     âŽ¿ result preview / note / error
-//     âŽ¿ â€¦ (+N more chars Â· /tools)
-// No emoji, no bullet card â€” the leading âº is colored by status
+//   ⏺ tool_name(main arg)  ⏱ 0.4s ✓
+//     ⎿ result preview / note / error
+//     ⎿ … (+N more chars · /tools)
+// No emoji, no bullet card — the leading ⏺ is colored by status
 // (accent = running, meta = done, fail = error) so the eye reads state
 // from color before reading the name, same idea Claude Code uses.
 //
-// Budget: 1 call line + at most 3 âŽ¿ lines (Â§8 result budget). If the
-// result would exceed 3 lines, the last âŽ¿ becomes an overflow hint.
+// Budget: 1 call line + at most 3 ⎿ lines (§8 result budget). If the
+// result would exceed 3 lines, the last ⎿ becomes an overflow hint.
 const toolResultBudget = 3
 
 // renderToolPill renders one tool call. When `compactTail` is true (narrow
-// terminal, 60â€“79 cols), the â± elapsed + status glyph moves to the last
-// âŽ¿ line instead of sharing the call line (spec Â§17).
+// terminal, 60–79 cols), the ⏱ elapsed + status glyph moves to the last
+// ⎿ line instead of sharing the call line (spec §17).
 func (a *App) renderToolPill(t ToolCall, gutter string, width int) string {
 	return a.renderToolPillCompact(t, gutter, width, a.narrowToolLayout())
 }
@@ -1266,17 +1281,17 @@ func (a *App) renderToolPillCompact(t ToolCall, gutter string, width int, compac
 	elapsed := formatElapsed(t.endedOrNow(a.Now))
 	statusGlyph, statusStyle := t.statusGlyph()
 	mark := statusStyle.Render(ui.ToolMark.Render(ui.G.ToolMark))
-	tail := statusStyle.Render(fmt.Sprintf("â± %s %s", elapsed, statusGlyph))
+	tail := statusStyle.Render(fmt.Sprintf("⏱ %s %s", elapsed, statusGlyph))
 
 	var out []string
 	if compactTail {
-		// Narrow layout: tail moves to the first âŽ¿ line (Â§17).
+		// Narrow layout: tail moves to the first ⎿ line (§17).
 		out = []string{fmt.Sprintf("%s %s%s", mark, name, arg)}
 	} else {
 		out = []string{fmt.Sprintf("%s %s%s  %s", mark, name, arg, tail)}
 	}
 
-	// Collect result lines â€” enforce the 3 âŽ¿ line budget (Â§8).
+	// Collect result lines — enforce the 3 ⎿ line budget (§8).
 	resultLines := make([]string, 0, toolResultBudget)
 	if t.Note != "" {
 		line := "  " + ui.ToolResult.Render(ui.G.Result) + " " + ui.ToolNote.Render(t.Note)
@@ -1300,21 +1315,21 @@ func (a *App) renderToolPillCompact(t ToolCall, gutter string, width int, compac
 		}
 		remaining := toolResultBudget - allocated
 		if remaining <= 0 {
-			// No budget left â€” show overflow on the last line.
-			overflow := fmt.Sprintf("%s %s (+%d more Â· /tools)", ui.G.Result, ui.G.Ellipsis, len(t.Preview))
+			// No budget left — show overflow on the last line.
+			overflow := fmt.Sprintf("%s %s (+%d more · /tools)", ui.G.Result, ui.G.Ellipsis, len(t.Preview))
 			if compactTail {
 				overflow += "  " + tail
 			}
 			resultLines[len(resultLines)-1] = "  " + ui.ToolResult.Render(overflow)
 		} else {
-			// Preview width: vp.Width - ResultIndent - 2 (âŽ¿ glyph + space) per Â§30.4
+			// Preview width: vp.Width - ResultIndent - 2 (⎿ glyph + space) per §30.4
 			preview := truncate(t.Preview, width-TagIndent-2)
 			if preview != "" {
 				renderLines := strings.Split(preview, "\n")
 				if len(renderLines) > remaining {
 					// Cap at remaining lines, last one is overflow.
 					renderLines = renderLines[:remaining]
-					renderLines[remaining-1] = fmt.Sprintf("%s (+%d more Â· /tools)", ui.G.Ellipsis, len(t.Preview))
+					renderLines[remaining-1] = fmt.Sprintf("%s (+%d more · /tools)", ui.G.Ellipsis, len(t.Preview))
 				}
 				for i, pl := range renderLines {
 					line := "  " + ui.ToolResult.Render(ui.G.Result) + " " + ui.MetaStyle.Render(pl)
@@ -1328,7 +1343,7 @@ func (a *App) renderToolPillCompact(t ToolCall, gutter string, width int, compac
 	}
 
 	// If compact tail never got attached (no result lines at all), append
-	// the tail on a standalone âŽ¿ line so it's not lost.
+	// the tail on a standalone ⎿ line so it's not lost.
 	if compactTail && len(resultLines) == 0 {
 		resultLines = append(resultLines, "  "+ui.ToolResult.Render(ui.G.Result)+" "+ui.MetaStyle.Render(tail))
 	}
@@ -1337,12 +1352,12 @@ func (a *App) renderToolPillCompact(t ToolCall, gutter string, width int, compac
 	return strings.Join(out, "\n"+gutter)
 }
 
-// TagIndent is the 2-space content indent for all transcript lines (Â§5).
+// TagIndent is the 2-space content indent for all transcript lines (§5).
 const TagIndent = ui.ContentIndent
 
-// endedOrNow returns EndedAt for completed tools, `now` for running ones â€”
+// endedOrNow returns EndedAt for completed tools, `now` for running ones —
 // so the elapsed counter animates without the caller having to pre-rewind.
-// `now` is injected by the caller (spec Â§34.4: View never calls time.Now).
+// `now` is injected by the caller (spec §34.4: View never calls time.Now).
 func (t ToolCall) endedOrNow(now time.Time) time.Duration {
 	end := t.EndedAt
 	if end.IsZero() {
@@ -1352,9 +1367,9 @@ func (t ToolCall) endedOrNow(now time.Time) time.Duration {
 }
 
 // statusGlyph returns the right tail-glyph + colour for a tool call's
-// status. The glyph comes from the spec's glyph table (Â§25.3) so ASCII
+// status. The glyph comes from the spec's glyph table (§25.3) so ASCII
 // mode substitutes it correctly; the colour carries the same state
-// redundantly (spec Â§18's NO_COLOR rule: state must survive colour-off).
+// redundantly (spec §18's NO_COLOR rule: state must survive colour-off).
 func (t ToolCall) statusGlyph() (string, lipgloss.Style) {
 	switch t.Status {
 	case ToolRunning:
@@ -1369,7 +1384,7 @@ func (t ToolCall) statusGlyph() (string, lipgloss.Style) {
 }
 
 // clampLen returns a byte index safe to slice s[:idx] at, truncated to at
-// most `max` runes. ponytail: rune-count width, not display width â€” wide
+// most `max` runes. ponytail: rune-count width, not display width — wide
 // (double-column) runes aren't accounted for; upgrade to lipgloss.Width
 // per-rune if CJK/emoji truncation misalignment ever matters here.
 func clampLen(s string, max int) int {
@@ -1449,11 +1464,11 @@ func splitTokens(s string) []string {
 	return tokens
 }
 
-// â”€â”€ Wizard renderers (Â§13) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Wizard renderers (§13) ─────────────────────────────────────────
 
 // renderWizard renders the current Setup Wizard step in the transcript zone.
-// Every step routes through ui.RenderWizardFrame so the chrome â€” header
-// strip (product mark + step indicator), rounded border, footer â€” stays
+// Every step routes through ui.RenderWizardFrame so the chrome — header
+// strip (product mark + step indicator), rounded border, footer — stays
 // consistent across the wizard. Per-step renderers only return the body
 // content; the frame owns the title and the surrounding whitespace.
 func (a *App) renderWizard() string {
@@ -1486,7 +1501,7 @@ func (a *App) renderWizard() string {
 
 // wizardStepBody dispatches to the per-step renderer. The boolean
 // return tells the caller whether the step is "full-frame" (it owns
-// its own header/footer â€” currently just WizFinish) or "framed"
+// its own header/footer — currently just WizFinish) or "framed"
 // (everything else, which the wizard frame wraps). Per-step renderers
 // no longer prepend their own `wizTitle()` since the frame supplies
 // the title in the header strip.
@@ -1516,7 +1531,7 @@ func wizardStepBody(w *WizardState, width int) (body string, fullFrame bool) {
 // wizTitle was the per-step title rendered above each body. Now that
 // ui.RenderWizardFrame owns the title, the per-step renderers drop
 // their wizTitle call. Kept here as a thin alias so any leftover call
-// site compiles and behaves the same â€” once the per-step renderers
+// site compiles and behaves the same — once the per-step renderers
 // finish their migration, this is removable.
 func wizTitle(s string) string {
 	return ui.WizardTitle.Render(s)
@@ -1724,7 +1739,7 @@ func renderWizCloudProvider(w *WizardState, width int) string {
 	b.WriteString(wizSep(width))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-		// F2 / spec Â§SEARCHABLE LISTS: search input + filtered list.
+		// F2 / spec §SEARCHABLE LISTS: search input + filtered list.
 	// The cursor (`_`) marks the end of the query.
 	cursor := ui.G.Cursor
 	if w.SearchQuery == "" {
@@ -1752,9 +1767,9 @@ func renderWizCloudProvider(w *WizardState, width int) string {
 	}
 	b.WriteByte('\n')
 	if w.SearchQuery != "" {
-		b.WriteString(wizLine("  type to filter  Â·  " + ui.AccentStyle.Render("Enter") + "  select  Â·  esc clear"))
+		b.WriteString(wizLine("  type to filter  ·  " + ui.AccentStyle.Render("Enter") + "  select  ·  esc clear"))
 	} else {
-		b.WriteString(wizLine("  type to filter  Â·  " + ui.AccentStyle.Render("Enter") + "  select  Â·  esc back"))
+		b.WriteString(wizLine("  type to filter  ·  " + ui.AccentStyle.Render("Enter") + "  select  ·  esc back"))
 	}
 	return b.String()
 }
@@ -1893,7 +1908,7 @@ func renderWizTestIt(w *WizardState, width int) string {
 		}
 		b.WriteString(ui.AccentStyle.Render("  press Enter to continue"))
 	} else {
-		// F2 / spec Â§HEALTH CHECK FAILURE HANDLING: show which check
+		// F2 / spec §HEALTH CHECK FAILURE HANDLING: show which check
 		// failed + the raw error, then offer explicit Retry / Change
 		// / Skip. Never leave the user stuck on a spinner.
 		// F3: show the per-check status instead of a single failure line.
@@ -1912,7 +1927,7 @@ func renderWizTestIt(w *WizardState, width int) string {
 					b.WriteString(wizLine("    " + hc.Message))
 				}
 			default:
-				b.WriteString(wizLine(fmt.Sprintf("  %s %s â€” skipped", ui.G.Off, name)))
+				b.WriteString(wizLine(fmt.Sprintf("  %s %s — skipped", ui.G.Off, name)))
 			}
 			b.WriteByte('\n')
 		}

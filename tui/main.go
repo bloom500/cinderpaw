@@ -85,17 +85,20 @@ func main() {
 		return
 	}
 
-	runTUI(baseURL, token)
+	runTUI(baseURL, token, forceWizard)
 }
 
 // runTUI launches the full Bubble Tea TUI with alternate screen.
-func runTUI(baseURL, token string) {
+// forceClassic (--wizard, the `feral setup --classic` path) opens the
+// classic step-by-step wizard instead of the default guided flow.
+func runTUI(baseURL, token string, forceClassic bool) {
 	status, err := api.FetchStatus(baseURL, token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "feral: could not fetch runtime status (%v)\n", err)
 		os.Exit(1)
 	}
 	m := app.New(baseURL, token, status)
+	m.ForceClassicWizard = forceClassic
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.Prog = p
 	defer func() {

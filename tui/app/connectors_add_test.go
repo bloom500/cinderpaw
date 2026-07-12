@@ -34,14 +34,34 @@ func TestConnectorsAddRejectsUnknownID(t *testing.T) {
 	}
 }
 
-// TestConnectorsAddRejectsQR — WhatsApp uses QR pairing (no secret
-// fields); /connectors add shouldn't accept a positional arg and pretend
-// to save it. The user must run the wizard flow instead.
-func TestConnectorsAddRejectsQR(t *testing.T) {
+// TestConnectorsAddQRStartsPairing — WhatsApp uses QR pairing (no secret
+// fields); /connectors add whatsapp must return an async pairing cmd (enable
+// + reload + poll for the QR file) instead of a rejection flash. The old
+// behavior pointed users at a wizard flow that no longer exists.
+func TestConnectorsAddQRStartsPairing(t *testing.T) {
 	a := newTestApp()
-	a.handleConnectors([]string{"add", "whatsapp"})
-	if !strings.Contains(strings.ToLower(a.FlashText), "qr") {
-		t.Fatalf("expected QR-rejection flash, got %q", a.FlashText)
+	cmd := a.handleConnectors([]string{"add", "whatsapp"})
+	if cmd == nil {
+		t.Fatalf("expected an async pairing cmd for whatsapp, got nil (flash %q)", a.FlashText)
+	}
+	if a.FlashText != "" {
+		t.Fatalf("expected no rejection flash, got %q", a.FlashText)
+	}
+}
+
+// TestConnectorsQRShowsStatus — /connectors qr always answers in the
+// transcript: linked, a fresh code, or "turn it on first".
+func TestConnectorsQRShowsStatus(t *testing.T) {
+	a := newTestApp()
+	before := len(a.Turns)
+	a.handleConnectors([]string{"qr"})
+	if len(a.Turns) <= before {
+		t.Fatal("expected /connectors qr to append transcript lines")
+	}
+	body := a.Turns[len(a.Turns)-1].Text
+	lower := strings.ToLower(body)
+	if !strings.Contains(lower, "linked") && !strings.Contains(lower, "scan") && !strings.Contains(lower, "pairing code") {
+		t.Fatalf("expected a QR status block, got %q", body)
 	}
 }
 

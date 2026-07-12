@@ -78,20 +78,35 @@ func (a *App) Init() tea.Cmd {
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.Now = time.Now()
+	// Guided first-run flow messages (detect/verify/download) — handled
+	// before the main switch so they can't leak into chat handling.
+	if handled, cmd := a.handleGuidedMsg(msg); handled {
+		return a, cmd
+	}
 	switch msg := msg.(type) {
 	case BootComplete:
 		a.State = StateReady
 		a.rebuildViewport()
 
 		// Check for wizard-done marker (§2 J2.3) — if missing, this is a
-		// first launch and the setup wizard opens automatically.
+		// first launch. The GUIDED flow is the default (OpenClaw parity);
+		// `--wizard` (the `feral setup --classic` path) forces the classic
+		// step-by-step wizard.
 		marker, err := wizardDonePath()
 		if err == nil {
 			if _, statErr := os.Stat(marker); os.IsNotExist(statErr) {
-				a.startWizard()
+				if a.ForceClassicWizard {
+					a.startWizard()
+					return a, nil
+				}
+				return a, a.startGuided()
 			}
 		} else {
-			a.startWizard()
+			if a.ForceClassicWizard {
+				a.startWizard()
+				return a, nil
+			}
+			return a, a.startGuided()
 		}
 		return a, nil
 
@@ -122,6 +137,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.State == StateShutdown {
 			return a, tea.Quit
 		}
+		// Guided mode: the guided first-run flow consumes all keys when active.
+		if a.Guided.Show {
+			return a, a.guidedHandleKey(msg)
+		}
 		// Wizard mode: wizard consumes all keys when active.
 		if a.Wizard.Show {
 			cmd := a.wizardHandleKey(msg)
@@ -129,15 +148,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 		// ── Key dispatch via key.Binding (spec §16/§24.3) ──────────────
-		// Vim-style k/j overlay nav: only intercept when an overlay is
-		// showing; otherwise fall through to the textarea.
+		// Vim-style k/j overlay nav: only intercepted while an overlay is
+		// showing (the && overlayNav guards below); otherwise no case
+		// matches and the key falls through to the textarea update.
 		raw := msg.String()
-		if raw == "k" || raw == "j" {
-			overlayActive := a.ToolViewer.Show || a.ModelPicker.Show
-			if !overlayActive {
-				break // fall through to textarea
-			}
-		}
+		overlayNav := a.ToolViewer.Show || a.ModelPicker.Show
 		switch {
 		case key.Matches(msg, Keys.Quit):
 			a.handleCtrlC()
@@ -316,8 +331,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 
-		// Vim-style k/j nav for overlays (captured above when overlay active).
-		case raw == "k":
+		// Vim-style k/j nav for overlays only — without an overlay these
+		// guards fail and k/j type into the textarea like any letter.
+		case raw == "k" && overlayNav:
 			if a.ToolViewer.Show && len(a.ToolViewer.Rows) > 0 && a.ToolViewer.Idx > 0 {
 				a.ToolViewer.Idx--
 				return a, nil
@@ -329,7 +345,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.ModelPicker.Idx--
 			}
 			return a, nil
-		case raw == "j":
+		case raw == "j" && overlayNav:
 			if a.ToolViewer.Show && len(a.ToolViewer.Rows) > 0 && a.ToolViewer.Idx < len(a.ToolViewer.Rows)-1 {
 				a.ToolViewer.Idx++
 				return a, nil
@@ -733,6 +749,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.finishStream()
 		if msg.Err != nil {
 			a.setFlash(fmt.Sprintf("stream error: %v", msg.Err))
+			// Type-ahead queued during a stream that errored: put the text
+			// back in the input instead of dropping it silently.
+			if a.PendingSubmit != "" {
+				a.Input.SetValue(a.PendingSubmit)
+				a.PendingSubmit = ""
+			}
 		} else if a.connectorTipArmed {
 			// P1.1: first clean reply after setup → one connector-discovery tip.
 			a.connectorTipArmed = false
@@ -758,6 +780,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case FlashMsg:
 		a.setFlash(msg.Text)
+		return a, nil
+
+	case TranscriptLinesMsg:
+		a.appendTranscriptLines(msg.Lines)
 		return a, nil
 
 	case RuntimeEventMsg:
@@ -827,7 +853,12 @@ func (a *App) handleSubmit() tea.Cmd {
 		// Hide the popup the instant we commit a slash command — keeps the
 		// flash banner + overlay from racing the popup.
 		a.Completion.Show = false
+		a.Completion.List = nil
+		a.Completion.Idx = 0
 		a.pushHistory(raw)
+		// Clear the composed command — same as the plain-message path;
+		// leaving it in the input forced a manual delete after every /cmd.
+		a.Input.Reset()
 		return a.handleSlash(raw[1:])
 	}
 	a.pushHistory(raw)
@@ -888,10 +919,20 @@ func (a *App) finishStream() {
 		if t.Role == RoleAssistant && t.Streaming {
 			t.Streaming = false
 			if !a.StreamStartedAt.IsZero() {
-				if tokens > 0 {
-					t.Meta = fmt.Sprintf("%s · %d tok", elapsed, tokens)
-				} else {
-					t.Meta = elapsed
+				// /usage off|tokens|full (OpenClaw parity) shapes this
+				// footnote; "" == "tokens" (the default).
+				switch a.UsageMode {
+				case "off":
+					t.Meta = ""
+				case "full":
+					t.Meta = fmt.Sprintf("%s · %d in · %d out · %d total",
+						elapsed, a.StreamPromptTokens, tokens, a.StreamPromptTokens+tokens)
+				default:
+					if tokens > 0 {
+						t.Meta = fmt.Sprintf("%s · %d tok", elapsed, tokens)
+					} else {
+						t.Meta = elapsed
+					}
 				}
 			}
 			t.markDirty()
@@ -2567,6 +2608,12 @@ func (a *App) handleConnectors(args []string) tea.Cmd {
 			return nil
 		}
 	}
+	if len(args) >= 1 && args[0] == "qr" {
+		// Show the current WhatsApp pairing code (fresh read — Baileys
+		// rotates it every ~20s and the sidecar rewrites the file each time).
+		a.appendTranscriptLines(whatsappQRLines())
+		return nil
+	}
 	if len(args) >= 1 && args[0] == "add" {
 		// Task #4: fail-loud credentials. /connectors add <id> <field>=<val>...
 		// Rejects unknown ids, ComingSoon connectors (Telegram — no live
@@ -2588,8 +2635,29 @@ func (a *App) handleConnectors(args []string) tea.Cmd {
 			return nil
 		}
 		if def.AuthKind == "qr" || len(def.Fields) == 0 {
-			a.setFlash(fmt.Sprintf("%s uses QR pairing — use /connectors wizard flow", def.Name))
-			return nil
+			// WhatsApp: no token — enabling starts QR pairing. Enable, poke
+			// the gateway, then wait off-thread for the sidecar to drop the
+			// QR file and print it into the transcript (the old flash sent
+			// users to a wizard flow that no longer exists).
+			return func() tea.Msg {
+				if whatsappLinked() {
+					return TranscriptLinesMsg{Lines: []string{"whatsapp · already linked " + ui.G.OK}}
+				}
+				if err := api.SaveConnectorConfig(id, map[string]string{}, true); err != nil {
+					return FlashMsg{Text: fmt.Sprintf("save failed for %s: %v", id, err)}
+				}
+				if err := api.ReloadConnectors(a.BaseURL, a.Token); err != nil {
+					return FlashMsg{Text: fmt.Sprintf("saved %s, reload failed: %v", id, err)}
+				}
+				// The sidecar needs a moment to open the socket and get a QR.
+				for i := 0; i < 30; i++ {
+					if _, _, ok := readWhatsAppQR(); ok {
+						return TranscriptLinesMsg{Lines: whatsappQRLines()}
+					}
+					time.Sleep(time.Second)
+				}
+				return FlashMsg{Text: "whatsapp: no QR after 30s — check `feral logs`, then /connectors qr"}
+			}
 		}
 		// Parse key=value pairs from remaining args. A positional fallback
 		// accepts plain values in field order (e.g. `add discord mytoken`).
@@ -2636,9 +2704,34 @@ func (a *App) handleConnectors(args []string) tea.Cmd {
 			return FlashMsg{Text: fmt.Sprintf("%s saved — gateway reloaded", def.Name)}
 		}
 	}
-	// Show cached connector count from last status poll.
-	a.setFlash("connectors info: use /connectors reload to refresh")
-	return nil
+	// Bare /connectors: list the persisted connectors (redacted) from the
+	// gateway — same data the desktop Connectors page shows.
+	return func() tea.Msg {
+		views, err := api.FetchConnectors(a.BaseURL, a.Token)
+		if err != nil {
+			return FlashMsg{Text: fmt.Sprintf("connectors: %v", err)}
+		}
+		lines := []string{"connectors"}
+		for _, v := range views {
+			mark, state := ui.G.Off, "disabled"
+			if v.Enabled {
+				mark, state = ui.G.On, "enabled"
+			}
+			detail := state
+			if len(v.Filled) > 0 {
+				detail += " · " + strings.Join(v.Filled, ", ") + " set"
+			}
+			if len(v.Channels) > 0 {
+				detail += " · channels: " + strings.Join(v.Channels, ", ")
+			}
+			lines = append(lines, fmt.Sprintf("%s %-10s %s", mark, v.ID, detail))
+		}
+		if len(views) == 0 {
+			lines = append(lines, "(none configured)")
+		}
+		lines = append(lines, "add: /connectors add <id> <field>=<value> · qr: /connectors qr · reload: /connectors reload")
+		return TranscriptLinesMsg{Lines: lines}
+	}
 }
 
 func (a *App) handleDream(args []string) tea.Cmd {

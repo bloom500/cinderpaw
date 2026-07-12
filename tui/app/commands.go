@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"feral-tui/api"
 	"feral-tui/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,7 +33,7 @@ var Registry = []Command{
 		Run: func(a *App, _ []string) tea.Cmd { a.openToolViewer(); return nil }},
 	{Name: "new", Aliases: []string{"reset"}, Desc: "archive session and start fresh",
 		Run: func(a *App, _ []string) tea.Cmd { a.resetSession(); return nil }},
-	{Name: "clear", Aliases: []string{"cls"}, Desc: "clear the conversation history",
+	{Name: "clear", Aliases: []string{"cls"}, Desc: "clear this session's history",
 		Run: func(a *App, _ []string) tea.Cmd { a.clearSession(); return nil }},
 	{Name: "sessions", Aliases: []string{"history"}, Desc: "list recent sessions from disk",
 		Run: func(a *App, _ []string) tea.Cmd { return a.cmdSessions() }},
@@ -46,8 +47,20 @@ var Registry = []Command{
 			})
 			return nil
 		}},
-	{Name: "usage", Desc: "show token count for this session",
-		Run: func(a *App, _ []string) tea.Cmd {
+	{Name: "usage", Args: "off|tokens|full", Desc: "token counts; set the per-reply usage footer",
+		Run: func(a *App, args []string) tea.Cmd {
+			// OpenClaw parity: /usage <mode> controls the per-turn meta
+			// footnote; plain /usage keeps printing session totals.
+			if len(args) > 0 {
+				switch args[0] {
+				case "off", "tokens", "full":
+					a.UsageMode = args[0]
+					a.setFlash("usage footer: " + args[0])
+				default:
+					a.setFlash("usage: /usage [off|tokens|full]")
+				}
+				return nil
+			}
 			p, c := a.StreamPromptTokens, a.StreamCompletionTokens
 			a.appendTranscriptLines([]string{
 				fmt.Sprintf("prompt · %d tokens", p),
@@ -89,11 +102,38 @@ var Registry = []Command{
 			})
 			return nil
 		}},
-	{Name: "reasoning", Desc: "toggle reasoning visibility",
+	{Name: "reasoning", Aliases: []string{"think"}, Desc: "toggle reasoning visibility",
 		Run: func(a *App, _ []string) tea.Cmd {
 			a.toggleThinking()
 			a.rebuildViewport()
 			a.setFlash("reasoning toggled")
+			return nil
+		}},
+	{Name: "verbose", Args: "on|off", Desc: "show all runtime events (off hides them)",
+		Run: func(a *App, args []string) tea.Cmd {
+			switch {
+			case len(args) == 0:
+				a.VerboseEvents = !a.VerboseEvents
+				a.EventsHidden = false
+			case args[0] == "on":
+				a.VerboseEvents = true
+				a.EventsHidden = false
+			case args[0] == "off":
+				a.VerboseEvents = false
+				a.EventsHidden = true
+			default:
+				a.setFlash("usage: /verbose on|off")
+				return nil
+			}
+			a.rebuildViewport()
+			switch {
+			case a.VerboseEvents:
+				a.setFlash("all runtime events shown")
+			case a.EventsHidden:
+				a.setFlash("runtime events hidden")
+			default:
+				a.setFlash("curated runtime events shown")
+			}
 			return nil
 		}},
 	{Name: "doctor", Desc: "run gateway health checks",
@@ -112,7 +152,7 @@ var Registry = []Command{
 		}},
 	{Name: "providers", Desc: "list providers with health status",
 		Run: func(a *App, _ []string) tea.Cmd { return a.handleProviders() }},
-	{Name: "connectors", Args: "add|reload", Desc: "manage chat-platform connectors",
+	{Name: "connectors", Args: "add|qr|reload", Desc: "manage chat-platform connectors",
 		Run: func(a *App, args []string) tea.Cmd { return a.handleConnectors(args) }},
 	{Name: "memory", Args: "search <q>", Desc: "memory stats; /memory search <q>",
 		Run: func(a *App, args []string) tea.Cmd { return a.handleMemory(args) }},
@@ -120,13 +160,23 @@ var Registry = []Command{
 		Run: func(a *App, args []string) tea.Cmd { return a.handleDream(args) }},
 	{Name: "lora", Desc: "show LoRA training status",
 		Run: func(a *App, _ []string) tea.Cmd { return a.handleLora() }},
-	{Name: "compact", Desc: "summarize and truncate session context",
+	{Name: "compact", Desc: "summarize older context into a note",
 		Run: func(a *App, _ []string) tea.Cmd {
-			// P0.9: compaction has no gateway endpoint yet — do not fabricate
-			// a receipt. Fail honestly.
-			a.setFlash("compaction not available yet")
-			return nil
+			// Real compaction via /runtime/session/compact (closes P0.9).
+			// The summarizer is a full LLM completion — run it off the UI
+			// thread and report the outcome as a flash.
+			a.setFlash("compacting session context…")
+			base, token := a.BaseURL, a.Token
+			return func() tea.Msg {
+				res, err := api.CompactSession(base, token, "chat")
+				if err != nil {
+					return FlashMsg{Text: fmt.Sprintf("compact failed: %v", err)}
+				}
+				return FlashMsg{Text: "compact: " + res}
+			}
 		}},
+	{Name: "restart", Desc: "restart the gateway and reconnect",
+		Run: func(a *App, _ []string) tea.Cmd { return a.cmdRestartGateway() }},
 	{Name: "model", Args: "<id>", Desc: "open model picker / switch model",
 		Extra: []CompletionItem{
 			{Text: "/model status", Desc: "show model details (ctx window, provider)", Insert: "/model status"},
@@ -143,8 +193,14 @@ var Registry = []Command{
 			a.setFlash("aborted")
 			return nil
 		}},
-	{Name: "setup", Desc: "re-enter the setup wizard",
-		Run: func(a *App, _ []string) tea.Cmd { a.startWizard(); return nil }},
+	{Name: "setup", Args: "classic", Desc: "re-run guided setup (/setup classic = full wizard)",
+		Run: func(a *App, args []string) tea.Cmd {
+			if len(args) > 0 && args[0] == "classic" {
+				a.startWizard()
+				return nil
+			}
+			return a.startGuided()
+		}},
 	{Name: "genome", Hidden: true, Desc: "current genome layers + fitness",
 		Run: func(a *App, _ []string) tea.Cmd {
 			a.setFlash("genome status: use /status or check the web dashboard")
@@ -280,6 +336,41 @@ func (a *App) cmdStatus() {
 		fmt.Sprintf("session · %s · %s", formatElapsed(time.Since(a.StartedAt)), online),
 		fmt.Sprintf("tokens · %d", a.StreamPromptTokens+a.StreamCompletionTokens),
 	})
+}
+
+// cmdRestartGateway drains the gateway and starts a fresh one (/restart,
+// OpenClaw parity). The gateway going down flips the TUI into its existing
+// recovery machinery, which reconnects the SSE stream once the new process
+// is up — this command only sequences shutdown → start.
+func (a *App) cmdRestartGateway() tea.Cmd {
+	a.setFlash("restarting gateway…")
+	base, token := a.BaseURL, a.Token
+	return func() tea.Msg {
+		_ = api.ShutdownGateway(base, token)
+		settings, err := api.LoadSettings()
+		if err != nil {
+			return FlashMsg{Text: fmt.Sprintf("restart: %v", err)}
+		}
+		port := settings.APIPort
+		// Wait for the old process to release the port — the D7 drain is
+		// bounded server-side at 30s; give it that plus margin.
+		for i := 0; i < 140 && api.PortInUse(port); i++ {
+			time.Sleep(250 * time.Millisecond)
+		}
+		if api.PortInUse(port) {
+			return FlashMsg{Text: "restart: old gateway did not exit — run `feral gateway restart`"}
+		}
+		if _, err := api.StartGateway(port); err != nil {
+			return FlashMsg{Text: fmt.Sprintf("restart: %v — run `feral gateway start`", err)}
+		}
+		for i := 0; i < 40 && !api.PortInUse(port); i++ {
+			time.Sleep(250 * time.Millisecond)
+		}
+		if !api.PortInUse(port) {
+			return FlashMsg{Text: "restart: gateway not responding — run `feral doctor`"}
+		}
+		return FlashMsg{Text: "gateway restarted"}
+	}
 }
 
 // cmdModel dispatches /model and its sub-commands. /model status routes to

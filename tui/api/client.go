@@ -396,6 +396,208 @@ func ReloadConnectors(baseURL, token string) error {
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// The gateway answers 503 with a human-readable body when the
+		// sidecar is down — surface it instead of a false "reloaded".
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		return fmt.Errorf("%s", strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// ConnectorView is the redacted per-connector state from
+// GET /runtime/connectors (mirrors feral-core's ConnectorRedactedView).
+type ConnectorView struct {
+	ID        string   `json:"id"`
+	Enabled   bool     `json:"enabled"`
+	Filled    []string `json:"filled"`
+	Allowlist []string `json:"allowlist"`
+	Channels  []string `json:"channels"`
+	Mode      string   `json:"mode"`
+}
+
+// FetchConnectors lists the persisted connectors with secrets redacted.
+func FetchConnectors(baseURL, token string) ([]ConnectorView, error) {
+	req, _ := http.NewRequest("GET", baseURL+"/runtime/connectors", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gateway returned %s", resp.Status)
+	}
+	var views []ConnectorView
+	if err := json.NewDecoder(resp.Body).Decode(&views); err != nil {
+		return nil, err
+	}
+	return views, nil
+}
+
+// SetupCandidate is one rung of the guided-setup detection ladder
+// (GET /runtime/setup/detect). Raw is the untouched JSON the gateway sent —
+// POST /runtime/setup/verify wants the candidate echoed back verbatim, so
+// we never round-trip through a lossy struct.
+type SetupCandidate struct {
+	Kind          string
+	Label         string
+	Detail        string
+	Recommended   bool
+	ProviderID    string
+	Model         string
+	DownloadRepo  string
+	DownloadFile  string
+	DownloadLabel string
+	DownloadSize  string
+	Raw           json.RawMessage
+}
+
+// SetupDetectResult is the parsed detect response the guided screen needs.
+type SetupDetectResult struct {
+	Acked      bool
+	Candidates []SetupCandidate
+}
+
+// SetupDetect runs the server-side detection ladder (existing config →
+// local GGUFs → hardware download → env keys → Ollama → OpenClaw import).
+func SetupDetect(baseURL, token string) (*SetupDetectResult, error) {
+	req, _ := http.NewRequest("GET", baseURL+"/runtime/setup/detect", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gateway %d", resp.StatusCode)
+	}
+	var wire struct {
+		SecurityAcknowledgedAt *string           `json:"security_acknowledged_at"`
+		Candidates             []json.RawMessage `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&wire); err != nil {
+		return nil, err
+	}
+	out := &SetupDetectResult{Acked: wire.SecurityAcknowledgedAt != nil}
+	for _, raw := range wire.Candidates {
+		var f struct {
+			Kind        string `json:"kind"`
+			Label       string `json:"label"`
+			Detail      string `json:"detail"`
+			Recommended bool   `json:"recommended"`
+			ProviderID  string `json:"provider_id"`
+			Model       string `json:"model"`
+			Download    struct {
+				RepoID     string `json:"repo_id"`
+				Filename   string `json:"filename"`
+				Label      string `json:"label"`
+				ApproxSize string `json:"approx_size"`
+			} `json:"download"`
+		}
+		if err := json.Unmarshal(raw, &f); err != nil {
+			continue
+		}
+		out.Candidates = append(out.Candidates, SetupCandidate{
+			Kind: f.Kind, Label: f.Label, Detail: f.Detail, Recommended: f.Recommended,
+			ProviderID: f.ProviderID, Model: f.Model,
+			DownloadRepo: f.Download.RepoID, DownloadFile: f.Download.Filename,
+			DownloadLabel: f.Download.Label, DownloadSize: f.Download.ApproxSize,
+			Raw: raw,
+		})
+	}
+	return out, nil
+}
+
+// SetupAck persists the one-time security acknowledgement (idempotent).
+func SetupAck(baseURL, token string) error {
+	req, _ := http.NewRequest("POST", baseURL+"/runtime/setup/ack", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+// SetupVerify runs the real-completion test on one candidate and — on
+// success — persists it as the default route (persist lives server-side;
+// verify-then-persist is the invariant). apiKey rides along only for the
+// manual paste-a-key path. The server caps the test at 90s.
+func SetupVerify(baseURL, token string, candidate json.RawMessage, apiKey string) (bool, string, error) {
+	payload := map[string]interface{}{"candidate": candidate, "persist": true}
+	if apiKey != "" {
+		payload["api_key"] = apiKey
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", baseURL+"/runtime/setup/verify", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return false, "", fmt.Errorf("gateway %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, "", err
+	}
+	return out.OK, out.Message, nil
+}
+
+// CompactSession asks the agent loop to summarize the older portion of one
+// session's transcript now (/compact, OpenClaw slash parity). The summarizer
+// is a real LLM completion — the gateway holds the request up to 120s, so
+// the client timeout is wider than the default. Returns the human result
+// ("compacted" / "not needed").
+func CompactSession(baseURL, token, sessionID string) (string, error) {
+	body := strings.NewReader(fmt.Sprintf(`{"session_id":%q}`, sessionID))
+	req, _ := http.NewRequest("POST", baseURL+"/runtime/session/compact", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 150 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", fmt.Errorf("gateway %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		OK     bool   `json:"ok"`
+		Result string `json:"result"`
+		Error  string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if !out.OK {
+		return "", fmt.Errorf("%s", out.Error)
+	}
+	return out.Result, nil
+}
+
+// ShutdownGateway asks the running gateway to drain and exit (/restart).
+func ShutdownGateway(baseURL, token string) error {
+	req, _ := http.NewRequest("POST", baseURL+"/runtime/shutdown", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
 	resp.Body.Close()
 	return nil
 }
