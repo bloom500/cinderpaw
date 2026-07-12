@@ -238,14 +238,14 @@ export function makeTasteDeps(miner: TasteMiner): {
   };
 }
 
-// ── Default IO (Node fs/promises under a homedir-resolved root) ─────────────
+// ── Default IO (Node fs/promises under the agent's profile dir) ─────────────
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { feralHome } from "../../config.ts";
 
 function defaultFsRoot(): string {
-  return join(homedir(), ".feral", DEFAULT_FS_ROOT);
+  return join(feralHome(), DEFAULT_FS_ROOT);
 }
 
 async function defaultWriteJson(path: string, data: unknown): Promise<void> {

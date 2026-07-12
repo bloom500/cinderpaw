@@ -82,7 +82,38 @@ export class EpisodicMemory {
         `SELECT id, session_id, timestamp, role, content
          FROM episodic
          WHERE session_id = ?
-         ORDER BY timestamp DESC
+         ORDER BY timestamp DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(sessionId, limit);
+    return rows.map(fromRow).reverse();
+  }
+
+  /**
+   * The last `limit` REPLAYABLE turns of a session, oldest-first — the shape a
+   * cold WorkingMemory rehydrates from (see AgentLoop.#memoryFor).
+   *
+   * Not the same query as `recent()`, deliberately:
+   *   - `tool` rows are excluded. They carry no tool-call `name` and their
+   *     content is truncated to 400 chars, so replaying them yields a
+   *     malformed, lossy tool history.
+   *   - MemoryExtractor's observation notes are excluded. It records them with
+   *     role `assistant` under the live sessionId (extractor.ts), so replaying
+   *     them would feed the model its own internal `[obs:…]` notes as things
+   *     it said out loud.
+   * Both are filtered in SQL, not after the fact, so `limit` counts real turns
+   * — a session whose last 40 rows are all tool calls still rehydrates 40
+   * turns of conversation.
+   */
+  conversation(sessionId: string, limit = 20): EpisodicEvent[] {
+    const rows = this.#db
+      .query<EpisodicRow, [string, number]>(
+        `SELECT id, session_id, timestamp, role, content
+         FROM episodic
+         WHERE session_id = ?
+           AND role IN ('user', 'assistant')
+           AND content NOT LIKE '[obs:%'
+         ORDER BY timestamp DESC, id DESC
          LIMIT ?`,
       )
       .all(sessionId, limit);

@@ -1,0 +1,290 @@
+/**
+ * RQT pre-release blockers (2026-07-12).
+ *
+ *   F8 — a session had no memory across a restart: WorkingMemory lived only
+ *        in RAM, so a fresh AgentLoop over the SAME db started amnesiac even
+ *        though every turn was already in episodic.
+ *   F7 — `resume_get` always returned null: setCurrentTask/touchLastActive
+ *        had no production caller (covered by the dispatch wiring; the store
+ *        round-trip is asserted here).
+ *   F6 — the agent had no way to WRITE a fact. `remember` is that path, and
+ *        `recall` now reads facts back.
+ */
+
+import { afterEach, describe, expect, test } from "bun:test";
+import { openDatabase } from "../src/db.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
+import { EpisodicMemory } from "../src/memory/episodic.ts";
+import { SemanticMemory } from "../src/memory/semantic.ts";
+import { RecallEngine } from "../src/memory/recall.ts";
+import { ToolRegistry } from "../src/tools/registry.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
+import { AgentLoop } from "../src/core/agent-loop.ts";
+import { createRememberTool } from "../src/tools/builtin/remember.ts";
+import { createRecallTool } from "../src/tools/builtin/recall.ts";
+import { getCurrentTask, setCurrentTask, touchLastActive, getLastActive } from "../src/memory/resume.ts";
+
+const BUDGET = { perConversation: 50_000, perDay: 500_000, onExhausted: "stop" } as const;
+
+let restoreFetch: (() => void) | null = null;
+afterEach(() => { restoreFetch?.(); restoreFetch = null; });
+
+/** Records every prompt (and the tool schemas) the "model" was sent. */
+function installPromptRecorder(): { prompts: unknown[][]; tools: string[][] } {
+  const prompts: unknown[][] = [];
+  const tools: string[][] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      messages?: unknown[];
+      tools?: { function?: { name?: string }; name?: string }[];
+    };
+    prompts.push(body.messages ?? []);
+    tools.push((body.tools ?? []).map((t) => t.function?.name ?? t.name ?? "").filter(Boolean));
+    return new Response(
+      JSON.stringify({ message: { content: "ok" }, prompt_eval_count: 1, eval_count: 1 }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+  restoreFetch = () => { globalThis.fetch = original; };
+  return { prompts, tools };
+}
+
+function buildRegistry(db: ReturnType<typeof openDatabase>): ToolRegistry {
+  const audit = new AuditLog(db.raw);
+  return new ToolRegistry(new EgressProxy(audit.logger), audit, new RealProcessSandbox(audit.logger));
+}
+
+function buildAgent(db: ReturnType<typeof openDatabase>, registry = buildRegistry(db)): AgentLoop {
+  const audit = new AuditLog(db.raw);
+  const router = new InferenceRouter(
+    { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+    audit.logger,
+    db.raw,
+  );
+  const episodic = new EpisodicMemory(db.raw, audit.logger);
+  const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+  return new AgentLoop(router, registry, episodic, {}, recall);
+}
+
+/** Stand-in for a tool an MCP server registers after the loop already exists. */
+function lateTool(name: string) {
+  return {
+    manifest: { name, description: "a late-registered MCP tool", permissions: [], networkAccess: false },
+    parameters: {},
+    async execute() { return { ok: true, content: "late tool ran" }; },
+  };
+}
+
+describe("MCP — tools registered after boot are actually callable", () => {
+  // Live smoke found MCP tools discoverable via list_tools and accepted by
+  // load_tool, yet never advertised to the model: the loop snapshotted the
+  // schemas at construction, and boot starts the MCP servers with a
+  // fire-and-forget connectAll() that registers them later.
+  test("a late-registered tool reaches the model once the drawer loads it", async () => {
+    const { tools } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const registry = buildRegistry(db);
+    const agent = buildAgent(db, registry);
+
+    // MCP connects AFTER the AgentLoop is constructed.
+    registry.register(lateTool("mcp_discord_login"));
+
+    // Not core, so it is not advertised until the model pulls it in…
+    await agent.handle("s-mcp", "hi", "m1", () => {});
+    expect(tools.at(-1)).not.toContain("mcp_discord_login");
+
+    // …and once load_tool enables it, it MUST appear as a callable function.
+    await registry.call("load_tool", { names: ["mcp_discord_login"] }, "s-mcp");
+    await agent.handle("s-mcp", "now use it", "m2", () => {});
+    expect(tools.at(-1)).toContain("mcp_discord_login");
+    db.close();
+  });
+
+  test("list_tools and the advertised schemas agree that an MCP tool is optional", async () => {
+    // The two tier predicates used to disagree: list_tools called an mcp_ tool
+    // optional while isCoreTool called it core.
+    const { isCoreTool, isExtendedTool } = await import("../src/tools/tiers.ts");
+    expect(isExtendedTool("mcp_discord_login")).toBe(true);
+    expect(isCoreTool("mcp_discord_login")).toBe(false);
+  });
+
+  test("a profile's allow-list can name a tool registered after the profile", async () => {
+    const { tools } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const registry = buildRegistry(db);
+    const agent = buildAgent(db, registry);
+
+    agent.registerProfile("public", {
+      systemPrompt: "shop bot",
+      allowedTools: ["mcp_shop_lookup"],
+    });
+    agent.setSessionProfile("wa:cust", "public");
+    registry.register(lateTool("mcp_shop_lookup"));
+
+    await agent.handle("wa:cust", "do you sell shoes?", "m1", () => {});
+    expect(tools.at(-1)).toContain("mcp_shop_lookup");
+    db.close();
+  });
+});
+
+describe("F8 — sessions survive a restart", () => {
+  test("a fresh AgentLoop over the same db replays the session transcript", async () => {
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+
+    // Session 1: the user says something memorable.
+    await buildAgent(db).handle("s-restart", "my codename is ZIMBRU-77", "m1", () => {});
+
+    // "Restart": a brand-new AgentLoop, same database, same sessionId.
+    await buildAgent(db).handle("s-restart", "what is my codename?", "m2", () => {});
+
+    const lastPrompt = JSON.stringify(prompts.at(-1));
+    expect(lastPrompt).toContain("ZIMBRU-77");
+    db.close();
+  });
+
+  test("a session unknown to the db starts empty, not crashing", async () => {
+    installPromptRecorder();
+    const db = openDatabase(":memory:");
+    await buildAgent(db).handle("s-fresh", "hello", "m1", () => {});
+    db.close();
+  });
+
+  test("a tool-heavy session still replays its conversation turns", () => {
+    // Regression: the rehydration LIMIT used to be applied over ALL roles, so
+    // a session whose recent rows were tool results replayed none of the real
+    // conversation — amnesia survived precisely for agentic sessions.
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-tools", "user", "my codename is ZIMBRU-77");
+    episodic.record("s-tools", "assistant", "noted");
+    for (let i = 0; i < 60; i++) episodic.record("s-tools", "tool", `read_file: chunk ${i}`);
+
+    const replayed = episodic.conversation("s-tools", 40);
+    expect(replayed.some((e) => e.content.includes("ZIMBRU-77"))).toBe(true);
+    expect(replayed.every((e) => e.role !== "tool")).toBe(true);
+    db.close();
+  });
+
+  test("the extractor's own observation notes are not replayed as assistant turns", () => {
+    // The MemoryExtractor records its internal notes with role 'assistant'
+    // under the live sessionId. Replaying them would feed the model its own
+    // scratchpad as things it said out loud.
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-obs", "user", "hello");
+    episodic.record("s-obs", "assistant", "hi there");
+    episodic.record("s-obs", "assistant", "[obs:preference] likes tea\n  • drinks tea");
+
+    const replayed = episodic.conversation("s-obs", 40);
+    expect(replayed.some((e) => e.content.startsWith("[obs:"))).toBe(false);
+    expect(replayed).toHaveLength(2);
+    db.close();
+  });
+
+  test("a cron session does not inherit the previous run's transcript", async () => {
+    // `cron:${jobId}` is stable across runs but each run is independent.
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+
+    await buildAgent(db).handle("cron:7", "first run: the sky is ZIMBRU-77", "c1", () => {});
+    await buildAgent(db).handle("cron:7", "second run: report status", "c2", () => {});
+
+    expect(JSON.stringify(prompts.at(-1))).not.toContain("ZIMBRU-77");
+    db.close();
+  });
+});
+
+describe("F7 — memory resume round-trips through the meta table", () => {
+  test("setCurrentTask / touchLastActive are readable by resume_get's readers", () => {
+    const db = openDatabase(":memory:");
+    expect(getCurrentTask(db.raw)).toBeNull();
+    expect(getLastActive(db.raw)).toBeNull();
+
+    setCurrentTask(db.raw, { title: "ship the release", ts: 1234, workspaceId: null });
+    touchLastActive(db.raw, 5678);
+
+    expect(getCurrentTask(db.raw)?.title).toBe("ship the release");
+    expect(getLastActive(db.raw)).toBe(5678);
+    db.close();
+  });
+
+  test("the loop reports owner turns on ANY surface, but not machine or public sessions", async () => {
+    installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const agent = buildAgent(db);
+    const seen: string[] = [];
+    agent.setUserTurnObserver((_s, text) => seen.push(text));
+
+    // A connector conversation is the owner working — it must count. (This is
+    // why the observer lives in the loop and not in dispatch: connectors call
+    // agent.handle directly.)
+    await agent.handle("whatsapp:owner", "renew the domain", "w1", () => {});
+    // A cron run is not the user.
+    await agent.handle("cron:7", "scheduled digest", "c1", () => {});
+    // Neither is a customer talking to a public persona.
+    agent.registerProfile("public", { systemPrompt: "you are a shop bot", allowedTools: [] });
+    agent.setSessionProfile("whatsapp:customer", "public");
+    await agent.handle("whatsapp:customer", "do you sell shoes?", "w2", () => {});
+
+    expect(seen).toEqual(["renew the domain"]);
+    db.close();
+  });
+});
+
+describe("F6 — the agent can write memory", () => {
+  test("remember stores a fact that recall reads back", async () => {
+    const db = openDatabase(":memory:");
+    const semantic = new SemanticMemory(db.raw, new AuditLog(db.raw).logger);
+
+    const remember = createRememberTool(semantic);
+    const written = await remember.execute({ key: "codename", value: "ZIMBRU-77" });
+    expect(written.ok).toBe(true);
+
+    // Fractal search finds nothing (fresh index) — the fact must still surface.
+    const recall = createRecallTool(async () => [], semantic);
+    const read = await recall.execute({ query: "what is my codename" });
+    expect(read.ok).toBe(true);
+    expect(read.content).toContain("ZIMBRU-77");
+    db.close();
+  });
+
+  test("remember with forget deletes the fact", async () => {
+    const db = openDatabase(":memory:");
+    const semantic = new SemanticMemory(db.raw, new AuditLog(db.raw).logger);
+    const remember = createRememberTool(semantic);
+
+    await remember.execute({ key: "codename", value: "ZIMBRU-77" });
+    await remember.execute({ key: "codename", forget: true });
+
+    const read = await createRecallTool(async () => [], semantic).execute({ query: "codename" });
+    expect(read.content).not.toContain("ZIMBRU-77");
+    db.close();
+  });
+
+  test("recall finds a fact whose key is a short token", async () => {
+    // The query filter used to drop every word of <= 2 chars, so 'id' / 'qr' /
+    // a two-letter code — exactly the keys users ask about by name — could
+    // never be matched, and the agent would claim it did not remember.
+    const db = openDatabase(":memory:");
+    const semantic = new SemanticMemory(db.raw, new AuditLog(db.raw).logger);
+    await createRememberTool(semantic).execute({ key: "id", value: "ZIMBRU-77" });
+
+    const read = await createRecallTool(async () => [], semantic).execute({
+      query: "what is my id",
+    });
+    expect(read.content).toContain("ZIMBRU-77");
+    db.close();
+  });
+
+  test("remember rejects a write with no value", async () => {
+    const db = openDatabase(":memory:");
+    const semantic = new SemanticMemory(db.raw, new AuditLog(db.raw).logger);
+    const res = await createRememberTool(semantic).execute({ key: "k" });
+    expect(res.ok).toBe(false);
+    db.close();
+  });
+});

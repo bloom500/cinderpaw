@@ -969,6 +969,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // Dream Cycle activity clock: an inbound user message means the
         // user is here, so the idle trigger resets. Cheap single write.
         activityMonitor.recordActivity(Date.now());
+        // Memory Resume (current_task / last_active_at) is written from
+        // AgentLoop's user-turn observer, wired in boot — connector surfaces
+        // reach the agent without passing through here, and they are the user
+        // working too.
+        //
         // skillsContext is the per-turn roster of locally-installed skills
         // (metadata only) sent by Rust. Rendered as a short "Available
         // skills" menu in the system prompt; the LLM loads any skill's body

@@ -31,13 +31,12 @@
  */
 
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { MCPClient } from "./mcp-client.ts";
 import type { AuditLogger } from "../types.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
-import { cfgPath } from "../config.ts";
+import { feralHome } from "../config.ts";
 
 /** Mirrors `McpServerConfig` in `src-tauri/src/mcp.rs` (serde field names). */
 export interface McpServerConfig {
@@ -61,8 +60,7 @@ export interface McpServerStatus {
 
 /** Default config path — the file `src-tauri/src/mcp.rs` persists. */
 export function defaultMcpConfigPath(): string {
-  const feralHome = cfgPath("FERAL_HOME") ?? join(homedir(), ".feral");
-  return join(feralHome, "mcp.json");
+  return join(feralHome(), "mcp.json");
 }
 
 /** Tolerant loader: missing / malformed file → empty list (an unreadable

@@ -401,6 +401,32 @@ pub async fn spawn(
     *runtime.active_agent_model.lock() = Some(model_name.clone());
     tracing::info!(model = %model_name, "feral-agent: using discovered model");
 
+    // Where the bundled local engine lives, ALWAYS — even when the sidecar
+    // boots on a cloud route. The sidecar uses this (and only this) as its
+    // degrade-to-local fallback. It used to derive that fallback from
+    // FERAL_BASE_URL/FERAL_MODEL, which on a cloud route are the cloud's, so
+    // "fall back to local" silently re-called the boot-time cloud provider
+    // after the user had switched away from it (blocker F9).
+    let local_url = format!("http://127.0.0.1:{api_port}");
+    cmd.env("FERAL_LOCAL_BASE_URL", &local_url)
+        .env("FERAL_LOCAL_API_KEY", api_token.to_string());
+
+    // The model the local engine serves. When the boot route IS the local
+    // engine we already know it — reuse it instead of a second /v1/models
+    // round-trip. Otherwise ask; the var stays unset if the engine isn't up
+    // yet (discover_active_model has a 1s timeout), and the sidecar then
+    // configures NO local fallback rather than one pinned to a model id the
+    // engine doesn't serve — a fallback that 404s is worse than none, because
+    // it fails at exactly the moment it is supposed to save the turn.
+    let local_model = if base_url == local_url {
+        Some(model_name.clone())
+    } else {
+        discover_active_model(&local_url, api_token).await
+    };
+    if let Some(local) = local_model {
+        cmd.env("FERAL_LOCAL_MODEL", local);
+    }
+
     if let Some(db_key) = crate::db_key::get_or_create() {
         cmd.env("FERAL_DB_KEY", db_key);
     }

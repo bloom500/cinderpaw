@@ -8,13 +8,13 @@
  * router exist before any tool is registered or any message is handled.
  */
 
-import { resolve, delimiter, sep } from "node:path";
+import { resolve, join, delimiter, sep } from "node:path";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { cfgBool, cfgInt, cfgPath } from "./config.ts";
+import { cfgBool, cfgInt, cfgPath, feralHome } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -28,6 +28,7 @@ import { runMigration } from "./memory/fractal/migration.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
+import { setCurrentTask, touchLastActive } from "./memory/resume.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { McpManager } from "./egress/mcp-manager.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
@@ -54,6 +55,7 @@ import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
+import { createRememberTool } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
@@ -112,7 +114,7 @@ interface AppConfig {
 }
 
 /** The agent's own home: RSI git substrate, SQLite db, SOUL/identity. */
-const FERAL_HOME = resolve(homedir(), ".feral");
+const FERAL_HOME = feralHome();
 
 /**
  * Sidecar version, surfaced verbatim in the runtime identity doc emitted
@@ -349,7 +351,7 @@ export async function boot(transportOverride?: Transport) {
   } else {
     log(`user not onboarded — using generic defaults (no USER block)`);
   }
-  const stopSoulWatcher = watchSoul(homedir(), (fresh) => {
+  const stopSoulWatcher = watchSoul(undefined, (fresh) => {
     // Hot-reload: only NEW sessions pick up the change. Active sessions
     // keep their original system prompt so the conversation stays coherent.
     log(`soul hot-reload — source=${fresh.source} version=${fresh.version} ` +
@@ -373,18 +375,37 @@ export async function boot(transportOverride?: Transport) {
   // Bundled local engine used as an automatic fallback when the user hot-swaps
   // to a cloud model. A transient cloud failure (e.g. MiniMax 429 rate-limit)
   // then degrades to the on-device model instead of hard-failing the turn.
-  // Prefer the boot primary when it is itself local; otherwise the default
-  // bundled-engine target (always on 11435). ponytail: if no local model is
-  // loaded the fallback also fails — same "both failed" error, no worse.
-  const localFallbackTarget: ModelTarget = isLoopbackUrl(
+  //
+  // This used to read FERAL_MODEL / FERAL_BASE_URL whenever the boot primary
+  // was NOT loopback — but those env vars ARE the cloud route in exactly that
+  // case (Rust boots the sidecar on the persisted BYOK route). So the "local
+  // fallback" was a keyless copy of the boot-time CLOUD provider: after
+  // switching to another provider, any error on the new one silently re-called
+  // the old one, and the old one's failure was the error the user saw. That is
+  // release blocker F9 ("switched to nvidia, still calls api.minimax.io").
+  //
+  // The bundled engine is on loopback and Rust passes its address+token
+  // separately. No loopback target → no fallback, and a cloud failure surfaces
+  // as itself.
+  //
+  // FERAL_LOCAL_MODEL is required, not defaulted: Rust only sets it once the
+  // engine has actually answered /v1/models. Guessing a model id here would
+  // build a fallback that 404s on the one turn it exists to rescue, and its
+  // failure would mask the real cloud error — the same class of bug as F9.
+  const localBaseUrl = cfgPath("FERAL_LOCAL_BASE_URL");
+  const localModel = cfgPath("FERAL_LOCAL_MODEL");
+  const localFallbackTarget: ModelTarget | undefined = isLoopbackUrl(
     config.inference.primary.baseUrl,
   )
     ? config.inference.primary
-    : {
-        provider: "openai_compatible",
-        model: cfgPath("FERAL_MODEL")!,
-        baseUrl: cfgPath("FERAL_BASE_URL")!,
-      };
+    : localBaseUrl && localModel && isLoopbackUrl(localBaseUrl)
+      ? {
+          provider: "openai_compatible",
+          model: localModel,
+          baseUrl: localBaseUrl,
+          apiKey: cfgPath("FERAL_LOCAL_API_KEY") ?? undefined,
+        }
+      : undefined;
 
   // --- Layer 2: Memory ---
   const episodic = new EpisodicMemory(db.raw, audit.logger, () => getActiveWorkspaceId(db.raw));
@@ -619,10 +640,10 @@ export async function boot(transportOverride?: Transport) {
   // read_skill: Claude Code-style on-demand body loader for locally-installed
   // skills. The system prompt only carries a short menu; the LLM calls this
   // tool to load the full SKILL.md body of any skill it wants to apply.
-  registry.register(createReadSkillTool(`${homedir()}/.feral/skills`));
+  registry.register(createReadSkillTool(join(FERAL_HOME, "skills")));
   // list_skills: the drawer index. Skills are no longer dumped into every
   // prompt; the model calls this to discover ids, then read_skill to load one.
-  registry.register(createListSkillsTool(`${homedir()}/.feral/skills`));
+  registry.register(createListSkillsTool(join(FERAL_HOME, "skills")));
   // product_info: bundled PRODUCT.md — the agent's factual reference about
   // Feral itself (setup, connectors, commands). Zero permissions.
   registry.register(createProductInfoTool());
@@ -667,13 +688,19 @@ export async function boot(transportOverride?: Transport) {
     log,
   );
   registry.register(
-    createRecallTool(async (q, limit) =>
-      itemsToHits(
-        await retrievalSeam.invoke("retrieve", { query: q, k: limit, sessionId: "recall-tool" }),
-        limit,
-      ),
+    createRecallTool(
+      async (q, limit) =>
+        itemsToHits(
+          await retrievalSeam.invoke("retrieve", { query: q, k: limit, sessionId: "recall-tool" }),
+          limit,
+        ),
+      semantic,
     ),
   );
+  // remember — the write half. The extractor's capture is async and often
+  // lands after the user has already moved on, so an explicit "remember X"
+  // needs a synchronous path or the fact is simply lost.
+  registry.register(createRememberTool(semantic));
 
   // P0-1: delegate_task — spawn a subagent for an isolated, bounded
   // task. The subagent inherits the parent's router / sandbox /
@@ -704,7 +731,7 @@ export async function boot(transportOverride?: Transport) {
   // profile (see PUBLIC_ALLOWED_TOOLS in transports/connectors.ts). The shared
   // LeadDesk lets escalate/schedule reach the live connector (owner ping +
   // conversation pause); records land under ~/.feral/leads/.
-  const leadsDir = resolve(homedir(), ".feral", "leads");
+  const leadsDir = join(FERAL_HOME, "leads");
   const leadDesk = new LeadDesk();
   registry.register(createCaptureLeadTool(leadsDir));
   registry.register(createEscalateToHumanTool(leadDesk, leadsDir));
@@ -783,6 +810,23 @@ export async function boot(transportOverride?: Transport) {
     hooks,
     brain,
   );
+
+  // Memory Resume: persist what the user is working on so `resume_get` (the
+  // WelcomeBack banner, the TUI last-task row) has something to read — before
+  // this, nothing wrote these rows and both were always null (blocker F7).
+  // The loop fires this for owner turns on every surface and filters out
+  // machine sessions and public-persona profiles itself.
+  // ponytail: the message text is the title; a model-generated label would
+  // cost a completion per turn.
+  agent.setUserTurnObserver((_sessionId, userText) => {
+    const now = Date.now();
+    touchLastActive(db.raw, now);
+    setCurrentTask(db.raw, {
+      title: userText.trim().slice(0, 80),
+      ts: now,
+      workspaceId: getActiveWorkspaceId(db.raw),
+    });
+  });
 
   // --- Heartbeat loop (P2-#1) ---
   // Periodic OutboundEvent so the Tauri shell knows the sidecar is
@@ -956,7 +1000,7 @@ export async function boot(transportOverride?: Transport) {
   const activityMonitor = new ActivityMonitor({ errorWindowMs: dreamCfg.errorWindowMs });
   const dreamTelemetryPath =
     process.env.FERAL_RSI_TELEMETRY ??
-    require("node:path").join(homedir(), ".feral", "rsi", "dream.jsonl");
+    join(FERAL_HOME, "rsi", "dream.jsonl");
   // Carries the in-flight episode's start time + trigger from the
   // scheduler's `start` callback to the run-end telemetry append.
   // Dream Cycle glue (telemetry + started/ended events + cooldown threading)

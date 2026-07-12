@@ -1,6 +1,6 @@
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
+import { feralHome } from "../config.ts";
 
 export interface GraphNode {
   id: string;
@@ -25,7 +25,7 @@ export interface MemoryGraphData {
   version: 1;
 }
 
-const DEFAULT_GRAPH_PATH = path.join(os.homedir(), ".feral", "memory-graph.json");
+const DEFAULT_GRAPH_PATH = path.join(feralHome(), "memory-graph.json");
 
 // ponytail: hand-rolled advisory file lock; cross-process via O_EXCL lockfile.
 // Single-machine only. For multi-machine coordination, swap to fs2 or sqlite.

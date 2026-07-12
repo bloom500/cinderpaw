@@ -58,6 +58,13 @@ export const isExtendedTool = (name: string): boolean =>
   EXTENDED_TOOLS.has(name) || name.startsWith("mcp_");
 export const isConnectorTool = (name: string): boolean => CONNECTOR_TOOLS.has(name);
 
-/** Advertised to the owner agent by default: not extended, not connector-only. */
+/**
+ * Advertised to the owner agent by default: not extended, not connector-only.
+ *
+ * Defined in terms of `isExtendedTool` — it used to test `EXTENDED_TOOLS` alone
+ * and so missed the `mcp_` prefix rule above, making the two predicates
+ * disagree: `list_tools` called an MCP tool "optional, load it with load_tool"
+ * while this said it was core. One rule, one answer.
+ */
 export const isCoreTool = (name: string): boolean =>
-  !EXTENDED_TOOLS.has(name) && !CONNECTOR_TOOLS.has(name);
+  !isExtendedTool(name) && !isConnectorTool(name);

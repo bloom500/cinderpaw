@@ -37,7 +37,7 @@ describe("recall tool", () => {
     const search: EpisodicSemanticSearch = async () => { throw new Error("no model"); };
     const res = await createRecallTool(search).execute({ query: "anything" });
     expect(res.ok).toBe(true);
-    expect(res.content).toMatch(/No past conversations matched/);
+    expect(res.content).toMatch(/Nothing in memory matched/);
   });
 
   it("rejects a missing query with bad_args", async () => {

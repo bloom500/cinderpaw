@@ -28,7 +28,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { feralHome } from "../../config.ts";
 import type { ChampionRecord } from "./champion.ts";
 import { regionKey } from "./escape-time.ts";
 import type { GenomeConfig } from "./genome.ts";
@@ -144,7 +144,7 @@ export class SpeciesChampions {
 
 /** Default on-disk location, sibling of `champion.json`. */
 export function defaultChampionTreePath(): string {
-  return join(homedir(), ".feral", "rsi", "champion-tree.json");
+  return join(feralHome(), "rsi", "champion-tree.json");
 }
 
 /** Persist the tree. Best-effort mkdir; throws only on a genuine write fault

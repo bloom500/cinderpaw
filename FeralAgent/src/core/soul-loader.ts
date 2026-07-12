@@ -17,10 +17,10 @@
  */
 
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { feralHome } from "../config.ts";
 // @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
 import bundledSoul from "../SOUL.md" with { type: "text" };
 // @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
@@ -67,14 +67,25 @@ export interface SoulPaths {
  * ("no user override at <path>"). The path points at a phantom location
  * because the binary does not contain a separate SOUL.md file.
  */
-export function resolveSoulPaths(homeDir: string = homedir()): SoulPaths {
+export function resolveSoulPaths(homeDir?: string): SoulPaths {
   // The bundled SOUL.md is embedded at build time; the resolved path is
   // for diagnostics only. Pointing at the source location is more honest
   // than pretending there's a file on disk.
   const here = dirname(fileURLToPath(import.meta.url));
   const bundled = join(here, "..", "SOUL.md");
-  const user = join(homeDir, ".feral", "SOUL.md");
+  const user = join(profileDir(homeDir), "SOUL.md");
   return { bundled, user };
+}
+
+/**
+ * The profile dir to read overrides from. `homeDir` stays the test-isolation
+ * seam (an OS home, `.feral` appended); omitting it — every production caller —
+ * goes through `feralHome()`, so FERAL_HOME is honored. It previously defaulted
+ * to `homedir()`, which is why an isolated profile still loaded the real user's
+ * SOUL.md and IDENTITY.md.
+ */
+function profileDir(homeDir?: string): string {
+  return homeDir === undefined ? feralHome() : join(homeDir, ".feral");
 }
 
 /**
@@ -88,14 +99,14 @@ export function resolveSoulPaths(homeDir: string = homedir()): SoulPaths {
  * file. Pure aside from the existsSync/readFileSync probes; any read error
  * falls back to the bundled copy so a corrupt override never bricks startup.
  */
-function loadCompanions(homeDir: string): string {
+function loadCompanions(homeDir?: string): string {
   const companions: Array<{ file: string; bundled: string }> = [
     { file: "IDENTITY.md", bundled: bundledIdentity as string },
     { file: "AGENTS.md", bundled: bundledAgents as string },
   ];
   const parts: string[] = [];
   for (const { file, bundled } of companions) {
-    const userPath = join(homeDir, ".feral", file);
+    const userPath = join(profileDir(homeDir), file);
     let content = bundled ?? "";
     if (existsSync(userPath)) {
       const userContent = safeRead(userPath);
@@ -113,7 +124,7 @@ function loadCompanions(homeDir: string): string {
  * binary should never ship without it). User-file read errors are caught
  * and logged so a corrupt override never bricks the agent.
  */
-export function loadSoul(homeDir: string = homedir()): SoulConfig {
+export function loadSoul(homeDir?: string): SoulConfig {
   const paths = resolveSoulPaths(homeDir);
   let content: string;
   let source: SoulSource;
@@ -190,7 +201,7 @@ function maybeWarnSize(source: SoulSource, tokens: number, paths: SoulPaths): vo
  * is using the bundled identity, which can only change on release).
  */
 export function watchSoul(
-  homeDir: string,
+  homeDir: string | undefined,
   onChange: (soul: SoulConfig) => void,
 ): () => void {
   const paths = resolveSoulPaths(homeDir);

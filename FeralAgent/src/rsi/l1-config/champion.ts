@@ -23,7 +23,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { feralHome } from "../../config.ts";
 import type { GenomeConfig } from "./genome.ts";
 import type { GenomeSpec } from "./population-manager.ts";
 
@@ -56,7 +56,7 @@ export interface ChampionRecord {
 /** Default on-disk location: `~/.feral/rsi/champion.json` (sibling of
  *  the git substrate; matches the taste miner's homedir-rooted layout). */
 export function defaultChampionPath(): string {
-  return join(homedir(), ".feral", "rsi", "champion.json");
+  return join(feralHome(), "rsi", "champion.json");
 }
 
 /** Persist the champion. Creates the parent dir if needed. */

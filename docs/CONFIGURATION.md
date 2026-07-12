@@ -101,6 +101,9 @@ they remain hand-maintained here and are still covered by
 | `FERAL_BASE_URL` | string | `"http://127.0.0.1:11435"` |  | Inference base URL the sidecar points at. |
 | `FERAL_API_KEY` | string | `null` |  | Bearer token for the primary provider. |
 | `FERAL_BYOK_PROVIDER` | string | `null` |  | Wizard-saved BYOK provider id; RSI's live-router model id falls back to this. |
+| `FERAL_LOCAL_BASE_URL` | string | `null` |  | Loopback address of the bundled local engine, set by the host. Used ONLY as the degrade-to-local fallback when the primary is a cloud provider; ignored when not loopback. |
+| `FERAL_LOCAL_MODEL` | string | `null` |  | Model id the bundled local engine serves (fallback target companion to FERAL_LOCAL_BASE_URL). |
+| `FERAL_LOCAL_API_KEY` | string | `null` | yes | Bearer token for the loopback local engine (the host's local API token). |
 | `FERAL_FALLBACK_PROVIDER` | string | `"ollama"` |  | Provider to fall back to if the primary is unreachable. |
 | `FERAL_FALLBACK_MODEL` | string | `null` |  | Model to fall back to. |
 | `FERAL_FALLBACK_BASE_URL` | string | `"http://localhost:11434"` |  | Base URL for the fallback provider. |
@@ -240,6 +243,9 @@ FERAL_HOME
 FERAL_HTTP_DOMAINS
 FERAL_INNER_THOUGHTS_ENABLED
 FERAL_JINA_API_KEY
+FERAL_LOCAL_API_KEY
+FERAL_LOCAL_BASE_URL
+FERAL_LOCAL_MODEL
 FERAL_LORA_TRAIN_TIMEOUT_MS
 FERAL_LORA_TRAINER_BIN
 FERAL_MAX_CONTEXT

@@ -23,7 +23,7 @@ import {
   existsSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { feralHome } from "../../config.ts";
 import type { PopulationSnapshot } from "./population-manager.ts";
 
 /** The on-disk format version this module reads/writes. A snapshot whose
@@ -34,7 +34,7 @@ const SNAPSHOT_VERSION = 1;
 /** Default on-disk location: `~/.feral/rsi/population.json` (sibling of
  *  champion.json + the git substrate). */
 export function defaultPopulationSnapshotPath(): string {
-  return join(homedir(), ".feral", "rsi", "population.json");
+  return join(feralHome(), "rsi", "population.json");
 }
 
 /**

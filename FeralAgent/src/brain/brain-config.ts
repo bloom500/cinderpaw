@@ -30,12 +30,11 @@
  */
 
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { BrainConfig } from "./brain-stack.ts";
 import type { Mode } from "./brain-stack.ts";
-import { cfgPath } from "../config.ts";
+import { feralHome } from "../config.ts";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "budget",
@@ -49,8 +48,7 @@ const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
  * discover the same path the loader would use.
  */
 export function defaultBrainPath(): string {
-  const feralHome = cfgPath("FERAL_HOME") ?? join(homedir(), ".feral");
-  return join(feralHome, "brain.json");
+  return join(feralHome(), "brain.json");
 }
 
 /** Options for {@link loadBrainConfig}. Tests pass `brainPath` to point

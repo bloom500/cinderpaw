@@ -136,6 +136,22 @@ export class ToolRegistry {
     };
   }
 
+  /**
+   * Bumped on every registration/unregistration. The tool set is NOT static
+   * for the process lifetime: MCP servers connect asynchronously and register
+   * their tools seconds after boot, and unregister on teardown. Anything that
+   * derives a cached view of the registry (schemas, grammar, system prompt)
+   * must compare this against the version it built from, or it will advertise
+   * a tool set that is missing every late arrival — which is exactly how MCP
+   * tools became discoverable-but-uncallable.
+   */
+  #version = 0;
+
+  /** @see #version */
+  get version(): number {
+    return this.#version;
+  }
+
   /** Register a tool after validating its manifest. Throws on bad manifests. */
   register(tool: Tool): void {
     validateManifest(tool.manifest);
@@ -143,6 +159,7 @@ export class ToolRegistry {
       throw new Error(`tool "${tool.manifest.name}" already registered`);
     }
     this.#tools.set(tool.manifest.name, tool);
+    this.#version++;
   }
 
   has(name: string): boolean {
@@ -152,7 +169,9 @@ export class ToolRegistry {
   /** Remove a dynamically-registered tool (MCP servers on teardown).
    *  Returns false if the name was not registered. */
   unregister(name: string): boolean {
-    return this.#tools.delete(name);
+    const removed = this.#tools.delete(name);
+    if (removed) this.#version++;
+    return removed;
   }
 
   /** All registered tools, for prompt construction. */

@@ -20,6 +20,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { feralHome } from "../config.ts";
 
 export interface UserConfig {
   /** The user's chosen display name. Empty when no onboarding has happened. */
@@ -43,9 +44,17 @@ const DEFAULT_AGENT_NAME = "Feral";
  * Load the user's onboarding record. Pure I/O — never throws. On any
  * failure (file missing, parse error, schema mismatch) returns a default
  * `UserConfig` so the agent can keep running.
+ *
+ * `homeDir` is the test-isolation seam (an OS home, `.feral` appended).
+ * Omitting it — every production caller — resolves through `feralHome()` so
+ * FERAL_HOME is honored; it used to read $HOME directly, which meant an
+ * isolated profile still picked up the real user's onboarding record.
  */
-export function loadUserConfig(homeDir: string = process.env.HOME ?? process.env.USERPROFILE ?? ""): UserConfig {
-  const path = join(homeDir, ONBOARDING_PATH);
+export function loadUserConfig(homeDir?: string): UserConfig {
+  const path =
+    homeDir === undefined
+      ? join(feralHome(), "onboarding.json")
+      : join(homeDir, ONBOARDING_PATH);
   if (!path || !existsSync(path)) {
     return { userName: "", agentName: DEFAULT_AGENT_NAME, hasOnboarded: false };
   }

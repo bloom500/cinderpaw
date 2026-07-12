@@ -24,8 +24,8 @@
  *   When the split lands, only this file changes.
  */
 
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { feralHome } from "../../config.ts";
 
 /** Default tenant id when none is supplied. Single-user installs never
  *  pass anything else. Multi-user installs (post-split) get a UUID. */
@@ -65,7 +65,7 @@ export interface InstancePaths {
 export function paths(tenant: string = DEFAULT_TENANT): InstancePaths {
   assertTenant(tenant);
   // v1: shared root. v2 would replace this with a per-tenant subdir.
-  const root = join(homedir(), ".feral", "rsi");
+  const root = join(feralHome(), "rsi");
   return {
     root,
     auditLog: join(root, "sandbox_bounds.audit.log"),

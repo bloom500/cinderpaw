@@ -13,9 +13,9 @@
  * exposes this machine's agent (and its full tools) — empty = nobody.
  */
 
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFile, writeFile, unlink } from "node:fs/promises";
+import { feralHome } from "../config.ts";
 import {
   Client,
   GatewayIntentBits,
@@ -595,7 +595,7 @@ export class WhatsAppConnector {
   }
 
   async #connect(): Promise<void> {
-    const authDir = join(homedir(), ".feral", "whatsapp-auth");
+    const authDir = join(feralHome(), "whatsapp-auth");
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const sock = makeWASocket({ auth: state });
     this.#sock = sock;
@@ -610,14 +610,14 @@ export class WhatsAppConnector {
           // Mirror the QR to a file so GUI surfaces (desktop Connectors page)
           // can render it — a GUI user has no terminal to scan from.
           void writeFile(
-            join(homedir(), ".feral", "whatsapp-qr.json"),
+            join(feralHome(), "whatsapp-qr.json"),
             JSON.stringify({ ts: Date.now(), qr, ascii }),
           ).catch(() => {});
         });
       }
       if (connection === "open") {
         this.#log("whatsapp connector online (linked)");
-        void unlink(join(homedir(), ".feral", "whatsapp-qr.json")).catch(() => {});
+        void unlink(join(feralHome(), "whatsapp-qr.json")).catch(() => {});
       }
       if (connection === "close") {
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
@@ -625,7 +625,7 @@ export class WhatsAppConnector {
         if (this.#stopped) return;
         if (loggedOut) {
           this.#log("whatsapp: logged out — toggle the connector off and on to re-link.");
-          void unlink(join(homedir(), ".feral", "whatsapp-qr.json")).catch(() => {});
+          void unlink(join(feralHome(), "whatsapp-qr.json")).catch(() => {});
         } else {
           this.#log("whatsapp: connection closed, reconnecting…");
           void this.#connect().catch((e) => this.#log(`whatsapp reconnect failed: ${String(e)}`));
@@ -649,7 +649,7 @@ export class WhatsAppConnector {
       // already closed
     }
     this.#sock = null;
-    void unlink(join(homedir(), ".feral", "whatsapp-qr.json")).catch(() => {});
+    void unlink(join(feralHome(), "whatsapp-qr.json")).catch(() => {});
   }
 
   async #onMessage(msg: WAMessage): Promise<void> {
@@ -755,7 +755,7 @@ export interface ConnectorRow {
 }
 
 export function configPath(): string {
-  return join(homedir(), ".feral", "connectors.json");
+  return join(feralHome(), "connectors.json");
 }
 
 const sig = (...parts: (string[] | string | undefined)[]): string =>

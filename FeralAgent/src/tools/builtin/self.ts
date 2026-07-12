@@ -32,8 +32,8 @@
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { feralHome } from "../../config.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 import type { ToolRegistry } from "../registry.ts";
 import type { InferenceRouter } from "../../egress/inference-router.ts";
@@ -93,14 +93,14 @@ function tailJsonl(path: string, n: number): unknown[] {
 
 // ── Path constants (single source of truth) ───────────────────────────────
 
-const RSI_ROOT = join(homedir(), ".feral", "rsi");
+const RSI_ROOT = join(feralHome(), "rsi");
 const P_CHAMPION = join(RSI_ROOT, "champion.json");
 const P_POPULATION = join(RSI_ROOT, "population.json");
 const P_DREAM = join(RSI_ROOT, "dream.jsonl");
 const P_LORA = join(RSI_ROOT, "lora-registry.json");
-const P_MEMORY_GRAPH = join(homedir(), ".feral", "memory-graph.json");
-const P_CONNECTORS = join(homedir(), ".feral", "connectors.json");
-const P_LEAF_STORE = join(homedir(), ".feral", "fractal-leaves.json");
+const P_MEMORY_GRAPH = join(feralHome(), "memory-graph.json");
+const P_CONNECTORS = join(feralHome(), "connectors.json");
+const P_LEAF_STORE = join(feralHome(), "fractal-leaves.json");
 
 // ── Subsystem deep-dive catalog ───────────────────────────────────────────
 //

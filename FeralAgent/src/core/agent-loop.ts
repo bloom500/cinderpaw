@@ -14,6 +14,7 @@
  */
 
 import type { InferenceRouter } from "../egress/inference-router.ts";
+import { isBackgroundSession } from "../egress/inference-router.ts";
 import {
   BudgetExhaustedError,
   InferenceError,
@@ -103,6 +104,27 @@ export interface AgentLoopConfig {
   sessionIdleEvictMs: number;
 }
 
+/**
+ * How many past episodic events a cold session replays into its fresh
+ * WorkingMemory (see `#memoryFor`). Bounded so a long-running session can't
+ * blow the context budget on rehydration alone — the compactor handles the
+ * rest, and `recall` reaches anything older on demand.
+ */
+const REHYDRATE_TURNS = 40;
+
+/**
+ * Whether a session's transcript should be replayed when it comes back cold.
+ *
+ * True for real conversations (desktop/TUI chat, connector surfaces). False for
+ * machine sessions, which reuse a stable synthetic sessionId across runs and are
+ * designed to start fresh: the RSI/dream/extractor family (`isBackgroundSession`)
+ * plus cron jobs, whose `cron:${jobId}` id is stable per job but whose runs are
+ * independent of each other.
+ */
+function isReplayableSession(sessionId: string): boolean {
+  return !isBackgroundSession(sessionId) && !sessionId.startsWith("cron:");
+}
+
 const DEFAULT_CONFIG: AgentLoopConfig = {
   // Raised from 4096 → 16384: Qwen3 and other thinking models (DeepSeek, QwQ)
   // consume a large share of the budget on chain-of-thought tokens before the
@@ -165,10 +187,6 @@ interface CompiledProfile {
   systemPrompt: string;
   /** Tools the model is allowed to call — enforced in the exec loop. */
   allowed: Set<string>;
-  /** Native Anthropic tool defs, filtered to `allowed`. */
-  nativeTools: AnthropicToolDef[];
-  /** OpenAI-compatible tool defs, filtered to `allowed`. */
-  openAITools: OpenAIToolDef[];
 }
 
 /** Options for {@link AgentLoop.registerProfile}. */
@@ -211,10 +229,13 @@ export class AgentLoop {
    */
   readonly #brain: BrainStack | null;
   readonly #config: AgentLoopConfig;
-  readonly #systemPrompt: string;
-  // Note: SOUL.md and USER configs are consumed by buildSystemPrompt() at
-  // construction; they are not retained as fields (re-add if per-turn
-  // system-prompt refresh ever lands).
+  /** Owner system prompt. Rebuilt by `#syncTools()` when the registry changes. */
+  #systemPrompt!: string;
+  // SOUL.md and USER are retained because the system prompt is no longer built
+  // once: a late tool registration (MCP) changes the "Available tools" block,
+  // so `#syncTools()` re-runs buildSystemPrompt with them.
+  readonly #soul: SoulConfig | null;
+  readonly #user: UserConfig | null;
   /** P0-4: optional hook registry. `agent_start` / `agent_end` /
    *  `before_prompt_build` / `before_compaction` events fire into it.
    *  Null in unit tests; in production index.ts wires the shared registry. */
@@ -298,22 +319,29 @@ export class AgentLoop {
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
    */
-  readonly #toolGrammar: string | null;
+  #toolGrammar: string | null = null;
   /**
-   * A3: Cached Anthropic native tool definitions. Built once at construction,
-   * same lifetime as `#toolGrammar`. Passed to every main-loop `router.complete()`
-   * call so `AnthropicProvider` can send them as the API `tools` field instead
-   * of relying on text-injected schema. Empty array = no tools registered.
+   * A3: Cached Anthropic native tool definitions, passed to every main-loop
+   * `router.complete()` call so `AnthropicProvider` can send them as the API
+   * `tools` field instead of relying on text-injected schema.
    */
-  readonly #nativeTools: AnthropicToolDef[];
+  #nativeTools: AnthropicToolDef[] = [];
   /**
-   * A3 regression fix: Cached OpenAI-compatible native tool definitions. Built
-   * once at construction alongside `#nativeTools`. Passed to every main-loop
-   * `router.complete()` call so `OpenAICompatibleProvider` and `OllamaProvider`
-   * can send them as the API `tools` field instead of relying on the
-   * text-injected schema in the system prompt.
+   * A3 regression fix: cached OpenAI-compatible native tool definitions, so
+   * `OpenAICompatibleProvider` / `OllamaProvider` send real `tools` instead of
+   * the text-injected schema.
    */
-  readonly #openAITools: OpenAIToolDef[];
+  #openAITools: OpenAIToolDef[] = [];
+  /**
+   * The `registry.version` the four cached views above were built from. -1 =
+   * never built. These used to be built once in the constructor on the premise
+   * that "tool registration is complete before the loop runs" — false: boot
+   * fires `mcpManager.connectAll()` without awaiting it, so MCP tools land in
+   * the registry AFTER the AgentLoop exists. They were therefore never in the
+   * advertised schemas, and `load_tool` could mark one "enabled" while the
+   * model had no function to call. Rebuild whenever the registry moves.
+   */
+  #toolsVersion = -1;
   /**
    * Connector-surface operating profiles, keyed by profile id. Empty by
    * default (every session is the full-trust owner). A profile carries its
@@ -336,6 +364,19 @@ export class AgentLoop {
    * registered in the constructor.
    */
   readonly #loadedTools = new Map<string, Set<string>>();
+
+  /**
+   * Called with the cleaned text of each owner user turn. Set by boot to
+   * persist Memory Resume state (`current_task` / `last_active_at`), which the
+   * WelcomeBack banner and the TUI last-task row read back. Optional — the loop
+   * works without it, and tests leave it unset.
+   */
+  #onUserTurn: ((sessionId: string, userText: string) => void) | null = null;
+
+  /** @see #onUserTurn */
+  setUserTurnObserver(fn: (sessionId: string, userText: string) => void): void {
+    this.#onUserTurn = fn;
+  }
 
   constructor(
     router: InferenceRouter,
@@ -371,18 +412,12 @@ export class AgentLoop {
     const [listTools, loadTool] = createToolDrawerTools(registry, this.#loadedTools);
     registry.register(listTools);
     registry.register(loadTool);
-    this.#systemPrompt = buildSystemPrompt(registry, soul, user);
-    // Build the tool-call grammar once. Tool registration is complete before
-    // the loop runs, so the tool-name set is stable for the process lifetime.
-    const toolNames = registry.list().map((t) => t.manifest.name);
-    this.#toolGrammar =
-      this.#config.useToolGrammar && toolNames.length > 0
-        ? buildToolCallGrammar(toolNames)
-        : null;
-    // A3: build native Anthropic tool definitions from the same registry snapshot.
-    this.#nativeTools = buildNativeTools(registry);
-    // A3 regression fix: build OpenAI-compatible tool definitions from the same snapshot.
-    this.#openAITools = buildOpenAITools(registry);
+    this.#soul = soul;
+    this.#user = user;
+    // Prompt, grammar and both schema arrays are derived from the registry and
+    // rebuilt on demand — see #syncTools. Called once here so #systemPrompt is
+    // populated for any caller that reads it before the first turn.
+    this.#syncTools();
 
     // P1-#1: wire the router's soft-warning listener to the agent loop's
     // default emit sink. The loop's per-handle `emit` is the only sink
@@ -410,13 +445,13 @@ export class AgentLoop {
    * {@link setSessionProfile}. Idempotent — re-registering an id overwrites it.
    */
   registerProfile(id: string, opts: ProfileOptions): void {
-    const allowed = new Set(opts.allowedTools);
-    const keep = (name: string) => allowed.has(name);
+    // Only the allow-list is stored. The filtered schema arrays used to be
+    // compiled here, which froze them at registration time — a profile
+    // registered before the MCP servers connected could never see their tools
+    // even when its allow-list named them. #complete filters the live arrays.
     this.#profiles.set(id, {
       systemPrompt: opts.systemPrompt,
-      allowed,
-      nativeTools: this.#nativeTools.filter((t) => keep(t.name)),
-      openAITools: this.#openAITools.filter((t) => keep(t.function.name)),
+      allowed: new Set(opts.allowedTools),
     });
   }
 
@@ -435,6 +470,35 @@ export class AgentLoop {
   /** Clear a session's profile binding (reverts to the owner profile). */
   clearSessionProfile(sessionId: string): void {
     this.#sessionProfile.delete(sessionId);
+  }
+
+  /**
+   * Rebuild every view derived from the tool registry — system prompt, tool-call
+   * grammar, and the two native-schema arrays — if the registry has changed
+   * since they were last built.
+   *
+   * The registry is NOT static: `boot` starts the MCP servers with a
+   * fire-and-forget `connectAll()`, so their tools register seconds after the
+   * AgentLoop is constructed. Building these once in the constructor meant MCP
+   * tools were listed by `list_tools` (which reads the registry live) and
+   * accepted by `load_tool`, yet never appeared in the schemas sent to the
+   * model — "enabled" but with no function to call.
+   *
+   * Cheap: an integer compare on every turn, a rebuild only when a tool was
+   * actually added or removed (boot, MCP connect/teardown — a handful of times
+   * per process, never in steady state).
+   */
+  #syncTools(): void {
+    if (this.#registry.version === this.#toolsVersion) return;
+    this.#systemPrompt = buildSystemPrompt(this.#registry, this.#soul, this.#user);
+    const toolNames = this.#registry.list().map((t) => t.manifest.name);
+    this.#toolGrammar =
+      this.#config.useToolGrammar && toolNames.length > 0
+        ? buildToolCallGrammar(toolNames)
+        : null;
+    this.#nativeTools = buildNativeTools(this.#registry);
+    this.#openAITools = buildOpenAITools(this.#registry);
+    this.#toolsVersion = this.#registry.version;
   }
 
   /**
@@ -647,6 +711,16 @@ export class AgentLoop {
     const { text: userTextClean } = stripPrivate(userText);
 
     memory.addUser(userText, images);
+    // Memory Resume: this user turn IS the current task. Fired here, at the one
+    // seam every surface goes through (desktop/TUI dispatch, WhatsApp, Discord),
+    // rather than in dispatch.ts — a connector conversation is still the user
+    // working, and resume data that ignores it goes stale the moment they pick
+    // up their phone. Machine sessions (cron/RSI/dream) and public-persona
+    // profiles are excluded: neither is the owner, and a customer's WhatsApp
+    // message must never become the owner's "current task".
+    if (isReplayableSession(sessionId) && !this.#profileFor(sessionId)) {
+      this.#onUserTurn?.(sessionId, userTextClean);
+    }
     const userWriteTs = Date.now();
     const userLeafId = this.#episodic.record(sessionId, "user", userTextClean);
     if (userLeafId !== null) {
@@ -1108,6 +1182,9 @@ export class AgentLoop {
     messageId?: string,
     traceId?: string,
   ): Promise<{ content: string; finishReason?: string; promptTokens: number; completionTokens: number }> {
+    // Pick up any tools registered since the last turn (MCP servers finish
+    // connecting after boot) before deriving this turn's schemas from them.
+    this.#syncTools();
     // Grammar-constrained tool calls (opt-in). Applied only to the main agent
     // loop — the summarizer and memory extractor have their own router calls
     // and must stay unconstrained.
@@ -1130,9 +1207,14 @@ export class AgentLoop {
     // is the token-economy lever: ~28 schemas (~5-8K tokens) every turn drops
     // to the core set (~2-3K). Profiled sessions keep their explicit list.
     const loaded = this.#loadedTools.get(sessionId);
-    const advertise = (name: string): boolean => isCoreTool(name) || !!loaded?.has(name);
-    const nativeTools = profile?.nativeTools ?? this.#nativeTools.filter((t) => advertise(t.name));
-    const openAITools = profile?.openAITools ?? this.#openAITools.filter((t) => advertise(t.function.name));
+    // A profiled session advertises exactly its allow-list; the owner sees the
+    // core set plus whatever the drawer pulled in. Both filter the LIVE arrays
+    // (see #syncTools), so a tool that registered after boot — every MCP tool —
+    // is reachable instead of being permanently invisible.
+    const advertise = (name: string): boolean =>
+      profile ? profile.allowed.has(name) : isCoreTool(name) || !!loaded?.has(name);
+    const nativeTools = this.#nativeTools.filter((t) => advertise(t.name));
+    const openAITools = this.#openAITools.filter((t) => advertise(t.function.name));
 
     // Surfaces compaction as a visible synthetic tool call (tool_start/
     // tool_done on the existing event stream) instead of silent dead air —
@@ -1364,10 +1446,29 @@ export class AgentLoop {
       // system prompt; the owner default uses the full prompt. Resolved at
       // creation only — the prompt is the static, cache-friendly prefix.
       const profile = this.#profileFor(sessionId);
-      entry = {
-        memory: new WorkingMemory(profile?.systemPrompt ?? this.#systemPrompt),
-        lastAccess: Date.now(),
-      };
+      // Refresh first: a session created before the MCP servers finished
+      // connecting would otherwise be pinned for its whole life to a system
+      // prompt whose "Available tools" block predates them.
+      this.#syncTools();
+      const memory = new WorkingMemory(profile?.systemPrompt ?? this.#systemPrompt);
+      // Re-hydrate the transcript from episodic memory. Without this a
+      // session that was evicted (idle/LRU) or lost to a restart came back
+      // amnesiac even though every turn is already on disk — "close Feral,
+      // reopen, continue where you left off" never worked.
+      //
+      // Only CONVERSATIONS rehydrate. A machine session (cron job, RSI eval,
+      // dream) reuses a stable synthetic sessionId across runs and is meant to
+      // start clean every time; replaying the previous run's transcript into it
+      // would burn tokens and steer the task with stale context.
+      // `episodic.conversation()` handles which ROWS are replayable (no tool
+      // rows, no extractor notes) — see its docstring.
+      if (isReplayableSession(sessionId)) {
+        for (const ev of this.#episodic.conversation(sessionId, REHYDRATE_TURNS)) {
+          if (ev.role === "user") memory.addUser(ev.content);
+          else memory.addAssistant(ev.content);
+        }
+      }
+      entry = { memory, lastAccess: Date.now() };
       this.#sessions.set(sessionId, entry);
     } else {
       // Touch: delete + re-insert moves the entry to the tail of the

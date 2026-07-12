@@ -17,6 +17,9 @@
 // scripts/gen-config-docs.mjs — do not hand-edit the table between the
 // <!-- TS-SCHEMA-TABLE --> markers.
 
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+
 export interface ConfigEntry {
   name: string;
   type: "bool" | "int" | "path" | "list" | "string";
@@ -67,6 +70,12 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Bearer token for the primary provider.", security: false },
   { name: "FERAL_BYOK_PROVIDER", type: "string", default: null,
     description: "Wizard-saved BYOK provider id; RSI's live-router model id falls back to this.", security: false },
+  { name: "FERAL_LOCAL_BASE_URL", type: "string", default: null,
+    description: "Loopback address of the bundled local engine, set by the host. Used ONLY as the degrade-to-local fallback when the primary is a cloud provider; ignored when not loopback.", security: false },
+  { name: "FERAL_LOCAL_MODEL", type: "string", default: null,
+    description: "Model id the bundled local engine serves (fallback target companion to FERAL_LOCAL_BASE_URL).", security: false },
+  { name: "FERAL_LOCAL_API_KEY", type: "string", default: null,
+    description: "Bearer token for the loopback local engine (the host's local API token).", security: true },
   { name: "FERAL_FALLBACK_PROVIDER", type: "string", default: "ollama",
     description: "Provider to fall back to if the primary is unreachable.", security: false },
   { name: "FERAL_FALLBACK_MODEL", type: "string", default: null,
@@ -267,4 +276,15 @@ export function cfgList(name: string): string[] {
   const raw = process.env[name];
   if (raw === undefined) return entry.default ? [entry.default as string] : [];
   return raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * The agent's profile dir. FERAL_HOME was documented in the schema above but
+ * never honored — three call sites (boot, connectors, self_describe) resolved
+ * `~/.feral` from homedir() directly, so an isolated profile still read the
+ * real one's connectors and secrets. Single resolver; import it instead of
+ * re-deriving the path.
+ */
+export function feralHome(): string {
+  return resolve(cfgPath("FERAL_HOME") ?? join(homedir(), ".feral"));
 }

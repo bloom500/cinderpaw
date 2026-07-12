@@ -18,7 +18,7 @@
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { cfgList, cfgPath } from "../config.ts";
+import { cfgList, feralHome } from "../config.ts";
 
 /**
  * Canonicalize a path even when it does not exist yet: realpath the deepest
@@ -219,15 +219,13 @@ function modePermits(
  * do NOT route through resolveAllowedPath — they own their fixed path.
  */
 function deniedPaths(): { deny: string[]; exempt: string[] } {
-  const feralHome = realpathBestEffort(
-    cfgPath("FERAL_HOME") ?? resolve(homedir(), ".feral"),
-  );
+  const home = realpathBestEffort(feralHome());
   const deny = [
-    feralHome,
+    home,
     realpathBestEffort(resolve(homedir(), ".ssh")),
     ...cfgList("FERAL_FS_DENY").map((p) => realpathBestEffort(p)),
   ];
-  return { deny, exempt: [join(feralHome, "workspace")] };
+  return { deny, exempt: [join(home, "workspace")] };
 }
 
 /**

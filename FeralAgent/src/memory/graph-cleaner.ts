@@ -1,11 +1,11 @@
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
 import type { MemoryGraphData } from "./graph.ts";
+import { feralHome } from "../config.ts";
 
 const STALE_MS = 30 * 24 * 60 * 60 * 1000;
 const ORPHAN_CUTOFF_MS = 7 * 24 * 60 * 60 * 1000;
-const GRAPH_PATH = path.join(os.homedir(), ".feral", "memory-graph.json");
+const GRAPH_PATH = path.join(feralHome(), "memory-graph.json");
 
 // Module-level mutex: prevents concurrent clean() runs from racing with
 // MemoryGraph.persist() on the same file. A single boolean is sufficient
