@@ -18,6 +18,22 @@
  *   self_health      — subsystem availability diagnostic
  *   self_subsystem   — deep dive on a specific subsystem by name
  *
+ * The RSI ladder is L1..L6 — there is no L0 (`Tier 0` is the frozen eval
+ * floor, a different axis entirely; see `infra/tier-loader.ts`):
+ *
+ *   L1 config     — genome evolution over agent params   (self_genome, self_dreams)
+ *   L2 adapt      — personal LoRA adapters               (self_lora)
+ *   L3 code       — code-RSI: the agent patches itself   (self_health, self_subsystem)
+ *   L4 modules    — architecture evolution at the seams  (self_health, self_subsystem)
+ *   L5 governance — the policy every promotion answers to (self_health, self_subsystem)
+ *   L6 meta       — evolving the knobs L1 evolves under  (self_health, self_subsystem)
+ *
+ * Every rung is surfaced through the same three tools: `self_status` for the
+ * heartbeat, `self_health` for "is it there?", `self_subsystem` for "how does
+ * it work?". Nothing in the substrate may be invisible to the agent — an agent
+ * that cannot see a subsystem cannot reason about it, report it, or debug it.
+ * A new layer is not done until it has a row here.
+ *
  * Mirror of the user's framing: "treat Feral's substrate like an operating
  * system; the agent doesn't need to memorise the capabilities — it just
  * needs to know it can ask the runtime". Each tool is small, focused, and
@@ -98,6 +114,12 @@ const P_CHAMPION = join(RSI_ROOT, "champion.json");
 const P_POPULATION = join(RSI_ROOT, "population.json");
 const P_DREAM = join(RSI_ROOT, "dream.jsonl");
 const P_LORA = join(RSI_ROOT, "lora-registry.json");
+const P_PENDING_PATCHES = join(RSI_ROOT, "pending-patches.json");
+const P_MODULE_REGISTRY = join(RSI_ROOT, "modules", "registry.json");
+const P_MODULE_HISTORY = join(RSI_ROOT, "modules", "registry_history.jsonl");
+const P_POLICY = join(RSI_ROOT, "governance", "policy.json");
+const P_META = join(RSI_ROOT, "meta_genome.json");
+const P_META_HISTORY = join(RSI_ROOT, "meta_history.jsonl");
 const P_MEMORY_GRAPH = join(feralHome(), "memory-graph.json");
 const P_CONNECTORS = join(feralHome(), "connectors.json");
 const P_LEAF_STORE = join(feralHome(), "fractal-leaves.json");
@@ -340,12 +362,131 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "Git substrate is the ratchet bar — main only ratchets upward.",
     ],
     promotion:
-      "Per-subsystem — see BRSI / LoRA / Genomes / Dreaming above.",
+      "Per-layer. The ladder is L1 config (`brsi`/`genomes`) → L2 adapters " +
+      "(`lora`) → L3 code (`code`) → L4 architecture (`modules`) → L5 policy " +
+      "(`governance`) → L6 meta (`meta`). There is no L0: `Tier 0` is the " +
+      "frozen eval floor every layer's promotion must clear, not a rung. " +
+      "Every layer answers to the L5 policy for its gate thresholds.",
     rollback:
       "Snapshot-based. `PopulationSnapshot.restore()` brings a fresh " +
       "manager exactly to a prior state; the git substrate's reflog " +
       "is the final safety net.",
-    inspect: ["self_describe", "self_genome", "self_dreams", "self_lora"],
+    inspect: ["self_describe", "self_health", "self_subsystem"],
+  },
+  code: {
+    purpose:
+      "L3 — code-RSI. The agent proposes unified diffs against its OWN source " +
+      "tree, evaluates them, and (only through an approval gate) lands them. " +
+      "This is the layer where Feral rewrites its own code rather than just " +
+      "its config (L1) or its weights (L2).",
+    inputs: [
+      "Code leaves + a proposer prompt (the candidate diff).",
+      "The TS wall (parse + policy): what a patch is allowed to touch.",
+      "Tier 0 / contract FSM results from the sandboxed run.",
+    ],
+    outputs: [
+      "`~/.feral/rsi/pending-patches.json` — every candidate diff and its status (pending → approved/rejected → applied/apply_failed/reverted).",
+      "Substrate commits for candidates that won the ratchet.",
+    ],
+    safety: [
+      "A winning patch is NOT applied to live source — it lands as a pending patch and crosses over only via `applyPatchLive`.",
+      "The first 10 applied patches REQUIRE an explicit human approval; auto-approve unlocks only after that.",
+      "The TS wall is re-checked at apply time, not just at proposal — a wall tightened in between still bites.",
+      "The running sidecar is a compiled binary: an applied patch becomes the running agent only at the next rebuild + restart. The process never mutates itself.",
+      "`pending-patches.ts` is on both patch denylists — the gate cannot patch the gate.",
+    ],
+    promotion:
+      "Ratchet on the Rust composite score, then the human approval gate, then " +
+      "a fresh wall re-check at apply.",
+    rollback:
+      "`revertPatchLive` — `git apply -R` of the exact same patch text.",
+    inspect: ["self_describe", "self_health", "self_status"],
+  },
+  modules: {
+    purpose:
+      "L4 — architecture evolution. The runtime exposes a fixed catalog of " +
+      "`seams` (swappable interfaces: retrieval, planning, ...). A module is " +
+      "a candidate implementation of ONE seam, written by a dream episode or " +
+      "an operator, that can be promoted to serve that seam live. Every seam " +
+      "always has a builtin fallback, so a module is additive, never load-bearing.",
+    inputs: [
+      "Candidate module dirs (`~/.feral/rsi/modules/<id>/` — manifest.json + a single .ts entry).",
+      "The seam catalog (compiled in; a module targeting an unknown seam is rejected).",
+      "L5 gate thresholds — a module promotes only if it beats the builtin by the policy's margin.",
+    ],
+    outputs: [
+      "`modules/registry.json` — which impl serves each seam (`builtin` or a module id).",
+      "`modules/registry_history.jsonl` — every lifecycle transition and active-repoint.",
+    ],
+    safety: [
+      "Modules run in a separate module-host process with a timeout + RSS cap (the module wall).",
+      "v1 manifests MUST declare zero permissions and zero deps — no fs, no net, no env.",
+      "A module that crashes, times out, or exceeds its RSS cap is QUARANTINED and the seam falls back to builtin within the same call.",
+      "The capability claims in a manifest are a human hint on the approval card and are NEVER machine-read — routing and promotion ignore them entirely (the two-channel rule).",
+    ],
+    promotion:
+      "Paired eval against the builtin on the same tasks; must clear the L5 " +
+      "gates (confidence + margin) before the registry repoints the seam.",
+    rollback:
+      "Repoint the seam's `active` back to `builtin` — one registry write. " +
+      "Quarantine does this automatically on a wall breach.",
+    inspect: ["self_describe", "self_health", "self_status"],
+  },
+  governance: {
+    purpose:
+      "L5 — the policy that governs every promotion in the system (L1 configs, " +
+      "L2 LoRAs, L4 modules, L6 meta-genomes). It is the single place where " +
+      "'how strict is the bar?' is answered. Feral evolves the policy too, but " +
+      "only in the tightening direction without a human.",
+    inputs: [
+      "The genesis policy (bootstrapped on first boot).",
+      "Policy proposals from dream episodes.",
+      "Operator approval records (required for any loosening).",
+    ],
+    outputs: [
+      "`governance/policy.json` — the active policy: gates, budgets, frozen flags, approvals.",
+      "`governance/policy_history.jsonl` — hash-chained; the history is the authority, not the file.",
+    ],
+    safety: [
+      "FAIL-CLOSED: a missing, unparseable, or unsigned policy means NOTHING may promote — it does not fall back to permissive defaults.",
+      "A corrupt policy is moved aside as `policy.json.quarantine-<ts>`, never silently repaired.",
+      "Tightening auto-adopts; loosening requires a human approval record.",
+      "G0 walls are hardcoded ceilings a policy cannot exceed no matter what it claims.",
+      "Frozen flags mark gates the policy may never touch.",
+    ],
+    promotion:
+      "History row is appended FIRST, then policy.json is written temp+rename — " +
+      "a crash mid-activation is recoverable because history is the authority.",
+    rollback:
+      "Rewrite policy.json from the last activated history row (done automatically " +
+      "on boot if the two diverge).",
+    inspect: ["self_describe", "self_health", "self_status"],
+  },
+  meta: {
+    purpose:
+      "L6 — meta-evolution. Evolves the knobs that L1 evolution ITSELF runs " +
+      "under (mutation rate, exploration, confidence gate, dream batch size, " +
+      "selection pressure), scored on journal-derived fitness across an epoch. " +
+      "This is Feral tuning its own learning process.",
+    inputs: [
+      "The evolution journal over the epoch window (hash-verified; a corrupt day is excluded, not trusted).",
+      "The L5 policy — bounds the meta-genome's legal range.",
+    ],
+    outputs: [
+      "`rsi/meta_genome.json` — the live meta-genome + generation + baseline.",
+      "`rsi/meta_history.jsonl` — every generation, mirrored into the L5 chained audit log.",
+    ],
+    safety: [
+      "META_BOUNDS clamps every knob; the confidence gate is TIGHTEN-ONLY (it can never be relaxed below the locked strict gate).",
+      "Epoch ratchet: a new meta-genome deploys only if it beats the baseline over a full epoch.",
+      "Journal rows that fail hash verification are excluded from the fitness window.",
+    ],
+    promotion:
+      "Epoch ratchet on journal-derived fitness vs. the recorded baseline.",
+    rollback:
+      "Revert to the previous generation's genome from meta_history.jsonl; a " +
+      "missing/corrupt state file recovers to neutral defaults (every ratio = 1.0).",
+    inspect: ["self_describe", "self_health", "self_status"],
   },
 };
 
@@ -581,9 +722,149 @@ function shapeMemory(paths: ShapePaths = {}): MemoryShape {
   };
 }
 
+/** L3 — code-RSI: patches the agent proposed for its own source, and where
+ *  each one sits in the approval gate. */
+function shapeCode(): {
+  patches: Record<string, number>;
+  total: number;
+  pending_approval: number;
+  applied: number;
+  store_path: string;
+} {
+  const store = readJsonSync(P_PENDING_PATCHES) as { patches?: { status?: string }[] } | null;
+  const rows = Array.isArray(store?.patches) ? store.patches : [];
+  const byStatus: Record<string, number> = {};
+  for (const p of rows) {
+    const s = typeof p?.status === "string" ? p.status : "unknown";
+    byStatus[s] = (byStatus[s] ?? 0) + 1;
+  }
+  return {
+    patches: byStatus,
+    total: rows.length,
+    pending_approval: byStatus.pending ?? 0,
+    applied: byStatus.applied ?? 0,
+    store_path: P_PENDING_PATCHES,
+  };
+}
+
+/** L4 — module registry: which seams are served by a promoted module vs the
+ *  builtin, and how many candidates are queued behind each. */
+function shapeModules(): {
+  seams: { seam: string; active: string; is_builtin: boolean; candidates: number }[];
+  promoted: number;
+  quarantined: string[];
+  registry_path: string;
+} {
+  const reg = readJsonSync(P_MODULE_REGISTRY) as
+    | { seams?: Record<string, { active?: string; candidates?: string[] }> }
+    | null;
+  const seams = Object.entries(reg?.seams ?? {}).map(([seam, e]) => {
+    const active = typeof e?.active === "string" ? e.active : "builtin";
+    return {
+      seam,
+      active,
+      is_builtin: active === "builtin",
+      candidates: Array.isArray(e?.candidates) ? e.candidates.length : 0,
+    };
+  });
+  // Quarantines are lifecycle rows in the history; the last state per module wins.
+  const state = new Map<string, string>();
+  for (const row of tailJsonl(P_MODULE_HISTORY, 500) as { moduleId?: string; to?: string }[]) {
+    if (typeof row?.moduleId === "string" && typeof row.to === "string") state.set(row.moduleId, row.to);
+  }
+  return {
+    seams,
+    promoted: seams.filter((s) => !s.is_builtin).length,
+    quarantined: [...state].filter(([, s]) => s === "quarantined").map(([id]) => id),
+    registry_path: P_MODULE_REGISTRY,
+  };
+}
+
+/** L5 — the active governance policy. Gates/budgets only; the approval record
+ *  can carry operator identity, so it is reduced to a boolean. */
+function shapeGovernance(): {
+  active: boolean;
+  policy_id: string | null;
+  parent_id: string | null;
+  activated_at: number | null;
+  auto_adopted: boolean | null;
+  gates: unknown;
+  budgets: unknown;
+  frozen: unknown;
+  policy_path: string;
+} {
+  const p = readJsonSync(P_POLICY) as Record<string, unknown> | null;
+  return {
+    active: p !== null,
+    policy_id: typeof p?.policyId === "string" ? p.policyId : null,
+    parent_id: typeof p?.parentId === "string" ? p.parentId : null,
+    activated_at: typeof p?.activatedAt === "number" ? p.activatedAt : null,
+    auto_adopted: p ? p.approval === null : null,
+    gates: p?.gates ?? null,
+    budgets: p?.budgets ?? null,
+    frozen: p?.frozen ?? null,
+    policy_path: P_POLICY,
+  };
+}
+
+/** L6 — the live meta-genome: the knobs L1 evolution itself runs under. */
+function shapeMeta(): {
+  active: boolean;
+  generation: number | null;
+  genome: unknown;
+  deployed_at: number | null;
+  baseline: unknown;
+  generations_logged: number;
+  state_path: string;
+} {
+  const s = readJsonSync(P_META) as Record<string, unknown> | null;
+  return {
+    active: s !== null,
+    generation: typeof s?.generation === "number" ? s.generation : null,
+    genome: s?.genome ?? null,
+    deployed_at: typeof s?.deployedAt === "number" ? s.deployedAt : null,
+    baseline: s?.baseline ?? null,
+    generations_logged: tailJsonl(P_META_HISTORY, 10_000).length,
+    state_path: P_META,
+  };
+}
+
 interface SubsystemHealth {
   available: boolean;
   detail?: string;
+}
+
+function healthCode(): SubsystemHealth {
+  const c = shapeCode();
+  if (c.total === 0) return { available: false, detail: "no code patches proposed yet" };
+  return {
+    available: true,
+    detail: `${c.total} patch(es): ${c.pending_approval} awaiting approval, ${c.applied} applied`,
+  };
+}
+
+function healthModules(): SubsystemHealth {
+  const m = shapeModules();
+  if (m.seams.length === 0) return { available: false, detail: "no module registry yet — every seam runs its builtin" };
+  const q = m.quarantined.length ? `, ${m.quarantined.length} quarantined` : "";
+  return {
+    available: true,
+    detail: `${m.seams.length} seam(s), ${m.promoted} served by a promoted module${q}`,
+  };
+}
+
+function healthGovernance(): SubsystemHealth {
+  const g = shapeGovernance();
+  return g.active
+    ? { available: true, detail: `policy ${g.policy_id} active${g.auto_adopted ? " (auto-adopted)" : " (operator-approved)"}` }
+    : { available: false, detail: "no policy.json — governance is FAIL-CLOSED (nothing may promote)" };
+}
+
+function healthMeta(): SubsystemHealth {
+  const m = shapeMeta();
+  return m.active
+    ? { available: true, detail: `generation ${m.generation}, ${m.generations_logged} logged` }
+    : { available: false, detail: "no meta-genome yet — L1 runs on neutral defaults" };
 }
 
 function healthConnectors(paths: ShapePaths = {}): SubsystemHealth {
@@ -671,6 +952,10 @@ function makeSelfDescribe(ctx: SelfContext): Tool {
         },
         lora: shapeLora(),
         dreaming: shapeDreams(5),
+        code: shapeCode(),
+        modules: shapeModules(),
+        governance: shapeGovernance(),
+        meta: shapeMeta(),
         subsystems,
         tools,
         brain_stack_enabled: ctx.brainStackEnabled,
@@ -718,6 +1003,22 @@ function makeSelfStatus(ctx: SelfContext): Tool {
       const l = shapeLora();
       lines.push(
         `lora        : ${l.total} adapter(s)${l.active_path ? `; active ${l.active_path}` : ""}`,
+      );
+      const code = shapeCode();
+      lines.push(
+        `code        : ${code.total} patch(es), ${code.pending_approval} awaiting approval, ${code.applied} applied`,
+      );
+      const mods = shapeModules();
+      lines.push(
+        `modules     : ${mods.seams.length} seam(s), ${mods.promoted} promoted${mods.quarantined.length ? `, ${mods.quarantined.length} quarantined` : ""}`,
+      );
+      const gov = shapeGovernance();
+      lines.push(
+        `governance  : ${gov.active ? `policy ${gov.policy_id}` : "no policy — FAIL-CLOSED"}`,
+      );
+      const meta = shapeMeta();
+      lines.push(
+        `meta        : ${meta.active ? `generation ${meta.generation}` : "neutral defaults (no meta-genome yet)"}`,
       );
       const conns = shapeConnectors();
       lines.push(
@@ -970,6 +1271,10 @@ function makeSelfHealth(ctx: SelfContext): Tool {
         population: healthPopulation(),
         dreams: healthDreams(),
         lora: healthLora(),
+        code: healthCode(),
+        modules: healthModules(),
+        governance: healthGovernance(),
+        meta: healthMeta(),
         connectors: healthConnectors(),
         connectors_manager: healthConnectorsMgr(ctx),
         memory: {
