@@ -21,6 +21,15 @@
  * Env overrides:
  *     FERAL_SKIP_SIDECAR_BUILD=1   Skip the build entirely (CI cache step, etc.)
  *     FERAL_FORCE_SIDECAR_BUILD=1  Always rebuild, even if dist binary is newer
+ *     FERAL_SIDECAR_TARGET=<rust-triple>
+ *         Build the sidecar FOR that target instead of for this machine.
+ *         Needed by the macOS Intel release build, which cross-compiles
+ *         x86_64 from an Apple Silicon runner because GitHub no longer
+ *         provisions Intel macOS runners. Without it the sidecar would be
+ *         named for the host triple (so Tauri's externalBin lookup misses it)
+ *         AND be the host's architecture (so it could not run on the machine
+ *         the app is built for). Bun cross-compiles standalone binaries, so
+ *         both halves are fixable; we just have to ask it to.
  */
 
 import { existsSync, mkdirSync, statSync, copyFileSync, chmodSync, readdirSync } from "node:fs";
@@ -38,30 +47,51 @@ const FERAL_AGENT_DIR = join(REPO_ROOT, "FeralAgent");
 const DIST_DIR = join(FERAL_AGENT_DIR, "dist");
 const BINARIES_DIR = join(TAURI_DIR, "binaries");
 
-/** Map (platform, arch) → externalBin suffix used by Tauri. */
-function targetTriple() {
+/** Map (platform, arch) → the Rust target triple of THIS machine. */
+function hostTriple() {
   const platform = process.platform;
   const arch = process.arch;
   if (platform === "win32") {
-    return "x86_64-pc-windows-msvc.exe";
-  }
-  if (platform === "darwin" && arch === "arm64") {
-    return "aarch64-apple-darwin";
+    return "x86_64-pc-windows-msvc";
   }
   if (platform === "darwin") {
-    return "x86_64-apple-darwin";
+    return arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
   }
-  if (arch === "arm64") {
-    return "aarch64-unknown-linux-gnu";
-  }
-  return "x86_64-unknown-linux-gnu";
+  return arch === "arm64"
+    ? "aarch64-unknown-linux-gnu"
+    : "x86_64-unknown-linux-gnu";
 }
 
-const suffix = targetTriple();
+/** Rust target triple → the `bun build --compile --target` name. */
+function bunTargetFor(triple) {
+  const map = {
+    "x86_64-pc-windows-msvc": "bun-windows-x64",
+    "x86_64-apple-darwin": "bun-darwin-x64",
+    "aarch64-apple-darwin": "bun-darwin-arm64",
+    "x86_64-unknown-linux-gnu": "bun-linux-x64",
+    "aarch64-unknown-linux-gnu": "bun-linux-arm64",
+  };
+  const t = map[triple];
+  if (!t) {
+    process.stderr.write(
+      `[build-sidecar] FATAL: no bun target known for "${triple}"\n`,
+    );
+    process.exit(1);
+  }
+  return t;
+}
+
+const HOST_TRIPLE = hostTriple();
+const TRIPLE = process.env.FERAL_SIDECAR_TARGET || HOST_TRIPLE;
+const CROSS = TRIPLE !== HOST_TRIPLE;
+const BUN_TARGET = bunTargetFor(TRIPLE);
+const IS_WINDOWS_TARGET = TRIPLE.includes("windows");
+
+// Tauri's externalBin appends the triple, and `.exe` on Windows.
+const suffix = IS_WINDOWS_TARGET ? `${TRIPLE}.exe` : TRIPLE;
 const sidecarName = `feral-agent-${suffix}`;
 
-const distBinaryName =
-  process.platform === "win32" ? "feral-agent.exe" : "feral-agent";
+const distBinaryName = IS_WINDOWS_TARGET ? "feral-agent.exe" : "feral-agent";
 const distBinaryPath = join(DIST_DIR, distBinaryName);
 const targetBinaryPath = join(BINARIES_DIR, sidecarName);
 
@@ -113,7 +143,12 @@ function main() {
 
   // Skip the bun build if the dist binary is already newer than every
   // FeralAgent source file. `FERAL_FORCE_SIDECAR_BUILD=1` overrides.
-  let needBuild = process.env.FERAL_FORCE_SIDECAR_BUILD === "1";
+  //
+  // A cross-build always rebuilds: a dist binary left over from a native build
+  // is the WRONG ARCHITECTURE, and mtime cannot see that. Shipping it would
+  // produce an app whose sidecar cannot execute on the machine it was built
+  // for — and the failure would only show up on a user's Intel Mac.
+  let needBuild = process.env.FERAL_FORCE_SIDECAR_BUILD === "1" || CROSS;
   if (!needBuild && existsSync(distBinaryPath)) {
     // Cheap heuristic: if FeralAgent/src has any .ts file newer than the
     // dist binary, rebuild. We only walk one level deep — this is good
@@ -132,7 +167,23 @@ function main() {
   }
 
   if (needBuild) {
-    run("bun", ["run", "build"], FERAL_AGENT_DIR);
+    if (CROSS) {
+      log(`cross-compiling sidecar: ${HOST_TRIPLE} → ${TRIPLE} (${BUN_TARGET})`);
+    }
+    // Spelled out rather than `bun run build` so the target can be passed. The
+    // flags mirror FeralAgent/package.json's "build" script; keep them in step.
+    run(
+      "bun",
+      [
+        "build",
+        "src/index.ts",
+        "--compile",
+        `--target=${BUN_TARGET}`,
+        "--outfile",
+        join("dist", distBinaryName),
+      ],
+      FERAL_AGENT_DIR,
+    );
   }
 
   if (!existsSync(distBinaryPath)) {
@@ -164,6 +215,14 @@ function main() {
   // shadows the fresh build. Keeping the target dir in sync on every
   // rebuild closes that gap. See the B7 smoke
   // (docs/2026-07-09-l4-b7-smoke.md, "stale sidecar shadowing").
+  // Dev-only hygiene, and actively wrong on a cross build: it would drop a
+  // foreign-architecture binary where `find_binary()` probes first, shadowing
+  // the real one for anything run on THIS machine afterwards.
+  if (CROSS) {
+    log("cross build — skipping the dev target-dir copies");
+    return;
+  }
+
   const sidecarTargetDirs = [];
   if (process.env.CARGO_TARGET_DIR) {
     const ct = resolve(process.env.CARGO_TARGET_DIR);

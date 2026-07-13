@@ -37,19 +37,29 @@ jobs:
           - name: macOS Apple Silicon
             os: macos-latest
             features: inference-metal
-          # `macos-14` is Apple Silicon, and so is `macos-latest` — GitHub
-          # retired the Intel runner from under both. This entry used to say
-          # macos-14, so the "Intel" job cheerfully rebuilt ARM under the same
-          # artifact names, and Intel Macs got NO build and no `darwin-x86_64`
-          # in latest.json. `macos-13` is the last x86_64 image.
+          # macOS Intel is CROSS-COMPILED from the Apple Silicon runner.
           #
-          # CPU-only on purpose: llama.cpp's Metal backend targets Apple GPUs,
-          # and enabling it on an Intel Mac is a coin flip. `inference` is the
-          # default CPU feature — real inference, just not GPU-accelerated,
-          # which is what these machines were going to get anyway.
+          # It used to say `macos-14` — which is an Apple Silicon image, as is
+          # `macos-latest`. So the "Intel" job cheerfully rebuilt ARM under the
+          # same artifact names, reported success, and Intel Macs got no dmg and
+          # no `darwin-x86_64` in latest.json: they could neither install nor
+          # update.
+          #
+          # `macos-13` is the last x86_64 image on paper, but it no longer gets
+          # provisioned — a job pinned to it sat queued for 90 minutes and never
+          # picked up a runner. So there is no native Intel builder left, and
+          # `--target x86_64-apple-darwin` from the ARM runner is the only way to
+          # produce this artifact at all.
+          #
+          # CPU-only on purpose: llama.cpp's Metal backend targets Apple GPUs, so
+          # enabling it for an Intel Mac is a coin flip. `inference` is the
+          # default CPU feature — real inference, just not GPU-accelerated, which
+          # is what these machines were going to fall back to anyway. It also
+          # keeps the cross-compile down to one C++ toolchain instead of two.
           - name: macOS Intel
-            os: macos-13
+            os: macos-latest
             features: inference
+            target: x86_64-apple-darwin
           - name: Linux x64
             os: ubuntu-22.04
             features: inference-vulkan
@@ -151,6 +161,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Only the macOS Intel entry declares a target; everything else builds
+      # natively and skips this.
+      - name: Add cross-compile target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
+
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
@@ -208,6 +224,12 @@ jobs:
           # macOS 10.15+ deployment target — Tauri's default of 10.13 makes
           # clang reject std::filesystem::path during the CMake build.
           MACOSX_DEPLOYMENT_TARGET: "10.15"
+          # The sidecar is an externalBin: Tauri looks it up by TARGET triple,
+          # and it has to be able to run on the target machine. Both of those
+          # break on a cross build unless the build script is told what it is
+          # building for, so tell it. Empty for native builds, which keep
+          # deriving the triple from the host.
+          FERAL_SIDECAR_TARGET: ${{ matrix.target }}
           # linuxdeploy's strip pass chokes on the already-stripped release
           # binary (panic=abort + lto + strip in Cargo.toml) and kills the
           # AppImage bundling with an opaque "failed to run linuxdeploy".
@@ -227,7 +249,12 @@ jobs:
           # `--features` is additive on top of the default `inference` (CPU),
           # so the build gets CPU + the platform GPU backend; inference.rs falls
           # back to CPU at runtime if GPU init fails.
-          args: --features ${{ matrix.features }}
+          # `--target` is appended only for the entry that declares one (macOS
+          # Intel, cross-compiled from the ARM runner). Everything else builds
+          # for the host.
+          args: >-
+            --features ${{ matrix.features }}
+            ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           # Uploads the bundles AND latest.json (updater manifest) to the
           # release. With a matrix, tauri-action merges each platform into
           # the same latest.json on the shared release.
