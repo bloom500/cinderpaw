@@ -14,10 +14,25 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  statSync,
   unlinkSync,
+  utimesSync,
   writeSync,
 } from "node:fs";
 import { dirname, sep } from "node:path";
+
+/**
+ * How often a live sidecar touches its lockfile to say "still here".
+ */
+const LOCK_HEARTBEAT_MS = 10_000;
+
+/**
+ * A lock whose heartbeat is older than this is treated as abandoned, whatever
+ * its pid claims. Generous on purpose: a sidecar paused by a debugger or a long
+ * GC must not have its lock stolen out from under it. Six missed beats is not a
+ * pause, it is a corpse.
+ */
+export const LOCK_STALE_AFTER_MS = 60_000;
 
 export interface FeralDb {  // exported for test helpers
   raw: Database;
@@ -42,26 +57,69 @@ export interface FeralDb {  // exported for test helpers
  * the *process-level* lock for the SQLite database itself.
  */
 /**
- * Stale-lock guard. A `process.kill(pid, 0)` signal-zero probe is the
- * universal cross-platform liveness check: same call signature, same
- * semantics on Linux / macOS (libc `kill`) and Windows (OpenProcess
- * via libuv). When the owning process is gone (ESRCH / ENOENT) we
- * treat the lock as garbage and `unlinkSync` it so the next
- * `openSync(... "wx")` can re-acquire. Returns `true` when the pid is
- * verifiably alive (silent on successful probe, EPERM on alive-but-no-
- * privilege) — both indicate a process is still running and we must
- * NOT clobber its lock.
+ * Could `pid` be OUR sidecar, still running?
+ *
+ * A `process.kill(pid, 0)` probe answers "does a process with this number
+ * exist", which is NOT the question. It used to be treated as if it were, and
+ * that bricked the app:
+ *
+ *   - EPERM was read as "alive, we just can't signal it". But our sidecar is
+ *     spawned by the app and runs as the same user, so we can always signal it.
+ *     A pid we are *forbidden* to touch is therefore, by construction, not us.
+ *     On Windows the recycled pid landed on `svchost` — a SYSTEM process — the
+ *     probe returned EPERM, the lock was declared live, and the sidecar refused
+ *     to start. Forever. The only cure was deleting a file the user had never
+ *     heard of.
+ *
+ *   - Even fixing that is not enough: pids get recycled, and the next tenant
+ *     may well be another process of the user's own (a browser tab, anything).
+ *     Then the probe succeeds and the lock looks held by a live process that
+ *     has nothing to do with Feral. A pid is not an identity.
+ *
+ * So this is only the fast path — it can prove a lock is DEAD, never that it is
+ * alive. The heartbeat is what proves liveness; see `isLockAbandoned`.
  */
-function isPidAlive(pid: number): boolean {
+function couldBeOurSidecar(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    return code === "EPERM";
+  } catch {
+    // ESRCH (no such process) and EPERM (not ours to signal) both mean this pid
+    // is not a running sidecar of ours.
+    return false;
   }
 }
+
+/**
+ * Has the lock's owner stopped saying it is alive?
+ *
+ * A running sidecar touches the lockfile every `LOCK_HEARTBEAT_MS`. This is
+ * what makes the guard correct under pid recycling: a dead owner cannot keep
+ * touching the file, no matter which process inherited its number.
+ */
+function isLockAbandoned(lockPath: string, now: number): boolean {
+  try {
+    return now - statSync(lockPath).mtimeMs > LOCK_STALE_AFTER_MS;
+  } catch {
+    // Gone between the existsSync and here — someone else cleaned it up.
+    return true;
+  }
+}
+
+/**
+ * Lock paths this process actually holds right now.
+ *
+ * Needed to tell two very different situations apart, which otherwise look
+ * identical because the lockfile says the same thing in both:
+ *
+ *   - We opened the database twice in one process. That is a bug, and it must
+ *     throw.
+ *   - A crashed predecessor left a lock, and the OS handed US its pid. Rare, but
+ *     Windows recycles pids freely. Reading that as "we already hold it" would
+ *     brick the sidecar exactly like the bug this guard exists to prevent.
+ */
+const heldLocks = new Set<string>();
 
 export function openDatabase(path: string): FeralDb {
   let lockPath: string | null = null;
@@ -81,9 +139,24 @@ export function openDatabase(path: string): FeralDb {
     if (existsSync(lockPath)) {
       const raw = readFileSync(lockPath, "utf8").trim();
       const pid = Number.parseInt(raw, 10);
+
+      // A lock stamped with our own pid that we are NOT holding did not come
+      // from us: it came from a dead predecessor whose pid the OS reissued to
+      // us. Treat it like any other corpse. Only a lock we genuinely hold means
+      // "opened twice", and that must still throw.
+      const weHoldIt = heldLocks.has(lockPath);
       const stale =
-        !Number.isFinite(pid) || // legacy 0-byte or garbage lockfile
-        (pid !== process.pid && !isPidAlive(pid));
+        !weHoldIt &&
+        (!Number.isFinite(pid) || // legacy 0-byte or garbage lockfile
+          // Our pid, on a lock we never took: a predecessor's corpse wearing our
+          // number. We KNOW we did not write it, so no liveness probe can be
+          // more authoritative than that.
+          pid === process.pid ||
+          !couldBeOurSidecar(pid) || // dead, or a pid we could never own
+          // ...and the check that survives pid recycling onto a live stranger:
+          // the owner stopped saying it was alive. A dead process cannot keep
+          // touching a file, whoever inherited its number.
+          isLockAbandoned(lockPath, Date.now()));
       if (stale) {
         try {
           unlinkSync(lockPath);
@@ -102,6 +175,7 @@ export function openDatabase(path: string): FeralDb {
       // same pid (rare but possible after OS pid recycle).
       lockFd = openSync(lockPath, "wx");
       writeSync(lockFd, `${process.pid}\n`);
+      heldLocks.add(lockPath);
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "EEXIST") {
@@ -124,13 +198,38 @@ export function openDatabase(path: string): FeralDb {
 
   migrate(db);
 
+  // Say "still here" for as long as we hold the lock. This is the only claim of
+  // liveness anyone can trust: a crashed sidecar stops touching the file, so its
+  // lock ages out and the next start reclaims it — no manual cleanup, and no
+  // dependence on a pid that the OS may have handed to somebody else.
+  // `unref()` so a live heartbeat can never hold the process open at shutdown.
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  if (lockPath !== null) {
+    const beat = lockPath;
+    heartbeat = setInterval(() => {
+      try {
+        const now = new Date();
+        utimesSync(beat, now, now);
+      } catch {
+        // The lockfile was removed out from under us. Nothing useful to do —
+        // close() will handle the rest, and a missed beat is not fatal.
+      }
+    }, LOCK_HEARTBEAT_MS);
+    heartbeat.unref?.();
+  }
+
   return {
     raw: db,
     close: () => {
+      if (heartbeat !== null) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
       db.close();
       if (lockFd !== null) {
         try { closeSync(lockFd); } catch { /* best-effort */ }
         if (lockPath) {
+          heldLocks.delete(lockPath);
           try { unlinkSync(lockPath); } catch { /* best-effort */ }
         }
       }

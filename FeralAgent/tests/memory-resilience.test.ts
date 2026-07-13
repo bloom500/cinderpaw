@@ -36,7 +36,7 @@ import {
   deleteWorkspace,
 } from "../src/memory/workspaces.ts";
 import type { AuditLogger } from "../src/types.ts";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -181,6 +181,71 @@ describe("memory/resilience: restart", () => {
       expect(existsSync(lockPath)).toBe(true);
       const stillThere = readFileSync(lockPath, "utf8").trim();
       expect(stillThere).toBe(String(sibling.pid));
+    } finally {
+      sibling.kill();
+      await sibling.exited;
+      try { rmSync(lockPath, { force: true }); } catch { /* best-effort */ }
+      teardown();
+    }
+  });
+
+  // The bug that bricked a real install (2026-07-13, v2026.07.13).
+  //
+  // The sidecar crashed, leaving its lockfile behind with pid 1932 in it.
+  // Windows then RECYCLED that pid onto `svchost`. The guard asked only "does a
+  // process with this number exist?" — it did — so the lock was declared live
+  // and the sidecar refused to start on every subsequent launch. The app was
+  // permanently dead, and the only cure was deleting a file the user had never
+  // heard of.
+  //
+  // A pid is not an identity. The heartbeat is: a dead owner cannot keep
+  // touching its lockfile, no matter who inherits its number.
+  test("a lock whose pid was recycled onto a live, unrelated process is reclaimed", async () => {
+    // Stands in for svchost: a process that is definitely alive and is
+    // definitely not our sidecar.
+    const impostor = Bun.spawn(["node", "-e", "setTimeout(() => {}, 60000)"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    const lockPath = writerLockPath(dbPath);
+    try {
+      writeFileSync(lockPath, `${impostor.pid}\n`);
+
+      // The owner died long ago — it has not said "still here" in hours, which
+      // is what actually distinguishes it from a running sidecar.
+      const longAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+      utimesSync(lockPath, longAgo, longAgo);
+
+      // Before the fix this threw and the app stayed dead forever.
+      const db = openDatabase(dbPath);
+
+      expect(existsSync(lockPath)).toBe(true);
+      expect(readFileSync(lockPath, "utf8").trim()).toBe(String(process.pid));
+      db.close();
+    } finally {
+      impostor.kill();
+      await impostor.exited;
+      try { rmSync(lockPath, { force: true }); } catch { /* best-effort */ }
+      teardown();
+    }
+  });
+
+  test("a lock held by a live sidecar that IS beating is still refused", async () => {
+    // The other half of the contract: reclaiming must not become a licence to
+    // trample a healthy sidecar. Two writers on one SQLite file is the failure
+    // the lock exists to prevent.
+    const sibling = Bun.spawn(["node", "-e", "setTimeout(() => {}, 60000)"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    const lockPath = writerLockPath(dbPath);
+    try {
+      writeFileSync(lockPath, `${sibling.pid}\n`);
+      const now = new Date(); // a fresh beat
+      utimesSync(lockPath, now, now);
+
+      expect(() => openDatabase(dbPath)).toThrow(/already holds the writer lock/);
+      expect(readFileSync(lockPath, "utf8").trim()).toBe(String(sibling.pid));
     } finally {
       sibling.kill();
       await sibling.exited;
