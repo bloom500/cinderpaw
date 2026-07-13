@@ -82,6 +82,24 @@ steps.
 - **New `connectors_manage` and `product_info` tools**, so the agent can
   configure its own connectors and answer questions about Feral itself.
 
+### Security
+
+- **The SSRF guard let IPv6 loopback through.** `fetch_url` / `http_request`
+  refuse to contact loopback, private and link-local addresses. But on the Rust
+  side the check parsed the hostname as an IP *with its brackets still on*
+  (`[::1]`), which never parses — so the literal-IP check silently never ran
+  for any IPv6 URL, and `http://[::1]/` reached the network. And on both sides,
+  loopback was recognised by matching the literal text `::1`, so every other
+  spelling of the same address walked through: `[0:0:0:0:0:0:0:1]` is the same
+  address written out, and `[::ffff:127.0.0.1]` is IPv4 loopback wearing an
+  IPv6 costume — including `::ffff:169.254.169.254`, the cloud metadata
+  endpoint. Both halves now decode the address and compare numbers instead of
+  strings.
+
+  Found by the new Rust CI job on its first run: the guard's own test had been
+  failing on Linux the whole time, and nothing ever compiled Rust on Linux
+  before a release build.
+
 ### Rate limits
 
 - **Feral now stays under a provider's requests-per-minute cap instead of

@@ -492,7 +492,16 @@ fn assert_public_url(raw: &str) -> Result<reqwest::Url> {
     if host == "localhost" || host.ends_with(".localhost") {
         return Err(anyhow!("destination is loopback: {host}"));
     }
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+    // `host_str()` returns an IPv6 literal WITH its brackets (`[::1]`), and
+    // `IpAddr::from_str` rejects the bracketed form — so this check silently
+    // never ran for IPv6, and `http://[::1]/` walked straight through the guard
+    // on any platform whose resolver also declined the bracketed host (Linux).
+    // Strip them so an IPv6 literal is checked like any other address.
+    let host_ip = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host.as_str());
+    if let Ok(ip) = host_ip.parse::<std::net::IpAddr>() {
         if is_blocked_ip(ip) {
             return Err(anyhow!(
                 "destination is loopback/private/link-local: {host}"
@@ -501,7 +510,7 @@ fn assert_public_url(raw: &str) -> Result<reqwest::Url> {
     }
     // Resolve every A/AAAA and reject if any points into a blocked range.
     let port = parsed.port_or_known_default().unwrap_or(443);
-    if let Ok(addrs) = (host.as_str(), port).to_socket_addrs() {
+    if let Ok(addrs) = (host_ip, port).to_socket_addrs() {
         for addr in addrs {
             if is_blocked_ip(addr.ip()) {
                 return Err(anyhow!(
@@ -705,6 +714,31 @@ mod security_tests {
         assert!(assert_public_url("http://[::1]/").is_err());
         // Literal public IP parses and passes (no network DNS for IP literals).
         assert!(assert_public_url("http://8.8.8.8/").is_ok());
+    }
+
+    /// `host_str()` hands back an IPv6 literal WITH brackets and
+    /// `IpAddr::from_str` refuses that form, so the literal-IP check used to be
+    /// skipped for every IPv6 URL — `http://[::1]/` reached the network on any
+    /// platform whose resolver also declined the bracketed host. Loopback has
+    /// more than one spelling; all of them have to be refused.
+    #[test]
+    fn rejects_every_spelling_of_an_ipv6_literal() {
+        for url in [
+            "http://[::1]/",              // canonical loopback
+            "http://[0:0:0:0:0:0:0:1]/",  // same address, written out in full
+            "http://[::ffff:127.0.0.1]/", // IPv4 loopback, mapped into IPv6
+            "http://[::ffff:10.0.0.5]/",  // private IPv4, mapped into IPv6
+            "http://[::]/",               // unspecified
+            "http://[fc00::1]/",          // unique-local
+            "http://[fe80::1]/",          // link-local
+        ] {
+            assert!(
+                assert_public_url(url).is_err(),
+                "SSRF guard let {url} through"
+            );
+        }
+        // A genuinely public IPv6 host must still work.
+        assert!(assert_public_url("http://[2606:4700:4700::1111]/").is_ok());
     }
 
     #[test]

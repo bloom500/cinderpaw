@@ -199,6 +199,33 @@ describe("host blocking", () => {
     expect(isBlockedHost("8.8.8.8")).toBe(false);
   });
 
+  // The guard used to test for the literal TEXT "::1", so every other spelling
+  // of the same address walked straight through it. An address is a number.
+  test("every spelling of an IPv6 loopback/private address is blocked", () => {
+    for (const h of [
+      "::1",
+      "[::1]",
+      "0:0:0:0:0:0:0:1", // ::1, written out in full
+      "[0:0:0:0:0:0:0:1]",
+      "::ffff:127.0.0.1", // IPv4 loopback, mapped into IPv6
+      "[::ffff:127.0.0.1]",
+      "::ffff:10.0.0.5", // private IPv4, mapped into IPv6
+      "::ffff:169.254.169.254", // the cloud metadata endpoint, mapped
+      "::", // unspecified
+      "fc00::1", // unique-local
+      "fe80::1", // link-local
+    ]) {
+      expect(isBlockedHost(h)).toBe(true);
+    }
+  });
+
+  test("public IPv6 is still allowed", () => {
+    expect(isBlockedHost("2606:4700:4700::1111")).toBe(false);
+    expect(isBlockedHost("[2606:4700:4700::1111]")).toBe(false);
+    // ...including an IPv4-mapped PUBLIC address.
+    expect(isBlockedHost("::ffff:8.8.8.8")).toBe(false);
+  });
+
   test("whitelist matches subdomains but not unrelated hosts", () => {
     expect(hostMatchesWhitelist("api.example.com", ["example.com"])).toBe(true);
     expect(hostMatchesWhitelist("example.com", ["example.com"])).toBe(true);

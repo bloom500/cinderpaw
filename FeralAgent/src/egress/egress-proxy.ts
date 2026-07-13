@@ -298,26 +298,95 @@ async function resolveHostIps(host: string): Promise<string[]> {
   }
 }
 
-/** True when a host is loopback, a private range, or link-local. */
+/**
+ * True when a host is loopback, a private range, or link-local.
+ *
+ * IPv6 is decoded rather than string-matched. The old check tested for the
+ * literal text `::1`, which meant every other spelling of the same address
+ * walked through: `[0:0:0:0:0:0:0:1]` is loopback, and `[::ffff:127.0.0.1]` is
+ * loopback wearing an IPv6 costume — neither is the string "::1". An address is
+ * a number, so compare numbers.
+ */
 export function isBlockedHost(host: string): boolean {
   if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host === "::1" || host === "[::1]") return true;
-  // Unique-local IPv6 (fc00::/7) and link-local IPv6 (fe80::/10).
-  if (/^\[?(f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)/i.test(host)) return true;
 
-  const v4 = parseIPv4(host);
-  if (v4) {
-    const [a, b] = v4;
-    if (a === 127) return true; // loopback
-    if (a === 10) return true; // private
-    if (a === 172 && b >= 16 && b <= 31) return true; // private
-    if (a === 192 && b === 168) return true; // private
-    if (a === 169 && b === 254) return true; // link-local
-    if (a === 0) return true; // "this" network
+  const v6 = parseIPv6(host);
+  if (v6) {
+    // IPv4-mapped (::ffff:a.b.c.d) is an IPv4 address; judge it by the v4
+    // rules, or ::ffff:127.0.0.1 is a loopback they never get to see.
+    const mapped =
+      v6.slice(0, 10).every((b) => b === 0) && v6[10] === 0xff && v6[11] === 0xff;
+    if (mapped) return isBlockedV4(v6[12]!, v6[13]!);
+
+    if (v6.every((b, i) => (i < 15 ? b === 0 : b === 1))) return true; // ::1
+    if (v6.every((b) => b === 0)) return true; // ::
+    if ((v6[0]! & 0xfe) === 0xfc) return true; // ULA fc00::/7
+    if (v6[0] === 0xfe && (v6[1]! & 0xc0) === 0x80) return true; // link-local fe80::/10
     return false;
   }
 
+  const v4 = parseIPv4(host);
+  if (v4) return isBlockedV4(v4[0], v4[1]);
+
   return false;
+}
+
+function isBlockedV4(a: number, b: number): boolean {
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // private
+  if (a === 172 && b >= 16 && b <= 31) return true; // private
+  if (a === 192 && b === 168) return true; // private
+  if (a === 169 && b === 254) return true; // link-local
+  if (a === 0) return true; // "this" network
+  return false;
+}
+
+/**
+ * Decode an IPv6 literal (brackets optional) into its 16 bytes, or null when
+ * `host` is not one. Handles `::` elision and an embedded IPv4 tail.
+ */
+export function parseIPv6(host: string): number[] | null {
+  const raw = host.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!raw.includes(":")) return null;
+
+  let text = raw;
+  let v4: [number, number, number, number] | null = null;
+
+  // A trailing dotted-quad (::ffff:127.0.0.1) occupies the last two groups.
+  const lastSep = text.lastIndexOf(":");
+  const tail = text.slice(lastSep + 1);
+  if (tail.includes(".")) {
+    v4 = parseIPv4(tail);
+    if (!v4) return null;
+    text = `${text.slice(0, lastSep + 1)}0:0`;
+  }
+
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+
+  const split = (s: string) => (s === "" ? [] : s.split(":"));
+  const left = split(halves[0] ?? "");
+  const right = halves.length === 2 ? split(halves[1] ?? "") : [];
+
+  let groups: string[];
+  if (halves.length === 1) {
+    if (left.length !== 8) return null;
+    groups = left;
+  } else {
+    const elided = 8 - (left.length + right.length);
+    if (elided < 1) return null;
+    groups = [...left, ...Array<string>(elided).fill("0"), ...right];
+  }
+  if (groups.length !== 8) return null;
+
+  const bytes: number[] = [];
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    const n = Number.parseInt(g, 16);
+    bytes.push((n >> 8) & 0xff, n & 0xff);
+  }
+  if (v4) bytes.splice(12, 4, ...v4);
+  return bytes;
 }
 
 /** Parse a dotted-quad IPv4 literal, or null if `host` is not one. */
