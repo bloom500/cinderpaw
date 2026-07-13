@@ -37,9 +37,19 @@ jobs:
           - name: macOS Apple Silicon
             os: macos-latest
             features: inference-metal
+          # `macos-14` is Apple Silicon, and so is `macos-latest` — GitHub
+          # retired the Intel runner from under both. This entry used to say
+          # macos-14, so the "Intel" job cheerfully rebuilt ARM under the same
+          # artifact names, and Intel Macs got NO build and no `darwin-x86_64`
+          # in latest.json. `macos-13` is the last x86_64 image.
+          #
+          # CPU-only on purpose: llama.cpp's Metal backend targets Apple GPUs,
+          # and enabling it on an Intel Mac is a coin flip. `inference` is the
+          # default CPU feature — real inference, just not GPU-accelerated,
+          # which is what these machines were going to get anyway.
           - name: macOS Intel
-            os: macos-14
-            features: inference-metal
+            os: macos-13
+            features: inference
           - name: Linux x64
             os: ubuntu-22.04
             features: inference-vulkan
@@ -328,12 +338,18 @@ jobs:
       fail-fast: false        # a CUDA failure must never sink the main release
       matrix:
         include:
+          # `visual_studio_integration` is a Windows-only sub-package. Asking
+          # the Linux CUDA installer for it fails the whole step in under a
+          # minute — which is exactly how the Linux CUDA build died on the
+          # 2026.07.13 tag. The sub-package list is per-OS now.
           - name: Windows x64
             os: windows-2022
             asset_glob: "*-setup.exe"
+            cuda_subpackages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
           - name: Linux x64
             os: ubuntu-22.04
             asset_glob: "*.AppImage"
+            cuda_subpackages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust"]'
 
     steps:
       - uses: actions/checkout@v4
@@ -360,7 +376,8 @@ jobs:
           cuda: "12.6.0"
           method: "network"
           # Only what llama.cpp links; the full toolkit is needlessly large.
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+          # Per-OS (see the matrix): the MSVC integration package is Windows-only.
+          sub-packages: ${{ matrix.cuda_subpackages }}
 
       - name: Setup MSVC dev environment (Windows)
         if: runner.os == 'Windows'

@@ -13,6 +13,12 @@ each version converts to Apache 2.0 after four years). Windows and macOS
 builds are **unsigned** — see the README for the SmartScreen and first-launch
 steps.
 
+Builds: Windows x64 and Linux x64 (Vulkan), macOS Apple Silicon (Metal), macOS
+Intel (CPU — llama.cpp's Metal backend targets Apple GPUs, so an Intel Mac gets
+the CPU engine, which is what it would have fallen back to anyway). An opt-in
+NVIDIA CUDA build is published as a separate download for Windows and Linux;
+it is deliberately excluded from the auto-updater, so it does not update itself.
+
 ### Feral in the terminal
 
 - **A real terminal client.** `feral chat` opens a full TUI: streaming answers
