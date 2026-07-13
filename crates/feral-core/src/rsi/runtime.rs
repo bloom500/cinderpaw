@@ -105,6 +105,13 @@ impl RsiRequestRegistry {
     pub fn len(&self) -> usize {
         self.inner.lock().len()
     }
+
+    /// Present for the same tests, and because a public `len` without an
+    /// `is_empty` is a trap for the next caller.
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.inner.lock().is_empty()
+    }
 }
 
 /// Mirror of the running engine. Populated from `rsi_engine_event`

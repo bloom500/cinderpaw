@@ -877,9 +877,9 @@ mod backend {
     /// card (RTX 4090 24 GB) explicitly set 2 to overlap generations.
     ///
     /// Auto-cap when GPU is active: each pooled context allocates its own
-    /// KV cache in VRAM, so a second context on an 8 GB card (e.g. RX 580
-    /// + Qwen3.5-4B-Q6_K at 8 K ctx) tries to allocate ~3.4 GB on top of
-    /// the model + first context that's already at ~6.7 GB and explodes
+    /// KV cache in VRAM, so a second context on an 8 GB card (an RX 580
+    /// running Qwen3.5-4B-Q6_K at 8 K ctx) tries to allocate ~3.4 GB on top
+    /// of the model and first context, already at ~6.7 GB, and explodes
     /// with `create context: null reference from llama.cpp`. There is no
     /// graceful GPU→CPU fallback for additional contexts (the model is
     /// already loaded with full GPU offload; switching backends means a
@@ -1519,6 +1519,9 @@ mod backend {
         /// diverge early (a different session, or a different context), the
         /// cache is cleared and fully re-prefilled — slower, but always
         /// correct.
+        // The decode loop's inputs: model state, context, prompt, sampling,
+        // sink, stop flag, epoch, callback. All distinct, none removable.
+        #[allow(clippy::too_many_arguments)]
         fn run_inference(
             state: &LoadedState,
             pctx: &mut PooledContext,
@@ -1849,7 +1852,7 @@ mod tests {
     #[test]
     fn template_ministral_is_mistral_not_chatml() {
         // "ministral" does NOT contain "mistral" as substring — this was the bug.
-        assert!("ministral".contains("mistral") == false, "substring check changed");
+        assert!(!"ministral".contains("mistral"), "substring check changed");
         assert_eq!(detect_template("Ministral-3-3B-Reasoning-2512.Q6_K.gguf"), "mistral");
         assert_eq!(detect_template("ministral-8b-instruct.gguf"), "mistral");
     }

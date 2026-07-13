@@ -554,7 +554,7 @@ const raw = {
   deleteModel:           (path: string) => invoke<void>('delete_model', { path }),
   chatStream:            (messages: Message[], params: InferParams, sessionId: string) =>
     invoke<void>('chat_stream', { messages, params, sessionId }),
-  stopGeneration:        ()    => invoke<void>('stop_generation'),
+  stopGeneration:        (sessionId: string) => invoke<void>('stop_generation', { sessionId }),
   downloadModel:         (repoId: string, filename: string) =>
     invoke<string>('download_model', { repoId, filename }),
   cancelDownload:        (modelId: string) =>
@@ -740,7 +740,7 @@ export const tauri = {
       raw.chatStream(messages, params, sessionId),
     cloudStream: async (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
       raw.chatCloudStream(providerId, model, messages, params, sessionId),
-    stop: async () => raw.stopGeneration(),
+    stop: async (sessionId: string) => raw.stopGeneration(sessionId),
   },
 
   conversations: {

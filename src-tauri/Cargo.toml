@@ -1,6 +1,6 @@
 [package]
 name = "feral"
-version = "2026.6.29"
+version = "2026.7.13"
 description = "Feral — local AI desktop runtime"
 authors = ["Feral Contributors"]
 license = "BUSL-1.1"
@@ -118,8 +118,6 @@ windows = { version = "0.58", features = [
 [dev-dependencies]
 tempfile = "3"
 
-[profile.release]
-lto = true
-codegen-units = 1
-strip = true
-panic = "abort"
+# No [profile.*] here: Cargo only honours profiles from the workspace root and
+# warns on every build about the ones it is ignoring. The release profile lives
+# in the root Cargo.toml.

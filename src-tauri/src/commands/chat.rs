@@ -8,10 +8,26 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter, State};
 
+/// Stop the generation running for `session_id`, and only that one.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn stop_generation(state: State<AppState>) {
-    state.stop_signal.store(true, Ordering::SeqCst);
+pub(crate) fn stop_generation(state: State<AppState>, session_id: String) {
+    state.stop_signals.request_stop(&session_id);
+}
+
+/// Releases a session's stop flag when its generation returns — on every exit
+/// path (clean finish, error, user stop), which is why this is a guard and not
+/// a call at the end of the happy path.
+struct StopSlot {
+    registry: Arc<StopRegistry>,
+    session_id: String,
+    flag: Arc<AtomicBool>,
+}
+
+impl Drop for StopSlot {
+    fn drop(&mut self) {
+        self.registry.end(&self.session_id, &self.flag);
+    }
 }
 
 /// Shared watchdog state owned by the inference watchdog task in
@@ -63,10 +79,14 @@ pub(crate) async fn chat_stream(
 ) -> Result<(), String> {
     use futures::StreamExt;
 
-    // Reset stop signal before each new generation so a previous stop doesn't
-    // immediately abort the next request.
-    state.stop_signal.store(false, Ordering::SeqCst);
-    let stop = state.stop_signal.clone();
+    // A stop flag owned by THIS generation. Nothing else can trip it, and no
+    // other generation can clear it.
+    let stop = state.stop_signals.begin(&session_id);
+    let _slot = StopSlot {
+        registry: state.stop_signals.clone(),
+        session_id: session_id.clone(),
+        flag: stop.clone(),
+    };
 
     let watchdog = Arc::new(WatchdogState::new());
     let app_start = app.clone();
@@ -114,7 +134,7 @@ pub(crate) async fn chat_stream(
             // it already emitted `feral://stream-error` with the typed
             // message; we MUST NOT also emit `feral://stream-done`, or the
             // frontend's chatStream.ts would see two terminal events.
-            let reason = watchdog.reason.lock().clone();
+            let reason = *watchdog.reason.lock();
             if reason.is_none() {
                 let _ = app.emit("feral://stream-done", events::StreamDoneEvent {
                     session_id: session_id.clone(),
@@ -342,7 +362,7 @@ mod watchdog_tests {
         *state.reason.lock() = Some(DeadlineReason::TtftTimeout);
         // If we call trip_deadline again it would short-circuit on the
         // already-set cell — simulate that by re-acquiring the lock.
-        let mut slot = state.reason.lock();
+        let slot = state.reason.lock();
         if slot.is_some() {
             // no-op branch — proves idempotence
         } else {
@@ -602,8 +622,14 @@ pub(crate) async fn chat_cloud_stream(
         }
     }
 
-    state.stop_signal.store(false, Ordering::SeqCst);
-    let stop = state.stop_signal.clone();
+    // Same per-session ownership as the local path: a stop here stops this
+    // cloud stream and no other.
+    let stop = state.stop_signals.begin(&session_id);
+    let _slot = StopSlot {
+        registry: state.stop_signals.clone(),
+        session_id: session_id.clone(),
+        flag: stop.clone(),
+    };
 
     // Agentic loop: continue until the model returns a plain content response
     loop {
@@ -634,10 +660,6 @@ pub(crate) async fn chat_cloud_stream(
                 body["tool_choice"] = serde_json::json!("auto");
             }
         }
-
-        // TEMP-DEBUG: dump the exact outbound request so we can see model id +
-        // sampling params + endpoint going to the provider. Remove after triage.
-        tracing::warn!(target: "cloud_debug", endpoint = %endpoint, body = %body, "outbound cloud chat request");
 
         let mut req = client
             .post(&endpoint)
@@ -680,8 +702,6 @@ pub(crate) async fn chat_cloud_stream(
             }
             let bytes = chunk.map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
             let text = String::from_utf8_lossy(&bytes);
-            // TEMP-DEBUG: raw SSE chunk as received from the provider. Remove after triage.
-            tracing::warn!(target: "cloud_debug", raw = %text, "inbound cloud chunk");
 
             for ch in text.chars() {
                 if ch == '\n' {

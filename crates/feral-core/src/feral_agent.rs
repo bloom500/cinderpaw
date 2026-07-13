@@ -409,7 +409,7 @@ pub async fn spawn(
     // after the user had switched away from it (blocker F9).
     let local_url = format!("http://127.0.0.1:{api_port}");
     cmd.env("FERAL_LOCAL_BASE_URL", &local_url)
-        .env("FERAL_LOCAL_API_KEY", api_token.to_string());
+        .env("FERAL_LOCAL_API_KEY", api_token);
 
     // The model the local engine serves. When the boot route IS the local
     // engine we already know it — reuse it instead of a second /v1/models
@@ -704,6 +704,10 @@ async fn stdin_writer(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Recei
 ///   * `rsi_request`              — dispatched via `feral_core::rsi::runtime`
 ///   * `rsi_engine_event`         — engine-driver IPC ack + mirror update
 ///   * `code_patch_resolved`      — Faza 3 patch lifecycle (marker + restart)
+// Every argument is a distinct collaborator this reader has to fan events out
+// to. Bundling them into a context struct would move the same list one level
+// down without removing anything.
+#[allow(clippy::too_many_arguments)]
 async fn stdout_reader(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,

@@ -344,11 +344,7 @@ pub fn rsi_record_goodhart_sample(
         .expect("initialized");
     let window_size = (bounds.goodhart_consecutive_required as usize).max(1);
     let mut slot = state.rsi_goodhart.detector.lock();
-    let needs_rebuild = match slot.as_ref() {
-        None => true,
-        Some(_) => false, // thresholds are stable per session; a full
-                          // reset is exposed via rsi_reset_goodhart.
-    };
+    let needs_rebuild = slot.as_ref().is_none();
     if needs_rebuild {
         *slot = Some(GoodhartDetector::new(
             window_size as u32,

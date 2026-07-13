@@ -51,6 +51,69 @@ jobs:
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.test }}
 
+  # The Rust half (src-tauri + crates/*) used to be compiled for the first time
+  # by the tagged release build itself — a compile error there meant deleting
+  # and re-pushing the tag. This job builds and tests it on every push instead.
+  #
+  # Default features only: no `inference-*`, so no Vulkan/CUDA SDK and no
+  # llama.cpp compile. The GPU backends stay release-only.
+  #
+  # src-tauri's build script resolves `frontendDist` and `externalBin`, so the
+  # frontend bundle and the sidecar binary must exist before cargo runs — the
+  # same prerequisites release.yml installs, minus the bundling.
+  rust:
+    name: rust / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
+            wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev cmake libclang-dev clang
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+
+      - name: Install sidecar dependencies
+        working-directory: FeralAgent
+        run: bun install
+
+      # Produces src-tauri/binaries/feral-agent-<target-triple> (externalBin).
+      - name: Build sidecar
+        working-directory: src-tauri
+        run: node scripts/build-sidecar.mjs
+
+      # Produces frontend-react/dist (frontendDist).
+      - name: Build frontend
+        working-directory: frontend-react
+        run: npm ci && npm run build
+
+      - name: cargo test
+        run: cargo test --workspace
+
   # Dependency vulnerability scanning (M-3). Fails the build on known
   # advisories so a vulnerable transitive dep can't slip into a release.
   security-audit:

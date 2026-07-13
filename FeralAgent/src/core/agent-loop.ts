@@ -588,6 +588,16 @@ export class AgentLoop {
    * Safe to call when no generation is in flight (no-op).
    */
   stop(sessionId: string): void {
+    // Latch the stop on the session context FIRST. Aborting is edge-triggered:
+    // the router deletes a session's controller once its call settles, so
+    // between two model calls `router.abort()` is a no-op, and the tool signal
+    // has no in-flight tool observing it. A stop landing in that window (during
+    // a tool, or during the episodic/memory writes that follow one) was
+    // therefore dropped and the loop went on to make the next model call —
+    // "stop doesn't stop it". The loop reads this flag, so the latch survives
+    // whether or not there is something abortable in flight right now.
+    const ctx = this.#sessionContexts.get(sessionId);
+    if (ctx) ctx.stopped = true;
     this.#router.abort(sessionId);
     this.#sessionToolSignals.get(sessionId)?.abort("user stop");
   }
@@ -896,6 +906,10 @@ export class AgentLoop {
     let toolRepeatCount = 0;
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
+      // A stop latched by stop() between iterations must not be followed by one
+      // more model call — check before spending the turn, not only after it.
+      if (ctx.stopped) break;
+
       // Stream tokens live — EXCEPT tool-call-shaped output. Once the stream
       // hits a tool-call opener (canonical tag, invoke-XML, or bare
       // {"name … JSON) everything from that point is held back: if the turn

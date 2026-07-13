@@ -315,9 +315,9 @@ pub struct ProviderCatalogEntry {
 /// Returns the canonical, deduplicated provider catalog.
 ///
 /// This is the **single source of truth** for "which providers can the
-/// user pick in the wizard?" Adding a new provider = one new entry here
-/// + rebuild the gateway. TUI + desktop pick it up automatically without
-/// code changes on their side.
+/// user pick in the wizard?" Adding a new provider = one new entry here plus
+/// a gateway rebuild. TUI + desktop pick it up automatically without code
+/// changes on their side.
 ///
 /// `Provider::default_base_url()` remains the canonical per-variant URL
 /// (used by the runtime to issue requests); the catalog row carries a
@@ -692,10 +692,7 @@ fn clear_key(provider_id: &str) -> anyhow::Result<()> {
 /// Read a provider's API key from the keychain, or `None` if absent.
 /// Public API: byok_get(provider_id)
 pub fn byok_get(provider_id: &str) -> Option<String> {
-    match key_entry(provider_id).ok()?.get_password() {
-        Ok(k) => Some(k),
-        Err(_) => None,
-    }
+    key_entry(provider_id).ok()?.get_password().ok()
 }
 
 /// Load BYOK settings: non-secret metadata from `byok.json`, API keys from the

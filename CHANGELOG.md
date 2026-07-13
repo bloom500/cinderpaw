@@ -5,7 +5,87 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## Unreleased
+## 2026.07.13
+
+First public release. Feral is source-available under the Business Source
+License 1.1 (free for individuals and for organizations under $2M revenue;
+each version converts to Apache 2.0 after four years). Windows and macOS
+builds are **unsigned** — see the README for the SmartScreen and first-launch
+steps.
+
+### Onboarding
+
+- **Guided first run.** Feral now looks at your machine before asking you
+  anything: an existing config, GGUF files already on disk, a hardware-tier
+  model download, provider keys in the environment, a running Ollama, or an
+  OpenClaw config to import. Each candidate is **verified with a real
+  completion** before it is saved, so a route that is persisted is a route
+  that works. Available in the desktop wizard, in `feral setup` (with
+  `--classic` for the old wizard), and as a guided screen in the terminal
+  client.
+- **WhatsApp pairing without the terminal.** The pairing QR now renders in the
+  desktop Connectors page with a live countdown to the next code, and in the
+  TUI via `/connectors add whatsapp` and `/connectors qr`.
+
+### Local models and GPU
+
+- **Partial GPU offload.** Offload used to be all-or-nothing: if the model did
+  not fit entirely in VRAM — including the KV cache — Feral dropped to *full
+  CPU*. A card that missed by a few hundred MB ran the whole model on the CPU.
+  Feral now fits as many layers as VRAM allows and leaves the rest on the CPU,
+  sizing the budget from the model's real geometry rather than an estimate.
+- **A GPU build no longer breaks the CPU fallback.** On some cards (verified on
+  an RX 580) llama.cpp routed buffers through the Vulkan device even at zero
+  offloaded layers, so when the GPU could not take the model the CPU fallback
+  failed too and the model did not load *at all* — the GPU build was worse than
+  the CPU build for those users. The last-resort CPU path now detaches the
+  device.
+- **You can see where the model is running.** A badge next to the model name
+  and in Settings → Hardware shows the real outcome after the load
+  (`GPU (vulkan, 24/32 layers)`, or CPU). If a GPU-capable build lands on the
+  CPU anyway, Feral raises one notification explaining why and what to try.
+- **NVIDIA CUDA build** as a separate, opt-in download. Vulkan stays the
+  default for everyone (it runs on NVIDIA too). The CUDA assets are
+  deliberately excluded from `latest.json` and do not auto-update.
+
+### Agent and memory
+
+- **Sessions survive a restart.** Working memory now rehydrates from the
+  episodic store, so a conversation is not amnesiac after a restart or an
+  eviction. Machine sessions (cron/RSI/dream) still start clean.
+- **A provider error is now its own error.** The "local fallback" was a keyless
+  copy of the boot-time cloud provider, so after switching providers an error
+  on the new one silently re-called the old one — and the old one's failure was
+  what you saw. The fallback target is now always loopback, and if no local
+  engine is serving, there is no fallback.
+- **MCP tools are callable.** They were discoverable but impossible to call:
+  the tool schemas were snapshotted before the MCP servers finished connecting,
+  so the tools appeared in the list and said "enabled" while the model had no
+  function to call. The registry is versioned now and the agent loop rebuilds
+  its prompt, grammar and schemas when it changes.
+- **New `remember` tool**, so the agent can write to memory directly instead of
+  waiting for the asynchronous extractor. `recall` searches facts too.
+- **`FERAL_HOME` is honoured.** It was documented but ignored by eight modules
+  (SOUL/IDENTITY, onboarding, the memory graph, the four RSI roots), so an
+  isolated profile still read and wrote the real one.
+- **Resume works.** `resume_get` always returned null — nothing ever recorded
+  the current task.
+
+### Sandbox
+
+- **Allow-by-default with a deny wall at call time.** `fetch_url` and
+  `http_request` are always registered with open egress (behind an SSRF guard,
+  a rate limit and an audit trail); `FERAL_FETCH_DOMAINS` /
+  `FERAL_HTTP_DOMAINS` now *restrict* rather than enable. Workspace roots
+  default to the launch directory plus your home, with a hard deny wall on
+  `~/.feral` (except scratch), `~/.ssh` and anything in `FERAL_FS_DENY`.
+- **New `connectors_manage` and `product_info` tools**, so the agent can
+  configure its own connectors and answer questions about Feral itself.
+
+### Privacy
+
+- The startup update check is **opt-out** (Settings → General) and contacts
+  GitHub Releases only. Documented in the README's privacy section.
 
 ### Safety smoke e2e tests (B5)
 

@@ -1,31 +1,29 @@
-/**
- * Memory Resume — Tauri command (Sprint 1.6).
- *
- * Returns the persisted `current_task` + active workspace + last-active
- * timestamp so the React `WelcomeBack` banner and the TUI last-task row can
- * greet the user with "Welcome back to X." on app launch.
- *
- * Architecture (Sprint 1.9 writer contract, see
- * `docs/agents-memory/project_memory_roadmap.md`):
- *
- *   React shell / TUI ─► Tauri command (this file) ─► sidecar stdin
- *     (`InboundMessage` `resume_get`, id-correlated) ─►
- *     `FeralAgent/src/memory/resume.ts` reads `meta` + `workspaces` tables
- *     ─► reply on stdout as `OutboundEvent` `resume_get_result`.
- *
- * Why this shape? The sidecar holds the sole writer lock on the SQLite
- * database. Tauri must NEVER open the same file for writes (would race the
- * sidecar's writer-lock discipline); routing the read through the sidecar
- * preserves the writer contract. On first-ever launch the sidecar returns
- * an empty payload — the React shell mounts the banner with "fresh start"
- * copy and the TUI omits the row.
- *
- * The subscribe-before-send discipline is the same one
- * `crates/feral-core/src/api.rs::meta_roundtrip` uses for the meta routes —
- * duplicate, not extract, because extracting would need a feral-core
- * method that takes a closure for the JSON reply shape, and the
- * duplication is small enough to keep the Sprint 1 surface tight.
- */
+//! Memory Resume — Tauri command (Sprint 1.6).
+//!
+//! Returns the persisted `current_task` + active workspace + last-active
+//! timestamp so the React `WelcomeBack` banner and the TUI last-task row can
+//! greet the user with "Welcome back to X." on app launch.
+//!
+//! Architecture (Sprint 1.9 writer contract, see
+//! `docs/agents-memory/project_memory_roadmap.md`):
+//!
+//!   React shell / TUI ─► Tauri command (this file) ─► sidecar stdin
+//!     (`InboundMessage` `resume_get`, id-correlated) ─►
+//!     `FeralAgent/src/memory/resume.ts` reads `meta` + `workspaces` tables
+//!     ─► reply on stdout as `OutboundEvent` `resume_get_result`.
+//!
+//! Why this shape? The sidecar holds the sole writer lock on the SQLite
+//! database. Tauri must NEVER open the same file for writes (would race the
+//! sidecar's writer-lock discipline); routing the read through the sidecar
+//! preserves the writer contract. On first-ever launch the sidecar returns
+//! an empty payload — the React shell mounts the banner with "fresh start"
+//! copy and the TUI omits the row.
+//!
+//! The subscribe-before-send discipline is the same one
+//! `crates/feral-core/src/api.rs::meta_roundtrip` uses for the meta routes —
+//! duplicate, not extract, because extracting would need a feral-core
+//! method that takes a closure for the JSON reply shape, and the
+//! duplication is small enough to keep the Sprint 1 surface tight.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;

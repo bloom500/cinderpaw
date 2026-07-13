@@ -107,6 +107,7 @@ export async function startChatStream(
   // Auto-stop any previous stream — the backend can only run one generation
   // at a time, and a fresh send is an implicit interrupt.
   if (inflight.size > 0) {
+    const interrupted: string[] = [];
     for (const [prevId, entry] of inflight) {
       entry.stopped = true;
       // Don't fire onStopped for an interrupted-by-new-send — fire onError
@@ -115,9 +116,12 @@ export async function startChatStream(
       // is already in the persisted snapshot (saved at send time).
       entry.onError('Interrupted by a new message');
       inflight.delete(prevId);
+      interrupted.push(prevId);
     }
     try {
-      await tauri.chat.stop();
+      // Stop flags are per-session on the backend, so each interrupted stream
+      // has to be named. A single blanket stop would leave the others running.
+      await Promise.all(interrupted.map((id) => tauri.chat.stop(id)));
     } catch (err) {
       // Backend may have nothing to stop (e.g. previous stream already
       // completed between our check and the call). Not fatal.
@@ -159,13 +163,10 @@ export async function startChatStream(
 export async function requestStreamStop(sessionId: string): Promise<void> {
   const entry = inflight.get(sessionId);
   if (entry) entry.stopped = true;
-  // The backend runs one generation at a time. If `sessionId` has no
-  // in-flight entry but ANOTHER session does, a stale stop click (e.g. from
-  // a tab whose stream already finished) must not kill that other session's
-  // generation. Only forward the stop when it targets the active stream —
-  // or when nothing is in flight at all (harmless no-op on the backend).
-  if (!entry && inflight.size > 0) return;
-  await tauri.chat.stop();
+  // The backend keys its stop flags by session, so a stale stop click from a
+  // tab whose stream already finished is a no-op there and cannot touch
+  // another session's generation. No guard needed on this side.
+  await tauri.chat.stop(sessionId);
 }
 
 /** True if a stream is currently in flight for `sessionId`. */

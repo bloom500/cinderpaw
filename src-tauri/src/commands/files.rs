@@ -198,11 +198,10 @@ fn strip_xml_to_text(xml: &str) -> String {
             '>' if in_tag => {
                 in_tag = false;
                 let t = tag.split_whitespace().next().unwrap_or("");
-                if PARAGRAPH_CLOSERS.contains(&t) || t == "w:br" || t == "w:br/" {
-                    if !out.ends_with('\n') {
+                if (PARAGRAPH_CLOSERS.contains(&t) || t == "w:br" || t == "w:br/")
+                    && !out.ends_with('\n') {
                         out.push('\n');
                     }
-                }
             }
             _ => {
                 if in_tag {

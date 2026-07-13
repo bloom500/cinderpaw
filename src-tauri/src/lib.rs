@@ -23,7 +23,7 @@ pub use feral_core::transcription;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -80,13 +80,107 @@ pub struct AppState {
     /// `state.rsi_state` / etc. call site across this file keeps compiling.
     pub runtime: std::sync::Arc<feral_core::runtime::RuntimeState>,
     pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
-    pub stop_signal: Arc<AtomicBool>,
+    pub stop_signals: Arc<StopRegistry>,
     /// System info pre-computed in a background thread at startup so the
     /// first call to get_system_info() returns instantly.
     pub system_info_cache: Arc<Mutex<Option<SystemInfo>>>,
     /// Cached display-safe view of the model the sidecar is currently using.
     /// Updated optimistically by feral_set_model; None until first set_model call.
     pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
+}
+
+/// One stop flag per streaming session.
+///
+/// This used to be a single shared `Arc<AtomicBool>` on `AppState`, which made
+/// "stop generating" unreliable in two ways: `stop_generation` took no session
+/// and therefore stopped every stream at once, and each new generation RESET
+/// the shared flag — so starting a stream in one session silently un-stopped a
+/// stream still running in another, and that one kept generating with nothing
+/// left that could interrupt it.
+#[derive(Default)]
+pub struct StopRegistry(Mutex<HashMap<String, Arc<AtomicBool>>>);
+
+impl StopRegistry {
+    /// Register a fresh flag for `session_id` and hand it to the generation
+    /// about to start. Replaces any previous flag for that session (a session
+    /// only ever has one stream in flight), so a stop aimed at an earlier,
+    /// already-finished generation cannot abort the new one.
+    pub fn begin(&self, session_id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.0.lock().insert(session_id.to_string(), flag.clone());
+        flag
+    }
+
+    /// Release `session_id`'s flag when its generation ends — but only if it is
+    /// still the one that was registered. A newer generation for the same
+    /// session owns a different `Arc`, and its flag must survive.
+    pub fn end(&self, session_id: &str, flag: &Arc<AtomicBool>) {
+        let mut map = self.0.lock();
+        if map.get(session_id).is_some_and(|f| Arc::ptr_eq(f, flag)) {
+            map.remove(session_id);
+        }
+    }
+
+    /// Trip the flag for one session. No-op when that session has nothing in
+    /// flight (a stale stop click from a tab whose stream already finished).
+    pub fn request_stop(&self, session_id: &str) {
+        if let Some(flag) = self.0.lock().get(session_id) {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+#[cfg(test)]
+mod stop_registry_tests {
+    use super::*;
+
+    #[test]
+    fn stop_reaches_only_its_own_session() {
+        let reg = StopRegistry::default();
+        let a = reg.begin("a");
+        let b = reg.begin("b");
+
+        reg.request_stop("a");
+
+        assert!(a.load(Ordering::SeqCst), "the stopped session must see it");
+        assert!(!b.load(Ordering::SeqCst), "a bystander session must keep generating");
+    }
+
+    #[test]
+    fn starting_a_session_does_not_unstop_another() {
+        // The old global flag was reset by every new generation, so this
+        // sequence silently revived a stream the user had already stopped.
+        let reg = StopRegistry::default();
+        let a = reg.begin("a");
+        reg.request_stop("a");
+
+        let _b = reg.begin("b");
+
+        assert!(a.load(Ordering::SeqCst), "a's stop must survive b starting");
+    }
+
+    #[test]
+    fn a_stale_stop_cannot_abort_the_next_generation() {
+        let reg = StopRegistry::default();
+        let first = reg.begin("a");
+        reg.end("a", &first);
+
+        let second = reg.begin("a");
+        reg.request_stop("a");
+        assert!(second.load(Ordering::SeqCst));
+
+        // ...but ending the FIRST generation again must not evict the second's
+        // flag, or the stop would land on nothing.
+        reg.end("a", &first);
+        reg.request_stop("a");
+        assert!(second.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn stopping_an_idle_session_is_a_no_op() {
+        let reg = StopRegistry::default();
+        reg.request_stop("nobody");
+    }
 }
 
 impl std::ops::Deref for AppState {
@@ -181,7 +275,7 @@ pub fn run() {
     let state = AppState {
         runtime,
         downloads: Arc::new(Mutex::new(HashMap::new())),
-        stop_signal: Arc::new(AtomicBool::new(false)),
+        stop_signals: Arc::new(StopRegistry::default()),
         system_info_cache,
         feral_model_config: Arc::new(Mutex::new(None)),
     };

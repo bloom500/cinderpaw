@@ -737,11 +737,10 @@ pub fn meta(op: &str) -> i32 {
 // fetch the proposal from `/governance/proposals`, render its diff, ask
 // for a y/N confirm, then POST. The CLI does NOT recompute the
 // documentHash; the sidecar handler computes it server-side when the
-/// field is absent (brief §3 "simplest correct path").
-
+// field is absent (brief §3 "simplest correct path").
 pub fn governance(action: GovernanceAction) -> i32 {
-    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, ok: OK, reset: RESET, .. } =
-        palette();
+    let pal = palette();
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, reset: RESET, .. } = pal;
     if !port_in_use(api_port()) {
         eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
         return 1;
@@ -759,22 +758,22 @@ pub fn governance(action: GovernanceAction) -> i32 {
         // ── Reads ────────────────────────────────────────────────────────
         GovernanceAction::Status => {
             let result = block_on(fetch_json(&token, "/governance/policy"));
-            render_governance_read(&result, &GovernanceAction::Status, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_read(&result, &GovernanceAction::Status, &pal)
         }
         GovernanceAction::Proposals => {
             let result = block_on(fetch_json(&token, "/governance/proposals"));
-            render_governance_read(&result, &GovernanceAction::Proposals, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_read(&result, &GovernanceAction::Proposals, &pal)
         }
         GovernanceAction::History => {
             let result = block_on(fetch_json(&token, "/governance/history?limit=50"));
-            render_governance_read(&result, &GovernanceAction::History, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_read(&result, &GovernanceAction::History, &pal)
         }
         GovernanceAction::Verify => {
             let result = block_on(fetch_json(&token, "/governance/verify"));
             // Verify op drives the exit code (AC 8/11: exit 0 iff every
             // chain + journal row verified). The renderer prints the same
             // shape; we just translate the boolean into the shell exit.
-            let code = render_governance_read(&result, &GovernanceAction::Verify, &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET);
+            let code = render_governance_read(&result, &GovernanceAction::Verify, &pal);
             match &result {
                 Ok(v) => {
                     let chains_ok = v.get("chains").and_then(|c| c.get("ok")).and_then(|b| b.as_bool()).unwrap_or(false);
@@ -811,7 +810,7 @@ pub fn governance(action: GovernanceAction) -> i32 {
                 return 1;
             }
             let result = block_on(post_json_with_body(&token, "/governance/propose", document));
-            render_governance_mutation(result, "propose", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_mutation(result, "propose", &pal)
         }
 
         // Approve: fetch the proposal (status + proposals endpoints both
@@ -867,7 +866,7 @@ pub fn governance(action: GovernanceAction) -> i32 {
             // hash in the result. See brief §3.
             let body = json!({ "policyId": id });
             let result = block_on(post_json_with_body(&token, "/governance/approve", body));
-            render_governance_mutation(result, "approve", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_mutation(result, "approve", &pal)
         }
 
         GovernanceAction::Reject { id, message } => {
@@ -876,12 +875,12 @@ pub fn governance(action: GovernanceAction) -> i32 {
                 "reason": message.unwrap_or_default(),
             });
             let result = block_on(post_json_with_body(&token, "/governance/reject", body));
-            render_governance_mutation(result, "reject", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_mutation(result, "reject", &pal)
         }
 
         GovernanceAction::Rollback => {
             let result = block_on(post_json_with_body(&token, "/governance/rollback", json!({})));
-            render_governance_mutation(result, "rollback", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_mutation(result, "rollback", &pal)
         }
 
         GovernanceAction::Freeze { layers, message } => {
@@ -890,7 +889,7 @@ pub fn governance(action: GovernanceAction) -> i32 {
                 "reason": message.unwrap_or_default(),
             });
             let result = block_on(post_json_with_body(&token, "/governance/freeze", body));
-            render_governance_mutation(result, "freeze", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_mutation(result, "freeze", &pal)
         }
 
         GovernanceAction::Unfreeze { layers, message } => {
@@ -899,7 +898,7 @@ pub fn governance(action: GovernanceAction) -> i32 {
                 "reason": message.unwrap_or_default(),
             });
             let result = block_on(post_json_with_body(&token, "/governance/unfreeze", body));
-            render_governance_mutation(result, "unfreeze", &ACCENT, &TEXT, &META, &DIM, &OK, &FAIL, &RESET)
+            render_governance_mutation(result, "unfreeze", &pal)
         }
     }
 }
@@ -1014,14 +1013,9 @@ pub fn modules(action: ModulesAction) -> i32 {
 fn render_governance_read(
     result: &Result<serde_json::Value, String>,
     action: &GovernanceAction,
-    ACCENT: &str,
-    TEXT: &str,
-    META: &str,
-    DIM: &str,
-    OK: &str,
-    FAIL: &str,
-    RESET: &str,
+    p: &Palette,
 ) -> i32 {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, ok: OK, fail: FAIL, reset: RESET, .. } = *p;
     let v = match result {
         Ok(v) => v,
         Err(e) => {
@@ -1053,7 +1047,7 @@ fn render_governance_read(
         GovernanceAction::Status => render_governance_status(v, ACCENT, TEXT, META, DIM, RESET),
         GovernanceAction::Proposals => render_governance_status(v, ACCENT, TEXT, META, DIM, RESET),
         GovernanceAction::History => render_governance_history(v, ACCENT, TEXT, META, DIM, RESET),
-        GovernanceAction::Verify => render_governance_verify(v, OK, FAIL, META, TEXT, DIM, RESET),
+        GovernanceAction::Verify => render_governance_verify(v, OK, FAIL, TEXT, DIM, RESET),
         _ => unreachable!("non-read action reached render_governance_read"),
     }
     0
@@ -1065,14 +1059,9 @@ fn render_governance_read(
 fn render_governance_mutation(
     result: Result<serde_json::Value, String>,
     op: &str,
-    ACCENT: &str,
-    TEXT: &str,
-    META: &str,
-    DIM: &str,
-    OK: &str,
-    FAIL: &str,
-    RESET: &str,
+    p: &Palette,
 ) -> i32 {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, ok: OK, fail: FAIL, reset: RESET, .. } = *p;
     let v = match result {
         Ok(v) => v,
         Err(e) => {
@@ -1190,7 +1179,6 @@ fn render_governance_verify(
     v: &serde_json::Value,
     OK: &str,
     FAIL: &str,
-    META: &str,
     TEXT: &str,
     DIM: &str,
     RESET: &str,

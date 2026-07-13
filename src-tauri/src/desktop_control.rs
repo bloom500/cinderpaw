@@ -317,7 +317,7 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
             security::ENABLE_ENV
         ));
     }
-    run_blocking(|| imp::list_windows()).await
+    run_blocking(imp::list_windows).await
 }
 
 #[tauri::command]
@@ -373,7 +373,7 @@ pub async fn get_focused_element() -> Result<AccessibilityElement, String> {
             security::ENABLE_ENV
         ));
     }
-    let el = run_blocking(|| imp::get_focused_element()).await?;
+    let el = run_blocking(imp::get_focused_element).await?;
     // The focused window could belong to a denylisted app — gate by its pid.
     security::check_pid(decode_handle(&el.id)?.0)?;
     Ok(el)
@@ -441,7 +441,7 @@ pub async fn launch_app(app: String) -> Result<LaunchResult, String> {
 /// Lowercased final path component of an executable name/path, used for the
 /// allow/deny check. `C:\\Windows\\System32\\notepad.exe` → `notepad.exe`.
 fn app_basename(app: &str) -> String {
-    app.rsplit(|c| c == '\\' || c == '/')
+    app.rsplit(['\\', '/'])
         .next()
         .unwrap_or(app)
         .to_lowercase()
@@ -776,11 +776,14 @@ mod tests {
         }
     }
 
+    // Regression: the old ceiling of 8 hid Electron/DOM content. Keep it
+    // comfortably deep so VS Code / Discord structure is reachable. MAX_DEPTH
+    // is a constant, so this is worth more as a compile-time assertion than a
+    // test one: lowering it fails the build rather than one test run.
+    const _: () = assert!(MAX_DEPTH >= 20);
+
     #[test]
     fn depth_ceiling_allows_deep_electron_trees() {
-        // Regression: the old ceiling of 8 hid Electron/DOM content. Keep it
-        // comfortably deep so VS Code / Discord structure is reachable.
-        assert!(MAX_DEPTH >= 20);
         assert_eq!(clamp_depth(25), 25);
         assert_eq!(clamp_depth(255), MAX_DEPTH);
     }

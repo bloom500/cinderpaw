@@ -296,7 +296,7 @@ pub fn commit_genome(
 
     // Make sure the candidate branch exists at this commit.
     let commit = repo.find_commit(commit_oid)?;
-    if let Err(_) = repo.find_branch(candidate_branch, BranchType::Local) {
+    if repo.find_branch(candidate_branch, BranchType::Local).is_err() {
         repo.branch(candidate_branch, &commit, true)?;
     } else {
         // Branch exists — point it at the new commit. In git2 0.19
@@ -693,7 +693,7 @@ mod tests {
         assert!(msg.starts_with("rsi: iteration gen-1234"));
         // We can't easily round-trip through a Commit here without a
         // live repo, so we just verify the JSON slice parses.
-        let json_part = msg.splitn(2, '\n').nth(1).unwrap().trim_start_matches('\n').trim();
+        let json_part = msg.split_once('\n').unwrap().1.trim_start_matches('\n').trim();
         let parsed: IterationMetadata = serde_json::from_str(json_part).unwrap();
         assert_eq!(parsed, meta);
     }

@@ -150,7 +150,7 @@ impl SandboxBounds {
     pub fn save_with_audit(&self, audit: &SandboxBoundsAudit, reason: &str) -> Result<()> {
         // Always snapshot the current file (if any) for diff logging.
         let old = if rsi_sandbox_bounds_path().exists() {
-            Some(std::fs::read_to_string(&rsi_sandbox_bounds_path())?)
+            Some(std::fs::read_to_string(rsi_sandbox_bounds_path())?)
         } else {
             None
         };
@@ -230,7 +230,7 @@ impl SandboxBounds {
 
         // Persist the new file. Pretty-printed for human auditing.
         let pretty = serde_json::to_string_pretty(self)?;
-        std::fs::write(&rsi_sandbox_bounds_path(), pretty)
+        std::fs::write(rsi_sandbox_bounds_path(), pretty)
             .with_context(|| format!("write bounds file {}", rsi_sandbox_bounds_path().display()))?;
 
         // Now that the file is on disk, append audit rows.
@@ -253,7 +253,7 @@ impl SandboxBounds {
     pub fn bootstrap_with_audit(audit: &SandboxBoundsAudit) -> Result<Self> {
         let bounds = Self::default();
         std::fs::write(
-            &rsi_sandbox_bounds_path(),
+            rsi_sandbox_bounds_path(),
             serde_json::to_string_pretty(&bounds)?,
         )
         .with_context(|| format!("write bootstrap bounds to {}", rsi_sandbox_bounds_path().display()))?;
@@ -275,7 +275,7 @@ impl SandboxBounds {
     /// of Rust-side mutations).
     pub fn file_sha256(&self) -> Result<String> {
         use sha2::{Digest, Sha256};
-        let raw = std::fs::read(&rsi_sandbox_bounds_path())
+        let raw = std::fs::read(rsi_sandbox_bounds_path())
             .with_context(|| format!("read bounds for hashing: {}", rsi_sandbox_bounds_path().display()))?;
         let mut h = Sha256::new();
         h.update(&raw);
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn protected_path_check_includes_eval_and_genomes() {
-        let (_b, _a) = fresh(&TempDir::new().unwrap().path().to_path_buf());
+        let (_b, _a) = fresh(TempDir::new().unwrap().path());
         // We can't actually point at a real ~/.feral/rsi in tests; the
         // check is exercised through the integration surface in
         // commands.rs. Here we just sanity-check that the function

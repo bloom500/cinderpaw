@@ -843,7 +843,7 @@ fn parse_keys(spec: &str) -> Result<Vec<INPUT>, String> {
             }
             let mut token = String::new();
             let mut closed = false;
-            while let Some(n) = chars.next() {
+            for n in chars.by_ref() {
                 if n == '}' {
                     closed = true;
                     break;
