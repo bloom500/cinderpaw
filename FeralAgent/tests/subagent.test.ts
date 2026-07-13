@@ -66,6 +66,7 @@ function stubRouter(
     abort: () => {},
     reconfigure: () => {},
     setBudgetWarningListener: () => {},
+    setThrottleListener: () => {},
   } as unknown as InferenceRouter;
 }
 
@@ -75,6 +76,7 @@ function makeFailingRouter(errorMessage: string): InferenceRouter {
     abort: () => {},
     reconfigure: () => {},
     setBudgetWarningListener: () => {},
+    setThrottleListener: () => {},
   } as unknown as InferenceRouter;
 }
 

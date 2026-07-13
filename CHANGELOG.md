@@ -82,6 +82,32 @@ steps.
 - **New `connectors_manage` and `product_info` tools**, so the agent can
   configure its own connectors and answer questions about Feral itself.
 
+### Rate limits
+
+- **Feral now stays under a provider's requests-per-minute cap instead of
+  discovering it the expensive way.** NVIDIA NIM's free tier allows 40 requests
+  a minute. Nothing counted requests, and an agent turn spends one request per
+  tool round-trip — so the first genuinely multi-step task tripped the cap and
+  every call after it came back 429, killing the task mid-run.
+
+  A sliding 60-second window per endpoint now holds a request back when it
+  would exceed the cap, waiting exactly long enough for the oldest one to age
+  out — usually a couple of seconds, not a minute. It spends 90% of the
+  published limit, because our minute and the provider's are not the same
+  minute and aiming at exactly 40/40 produces 429s by construction. Endpoints
+  with no published cap — the bundled local engine above all — are never
+  throttled.
+
+  A 429 that slips through anyway (the count is local, so a key also used
+  outside Feral is invisible to it) is retried, honouring `Retry-After`, up to
+  three times. A provider asking us to come back in ten minutes surfaces as an
+  error rather than freezing the agent for ten minutes.
+
+  Waits are announced as a `rate_limited` event, so a multi-second pause reads
+  as a pause and not as a hang, and a stop cancels the wait instead of making
+  the user sit through it. Override the cap with `FERAL_RATE_LIMIT_RPM` if you
+  are on a paid tier or share one key with something outside Feral.
+
 ### Privacy
 
 - The startup update check is **opt-out** (Settings → General) and contacts

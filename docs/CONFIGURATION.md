@@ -104,6 +104,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_LOCAL_BASE_URL` | string | `null` |  | Loopback address of the bundled local engine, set by the host. Used ONLY as the degrade-to-local fallback when the primary is a cloud provider; ignored when not loopback. |
 | `FERAL_LOCAL_MODEL` | string | `null` |  | Model id the bundled local engine serves (fallback target companion to FERAL_LOCAL_BASE_URL). |
 | `FERAL_LOCAL_API_KEY` | string | `null` | yes | Bearer token for the loopback local engine (the host's local API token). |
+| `FERAL_RATE_LIMIT_RPM` | int | `0` |  | Requests-per-minute cap applied to every inference endpoint, overriding the built-in published caps (NVIDIA NIM free tier = 40). 0 uses those defaults. Set this if you are on a paid tier with a different limit, or share one API key with something outside Feral. |
 | `FERAL_FALLBACK_PROVIDER` | string | `"ollama"` |  | Provider to fall back to if the primary is unreachable. |
 | `FERAL_FALLBACK_MODEL` | string | `null` |  | Model to fall back to. |
 | `FERAL_FALLBACK_BASE_URL` | string | `"http://localhost:11434"` |  | Base URL for the fallback provider. |
@@ -259,6 +260,7 @@ FERAL_OLLAMA_NUM_CTX
 FERAL_PII_REDACTION
 FERAL_PROACTIVE_ENABLED
 FERAL_PROVIDER
+FERAL_RATE_LIMIT_RPM
 FERAL_RSI_ALLOW_CLOUD
 FERAL_RSI_CONCURRENCY
 FERAL_RSI_COOLDOWN_MS

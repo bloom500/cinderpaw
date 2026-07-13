@@ -265,6 +265,10 @@ function loadConfig(): AppConfig {
         onExhausted:
           env.FERAL_BUDGET_POLICY === "stop" ? "stop" : "compress_and_continue",
       },
+      // Requests-per-minute cap. Unset (0) means the router uses the published
+      // caps it knows about — NVIDIA NIM's free tier is 40 RPM — and leaves
+      // every other endpoint, the local engine above all, unthrottled.
+      rateLimitRpm: Number(env.FERAL_RATE_LIMIT_RPM ?? 0),
       // Comma-separated allowlist of inference endpoints. Omitted → defaults to
       // exactly the configured primary/fallback targets.
       ...(env.FERAL_TRUSTED_BASE_URLS

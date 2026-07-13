@@ -36,6 +36,24 @@ import {
   postJson,
   type InferenceProvider,
 } from "./inference-providers.ts";
+import {
+  MAX_RETRY_AFTER_MS,
+  RequestRateLimiter,
+  abortableSleep,
+  backoffMs,
+  parseRetryAfter,
+  type ThrottleWait,
+} from "./rate-limiter.ts";
+
+/**
+ * How many times a 429 is retried before it surfaces as a failure.
+ *
+ * The gate makes a 429 unlikely; this catches the cases it cannot see — a key
+ * used from outside Feral, or a provider whose window does not line up with
+ * ours. Three attempts covers a transient collision without turning a genuine
+ * "you are out of quota" into a minutes-long silent stall.
+ */
+const MAX_RATE_LIMIT_RETRIES = 3;
 
 export class BudgetExhaustedError extends Error {
   readonly reason: BudgetExhaustedReason;
@@ -136,6 +154,19 @@ export class InferenceRouter {
    * duplicate fires across the sidecar lifetime.
    */
   readonly #budgetWarningFired = new Map<string, true>();
+  /**
+   * Keeps requests to rate-limited endpoints (NVIDIA NIM's free tier: 40 RPM)
+   * inside the cap. An agent turn spends one request per tool round-trip, so
+   * the first genuinely multi-step task used to walk straight into 429s.
+   * Endpoints with no published cap — the local engine above all — pass
+   * through untouched.
+   */
+  readonly #rateLimiter: RequestRateLimiter;
+  /**
+   * Fired when a request has to wait for a rate-limit slot, so the agent loop
+   * can tell the user. A silent multi-second pause looks exactly like a hang.
+   */
+  #throttleListener: ((info: ThrottleWait & { sessionId: string }) => void) | null = null;
 
   constructor(config: InferenceConfig, audit: AuditLogger, db: Database) {
     this.#primary = config.primary;
@@ -143,6 +174,7 @@ export class InferenceRouter {
     this.#tokenBudget = config.tokenBudget;
     this.#audit = audit;
     this.#db = db;
+    this.#rateLimiter = new RequestRateLimiter(config.rateLimitRpm ?? 0);
     this.#trusted = this.#buildTrusted(
       config.primary,
       config.fallback,
@@ -690,7 +722,65 @@ export class InferenceRouter {
       // Treat unknown providers as OpenAI-compatible (openai, deepseek, …).
       this.#providers["openai"]!;
 
-    return provider.complete(target, req, isFallback);
+    const notifyWait = (waitMs: number) => {
+      this.#throttleListener?.({
+        baseUrl: target.baseUrl,
+        waitMs,
+        limitRpm: this.#rateLimiter.limitFor(target.baseUrl),
+        sessionId: req.sessionId,
+      });
+    };
+
+    for (let attempt = 0; ; attempt++) {
+      // Wait here, not inside the provider: this is the one funnel both the
+      // primary and the fallback pass through, so a fallback landing on the
+      // same rate-limited endpoint is counted too. `req.signal` is already the
+      // per-session controller, so a user stop cuts the wait short instead of
+      // making them sit through it.
+      await this.#rateLimiter.acquire(target.baseUrl, req.signal, (info) =>
+        this.#throttleListener?.({ ...info, sessionId: req.sessionId }),
+      );
+
+      try {
+        return await provider.complete(target, req, isFallback);
+      } catch (err) {
+        // The gate is best-effort — our request count is local, so a key used
+        // from outside Feral is invisible to it. A 429 is that blind spot
+        // showing up, not a bug: respect the provider's Retry-After and go
+        // again rather than failing the user's task on a transient collision.
+        const status = (err as { status?: number }).status;
+        if (status !== 429 || attempt >= MAX_RATE_LIMIT_RETRIES) throw err;
+
+        // The provider counted the attempt it rejected, so our window must too
+        // — otherwise it drifts optimistic exactly when we are already over.
+        this.#rateLimiter.note(target.baseUrl);
+
+        const retryAfter = parseRetryAfter((err as { retryAfter?: string | null }).retryAfter);
+        const waitMs = retryAfter ?? backoffMs(attempt);
+
+        // A provider asking us to come back in ten minutes is not asking us to
+        // block for ten minutes. Surface it instead of freezing the agent.
+        if (waitMs > MAX_RETRY_AFTER_MS) throw err;
+
+        notifyWait(waitMs);
+        await abortableSleep(waitMs, req.signal);
+      }
+    }
+  }
+
+  /**
+   * Register the callback fired when a request waits for a rate-limit slot.
+   * The agent loop uses it to emit a `rate_limited` event.
+   */
+  setThrottleListener(
+    listener: ((info: ThrottleWait & { sessionId: string }) => void) | null,
+  ): void {
+    this.#throttleListener = listener;
+  }
+
+  /** Requests counted against `baseUrl` in the current window. Telemetry/tests. */
+  rateLimitCount(baseUrl: string): number {
+    return this.#rateLimiter.countInWindow(baseUrl);
   }
 
   /**

@@ -99,6 +99,7 @@ describe("R3: Concurrency event context and abort controller", () => {
         setBudgetWarningListener: (listener: any) => {
           registeredListener = listener;
         },
+        setThrottleListener: () => {},
         complete: async () => {
           callCount++;
           if (callCount === 1) {

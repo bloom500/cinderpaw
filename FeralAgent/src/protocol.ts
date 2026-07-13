@@ -49,5 +49,5 @@ export const OUTBOUND_TYPES = [
   "model_download_failed", "wizard_step_completed",
   "onboarding_goal_completed", "onboarding_all_goals_done",
   "onboarding_suggestion", "confirmation_required",
-  "confirmation_granted", "confirmation_denied", "hello",
+  "confirmation_granted", "confirmation_denied", "rate_limited", "hello",
 ] as const;

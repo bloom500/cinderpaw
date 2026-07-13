@@ -76,6 +76,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Model id the bundled local engine serves (fallback target companion to FERAL_LOCAL_BASE_URL).", security: false },
   { name: "FERAL_LOCAL_API_KEY", type: "string", default: null,
     description: "Bearer token for the loopback local engine (the host's local API token).", security: true },
+  { name: "FERAL_RATE_LIMIT_RPM", type: "int", default: 0,
+    description: "Requests-per-minute cap applied to every inference endpoint, overriding the built-in published caps (NVIDIA NIM free tier = 40). 0 uses those defaults. Set this if you are on a paid tier with a different limit, or share one API key with something outside Feral.", security: false },
   { name: "FERAL_FALLBACK_PROVIDER", type: "string", default: "ollama",
     description: "Provider to fall back to if the primary is unreachable.", security: false },
   { name: "FERAL_FALLBACK_MODEL", type: "string", default: null,

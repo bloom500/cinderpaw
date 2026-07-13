@@ -436,6 +436,21 @@ export class AgentLoop {
       const sink = this.#sessionContexts.get(info.sessionId)?.emit;
       if (sink) sink(payload);
     });
+
+    // Same shape for the rate-limit gate: when a request is held back to stay
+    // under the provider's requests-per-minute cap, say so. Without this the
+    // agent just goes quiet for a few seconds mid-task and looks stuck.
+    this.#router.setThrottleListener((info) => {
+      const sink = this.#sessionContexts.get(info.sessionId)?.emit;
+      if (!sink) return;
+      sink({
+        type: "rate_limited",
+        sessionId: info.sessionId,
+        waitMs: info.waitMs,
+        limitRpm: info.limitRpm,
+        baseUrl: info.baseUrl,
+      });
+    });
   }
 
   /**

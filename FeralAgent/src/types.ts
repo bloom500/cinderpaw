@@ -442,6 +442,13 @@ export interface InferenceConfig {
    * the router can never call an endpoint that was not explicitly set up.
    */
   trustedBaseUrls?: string[];
+  /**
+   * Requests-per-minute cap applied to EVERY inference endpoint, overriding the
+   * published caps the router knows about (see `DEFAULT_RPM_BY_HOST`). Omit or
+   * 0 to use those defaults, which is what you want unless you are on a paid
+   * tier with a different limit, or you share one key with something else.
+   */
+  rateLimitRpm?: number;
 }
 
 /** A single chat message in the LLM-facing transcript. */
@@ -1112,6 +1119,10 @@ export type OutboundEvent =
   | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
+  // The next request would exceed the provider's requests-per-minute cap, so
+  // it is being held back for `waitMs`. Emitted so the pause is legible: a
+  // silent gap of several seconds is indistinguishable from a hung agent.
+  | { type: "rate_limited"; sessionId: string; waitMs: number; limitRpm: number; baseUrl: string; traceId?: string }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
   // Heartbeat for in-flight agent inference (mirrors Rust
   // `events::StreamProgressEvent`). Emitted on a ~750 ms cadence so the

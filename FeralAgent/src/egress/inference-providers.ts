@@ -28,9 +28,19 @@ import { cfgInt } from "../config.ts";
 // inference-router re-exports its own InferenceError class; both throw the
 // same shape but are separate class instances. Callers catch by name or message.
 class InferenceError extends Error {
-  constructor(message: string) {
+  /**
+   * HTTP status when the failure came from the endpoint. The router reads this
+   * to recognise a 429 and retry after the provider's Retry-After, rather than
+   * scraping the status back out of the message string.
+   */
+  readonly status?: number;
+  readonly retryAfter?: string | null;
+
+  constructor(message: string, status?: number, retryAfter?: string | null) {
     super(message);
     this.name = "InferenceError";
+    this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -1131,6 +1141,8 @@ async function fetchStream(
     const detail = await res.text().catch(() => "");
     throw new InferenceError(
       `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
+      res.status,
+      res.headers.get("retry-after"),
     );
   }
   if (!res.body) throw new InferenceError("no response body for streaming");
@@ -1161,7 +1173,11 @@ export async function postJson(
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      throw new InferenceError(`inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`);
+      throw new InferenceError(
+        `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
+        res.status,
+        res.headers.get("retry-after"),
+      );
     }
     return await res.json();
   } finally {
