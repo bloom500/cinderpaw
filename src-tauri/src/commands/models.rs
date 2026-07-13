@@ -137,6 +137,22 @@ pub(crate) fn cancel_download(state: State<AppState>, model_id: String) -> Resul
     }
 }
 
+/// Remember which model the user picked. Loading one IS the choice, so every
+/// load path records it — the API's lazy-load and the RSI model gate both read
+/// this back, and neither may ever guess a model on the user's behalf.
+///
+/// The agent-mode sidecar sync in ChatPage also persists a route, but only in
+/// agent mode; a user who loads a model and stays in plain chat must not end up
+/// with no recorded choice (their connectors would have nothing to reload after
+/// a restart).
+pub(crate) fn persist_active_route(route: String) {
+    let mut s = settings::load();
+    s.active_route = Some(route);
+    if let Err(e) = settings::save(&s) {
+        tracing::warn!(error = %e, "could not persist active_route");
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn load_model(
@@ -146,11 +162,13 @@ pub(crate) async fn load_model(
 ) -> Result<inference::LoadedModel, String> {
     let manager = state.manager.clone();
     let n_gpu_layers = state.settings.default_gpu_layers;
-    tokio::task::spawn_blocking(move || {
+    let loaded = tokio::task::spawn_blocking(move || {
         manager.load(PathBuf::from(path), n_gpu_layers, max_context).map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    persist_active_route(format!("local:{}", loaded.name));
+    Ok(loaded)
 }
 
 /// Load a model with real-time progress events emitted to the frontend.
@@ -229,8 +247,12 @@ pub(crate) async fn start_model_load(
                 status_text: format!("Model Loaded! · {}", inference::active_backend_label()),
             });
 
-            // No auto-reload persistence. Each load is explicit (user clicks "Load" in
-            // the UI). Removed 2026-06-30 along with the startup auto-load.
+            // Record the choice — NOT an auto-reload. The startup auto-load is
+            // still gone (2026-06-30: mmap lag froze non-technical machines) and
+            // nothing here reloads at boot. This only remembers WHICH model the
+            // user picked, so the things that must never guess one for them —
+            // the API's lazy-load, the RSI gate — have an answer to read.
+            persist_active_route(format!("local:{}", model.name));
 
             Ok(model)
         }
@@ -242,6 +264,17 @@ pub(crate) async fn start_model_load(
 #[specta::specta]
 pub(crate) fn unload_model(state: State<AppState>) {
     state.manager.unload();
+    // Unloading IS a choice: "I don't want this model resident." Forget it, or
+    // the API's lazy-load would resurrect it on the next connector message and
+    // the user would watch the RAM come straight back. A cloud route is left
+    // alone — unloading the local engine says nothing about their cloud pick.
+    let mut s = settings::load();
+    if s.active_route.as_deref().is_some_and(|r| r.starts_with("local:")) {
+        s.active_route = None;
+        if let Err(e) = settings::save(&s) {
+            tracing::warn!(error = %e, "could not clear active_route");
+        }
+    }
 }
 
 /// Faza 4 (L2): stage a personal LoRA adapter for the next model load, or
@@ -496,16 +529,11 @@ pub(crate) async fn feral_set_model(
     // command did not, so a restart silently reverted the UI's cloud model to
     // the last local one — and reloaded its GGUF. `local:` is the boot default,
     // so a loopback target writes that back rather than a provider id.
-    let route = if is_local {
+    persist_active_route(if is_local {
         format!("local:{}", model)
     } else {
         format!("{}:{}", provider, model)
-    };
-    let mut s = settings::load();
-    s.active_route = Some(route);
-    if let Err(e) = settings::save(&s) {
-        tracing::warn!(error = %e, "could not persist active_route");
-    }
+    });
 
     // Optimistically cache the new config (confirmed by model_set event from sidecar).
     let display_name = if provider == "ollama" {

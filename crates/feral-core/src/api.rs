@@ -509,13 +509,31 @@ static API_AUTOLOAD_IN_FLIGHT: std::sync::atomic::AtomicBool =
 ///
 /// Boot auto-load was deliberately removed (2026-06-30: mmap lag froze
 /// non-technical users' machines), so nothing guarantees a loaded model when
-/// an API caller arrives — the RSI Dream Cycle's first episode burned every
-/// eval on "no model loaded", and connectors hit the same hole whenever the
-/// user hadn't touched the Local Models tab. The fix that respects the
-/// no-boot-load decision: load lazily HERE, on first demand, using the model
-/// id the caller asked for (falling back to the first model on disk). Waits
-/// out a concurrent load (UI or another request) up to `FERAL_MODEL_WAIT_MS`
-/// (default 120s).
+/// an API caller arrives — connectors hit that hole across a restart, since
+/// nothing reloads the model the user picked last session.
+///
+/// This loads lazily, on first demand, but ONLY a model the user actually
+/// chose: the id the caller named, or their persisted `active_route`. It used
+/// to fall back to "the first model on disk", which meant any caller could make
+/// the app pull a multi-GB GGUF the user had never selected — a cloud-only user
+/// paid ~5 GB of RSS for it (2026-07-13). Choosing a model is the user's call;
+/// no model chosen → 503, never a guess.
+///
+/// Waits out a concurrent load (UI or another request) up to
+/// `FERAL_MODEL_WAIT_MS` (default 120s).
+/// Which model may we load for this request? Only one the user chose: the id
+/// they named, else the one they last selected (`chosen`, from `active_route`).
+/// Deliberately has NO "first model on disk" arm — that arm is what let any
+/// caller pull a multi-GB GGUF the user never picked.
+fn pick_user_model<'a>(
+    models: &'a [models::ModelInfo],
+    requested: &str,
+    chosen: Option<&str>,
+) -> Option<&'a models::ModelInfo> {
+    let by = |want: &str| models.iter().find(|m| m.id == want || m.name == want);
+    by(requested).or_else(|| chosen.and_then(by))
+}
+
 async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
     use std::sync::atomic::Ordering;
     if state.manager.current().is_some() {
@@ -523,25 +541,33 @@ async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
     }
 
     if !API_AUTOLOAD_IN_FLIGHT.swap(true, Ordering::SeqCst) {
-        // We own the load. Resolve the requested id against the models dir.
+        // We own the load. Resolve against what the USER picked — never a guess.
         let requested = requested.to_string();
+        // Their last explicit selection, persisted by the UI / `POST /model` /
+        // guided setup. Survives a restart, which is what keeps connectors
+        // working without a boot-time load.
+        let chosen = crate::settings::load().active_route.and_then(|r| {
+            r.split_once(':')
+                .filter(|(pid, _)| *pid == "local")
+                .map(|(_, name)| name.to_string())
+        });
         let manager = state.manager.clone();
         let loaded = tokio::task::spawn_blocking(move || {
             let models = models::scan_models_dir().unwrap_or_default();
-            let pick = models
-                .iter()
-                .find(|m| m.id == requested || m.name == requested)
-                .or_else(|| models.first());
+            let pick = pick_user_model(&models, &requested, chosen.as_deref());
             match pick {
                 Some(m) => {
-                    tracing::info!(model = %m.id, "api: lazy-loading model on first completion request");
+                    tracing::info!(model = %m.id, "api: lazy-loading the user's selected model on first completion request");
                     // n_gpu_layers -1 = offload all (GPU builds fall back to
                     // CPU internally); context uses the conservative default
                     // cap — the UI's Hardware choice re-applies on its next
                     // explicit load.
                     manager.load(m.path.clone(), -1, None).map(|_| true).unwrap_or(false)
                 }
-                None => false,
+                None => {
+                    tracing::info!("api: no model loaded and none selected — refusing to pick one for the user");
+                    false
+                }
             }
         })
         .await
@@ -580,7 +606,10 @@ async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
 fn no_model_response() -> axum::response::Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({ "error": { "message": "no model loaded", "type": "model_not_ready" } })),
+        Json(json!({ "error": {
+            "message": "no model selected — choose one in Models (or name an installed model in the request)",
+            "type": "model_not_ready",
+        } })),
     )
         .into_response()
 }
@@ -2379,9 +2408,49 @@ fn sse_from_chat(
 mod tests {
     use super::*;
     use crate::host::HostEvent;
+    use crate::models::ModelInfo;
 
     fn agent_output(line: &str) -> HostEvent {
         HostEvent { event: "feral://agent-output".into(), payload: json!({ "data": line }) }
+    }
+
+    fn model(id: &str) -> ModelInfo {
+        ModelInfo {
+            id: id.into(),
+            name: id.into(),
+            path: std::path::PathBuf::from(format!("/models/{id}.gguf")),
+            size_bytes: 0,
+            quant: None,
+            ctx_len: None,
+            loaded: false,
+            modelfile: None,
+        }
+    }
+
+    // The user picks the model — the API never picks one for them. A caller that
+    // names nothing we have, with nothing selected, gets a 503, NOT a surprise
+    // multi-GB load (2026-07-13: that arm cost a cloud-only user ~5 GB of RSS).
+    #[test]
+    fn pick_user_model_honours_an_explicitly_named_model() {
+        let models = [model("qwen-9b"), model("llama-8b")];
+        let pick = pick_user_model(&models, "llama-8b", None);
+        assert_eq!(pick.map(|m| m.id.as_str()), Some("llama-8b"));
+    }
+
+    #[test]
+    fn pick_user_model_falls_back_to_the_users_selection() {
+        let models = [model("qwen-9b"), model("llama-8b")];
+        // Sidecar sent a name we don't have on disk; the user's saved pick wins.
+        let pick = pick_user_model(&models, "feral-local", Some("llama-8b"));
+        assert_eq!(pick.map(|m| m.id.as_str()), Some("llama-8b"));
+    }
+
+    #[test]
+    fn pick_user_model_never_guesses_the_first_model_on_disk() {
+        let models = [model("qwen-9b"), model("llama-8b")];
+        assert!(pick_user_model(&models, "feral-local", None).is_none());
+        // A stale selection pointing at a deleted model is not a licence either.
+        assert!(pick_user_model(&models, "feral-local", Some("deleted-model")).is_none());
     }
 
     #[test]
