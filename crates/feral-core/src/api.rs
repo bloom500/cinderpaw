@@ -2013,6 +2013,10 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
                 .into_response();
         }
         *state.runtime.active_agent_model.lock() = Some(model.clone());
+        // Switching to a cloud model releases the local engine — a loaded GGUF
+        // is ~5 GB of RSS nobody is generating with once every token comes from
+        // the cloud. Mirrors the desktop `feral_set_model` path.
+        state.manager.unload();
         // Mirror the choice into env vars so runtime_status reports it and
         // this process doesn't lose track of which cloud we picked.
         // SAFETY: we are single-threaded inside the router task at this point

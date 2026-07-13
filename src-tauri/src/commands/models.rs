@@ -457,11 +457,20 @@ pub(crate) async fn feral_set_model(
     // so its transcript-compaction budget matches the KV cache the engine
     // actually allocated (Hardware can raise this well past the old 8192). Cloud
     // models omit it — the sidecar uses its generous cloud budget.
-    let context_window = if is_local_api_url(&resolved_url, state.settings.api_port) {
+    let is_local = is_local_api_url(&resolved_url, state.settings.api_port);
+    let context_window = if is_local {
         state.manager.current().map(|m| m.ctx_len)
     } else {
         None
     };
+
+    // Switching to a remote model releases the local engine. Without this the
+    // GGUF stayed resident for the whole session — a 9B Q4 is ~5 GB of RSS the
+    // user is paying for while every token is being generated in the cloud
+    // (2026-07-13: 6 GB working set on an app running entirely on MiniMax).
+    if !is_local {
+        state.manager.unload();
+    }
 
     let msg = serde_json::json!({
         "type": "set_model",
@@ -481,6 +490,22 @@ pub(crate) async fn feral_set_model(
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
+
+    // Persist the route so the next boot starts the sidecar on the SAME model.
+    // The HTTP path (`POST /runtime/model`) has always done this; the desktop
+    // command did not, so a restart silently reverted the UI's cloud model to
+    // the last local one — and reloaded its GGUF. `local:` is the boot default,
+    // so a loopback target writes that back rather than a provider id.
+    let route = if is_local {
+        format!("local:{}", model)
+    } else {
+        format!("{}:{}", provider, model)
+    };
+    let mut s = settings::load();
+    s.active_route = Some(route);
+    if let Err(e) = settings::save(&s) {
+        tracing::warn!(error = %e, "could not persist active_route");
+    }
 
     // Optimistically cache the new config (confirmed by model_set event from sidecar).
     let display_name = if provider == "ollama" {
