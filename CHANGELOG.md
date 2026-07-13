@@ -13,6 +13,50 @@ each version converts to Apache 2.0 after four years). Windows and macOS
 builds are **unsigned** — see the README for the SmartScreen and first-launch
 steps.
 
+### Feral in the terminal
+
+- **A real terminal client.** `feral chat` opens a full TUI: streaming answers
+  rendered at 30fps, tool calls as inline pills, a thinking panel you can fold
+  away, and slash commands (`/think`, `/verbose`, `/usage`, `/restart`,
+  `/compact`, `/model`, `/connectors`). Layout is borderless and flat, in the
+  shape terminal users already know from Claude Code.
+- **It behaves like a terminal program should.** `NO_COLOR` is honoured
+  globally, there is an ASCII mode for terminals without glyph support, the
+  mouse wheel scrolls, manual scrollback is not yanked away by an incoming
+  stream, `Esc` interrupts the generation instead of quitting the app, `Ctrl+C`
+  needs a second press, input history works, and a panic restores the terminal
+  instead of leaving it wedged.
+- **Failures are legible, not silent.** No model, runtime offline, runtime
+  lost, rate-limited — each gets an error card explaining what happened, with an
+  automatic retry countdown where retrying makes sense.
+- **A setup wizard and a `--plain` mode** for scripting and for terminals where
+  the full UI is not wanted.
+
+### Feral without the desktop app
+
+- **The runtime is no longer trapped inside the desktop app.** It has been
+  extracted into a `feral-core` crate that both the desktop app and a headless
+  gateway boot through the same way — one runtime, several faces.
+- **A `feral` command-line tool.** Gateway lifecycle (`start`/`stop`/`status`),
+  `feral doctor`, model management, logs, connectors, dreams, config, shell
+  completions, and `--json` on everything for scripting. Plain `feral` in a
+  terminal opens chat.
+- **A public runtime HTTP API** on loopback: `/runtime/*` for reads and
+  actions, `POST /runtime/chat` for streaming chat over SSE (cloud keys work
+  headlessly), and `/events` as a live SSE feed of what the runtime is doing.
+  Stability is declared per route — see the API stability contract below.
+- **One `feral` to install.** The npm package now ships the Rust binary and the
+  sidecar together, so there is no second thing to install and no drift between
+  them.
+
+### The model picks itself
+
+- **Brain Stack: capability-routed model selection.** Instead of pinning one
+  model to everything, the runtime classifies the task and routes it to a model
+  that can actually do it, weighing cost and health. A cheap model handles cheap
+  turns; the expensive one is spent where it earns its keep. `feral doctor`
+  checks the routing config for you.
+
 ### Onboarding
 
 - **Guided first run.** Feral now looks at your machine before asking you
@@ -70,6 +114,67 @@ steps.
   isolated profile still read and wrote the real one.
 - **Resume works.** `resume_get` always returned null — nothing ever recorded
   the current task.
+- **Cloud transcripts get room to breathe.** The transcript budget on cloud
+  providers is raised to 200k, and the agent is nudged to reach for `web_search`
+  first rather than guessing from memory.
+
+### Feral improves itself — and shows its work
+
+This is the part of Feral that is not like other assistants: it evolves its own
+configuration and, now, its own code. Every step of that is gated, journalled
+and reversible, because an agent that can rewrite itself and cannot be audited
+is not a feature.
+
+- **Dream Cycle.** When you are idle, Feral runs a seven-stage cycle over what
+  it learned, proposes changes to itself, and evaluates them. You can trigger it
+  yourself ("Dream now") and watch which stage it is in.
+- **Nothing is promoted on a hunch.** A statistical confidence gate decides
+  whether a candidate actually beat the champion or merely got lucky;
+  rejections are counted and shown rather than swallowed. A Tier 0 sanity floor
+  is enforced at promotion, so a candidate that wins on the metric but fails the
+  basics cannot be crowned.
+- **An Evolution Journal with receipts.** Every episode is journalled with
+  honest budget accounting and per-candidate fitness, surfaced in the Dreams
+  panel. Champions are archived per niche (a "tree of champions") rather than a
+  single global winner.
+- **Code-level self-improvement, behind a wall.** Feral can now propose patches
+  to its own source. They are parsed, checked against a patch policy wall on
+  both sides of the boundary, and evaluated in a *disposable git worktree* — the
+  candidate never runs in your working tree. A patch that passes still waits for
+  **your** approval in the Dreams panel. On approval it is applied, the sidecar
+  rebuilds and restarts, and a watchdog reverts it automatically if the new
+  build crashes.
+
+### Governance
+
+- **A policy layer over what Feral is allowed to do to itself**, with a
+  fail-closed loader: if the policy is missing, unparseable, or violates the
+  ground rules, every governed action is refused rather than allowed.
+- **The audit trail is hash-chained.** The evolution journal and the policy
+  history are chained, and `governance verify` walks the chain and tells you
+  which file or row broke it — so tampering is detectable, not merely
+  discouraged.
+- **Propose / approve / reject / rollback / freeze**, available from the CLI
+  and from a Governance card in the desktop app with an approval inbox.
+
+### Modules
+
+- **Feral's internals are becoming swappable at named seams.** A module is a
+  Bun subprocess with a manifest, run behind resource walls with a seeded RNG,
+  speaking JSON-lines — so a replacement for a piece of Feral can be evaluated
+  without being trusted.
+- **Promotion is earned by a paired shadow evaluation** against the builtin,
+  with floors it has to clear. A promoted module that misbehaves is
+  auto-quarantined by a watchdog after repeated strikes and the seam falls back
+  to the builtin. Visible from IPC, the API, the CLI, and an Architecture card.
+
+### Personal adaptation (LoRA)
+
+- **Feral can fine-tune itself to you, on your machine.** A dataset is built
+  from your own interactions, a LoRA adapter is trained locally, and it is
+  promoted only if it beats the base model on an eval gate — with provenance
+  recorded and one-click rollback. Adapters, their measured resource cost, and
+  the review queue live in a dashboard.
 
 ### Sandbox
 
@@ -99,6 +204,18 @@ steps.
   Found by the new Rust CI job on its first run: the guard's own test had been
   failing on Linux the whole time, and nothing ever compiled Rust on Linux
   before a release build.
+
+- **Conversations were being written to the logs.** The cloud chat path logged
+  the full outbound request body — your messages included — and every inbound
+  chunk, at warning level, behind a comment that said "Remove after triage".
+  Removed.
+
+- **The npm auth token could have entered git history.** `.npmrc` is now
+  ignored.
+
+- **Dependency advisories:** `plist` 1.9 → 1.10 and `quick-xml` 0.39 → 0.41
+  (two high-severity RUSTSEC advisories), `crossbeam-epoch` 0.9.18 → 0.9.20
+  (RUSTSEC-2026-0204). CI fails the build on new advisories.
 
 ### Rate limits
 
@@ -130,6 +247,35 @@ steps.
 
 - The startup update check is **opt-out** (Settings → General) and contacts
   GitHub Releases only. Documented in the README's privacy section.
+
+### Internals
+
+Nothing here changes what Feral does, but it changes how fast it can be changed
+safely.
+
+- **The sidecar protocol is versioned and schema-checked**, and a test fails the
+  build if the Rust and TypeScript halves of it drift apart.
+- **One typed config module.** Every `FERAL_*` variable is declared in one
+  place with a type and a default, and `docs/CONFIGURATION.md` is generated from
+  it — a new variable that is not documented fails CI.
+- **MCP is unified on the sidecar.** There were two MCP implementations; the
+  Rust one (`rmcp`) is gone, and the agent gets MCP tools through the one that
+  remains.
+- **One provider record.** Provider id → family mapping was duplicated across
+  several sites (three of which were missing `nvidia` and silently fell through
+  to "custom"). It is now derived from a single source.
+- **The two god files are split.** `lib.rs` and the sidecar's `index.ts` are
+  now dispatch-only, with the work in `commands/` and `boot.ts`. The RSI code is
+  subdivided by layer, and `sandbox/` — which was really about network egress —
+  is now `egress/`.
+- **CI builds and tests the Rust half**, on Linux and Windows, on every push.
+  It used to be compiled for the first time *by the tagged release build*, which
+  is how a broken `EXPECTED_COMMAND_COUNT` and a failing SSRF guard test both
+  sat on `main` unnoticed. Both were caught the day the job landed.
+- **Warnings are at zero** across the workspace, build and clippy. Among the
+  ones that turned out not to be cosmetic: a `[profile.release]` in
+  `src-tauri/Cargo.toml` that Cargo was ignoring outright (the root workspace
+  wins), so those release settings had never taken effect.
 
 ### Safety smoke e2e tests (B5)
 
