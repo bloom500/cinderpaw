@@ -31,6 +31,18 @@ const LOCK_HEARTBEAT_MS = 10_000;
  * its pid claims. Generous on purpose: a sidecar paused by a debugger or a long
  * GC must not have its lock stolen out from under it. Six missed beats is not a
  * pause, it is a corpse.
+ *
+ * This rule deliberately applies to locks written by PRE-heartbeat sidecars too,
+ * even though they never touch their lockfile and so always look abandoned. It
+ * has to: the installs this fix exists to rescue are exactly the ones holding an
+ * old lockfile, and a rule that exempted them would leave them stuck forever —
+ * the update would arrive and change nothing.
+ *
+ * The cost is that a still-running PRE-heartbeat sidecar could have its lock
+ * taken. That needs two different Feral versions writing the same database at
+ * once, which the app does not do: the desktop app owns its sidecar's lifetime,
+ * and the gateway has a single-instance guard. A permanently dead app is the
+ * worse failure, and it is the one that actually happened.
  */
 export const LOCK_STALE_AFTER_MS = 60_000;
 

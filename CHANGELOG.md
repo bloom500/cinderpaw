@@ -5,6 +5,38 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.07.14
+
+Hotfix. **Everyone on 2026.07.13 should take this update.**
+
+### Fixed
+
+- **A crashed sidecar could kill the app permanently.** If the sidecar ever went
+  down hard, it left its lockfile behind with its process id in it. The guard
+  that is supposed to recognise an abandoned lock asked only "does a process
+  with this number still exist?" — and operating systems reuse process ids. On
+  the report that surfaced this, Windows had handed the dead sidecar's id to
+  `svchost`, a system process. The probe came back "exists, but you may not
+  touch it", the lock was declared alive, and the sidecar refused to start on
+  every launch from then on. The app was dead, and the only cure was deleting a
+  file the user had never heard of.
+
+  Two things were wrong. "You may not touch it" was read as *alive*, when it
+  actually proves the opposite: the sidecar runs as you, so a process you cannot
+  even signal cannot be it. And more fundamentally, **a process id is not an
+  identity** — fix the first half and the next recycled id, this time landing on
+  something you *do* own, would have looked alive and bricked the app just the
+  same.
+
+  So liveness is now something the sidecar has to *demonstrate*: a running one
+  touches its lockfile every few seconds, and a lock nobody has touched in a
+  minute is treated as abandoned, whatever id it claims. A dead process cannot
+  keep touching a file, no matter who inherits its number. The case where the OS
+  hands the *new* sidecar the dead one's id is closed too.
+
+  If you are stuck on 2026.07.13 and cannot get past "Feral Agent went offline",
+  delete `~/.feral/agent/.writer.lock` and restart — then update.
+
 ## 2026.07.13
 
 First public release. Feral is source-available under the Business Source
