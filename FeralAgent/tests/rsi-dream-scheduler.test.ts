@@ -73,6 +73,52 @@ describe("DreamScheduler — trigger decisions", () => {
   });
 });
 
+describe("DreamScheduler — no model, no dream", () => {
+  // An episode with nothing loaded reaches the local API, which lazily loads the
+  // first GGUF on disk — that is how a user on a cloud provider ended up with a
+  // 5 GB local model resident for a whole session (2026-07-13).
+  test("does NOT launch when no model is active", async () => {
+    const h = harness({ hasModel: () => false });
+    h.signals.idle = 2000;
+    h.signals.errors = 3;
+    await h.sched.tick();
+    expect(h.starts).toEqual([]);
+  });
+
+  test("launches once a model becomes active", async () => {
+    let ready = false;
+    const h = harness({ hasModel: () => ready });
+    h.signals.idle = 2000;
+    await h.sched.tick();
+    expect(h.starts).toEqual([]);
+
+    ready = true; // user loaded a local model (or picked a cloud route)
+    await h.sched.tick();
+    expect(h.starts).toEqual(["idle"]);
+  });
+
+  test("gates the user trigger too, and does not leave it armed", async () => {
+    const h = harness({ hasModel: () => false });
+    h.sched.requestUserDream();
+    await h.sched.tick();
+    expect(h.starts).toEqual([]);
+
+    // The request was consumed, not queued behind the gate — a later tick with
+    // a model present must not fire a dream the user asked for minutes ago.
+    await h.sched.tick();
+    expect(h.starts).toEqual([]);
+  });
+
+  test("an unanswered probe fails closed without escaping the tick loop", async () => {
+    const h = harness({
+      hasModel: () => Promise.reject(new Error("bridge down")),
+    });
+    h.signals.idle = 2000;
+    await h.sched.tick(); // must not reject — the poll loop calls this as void tick()
+    expect(h.starts).toEqual([]);
+  });
+});
+
 describe("DreamScheduler — sleep + cooldown", () => {
   test("after a run ends, cooldown blocks a relaunch until it elapses", async () => {
     const h = harness();

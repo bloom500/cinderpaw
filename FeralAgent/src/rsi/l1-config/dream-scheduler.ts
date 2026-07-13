@@ -49,6 +49,14 @@ export interface DreamSchedulerDeps {
   start: (trigger: DreamTrigger) => Promise<void>;
   /** Is an episode currently running? Guards against double-start. */
   isRunning: () => boolean;
+  /** Is there a model the episode can evaluate against — a local GGUF resident
+   *  in the engine, or a cloud route (the provider IS the model)? No model means
+   *  no dreaming: an episode that runs anyway reaches the local API with nothing
+   *  loaded and makes it lazily load the first GGUF on disk, which is how a
+   *  cloud-only user ended up paying ~5 GB of RSS for a model they never used.
+   *  Absent → always ready (keeps the pre-gate behaviour for tests/hosts that
+   *  don't wire it). */
+  hasModel?: () => boolean | Promise<boolean>;
   /** Milliseconds since the user's last activity (from ActivityMonitor). */
   idleForMs: (now: number) => number;
   /** Count of recent errors within the monitor window (from ActivityMonitor). */
@@ -136,6 +144,27 @@ export class DreamScheduler {
 
     const trigger = userRequested ? "user" : this.evaluateTrigger(now);
     if (!trigger) return;
+
+    // No model, no dream — checked only once a trigger has actually fired, so
+    // the idle path doesn't pay for a host round-trip on every quiet tick.
+    // Gates `user` too: an explicit dream with nothing loaded would still make
+    // the local API lazily load a GGUF the user never asked for.
+    if (this.deps.hasModel) {
+      // Fails CLOSED: a probe that throws (host bridge down / timed out) is not
+      // a licence to wake. The tick loop calls this as `void tick()`, so the
+      // rejection is swallowed here rather than surfacing as an unhandled one.
+      let ready = false;
+      try {
+        ready = await this.deps.hasModel();
+      } catch (err) {
+        this.deps.log?.(`dream: model-ready probe failed (${String(err)}) — skipping`);
+      }
+      if (!ready) {
+        this.deps.log?.(`dream: ${trigger} trigger fired but no model is active — skipping`);
+        if (trigger === "user") this.pendingUserTrigger = false;
+        return;
+      }
+    }
 
     // Consume the one-shot signals now that this trigger is committed to launch.
     if (trigger === "user") this.pendingUserTrigger = false;

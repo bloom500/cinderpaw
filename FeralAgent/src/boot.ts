@@ -1053,6 +1053,19 @@ export async function boot(transportOverride?: Transport) {
     budgetCaps: episodeBudgetCaps(episodeOpts),
     activityMonitor,
     config: dreamCfg,
+    // No model, no dream. The host answers from the truth it alone holds: a
+    // GGUF resident in the engine, or a cloud active_route. Fail CLOSED — an
+    // unanswered probe must not wake an episode, because the episode is exactly
+    // what makes the local API lazily load a 5 GB model the user never picked.
+    hasModel: async () => {
+      try {
+        const r = await rsiBridge.request<{ ready?: boolean }>("rsi_model_ready", {});
+        return r?.ready === true;
+      } catch (err) {
+        log(`dream: model-ready probe failed (${String(err)}) — treating as no model`);
+        return false;
+      }
+    },
     log,
   });
   // Faza 2 code-RSI round, piggybacked on the Dream Cycle: after each

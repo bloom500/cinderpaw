@@ -364,6 +364,24 @@ pub async fn dispatch_rsi_request(
             let specs: Vec<super::tier0::Tier0Spec> = TIER0_SPECS.iter().cloned().collect();
             Ok(json!(specs))
         }
+        // Is there a model the Dream Cycle may evaluate against? The scheduler
+        // asks before every episode and skips the wake when the answer is no.
+        //
+        // Without this gate an idle episode reaches the local API with nothing
+        // loaded, `wait_for_model` lazily loads the first GGUF on disk, and a
+        // user who only ever talks to a cloud provider silently pays ~5 GB of
+        // RSS for a model that never serves one of their tokens (2026-07-13).
+        //
+        // A cloud route needs no resident GGUF — the provider IS the model — so
+        // it counts as ready and the Dream Cycle keeps running for cloud users.
+        "rsi_model_ready" => {
+            let local_loaded = state.manager.current().is_some();
+            let cloud_route = crate::settings::load()
+                .active_route
+                .and_then(|r| r.split_once(':').map(|(pid, _)| pid != "local"))
+                .unwrap_or(false);
+            Ok(json!({ "ready": local_loaded || cloud_route }))
+        }
         // ── Faza 4 (L2 LoRA): swap the personal adapter under the loaded model ──
         // The sidecar's eval runner calls this to A/B a candidate adapter
         // against the champion: stage the adapter (or clear with path:null),

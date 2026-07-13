@@ -74,6 +74,9 @@ export interface DreamCycleDeps {
   activityMonitor: ActivityMonitor;
   /** Thresholds + poll/cooldown timings. */
   config: DreamConfig;
+  /** Is a model active (local GGUF resident, or a cloud route)? Gates every
+   *  wake — see `DreamSchedulerDeps.hasModel`. Absent → always ready. */
+  hasModel?: () => boolean | Promise<boolean>;
   /** Optional log sink. */
   log?: (msg: string) => void;
 }
@@ -88,7 +91,7 @@ export interface DreamCycle {
 }
 
 export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
-  const { send, telemetryPath, journalPath, budgetCaps, activityMonitor, config, log } = deps;
+  const { send, telemetryPath, journalPath, budgetCaps, activityMonitor, config, hasModel, log } = deps;
   // Carries the in-flight episode's start time + trigger from the scheduler's
   // `start` callback to the run-end telemetry append. `sample` is the Slice 5
   // resource-measurement window opened at episode start.
@@ -174,6 +177,7 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
         await engine.start(episodeOptions);
       },
       isRunning: () => engine.isRunning(),
+      hasModel,
       idleForMs: (now) => activityMonitor.idleFor(now),
       errorsInWindow: (now) => activityMonitor.errorsInWindow(now),
       idleThresholdMs: config.idleThresholdMs,
