@@ -384,14 +384,19 @@ jobs:
       fail-fast: false        # a CUDA failure must never sink the main release
       matrix:
         include:
-          # The CUDA sub-package names are NOT portable, which is why the Linux
-          # CUDA build had never once produced an artifact:
-          #   - `visual_studio_integration` is Windows-only; asking the Linux
-          #     installer for it fails the step outright.
-          #   - cuBLAS is `cublas` / `cublas_dev` on Windows, but on Linux the
-          #     apt packages are `libcublas` / `libcublas-dev` — the installer
-          #     went looking for `cuda-cublas-12-6`, which does not exist.
-          # Hence one list per OS.
+          # Sub-package cherry-picking works on Windows and does NOT work on
+          # Linux, which is why the Linux CUDA asset had never once been built.
+          # The action prefixes every name it is given with `cuda-`, but on
+          # Linux the cuBLAS packages are `libcublas-12-6` / `libcublas-dev-12-6`
+          # — no `cuda-` prefix. So `cublas` resolves to `cuda-cublas-12-6` and
+          # `libcublas` to `cuda-libcublas-12-6`, and apt has never heard of
+          # either. cuBLAS is simply not expressible through that list, and
+          # llama.cpp's CUDA backend does not build without it.
+          #
+          # `[]` means "install the whole toolkit", which is the only way to get
+          # cuBLAS on Linux here. It is a bigger download, and the action caches
+          # it. Windows keeps the narrow list, where it works and where
+          # `visual_studio_integration` (Windows-only) is actually needed.
           - name: Windows x64
             os: windows-2022
             asset_glob: "*-setup.exe"
@@ -399,7 +404,7 @@ jobs:
           - name: Linux x64
             os: ubuntu-22.04
             asset_glob: "*.AppImage"
-            cuda_subpackages: '["nvcc", "cudart", "cudart-dev", "libcublas", "libcublas-dev", "thrust"]'
+            cuda_subpackages: "[]"
 
     steps:
       # Build the SOURCE AT THE TAG, not whatever main happens to be. On a tag
