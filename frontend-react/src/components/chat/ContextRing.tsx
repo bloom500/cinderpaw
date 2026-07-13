@@ -3,7 +3,7 @@ import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useModel } from '@/stores/model';
 import { useFeralStore } from '@/stores/feral';
-import { contextWindowFor, estimateTokens, estimateRemaining } from '@/lib/contextWindow';
+import { activeContextWindow, estimateTokens, estimateRemaining } from '@/lib/contextWindow';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Separator } from '@/components/ui/separator';
 
@@ -21,29 +21,12 @@ export function ContextRing() {
   const feralConfig         = useFeralStore((s) => s.modelConfig);
 
   const { used, ctxWindow, pct, modelName, remaining, isLive } = useMemo(() => {
-    let model: string | undefined;
-    let isLocal: boolean;
-    if (isAgentMode) {
-      model = feralConfig?.model;
-      isLocal = feralConfig?.provider === 'openai_compatible' || feralConfig?.provider === 'ollama';
-    } else if (cloudModel) {
-      model = cloudModel.modelId;
-      isLocal = false;
-    } else {
-      model = loaded?.name;
-      isLocal = true;
-    }
-
-    // Real context window: whenever a local model is loaded its `ctx_len` is
-    // the authoritative KV-cache size — the user picks it from Controls and
-    // it persists across reloads. The old gate `(isLocal && loaded?.ctx_len)`
-    // excluded cloud-mode agent sessions where the local model is still loaded
-    // for fallback; the user's intent ("ring should reflect the actual KV
-    // cache I'm using") only really depends on whether a local model is loaded.
-    // Fall back to the name heuristic only when nothing is loaded — that's
-    // the cloud-only path, where the agent routes straight to a cloud API
-    // and there is no local KV cache to size against.
-    const ctxWindow = loaded?.ctx_len ?? contextWindowFor(model, isLocal);
+    const { model, ctxWindow } = activeContextWindow({
+      isAgentMode,
+      feralConfig,
+      cloudModel,
+      loaded,
+    });
 
     // Real token usage: use live counts from backend when available.
     // For local models, livePromptTokens is the exact count from llama.cpp tokenization.

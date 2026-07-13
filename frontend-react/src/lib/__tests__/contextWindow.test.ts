@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  activeContextWindow,
   contextWindowFor,
   estimateTokens,
   estimateRemaining,
+  isLocalBaseUrl,
   LOCAL_DEFAULT_CONTEXT,
   CLOUD_DEFAULT_CONTEXT,
 } from '../contextWindow';
@@ -19,6 +21,70 @@ describe('contextWindowFor', () => {
   });
   it('returns CLOUD_DEFAULT_CONTEXT for unknown cloud model', () => {
     expect(contextWindowFor(undefined, false)).toBe(CLOUD_DEFAULT_CONTEXT);
+  });
+});
+
+describe('activeContextWindow', () => {
+  const localGguf = { name: 'Qwythos-9B.gguf', ctx_len: 8192 };
+
+  // The reported bug: MiniMax M3 active (1M window), a local GGUF still
+  // resident as the offline fallback → the ring showed 8192.
+  it('a resident local GGUF does not shrink the window of an active cloud model', () => {
+    const { ctxWindow, isLocal } = activeContextWindow({
+      isAgentMode: true,
+      feralConfig: { model: 'MiniMax-M3', base_url: 'https://api.minimax.io/v1' },
+      loaded: localGguf,
+    });
+    expect(isLocal).toBe(false);
+    expect(ctxWindow).toBe(1_000_000);
+  });
+
+  it('uses the loaded engine real KV cache when the local model is the active one', () => {
+    const { ctxWindow, isLocal } = activeContextWindow({
+      isAgentMode: true,
+      feralConfig: { model: 'Qwythos-9B.gguf', base_url: 'http://127.0.0.1:11435/v1' },
+      loaded: localGguf,
+    });
+    expect(isLocal).toBe(true);
+    // ctx_len wins over the model name (which advertises 1M but loads at 8192).
+    expect(ctxWindow).toBe(8192);
+  });
+
+  it('falls back to the local default when nothing is loaded', () => {
+    const { ctxWindow } = activeContextWindow({
+      isAgentMode: true,
+      feralConfig: { model: 'mystery.gguf', base_url: 'http://localhost:11435/v1' },
+      loaded: null,
+    });
+    expect(ctxWindow).toBe(LOCAL_DEFAULT_CONTEXT);
+  });
+
+  it('chat mode with a cloud model ignores the loaded GGUF too', () => {
+    const { ctxWindow } = activeContextWindow({
+      isAgentMode: false,
+      cloudModel: { modelId: 'claude-3-opus' },
+      loaded: localGguf,
+    });
+    expect(ctxWindow).toBe(200_000);
+  });
+});
+
+describe('isLocalBaseUrl', () => {
+  it('treats loopback as local', () => {
+    expect(isLocalBaseUrl('http://127.0.0.1:11435/v1')).toBe(true);
+    expect(isLocalBaseUrl('http://localhost:1337/v1')).toBe(true);
+  });
+
+  // The regression: MiniMax BYOK is wired through the `openai_compatible`
+  // provider, so a provider-name test called it local and the ring sized
+  // itself to the local GGUF's 8192 KV cache instead of MiniMax's 1M window.
+  it('treats a BYOK cloud URL as cloud even on an openai_compatible provider', () => {
+    expect(isLocalBaseUrl('https://api.minimax.io/v1')).toBe(false);
+  });
+
+  it('is false for a missing or malformed URL', () => {
+    expect(isLocalBaseUrl(undefined)).toBe(false);
+    expect(isLocalBaseUrl('not a url')).toBe(false);
   });
 });
 

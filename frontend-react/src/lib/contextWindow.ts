@@ -33,6 +33,64 @@ export function contextWindowFor(model: string | undefined, isLocal: boolean): n
 }
 
 /**
+ * Is this target the on-device engine? Decided by the base URL, exactly like
+ * the sidecar's `InferenceRouter.isPrimaryLocal` — NOT by the provider name.
+ * BYOK providers (MiniMax, NVIDIA NIM, …) are wired through the
+ * `openai_compatible` provider with a cloud base URL, so keying "local" off the
+ * provider name classified every one of them as local.
+ */
+export function isLocalBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    const h = new URL(baseUrl).hostname.toLowerCase();
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+export interface ActiveModelInputs {
+  isAgentMode: boolean;
+  /** Agent-mode target (provider + model + base_url). */
+  feralConfig?: { model?: string; base_url?: string } | null;
+  /** Chat-mode cloud target. */
+  cloudModel?: { modelId: string } | null;
+  /** The local GGUF currently in memory, if any. `ctx_len` is its real KV cache. */
+  loaded?: { name?: string; ctx_len?: number } | null;
+}
+
+/**
+ * The context window of the model that will actually serve the next request.
+ *
+ * The rule that matters: a loaded local model's `ctx_len` is authoritative ONLY
+ * when the local engine is the active target. A local GGUF often stays loaded as
+ * the offline fallback while the agent talks to a cloud model — its 8192-token
+ * KV cache says nothing about MiniMax's 1M window, and letting it win is what
+ * pinned the ring to 8192 during cloud sessions.
+ */
+export function activeContextWindow(i: ActiveModelInputs): { model: string | undefined; isLocal: boolean; ctxWindow: number } {
+  let model: string | undefined;
+  let isLocal: boolean;
+
+  if (i.isAgentMode) {
+    model = i.feralConfig?.model;
+    isLocal = isLocalBaseUrl(i.feralConfig?.base_url);
+  } else if (i.cloudModel) {
+    model = i.cloudModel.modelId;
+    isLocal = false;
+  } else {
+    model = i.loaded?.name;
+    isLocal = true;
+  }
+
+  const ctxWindow = isLocal
+    ? (i.loaded?.ctx_len ?? contextWindowFor(model, true))
+    : contextWindowFor(model, false);
+
+  return { model, isLocal, ctxWindow };
+}
+
+/**
  * Rough token estimate for a body of text. Matches the chars/4 heuristic used
  * elsewhere in the app — good enough for a usage gauge, not for billing.
  */
