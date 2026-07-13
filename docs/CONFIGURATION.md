@@ -38,6 +38,39 @@ runner, or anything that handles untrusted input.**
 | `FERAL_SHELL_WHITELIST` | default set | Extends the spawn whitelist for `shell_exec`. Same threat as `FERAL_ENABLE_SHELL_EXEC`. | Audit on every change; this list can grow silently. |
 | `FERAL_PROACTIVE_ENABLED` | off | Enables the inner-thoughts / mood engines. Same prompt-injection surface as the agent loop, just on a timer. | Don't enable on shared hosts. |
 | `FERAL_INNER_THOUGHTS_ENABLED` | off | Sub-flag of proactive. Same threat. | Don't enable on shared hosts. |
+| `FERAL_SEARXNG_URL` | unset | The one origin exempted from the egress SSRF guard's loopback/private block, so `web_search` can reach a SearXNG you host. A wrong value points the agent at an internal service. | Set it to an instance **you** run. The exemption is exact-origin (port included), waives only the private-address check (the domain whitelist still applies), and is re-checked on every redirect hop. |
+
+## 1b. Web search (SearXNG)
+
+`web_search` needs a search index. It uses [SearXNG](https://docs.searxng.org/),
+a self-hosted metasearch aggregator: no API key, no per-query cost, and queries
+never leave your machine — which is the point of a local-first agent.
+
+```bash
+docker run -d --name searxng -p 8888:8080 \
+  -e SEARXNG_BASE_URL=http://127.0.0.1:8888/ \
+  searxng/searxng
+```
+
+Then enable the JSON API — **SearXNG ships with it off**, and without this every
+search returns HTTP 403:
+
+```yaml
+# in the container's /etc/searxng/settings.yml
+search:
+  formats:
+    - html
+    - json
+```
+
+Restart it, then point Feral at it:
+
+```bash
+export FERAL_SEARXNG_URL=http://127.0.0.1:8888
+```
+
+Without `FERAL_SEARXNG_URL`, `web_search` reports that it has no backend and
+escalates to `deep_research` rather than pretending a query succeeded.
 
 ## 2. The `WORKSPACE` trap
 
@@ -135,6 +168,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_TREE_ITEM_MAX_CHARS` | int | `null` |  | Max item size in chars. |
 | `FERAL_PII_REDACTION` | string | `"on"` |  | Master switch for PII redaction in memory writes; "off" disables (inverse-toggle var). |
 | `FERAL_JINA_API_KEY` | string | `null` |  | Jina Reader key for read_webpage / deep_research. |
+| `FERAL_SEARXNG_URL` | string | `null` | yes | Base URL of a SearXNG instance backing web_search (e.g. http://127.0.0.1:8888). A loopback/private origin here is trusted by the egress SSRF guard for web_search ONLY — set it only to an instance you run. |
 | `FERAL_RSI_PASSIVE` | bool | `true` |  | RSI supervisor passive mode. "false" disables (read via injected env in passive-supervisor.ts). |
 | `FERAL_RSI_ALLOW_CLOUD` | bool | `false` |  | Opt-in: allow RSI to call cloud providers (anti-burn guard). |
 | `FERAL_RSI_MAX_ITER` | int | `null` |  | Pin the episode iteration cap; unset = dynamic (genome/policy-derived). |
@@ -280,6 +314,7 @@ FERAL_RSI_STAGNATION_THRESHOLD
 FERAL_RSI_STOP_ON_ACTIVITY
 FERAL_RSI_TELEMETRY
 FERAL_RUN_FRACTAL_BENCH
+FERAL_SEARXNG_URL
 FERAL_SHELL_WHITELIST
 FERAL_SMOKE_GGUF
 FERAL_STALL_MS

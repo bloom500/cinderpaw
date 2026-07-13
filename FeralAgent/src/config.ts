@@ -146,6 +146,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Master switch for PII redaction in memory writes; \"off\" disables (inverse-toggle var).", security: false },
   { name: "FERAL_JINA_API_KEY", type: "string", default: null,
     description: "Jina Reader key for read_webpage / deep_research.", security: false },
+  { name: "FERAL_SEARXNG_URL", type: "string", default: null,
+    description: "Base URL of a SearXNG instance backing web_search (e.g. http://127.0.0.1:8888). A loopback/private origin here is trusted by the egress SSRF guard for web_search ONLY — set it only to an instance you run.", security: true },
 
   // ---- RSI / dream cycle / governance -------------------------------------------
   { name: "FERAL_RSI_PASSIVE", type: "bool", default: true,
@@ -289,4 +291,26 @@ export function cfgList(name: string): string[] {
  */
 export function feralHome(): string {
   return resolve(cfgPath("FERAL_HOME") ?? join(homedir(), ".feral"));
+}
+
+/**
+ * The operator's SearXNG instance backing `web_search`, or null when unset.
+ *
+ * Returns the ORIGIN only (scheme + host + port) — never a path, query, or
+ * credentials. That matters: the origin is what the egress proxy exempts from
+ * its loopback/private SSRF guard, and an exemption keyed on anything looser
+ * than an exact origin would be a hole. A malformed value is treated as unset
+ * (fail closed: no search backend beats a badly-scoped SSRF exemption).
+ */
+export function searxngOrigin(): string | null {
+  const raw = cfgPath("FERAL_SEARXNG_URL");
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (u.username || u.password) return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
 }

@@ -27,12 +27,32 @@ export interface EgressProxyConfig {
   windowMs: number;
   /** Default per-request timeout when a tool does not specify one. */
   defaultTimeoutMs: number;
+  /**
+   * Exact origins (scheme + host + port) the OPERATOR has declared they run
+   * themselves — the only way a loopback/private destination is ever reachable.
+   * Exists for self-hosted sidecar services (a SearXNG instance backing
+   * web_search, `FERAL_SEARXNG_URL`), which live on localhost by design and
+   * would otherwise be blocked by our own SSRF guard.
+   *
+   * The exemption is deliberately narrow:
+   *   - exact-origin match, never a suffix/host match — `http://127.0.0.1:8888`
+   *     does not license `http://127.0.0.1:9000` or any other internal port;
+   *   - it waives ONLY the private-address guard. The tool's `allowedDomains`
+   *     whitelist is still enforced, so a tool that never declared the host
+   *     cannot reach it even when it is exempt;
+   *   - it is re-checked per hop, so a redirect off the origin lands back
+   *     under the full guard;
+   *   - it comes from process env, i.e. the human running the process — never
+   *     from the model, a tool argument, or a fetched page.
+   */
+  trustedLocalOrigins: string[];
 }
 
 const DEFAULT_CONFIG: EgressProxyConfig = {
   maxRequests: 30,
   windowMs: 60_000,
   defaultTimeoutMs: 15_000,
+  trustedLocalOrigins: [],
 };
 
 export class EgressProxy {
@@ -100,15 +120,23 @@ export class EgressProxy {
         block(`disallowed scheme: ${parsed.protocol}`);
       }
       const host = parsed.hostname.toLowerCase();
-      // SSRF guard by hostname string (literal IPs, localhost, ULA/link-local).
-      if (isBlockedHost(host)) {
-        block(`destination is loopback/private/link-local: ${host}`);
-      }
-      // SSRF guard by resolved IP — defeats DNS rebinding and any hostname
-      // that points into a private range. Every A/AAAA answer must be public.
-      for (const ip of await resolveHostIps(host)) {
-        if (isBlockedHost(ip.toLowerCase())) {
-          block(`host "${host}" resolves to a blocked address: ${ip}`);
+      // An operator-declared self-hosted origin (see `trustedLocalOrigins`)
+      // waives the private-address guard for THIS hop only. Exact-origin
+      // match: the port is part of the identity, so trusting one local
+      // service does not trust the rest of the loopback interface. The
+      // domain whitelist below still applies — this is not an open door.
+      const trustedLocal = this.#config.trustedLocalOrigins.includes(parsed.origin);
+      if (!trustedLocal) {
+        // SSRF guard by hostname string (literal IPs, localhost, ULA/link-local).
+        if (isBlockedHost(host)) {
+          block(`destination is loopback/private/link-local: ${host}`);
+        }
+        // SSRF guard by resolved IP — defeats DNS rebinding and any hostname
+        // that points into a private range. Every A/AAAA answer must be public.
+        for (const ip of await resolveHostIps(host)) {
+          if (isBlockedHost(ip.toLowerCase())) {
+            block(`host "${host}" resolves to a blocked address: ${ip}`);
+          }
         }
       }
       // Domain whitelist enforcement.
@@ -403,7 +431,9 @@ function parseIPv4(host: string): [number, number, number, number] | null {
  * of an entry (so `api.example.com` matches `example.com`). The single entry
  * `"*"` matches every host — used for open-egress tools. This is NOT an SSRF
  * bypass: isBlockedHost() runs before the whitelist on every hop, so loopback/
- * private/link-local destinations stay blocked even under `"*"`.
+ * private/link-local destinations stay blocked even under `"*"`. The ONE
+ * exception is an origin the operator listed in `trustedLocalOrigins` (a
+ * self-hosted service they run) — see that field's contract.
  */
 export function hostMatchesWhitelist(host: string, whitelist: string[]): boolean {
   return whitelist.some((entry) => {

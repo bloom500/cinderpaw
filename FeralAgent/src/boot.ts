@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { cfgBool, cfgInt, cfgPath, feralHome } from "./config.ts";
+import { cfgBool, cfgInt, cfgPath, feralHome, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -370,7 +370,13 @@ export async function boot(transportOverride?: Transport) {
 
   // --- Layer 3: Sandbox (built first) ---
   const audit = new AuditLog(db.raw);
-  const egress = new EgressProxy(audit.logger);
+  // The user's own SearXNG (if any) is the one loopback origin the egress
+  // SSRF guard will let through — see EgressProxyConfig.trustedLocalOrigins.
+  const searxng = searxngOrigin();
+  const egress = new EgressProxy(audit.logger, {
+    trustedLocalOrigins: searxng ? [searxng] : [],
+  });
+  if (searxng) log(`web_search backend: SearXNG @ ${searxng}`);
   // NB: deliberately NOT named `process` to avoid shadowing the global
   // Node `process` object (which we still need below for process.env).
   const processSandbox = new RealProcessSandbox(audit.logger);
@@ -626,7 +632,7 @@ export async function boot(transportOverride?: Transport) {
   // time_date + calculator: pure utilities, no permissions
   registry.register(createTimeDateTool());
   registry.register(createCalculatorTool());
-  registry.register(createWebSearchTool());
+  registry.register(createWebSearchTool({ searxngOrigin: searxng }));
   // fetch_url: open egress by default, same posture as http_request above.
   // Set FERAL_FETCH_DOMAINS to RESTRICT.
   const fetchDomains = (process.env.FERAL_FETCH_DOMAINS ?? "")
