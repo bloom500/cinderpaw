@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - "v*"
+  # Rebuild the opt-in CUDA assets for a tag that is ALREADY released, without
+  # re-cutting the release. The CUDA job only uploads its own suffixed bundles
+  # and never touches latest.json, so this cannot disturb a working release —
+  # which is the point: a missing optional asset is not worth rebuilding four
+  # platforms that already shipped.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build CUDA assets for (e.g. v2026.07.13)"
+        required: true
 
 permissions:
   contents: write
@@ -11,6 +21,8 @@ permissions:
 jobs:
   release:
     name: Build, sign & publish (${{ matrix.name }})
+    # Only a tag push cuts a release. A manual run is for the CUDA job below.
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     # SignPath Foundation signing (H-3) — FREE for open-source. Job-level so the
     # gated Windows steps can check whether signing is configured. Absent ⇒ every
@@ -360,15 +372,26 @@ jobs:
   cuda:
     name: NVIDIA CUDA build (${{ matrix.name }})
     needs: release            # the GitHub release must exist before we upload to it
+    # On a manual run the `release` job is skipped, and a skipped dependency
+    # would skip this one too — so accept that case explicitly.
+    if: >-
+      always() && (
+        github.event_name == 'workflow_dispatch' ||
+        needs.release.result == 'success'
+      )
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false        # a CUDA failure must never sink the main release
       matrix:
         include:
-          # `visual_studio_integration` is a Windows-only sub-package. Asking
-          # the Linux CUDA installer for it fails the whole step in under a
-          # minute — which is exactly how the Linux CUDA build died on the
-          # 2026.07.13 tag. The sub-package list is per-OS now.
+          # The CUDA sub-package names are NOT portable, which is why the Linux
+          # CUDA build had never once produced an artifact:
+          #   - `visual_studio_integration` is Windows-only; asking the Linux
+          #     installer for it fails the step outright.
+          #   - cuBLAS is `cublas` / `cublas_dev` on Windows, but on Linux the
+          #     apt packages are `libcublas` / `libcublas-dev` — the installer
+          #     went looking for `cuda-cublas-12-6`, which does not exist.
+          # Hence one list per OS.
           - name: Windows x64
             os: windows-2022
             asset_glob: "*-setup.exe"
@@ -376,10 +399,16 @@ jobs:
           - name: Linux x64
             os: ubuntu-22.04
             asset_glob: "*.AppImage"
-            cuda_subpackages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust"]'
+            cuda_subpackages: '["nvcc", "cudart", "cudart-dev", "libcublas", "libcublas-dev", "thrust"]'
 
     steps:
+      # Build the SOURCE AT THE TAG, not whatever main happens to be. On a tag
+      # push these are the same commit; on a manual re-run they are not, and
+      # shipping a CUDA asset built from newer code than the release it is
+      # attached to would be a quiet lie.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
@@ -457,7 +486,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${{ github.ref_name }}"
+          tag="${{ inputs.tag || github.ref_name }}"
           shopt -s globstar nullglob
           found=0
           for f in src-tauri/target/**/bundle/**/${{ matrix.asset_glob }}; do
