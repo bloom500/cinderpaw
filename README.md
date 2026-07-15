@@ -76,7 +76,10 @@ sudo apt install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake gi
 
 git clone --depth 1 https://github.com/bloom500/feral && cd feral
 ( cd FeralAgent && bun install --frozen-lockfile && bun run build )
-cargo build --release -p feral-cli
+# --no-default-features skips the local llama.cpp engine (the CLI's default
+# `inference` feature) — on a server you point the gateway at a cloud
+# provider via FERAL_BASE_URL/FERAL_API_KEY/FERAL_MODEL instead:
+cargo build --release -p feral-cli --no-default-features
 # The sidecar binary must sit NEXT TO the CLI:
 mkdir -p ~/.local/bin
 install target/release/feral-cli    ~/.local/bin/feral
