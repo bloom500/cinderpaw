@@ -31,7 +31,28 @@ Feral is a desktop app that runs AI on your machine. With local GGUF models, eve
 
 ## Quick install
 
-One command per platform. Each grabs the latest release automatically — no version numbers to update.
+**One command, any Linux or macOS — the installer detects your system:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bloom500/feral/main/scripts/install.sh | bash
+```
+
+- **Linux with a display** → installs the latest desktop app (`.deb`/`.rpm`).
+- **Linux headless (VPS/server)** → builds the `feral` CLI + gateway from source (no GPU toolchain needed). Force a mode with `| bash -s -- --headless` or `--desktop`.
+- **macOS** → downloads the right `.dmg` for your chip, installs to /Applications, clears the quarantine flag.
+
+**Windows 10/11** (PowerShell):
+
+```powershell
+$u = (irm https://api.github.com/repos/bloom500/feral/releases/latest).assets |
+  Where-Object name -like '*x64-setup.exe' | ForEach-Object browser_download_url
+irm $u -OutFile feral-setup.exe; .\feral-setup.exe
+```
+
+> SmartScreen may warn on first run (the installer isn't code-signed yet) — click **More info → Run anyway**.
+
+<details>
+<summary><b>Manual commands per platform</b> (if you'd rather not pipe to bash)</summary>
 
 **Linux — Debian / Ubuntu** (desktop app, `.deb`)
 
@@ -48,16 +69,6 @@ curl -s https://api.github.com/repos/bloom500/feral/releases/latest \
   | grep -oP '"browser_download_url": "\K[^"]*x86_64\.rpm(?=")' \
   | xargs curl -LO && sudo dnf install ./Feral-*.x86_64.rpm
 ```
-
-**Windows 10/11** (PowerShell)
-
-```powershell
-$u = (irm https://api.github.com/repos/bloom500/feral/releases/latest).assets |
-  Where-Object name -like '*x64-setup.exe' | ForEach-Object browser_download_url
-irm $u -OutFile feral-setup.exe; .\feral-setup.exe
-```
-
-> SmartScreen may warn on first run (the installer isn't code-signed yet) — click **More info → Run anyway**.
 
 **macOS** (Apple Silicon — for Intel replace `aarch64` with `x64`)
 
@@ -86,6 +97,8 @@ install target/release/feral-cli    ~/.local/bin/feral
 install FeralAgent/dist/feral-agent ~/.local/bin/feral-agent
 feral doctor && feral gateway start
 ```
+
+</details>
 
 See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd service, cloud keys via env (`FERAL_BASE_URL` / `FERAL_API_KEY` / `FERAL_MODEL`), and the HTTP API. Full install notes (hardware requirements, first-launch warnings per OS) are in [Install](#install) below.
 
