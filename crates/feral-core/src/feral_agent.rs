@@ -361,6 +361,15 @@ pub async fn spawn(
         .ok()
         .or_else(|| byok.as_ref().map(|b| b.base_url.clone()))
         .unwrap_or_else(|| format!("http://127.0.0.1:{api_port}"));
+    // Normalize exactly like load_byok_provider_endpoint: the sidecar appends
+    // `/v1/chat/completions` itself, so a user-supplied `…/v1` (every
+    // provider's documented base URL, e.g. MiniMax) doubles to
+    // `/v1/v1/chat/completions` and 404s. The keychain path already stripped
+    // this; FERAL_BASE_URL from env — the documented server path — did not.
+    let base_url = base_url
+        .trim_end_matches('/')
+        .trim_end_matches("/v1")
+        .to_string();
     let env_or_byok_key = std::env::var("FERAL_API_KEY")
         .ok()
         .or_else(|| byok.as_ref().map(|b| b.api_key.clone()));
