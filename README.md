@@ -29,6 +29,62 @@ Feral is a desktop app that runs AI on your machine. With local GGUF models, eve
 
 ---
 
+## Quick install
+
+One command per platform. Each grabs the latest release automatically — no version numbers to update.
+
+**Linux — Debian / Ubuntu** (desktop app, `.deb`)
+
+```bash
+curl -s https://api.github.com/repos/bloom500/feral/releases/latest \
+  | grep -oP '"browser_download_url": "\K[^"]*amd64\.deb(?=")' \
+  | xargs curl -LO && sudo apt install ./Feral_*_amd64.deb
+```
+
+**Linux — Fedora / RHEL** (desktop app, `.rpm`)
+
+```bash
+curl -s https://api.github.com/repos/bloom500/feral/releases/latest \
+  | grep -oP '"browser_download_url": "\K[^"]*x86_64\.rpm(?=")' \
+  | xargs curl -LO && sudo dnf install ./Feral-*.x86_64.rpm
+```
+
+**Windows 10/11** (PowerShell)
+
+```powershell
+$u = (irm https://api.github.com/repos/bloom500/feral/releases/latest).assets |
+  Where-Object name -like '*x64-setup.exe' | ForEach-Object browser_download_url
+irm $u -OutFile feral-setup.exe; .\feral-setup.exe
+```
+
+> SmartScreen may warn on first run (the installer isn't code-signed yet) — click **More info → Run anyway**.
+
+**macOS** (Apple Silicon — for Intel replace `aarch64` with `x64`)
+
+```bash
+curl -s https://api.github.com/repos/bloom500/feral/releases/latest \
+  | sed -n 's/.*"browser_download_url": "\(.*aarch64\.dmg\)".*/\1/p' | xargs curl -LO
+open Feral_*.dmg     # drag Feral to Applications, then clear the quarantine flag:
+xattr -cr /Applications/Feral.app
+```
+
+**Headless server / CLI** (`feral gateway` on a VPS — build from source; no GPU or llama.cpp compile needed, requires [Rust](https://rustup.rs) + [Bun](https://bun.sh))
+
+```bash
+git clone --depth 1 https://github.com/bloom500/feral && cd feral
+( cd FeralAgent && bun install --frozen-lockfile && bun run build )
+cargo build --release -p feral-cli
+# The sidecar binary must sit NEXT TO the CLI:
+mkdir -p ~/.local/bin
+install target/release/feral-cli    ~/.local/bin/feral
+install FeralAgent/dist/feral-agent ~/.local/bin/feral-agent
+feral doctor && feral gateway start
+```
+
+See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd service, cloud keys via env (`FERAL_BASE_URL` / `FERAL_API_KEY` / `FERAL_MODEL`), and the HTTP API. Full install notes (hardware requirements, first-launch warnings per OS) are in [Install](#install) below.
+
+---
+
 ## What's new — July 2026 release
 
 *Power-user preview — we're looking for testers and contributors.*
