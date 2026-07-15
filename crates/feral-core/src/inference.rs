@@ -295,7 +295,10 @@ impl ModelManager {
         #[cfg(feature = "inference")]
         let (ctx_len, n_ctx_train) = backend::load(&path, n_gpu_layers, max_context)?;
         #[cfg(not(feature = "inference"))]
-        let (ctx_len, n_ctx_train) = (max_context.unwrap_or(4096), 4096u32);
+        let (ctx_len, n_ctx_train) = {
+            let _ = n_gpu_layers; // only the real backend consumes this
+            (max_context.unwrap_or(4096), 4096u32)
+        };
 
         // Read AFTER the load — the GPU attempt may have fallen back, and the
         // whole point of these fields is to report what actually happened.
@@ -379,7 +382,7 @@ impl ModelManager {
                 for word in reply.split_inclusive(' ') {
                     if stop.load(Ordering::Relaxed) { break; }
                     tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-                    yield Ok(word);
+                    yield Ok(word.to_string());
                 }
             }
         }

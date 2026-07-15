@@ -114,6 +114,31 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+  # The headless/server build (`cargo build -p feral-cli --no-default-features`)
+  # compiles the cfg(not(feature = "inference")) stubs that no other job
+  # touches — this check exists because that path shipped broken once
+  # (E0271 in the stream_chat stub). Cheap: no llama.cpp, no GUI deps.
+  headless-cli:
+    name: headless-cli (no-default-features)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+
+      - name: cargo check (headless CLI)
+        run: cargo check --release -p feral-cli --no-default-features
+
   # Dependency vulnerability scanning (M-3). Fails the build on known
   # advisories so a vulnerable transitive dep can't slip into a release.
   security-audit:
