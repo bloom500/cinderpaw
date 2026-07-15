@@ -71,6 +71,9 @@ xattr -cr /Applications/Feral.app
 **Headless server / CLI** (`feral gateway` on a VPS — build from source; no GPU or llama.cpp compile needed, requires [Rust](https://rustup.rs) + [Bun](https://bun.sh))
 
 ```bash
+# Build deps (Debian/Ubuntu). libdbus-1-dev is needed by the keyring crate:
+sudo apt install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake git curl
+
 git clone --depth 1 https://github.com/bloom500/feral && cd feral
 ( cd FeralAgent && bun install --frozen-lockfile && bun run build )
 cargo build --release -p feral-cli
