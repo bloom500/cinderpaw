@@ -93,15 +93,35 @@ install_linux_desktop() {
 
 # ── Linux headless (build the CLI + gateway from source) ────────────────────
 install_linux_headless() {
-  local sudo_cmd=""
-  [ "$(id -u)" -eq 0 ] || sudo_cmd="sudo"
-
-  say "installing build dependencies…"
+  # System deps: skip entirely if they're already present (so an unprivileged
+  # user can run this after an admin installed them once). Only reach for
+  # root/sudo when something is actually missing.
   if command -v apt-get >/dev/null; then
-    $sudo_cmd apt-get update -qq
-    $sudo_cmd apt-get install -y --no-install-recommends \
-      build-essential pkg-config libssl-dev libdbus-1-dev cmake git unzip ca-certificates
+    local missing=()
+    for pkg in build-essential pkg-config libssl-dev libdbus-1-dev cmake git unzip ca-certificates; do
+      dpkg -s "$pkg" &>/dev/null || missing+=("$pkg")
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+      if [ "$(id -u)" -eq 0 ]; then
+        say "installing build dependencies: ${missing[*]}"
+        apt-get update -qq
+        apt-get install -y --no-install-recommends "${missing[@]}"
+      elif sudo -n true 2>/dev/null; then
+        say "installing build dependencies (sudo): ${missing[*]}"
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends "${missing[@]}"
+      else
+        fail "missing system packages: ${missing[*]}
+Run this once as root, then re-run the installer as this user:
+  apt-get install -y ${missing[*]}"
+      fi
+    else
+      say "build dependencies already present — skipping"
+    fi
   elif command -v dnf >/dev/null; then
+    local sudo_cmd=""
+    [ "$(id -u)" -eq 0 ] || sudo_cmd="sudo"
+    say "installing build dependencies…"
     $sudo_cmd dnf install -y gcc gcc-c++ make pkgconf-pkg-config openssl-devel dbus-devel cmake git unzip ca-certificates
   else
     fail "unsupported distro (need apt or dnf)"
