@@ -14,6 +14,17 @@ export async function ensureSettingsLoaded(): Promise<Settings> {
 const THINKING_SYSTEM_PROMPT =
   'Think step by step inside <think>...</think> before answering.';
 
+/**
+ * Per-completion output ceiling. NOT a user setting — there is no Controls UI
+ * for it, so sourcing it from the persisted store only pinned everyone to a
+ * stale 4096 that truncated long answers mid-task (the "MiniMax stops writing"
+ * report). 32768 (~24k words) never bites a real chat reply or report, is
+ * within every target provider's output limit (so no 400s the way a blind
+ * 128k would cause), and stacks with the agent loop's auto-continuation to an
+ * effectively unlimited response. The real bound stays the context window.
+ */
+const MAX_OUTPUT_TOKENS = 32_768;
+
 export async function currentInferParams(opts?: {
   reasoningMode?: ReasoningMode;
   modelName?: string;
@@ -29,7 +40,7 @@ export async function currentInferParams(opts?: {
 
   const mode = opts?.reasoningMode ?? 'auto';
   const name = opts?.modelName ?? '';
-  const { temperature, top_p, max_tokens } = useModel.getState().inferParams;
+  const { temperature, top_p } = useModel.getState().inferParams;
 
   const enableThinking =
     mode === 'on' ||
@@ -48,7 +59,7 @@ export async function currentInferParams(opts?: {
     temperature,
     top_p,
     repeat_penalty: 1.1,
-    max_tokens,
+    max_tokens: MAX_OUTPUT_TOKENS,
     system_prompt: systemPrompt,
     tools,
   };
