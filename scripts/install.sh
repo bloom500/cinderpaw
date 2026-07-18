@@ -164,7 +164,18 @@ Run this once as root, then re-run the installer as this user:
   install -m 0755 "$src/target/release/feral-cli"    "$HOME/.local/bin/feral"
   install -m 0755 "$src/FeralAgent/dist/feral-agent" "$HOME/.local/bin/feral-agent"
 
-  say "installed: $HOME/.local/bin/feral (+ feral-agent)"
+  # Self-source bundle (code-RSI): the supervisor probes <exe>/../share/feral
+  # for FeralAgent/package.json and provisions ~/.feral/self-src from it —
+  # same flow as the desktop app's Tauri resources. `git archive` gives a
+  # clean tracked-files-only tree (no node_modules/target). This also ships
+  # scripts/ (rebuild + LoRA trainer setup) to headless users.
+  say "bundling self-sources (code-RSI)…"
+  local share="$HOME/.local/share/feral"
+  rm -rf "$share/FeralAgent" "$share/scripts"
+  mkdir -p "$share"
+  git -C "$src" archive HEAD FeralAgent scripts | tar -x -C "$share"
+
+  say "installed: $HOME/.local/bin/feral (+ feral-agent, self-src bundle)"
   case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) say "NOTE: add ~/.local/bin to PATH:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;

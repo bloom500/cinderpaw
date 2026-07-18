@@ -11,14 +11,16 @@
  *   2. persists it (`writeChampion`) so the agent boots with the last
  *      winner across restarts.
  *
- * Field mapping today: temperature only. The other genome fields
- * (systemPromptId / promptTemplateId / retrievalStrategy /
- * decompositionDepth / toolPreferenceWeights) are abstract indices into
- * pools the live agent does not yet share, so mapping them would be
- * meaningless — they are deliberately left out until those pools are
- * real. The shape is the extension point: add fields here and the live
- * agent picks them up with no other change. The user's explicit UI
- * controls always override the champion (see agent-loop `#complete`).
+ * Field mapping today: temperature + systemPromptId (resolved through
+ * the SHARED prompt-style pool — see `prompt-pool.ts` — so what eval
+ * judged is exactly what the live agent runs). Still unmapped:
+ * promptTemplateId / retrievalStrategy / decompositionDepth /
+ * toolPreferenceWeights — abstract indices into pools the live agent
+ * does not yet share (the live recall tool has no strategy knob, and
+ * eval tool-weights have no stable alignment with the live registry).
+ * The shape is the extension point: add fields here and the live agent
+ * picks them up with no other change. The user's explicit UI controls
+ * always override the champion (see agent-loop `#complete`).
  */
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -26,11 +28,15 @@ import { dirname, join } from "node:path";
 import { feralHome } from "../../config.ts";
 import type { GenomeConfig } from "./genome.ts";
 import type { GenomeSpec } from "./population-manager.ts";
+import { promptStyleFor } from "./prompt-pool.ts";
 
-/** The live-agent inference params a champion can set. Mirrors the
- *  agent loop's per-session override shape so wiring is a direct pass. */
+/** The live-agent params a champion can set. Mirrors the agent loop's
+ *  champion-params shape so wiring is a direct pass. */
 export interface AgentChampionParams {
   temperature?: number;
+  /** Style text appended to the live system prompt (per new session).
+   *  Resolved from the shared pool; empty/absent = neutral. */
+  systemPromptAddendum?: string;
 }
 
 /** Project a genome config onto the live-agent params. Only fields that
@@ -42,6 +48,8 @@ export function mapGenomeToAgentConfig(config: GenomeConfig): AgentChampionParam
   if (typeof t === "number" && Number.isFinite(t) && t >= 0) {
     params.temperature = t;
   }
+  const style = promptStyleFor(config.systemPromptId);
+  if (style) params.systemPromptAddendum = style;
   return params;
 }
 

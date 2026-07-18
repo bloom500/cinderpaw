@@ -53,8 +53,10 @@ export function createAskUserTool(): Tool {
         "clarification or a decision before continuing. Each question must " +
         "have 2-4 options (the UI implicitly adds an 'Other' choice). " +
         "Limit to 1-4 questions per call so the user is not overwhelmed. " +
-        "Use this sparingly — only when the answer materially changes what " +
-        "you do next. Returns the user's selections as a structured summary.",
+        "Prefer asking over guessing whenever the answer materially changes " +
+        "what you do next (ambiguous requests, destructive or costly actions, " +
+        "competing approaches); skip it for trivia you can decide yourself. " +
+        "Returns the user's selections as a structured summary.",
       permissions: [],
       networkAccess: false,
     },

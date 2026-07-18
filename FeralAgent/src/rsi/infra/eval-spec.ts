@@ -16,12 +16,17 @@
  * deterministic so an eval run is reproducible for PBT.
  */
 
-/** The validator family. Mirrors Rust `tier0::Tier0Kind` (snake_case). */
+/** The validator family. The first four mirror Rust `tier0::Tier0Kind`
+ *  (snake_case); `tool_call` is a TS-side Tier 1/2 kind — it grades the
+ *  agent's ability to pick the right tool and shape a correct call, the
+ *  capability the trivia kinds never touched. Deterministic like every
+ *  other kind (a hard requirement for PBT reproducibility). */
 export type EvalKind =
   | "json_format"
   | "fact_lookup"
   | "token_budget"
-  | "latency";
+  | "latency"
+  | "tool_call";
 
 /** Per-kind expected payload. Tagged union mirroring Rust's
  *  `Tier0Expected` (`#[serde(tag = "type", rename_all = "snake_case")]`). */
@@ -29,7 +34,17 @@ export type EvalExpected =
   | { type: "json_format"; required_keys: string[] }
   | { type: "fact_lookup"; answer: string }
   | { type: "token_budget"; max_tokens: number }
-  | { type: "latency"; max_ms: number };
+  | { type: "latency"; max_ms: number }
+  | {
+      type: "tool_call";
+      /** The tool the agent must choose. */
+      tool: string;
+      /** Argument keys that must be present in the emitted call. */
+      required_args: string[];
+      /** Optional exact-value pins: each key must equal this value
+       *  (after String() normalisation, case-insensitive). */
+      arg_equals?: Record<string, string>;
+    };
 
 /** One eval task. `tier` is 0 | 1 | 2. */
 export interface EvalSpec {
@@ -73,7 +88,56 @@ export function validateOutcome(
   if (kind === "latency" && expected.type === "latency") {
     return latencyMs <= expected.max_ms;
   }
+  if (kind === "tool_call" && expected.type === "tool_call") {
+    return toolCallOk(response, expected);
+  }
   return false;
+}
+
+/** Validate a tool_call response: the agent must emit a JSON object
+ *  `{"tool": "<name>", "args": {...}}` (bare or inside a ```json fence).
+ *  Pass iff the tool matches, every required arg key is present, and any
+ *  pinned values match (string-normalised, case-insensitive). */
+function toolCallOk(
+  response: string,
+  expected: Extract<EvalExpected, { type: "tool_call" }>,
+): boolean {
+  const body = extractJsonObject(response);
+  if (!body) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  const call = parsed as { tool?: unknown; args?: unknown };
+  if (typeof call.tool !== "string" || call.tool.trim() !== expected.tool) return false;
+  const args =
+    call.args && typeof call.args === "object" && !Array.isArray(call.args)
+      ? (call.args as Record<string, unknown>)
+      : {};
+  for (const key of expected.required_args) {
+    if (!Object.prototype.hasOwnProperty.call(args, key)) return false;
+  }
+  for (const [key, want] of Object.entries(expected.arg_equals ?? {})) {
+    const got = args[key];
+    if (got === undefined) return false;
+    if (String(got).trim().toLowerCase() !== want.trim().toLowerCase()) return false;
+  }
+  return true;
+}
+
+/** First JSON object in the response: a fenced ```json block wins, else
+ *  the substring from the first `{` to the LAST `}` (tolerates prose
+ *  before/after but not interleaved). */
+function extractJsonObject(response: string): string | null {
+  const fence = /```(?:json)?\s*\n([\s\S]*?)```/.exec(response);
+  const src = fence?.[1] ?? response;
+  const start = src.indexOf("{");
+  const end = src.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  return src.slice(start, end + 1);
 }
 
 function jsonFormatOk(response: string, requiredKeys: string[]): boolean {

@@ -38,6 +38,7 @@ pub mod plan;
 pub mod repo;
 pub mod runtime;
 pub mod sandbox_bounds;
+pub mod self_src;
 pub mod scorer;
 pub mod tier0;
 pub mod types;

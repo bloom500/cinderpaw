@@ -77,6 +77,41 @@ type Chunk struct {
 	ToolStart    ToolStart    `json:"-"`
 	ToolDone     ToolDone     `json:"-"`
 	ToolProgress ToolProgress `json:"-"`
+
+	// ask_user — the agent is waiting on the user's answer. Non-nil when the
+	// host forwards a typed `event: ask_user` frame; answer it with
+	// AskRespond. AskUserCancelled carries the request id of a question the
+	// sidecar withdrew (timeout/shutdown).
+	AskUser          *AskUserRequest `json:"-"`
+	AskUserCancelled string          `json:"-"`
+}
+
+// AskUserRequest mirrors the sidecar's `ask_user` outbound event.
+type AskUserRequest struct {
+	ID        string        `json:"id"`
+	SessionID string        `json:"sessionId"`
+	Questions []AskQuestion `json:"questions"`
+}
+
+// AskQuestion is one multiple-choice question (2-4 options).
+type AskQuestion struct {
+	Question    string      `json:"question"`
+	Options     []AskOption `json:"options"`
+	MultiSelect bool        `json:"multiSelect,omitempty"`
+}
+
+// AskOption is one selectable choice.
+type AskOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Recommended bool   `json:"recommended,omitempty"`
+}
+
+// AskAnswer mirrors the sidecar's expected `ask_user_response` answer shape.
+type AskAnswer struct {
+	Question   string   `json:"question"`
+	Selected   []string `json:"selected"`
+	CustomText string   `json:"customText,omitempty"`
 }
 
 // ToolStart is the start of one tool call — the sidecar emits a matching
@@ -1174,6 +1209,13 @@ func StreamChat(baseURL, token, content, sessionID string, chunks chan<- Chunk, 
 				}
 				continue
 			}
+			// ask_user frames — the agent is blocked on the user's answer.
+			if currentEvent == "ask_user" || currentEvent == "ask_user_cancelled" {
+				if c, ok := parseAskFrame(currentEvent, data); ok {
+					chunks <- c
+				}
+				continue
+			}
 			var raw rawChunk
 			if err := json.Unmarshal([]byte(data), &raw); err != nil {
 				continue
@@ -1271,6 +1313,127 @@ func parseToolFrame(ev, body string) (Chunk, bool) {
 		}}, true
 	}
 	return Chunk{}, false
+}
+
+// parseAskFrame decodes one typed ask_user / ask_user_cancelled frame.
+func parseAskFrame(ev, body string) (Chunk, bool) {
+	switch ev {
+	case "ask_user":
+		var req AskUserRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil || req.ID == "" || len(req.Questions) == 0 {
+			return Chunk{}, false
+		}
+		return Chunk{AskUser: &req}, true
+	case "ask_user_cancelled":
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(body), &raw); err != nil {
+			return Chunk{}, false
+		}
+		id := jsonStr(raw["id"])
+		if id == "" {
+			return Chunk{}, false
+		}
+		return Chunk{AskUserCancelled: id}, true
+	}
+	return Chunk{}, false
+}
+
+// AskRespond answers a pending ask_user question (POST /runtime/ask/respond).
+// Fire-and-forget on the host side — the agent turn resumes on its original
+// SSE stream once the sidecar's bridge resolves.
+func AskRespond(baseURL, token, requestID string, answers []AskAnswer) error {
+	body, _ := json.Marshal(map[string]any{"requestId": requestID, "answers": answers})
+	req, _ := http.NewRequest("POST", baseURL+"/runtime/ask/respond", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("ask respond: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// ParseAskReply maps a typed reply line to answers for `questions`. Per
+// question token (comma-separated when there are several questions): a
+// number picks that option ("2 3" / "2+3" multi-pick), an exact label match
+// (case-insensitive) picks it, anything else is free-form custom text.
+// Missing tokens fall back to the recommended (or first) option. Mirrors
+// the sidecar's channel parser (src/core/ask-user-channel.ts).
+func ParseAskReply(questions []AskQuestion, reply string) []AskAnswer {
+	var tokens []string
+	if len(questions) > 1 {
+		for _, t := range strings.FieldsFunc(reply, func(r rune) bool { return r == ',' || r == '\n' }) {
+			tokens = append(tokens, strings.TrimSpace(t))
+		}
+	} else {
+		tokens = []string{strings.TrimSpace(reply)}
+	}
+	out := make([]AskAnswer, 0, len(questions))
+	for i, q := range questions {
+		token := ""
+		if i < len(tokens) {
+			token = tokens[i]
+		}
+		if token == "" {
+			label := ""
+			for _, o := range q.Options {
+				if o.Recommended {
+					label = o.Label
+					break
+				}
+			}
+			if label == "" && len(q.Options) > 0 {
+				label = q.Options[0].Label
+			}
+			ans := AskAnswer{Question: q.Question, Selected: []string{}}
+			if label != "" {
+				ans.Selected = []string{label}
+			}
+			out = append(out, ans)
+			continue
+		}
+		parts := strings.FieldsFunc(token, func(r rune) bool { return r == ' ' || r == '+' })
+		numeric := len(parts) > 0
+		for _, p := range parts {
+			if _, err := strconv.Atoi(p); err != nil {
+				numeric = false
+				break
+			}
+		}
+		if numeric {
+			var picked []string
+			for _, p := range parts {
+				n, _ := strconv.Atoi(p)
+				if n >= 1 && n <= len(q.Options) {
+					picked = append(picked, q.Options[n-1].Label)
+				}
+			}
+			if len(picked) > 0 {
+				if !q.MultiSelect {
+					picked = picked[:1]
+				}
+				out = append(out, AskAnswer{Question: q.Question, Selected: picked})
+				continue
+			}
+		}
+		matched := false
+		for _, o := range q.Options {
+			if strings.EqualFold(o.Label, token) {
+				out = append(out, AskAnswer{Question: q.Question, Selected: []string{o.Label}})
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			out = append(out, AskAnswer{Question: q.Question, Selected: []string{}, CustomText: token})
+		}
+	}
+	return out
 }
 
 // jsonStr is a tiny helper that returns the decoded string for a JSON

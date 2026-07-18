@@ -1995,30 +1995,35 @@ mod tests {
     // user override (FERAL_MAX_LOCAL_CONTEXTS) must always win — power users
     // with 24 GB cards want 2 for overlapping generations.
 
+    #[cfg(feature = "inference")]
     #[test]
     fn pool_cap_gpu_default_is_one() {
         // No env override, GPU active → 1 (each context = full KV cache in VRAM).
         assert_eq!(backend::effective_pool_cap_with_env(true, None), 1);
     }
 
+    #[cfg(feature = "inference")]
     #[test]
     fn pool_cap_cpu_default_is_two() {
         // No env override, CPU only → 2 (RAM is plentiful, parallel decodes fine).
         assert_eq!(backend::effective_pool_cap_with_env(false, None), 2);
     }
 
+    #[cfg(feature = "inference")]
     #[test]
     fn pool_cap_env_override_wins_on_gpu() {
         // Power user with 24 GB card opts into 2 parallel decodes.
         assert_eq!(backend::effective_pool_cap_with_env(true, Some(2)), 2);
     }
 
+    #[cfg(feature = "inference")]
     #[test]
     fn pool_cap_env_override_wins_on_cpu() {
         // Single-context user (laptop, RAM-tight) overrides to 1.
         assert_eq!(backend::effective_pool_cap_with_env(false, Some(1)), 1);
     }
 
+    #[cfg(feature = "inference")]
     #[test]
     fn pool_cap_env_override_higher_than_two_works() {
         // RTX 3090/4090 user with plenty of VRAM opts into 3 — passes through.

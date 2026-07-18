@@ -111,6 +111,25 @@ describe("MCP — tools registered after boot are actually callable", () => {
     expect(isCoreTool("mcp_discord_login")).toBe(false);
   });
 
+  test("persona-only profile: new voice, owner toolset (multi-agent routing)", async () => {
+    const { prompts, tools } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const registry = buildRegistry(db);
+    registry.register(lateTool("late_owner_tool")); // extended-style name → core by default
+    const agent = buildAgent(db, registry);
+
+    // No allowedTools → persona replaces the prompt but keeps the owner's
+    // full advertised toolset (per-connector "different agent" routing).
+    agent.registerProfile("discord-persona", { systemPrompt: "You are Spike, the ops bot." });
+    agent.setSessionProfile("discord:123", "discord-persona");
+
+    await agent.handle("discord:123", "hello", "m1", () => {});
+    expect(JSON.stringify(prompts.at(-1))).toContain("Spike, the ops bot");
+    // Owner-core tool still advertised — the persona did not restrict tools.
+    expect(tools.at(-1)).toContain("late_owner_tool");
+    db.close();
+  });
+
   test("a profile's allow-list can name a tool registered after the profile", async () => {
     const { tools } = installPromptRecorder();
     const db = openDatabase(":memory:");

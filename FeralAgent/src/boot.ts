@@ -38,6 +38,7 @@ import { createEditFileTool } from "./tools/builtin/edit-file.ts";
 import { createFileSearchTool } from "./tools/builtin/file-search.ts";
 import { createGrepTool } from "./tools/builtin/grep.ts";
 import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
+import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
 import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
 import { createTimeDateTool } from "./tools/builtin/time-date.ts";
@@ -70,7 +71,8 @@ import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.t
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
 import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
-import { RsiSidecar } from "./rsi/sidecar.ts";
+import { DEFAULT_SYSTEM_PROMPT, RsiSidecar } from "./rsi/sidecar.ts";
+import { PROMPT_STYLE_POOL } from "./rsi/l1-config/prompt-pool.ts";
 import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/l4-modules/seam-runtime.ts";
 import { shouldAutostartPassive } from "./rsi/l1-config/passive-supervisor.ts";
 import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
@@ -616,6 +618,13 @@ export async function boot(transportOverride?: Transport) {
   // agent can actually run things; set FERAL_ENABLE_SHELL_EXEC=false to disable.
   if (process.env.FERAL_ENABLE_SHELL_EXEC !== "false") {
     registry.register(createShellExecTool(config.workspaceRoots));
+    // tool_forge: the agent creates/modifies/deletes its OWN tools. Same
+    // trust class as shell_exec (arbitrary code in a sandboxed subprocess),
+    // hence the same gate. Persisted tools are re-registered every boot.
+    const forgeDeps = { registry, workspaceRoots: config.workspaceRoots };
+    const restored = registerPersistedCustomTools(forgeDeps);
+    if (restored.length > 0) log(`tool_forge: restored ${restored.length} custom tool(s): ${restored.join(", ")}`);
+    registry.register(createToolForgeTool(forgeDeps));
   }
   // git_*: process-spawn tools for the workspace
   registry.register(createGitStatusTool(config.workspaceRoots));
@@ -1154,6 +1163,13 @@ export async function boot(transportOverride?: Transport) {
     router,
     db: db.raw,
     bridge: rsiBridge,
+    // The SHARED prompt-style pool (champion bridge): eval grades genomes
+    // under the same styles the live agent applies on promotion. Styles are
+    // ADDENDA in both surfaces — base instruction + style — so id 0 (neutral)
+    // is byte-identical to the historical default prompt.
+    systemPrompts: Object.fromEntries(
+      PROMPT_STYLE_POOL.map((text, id) => [id, text ? `${DEFAULT_SYSTEM_PROMPT} ${text}` : DEFAULT_SYSTEM_PROMPT]),
+    ),
     send: (e) => transport.send(e as unknown as import("./types.ts").OutboundEvent),
     log,
     // L6: the live MetaGenome scales the PBT selection knobs and
@@ -1194,6 +1210,10 @@ export async function boot(transportOverride?: Transport) {
   // `connectors_reload`; reconcile here. Started in onReady once the agent and
   // tools are fully wired.
   const connectors = new ConnectorManager(agent, log, leadDesk);
+  // ask_user for connector sessions is asked IN the channel (Discord/Slack/
+  // WhatsApp text message; the next reply answers it) instead of emitting a
+  // desktop card the chat user can never see.
+  askUser.setDelegate(connectors.askRouter);
 
   // connectors_manage — the agent's self-service door for connecting itself
   // to Discord/Slack/WhatsApp on user request. Writes ~/.feral/connectors.json

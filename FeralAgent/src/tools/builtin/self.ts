@@ -1300,6 +1300,50 @@ function makeSelfHealth(ctx: SelfContext): Tool {
   };
 }
 
+function makeSelfProgress(): Tool {
+  const manifest: ToolManifest = {
+    name: "self_progress",
+    description:
+      "Longitudinal self-improvement telemetry: per-day dream-cycle counts, " +
+      "accept/reject/halt split, mean candidate score, and the overall " +
+      "trend (is the evolution actually climbing?). This is the evidence " +
+      "curve behind 'the agent that builds itself'. Use when the user asks " +
+      "whether Feral is improving over time or wants the RSI progress plot.",
+    permissions: [],
+    networkAccess: false,
+  };
+  return {
+    manifest,
+    parameters: {
+      days: {
+        type: "number",
+        description: "How many past days to aggregate (default 30, max 365).",
+        required: false,
+      },
+    },
+    async execute(args) {
+      const days =
+        typeof args.days === "number" && Number.isFinite(args.days)
+          ? Math.max(1, Math.min(365, Math.floor(args.days)))
+          : 30;
+      const { improvementSeries } = await import("../../rsi/infra/progress.ts");
+      const series = improvementSeries(join(RSI_ROOT, "journal"), days);
+      const out = {
+        ...series,
+        champion: shapeChampion(),
+        journal_dir: join(RSI_ROOT, "journal"),
+        note:
+          series.aggregateTrend === null
+            ? "Not enough measured days yet for a trend — the curve needs at least 2 active days."
+            : series.aggregateTrend >= 0
+              ? "Mean candidate score is flat-to-rising across the window."
+              : "Mean candidate score fell across the window — worth inspecting recent journal rows.",
+      };
+      return { ok: true, content: JSON.stringify(out, null, 2), data: out };
+    },
+  };
+}
+
 function makeSelfSubsystem(): Tool {
   const manifest: ToolManifest = {
     name: "self_subsystem",
@@ -1416,6 +1460,7 @@ export function createSelfTools(ctx: SelfContext): Tool[] {
     makeSelfLora(ctx),
     makeSelfHealth(ctx),
     makeSelfSubsystem(),
+    makeSelfProgress(),
   ];
 }
 

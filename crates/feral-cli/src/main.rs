@@ -103,11 +103,18 @@ enum Command {
         action: admin::GovernanceAction,
     },
     /// (advanced) Phase B (L4 Architecture Evolution) — module candidates per
-    /// seam: list / show / approve / reject / demote / evaluate. Approval is
-    /// the only path that promotes a module (spec §6).
+    /// seam: list / show / approve / reject / demote / evaluate / propose.
+    /// Approval is the only path that promotes a module (spec §6).
     Modules {
         #[command(subcommand)]
         action: admin::ModulesAction,
+    },
+    /// (advanced) Faza 4 (L2 Personal Adaptation) — LoRA training on your own
+    /// conversations: status / train / reviews / approve / reject. Needs a
+    /// LOCAL primary model + a registered trainer (docs/LORA_TRAINER.md).
+    Lora {
+        #[command(subcommand)]
+        action: admin::LoraAction,
     },
     /// Generate a shell completion script
     Completion {
@@ -153,6 +160,13 @@ enum ConnectorsAction {
         /// Channel/chat id the agent answers without an @mention (repeatable)
         #[arg(long = "channel")]
         channels: Vec<String>,
+        /// Multi-agent routing: run this connector as a DIFFERENT agent —
+        /// full system prompt for its sessions ("" clears it)
+        #[arg(long)]
+        persona: Option<String>,
+        /// Restrict the persona to these tools (repeatable; omit = full toolset)
+        #[arg(long = "persona-tool")]
+        persona_tools: Vec<String>,
     },
 }
 
@@ -223,8 +237,8 @@ fn main() {
         Some(Command::Connectors { action }) => match action {
             None | Some(ConnectorsAction::List) => admin::connectors_list(),
             Some(ConnectorsAction::Reload) => admin::connectors_reload(),
-            Some(ConnectorsAction::Set { id, secrets, enable, disable, allowlist, channels }) => {
-                admin::connectors_set(&id, secrets, enable, disable, allowlist, channels)
+            Some(ConnectorsAction::Set { id, secrets, enable, disable, allowlist, channels, persona, persona_tools }) => {
+                admin::connectors_set(&id, secrets, enable, disable, allowlist, channels, persona, persona_tools)
             }
         },
         Some(Command::Dreams) => admin::dreams(),
@@ -240,6 +254,7 @@ fn main() {
         },
         Some(Command::Governance { action }) => admin::governance(action),
         Some(Command::Modules { action }) => admin::modules(action),
+        Some(Command::Lora { action }) => admin::lora(action),
         Some(Command::Completion { shell }) => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "feral", &mut std::io::stdout());

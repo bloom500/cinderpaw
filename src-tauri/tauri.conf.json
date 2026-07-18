@@ -44,8 +44,24 @@
       "minimumSystemVersion": "10.15",
       "signingIdentity": "-"
     },
+    "linux": {
+      "deb": { "depends": ["git"] },
+      "rpm": { "depends": ["git"] }
+    },
     "externalBin": [
       "binaries/feral-agent"
+    ],
+    "resources": [
+      "../FeralAgent/src/**",
+      "../FeralAgent/tests/**",
+      "../FeralAgent/package.json",
+      "../FeralAgent/tsconfig.json",
+      "../FeralAgent/bun.lock",
+      "../scripts/rsi-rebuild-sidecar.ps1",
+      "../scripts/rsi-rebuild-sidecar.sh",
+      "../scripts/setup-lora-trainer.ps1",
+      "../scripts/setup-lora-trainer.sh",
+      "../scripts/lora-trainer/**"
     ],
     "icon": [
       "icons/32x32.png",

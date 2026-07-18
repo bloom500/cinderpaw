@@ -678,6 +678,13 @@ export interface SubagentConfig {
   budget: { maxTokens: number; maxIterations: number };
   /** The session id of the parent that spawned this subagent. */
   parentSessionId: string;
+  /**
+   * Observer for the child loop's events (tool_start/tool_done/error…).
+   * The delegate tool forwards these as tool_progress on the PARENT's
+   * stream so every surface (desktop, TUI, Discord status line) shows
+   * what the subagent is doing instead of a silent multi-minute stall.
+   */
+  onEvent?: (event: OutboundEvent) => void;
 }
 
 /** The subagent's outcome. Returned to the parent agent for context. */
@@ -959,7 +966,10 @@ export interface InboundMessage {
     // evaluate; watchdog quarantines arrive unpaired as op "quarantined").
     // Payload fields (`moduleId`, `moduleAction`, `seam`, `note`) are
     // flattened into the inbound message alongside `type` + `id`.
-    | "modules_list" | "module_resolve" | "module_evaluate"
+    // `module_propose` asks the LOCAL model to author a module candidate
+    // for a seam (op "propose"); feed the returned moduleId to
+    // `module_evaluate` to run it through the lifecycle.
+    | "modules_list" | "module_resolve" | "module_evaluate" | "module_propose"
     // Sprint 1.6 — Memory Resume. The host asks for the persisted
     // `current_task` + active workspace + last-active timestamp; the sidecar
     // replies with one `resume_get_result` paired by `id`. Powers the React

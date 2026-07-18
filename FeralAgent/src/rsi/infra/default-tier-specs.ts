@@ -148,4 +148,113 @@ export const TIER2_SPECS: EvalSpec[] = [
     kind: "fact_lookup",
     expected: { type: "fact_lookup", answer: "10" },
   },
+  // ── Headroom block: multi-step reasoning a saturated model can still
+  // miss under a bad config (truncation, rambling, weak style). ────────
+  {
+    id: "tier2/two_leg_distance",
+    tier: 2,
+    name: "Two-leg distance",
+    description: "Agent chains two rate×time products and sums.",
+    prompt:
+      "A car travels at 60 km/h for 2.5 hours, then at 80 km/h for 1.5 hours. How many km did it travel in total? Answer with just the number.",
+    kind: "fact_lookup",
+    expected: { type: "fact_lookup", answer: "270" },
+  },
+  {
+    id: "tier2/transitive_shortest",
+    tier: 2,
+    name: "Transitive ordering",
+    description: "Agent applies two transitive comparisons.",
+    prompt:
+      "Anna is taller than Ben. Ben is taller than Carl. Who is the shortest? Answer with just the name.",
+    kind: "fact_lookup",
+    expected: { type: "fact_lookup", answer: "carl" },
+  },
+  {
+    id: "tier2/seconds_in_hours",
+    tier: 2,
+    name: "Unit conversion",
+    description: "Agent converts fractional hours to seconds.",
+    prompt: "How many seconds are in 2.5 hours? Answer with just the number.",
+    kind: "fact_lookup",
+    expected: { type: "fact_lookup", answer: "9000" },
+  },
+];
+
+/** Fixed catalog for the tool_call specs. Self-contained in the prompt so
+ *  the task is deterministic and independent of the live registry. */
+const TOOL_CATALOG =
+  "You can call exactly one of these tools:\n" +
+  '- web_search(query: string) — search the web for current information\n' +
+  '- read_file(path: string) — read a file from disk\n' +
+  '- calculator(expression: string) — evaluate an arithmetic expression\n' +
+  '- http_request(url: string, method: string) — call an HTTP API\n' +
+  '- remember(fact: string) — save a fact to long-term memory\n' +
+  'Reply with ONLY a JSON object: {"tool": "<name>", "args": {...}}. No prose, no code fences.\n\nTask: ';
+
+/** Tier 2 — tool selection + call shaping (kind `tool_call`). This is
+ *  the slice of the suite that grades the agent AS AN AGENT: given a
+ *  task and a catalog, pick the right tool and emit a well-formed call.
+ *  Feeds the fitness vector's `toolSuccess` component (contract-leaves). */
+export const TIER2_TOOL_SPECS: EvalSpec[] = [
+  {
+    id: "tier2/tool_calculator",
+    tier: 2,
+    name: "Tool: arithmetic → calculator",
+    description: "Agent routes arithmetic to the calculator with the expression.",
+    prompt: TOOL_CATALOG + "What is 847 multiplied by 312?",
+    kind: "tool_call",
+    expected: { type: "tool_call", tool: "calculator", required_args: ["expression"] },
+    domain: "tools",
+  },
+  {
+    id: "tier2/tool_web_current",
+    tier: 2,
+    name: "Tool: current info → web_search",
+    description: "Agent recognises 'current' information needs the web, not the calculator.",
+    prompt: TOOL_CATALOG + "What is the current USD to EUR exchange rate?",
+    kind: "tool_call",
+    expected: { type: "tool_call", tool: "web_search", required_args: ["query"] },
+    domain: "tools",
+  },
+  {
+    id: "tier2/tool_read_file",
+    tier: 2,
+    name: "Tool: file read with exact path",
+    description: "Agent passes the exact requested path through.",
+    prompt: TOOL_CATALOG + "Show me the contents of the file config/settings.json.",
+    kind: "tool_call",
+    expected: {
+      type: "tool_call",
+      tool: "read_file",
+      required_args: ["path"],
+      arg_equals: { path: "config/settings.json" },
+    },
+    domain: "tools",
+  },
+  {
+    id: "tier2/tool_remember",
+    tier: 2,
+    name: "Tool: persistence → remember",
+    description: "Agent routes a 'save this' request to memory, not search.",
+    prompt: TOOL_CATALOG + "Please remember that my favorite color is green.",
+    kind: "tool_call",
+    expected: { type: "tool_call", tool: "remember", required_args: ["fact"] },
+    domain: "tools",
+  },
+  {
+    id: "tier2/tool_http_get",
+    tier: 2,
+    name: "Tool: API call with method",
+    description: "Agent shapes an http_request with pinned url and method.",
+    prompt: TOOL_CATALOG + "Check the status endpoint at https://api.example.com/status using a GET request.",
+    kind: "tool_call",
+    expected: {
+      type: "tool_call",
+      tool: "http_request",
+      required_args: ["url", "method"],
+      arg_equals: { url: "https://api.example.com/status", method: "get" },
+    },
+    domain: "tools",
+  },
 ];

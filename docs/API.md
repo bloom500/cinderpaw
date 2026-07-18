@@ -52,6 +52,7 @@ the comment tags next to each `.route(` line.
 | Method | Path | Stability | Class | Notes |
 |---|---|---|---|---|
 | POST | `/runtime/chat` | unstable | govern | Sidecar-roundtrip chat. |
+| POST | `/runtime/ask/respond` | unstable | govern | Answer a pending `ask_user` question (`{requestId, answers}`); the question arrives as a typed `ask_user` SSE event on the chat stream. |
 | GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
@@ -60,6 +61,9 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/models` | unstable | read | Lists loaded/known models. |
 | POST | `/runtime/model` | unstable | evolve | Set the active model. |
 | GET  | `/runtime/lora` | unstable | read | Lists LoRAs and provenance. |
+| POST | `/runtime/lora/train` | unstable | evolve | Fire-and-forget L2 training cycle (`{domain?}`); result lands as `lora_train_result` on `/events` + a refreshed review inbox. |
+| GET  | `/runtime/lora/reviews` | unstable | read | L2 review inbox: pending adapter cards + champions + stats. |
+| POST | `/runtime/lora/reviews/resolve` | unstable | govern | THE human decision on an adapter candidate (`{id, action: approve\|reject}`). |
 | GET  | `/runtime/manifest` | unstable | read | Active module manifest snapshot. |
 | GET  | `/runtime/sessions` | unstable | read | Lists sessions. |
 | GET  | `/runtime/resume` | unstable | read | Memory Resume — last-task row for clients. |
@@ -104,6 +108,7 @@ the comment tags next to each `.route(` line.
 |---|---|---|---|
 | GET  | `/modules` | unstable | read |
 | POST | `/modules/evaluate` | unstable | evolve |
+| POST | `/modules/propose` | unstable | evolve |
 | GET  | `/modules/:id` | unstable | read |
 | POST | `/modules/:id/approve` | unstable | govern |
 | POST | `/modules/:id/reject` | unstable | govern |
@@ -173,10 +178,15 @@ POST /modules/:id/approve
 POST /modules/:id/demote
 POST /modules/:id/reject
 POST /modules/evaluate
+POST /modules/propose
 POST /providers/test
 GET /runtime/connectors
 GET /runtime/connectors/catalog
 GET /runtime/lora
+GET /runtime/lora/reviews
+POST /runtime/lora/reviews/resolve
+POST /runtime/lora/train
+POST /runtime/ask/respond
 GET /runtime/manifest
 GET /runtime/models
 GET /runtime/providers/catalog

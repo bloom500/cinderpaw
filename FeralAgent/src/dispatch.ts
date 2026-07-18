@@ -36,6 +36,16 @@ function log(message: string): void {
 }
 
 /**
+ * The sidecar version, for module manifests' runtime-compat stamp.
+ * Duplicated from boot.ts's VERSION for the same anti-cycle reason as
+ * log() above (dispatch may only type-import from boot).
+ */
+import pkgJson from "../package.json" with { type: "json" };
+function sidecarVersion(): string {
+  return cfgPath("FERAL_VERSION") ?? ((pkgJson as { version?: string }).version || "0.0.0-dev");
+}
+
+/**
  * True when a base URL points at a loopback (local) host. Duplicated from
  * boot.ts's identical helper for the same reason as log() above.
  */
@@ -306,6 +316,54 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             action,
             ...result,
           });
+        })();
+        break;
+      }
+      case "module_propose": {
+        // Gap 6 (L4 generative half): the LOCAL model authors a module
+        // candidate for a seam. Proposal only — the returned moduleId
+        // still has to clear the full lifecycle via `module_evaluate`.
+        void (async () => {
+          const reply = (extra: Record<string, unknown>): void => {
+            transport.send({ type: "modules_result", id: msg.id ?? "", op: "propose", ...extra } as never);
+          };
+          if (!router.isPrimaryLocal) {
+            reply({ ok: false, reason: "module proposal requires a LOCAL primary model (no network during proposal)" });
+            return;
+          }
+          try {
+            const { proposeModule } = await import("./rsi/l4-modules/module-proposer.ts");
+            const { defaultModulesDir } = await import("./rsi/l4-modules/module-registry.ts");
+            const proposed = await proposeModule({
+              completeLocal: async ({ system, user, maxTokens }) => {
+                const res = await router.complete({
+                  sessionId: "module-proposer",
+                  messages: [
+                    { role: "system", content: system },
+                    { role: "user", content: user },
+                  ],
+                  maxTokens,
+                  temperature: 0.4,
+                  cachePrompt: false,
+                  skipBudgetCheck: false,
+                });
+                return res.content;
+              },
+              modulesDir: defaultModulesDir(),
+              runtimeVersion: sidecarVersion(),
+              ...(typeof (msg as { seam?: string }).seam === "string" && (msg as { seam?: string }).seam
+                ? { seam: (msg as { seam?: string }).seam }
+                : {}),
+            });
+            if (!proposed) {
+              reply({ ok: false, reason: "proposer declined (SKIP / nothing module-shaped / wall reject) — no candidate this round" });
+              return;
+            }
+            log(`module-proposer: candidate ${proposed.moduleId} for seam ${proposed.seam} — ${proposed.rationale}`);
+            reply({ ok: true, moduleId: proposed.moduleId, seam: proposed.seam, rationale: proposed.rationale });
+          } catch (err) {
+            reply({ ok: false, reason: err instanceof Error ? err.message : String(err) });
+          }
         })();
         break;
       }

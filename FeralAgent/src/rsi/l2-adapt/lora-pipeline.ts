@@ -187,7 +187,13 @@ export async function runLoraTrainingCycle(
   const { registry, reviews, trainer, domain, baseModel, dataset } = args;
 
   if (!(await trainer.available())) {
-    return { ok: false, reason: `trainer '${trainer.name}' unavailable on this machine` };
+    return {
+      ok: false,
+      reason:
+        `trainer '${trainer.name}' unavailable on this machine — set FERAL_LORA_TRAINER_BIN ` +
+        `to a binary implementing the trainer contract (docs/LORA_TRAINER.md; ` +
+        `scripts/setup-lora-trainer validates + registers it)`,
+    };
   }
 
   const id = deriveAdapterId(domain, baseModel, dataset.hash, args.hyperparameters);

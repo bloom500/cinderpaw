@@ -94,6 +94,36 @@ pub enum ModulesAction {
     /// Run the paired shadow eval for a module candidate (slow: the full
     /// suite runs twice on the live model)
     Evaluate { id: String },
+    /// Ask the LOCAL model to author a module candidate for a seam (slow:
+    /// one full local completion; the result still needs `evaluate` +
+    /// `approve` to promote)
+    Propose {
+        /// Seam id to target (omitted = proposer picks from the catalog)
+        #[arg(long)]
+        seam: Option<String>,
+    },
+}
+
+/// Faza 4 (L2 LoRA) — `feral lora …`: the personal-adaptation loop,
+/// headless. Mirrors the desktop Training card: train fires a cycle,
+/// reviews lists the human inbox, approve/reject is THE promotion gate.
+#[derive(Subcommand)]
+pub enum LoraAction {
+    /// Registry summary: champions per domain + the active adapter
+    Status,
+    /// Run one training cycle (dataset → trainer → paired eval → review
+    /// card). Fire-and-forget; watch `feral logs -f` or `feral lora reviews`
+    Train {
+        /// Adapter domain (general, coding, research, writing, planning)
+        #[arg(long, default_value = "general")]
+        domain: String,
+    },
+    /// List pending review cards (+ champions and stats)
+    Reviews,
+    /// Approve an adapter candidate — THE human promotion record
+    Approve { id: String },
+    /// Reject an adapter candidate
+    Reject { id: String },
 }
 
 /// One blocking tokio runtime for the short HTTP calls these commands make.
@@ -519,6 +549,8 @@ pub fn connectors_set(
     disable: bool,
     allowlist: Vec<String>,
     channels: Vec<String>,
+    persona: Option<String>,
+    persona_tools: Vec<String>,
 ) -> i32 {
     let Palette { ok: OK, fail: FAIL, meta: META, reset: RESET, .. } = palette();
     if !port_in_use(api_port()) {
@@ -558,6 +590,12 @@ pub fn connectors_set(
     }
     if !channels.is_empty() {
         obj.insert("channels".into(), serde_json::json!(channels));
+    }
+    if let Some(p) = persona {
+        obj.insert("persona".into(), serde_json::Value::String(p));
+    }
+    if !persona_tools.is_empty() {
+        obj.insert("personaTools".into(), serde_json::json!(persona_tools));
     }
 
     match block_on(post_json_with_body(&token, "/runtime/connectors", body)) {
@@ -936,6 +974,14 @@ pub fn modules(action: ModulesAction) -> i32 {
             println!("{META}running paired eval (the suite runs twice on the live model — this takes a while)…{RESET}");
             block_on(post_json_slow(&token, "/modules/evaluate", json!({ "moduleId": id })))
         }
+        ModulesAction::Propose { seam } => {
+            println!("{META}asking the local model for a module candidate (one full completion — this takes a while)…{RESET}");
+            let body = match seam {
+                Some(s) => json!({ "seam": s }),
+                None => json!({}),
+            };
+            block_on(post_json_slow(&token, "/modules/propose", body))
+        }
     };
 
     let v = match result {
@@ -982,6 +1028,9 @@ pub fn modules(action: ModulesAction) -> i32 {
             if ok {
                 let state = v.get("state").and_then(|s| s.as_str()).unwrap_or("done");
                 println!("{OK}✓ {state}{RESET}");
+                if let Some(mid) = v.get("moduleId").and_then(|m| m.as_str()) {
+                    println!("  {META}candidate:{RESET} {TEXT}{mid}{RESET}  {DIM}next: feral modules evaluate {mid}{RESET}");
+                }
                 if let Some(rep) = v.get("report") {
                     let accept = rep.get("accept").and_then(|b| b.as_bool()).unwrap_or(false);
                     let reason = rep.get("reason").and_then(|r| r.as_str()).unwrap_or("");
@@ -997,6 +1046,104 @@ pub fn modules(action: ModulesAction) -> i32 {
                     let reason = rep.get("reason").and_then(|r| r.as_str()).unwrap_or("");
                     eprintln!("  {META}eval detail:{RESET} {DIM}{reason}{RESET}");
                 }
+                1
+            }
+        }
+    }
+}
+
+/// Faza 4 (L2 LoRA) — `feral lora …`. Same plumbing as `modules`: gateway
+/// up, token, one HTTP call per op, `--json` honored.
+pub fn lora(action: LoraAction) -> i32 {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, ok: OK, reset: RESET, .. } =
+        palette();
+    if !port_in_use(api_port()) {
+        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        return 1;
+    }
+    let Some(token) = read_token() else {
+        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        return 1;
+    };
+
+    let result = match &action {
+        LoraAction::Status => block_on(fetch_json(&token, "/runtime/lora")),
+        LoraAction::Train { domain } => {
+            block_on(post_json_with_body(&token, "/runtime/lora/train", json!({ "domain": domain })))
+        }
+        LoraAction::Reviews => block_on(fetch_json(&token, "/runtime/lora/reviews")),
+        LoraAction::Approve { id } => block_on(post_json_with_body(
+            &token,
+            "/runtime/lora/reviews/resolve",
+            json!({ "id": id, "action": "approve" }),
+        )),
+        LoraAction::Reject { id } => block_on(post_json_with_body(
+            &token,
+            "/runtime/lora/reviews/resolve",
+            json!({ "id": id, "action": "reject" }),
+        )),
+    };
+
+    let v = match result {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{FAIL}lora request failed{RESET}: {e}");
+            return 1;
+        }
+    };
+    if json() {
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        return match &action {
+            LoraAction::Status | LoraAction::Reviews => 0,
+            _ => {
+                let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or_else(|| {
+                    v.get("status").and_then(|s| s.as_str()).map(|s| s != "error").unwrap_or(false)
+                });
+                if ok { 0 } else { 1 }
+            }
+        };
+    }
+    match &action {
+        LoraAction::Status => {
+            let active = v.get("active").and_then(|a| a.as_str()).unwrap_or("none");
+            println!("{ACCENT}active adapter{RESET}  {TEXT}{active}{RESET}");
+            0
+        }
+        LoraAction::Train { domain } => {
+            println!("{OK}✓ training cycle started{RESET} {META}(domain={domain}){RESET}");
+            println!("  {DIM}takes minutes to hours — follow with `feral logs -f`; the result lands in `feral lora reviews`{RESET}");
+            0
+        }
+        LoraAction::Reviews => {
+            let empty = vec![];
+            let cards = v.get("reviews").and_then(|r| r.as_array()).unwrap_or(&empty);
+            if cards.is_empty() {
+                println!("{DIM}no pending review cards{RESET}");
+            }
+            for c in cards {
+                let id = c.get("id").and_then(|x| x.as_str()).unwrap_or("?");
+                let domain = c.get("domain").and_then(|x| x.as_str()).unwrap_or("?");
+                let status = c.get("status").and_then(|x| x.as_str()).unwrap_or("?");
+                println!("  {TEXT}{id}{RESET}  {META}{domain} · {status}{RESET}");
+            }
+            let champs = v.get("champions").and_then(|c| c.as_array()).unwrap_or(&empty);
+            for ch in champs {
+                let domain = ch.get("domain").and_then(|x| x.as_str()).unwrap_or("?");
+                let id = ch.get("id").and_then(|x| x.as_str()).unwrap_or("?");
+                println!("{ACCENT}champion{RESET}  {META}{domain}{RESET}  {TEXT}{id}{RESET}");
+            }
+            0
+        }
+        LoraAction::Approve { .. } | LoraAction::Reject { .. } => {
+            // `lora_review_resolved` carries {id, status, error?} — status is
+            // the card's new state ("approved"/"rejected") or "error".
+            let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("error");
+            if status != "error" {
+                println!("{OK}✓ {status}{RESET}");
+                0
+            } else {
+                let reason = v.get("error").and_then(|e| e.as_str()).unwrap_or("unknown error");
+                eprintln!("{FAIL}✗ {reason}{RESET}");
                 1
             }
         }

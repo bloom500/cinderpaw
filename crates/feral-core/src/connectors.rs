@@ -300,6 +300,14 @@ pub struct ConnectorConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub knowledge_base: Option<String>,
+    /// Multi-agent routing: per-connector persona (full system prompt) —
+    /// sessions from this connector run as a different agent than the
+    /// desktop owner session. Consumed by the sidecar's ConnectorManager.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
+    /// Optional tool whitelist for the persona. Absent = full owner toolset.
+    #[serde(default, rename = "personaTools", skip_serializing_if = "Option::is_none")]
+    pub persona_tools: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -321,6 +329,8 @@ pub fn blank_connector_config(id: &str) -> ConnectorConfig {
         token: None,
         mode: None,
         knowledge_base: None,
+        persona: None,
+        persona_tools: None,
     }
 }
 

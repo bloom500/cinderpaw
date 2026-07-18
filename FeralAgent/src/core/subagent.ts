@@ -153,6 +153,10 @@ export class Subagent {
     // upstream keeps the system prompt honest (the LLM doesn't
     // see tools it can't call).
     const allowedSet = new Set(config.allowedTools);
+    // Depth-1 recursion guard: a subagent can never delegate again, even
+    // when the parent (or the model) lists it — unbounded spawn trees are
+    // a budget bomb. Deliberate fan-out stays the PARENT's job.
+    allowedSet.delete("delegate_task");
     const filteredTools = this.#allTools.filter((t) =>
       allowedSet.has(t.manifest.name),
     );
@@ -209,14 +213,18 @@ export class Subagent {
         config.task,
         subagentId,
         (event) => {
-          // Subagent events are internal; we just observe them to
-          // decide the final status. The agent loop never throws
-          // (it converts errors into a returned string and an
-          // `error` event), so we have to read the event stream
-          // to know whether the run was a success.
+          // Subagent events are observed to decide the final status (the
+          // agent loop never throws — it converts errors into a returned
+          // string and an `error` event) and forwarded to the caller's
+          // observer so the parent can surface live progress.
           if (event.type === "tool_done") toolCallCount++;
           if (event.type === "error") {
             errorMessage = event.message;
+          }
+          try {
+            config.onEvent?.(event);
+          } catch {
+            // A broken observer must never fail the run.
           }
         },
       );

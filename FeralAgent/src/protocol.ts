@@ -24,7 +24,7 @@ export const INBOUND_TYPES = [
   "governance_status", "governance_propose", "governance_approve",
   "governance_reject", "governance_rollback", "governance_freeze",
   "governance_unfreeze", "governance_verify", "governance_history",
-  "modules_list", "module_resolve", "module_evaluate",
+  "modules_list", "module_resolve", "module_evaluate", "module_propose",
   "resume_get", "compact_session", "rsi_response", "start_onboarding",
   "tool_confirmation_response",
   "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",

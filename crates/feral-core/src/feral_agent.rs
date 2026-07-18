@@ -326,6 +326,36 @@ pub async fn spawn(
 
     tracing::info!("feral-agent: binary resolved to {:?}", binary);
 
+    // Option A (code-RSI in production): when the dev knob is unset, try to
+    // provision the BUNDLED sources into ~/.feral/self-src and export the
+    // path — the sidecar and this supervisor's apply/revert/rebuild handlers
+    // all read FERAL_CODE_RSI_REPO from the environment. Any miss (dev run
+    // without a bundle, no git) logs and leaves code-RSI off, as before.
+    // Any previously-downloaded portable git/bun goes on OUR PATH first —
+    // children (sidecar, worktree evals, rebuild scripts) inherit it.
+    crate::toolchain::activate_portable();
+    let bundled_src = crate::rsi::self_src::find_bundled_src(&extra_bin_dirs).is_some();
+    if std::env::var("FERAL_CODE_RSI_REPO").map(|v| v.trim().is_empty()).unwrap_or(true) {
+        match crate::rsi::self_src::provision(&extra_bin_dirs) {
+            Ok(root) => {
+                tracing::info!("feral-agent: self-src provisioned at {:?} (code-RSI enabled)", root);
+                std::env::set_var("FERAL_CODE_RSI_REPO", &root);
+            }
+            Err(reason) => {
+                // Provisioning retries on every spawn — a missing git resolves
+                // itself after the background toolchain download + next restart.
+                tracing::debug!("feral-agent: self-src not provisioned ({reason}) — code-RSI off this session");
+            }
+        }
+    }
+    // Whenever code-RSI is possible on this install (bundled sources or an
+    // explicit dev repo), make sure the tools its stages spawn exist —
+    // portable download in the background when missing, zero terminal, zero
+    // admin. No-op when git+bun are already present.
+    if bundled_src || std::env::var("FERAL_CODE_RSI_REPO").map(|v| !v.trim().is_empty()).unwrap_or(false) {
+        crate::toolchain::ensure_background();
+    }
+
     let db_path = paths::feral_agent_db_path();
 
     // Faza 4.5 Slice 2 (post-acceptance, user-driven): env-var overrides for
@@ -901,8 +931,27 @@ fn handle_code_patch_resolved(
 async fn run_rebuild_script(repo_root: &str) -> Result<(), String> {
     #[cfg(not(windows))]
     {
-        let _ = repo_root;
-        Err("sidecar rebuild script is Windows-only for now".to_string())
+        // POSIX half: scripts/rsi-rebuild-sidecar.sh (same contract as the
+        // ps1 — exit 2 = "rebuild unavailable", non-zero = fatal).
+        let script = Path::new(repo_root)
+            .join("scripts")
+            .join("rsi-rebuild-sidecar.sh");
+        let mut cmd = tokio::process::Command::new("bash");
+        cmd.arg(&script).arg(repo_root);
+        let out = tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output())
+            .await
+            .map_err(|_| "rebuild script timed out after 300s".to_string())?
+            .map_err(|e| format!("failed to launch rebuild script: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(format!(
+                "rebuild script exited {:?}: {}",
+                out.status.code(),
+                stderr.lines().last().unwrap_or("").trim()
+            ))
+        }
     }
     #[cfg(windows)]
     {

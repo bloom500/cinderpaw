@@ -83,6 +83,7 @@ pub fn router(state: ApiState) -> Router {
         // observability stream; the sidecar-round-trip endpoints
         // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
         .route("/runtime/chat", post(runtime_chat))
+        .route("/runtime/ask/respond", post(runtime_ask_respond))
         .route(
             "/runtime/connectors",
             get(runtime_connectors_list).post(runtime_connectors_save),
@@ -93,6 +94,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/models", get(runtime_models))
         .route("/runtime/model", post(runtime_set_model))
         .route("/runtime/lora", get(runtime_lora))
+        .route("/runtime/lora/train", post(runtime_lora_train))
+        .route("/runtime/lora/reviews", get(runtime_lora_reviews))
+        .route("/runtime/lora/reviews/resolve", post(runtime_lora_review_resolve))
         .route("/runtime/manifest", get(runtime_manifest))
         .route("/runtime/sessions", get(runtime_sessions))
         // Sprint 1.6 — Memory Resume. Headless / TUI clients hit this; the
@@ -162,6 +166,7 @@ pub fn router(state: ApiState) -> Router {
         // the live model — its roundtrip uses a long deadline.
         .route("/modules",              get(modules_list_route))              // read
         .route("/modules/evaluate",     post(module_evaluate_route))          // evolve
+        .route("/modules/propose",      post(module_propose_route))           // evolve
         .route("/modules/:id",          get(module_show_route))               // read
         .route("/modules/:id/approve",  post(module_approve_route))           // govern
         .route("/modules/:id/reject",   post(module_reject_route))            // govern
@@ -745,7 +750,7 @@ async fn runtime_chat(
     }
 
     if req.stream {
-        sse_from_agent_reply(rx, msg_id).into_response()
+        sse_from_agent_reply(rx, msg_id, req.session_id.clone()).into_response()
     } else {
         // Non-stream: the `done` event already carries the full text, so we
         // just wait for our matching `done` instead of accumulating chunks.
@@ -847,6 +852,7 @@ async fn await_agent_reply(
 fn sse_from_agent_reply(
     rx: broadcast::Receiver<crate::host::HostEvent>,
     msg_id: String,
+    session_id: String,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     use async_stream::stream;
     let s = stream! {
@@ -856,6 +862,19 @@ fn sse_from_agent_reply(
             match recv {
                 Ok(Ok(ev)) => {
                     let Some(line) = parse_agent_output(&ev) else { continue };
+                    // ask_user carries its own request uuid (not the chat
+                    // msg_id) and correlates by SESSION — forward it before
+                    // the id guard so terminal clients can render the
+                    // question and answer via POST /runtime/ask/respond.
+                    if line.ty == "ask_user" || line.ty == "ask_user_cancelled" {
+                        let sid = line.raw.get("sessionId").and_then(|s| s.as_str()).unwrap_or("");
+                        if sid == session_id {
+                            yield Ok::<_, Infallible>(Event::default()
+                                .event(line.ty.clone())
+                                .data(line.raw.to_string()));
+                        }
+                        continue;
+                    }
                     if line.id != msg_id { continue; }
                     match line.ty.as_str() {
                         "chunk" => {
@@ -928,6 +947,37 @@ fn sse_from_agent_reply(
     Sse::new(s)
 }
 
+/// `POST /runtime/ask/respond` — body: {requestId, answers}. Answers a
+/// pending `ask_user` question (forwarded on the chat SSE stream as a typed
+/// `ask_user` event). Fire-and-forget: the sidecar's AskUserBridge resolves
+/// the tool call and the agent turn continues on the original stream.
+async fn runtime_ask_respond(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let Some(Json(v)) = body else {
+        return (StatusCode::BAD_REQUEST, "body required: {requestId, answers}").into_response();
+    };
+    let (Some(request_id), Some(answers)) = (
+        v.get("requestId").and_then(|x| x.as_str()),
+        v.get("answers").filter(|a| a.is_array()),
+    ) else {
+        return (StatusCode::BAD_REQUEST, "body required: {requestId, answers: []}").into_response();
+    };
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+            .into_response();
+    };
+    let payload =
+        json!({ "type": "ask_user_response", "requestId": request_id, "answers": answers });
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    Json(json!({ "ok": true })).into_response()
+}
+
 /// R6: `GET /runtime/connectors` — the redacted state (enabled, which secret
 /// fields are filled, allowlist, channels, mode) for every persisted
 /// connector. Static catalog metadata (name, pairing fields, icon…) lives at
@@ -956,6 +1006,10 @@ struct RuntimeConnectorSaveBody {
     mode: Option<String>,
     #[serde(default, rename = "knowledgeBase")]
     knowledge_base: Option<String>,
+    #[serde(default)]
+    persona: Option<String>,
+    #[serde(default, rename = "personaTools")]
+    persona_tools: Option<Vec<String>>,
 }
 
 /// R6: `POST /runtime/connectors` — upsert one connector's config (only
@@ -994,6 +1048,17 @@ async fn runtime_connectors_save(
     if let Some(kb) = body.knowledge_base {
         let kb = kb.trim();
         cfg.knowledge_base = if kb.is_empty() { None } else { Some(kb.to_string()) };
+    }
+    // Multi-agent routing: empty string clears the persona (back to the
+    // owner agent); empty list clears the tool restriction.
+    if let Some(p) = body.persona {
+        let p = p.trim();
+        cfg.persona = if p.is_empty() { None } else { Some(p.to_string()) };
+    }
+    if let Some(tools) = body.persona_tools {
+        let tools: Vec<String> =
+            tools.into_iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+        cfg.persona_tools = if tools.is_empty() { None } else { Some(tools) };
     }
     if let Err(e) = connector_catalog::save_connector_config(&cfg) {
         return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
@@ -1436,6 +1501,130 @@ async fn modules_roundtrip(
             }
             Err(_) => {
                 return (StatusCode::GATEWAY_TIMEOUT, "timed out waiting for modules_result")
+                    .into_response();
+            }
+        }
+    }
+}
+
+/// `POST /modules/propose` — body optional: {seam}. Asks the LOCAL model to
+/// author a module candidate (dispatch `module_propose`, Gap 6). Long
+/// deadline: the proposal is a full local-model completion.
+async fn module_propose_route(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    modules_roundtrip(State(state), "module_propose", body, MODULES_EVAL_DEADLINE).await
+}
+
+// ── Faza 4 (L2 LoRA) gateway surface — parity with the desktop Training
+// card. Same subscribe-before-send discipline as `modules_roundtrip`; the
+// only twist is correlation: `lora_reviews` is an uncorrelated broadcast
+// (match on type alone) and `lora_review_resolved` echoes the CARD id.
+
+/// `POST /runtime/lora/train` — body optional: {domain}. Fire-and-forget,
+/// mirroring the desktop `feral_lora_train` command: training runs minutes
+/// to hours, so the result lands as a `lora_train_result` line on `/events`
+/// plus a refreshed review inbox (`/runtime/lora/reviews`).
+async fn runtime_lora_train(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+            .into_response();
+    };
+    let domain = body
+        .as_ref()
+        .and_then(|Json(v)| v.get("domain").and_then(|d| d.as_str()))
+        .unwrap_or("general")
+        .to_string();
+    let payload = json!({ "type": "rsi_lora_train", "loraDomain": domain });
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    Json(json!({ "ok": true, "started": true, "domain": domain })).into_response()
+}
+
+/// `GET /runtime/lora/reviews` — the L2 review inbox (pending cards +
+/// champions + stats), i.e. the desktop card's data source, headless.
+async fn runtime_lora_reviews(State(state): State<ApiState>) -> Response {
+    lora_roundtrip(state, json!({ "type": "rsi_lora_reviews_list" }), "lora_reviews", None).await
+}
+
+/// `POST /runtime/lora/reviews/resolve` — body: {id, action: approve|reject}.
+/// THE human decision on an adapter candidate (same gate the desktop uses).
+async fn runtime_lora_review_resolve(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let Some(Json(v)) = body else {
+        return (StatusCode::BAD_REQUEST, "body required: {id, action}").into_response();
+    };
+    let (Some(id), Some(action)) = (
+        v.get("id").and_then(|x| x.as_str()).map(str::to_string),
+        v.get("action").and_then(|x| x.as_str()).map(str::to_string),
+    ) else {
+        return (StatusCode::BAD_REQUEST, "body required: {id, action}").into_response();
+    };
+    let payload = json!({ "type": "rsi_lora_review_resolve", "id": id, "loraAction": action });
+    lora_roundtrip(state, payload, "lora_review_resolved", Some(id)).await
+}
+
+/// Send one lora message to the sidecar and wait for `reply_type` on the
+/// event bus — with an optional id match (`lora_review_resolved` echoes
+/// the card id; `lora_reviews` carries none).
+async fn lora_roundtrip(
+    state: ApiState,
+    payload: Value,
+    reply_type: &'static str,
+    match_id: Option<String>,
+) -> Response {
+    let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
+            .into_response();
+    };
+    let mut rx = state.runtime.events_tx.subscribe();
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    let deadline = MODULES_READ_DEADLINE;
+    loop {
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "feral://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if v.get("type").and_then(|t| t.as_str()) != Some(reply_type) {
+                    continue;
+                }
+                if let Some(ref want) = match_id {
+                    if v.get("id").and_then(|i| i.as_str()) != Some(want.as_str()) {
+                        continue;
+                    }
+                }
+                return Json(v).into_response();
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "runtime event bus closed")
+                    .into_response();
+            }
+            Err(_) => {
+                return (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    format!("timed out waiting for {reply_type}"),
+                )
                     .into_response();
             }
         }

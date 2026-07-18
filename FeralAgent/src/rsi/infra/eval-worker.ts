@@ -17,7 +17,9 @@
 import type { EventBus } from "./event-bus.ts";
 import type { GenomeSpec } from "../l1-config/population-manager.ts";
 
-/** One eval-task outcome. Mirrors the Rust `rsi::EvalOutcome` wire shape. */
+/** One eval-task outcome. Mirrors the Rust `rsi::EvalOutcome` wire shape,
+ *  plus two TS-only observability fields (`kind`, `answered`) that never
+ *  cross the bridge — `makeScoreGenomeAdapter` maps the wire explicitly. */
 export interface EvalOutcome {
   taskId: string;
   tier: number;
@@ -26,6 +28,13 @@ export interface EvalOutcome {
   tokens: number;
   errored: boolean;
   errorMessage?: string;
+  /** The spec's validator kind (e.g. "fact_lookup"). TS-side only —
+   *  feeds the hallucination fitness component. */
+  kind?: string;
+  /** True when the agent produced a non-empty response (asserted
+   *  something) — distinguishes a confident wrong answer from an
+   *  abstention/empty reply. TS-side only. */
+  answered?: boolean;
 }
 
 /** The scorer's verdict for a batch of outcomes. */

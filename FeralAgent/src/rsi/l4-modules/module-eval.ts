@@ -56,6 +56,7 @@ const KIND_DOMAIN: Record<EvalKind, string> = {
   fact_lookup: "reasoning",
   token_budget: "speed",
   latency: "speed",
+  tool_call: "tools",
 };
 
 export function domainOf(spec: Pick<EvalSpec, "kind" | "domain">): string {

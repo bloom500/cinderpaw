@@ -24,5 +24,6 @@ pub mod settings;
 pub mod setup;
 pub mod sidecar_protocol;
 pub mod sysinfo_mod;
+pub mod toolchain;
 pub mod tools;
 pub mod transcription;

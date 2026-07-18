@@ -43,14 +43,30 @@ interface Pending {
   questions: AskUserQuestion[];
 }
 
+/**
+ * Sessions the desktop event can't reach (messaging connectors) get their
+ * questions asked IN the channel by a delegate. The bridge stays the single
+ * entry point — `ask()` consults the delegate first per sessionId.
+ */
+export interface AskDelegate {
+  canHandle(sessionId: string): boolean;
+  ask(questions: AskUserQuestion[], sessionId: string): Promise<AskUserAnswer[]>;
+}
+
 export class AskUserBridgeImpl implements AskUserBridge {
   readonly #emit: (event: OutboundEvent) => void;
   readonly #config: AskUserBridgeConfig;
   readonly #pending = new Map<string, Pending>();
+  #delegate: AskDelegate | null = null;
 
   constructor(emit: (event: OutboundEvent) => void, config: Partial<AskUserBridgeConfig> = {}) {
     this.#emit = emit;
     this.#config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /** Wire the channel delegate (ConnectorManager's ChannelAskRouter). */
+  setDelegate(delegate: AskDelegate | null): void {
+    this.#delegate = delegate;
   }
 
   /**
@@ -62,6 +78,10 @@ export class AskUserBridgeImpl implements AskUserBridge {
    * response to the right session in the React store.
    */
   ask(questions: AskUserQuestion[], sessionId: string = "default"): Promise<AskUserAnswer[]> {
+    // Connector sessions: ask in the channel, not on the desktop.
+    if (this.#delegate?.canHandle(sessionId)) {
+      return this.#delegate.ask(questions, sessionId);
+    }
     const id = randomUUID();
     return new Promise<AskUserAnswer[]>((resolve, reject) => {
       const timer = setTimeout(() => {

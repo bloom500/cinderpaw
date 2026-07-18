@@ -368,4 +368,87 @@ describe("Subagent.run", () => {
       else process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS = oldVal;
     }
   });
+
+  test("depth-1 guard: a subagent never gets delegate_task, even when allowed", async () => {
+    // The model asks for delegate_task; the registry must not know it —
+    // the loop reports the failed call and the run continues to "done".
+    const router = stubRouter([
+      '<tool_call>\n{"name":"delegate_task","args":{"task":"recurse"}}\n</tool_call>',
+      "done",
+    ]);
+    const d = makeDeps(router, ["delegate_task", "echo_a"]);
+    const sa = new Subagent({
+      router: d.router,
+      allTools: d.allTools,
+      audit: d.audit,
+      egress: d.egress,
+      process: d.process,
+      observations: d.observations,
+      episodic: d.episodic,
+      hooks: d.hooks,
+    });
+    const events: string[] = [];
+    const r = await sa.run({
+      task: "try to recurse",
+      // Explicitly allowed by the caller — the guard must strip it anyway.
+      allowedTools: ["delegate_task", "echo_a"],
+      budget: { maxTokens: 1024, maxIterations: 5 },
+      parentSessionId: "parent",
+      onEvent: (e) => {
+        if (e.type === "tool_done") {
+          events.push(JSON.stringify((e as { result?: unknown }).result ?? ""));
+        }
+      },
+    });
+    // The delegate_task call failed at the registry (unknown tool) — the
+    // observer saw a non-ok result, proving the child never had the tool.
+    expect(events.length).toBe(1);
+    expect(events[0]).toContain("false");
+    expect(r.status).toBe("completed");
+    d.db.close();
+  });
+
+  test("onEvent forwards the child loop's tool events to the caller", async () => {
+    const router = stubRouter([
+      '<tool_call>\n{"name":"echo_a","args":{"x":1}}\n</tool_call>',
+      "done",
+    ]);
+    const d = makeDeps(router, ["echo_a"]);
+    const sa = new Subagent({
+      router: d.router,
+      allTools: d.allTools,
+      audit: d.audit,
+      egress: d.egress,
+      process: d.process,
+      observations: d.observations,
+      episodic: d.episodic,
+      hooks: d.hooks,
+    });
+    const seen: string[] = [];
+    const r = await sa.run({
+      task: "echo",
+      allowedTools: ["echo_a"],
+      budget: { maxTokens: 1024, maxIterations: 5 },
+      parentSessionId: "parent",
+      onEvent: (e) => {
+        if (e.type === "tool_start" || e.type === "tool_done") {
+          seen.push(`${e.type}:${e.tool}`);
+        }
+      },
+    });
+    expect(r.status).toBe("completed");
+    expect(seen).toEqual(["tool_start:echo_a", "tool_done:echo_a"]);
+    // A throwing observer must not fail the run.
+    const r2 = await sa.run({
+      task: "echo again",
+      allowedTools: ["echo_a"],
+      budget: { maxTokens: 1024, maxIterations: 5 },
+      parentSessionId: "parent",
+      onEvent: () => {
+        throw new Error("observer bug");
+      },
+    });
+    expect(r2.status).toBe("completed");
+    d.db.close();
+  });
 });

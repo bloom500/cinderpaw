@@ -185,16 +185,18 @@ interface SessionEntry {
 interface CompiledProfile {
   /** The system prompt this profile's sessions run with. */
   systemPrompt: string;
-  /** Tools the model is allowed to call — enforced in the exec loop. */
-  allowed: Set<string>;
+  /** Tools the model is allowed to call — enforced in the exec loop.
+   *  `null` = unrestricted (persona-only profile: owner toolset, new voice). */
+  allowed: Set<string> | null;
 }
 
 /** Options for {@link AgentLoop.registerProfile}. */
 export interface ProfileOptions {
   /** Full system prompt for this profile's sessions (persona + any KB). */
   systemPrompt: string;
-  /** Whitelist of tool names the profile may use. Unknown names are ignored. */
-  allowedTools: string[];
+  /** Whitelist of tool names the profile may use. Unknown names are ignored.
+   *  Omit for a persona-only profile that keeps the owner's full toolset. */
+  allowedTools?: string[];
 }
 
 export class AgentLoop {
@@ -314,7 +316,7 @@ export class AgentLoop {
    * gets a better-tuned agent over time without touching any config.
    * Set by `applyChampionParams` (on RSI ratchet + at boot).
    */
-  #championParams: { temperature?: number; maxTokens?: number } = {};
+  #championParams: { temperature?: number; maxTokens?: number; systemPromptAddendum?: string } = {};
   /**
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
@@ -466,7 +468,7 @@ export class AgentLoop {
     // even when its allow-list named them. #complete filters the live arrays.
     this.#profiles.set(id, {
       systemPrompt: opts.systemPrompt,
-      allowed: new Set(opts.allowedTools),
+      allowed: opts.allowedTools ? new Set(opts.allowedTools) : null,
     });
   }
 
@@ -523,7 +525,11 @@ export class AgentLoop {
    * champion. A per-session UI Controls override still wins; absent
    * that, these win over the provider default. Pass `{}` to clear.
    */
-  applyChampionParams(params: { temperature?: number; maxTokens?: number }): void {
+  applyChampionParams(params: {
+    temperature?: number;
+    maxTokens?: number;
+    systemPromptAddendum?: string;
+  }): void {
     this.#championParams = { ...params };
   }
 
@@ -1079,10 +1085,51 @@ export class AgentLoop {
       // surface's security boundary must not depend on the model behaving.
       const profile = this.#profileFor(sessionId);
 
+      // Subagent fan-out: a batch made ENTIRELY of delegate_task calls is
+      // independent by contract (the tool's description instructs the model
+      // to split only independent parts), so the delegations run
+      // concurrently. Mixed batches keep sequential order — models emit
+      // dependent sequences (write_file → read_file) often enough that
+      // blanket parallelism would corrupt them.
+      if (
+        parsed.toolCalls.length > 1 &&
+        parsed.toolCalls.every((c) => c.name === "delegate_task") &&
+        (!profile?.allowed || profile.allowed.has("delegate_task"))
+      ) {
+        const toolSignal = this.#sessionToolSignals.get(sessionId)?.signal;
+        for (const call of parsed.toolCalls) {
+          toolCallCount++;
+          ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
+        }
+        const results = await Promise.all(
+          parsed.toolCalls.map((call) =>
+            this.#registry.call(call.name, call.args, sessionId, {
+              ...(toolSignal ? { signal: toolSignal } : {}),
+              onProgress: ctx.emit,
+            }),
+          ),
+        );
+        for (let i = 0; i < parsed.toolCalls.length; i++) {
+          const call = parsed.toolCalls[i]!;
+          const result = results[i]!;
+          ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId });
+          if (result.error === "cancelled") ctx.stopped = true;
+          const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
+          memory.addToolResult(call.name, rendered);
+          const episodicContent = `${call.name}: ${rendered}`.slice(0, 400);
+          const toolLeafId = this.#episodic.record(sessionId, "tool", episodicContent);
+          if (toolLeafId !== null) {
+            this.#recall?.noteWrite?.({ id: toolLeafId, sessionId, ts: Date.now() });
+          }
+        }
+        if (ctx.stopped) break;
+        continue;
+      }
+
       for (const call of parsed.toolCalls) {
         toolCallCount++;
         ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
-        if (profile && !profile.allowed.has(call.name)) {
+        if (profile?.allowed && !profile.allowed.has(call.name)) {
           const denied = `Tool "${call.name}" is not available in this conversation.`;
           ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result: { ok: false, content: denied, error: "not_available" }, traceId });
           memory.addToolResult(call.name, `ERROR: ${denied}`);
@@ -1240,8 +1287,10 @@ export class AgentLoop {
     // core set plus whatever the drawer pulled in. Both filter the LIVE arrays
     // (see #syncTools), so a tool that registered after boot — every MCP tool —
     // is reachable instead of being permanently invisible.
+    // A restricted profile advertises exactly its allow-list; a persona-only
+    // profile (allowed = null) and the owner both see core + drawer-loaded.
     const advertise = (name: string): boolean =>
-      profile ? profile.allowed.has(name) : isCoreTool(name) || !!loaded?.has(name);
+      profile?.allowed ? profile.allowed.has(name) : isCoreTool(name) || !!loaded?.has(name);
     const nativeTools = this.#nativeTools.filter((t) => advertise(t.name));
     const openAITools = this.#openAITools.filter((t) => advertise(t.function.name));
 
@@ -1479,7 +1528,15 @@ export class AgentLoop {
       // connecting would otherwise be pinned for its whole life to a system
       // prompt whose "Available tools" block predates them.
       this.#syncTools();
-      const memory = new WorkingMemory(profile?.systemPrompt ?? this.#systemPrompt);
+      // RSI champion style: the evolved prompt addendum rides the OWNER
+      // prompt only (never a connector profile's persona) and is resolved
+      // at session creation, so a mid-session ratchet can't churn the
+      // cache-friendly static prefix of an active conversation.
+      const championStyle = this.#championParams.systemPromptAddendum;
+      const ownerPrompt = championStyle
+        ? `${this.#systemPrompt}\n\n${championStyle}`
+        : this.#systemPrompt;
+      const memory = new WorkingMemory(profile?.systemPrompt ?? ownerPrompt);
       // Re-hydrate the transcript from episodic memory. Without this a
       // session that was evicted (idle/LRU) or lost to a restart came back
       // amnesiac even though every turn is already on disk — "close Feral,

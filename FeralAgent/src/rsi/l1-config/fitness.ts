@@ -176,6 +176,49 @@ export function defaultUnmeasured(): ReadonlyArray<keyof FitnessVector> {
   return ["hallucination", "userSatisfaction"];
 }
 
+/** Minimal outcome shape the hallucination measure needs — structural,
+ *  so both the TS EvalOutcome and test fakes fit. */
+export interface HallucinationSample {
+  kind?: string;
+  success: boolean;
+  answered?: boolean;
+}
+
+/**
+ * Deterministic hallucination proxy over an eval batch: of the tasks
+ * with a verifiable ground truth (`fact_lookup`), what fraction did the
+ * agent get WRONG while still asserting an answer? An abstention or an
+ * empty reply is not a hallucination — only confident wrongness counts.
+ * Lower is better (the component sits on the negative side of the
+ * aggregate's sign convention).
+ *
+ * Returns null when the batch has no fact tasks or outcomes predate the
+ * `kind`/`answered` fields — the caller keeps the component unmeasured
+ * rather than inventing a number.
+ */
+export function hallucinationFromOutcomes(
+  outcomes: ReadonlyArray<HallucinationSample>,
+): number | null {
+  const facts = outcomes.filter((o) => o.kind === "fact_lookup" && o.answered !== undefined);
+  if (facts.length === 0) return null;
+  const confidentWrong = facts.filter((o) => !o.success && o.answered === true).length;
+  return clamp01(confidentWrong / facts.length);
+}
+
+/**
+ * Deterministic toolSuccess over an eval batch: pass rate on the
+ * `tool_call` specs (right tool + well-formed call). Higher is better.
+ * Null when the batch has no tool tasks — the caller keeps the accuracy
+ * proxy instead of inventing a number.
+ */
+export function toolSuccessFromOutcomes(
+  outcomes: ReadonlyArray<HallucinationSample>,
+): number | null {
+  const toolTasks = outcomes.filter((o) => o.kind === "tool_call");
+  if (toolTasks.length === 0) return null;
+  return clamp01(toolTasks.filter((o) => o.success).length / toolTasks.length);
+}
+
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
   if (x < 0) return 0;

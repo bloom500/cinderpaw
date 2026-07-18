@@ -13,7 +13,7 @@
  * Output is ordered by (tier, id) so a run is reproducible.
  */
 
-import { TIER1_SPECS, TIER2_SPECS } from "./default-tier-specs.ts";
+import { TIER1_SPECS, TIER2_SPECS, TIER2_TOOL_SPECS } from "./default-tier-specs.ts";
 import type { EvalSpec, EvalExpected, EvalKind } from "./eval-spec.ts";
 
 /** A Tier 0 spec as it arrives from Rust (shape of `tier0::Tier0Spec`). */
@@ -46,7 +46,7 @@ export function makeGetSpecs(
 
     // Embedded defaults, then disk specs override by id.
     const byId = new Map<string, EvalSpec>();
-    for (const s of [...TIER1_SPECS, ...TIER2_SPECS]) byId.set(s.id, s);
+    for (const s of [...TIER1_SPECS, ...TIER2_SPECS, ...TIER2_TOOL_SPECS]) byId.set(s.id, s);
     for (const s of loadDiskSpecs()) byId.set(s.id, s);
 
     return [...tier0, ...byId.values()].sort(

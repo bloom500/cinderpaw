@@ -20,6 +20,7 @@ import {
   type ChampionRecord,
 } from "../src/rsi/l1-config/champion.ts";
 import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import { PROMPT_STYLE_POOL, promptStyleFor } from "../src/rsi/l1-config/prompt-pool.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,
@@ -39,6 +40,27 @@ describe("mapGenomeToAgentConfig", () => {
   test("drops an invalid temperature rather than poisoning the agent", () => {
     expect(mapGenomeToAgentConfig({ ...CFG, temperature: NaN }).temperature).toBeUndefined();
     expect(mapGenomeToAgentConfig({ ...CFG, temperature: -1 }).temperature).toBeUndefined();
+  });
+
+  test("maps systemPromptId through the shared style pool", () => {
+    // id 0 = neutral → no addendum emitted.
+    expect(mapGenomeToAgentConfig(CFG).systemPromptAddendum).toBeUndefined();
+    // Non-neutral ids emit the pool text verbatim.
+    const styled = mapGenomeToAgentConfig({ ...CFG, systemPromptId: 1 });
+    expect(styled.systemPromptAddendum).toBe(PROMPT_STYLE_POOL[1]);
+  });
+
+  test("out-of-range systemPromptId falls back to neutral (never poisons)", () => {
+    expect(mapGenomeToAgentConfig({ ...CFG, systemPromptId: 99 }).systemPromptAddendum).toBeUndefined();
+    expect(mapGenomeToAgentConfig({ ...CFG, systemPromptId: -3 }).systemPromptAddendum).toBeUndefined();
+    expect(promptStyleFor(2.5)).toBe("");
+  });
+
+  test("every pool id resolves and the pool matches the mutation grammar floor", () => {
+    expect(PROMPT_STYLE_POOL.length).toBeGreaterThanOrEqual(4);
+    for (let i = 0; i < PROMPT_STYLE_POOL.length; i++) {
+      expect(promptStyleFor(i)).toBe(PROMPT_STYLE_POOL[i]!);
+    }
   });
 });
 

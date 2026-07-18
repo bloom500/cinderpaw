@@ -50,6 +50,7 @@ import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
 import type { GenomeConfig } from "./l1-config/genome.ts";
 import type { EvalKind, EvalExpected } from "./infra/eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./l1-config/strategy-seeds.ts";
+import { PROMPT_STYLE_POOL } from "./l1-config/prompt-pool.ts";
 import { blendedPricePer1kUsd } from "./infra/rsi-cost.ts";
 import { evaluateGate } from "./infra/confidence.ts";
 import { recentToolCalls } from "../egress/audit-log.ts";
@@ -891,7 +892,9 @@ function persistStrategyGenomes(db: Database, strategies: StrategyGenome[]): voi
 function defaultBounds() {
   return {
     templatePoolSize: 4,
-    systemPromptPoolSize: 4,
+    // Derived from the SHARED prompt-style pool (champion bridge): the
+    // mutation grammar can only propose ids the live agent can honor.
+    systemPromptPoolSize: PROMPT_STYLE_POOL.length,
     maxTemperature: 1.0,
     temperatureSigma: 0.2,
     contextWindowSigma: 0.1,

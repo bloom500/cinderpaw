@@ -309,6 +309,11 @@ type App struct {
 	// auto-submits it. Empty when nothing queued.
 	PendingSubmit string
 
+	// PendingAsk holds the ask_user question the agent is currently blocked
+	// on (typed `ask_user` SSE frame). While non-nil, Enter answers the
+	// question (POST /runtime/ask/respond) instead of queueing chat text.
+	PendingAsk *api.AskUserRequest
+
 	StreamBuf strings.Builder
 	Prog      *tea.Program
 

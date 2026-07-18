@@ -218,6 +218,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return a, nil
 			}
+			// A pending ask_user question owns the input: Enter answers
+			// it instead of queueing chat text — the agent is BLOCKED on
+			// this answer, so queueing would deadlock the turn until the
+			// question timed out.
+			if a.PendingAsk != nil {
+				text := strings.TrimSpace(a.Input.Value())
+				if text == "" {
+					return a, nil
+				}
+				req := a.PendingAsk
+				a.PendingAsk = nil
+				a.Input.Reset()
+				a.Turns = append(a.Turns, Turn{Role: RoleUser, Text: text, turnVer: 1})
+				a.needsRebuild = true
+				a.rebuildViewport()
+				return a, a.answerAskCmd(req, text)
+			}
 			if a.State == StateStreaming {
 				// P2.3: type-ahead during streaming. Capture the
 				// composed text into PendingSubmit and clear the
@@ -1147,6 +1164,16 @@ func (a *App) startEventsCmd() tea.Cmd {
 
 func (a *App) handleStreamChunk(chunk api.Chunk) {
 	switch {
+	case chunk.AskUser != nil:
+		a.PendingAsk = chunk.AskUser
+		a.pushAssistantText("\n" + renderAskQuestions(chunk.AskUser.Questions) + "\n")
+		a.streamHasContent = true
+		a.needsRebuild = true
+	case chunk.AskUserCancelled != "":
+		if a.PendingAsk != nil && a.PendingAsk.ID == chunk.AskUserCancelled {
+			a.PendingAsk = nil
+			a.setFlash("question expired — continuing with the default")
+		}
 	case chunk.ToolStart.ID != "":
 		a.pushToolStart(chunk.ToolStart)
 		a.streamHasContent = true
@@ -1180,6 +1207,52 @@ func (a *App) handleStreamChunk(chunk api.Chunk) {
 	}
 	if chunk.Completion > 0 {
 		a.StreamCompletionTokens = chunk.Completion
+	}
+}
+
+// renderAskQuestions formats an ask_user question block for the transcript.
+func renderAskQuestions(questions []api.AskQuestion) string {
+	var b strings.Builder
+	b.WriteString("❓ I need your input:\n")
+	multi := len(questions) > 1
+	for i, q := range questions {
+		if multi {
+			fmt.Fprintf(&b, "%d. %s\n", i+1, q.Question)
+		} else {
+			b.WriteString(q.Question + "\n")
+		}
+		for j, o := range q.Options {
+			star := ""
+			if o.Recommended {
+				star = " ⭐"
+			}
+			desc := ""
+			if o.Description != "" {
+				desc = " — " + o.Description
+			}
+			fmt.Fprintf(&b, "  %d) %s%s%s\n", j+1, o.Label, star, desc)
+		}
+	}
+	if multi {
+		b.WriteString(`Reply with one option number per question, comma-separated (e.g. "1, 2") — or just type your answer.`)
+	} else {
+		b.WriteString("Reply with the option number, or just type your answer.")
+	}
+	return b.String()
+}
+
+// answerAskCmd resolves a pending ask_user question over the gateway. The
+// agent turn resumes on its original SSE stream, so there is nothing to
+// re-subscribe here — a failure is surfaced as a flash.
+func (a *App) answerAskCmd(req *api.AskUserRequest, reply string) tea.Cmd {
+	baseURL, token := a.BaseURL, a.Token
+	answers := api.ParseAskReply(req.Questions, reply)
+	id := req.ID
+	return func() tea.Msg {
+		if err := api.AskRespond(baseURL, token, id, answers); err != nil {
+			return FlashMsg{Text: "answer failed: " + err.Error()}
+		}
+		return nil
 	}
 }
 

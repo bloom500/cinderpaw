@@ -207,6 +207,73 @@ describe("RSI champion → live agent", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Subagent fan-out: an all-delegate_task batch executes CONCURRENTLY
+// ---------------------------------------------------------------------------
+
+describe("subagent fan-out", () => {
+  it("runs an all-delegate_task batch in parallel, mixed batches sequentially", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      let callIdx = 0;
+      globalThis.fetch = (async () => {
+        callIdx++;
+        const content =
+          callIdx === 1
+            ? toolBlock("delegate_task", { task: "a" }) + "\n" + toolBlock("delegate_task", { task: "b" })
+            : "Assembled.";
+        return new Response(
+          JSON.stringify({ message: { content }, prompt_eval_count: 10, eval_count: 5 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+
+      const db = openDatabase(":memory:");
+      const audit = new AuditLog(db.raw);
+      const egress = new EgressProxy(audit.logger);
+      const router = new InferenceRouter(
+        { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+        audit.logger,
+        db.raw,
+      );
+      const episodic = new EpisodicMemory(db.raw, audit.logger);
+      const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+      const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));
+
+      // Stand-in for the real delegate tool: tracks overlapping executions.
+      let active = 0;
+      let maxActive = 0;
+      registry.register({
+        manifest: {
+          name: "delegate_task",
+          description: "fake delegate",
+          permissions: [],
+          networkAccess: false,
+        } as ToolManifest,
+        parameters: {},
+        async execute(): Promise<ToolResult> {
+          active++;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((r) => setTimeout(r, 25));
+          active--;
+          return { ok: true, content: "sub done" };
+        },
+      });
+
+      const agent = new AgentLoop(router, registry, episodic, {}, recall);
+      const result = await agent.handle("s1", "fan out", "m1", () => {});
+
+      expect(result).toBe("Assembled.");
+      // The proof of parallelism: both delegations were in flight at once.
+      expect(maxActive).toBe(2);
+
+      db.close();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Malformed tool-call recovery: corrupted JSON must not end the turn
 // ---------------------------------------------------------------------------
 

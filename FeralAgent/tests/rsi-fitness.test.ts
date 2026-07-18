@@ -19,6 +19,7 @@ import {
   defaultUnmeasured,
   fitnessVector,
   fitnessVectorAggregate,
+  hallucinationFromOutcomes,
   NEUTRAL_COMPONENT,
   scoreToFitnessVector,
 } from "../src/rsi/l1-config/fitness.ts";
@@ -245,5 +246,35 @@ describe("round-trip: scalar → vector → aggregate properties", () => {
       expect(agg).toBeGreaterThanOrEqual(prev);
       prev = agg;
     }
+  });
+});
+describe("hallucinationFromOutcomes (deterministic confident-wrong rate)", () => {
+  const f = (over: Partial<{ kind: string; success: boolean; answered: boolean }>) => ({
+    kind: "fact_lookup",
+    success: true,
+    answered: true,
+    ...over,
+  });
+
+  test("null when no fact tasks or fields absent (stays unmeasured)", () => {
+    expect(hallucinationFromOutcomes([])).toBeNull();
+    expect(hallucinationFromOutcomes([f({ kind: "latency" })])).toBeNull();
+    // Legacy outcomes without `answered` are excluded → null.
+    expect(hallucinationFromOutcomes([{ kind: "fact_lookup", success: false }])).toBeNull();
+  });
+
+  test("confident wrong counts; abstention does not", () => {
+    const batch = [
+      f({}),                                  // right
+      f({ success: false, answered: true }),  // hallucination
+      f({ success: false, answered: false }), // abstained — not a hallucination
+      f({}),                                  // right
+    ];
+    expect(hallucinationFromOutcomes(batch)).toBeCloseTo(0.25, 6);
+  });
+
+  test("all wrong+asserted → 1; all right → 0", () => {
+    expect(hallucinationFromOutcomes([f({ success: false }), f({ success: false })])).toBe(1);
+    expect(hallucinationFromOutcomes([f({}), f({})])).toBe(0);
   });
 });

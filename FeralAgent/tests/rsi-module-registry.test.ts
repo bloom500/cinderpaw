@@ -151,7 +151,9 @@ describe("capabilitiesClaimed two-channel rule (§12.4, AC11)", () => {
     // somewhere in src/ — scan every TS file under src/ recursively.
     const srcRoot = join(import.meta.dir, "..", "src");
     const offenders: string[] = [];
-    const allow = new Set(["module-registry.ts"]);
+    // module-proposer.ts WRITES the field (the human-hint channel — same
+    // role as a person authoring a manifest); the rule bans machine READS.
+    const allow = new Set(["module-registry.ts", "module-proposer.ts"]);
     const walk = (dir: string) => {
       for (const name of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, name.name);

@@ -23,7 +23,7 @@ import type { EvalOutcome } from "./eval-worker.ts";
 import type { GateDecision, PairedSample } from "./confidence.ts";
 import type { StageHandlerDeps } from "./contract-stages.ts";
 import type { CommitRequest, RatchetDeps } from "../l1-config/ratchet-handler.ts";
-import { scoreToFitnessVector } from "../l1-config/fitness.ts";
+import { hallucinationFromOutcomes, scoreToFitnessVector, toolSuccessFromOutcomes, type FitnessVector } from "../l1-config/fitness.ts";
 import {
   auditEntriesToUserSignals,
   computePersonalFitness,
@@ -137,21 +137,33 @@ export function contractLeavesFromRatchet(
 
     // The payoff stage: the FitnessVector + paired samples for the I6 gate.
     // With an audit reader, `userSatisfaction` is REAL — the §2.10 personal
-    // fitness over the user's recent tool-call outcomes. Without one (legacy
-    // wiring, tests), it stays the neutral unmeasured 0.5.
+    // fitness over the user's recent tool-call outcomes. With outcomes,
+    // `hallucination` is REAL — the confident-wrong rate on fact tasks
+    // (fitness.ts `hallucinationFromOutcomes`). Absent either signal the
+    // component stays the neutral unmeasured 0.5.
     runBenchmark: async () => {
-      const base = scoreToFitnessVector(
-        ctx.score,
-        ctx.readRecentAudit ? { unmeasured: ["hallucination"] } : {},
-      );
-      const fitnessVector = ctx.readRecentAudit
-        ? {
-            ...base,
-            userSatisfaction: computePersonalFitness({
-              signals: auditEntriesToUserSignals(ctx.readRecentAudit()),
-            }),
-          }
-        : base;
+      // Hallucination: measured deterministically from this candidate's own
+      // eval batch (confident-wrong rate on fact tasks). Null → unmeasured.
+      const hallucination = ctx.outcomes ? hallucinationFromOutcomes(ctx.outcomes) : null;
+      // toolSuccess: measured from the tool_call slice of the suite when
+      // present — otherwise the accuracy proxy from scoreToFitnessVector.
+      const toolSuccess = ctx.outcomes ? toolSuccessFromOutcomes(ctx.outcomes) : null;
+      const unmeasured: (keyof FitnessVector)[] = [];
+      if (hallucination === null) unmeasured.push("hallucination");
+      if (!ctx.readRecentAudit) unmeasured.push("userSatisfaction");
+      const base = scoreToFitnessVector(ctx.score, { unmeasured });
+      const fitnessVector = {
+        ...base,
+        ...(hallucination !== null ? { hallucination } : {}),
+        ...(toolSuccess !== null ? { toolSuccess } : {}),
+        ...(ctx.readRecentAudit
+          ? {
+              userSatisfaction: computePersonalFitness({
+                signals: auditEntriesToUserSignals(ctx.readRecentAudit()),
+              }),
+            }
+          : {}),
+      };
       return {
         fitnessVector,
         // Journal scalar only — the deploy leaf hands the RAW score to the

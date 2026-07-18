@@ -186,6 +186,7 @@ const INBOUND_TYPES = [
   "modules_list",
   "module_resolve",
   "module_evaluate",
+  "module_propose",
   // Sprint 1.6 — Memory Resume. Host asks the sidecar for the persisted
   // `current_task` + active workspace + last-active timestamp. Sidecar replies
   // with one `resume_get_result` event paired by `id`. See

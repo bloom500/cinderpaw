@@ -85,6 +85,8 @@ async function runOne(
       latencyMs,
       tokens,
       errored: false,
+      kind: spec.kind,
+      answered: response.trim().length > 0,
     };
   } catch (err) {
     return {
@@ -95,6 +97,8 @@ async function runOne(
       tokens: 0,
       errored: true,
       errorMessage: err instanceof Error ? err.message : String(err),
+      kind: spec.kind,
+      answered: false,
     };
   }
 }

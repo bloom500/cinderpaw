@@ -61,7 +61,10 @@ export function createDelegateTaskTool(deps: {
       "Spawn a subagent for a bounded, isolated task. The subagent " +
       "gets its own working memory, a filtered tool set, and a " +
       "token/iteration budget. Returns a short summary; for long " +
-      "outputs the subagent must summarise before returning.",
+      "outputs the subagent must summarise before returning. " +
+      "For a large task with INDEPENDENT parts, call delegate_task " +
+      "once per part in the SAME response — the subagents run in " +
+      "parallel and you assemble their summaries.",
     permissions: [],
     networkAccess: false,
   };
@@ -120,6 +123,17 @@ export function createDelegateTaskTool(deps: {
         allowedTools,
         budget: { maxTokens, maxIterations },
         parentSessionId: deps.parentSessionIdFor(ctx.sessionId),
+        // Live status on the PARENT's stream: every surface (desktop
+        // card, TUI, Discord status line) renders tool_progress, so the
+        // delegation shows what the child is doing instead of stalling
+        // silently for minutes.
+        onEvent: (event) => {
+          if (event.type === "tool_start") {
+            ctx.progress?.({ stage: "subagent", progress: null, message: `subagent → ${event.tool}` });
+          } else if (event.type === "tool_done") {
+            ctx.progress?.({ stage: "subagent", progress: null, message: `subagent ✓ ${event.tool}` });
+          }
+        },
       });
 
       return {

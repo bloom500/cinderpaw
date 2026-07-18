@@ -26,6 +26,7 @@ const KINDS: readonly EvalKind[] = [
   "fact_lookup",
   "token_budget",
   "latency",
+  "tool_call",
 ];
 
 /** Load every `*.json` spec in `dir`, id-sorted. Missing dir → []. */
@@ -117,5 +118,26 @@ function validateExpected(
         throw new Error(`tier-loader: '${file}' latency needs number max_ms`);
       }
       return { type: "latency", max_ms: e.max_ms };
+    case "tool_call": {
+      if (typeof e.tool !== "string" || e.tool.length === 0) {
+        throw new Error(`tier-loader: '${file}' tool_call needs string tool`);
+      }
+      if (!Array.isArray(e.required_args) || !e.required_args.every((k) => typeof k === "string")) {
+        throw new Error(`tier-loader: '${file}' tool_call needs string[] required_args`);
+      }
+      const pins = e.arg_equals;
+      if (pins !== undefined) {
+        if (pins === null || typeof pins !== "object" || Array.isArray(pins) ||
+            !Object.values(pins).every((v) => typeof v === "string")) {
+          throw new Error(`tier-loader: '${file}' tool_call arg_equals must map string→string`);
+        }
+      }
+      return {
+        type: "tool_call",
+        tool: e.tool,
+        required_args: e.required_args as string[],
+        ...(pins !== undefined ? { arg_equals: pins as Record<string, string> } : {}),
+      };
+    }
   }
 }

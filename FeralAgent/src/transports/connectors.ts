@@ -34,6 +34,7 @@ import makeWASocket, {
 import qrcode from "qrcode-terminal";
 import type { OutboundEvent } from "../types.ts";
 import type { LeadDesk } from "../core/lead-desk.ts";
+import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 
 /** The slice of `AgentLoop` a connector needs. */
 export interface AgentLike {
@@ -48,7 +49,7 @@ export interface AgentLike {
    * Optional so test fakes don't have to implement it; the real `AgentLoop`
    * always does. Used by the public connector mode.
    */
-  registerProfile?(id: string, opts: { systemPrompt: string; allowedTools: string[] }): void;
+  registerProfile?(id: string, opts: { systemPrompt: string; allowedTools?: string[] }): void;
   /** Bind a session to a registered profile. See `registerProfile`. */
   setSessionProfile?(sessionId: string, profileId: string): void;
 }
@@ -227,14 +228,18 @@ export class DiscordConnector {
   readonly #channels: Set<string>;
   readonly #agent: AgentLike;
   readonly #log: Log;
+  readonly #ask: ChannelAskRouter | null;
+  readonly #profileId: string | null;
   #client: Client | null = null;
 
-  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log }) {
+  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string }) {
     this.#token = opts.token;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
     this.#agent = opts.agent;
     this.#log = opts.log;
+    this.#ask = opts.ask ?? null;
+    this.#profileId = opts.profileId ?? null;
   }
 
   async start(): Promise<void> {
@@ -257,9 +262,17 @@ export class DiscordConnector {
     client.on(Events.Error, (e) => this.#log(`discord client error: ${String(e)}`));
 
     await client.login(this.#token);
+
+    // ask_user over Discord: send the question text into the session's channel.
+    this.#ask?.registerSender("discord", async (sessionId, text) => {
+      const channelId = sessionId.slice("discord:".length);
+      const ch = await this.#client?.channels.fetch(channelId);
+      if (ch && "send" in ch) await ch.send(text);
+    });
   }
 
   async stop(): Promise<void> {
+    this.#ask?.unregisterSender("discord");
     const client = this.#client;
     this.#client = null;
     if (client) {
@@ -305,6 +318,19 @@ export class DiscordConnector {
 
     const sessionId = `discord:${message.channelId}`;
     const channel = message.channel;
+
+    // A reply to a pending ask_user question answers the question — it must
+    // not start a new agent turn.
+    if (this.#ask?.handleInbound(sessionId, text)) {
+      void message.react("🐾").catch(() => {});
+      return;
+    }
+
+    // Multi-agent routing: bind this channel's persona BEFORE the first
+    // handle() (the session's system prompt is fixed at first use).
+    if (this.#profileId) {
+      this.#agent.setSessionProfile?.(sessionId, this.#profileId);
+    }
 
     // Discord's typing indicator self-expires after ~10s. Agent turns that use
     // tools routinely run much longer, so the indicator vanishes and the user
@@ -405,17 +431,21 @@ export class SlackConnector {
   readonly #channels: Set<string>;
   readonly #agent: AgentLike;
   readonly #log: Log;
+  readonly #ask: ChannelAskRouter | null;
+  readonly #profileId: string | null;
   #socket: SocketModeClient | null = null;
   #web: WebClient | null = null;
   #botUserId = "";
 
-  constructor(opts: { appToken: string; botToken: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log }) {
+  constructor(opts: { appToken: string; botToken: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string }) {
     this.#appToken = opts.appToken;
     this.#botToken = opts.botToken;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
     this.#agent = opts.agent;
     this.#log = opts.log;
+    this.#ask = opts.ask ?? null;
+    this.#profileId = opts.profileId ?? null;
   }
 
   async start(): Promise<void> {
@@ -430,9 +460,16 @@ export class SlackConnector {
     });
     await this.#socket.start();
     this.#log(`slack connector online as ${this.#botUserId} (${this.#allow.size} allowed)`);
+
+    // ask_user over Slack: post the question text into the session's channel.
+    this.#ask?.registerSender("slack", async (sessionId, text) => {
+      const channel = sessionId.slice("slack:".length);
+      await this.#web?.chat.postMessage({ channel, text });
+    });
   }
 
   async stop(): Promise<void> {
+    this.#ask?.unregisterSender("slack");
     const s = this.#socket;
     this.#socket = null;
     try {
@@ -465,6 +502,17 @@ export class SlackConnector {
     const web = this.#web!;
     const threadTs = (event.thread_ts as string | undefined) ?? (event.ts as string | undefined);
     const sessionId = `slack:${channel}`;
+
+    // A reply to a pending ask_user question answers it — no agent turn.
+    if (this.#ask?.handleInbound(sessionId, text)) {
+      void web.reactions.add({ channel, timestamp: event.ts as string, name: "paw_prints" }).catch(() => {});
+      return;
+    }
+
+    // Multi-agent routing: bind this channel's persona before first use.
+    if (this.#profileId) {
+      this.#agent.setSessionProfile?.(sessionId, this.#profileId);
+    }
     void web.reactions.add({ channel, timestamp: event.ts as string, name: "paw_prints" }).catch(() => {});
 
     const status = await web.chat
@@ -533,10 +581,12 @@ export class WhatsAppConnector {
   readonly #desk: LeadDesk | null;
   /** First allowlisted number — the owner we ping on escalation. */
   readonly #ownerNumber: string;
+  readonly #ask: ChannelAskRouter | null;
+  readonly #profileId: string | null;
   #sock: WASocket | null = null;
   #stopped = false;
 
-  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk }) {
+  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string }) {
     const allow = opts.allowlist.map(digits).filter(Boolean);
     this.#allow = new Set(allow);
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -544,6 +594,8 @@ export class WhatsAppConnector {
     this.#log = opts.log;
     this.#mode = opts.mode ?? "owner";
     this.#desk = opts.desk ?? null;
+    this.#ask = opts.ask ?? null;
+    this.#profileId = opts.profileId ?? null;
     this.#ownerNumber = allow[0] ?? "";
     // Wire the escalation/booking notifier: how the lead tools reach the owner.
     // Pings the first allowlisted number (the owner) in their WhatsApp. With
@@ -592,6 +644,12 @@ export class WhatsAppConnector {
   async start(): Promise<void> {
     this.#stopped = false;
     await this.#connect();
+    // ask_user over WhatsApp: message the question into the session's chat.
+    // Reads #sock at call time so reconnects don't hold a stale socket.
+    this.#ask?.registerSender("whatsapp", async (sessionId, text) => {
+      const jid = sessionId.slice("whatsapp:".length);
+      await this.#sock?.sendMessage(jid, { text });
+    });
   }
 
   async #connect(): Promise<void> {
@@ -643,6 +701,7 @@ export class WhatsAppConnector {
 
   async stop(): Promise<void> {
     this.#stopped = true;
+    this.#ask?.unregisterSender("whatsapp");
     try {
       this.#sock?.end(undefined);
     } catch {
@@ -693,6 +752,12 @@ export class WhatsAppConnector {
     const sock = this.#sock!;
     const sessionId = `whatsapp:${jid}`;
 
+    // A reply to a pending ask_user question answers it — no agent turn.
+    if (this.#ask?.handleInbound(sessionId, text)) {
+      void sock.sendMessage(jid, { react: { text: "🐾", key: msg.key } }).catch(() => {});
+      return;
+    }
+
     // Escalation hand-off: when the assistant has handed this chat to a human
     // (via escalate_to_human, or the owner's /pause), stay silent so the human
     // owns the conversation. Pauses auto-expire after the LeadDesk TTL.
@@ -702,10 +767,13 @@ export class WhatsAppConnector {
     }
 
     // Bind a public lead to the restricted persona BEFORE the first handle()
-    // (the session's system prompt is fixed at first use). Owners are left on
-    // the default full-agent profile.
+    // (the session's system prompt is fixed at first use). Owner sessions get
+    // the connector's configured persona (multi-agent routing) when one is
+    // set; otherwise they stay on the default full-agent profile.
     if (isPublic && !isOwner) {
       this.#agent.setSessionProfile?.(sessionId, WHATSAPP_PUBLIC_PROFILE);
+    } else if (this.#profileId) {
+      this.#agent.setSessionProfile?.(sessionId, this.#profileId);
     }
     void sock.sendMessage(jid, { react: { text: "🐾", key: msg.key } }).catch(() => {});
     void sock.sendPresenceUpdate("composing", jid).catch(() => {});
@@ -752,6 +820,14 @@ export interface ConnectorRow {
   mode?: ConnectorMode;
   /** Inline knowledge-base text (products/prices/FAQ) for public mode. */
   knowledgeBase?: string;
+  /**
+   * Multi-agent routing: a per-connector persona (full system prompt) —
+   * sessions from this connector run as a DIFFERENT agent than the desktop
+   * owner session. Optional `personaTools` restricts the toolset; omitted =
+   * the persona keeps the owner's full tools.
+   */
+  persona?: string;
+  personaTools?: string[];
 }
 
 export function configPath(): string {
@@ -764,6 +840,8 @@ const sig = (...parts: (string[] | string | undefined)[]): string =>
 export class ConnectorManager {
   readonly #agent: AgentLike;
   readonly #log: Log;
+  /** ask_user-over-channel router — the AskUserBridge's delegate (boot.ts). */
+  readonly askRouter = new ChannelAskRouter();
   #discord: DiscordConnector | null = null;
   #discordKey = "";
   #slack: SlackConnector | null = null;
@@ -778,6 +856,24 @@ export class ConnectorManager {
     this.#agent = agent;
     this.#log = log;
     this.#leadDesk = leadDesk ?? null;
+  }
+
+  /**
+   * Multi-agent routing: register the row's persona (when set) as an agent
+   * profile and return its id for session binding. Persona text without a
+   * tool list = persona-only profile (owner toolset, different voice).
+   */
+  #personaProfile(id: string, row?: ConnectorRow): string | undefined {
+    const persona = (row?.persona ?? "").trim();
+    if (!persona) return undefined;
+    const pid = `${id}-persona`;
+    const tools = (row?.personaTools ?? []).map((t) => t.trim()).filter(Boolean);
+    this.#agent.registerProfile?.(pid, {
+      systemPrompt: persona,
+      ...(tools.length > 0 ? { allowedTools: tools } : {}),
+    });
+    this.#log(`${id}: persona profile registered (${tools.length > 0 ? `${tools.length} tools` : "full toolset"})`);
+    return pid;
   }
 
   /** Re-read config and start/stop/restart connectors to match it. */
@@ -815,11 +911,12 @@ export class ConnectorManager {
       }
       return;
     }
-    const key = sig(token, row.allowlist, row.channels);
+    const key = sig(token, row.allowlist, row.channels, row.persona, row.personaTools);
     if (this.#discord && key === this.#discordKey) return;
     if (this.#discord) await this.#discord.stop();
     this.#discord = null;
-    const conn = new DiscordConnector({ token, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log });
+    const profileId = this.#personaProfile("discord", row);
+    const conn = new DiscordConnector({ token, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, ask: this.askRouter, ...(profileId ? { profileId } : {}) });
     try {
       await conn.start();
       this.#discord = conn;
@@ -842,11 +939,12 @@ export class ConnectorManager {
       }
       return;
     }
-    const key = sig(appToken, botToken, row.allowlist, row.channels);
+    const key = sig(appToken, botToken, row.allowlist, row.channels, row.persona, row.personaTools);
     if (this.#slack && key === this.#slackKey) return;
     if (this.#slack) await this.#slack.stop();
     this.#slack = null;
-    const conn = new SlackConnector({ appToken, botToken, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log });
+    const profileId = this.#personaProfile("slack", row);
+    const conn = new SlackConnector({ appToken, botToken, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, ask: this.askRouter, ...(profileId ? { profileId } : {}) });
     try {
       await conn.start();
       this.#slack = conn;
@@ -872,7 +970,7 @@ export class ConnectorManager {
     // a non-technical user never deals with file paths). In public mode it's
     // compiled into the persona + restricted tool profile up front.
     const kbText = (row.knowledgeBase ?? "").trim();
-    const key = sig(row.allowlist, row.channels, mode, String(kbText.length), kbText.slice(0, 64));
+    const key = sig(row.allowlist, row.channels, mode, String(kbText.length), kbText.slice(0, 64), row.persona, row.personaTools);
     if (this.#whatsapp && key === this.#whatsappKey) return;
     if (this.#whatsapp) await this.#whatsapp.stop();
     this.#whatsapp = null;
@@ -882,7 +980,8 @@ export class ConnectorManager {
         allowedTools: [...PUBLIC_ALLOWED_TOOLS],
       });
     }
-    const conn = new WhatsAppConnector({ allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, mode, desk: this.#leadDesk ?? undefined });
+    const profileId = this.#personaProfile("whatsapp", row);
+    const conn = new WhatsAppConnector({ allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, mode, desk: this.#leadDesk ?? undefined, ask: this.askRouter, ...(profileId ? { profileId } : {}) });
     try {
       await conn.start();
       this.#whatsapp = conn;

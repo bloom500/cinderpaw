@@ -107,6 +107,10 @@ const rsiEngineEvents = [];
  *  completion (without needing a real Rust host or a real model). */
 function defaultRsiResponse(method) {
   switch (method) {
+    case "rsi_model_ready":
+      // The 2026-07-13 fail-closed gate: no ready:true → no dream. The
+      // smoke fakes a resident model exactly like the e2e FakeBridge.
+      return { ok: true, data: { ready: true } };
     case "rsi_get_tier0_specs":
       return {
         ok: true,
