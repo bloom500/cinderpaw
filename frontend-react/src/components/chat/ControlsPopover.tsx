@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useModel, type InferParamsUI } from '@/stores/model';
+import { useUI } from '@/stores/ui';
+import { useFeralStore } from '@/stores/feral';
+import { activeContextWindow } from '@/lib/contextWindow';
 
 function ParamRow({
   label,
@@ -72,9 +75,12 @@ const ROWS: Array<{
   max: number;
   step: number;
   decimals: number;
+  /** Local-only: cloud models expose temperature alone (their sampling stack is
+   *  provider-fixed), so Top-P is hidden when the active target is cloud. */
+  localOnly?: boolean;
 }> = [
   { key: 'temperature', label: 'Temperature', min: 0,    max: 2,    step: 0.01,  decimals: 2 },
-  { key: 'top_p',       label: 'Top-P',        min: 0.01, max: 1,    step: 0.01,  decimals: 2 },
+  { key: 'top_p',       label: 'Top-P',        min: 0.01, max: 1,    step: 0.01,  decimals: 2, localOnly: true },
 ];
 
 /** Round n down to the nearest multiple of `step`, clamped to [min, max]. */
@@ -85,17 +91,23 @@ function snap(n: number, min: number, max: number, step: number): number {
 /**
  * Per-local-model context window. The ceiling is auto-detected from the loaded
  * model's real training window (`n_ctx_train`) — Qwen 64k, Gemma 32k, etc. —
- * so the slider only ever offers what the model can actually do. Cloud models
- * have no `loaded` (their window is provider-fixed) → a short note instead.
+ * so the slider only ever offers what the model can actually do.
+ *
+ * Gated on `isLocalActive`, NOT merely on `loaded`. A local GGUF often stays
+ * resident as the offline fallback while a cloud model (MiniMax, …) is the
+ * ACTIVE target — showing its context slider then let the user "raise MiniMax's
+ * window" and silently reload the background local model instead. When the
+ * active target is cloud we show the auto-managed note regardless of any
+ * resident GGUF.
  */
-function ContextWindowRow() {
+function ContextWindowRow({ isLocalActive }: { isLocalActive: boolean }) {
   const loaded     = useModel((s) => s.loaded);
   const isLoading  = useModel((s) => s.isLoading);
   const chosenMap  = useModel((s) => s.contextByModel);
   const setContext = useModel((s) => s.setModelContext);
   const [draft, setDraft] = useState<number | null>(null);
 
-  if (!loaded) {
+  if (!isLocalActive || !loaded) {
     return (
         <p className="pt-3 border-t border-border-subtle text-[10px] text-text-muted leading-snug">
         Context window is auto-managed for cloud models. Load a local model to choose it.
@@ -147,6 +159,18 @@ export function ControlsPopover() {
   const inferParams    = useModel((s) => s.inferParams);
   const setInferParams = useModel((s) => s.setInferParams);
 
+  // Which model will actually serve the next request? Same rule as the context
+  // ring: a resident local GGUF is only "active" when no cloud model is
+  // selected. Cloud active → temperature only (Top-P + context are hidden).
+  const isAgentMode = useUI((s) => s.inputMode) === 'agent';
+  const loaded      = useModel((s) => s.loaded);
+  const cloudModel  = useModel((s) => s.cloudModel);
+  const feralConfig = useFeralStore((s) => s.modelConfig);
+  const { isLocal } = activeContextWindow({ isAgentMode, feralConfig, cloudModel, loaded });
+  const isLocalActive = isLocal && !!loaded;
+
+  const rows = ROWS.filter((r) => isLocalActive || !r.localOnly);
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -156,7 +180,7 @@ export function ControlsPopover() {
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-60">
         <p className="text-xs font-medium text-text-secondary mb-3">Controls</p>
-        {ROWS.map(({ key, label, min, max, step, decimals }) => (
+        {rows.map(({ key, label, min, max, step, decimals }) => (
           <ParamRow
             key={key}
             label={label}
@@ -168,7 +192,7 @@ export function ControlsPopover() {
             onChange={(v) => setInferParams({ [key]: v })}
           />
         ))}
-        <ContextWindowRow />
+        <ContextWindowRow isLocalActive={isLocalActive} />
       </PopoverContent>
     </Popover>
   );

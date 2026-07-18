@@ -501,7 +501,9 @@ function ProjectRow({
   projects: Project[];
   isStreaming: (id: string) => boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  // Collapsed by default: a fresh app launch should show a tidy list of folder
+  // headers, not every project pre-expanded. The user opens the ones they want.
+  const [expanded, setExpanded] = useState(false);
   const convMap = useMemo(() => new Map(allConvs.map((c) => [c.id, c])), [allConvs]);
   const projectConvs = project.conversation_ids
     .map((id) => convMap.get(id))
