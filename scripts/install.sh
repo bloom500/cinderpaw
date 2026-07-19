@@ -138,7 +138,24 @@ Run this once as root, then re-run the installer as this user:
     say "installing Bun…"
     curl -fsSL https://bun.sh/install | bash
   fi
-  export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:$PATH"
+
+  # Go toolchain: the terminal chat/setup UI (feral-tui) is a Go/Bubble Tea app.
+  # Ubuntu's apt Go is too old for tui/go.mod (needs 1.26+), so fetch the
+  # official tarball into ~/.local/go when no new-enough `go` is on PATH.
+  local go_version="1.26.4"
+  if ! command -v go >/dev/null && [ ! -x "$HOME/.local/go/bin/go" ]; then
+    local goarch
+    case "$(uname -m)" in
+      x86_64)        goarch="amd64" ;;
+      aarch64|arm64) goarch="arm64" ;;
+      *) fail "unsupported CPU for Go: $(uname -m)" ;;
+    esac
+    say "installing Go ${go_version} (for the chat TUI)…"
+    mkdir -p "$HOME/.local"
+    rm -rf "$HOME/.local/go"
+    curl -fsSL "https://go.dev/dl/go${go_version}.linux-${goarch}.tar.gz" | tar -xz -C "$HOME/.local"
+  fi
+  export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/go/bin:$PATH"
 
   local src="$HOME/src/feral"
   mkdir -p "$HOME/src"
@@ -159,10 +176,16 @@ Run this once as root, then re-run the installer as this user:
   say "building the CLI (feral) — no local inference engine…"
   ( cd "$src" && cargo build --release -p feral-cli --no-default-features )
 
-  # The sidecar binary MUST live next to the CLI (find_binary contract).
+  # The terminal chat/setup UI. `feral chat` and `feral setup --classic` look
+  # for `feral-tui` next to the CLI binary; without it those commands error out.
+  say "building the chat TUI (feral-tui)…"
+  ( cd "$src/tui" && go build -o feral-tui . )
+
+  # The sidecar + TUI binaries MUST live next to the CLI (find_binary contract).
   mkdir -p "$HOME/.local/bin"
   install -m 0755 "$src/target/release/feral-cli"    "$HOME/.local/bin/feral"
   install -m 0755 "$src/FeralAgent/dist/feral-agent" "$HOME/.local/bin/feral-agent"
+  install -m 0755 "$src/tui/feral-tui"               "$HOME/.local/bin/feral-tui"
 
   # Self-source bundle (code-RSI): the supervisor probes <exe>/../share/feral
   # for FeralAgent/package.json and provisions ~/.feral/self-src from it —
@@ -175,10 +198,16 @@ Run this once as root, then re-run the installer as this user:
   mkdir -p "$share"
   git -C "$src" archive HEAD FeralAgent scripts | tar -x -C "$share"
 
-  say "installed: $HOME/.local/bin/feral (+ feral-agent, self-src bundle)"
+  say "installed: $HOME/.local/bin/feral (+ feral-agent, feral-tui, self-src bundle)"
+  # Persist ~/.local/bin on PATH for future logins (idempotent — a fresh SSH
+  # session otherwise loses the export and `feral` becomes "command not found").
+  if ! grep -qs 'HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
+    printf '\n# Added by Feral installer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.bashrc"
+    say "added ~/.local/bin to PATH in ~/.bashrc (takes effect on next login)"
+  fi
   case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
-    *) say "NOTE: add ~/.local/bin to PATH:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+    *) say "NOTE: for THIS shell, run:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
   esac
 
   "$HOME/.local/bin/feral" doctor || true
