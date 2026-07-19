@@ -68,6 +68,14 @@ export interface ToolManifest {
    */
   allowedExecutables?: string[];
   /**
+   * YOLO escape hatch: when true, the ProcessSandbox accepts ANY absolute
+   * `cwd`, not just ones inside `allowedPaths`. Only shell_exec sets this,
+   * and only when its whitelist is the wildcard "*" (full-host mode). The
+   * env scrub and executable resolution still apply — this relaxes the
+   * working directory, nothing else.
+   */
+  allowAnyCwd?: boolean;
+  /**
    * Optional retry policy for transient failures. The registry retries the
    * tool up to `attempts` times after the initial call (so total calls =
    * 1 + attempts). Retries happen with linear backoff (250ms × attempt).

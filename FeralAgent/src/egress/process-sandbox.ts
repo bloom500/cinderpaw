@@ -126,6 +126,12 @@ export class RealProcessSandbox implements ProcessSandbox {
       if (!isAbsolute(options.cwd)) {
         block(`cwd must be an absolute path, got "${options.cwd}"`);
       }
+      // YOLO / full-host mode: any absolute cwd is allowed. The executable
+      // resolution + env scrub below are still enforced; only the cwd bound
+      // to allowedPaths is lifted.
+      if (manifest.allowAnyCwd) {
+        safeCwd = resolve(options.cwd);
+      } else
       try {
         // Throws PermissionDeniedError if cwd escapes every allowed root.
         // We need at least one fs:* permission for the tool to have any
@@ -263,6 +269,15 @@ export class RealProcessSandbox implements ProcessSandbox {
     const reqBaseParts = requested.split(/[\\/]/);
     const reqBase: string = reqBaseParts[reqBaseParts.length - 1] ?? requested;
     const reqAbs = isAbsolute(requested) ? resolve(requested) : null;
+
+    // YOLO wildcard: "*" allows ANY binary. PATH-hijack defense is preserved —
+    // a bare name is still resolved through the safe PATH (never CWD), and an
+    // absolute request must point at a real file.
+    if (list.includes("*")) {
+      if (reqAbs) return existsSync(reqAbs) ? reqAbs : null;
+      const pathEnv: string = this.#config.safeBaseEnv.PATH ?? "";
+      return which(reqBase, pathEnv);
+    }
 
     for (const entry of list) {
       // Case A: absolute allowlist entry, absolute request → match paths.

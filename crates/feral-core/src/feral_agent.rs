@@ -475,6 +475,10 @@ pub async fn spawn(
         "FERAL_DESKTOP_CONTROL_CONFIRM",
         "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
         "FERAL_ENABLE_SHELL_EXEC",
+        // shell_exec permissiveness: "*" = YOLO (any binary, any cwd);
+        // FERAL_SHELL_DENYLIST overrides the catastrophic-command guard.
+        "FERAL_SHELL_WHITELIST",
+        "FERAL_SHELL_DENYLIST",
     ] {
         if let Ok(val) = std::env::var(key) {
             cmd.env(key, val);

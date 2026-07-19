@@ -487,8 +487,14 @@ export class InferenceRouter {
             start,
             `primary: ${String(primaryErr)}; fallback: ${String(fallbackErr)}`,
           );
+          // Surface BOTH errors. The primary (usually the cloud/BYOK model)
+          // is the one the user actually wants working; showing only the
+          // fallback's error hid a bad key / URL / model name behind a
+          // misleading local "no model selected" 503 on every request.
           throw new InferenceError(
-            `both primary and fallback inference failed: ${String(fallbackErr)}`,
+            `both primary and fallback inference failed — primary: ${String(
+              primaryErr,
+            )}; fallback: ${String(fallbackErr)}`,
           );
         }
       }

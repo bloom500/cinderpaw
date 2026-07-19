@@ -16,8 +16,21 @@
  *   - cwd is bound to allowedPaths (via the ProcessSandbox).
  *   - stdout/stderr are capped at the sandbox output limit (1 MB default).
  *   - timeoutMs is hard-clamped to the sandbox ceiling.
- *   - The tool itself is registered ONLY when FERAL_ENABLE_SHELL_EXEC=true
- *     (see `index.ts`) — a generic program runner is opt-in, not default-on.
+ *   - The tool is registered by DEFAULT; set FERAL_ENABLE_SHELL_EXEC=false to
+ *     disable it entirely (see boot.ts).
+ *
+ * YOLO / full-host mode (FERAL_SHELL_WHITELIST="*"):
+ *   - ANY binary may run (the whitelist gate is bypassed) and cwd may be
+ *     anywhere on the host — parity with a real terminal / Claude Code.
+ *   - What still holds, by design: (1) a best-effort denylist of catastrophic
+ *     commands (rm -rf /, mkfs, disk overwrite, fork bomb — override via
+ *     FERAL_SHELL_DENYLIST); (2) env scrubbing (parent env not inherited,
+ *     preload/loader vars such as LD_ and DYLD_ plus NODE_ and PYTHONPATH are
+ *     blocked, PATH is forced from the safe base so bare names still resolve
+ *     through the safe PATH); (3) owner-only exposure
+ *     — public connector profiles never include shell_exec, so YOLO is never
+ *     reachable by a non-owner. The denylist is a footgun guard, NOT a
+ *     security boundary; owner-only + env scrub are the real gates.
  *
  * Input shapes accepted (in priority order):
  *   1. `argv: string[]`  — the preferred, unambiguous form. The model passes
@@ -56,6 +69,12 @@ import { resolveExecutables } from "../../core/executables.ts";
  */
 function loadShellWhitelist(): string[] {
   const env = process.env.FERAL_SHELL_WHITELIST;
+  // YOLO / full-host mode: FERAL_SHELL_WHITELIST="*" allows ANY binary. The
+  // wildcard is passed through literally (NOT run through resolveExecutables,
+  // which would try to resolve "*" as a program). The ProcessSandbox still
+  // resolves each requested binary through the safe PATH at call time, so
+  // PATH-hijack defense and env scrubbing remain in force.
+  if (env && env.trim() === "*") return ["*"];
   const raw = env && env.trim().length > 0
     ? env.split(",").map((s) => s.trim()).filter(Boolean)
     : ["cmd", "powershell", "pwsh", "bash", "sh", // full shell access
@@ -65,6 +84,40 @@ function loadShellWhitelist(): string[] {
 }
 
 const SAFE_BINARIES = loadShellWhitelist();
+const YOLO = SAFE_BINARIES.includes("*");
+
+/**
+ * Best-effort denylist of catastrophic, irreversible commands. This is a
+ * guard rail against the agent footgunning itself, NOT a security boundary:
+ * a determined caller trivially evades it (encoding, alternate paths,
+ * `python -c "os.system(...)"`). Kept deliberately TIGHT so it never blocks
+ * ordinary work (`rm -rf node_modules` is fine; `rm -rf /` is not). The scan
+ * runs on the whole joined argv, so shell payloads (`sh -c "rm -rf /"`) are
+ * covered too. Override the set with FERAL_SHELL_DENYLIST (comma-separated
+ * regexes); set it empty to disable entirely.
+ */
+function loadDenylist(): RegExp[] {
+  const env = process.env.FERAL_SHELL_DENYLIST;
+  if (env !== undefined) {
+    return env.split(",").map((s) => s.trim()).filter(Boolean).map((s) => new RegExp(s, "i"));
+  }
+  return [
+    /\brm\s+(-[a-z]*\s+)*-[a-z]*[rf][a-z]*\s+(-[a-z]*\s+)*(\/|~|\$HOME|\.)\s*$/i, // rm -rf / | ~ | $HOME | .
+    /\bmkfs(\.\w+)?\b/i,                       // filesystem format
+    /\bdd\b[^\n]*\bof=\/dev\/(sd|nvme|hd|disk)/i, // raw disk overwrite
+    /[:%]\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, // fork bomb :(){ :|:& };:
+    />\s*\/dev\/(sd|nvme|hd|disk)/i,           // redirect over a raw disk
+    /\bchmod\s+-R\s+0*\s+\//i,                 // chmod -R 000 /
+    /\b(shutdown|reboot|halt|poweroff)\b/i,    // host power state
+  ];
+}
+
+const DENYLIST = loadDenylist();
+
+/** True if the joined command matches a catastrophic pattern. */
+export function isDestructive(commandLine: string): boolean {
+  return DENYLIST.some((re) => re.test(commandLine));
+}
 
 /**
  * Reduce a binary name or path to its comparison "stem": lowercased basename
@@ -129,6 +182,7 @@ export function tokenizeCommand(command: string): string[] {
  *  This is a fast, friendly pre-check — the ProcessSandbox still enforces the
  *  exact allowlisted path as the real gate (PATH-hijack defense). */
 function isWhitelisted(binary: string): boolean {
+  if (YOLO) return true; // "*" — any binary; the denylist is the only gate
   return SAFE_BINARY_STEMS.has(binaryStem(binary));
 }
 
@@ -155,6 +209,9 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
     networkAccess: false,
     allowedPaths,
     allowedExecutables: SAFE_BINARIES,
+    // YOLO: lift the cwd→allowedPaths bound so the agent can run anywhere on
+    // the host (parity with a real terminal). Off in the default whitelist mode.
+    allowAnyCwd: YOLO,
   };
 
   return {
@@ -213,6 +270,20 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
 
       const binary = argv[0]!;
       const binaryArgs = argv.slice(1);
+
+      // Denylist gate FIRST — best-effort catastrophe guard, active in every
+      // mode (including YOLO). Scans the whole joined command so a shell
+      // payload (sh -c "rm -rf /") is caught, not just argv[0].
+      if (isDestructive(argv.join(" "))) {
+        return {
+          ok: false,
+          content:
+            "shell_exec: refused — command matches the catastrophic-command " +
+            "denylist (e.g. rm -rf /, mkfs, disk overwrite, fork bomb). " +
+            "Override with FERAL_SHELL_DENYLIST if this is intentional.",
+          error: "destructive_command",
+        };
+      }
 
       // Whitelist gate BEFORE the sandbox call so it is testable without a
       // process sandbox and so the model gets a clear, recoverable error.
