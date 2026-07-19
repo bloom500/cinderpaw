@@ -41,45 +41,26 @@ curl -fsSL https://raw.githubusercontent.com/bloom500/feral/main/scripts/install
 - **Linux headless (VPS/server)** → builds the `feral` CLI + gateway from source (no GPU toolchain needed). Force a mode with `| bash -s -- --headless` or `--desktop`.
 - **macOS** → downloads the right `.dmg` for your chip, installs to /Applications, clears the quarantine flag.
 
-**Windows 10/11** (PowerShell):
+**Windows 10/11** — download the latest `.exe` from
+[Releases](https://github.com/bloom500/feral/releases/latest) and run it. Or, in
+PowerShell:
 
 ```powershell
-$u = (irm https://api.github.com/repos/bloom500/feral/releases/latest).assets |
-  Where-Object name -like '*x64-setup.exe' | ForEach-Object browser_download_url
-irm $u -OutFile feral-setup.exe; .\feral-setup.exe
+$a = (irm https://api.github.com/repos/bloom500/feral/releases/latest).assets | ? name -like '*x64-setup.exe' | select -First 1
+iwr $a.browser_download_url -OutFile feral-setup.exe; .\feral-setup.exe
 ```
 
 > SmartScreen may warn on first run (the installer isn't code-signed yet) — click **More info → Run anyway**.
 
+Prefer to grab a file by hand? Every installer — Windows `.exe`, macOS `.dmg`,
+Linux `.deb`/`.rpm` — is on the
+[Releases page](https://github.com/bloom500/feral/releases/latest).
+
 <details>
-<summary><b>Manual commands per platform</b> (if you'd rather not pipe to bash)</summary>
+<summary><b>Headless server / CLI</b> (run the gateway on a VPS, no desktop)</summary>
 
-**Linux — Debian / Ubuntu** (desktop app, `.deb`)
-
-```bash
-curl -s https://api.github.com/repos/bloom500/feral/releases/latest \
-  | grep -oP '"browser_download_url": "\K[^"]*amd64\.deb(?=")' \
-  | xargs curl -LO && sudo apt install ./Feral_*_amd64.deb
-```
-
-**Linux — Fedora / RHEL** (desktop app, `.rpm`)
-
-```bash
-curl -s https://api.github.com/repos/bloom500/feral/releases/latest \
-  | grep -oP '"browser_download_url": "\K[^"]*x86_64\.rpm(?=")' \
-  | xargs curl -LO && sudo dnf install ./Feral-*.x86_64.rpm
-```
-
-**macOS** (Apple Silicon — for Intel replace `aarch64` with `x64`)
-
-```bash
-curl -s https://api.github.com/repos/bloom500/feral/releases/latest \
-  | sed -n 's/.*"browser_download_url": "\(.*aarch64\.dmg\)".*/\1/p' | xargs curl -LO
-open Feral_*.dmg     # drag Feral to Applications, then clear the quarantine flag:
-xattr -cr /Applications/Feral.app
-```
-
-**Headless server / CLI** (`feral gateway` on a VPS — build from source; no GPU or llama.cpp compile needed, requires [Rust](https://rustup.rs) + [Bun](https://bun.sh))
+Build the `feral` CLI + gateway from source — no GPU or llama.cpp compile needed.
+Requires [Rust](https://rustup.rs) + [Bun](https://bun.sh).
 
 ```bash
 # Build deps (Debian/Ubuntu). libdbus-1-dev is needed by the keyring crate:
@@ -108,10 +89,12 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 
 *Power-user preview — we're looking for testers and contributors.*
 
-- 🚀 **Guided setup** — `feral setup` (and the desktop wizard) now detects what's already on your machine: existing models, API keys in your environment, a running Ollama, even an OpenClaw config to import. Every route is verified with a real completion before it's saved — no more "configured but broken".
-- 💬 **Connectors** — talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**. Same brain, same memory — your messages never leave your machine except to the messaging platform itself. The agent can even configure its own connectors in chat.
-- 🤖 **Agent unleashed** — the sandbox is now allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.feral`, `~/.ssh`, and anything you list in `FERAL_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
-- 🖥️ **Terminal parity** — full-screen TUI chat (`feral chat`), guided first-run, `/compact`, `/think`, `/usage`, `/restart`, and a documented local HTTP API.
+- 🧬 **Sub-agents** — the agent can hand a slice of work to a fresh sub-agent (`delegate_task`), run several in parallel, and stream their progress back live. A depth guard keeps it from recursively spawning itself.
+- 🙋 **It asks before it guesses** — hit a real fork in the road and Feral stops to ask you (`ask_user`) instead of guessing — and the question reaches you wherever you are: the desktop app, the `feral chat` TUI, or right in your Discord/Slack/WhatsApp channel.
+- 🎓 **On-device LoRA training** — fine-tune a personal adapter on your own hardware (Unsloth, with a graceful fallback), gated behind an A/B eval so a worse adapter never ships. Needs an NVIDIA GPU to train.
+- 📦 **One-command install** — a single command detects your OS and sets everything up on Windows, macOS, and Linux (see [Quick install](#quick-install) above).
+- 💬 **Connectors, with personas** — talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**; each connector can run its own persona (`--persona`), so the same Feral is a support bot in one channel and your personal agent in another.
+- 🤖 **Agent unleashed** — the sandbox is allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.feral`, `~/.ssh`, and anything you list in `FERAL_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
 - 🧠 **Memory Layers + RSI** — see everything Feral remembers, grouped by recency; Feral tunes its own parameters while you're away and keeps only what measurably works.
 - 🔑 **BYOK (Bring Your Own Key)** — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
 
@@ -177,7 +160,7 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 
 - **Local models:** inference, conversations, and memory never leave your machine. No background network requests, no telemetry, no analytics — by design.
 - **Cloud models (BYOK):** your messages go to the provider you configured (OpenAI, Anthropic, …) when — and only when — you hit send. Feral talks to their API directly with your key; nothing is routed through our servers, because we don't have any. Their privacy policy applies to what you send them.
-- **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo, Jina, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
+- **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
 - **Update check:** once per launch, Feral asks GitHub Releases whether a newer version exists. Only the version request is sent — no usage data, no identifiers beyond a normal HTTP request. Turn it off in **Settings → General** for a fully offline app.
 
 | | |
@@ -295,7 +278,7 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 
 | Tool | Permissions | Description |
 |---|---|---|
-| `web_search` | `network:outbound` | DuckDuckGo search. No API key required. |
+| `web_search` | `network:outbound` | Ranked web results via a [SearXNG](https://docs.searxng.org/) instance you run — point `FERAL_SEARXNG_URL` at it (it's free, self-hosted, no API key). If unset, `web_search` reports the failure and the agent falls back to `deep_research`. |
 | `read_webpage` | `network:outbound` | Extracts clean Markdown from any URL via Jina Reader (`r.jina.ai`). No API key required. |
 | `deep_research` | `network:outbound` | DeepResearch-style iterative loop: plan → search (Jina Search) → select URLs → read pages → extract findings → repeat → synthesize cited Markdown report. 4–8 iterations. |
 | `read_file` | `fs:read` | Read files from the workspace. 64 KB cap. |
@@ -304,6 +287,8 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 | `fetch_url` | `network:outbound` | Fetch any public URL (SSRF-guarded, rate-limited, audited). |
 | `http_request` | `network:outbound` | Generic HTTP client for APIs — GET/POST/PUT/DELETE with headers and JSON bodies. |
 | `shell_exec` | `process:spawn` | Run shell commands. On by default; disable with `FERAL_ENABLE_SHELL_EXEC=false`. |
+| `delegate_task` | — | Hand a self-contained sub-task to a fresh sub-agent (optionally several in parallel) and stream its progress back. Depth-guarded against runaway recursion. |
+| `ask_user` | — | Pause and ask you a question when the task genuinely forks — routed to wherever you are (desktop, TUI, or the connector channel) instead of guessing. |
 | `connectors_manage` | — | The agent can list and configure its own messaging connectors (tokens are write-only — it can never read them back). |
 | `tool_health` | — | ECC-style health report: success rates, average latency, recurring errors per tool. The agent can diagnose its own reliability. |
 | `scan_workspace` | `fs:read` | ECC AgentShield-style scanner: detects hardcoded secrets (API keys, passwords, tokens, JWT) and code anti-patterns (`eval()`, `innerHTML=`, SQL injection, `dangerouslySetInnerHTML`). Never exposes secret values — only file paths and line numbers. |
@@ -377,7 +362,7 @@ Hover the score bar on any model card to see the 4-component breakdown, memory u
 | Local inference | llama.cpp (bundled) via OpenAI-compatible REST at `localhost:11435` |
 | Agent sidecar | Bun + TypeScript (compiled to single binary via `bun build --compile`) |
 | Agent memory | SQLite (via `bun:sqlite`) + FTS5 full-text index |
-| Web research | Jina Search + Jina Reader (no API key required) |
+| Web research | SearXNG (`web_search`, self-hosted) + Jina Reader (`read_webpage`/`deep_research`) |
 | Model discovery | HuggingFace Hub API |
 | Signing & updates | tauri-plugin-updater + minisign |
 
@@ -400,7 +385,8 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 | `FERAL_ENABLE_SHELL_EXEC` | `true` | Register the `shell_exec` tool. Set `false` to disable shell access entirely. |
 | `FERAL_SHELL_WHITELIST` | `git,node,python,…` | Comma-separated binaries `shell_exec` may run |
 | `FERAL_TOOL_GRAMMAR` | `false` | Grammar-constrain tool calls on the bundled engine (lazy GBNF) |
-| `FERAL_JINA_API_KEY` | — | Jina API key for higher rate limits on search + reader |
+| `FERAL_SEARXNG_URL` | — | Origin of a [SearXNG](https://docs.searxng.org/) instance for `web_search` (e.g. `http://127.0.0.1:8888`). Unset = `web_search` has no backend |
+| `FERAL_JINA_API_KEY` | — | Jina API key for higher rate limits on `read_webpage` + `deep_research` |
 | `FERAL_FETCH_DOMAINS` | — | Domain allowlist for `fetch_url`. Unset = all public hosts (SSRF guard still applies); set to RESTRICT |
 | `FERAL_HTTP_DOMAINS` | — | Same as above, for the `http_request` tool |
 | `FERAL_BUDGET_CONVERSATION` | `5000000` | Per-conversation token ceiling |
@@ -424,8 +410,9 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 - [x] Tool health monitoring — ECC-style per-tool success rate tracking
 - [x] Workspace security scanner — detect secrets and code anti-patterns
 - [x] Local API server — 47 documented routes, OpenAI- and Ollama-compatible (see [docs/API.md](docs/API.md))
+- [x] Sub-agents — the agent delegates self-contained tasks to parallel sub-agents (`delegate_task`)
+- [x] On-device LoRA training — fine-tune a personal adapter locally, A/B-eval gated
 - [ ] RAG on local documents — chat with your PDFs without sending them anywhere
-- [ ] Multi-agent workflows — skills that spawn sub-agents and coordinate results
 
 ---
 
