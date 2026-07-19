@@ -30,7 +30,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use hkdf::Hkdf;
@@ -117,10 +117,12 @@ fn save_store(store: &HashMap<String, String>) -> anyhow::Result<()> {
 }
 
 fn encrypt(plaintext: &[u8]) -> anyhow::Result<String> {
-    let key = Key::<Aes256Gcm>::from_slice(&master_key());
+    let mk = master_key();
+    let key = Key::<Aes256Gcm>::from_slice(&mk);
     let cipher = Aes256Gcm::new(key);
     let mut nonce_bytes = [0u8; 12];
-    getrandom::getrandom(&mut nonce_bytes)?;
+    getrandom::getrandom(&mut nonce_bytes)
+        .map_err(|e| anyhow::anyhow!("byok file-store: OS RNG failed: {e}"))?;
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher
         .encrypt(nonce, plaintext)
@@ -137,7 +139,8 @@ fn decrypt(encoded: &str) -> Option<String> {
         return None;
     }
     let (nonce_bytes, ciphertext) = combined.split_at(12);
-    let key = Key::<Aes256Gcm>::from_slice(&master_key());
+    let mk = master_key();
+    let key = Key::<Aes256Gcm>::from_slice(&mk);
     let cipher = Aes256Gcm::new(key);
     let nonce = Nonce::from_slice(nonce_bytes);
     let plaintext = cipher.decrypt(nonce, ciphertext).ok()?;
