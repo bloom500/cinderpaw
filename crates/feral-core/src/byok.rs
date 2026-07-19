@@ -685,6 +685,60 @@ fn is_keychain_unavailable(err: &keyring::Error) -> bool {
     )
 }
 
+/// Human label for a keychain-probe error, so callers (e.g. `feral doctor`)
+/// can report the kind without depending on the `keyring` crate themselves.
+pub fn keychain_error_kind(err: &keyring::Error) -> &'static str {
+    match err {
+        keyring::Error::NoStorageAccess(_) => "NoStorageAccess",
+        keyring::Error::PlatformFailure(_) => "PlatformFailure",
+        _ => "other",
+    }
+}
+
+/// Probe the OS keychain with a throwaway credential so `feral doctor`
+/// can surface "keychain unavailable — byok will fall back to the file
+/// store" BEFORE the user types their API key and hits the 500. Returns
+/// `Ok(())` when the keychain round-trips (`set` then `delete`), or
+/// `Err` with the keyring error kind so the caller can decide what to
+/// print. We probe under a reserved name (`__feral_doctor_probe__`) so
+/// a real provider's slot is never touched. On non-Linux targets this
+/// is reported as available — Windows Credential Manager and macOS
+/// Keychain are assumed reliable on every SKU Feral ships to.
+pub fn keychain_probe() -> Result<(), keyring::Error> {
+    const PROBE_USER: &str = "__feral_doctor_probe__";
+    match keyring::Entry::new(KEYCHAIN_SERVICE, PROBE_USER) {
+        Ok(entry) => {
+            // round-trip a 1-byte value: set → get → delete. get_password
+            // returning NoEntry is fine (the slot was never used); the
+            // signal we want is "set_password didn't reject with
+            // NoStorageAccess / PlatformFailure".
+            entry.set_password("0")?;
+            let _ = entry.get_password();
+            match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => Err(e),
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// True when the file-store fallback has ever been used on this machine.
+/// On non-Linux targets this is always `false` (the file store is
+/// Linux-only); on Linux it inspects `~/.feral/byok.keys` existence.
+/// Surfaced by `feral doctor` to report "your keys live on disk, not in
+/// the OS keychain" without forcing the user to `ls ~/.feral/`.
+pub fn file_fallback_used() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::byok_file_store::file_store_used()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
 /// Store a provider's API key. Tries the OS keychain first; on
 /// `NoStorageAccess` / `PlatformFailure` (the classic Linux-headless case),
 /// falls back transparently to the encrypted file store at

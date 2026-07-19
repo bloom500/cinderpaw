@@ -23,14 +23,15 @@ pub fn run() -> ! {
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let tui_bin = exe_dir.join("feral-tui.exe");
+    let tui_bin = exe_dir.join(if cfg!(windows) { "feral-tui.exe" } else { "feral-tui" });
 
     if !tui_bin.exists() {
-        eprintln!(
-            "feral: TUI binary not found at {}",
-            tui_bin.display()
-        );
-        eprintln!("       build it with: cd tui && go build -o feral-tui.exe .");
+        // CLI-only installs (npm shards, the headless install.sh) don't ship the
+        // Go TUI — only the desktop app bundles it. Point at the flows that work
+        // here instead of the developer build command.
+        eprintln!("feral: the interactive TUI isn't part of this CLI-only build.");
+        eprintln!("       connect a provider:   feral setup");
+        eprintln!("       add Discord/Slack:    feral connectors set discord --secret TOKEN=… --enable");
         std::process::exit(1);
     }
 

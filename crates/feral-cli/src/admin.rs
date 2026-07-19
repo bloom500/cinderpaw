@@ -1444,6 +1444,7 @@ pub fn doctor() -> i32 {
         ("models", check_models()),
         ("brain config", check_brain()),
         ("sidecar", check_sidecar()),
+        ("keychain", check_keychain()),
         ("gpu", check_gpu()),
         ("connectors", check_connectors()),
         ("governance", check_governance()),
@@ -1550,11 +1551,13 @@ pub fn setup() -> i32 {
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let tui_bin = exe_dir.join("feral-tui.exe");
+    let tui_bin = exe_dir.join(if cfg!(windows) { "feral-tui.exe" } else { "feral-tui" });
 
     if !tui_bin.exists() {
-        eprintln!("feral: TUI binary not found at {}", tui_bin.display());
-        eprintln!("       build it with: cd tui && go build -o feral-tui.exe .");
+        // CLI-only installs don't ship the Go TUI — steer to the native guided
+        // flow (which needs no TUI) rather than the developer build command.
+        eprintln!("feral: the classic wizard needs the interactive TUI, which isn't in this CLI-only build.");
+        eprintln!("       run the guided setup instead:  feral setup");
         return 1;
     }
 
@@ -1761,6 +1764,32 @@ fn pid_file_alive(name: &str) -> bool {
 #[cfg(not(target_os = "linux"))]
 fn pid_file_alive(_name: &str) -> bool {
     false
+}
+
+/// Probe the OS keychain so we can warn a Linux-headless user BEFORE they
+/// type their first API key that byok will fall back to the file store.
+/// On Windows/macOS this always reports OK (Credential Manager / Keychain
+/// are present on every SKU Feral ships to). On Linux we do a real probe
+/// — `set` + `delete` round-trip under a reserved probe user — so a
+/// missing `gnome-keyring-daemon` or `libsecret` shows up as `⚠` here,
+/// not as `✗ byok_save_failed` on the next `setup verify` round-trip.
+/// If we've already fallen back (file store in use), report that
+/// explicitly so the user knows where their keys live.
+fn check_keychain() -> Check {
+    if feral_core::byok::file_fallback_used() {
+        return Check::Ok(
+            "file store at ~/.feral/byok.keys (OS keychain unavailable on this host)".to_string(),
+        );
+    }
+    match feral_core::byok::keychain_probe() {
+        Ok(()) => Check::Ok("OS keychain".to_string()),
+        Err(e) => {
+            let kind = feral_core::byok::keychain_error_kind(&e);
+            Check::Warn(format!(
+                "OS keychain unavailable ({kind}); byok will fall back to ~/.feral/byok.keys on first save"
+            ))
+        }
+    }
 }
 
 fn check_gpu() -> Check {
