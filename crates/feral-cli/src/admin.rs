@@ -1749,7 +1749,7 @@ fn check_sidecar() -> Check {
 /// still catches the "no daemon" case there.
 #[cfg(target_os = "linux")]
 fn pid_file_alive(name: &str) -> bool {
-    let raw = match std::fs::read_to_string(crate::paths::feral_dir().join(name)) {
+    let raw = match std::fs::read_to_string(feral_file(name)) {
         Ok(s) => s,
         Err(_) => return false,
     };
