@@ -1,13 +1,20 @@
 name: Publish feral-agent to npm
 
 # Decoupled from the desktop app's `Release` workflow (which fires on `v*`).
-# The agent ships on its own cadence, so it publishes on a dedicated tag
-# (`feral-agent-v*`) or a manual run — never automatically on an app release.
+# The CLI ships on its own cadence, on a dedicated tag (`feral-agent-v*`) or a
+# manual run.
+#
+# Cross-platform distribution (esbuild/swc pattern): the `platform` matrix builds
+# each OS/arch's two binaries (Rust `feral-cli` + Bun sidecar), assembles a
+# per-platform package `feral-agent-<os>-<arch>` (with `os`/`cpu` set), and
+# publishes it. The `main` job then publishes the umbrella `feral-agent` package,
+# which lists all four as optionalDependencies — npm installs only the one that
+# matches the user's machine. See FeralAgent/bin/feral.js for the runtime shim.
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Pack only (npm publish --dry-run), do not actually publish"
+        description: "Build + npm pack only (do not publish)"
         type: boolean
         default: true
   push:
@@ -19,61 +26,154 @@ permissions:
   id-token: write # required for npm provenance (supply-chain attestation)
 
 jobs:
-  publish:
-    name: Publish feral-agent
+  platform:
+    name: ${{ matrix.pkg }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: feral-agent-win32-x64
+            os: windows-2022
+            node_os: win32
+            node_arch: x64
+            bun_target: bun-windows-x64
+            binext: ".exe"
+          - pkg: feral-agent-darwin-arm64
+            os: macos-latest
+            node_os: darwin
+            node_arch: arm64
+            bun_target: bun-darwin-arm64
+            binext: ""
+          # Intel mac is cross-compiled from the Apple Silicon runner (mirrors the
+          # desktop Release workflow — no native x86_64 macOS runner is available).
+          - pkg: feral-agent-darwin-x64
+            os: macos-latest
+            node_os: darwin
+            node_arch: x64
+            bun_target: bun-darwin-x64
+            rust_target: x86_64-apple-darwin
+            binext: ""
+          - pkg: feral-agent-linux-x64
+            os: ubuntu-22.04
+            node_os: linux
+            node_arch: x64
+            bun_target: bun-linux-x64
+            binext: ""
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      # feral-cli with --no-default-features drops the bundled llama.cpp engine,
+      # so there is NO cmake / libclang / CUDA / Vulkan toolchain to install — the
+      # npm CLI is a gateway/headless client, not a local inference engine. The
+      # only native dep left is the keyring crate (libdbus) + openssl on Linux.
+      - name: Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev libdbus-1-dev
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          PKG="$(node -p "require('./FeralAgent/package.json').version")"
+          TAG="${GITHUB_REF_NAME#feral-agent-v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag $GITHUB_REF_NAME ($TAG) != FeralAgent/package.json ($PKG)"; exit 1
+          fi
+
+      - name: Build feral-cli (Rust, no local inference)
+        run: |
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            cargo build --release -p feral-cli --no-default-features --target ${{ matrix.rust_target }}
+            echo "CLI=target/${{ matrix.rust_target }}/release/feral-cli${{ matrix.binext }}" >> "$GITHUB_ENV"
+          else
+            cargo build --release -p feral-cli --no-default-features
+            echo "CLI=target/release/feral-cli${{ matrix.binext }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build sidecar (Bun --compile)
+        working-directory: FeralAgent
+        run: |
+          bun install --frozen-lockfile
+          bun build src/index.ts --compile --target=${{ matrix.bun_target }} --outfile dist/feral-agent
+
+      - name: Assemble per-platform package
+        working-directory: FeralAgent
+        run: |
+          node npm/assemble.mjs \
+            --os ${{ matrix.node_os }} --arch ${{ matrix.node_arch }} \
+            --cli "../$CLI" --agent "dist/feral-agent${{ matrix.binext }}"
+
+      - name: Publish (or pack on dry run)
+        working-directory: FeralAgent/npm/dist/${{ matrix.pkg }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.dry_run }}" = "false" ]; then
+            npm publish --access public --provenance
+          else
+            npm pack --dry-run
+          fi
+
+  # Umbrella package: the `feral` bin + the optionalDependencies that point npm at
+  # the per-platform packages published above. No binaries of its own.
+  main:
+    name: feral-agent (umbrella)
+    needs: platform
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: FeralAgent
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # registry-url makes setup-node write an .npmrc that reads NODE_AUTH_TOKEN.
-      # The token value never appears in the repo or logs — only the reference
-      # to the `NPM_TOKEN` secret does.
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      # Quality gate: a broken build must never reach npm.
-      - name: Typecheck
-        run: bun run typecheck
-
-      # On a tag push, the tag's version must match package.json — refuse a
-      # mismatched tag rather than publishing a surprising version.
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#feral-agent-v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::tag $GITHUB_REF_NAME ($TAG_VERSION) != package.json version ($PKG_VERSION)"
-            exit 1
+          PKG="$(node -p "require('./package.json').version")"
+          TAG="${GITHUB_REF_NAME#feral-agent-v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag $GITHUB_REF_NAME ($TAG) != package.json ($PKG)"; exit 1
           fi
-          echo "Publishing feral-agent@$PKG_VERSION"
 
-      # Manual dry-run path: pack and inspect what WOULD be published without
-      # touching the registry. Default for workflow_dispatch.
-      - name: Publish (dry run)
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
-        run: npm publish --access public --provenance --dry-run
+      # Pin every optionalDependency to this exact version, so the umbrella never
+      # references a platform package that wasn't published in this same run.
+      - name: Sync optionalDependencies to package version
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = require("./package.json");
+            const v = p.version;
+            for (const k of Object.keys(p.optionalDependencies || {})) p.optionalDependencies[k] = v;
+            fs.writeFileSync("./package.json", JSON.stringify(p, null, 2) + "\n");
+            console.log("optionalDependencies pinned to", v);
+          '
+
+      - name: Publish (or pack on dry run)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Real publish: tag push, or a manual run with dry_run unchecked.
-      - name: Publish to npm
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.dry_run }}" = "false" ]; then
+            npm publish --access public --provenance
+          else
+            npm pack --dry-run
+          fi

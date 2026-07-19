@@ -9,3 +9,6 @@ bun.lockb
 .npmrc
 # Prebuilt binaries bundled at publish time by scripts/package-win.mjs (SP0). Build output, not source.
 vendor/
+
+# assembled per-platform npm packages (built in CI)
+npm/dist/

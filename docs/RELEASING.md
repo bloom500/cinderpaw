@@ -48,3 +48,24 @@ the displayed date will be one day ahead, which is an accepted rare edge.
 The npm package is versioned and released independently (tag `feral-agent-v*`,
 see `.github/workflows/publish-npm.yml`). Its `package.json` version follows the
 same CalVer scheme but on its own cadence.
+
+It ships **cross-platform** via the esbuild/swc pattern: the workflow builds one
+per-platform package per OS/arch (`feral-agent-win32-x64`, `-darwin-arm64`,
+`-darwin-x64`, `-linux-x64`), each carrying just that platform's `feral-cli` +
+sidecar binaries with `os`/`cpu` set, then publishes the umbrella `feral-agent`
+that lists all four as `optionalDependencies`. `npm install -g feral-agent`
+pulls only the one matching the user's machine; `bin/feral.js` resolves it.
+
+Cutting an npm release:
+
+```sh
+node scripts/set-release-version.mjs 2026.06.17   # bumps FeralAgent/package.json too
+git tag feral-agent-v2026.6.17                     # UNPADDED semver, matches package.json
+git push origin feral-agent-v2026.6.17
+```
+
+Requires the `NPM_TOKEN` repository secret (an npm automation/granular token with
+publish rights). To rehearse without publishing, run the workflow manually with
+`dry_run: true` — it builds all four platforms and `npm pack`s without touching
+the registry. A same-day re-release needs a fresh version (npm versions are
+immutable); advance the day component like the app does.

@@ -1,8 +1,16 @@
 #!/usr/bin/env node
-// SP0 packaging (Windows-first, manual). Populates FeralAgent/vendor/ with the
-// two prebuilt binaries the npm package ships, then you `npm publish`.
+// Local Windows dev helper. Populates FeralAgent/vendor/ with the two prebuilt
+// binaries so `node bin/feral.js ...` works from a source checkout (bin/feral.js
+// falls back to vendor/ when no per-platform package is installed).
 //
-//   node scripts/package-win.mjs        # build both + stage vendor/
+// ⚠️ This is NO LONGER the publish path. npm distribution is cross-platform and
+// runs in CI (.github/workflows/publish-npm.yml): it builds all four
+// per-platform packages and the umbrella `feral-agent`. Do NOT `npm publish`
+// from here — `vendor/` is not in the package `files` anymore, so a manual
+// publish would ship an umbrella with no binaries. Cut a `feral-agent-v*` tag
+// (or run the workflow) instead.
+//
+//   node scripts/package-win.mjs        # build both + stage vendor/ (local dev)
 //   node scripts/package-win.mjs --pack # also run `npm pack` to inspect
 //
 // Publishing is manual from a Windows machine: publish-npm.yml runs on ubuntu
