@@ -50,8 +50,15 @@ const version = JSON.parse(
   await import("node:fs/promises").then((fs) => fs.readFile(join(pkgDir, "package.json"), "utf8")),
 ).version;
 
-const name = `feral-agent-${os}-${arch}`;
-const outDir = join(npmDir, "dist", name);
+// Scoped name (@bloommedia/…): npm's spam filter rejects new UNSCOPED
+// platform-shard names like `feral-agent-win32-x64` (403 "triggered spam
+// detection"); scoped packages under our own scope don't trip it — the same
+// reason esbuild ships `@esbuild/win32-x64`. The on-disk dir stays unscoped
+// (a scope's `/` can't be a single dir name); the scoped name lives in
+// package.json and is what npm publishes.
+const dirName = `feral-agent-${os}-${arch}`;
+const name = `@bloommedia/feral-agent-${os}-${arch}`;
+const outDir = join(npmDir, "dist", dirName);
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 

@@ -23,7 +23,7 @@ const require = createRequire(import.meta.url);
 const ext = process.platform === "win32" ? ".exe" : "";
 
 // 1. Production: the matching per-platform package (an optionalDependency).
-const platformPkg = `feral-agent-${process.platform}-${process.arch}`;
+const platformPkg = `@bloommedia/feral-agent-${process.platform}-${process.arch}`;
 let exe = null;
 try {
   exe = require.resolve(`${platformPkg}/feral-cli${ext}`);
