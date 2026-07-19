@@ -1305,6 +1305,15 @@ async fn governance_roundtrip(
 ) -> Response {
     let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
     let Some(tx) = tx else {
+        // The supervisor's outbound channel is closed — usually the sidecar
+        // crashed at boot or was never spawned. Without this log the operator
+        // only sees "503" from the CLI; with it, gateway.log points at the
+        // root cause (broken self-src bundle, byok.json corruption, etc.).
+        tracing::warn!(
+            op = %op,
+            "governance_roundtrip: sidecar channel is closed (tx=None); \
+             returning 503 — sidecar process likely crashed"
+        );
         return (StatusCode::SERVICE_UNAVAILABLE, "feral-agent sidecar is not running")
             .into_response();
     };
@@ -1321,6 +1330,15 @@ async fn governance_roundtrip(
         }
     }
     if tx.send(payload.to_string()).await.is_err() {
+        // The channel accepted our `send` in the check above but rejected
+        // this one — the sidecar died between the two reads. Surface it
+        // the same way as the closed-channel case so the operator doesn't
+        // have to learn two failure shapes.
+        tracing::warn!(
+            op = %op,
+            "governance_roundtrip: tx.send() rejected — sidecar dropped between \
+             the lock and the send"
+        );
         return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
             .into_response();
     }

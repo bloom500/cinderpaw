@@ -1499,7 +1499,27 @@ fn check_port() -> Check {
     let port = api_port();
     if port_in_use(port) {
         match read_token().and_then(|t| block_on(fetch_json(&t, "/runtime/status")).ok()) {
-            Some(_) => Check::Ok(format!("gateway running on 127.0.0.1:{port}")),
+            Some(v) => {
+                // Surface the supervised sidecar state from the gateway's own
+                // report: the CLI's `check_sidecar` only knew the binary was
+                // on disk, which lied when the process had crashed silently
+                // (the 503-everywhere symptom on Linux headless + broken
+                // self-src bundle). The gateway is the source of truth — its
+                // `/runtime/status` returns `sidecar_alive: false` when the
+                // supervisor lost the child.
+                let sidecar_alive = v
+                    .get("sidecar_alive")
+                    .and_then(|b| b.as_bool())
+                    .unwrap_or(false);
+                if sidecar_alive {
+                    Check::Ok(format!("gateway running on 127.0.0.1:{port} (sidecar alive)"))
+                } else {
+                    Check::Warn(format!(
+                        "gateway running on 127.0.0.1:{port} but sidecar is DOWN — \
+                         check ~/.feral/gateway.log"
+                    ))
+                }
+            }
             None => Check::Warn(format!(
                 "port {port} is in use but not answering /runtime/status — another app?"
             )),
@@ -1694,9 +1714,53 @@ fn check_governance() -> Check {
 
 fn check_sidecar() -> Check {
     match feral_core::feral_agent::find_binary(&[]) {
-        Some(p) => Check::Ok(format!("{}", p.display())),
-        None => Check::Fail("feral-agent sidecar binary not found next to the executable".into()),
+        Some(p) => {
+            // The binary is on disk — that's the easy part. Also report
+            // whether the SUPERVISED process is actually alive, because
+            // /root/.local/bin/feral-agent existing != a working gateway
+            // (the sidecar can crash at boot when its self-src bundle is
+            // broken or its dependencies are missing). The CLI writes the
+            // gateway PID on daemon start; cross-check it against /proc.
+            let pid_alive = pid_file_alive("gateway.pid");
+            if pid_alive {
+                Check::Ok(format!("{}", p.display()))
+            } else if port_in_use(api_port()) {
+                Check::Warn(format!(
+                    "{} on disk, but the supervised sidecar is DOWN (gateway.pid stale or missing) — check ~/.feral/gateway.log",
+                    p.display()
+                ))
+            } else {
+                Check::Warn(format!(
+                    "{} on disk; gateway not running — start with `feral gateway start`",
+                    p.display()
+                ))
+            }
+        }
+        None => Check::Fail("feral-agent sidecar binary not found next to the executable".to_string()),
     }
+}
+
+/// True when `~/.feral/<name>` contains a PID that is alive in /proc.
+/// Linux-only (Contabo + most VPS images). On other Unix / Windows the
+/// check is a no-op that returns false — the existing gateway-port check
+/// still catches the "no daemon" case there.
+#[cfg(target_os = "linux")]
+fn pid_file_alive(name: &str) -> bool {
+    let raw = match std::fs::read_to_string(crate::paths::feral_dir().join(name)) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let Ok(pid) = raw.trim().parse::<i32>() else { return false };
+    if pid <= 0 { return false; }
+    // `/proc/<pid>` exists iff the process is alive (we own PID namespace,
+    // so a stale PID from a previous boot can't alias onto a current pid
+    // — the namespace is fresh on each container/VM start).
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn pid_file_alive(_name: &str) -> bool {
+    false
 }
 
 fn check_gpu() -> Check {

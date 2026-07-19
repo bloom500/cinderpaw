@@ -76,6 +76,20 @@ getrandom = "0.2"
 pdf-extract = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+# File-backed fallback for the Linux-headless keychain gap: when the OS
+# Secret Service is unreachable (NoStorageAccess / PlatformFailure — common on
+# VPS images that ship without gnome-keyring/kwallet), byok_set/byok_get fall
+# back to AES-256-GCM at-rest in `~/.feral/byok.keys` (chmod 0600). Key is
+# derived from `/etc/machine-id` + a compile-time app secret via HKDF-SHA-256.
+# Threat model: protects against another non-root local user reading the key;
+# does NOT protect against an attacker with root or who can rewrite machine-id
+# (same level as `~/.ssh/known_hosts`). Linux-only — Windows has Credential
+# Manager, macOS has Keychain; both are reliable on every SKU Feral targets.
+# Listed LAST so the regular `[dependencies]` block above is unaffected.
+[target.'cfg(target_os = "linux")'.dependencies]
+aes-gcm = "0.10"
+hkdf = "0.12"
+
 [features]
 default = ["inference"]
 # CPU-only baseline (works everywhere; slow for larger models).

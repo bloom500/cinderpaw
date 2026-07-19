@@ -674,25 +674,141 @@ fn key_entry(provider_id: &str) -> Result<keyring::Entry, keyring::Error> {
     keyring::Entry::new(KEYCHAIN_SERVICE, provider_id)
 }
 
-/// Store a provider's API key in the keychain.
-/// Public API: byok_set(provider_id, api_key)
-pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
-    key_entry(provider_id)?.set_password(key)?;
-    Ok(())
+/// True when `err` is the kind of keychain failure that justifies the
+/// file-backed fallback (Linux headless / no D-Bus session / libsecret
+/// missing). Other errors — `NoEntry`, `Invalid`, `TooLong` — should
+/// bubble up: they're a real problem the caller needs to see.
+fn is_keychain_unavailable(err: &keyring::Error) -> bool {
+    matches!(
+        err,
+        keyring::Error::NoStorageAccess(_) | keyring::Error::PlatformFailure(_)
+    )
 }
 
-/// Remove a provider's API key from the keychain. A missing entry is success.
-fn clear_key(provider_id: &str) -> anyhow::Result<()> {
-    match key_entry(provider_id)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+/// Store a provider's API key. Tries the OS keychain first; on
+/// `NoStorageAccess` / `PlatformFailure` (the classic Linux-headless case),
+/// falls back transparently to the encrypted file store at
+/// `~/.feral/byok.keys`. The fallback is Linux-only — Windows Credential
+/// Manager and macOS Keychain are reliable on every SKU Feral targets.
+///
+/// On a successful keychain write we also clear any stale file-store entry
+/// so the keychain stays canonical: a key that's migrated off the file
+/// store should not re-appear there on the next boot.
+pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
+    match key_entry(provider_id) {
+        Ok(entry) => match entry.set_password(key) {
+            Ok(()) => {
+                #[cfg(target_os = "linux")]
+                {
+                    if let Err(e) = crate::byok_file_store::file_clear(provider_id) {
+                        tracing::warn!(
+                            provider = %provider_id,
+                            ?e,
+                            "byok: keychain write OK but file-store cleanup failed; \
+                             stale entry may persist on disk"
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Err(e) if is_keychain_unavailable(&e) => {
+                tracing::warn!(
+                    provider = %provider_id,
+                    "byok: OS keychain unavailable ({e}); falling back to encrypted \
+                     file store at ~/.feral/byok.keys — headless mode"
+                );
+                #[cfg(target_os = "linux")]
+                {
+                    crate::byok_file_store::file_set(provider_id, key)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    Err(anyhow::anyhow!("keychain unavailable and file-store fallback is Linux-only"))
+                }
+            }
+            Err(e) => Err(e.into()),
+        },
+        Err(e) if is_keychain_unavailable(&e) => {
+            tracing::warn!(
+                provider = %provider_id,
+                "byok: OS keychain unavailable ({e}); falling back to encrypted \
+                 file store at ~/.feral/byok.keys — headless mode"
+            );
+            #[cfg(target_os = "linux")]
+            {
+                crate::byok_file_store::file_set(provider_id, key)
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                Err(anyhow::anyhow!("keychain unavailable and file-store fallback is Linux-only"))
+            }
+        }
         Err(e) => Err(e.into()),
     }
 }
 
-/// Read a provider's API key from the keychain, or `None` if absent.
-/// Public API: byok_get(provider_id)
+/// Read a provider's API key. Keychain first; on the same
+/// `NoStorageAccess` / `PlatformFailure` pair, reads from the file store.
+/// Other errors collapse to `None` (matching the old behaviour) — the
+/// caller treats absent key the same as unreadable key.
 pub fn byok_get(provider_id: &str) -> Option<String> {
-    key_entry(provider_id).ok()?.get_password().ok()
+    match key_entry(provider_id) {
+        Ok(entry) => match entry.get_password() {
+            Ok(k) => Some(k),
+            Err(keyring::Error::NoEntry) => None,
+            Err(e) if is_keychain_unavailable(&e) => {
+                #[cfg(target_os = "linux")]
+                {
+                    crate::byok_file_store::file_get(provider_id)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    None
+                }
+            }
+            Err(_) => None,
+        },
+        Err(e) if is_keychain_unavailable(&e) => {
+            #[cfg(target_os = "linux")]
+            {
+                crate::byok_file_store::file_get(provider_id)
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                None
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+/// Remove a provider's API key from BOTH stores. The keychain and the
+/// file fallback are siblings, not primary/replica: clearing must clear
+/// both so a later write can't resurrect a key from the other side.
+fn clear_key(provider_id: &str) -> anyhow::Result<()> {
+    // Try the keychain; missing-entry is success, any other failure bubbles.
+    let keychain_result: anyhow::Result<()> = match key_entry(provider_id) {
+        Ok(entry) => match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.into()),
+        },
+        Err(e) if is_keychain_unavailable(&e) => Ok(()),
+        Err(e) => Err(e.into()),
+    };
+    #[cfg(target_os = "linux")]
+    {
+        // Best-effort: a missing file entry is fine, an I/O error logs
+        // but doesn't override the keychain result (which is the source
+        // of truth on non-headless systems).
+        if let Err(e) = crate::byok_file_store::file_clear(provider_id) {
+            tracing::warn!(
+                provider = %provider_id,
+                ?e,
+                "byok: file-store clear failed; keychain result still returned"
+            );
+        }
+    }
+    keychain_result
 }
 
 /// Load BYOK settings: non-secret metadata from `byok.json`, API keys from the

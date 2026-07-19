@@ -9,6 +9,8 @@
 pub mod api;
 pub mod boot;
 pub mod byok;
+#[cfg(target_os = "linux")]
+pub mod byok_file_store;
 pub mod connectors;
 pub mod db_key;
 pub mod feral_agent;
