@@ -125,7 +125,17 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.dry_run }}" = "false" ]; then
-            npm publish --access public --provenance
+            # Idempotent: a version that is already on the registry (e.g. a
+            # partial-publish retry where sibling packages went through) is not
+            # a failure. Any OTHER error (spam block, auth, provenance) still fails.
+            set +e
+            OUT=$(npm publish --access public --provenance 2>&1); CODE=$?
+            echo "$OUT"
+            if [ $CODE -ne 0 ] && echo "$OUT" | grep -qiE 'cannot publish over|previously published|409 Conflict'; then
+              echo "::notice::${{ matrix.pkg }} already published at this version — treating as success"
+              exit 0
+            fi
+            exit $CODE
           else
             npm pack --dry-run
           fi
@@ -173,7 +183,14 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.dry_run }}" = "false" ]; then
-            npm publish --access public --provenance
+            set +e
+            OUT=$(npm publish --access public --provenance 2>&1); CODE=$?
+            echo "$OUT"
+            if [ $CODE -ne 0 ] && echo "$OUT" | grep -qiE 'cannot publish over|previously published|409 Conflict'; then
+              echo "::notice::feral-agent already published at this version — treating as success"
+              exit 0
+            fi
+            exit $CODE
           else
             npm pack --dry-run
           fi
