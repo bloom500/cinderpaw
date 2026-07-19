@@ -1,6 +1,6 @@
 [package]
 name = "feral"
-version = "2026.7.14"
+version = "2026.7.19"
 description = "Feral — local AI desktop runtime"
 authors = ["Feral Contributors"]
 license = "BUSL-1.1"

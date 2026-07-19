@@ -5,6 +5,58 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.07.19
+
+A big one. Feral can now split work across sub-agents, ask you a question
+mid-task from any channel, and train a personal LoRA on your own machine. It
+also installs in a single command on every platform, and a batch of local/cloud
+model-selection bugs are gone.
+
+### Added
+
+- **Sub-agents.** The agent can now hand a piece of work to a fresh sub-agent
+  (`delegate_task`), run several in parallel, and stream their progress back
+  live. A depth guard stops an agent from recursively spawning itself into a
+  fork bomb.
+- **The agent can ask you a question mid-task — from anywhere.** If it hits a
+  real fork in the road it stops and asks instead of guessing. This now works
+  over the connectors (Discord/Slack/WhatsApp — the question comes back in the
+  same channel) and in the `feral chat` TUI, not just the desktop app.
+- **On-device LoRA trainer, bundled.** Feral can now fine-tune a personal
+  adapter on your own hardware (Unsloth when available, with a graceful
+  fallback), gated behind an A/B eval so a worse adapter never gets promoted.
+  Requires an NVIDIA GPU to train.
+- **Universal one-command installer.** A single command detects your OS and sets
+  everything up — Windows, macOS, and Linux. Per-platform quick-install lines
+  are now at the top of the README.
+- **Per-connector persona.** Each connector can run with its own persona
+  (`--persona`), so the same Feral can be a support bot in one channel and your
+  personal agent in another.
+- **The agent can see its own subsystems.** Every RSI layer now reports into
+  self-health, so the agent can actually reason about the parts of itself that
+  were previously running invisibly.
+
+### Fixed
+
+- **Replies are no longer cut off.** A phantom 4096-token cap on chat replies is
+  gone — long answers finish.
+- **A local model no longer shrinks your cloud model's context window.** A
+  resident local GGUF was stealing the context window from an active cloud
+  model (e.g. capping a 1M-context model at 8192). Local and cloud windows are
+  now independent.
+- **You pick the model — always.** Switching to a cloud model used to leave the
+  local GGUF resident, and some paths let the API pick a model on its own. The
+  model you choose is the model that runs, and switching away actually unloads
+  the old one.
+- **The Dream Cycle no longer runs with no model loaded.** Background
+  self-improvement is gated on there being an active model.
+- **`web_search` no longer reports success on an empty result.** An empty search
+  is now treated as the failure it is, so the fallback path actually fires.
+- **Cloud model settings** show only what applies (temperature, not local-only
+  knobs), and folders start collapsed.
+- **BYOK base URLs** are normalized on the plain-env path the same way the
+  keychain path already did them.
+
 ## 2026.07.14
 
 Hotfix. **Everyone on 2026.07.13 should take this update.**
