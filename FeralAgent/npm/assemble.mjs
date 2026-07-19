@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 
 const npmDir = resolve(dirname(fileURLToPath(import.meta.url)));
 const pkgDir = resolve(npmDir, "..");          // FeralAgent/
-const repoRoot = resolve(pkgDir, "..");        // repo root
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, arr) => {
@@ -34,8 +33,11 @@ if (!os || !arch || !args.cli || !args.agent) {
 }
 
 const ext = os === "win32" ? ".exe" : "";
-const cliSrc = resolve(repoRoot, args.cli);
-const agentSrc = resolve(repoRoot, args.agent);
+// Binary paths are resolved relative to the current working directory (where the
+// caller invokes assemble), NOT the repo root — the CI workflow runs this from
+// FeralAgent/ and passes e.g. `../target/release/feral-cli` and `dist/feral-agent`.
+const cliSrc = resolve(args.cli);
+const agentSrc = resolve(args.agent);
 for (const [label, p] of [["cli", cliSrc], ["agent", agentSrc]]) {
   if (!existsSync(p)) {
     console.error(`${label} binary not found: ${p}`);
