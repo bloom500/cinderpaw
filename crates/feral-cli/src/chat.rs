@@ -13,27 +13,30 @@ use std::process::{Command, Stdio};
 
 use crate::common::{self, Palette};
 
+/// Path to the bundled Go TUI binary sitting next to this executable, if it's
+/// present. CLI-only installs (npm shards, the headless install.sh) don't ship
+/// it — only the desktop app bundles it — so callers must treat `None` as
+/// "interactive TUI unavailable on this install" rather than a hard error.
+pub(crate) fn tui_binary_path() -> Option<std::path::PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))?;
+    let bin = exe_dir.join(if cfg!(windows) { "feral-tui.exe" } else { "feral-tui" });
+    bin.exists().then_some(bin)
+}
+
 /// Entry point for `feral-cli chat`. Never returns — exits the process.
 pub fn run() -> ! {
     if let Err(code) = crate::admin::ensure_gateway() {
         std::process::exit(code);
     }
 
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let tui_bin = exe_dir.join(if cfg!(windows) { "feral-tui.exe" } else { "feral-tui" });
-
-    if !tui_bin.exists() {
-        // CLI-only installs (npm shards, the headless install.sh) don't ship the
-        // Go TUI — only the desktop app bundles it. Point at the flows that work
-        // here instead of the developer build command.
+    let Some(tui_bin) = tui_binary_path() else {
         eprintln!("feral: the interactive TUI isn't part of this CLI-only build.");
         eprintln!("       connect a provider:   feral setup");
         eprintln!("       add Discord/Slack:    feral connectors set discord --secret TOKEN=… --enable");
         std::process::exit(1);
-    }
+    };
 
     let status = match Command::new(&tui_bin)
         .stdin(Stdio::inherit())

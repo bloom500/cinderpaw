@@ -141,13 +141,18 @@ pub fn run(accept_risk: bool) -> i32 {
     let label = candidate["label"].as_str().unwrap_or("your AI");
     let check = outcome["message"].as_str().unwrap_or("replied");
     println!("\n  {OK}✓ {label} is ready{RESET} {META}— AI check: {check}{RESET}");
+    // The interactive TUI ships only with the desktop app; CLI-only installs
+    // (npm, headless install.sh) don't have it, so don't dangle a `feral chat`
+    // that would just error out — steer those users to connectors instead.
+    let has_tui = crate::chat::tui_binary_path().is_some();
     println!("\n  {BOLD}Next steps{RESET}");
-    println!("  {META}Chat here:        {RESET}feral chat");
-    println!("  {META}Desktop app:      {RESET}launch Feral from the Start Menu");
-    println!("  {META}Add a connector:  {RESET}feral connectors set discord   (or /connectors add in chat)");
+    if has_tui {
+        println!("  {META}Chat here:        {RESET}feral chat");
+    }
+    println!("  {META}Add a connector:  {RESET}feral connectors set discord --secret TOKEN=… --enable");
     println!("  {META}Health check:     {RESET}feral doctor");
 
-    if confirm("\nOpen the chat now?", true) {
+    if has_tui && confirm("\nOpen the chat now?", true) {
         crate::chat::run(); // never returns
     }
     println!("  {META}stay feral. ↝{RESET}");
