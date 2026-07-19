@@ -56,8 +56,27 @@ Prefer to grab a file by hand? Every installer — Windows `.exe`, macOS `.dmg`,
 Linux `.deb`/`.rpm` — is on the
 [Releases page](https://github.com/bloom500/feral/releases/latest).
 
+### Just the CLI (npm)
+
+Want the terminal agent without the desktop app? One command, any OS:
+
+```bash
+npm install -g feral-agent
+feral            # the command is `feral`; the package is `feral-agent`
+```
+
+npm pulls only the binary for your platform (Windows, macOS Intel/Apple Silicon,
+or Linux x64). Then `feral setup` to configure, `feral chat` for the terminal
+UI, `feral gateway start` to run it as a service.
+
+> **Note:** the npm build is a **cloud/gateway CLI — it does not bundle the local
+> llama.cpp inference engine.** Point it at a cloud provider (BYOK via
+> `FERAL_BASE_URL` / `FERAL_API_KEY` / `FERAL_MODEL`) or at a running desktop
+> Feral. For **local GGUF models on your own machine, install the desktop app**
+> above — that's the build with the inference engine.
+
 <details>
-<summary><b>Headless server / CLI</b> (run the gateway on a VPS, no desktop)</summary>
+<summary><b>Headless server / CLI from source</b> (no npm, build it yourself)</summary>
 
 Build the `feral` CLI + gateway from source — no GPU or llama.cpp compile needed.
 Requires [Rust](https://rustup.rs) + [Bun](https://bun.sh).
