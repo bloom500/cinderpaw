@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { tauri } from '@/lib/tauri';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 export type AgentPhase = 'thinking' | 'calling' | 'processing'
@@ -76,6 +77,14 @@ interface ChatStore {
    */
   lastCompletionStopped: boolean;
 
+  /**
+   * Thumbs 👍/👎 the user gave each assistant message, keyed by message id.
+   * In-memory courtesy state so the buttons show which vote is active; the
+   * durable record is the audit "feedback" row the sidecar writes (the
+   * §2.10 `acceptance` personal-fitness signal). Reset per session.
+   */
+  feedback: Record<string, 'up' | 'down'>;
+
   newSession: () => void;
   /**
    * Replace the in-memory session. If `streamStatus` is provided, it overrides
@@ -85,6 +94,9 @@ interface ChatStore {
    */
   loadSession: (sessionId: string, messages: ChatMessage[], streamStatus?: StreamStatus) => void;
   addMessage: (m: ChatMessage) => void;
+  /** Record (or toggle off) the user's thumbs on an assistant message and
+   *  forward it to the sidecar's audit log. */
+  setFeedback: (messageId: string, value: 'up' | 'down') => void;
   /** Remove a message by id. Used to drop an optimistic voice bubble when its
    *  transcription fails before any reply was generated. */
   removeMessage: (id: string) => void;
@@ -167,6 +179,7 @@ export const useChat = create<ChatStore>((set) => ({
   liveCompletionTokens: null,
   toolCallStream: [],
   lastCompletionStopped: false,
+  feedback: {},
 
   newSession: () =>
     set({
@@ -181,10 +194,25 @@ export const useChat = create<ChatStore>((set) => ({
       liveCompletionTokens: null,
       toolCallStream: [],
       lastCompletionStopped: false,
+      feedback: {},
     }),
 
   loadSession: (sessionId, messages, streamStatus = 'idle') =>
-    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false }),
+    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false, feedback: {} }),
+
+  setFeedback: (messageId, value) =>
+    set((s) => {
+      // Toggle off if the same vote is clicked again; otherwise set/replace it.
+      const current = s.feedback[messageId];
+      const next = { ...s.feedback };
+      if (current === value) delete next[messageId];
+      else next[messageId] = value;
+      // Forward every explicit click to the audit log (a re-click that toggles
+      // the UI still tells the runtime the user's latest intent). Fire-and-
+      // forget — the vote UI must not block on the sidecar.
+      void tauri.raw.feralSubmitFeedback(s.sessionId, messageId, value).catch(() => {});
+      return { feedback: next };
+    }),
 
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
 

@@ -1,12 +1,12 @@
 import { memo, useEffect, useState } from 'react';
-import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon } from 'lucide-react';
+import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { AskUserCard } from './AskUserCard';
 import { VoiceBubble } from './VoiceBubble';
-import type { ChatMessage } from '@/stores/chat';
+import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
 import { useT } from '@/lib/i18n';
@@ -150,7 +150,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
   const cancelAskUser = useAskUser((s) => s.cancel);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="group flex flex-col gap-2">
       {showThinking && (
         <ThinkingBlock
           id={message.id}
@@ -198,6 +198,50 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
           </div>
         </div>
       )}
+      {/* Thumbs feedback — only on a finished, non-empty reply, and not while a
+          question card is pending. Feeds the acceptance adaptation signal. */}
+      {!streaming && !askUser && message.content.trim().length > 0 && (
+        <FeedbackButtons messageId={message.id} />
+      )}
     </div>
   );
 });
+
+/**
+ * Thumbs 👍/👎 under an assistant reply. The click forwards to the sidecar's
+ * audit log (the §2.10 `acceptance` personal-fitness signal) via the chat
+ * store; the highlighted state is in-memory courtesy feedback. Clicking the
+ * active vote again toggles it off.
+ */
+function FeedbackButtons({ messageId }: { messageId: string }) {
+  const vote = useChat((s) => s.feedback[messageId]);
+  const setFeedback = useChat((s) => s.setFeedback);
+  return (
+    <div className="flex items-center gap-1 mt-0.5 -ml-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+      <button
+        type="button"
+        aria-label="Good response"
+        aria-pressed={vote === 'up'}
+        onClick={() => setFeedback(messageId, 'up')}
+        className={cn(
+          'p-1 rounded hover:bg-bg-hover transition-colors',
+          vote === 'up' ? 'text-brand' : 'text-text-muted hover:text-text-secondary',
+        )}
+      >
+        <ThumbsUp size={13} />
+      </button>
+      <button
+        type="button"
+        aria-label="Bad response"
+        aria-pressed={vote === 'down'}
+        onClick={() => setFeedback(messageId, 'down')}
+        className={cn(
+          'p-1 rounded hover:bg-bg-hover transition-colors',
+          vote === 'down' ? 'text-error' : 'text-text-muted hover:text-text-secondary',
+        )}
+      >
+        <ThumbsDown size={13} />
+      </button>
+    </div>
+  );
+}

@@ -326,7 +326,11 @@ export type AuditActionType =
   | "inference"
   | "network"
   | "memory_write"
-  | "blocked";
+  | "blocked"
+  // User thumbs up/down on an assistant message — the wired source of the
+  // §2.10 `acceptance` personal-fitness signal. result "success" = 👍,
+  // "error" = 👎; toolName carries the rated message id.
+  | "feedback";
 
 export type AuditResult = "success" | "blocked" | "error";
 
@@ -1004,7 +1008,11 @@ export interface InboundMessage {
       | "start_onboarding"
       // Onboarding confirmation response: the user's answer to a
       // `confirmation_required` event. `ok` true = allow the gated tool.
-      | "tool_confirmation_response";
+      | "tool_confirmation_response"
+      // User thumbs up/down on an assistant message. Recorded to the audit
+      // log as an actionType "feedback" row, which feeds the §2.10
+      // `acceptance` personal-fitness signal. Fire-and-forget (no reply).
+      | "feedback";
   id?: string;
 
   content?: string;
@@ -1026,6 +1034,10 @@ export interface InboundMessage {
    *  "rsi_lora_train" (default "general"). */
   loraAction?: "approve" | "reject";
   loraDomain?: string;
+  /** Thumbs feedback payload (type === "feedback"). `feedbackMessageId` is the
+   *  rated assistant message's id; `feedbackValue` is the vote. */
+  feedbackMessageId?: string;
+  feedbackValue?: "up" | "down";
   /**
    * RSI response payload (type === "rsi_response") reuses the PLAIN fields
    * `id` (above) and `ok`/`data`/`error` (declared below). Rust's

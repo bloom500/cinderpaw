@@ -112,6 +112,36 @@ pub(crate) async fn feral_stop_generation(
     Ok(())
 }
 
+/// Record the user's thumbs 👍/👎 on an assistant message. Fire-and-forget:
+/// forwards a `feedback` line to the sidecar, which writes one audit row —
+/// the wired source of the §2.10 `acceptance` personal-fitness signal that
+/// feeds LoRA adaptation. `value` is "up" or "down".
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn feral_submit_feedback(
+    state: State<'_, AppState>,
+    session_id: String,
+    message_id: String,
+    value: String,
+) -> Result<(), String> {
+    let msg = serde_json::json!({
+        "type": "feedback",
+        "sessionId": session_id,
+        "feedbackMessageId": message_id,
+        "feedbackValue": value,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.feral_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// PROVISIONAL (temporary Settings button): ask the sidecar to run the Fractal
 /// Memory Search benchmark gate against the live RAPTOR tree. The sidecar runs
 /// it off the hot path and emits a `fractal_bench_result` line (verdict +

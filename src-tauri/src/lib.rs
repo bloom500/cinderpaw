@@ -349,6 +349,7 @@ pub fn run() {
             feral_send_message,
             feral_agent_status,
             feral_stop_generation,
+            feral_submit_feedback,
             feral_run_fractal_benchmark,
             feral_dream_now,
             feral_meta,

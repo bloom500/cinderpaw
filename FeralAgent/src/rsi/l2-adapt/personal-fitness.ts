@@ -38,14 +38,14 @@ export interface UserSignal {
   context?: string;
 }
 
-/** The signal kinds we know about. BRSI §2.10 lists six; only the
- *  tool-call + memory-reuse kinds have wired sources today.
- *  The other four are TODO with documented gaps. */
+/** The signal kinds we know about. BRSI §2.10 lists six; the tool-call,
+ *  memory-reuse, and acceptance (thumbs) kinds have wired sources.
+ *  The remaining three are TODO with documented gaps. */
 export type UserSignalKind =
   | "tool_success"        // Tool-call audit, result="success" (sources: tools/registry.ts:501)
   | "tool_error"          // Tool-call audit, result="error"   (sources: tools/registry.ts:539)
   | "memory_reuse"        // recall.ts hit (positive) vs miss (negative) — TODO wire
-  | "acceptance"          // User accepted agent message       — TODO wire (no source today)
+  | "acceptance"          // Thumbs 👍/👎 on an agent message (audit "feedback" rows)
   | "edit_after_accept"   // User edited agent output          — TODO wire (no source today)
   | "workflow_completion" // UIA demo replay success           — TODO wire (Layer 2+ work)
   | "preference_match";   // Settings vs response style        — TODO wire
@@ -117,15 +117,26 @@ export function computePersonalFitness(input: PersonalFitnessInput): number {
 }
 
 /** Adapter: turn audit-log entries into UserSignals.
- *  Reads only `actionType === "tool_call"` entries (the engine's
- *  current vocabulary). Memory writes (`actionType === "memory_write"`)
- *  are agent-internal — they're NOT a user signal and are NOT
- *  surfaced here. */
+ *  Reads `tool_call` rows (tool success/error) and `feedback` rows (the
+ *  user's thumbs 👍/👎 → the `acceptance` signal). Memory writes
+ *  (`actionType === "memory_write"`) are agent-internal — they're NOT a
+ *  user signal and are NOT surfaced here. */
 export function auditEntriesToUserSignals(
   entries: ReadonlyArray<AuditEntryLike>,
 ): UserSignal[] {
   const out: UserSignal[] = [];
   for (const e of entries) {
+    if (e.actionType === "feedback") {
+      // 👍 recorded as result "success", 👎 as "error".
+      const up = e.result === "success";
+      out.push({
+        timestamp: e.timestamp,
+        value: up ? 1 : -1,
+        kind: "acceptance",
+        context: e.toolName,
+      });
+      continue;
+    }
     if (e.actionType !== "tool_call") continue;
     const ok = e.result === "success";
     out.push({

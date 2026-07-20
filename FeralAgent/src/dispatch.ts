@@ -60,7 +60,7 @@ function isLoopbackUrl(url: string): boolean {
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
   } = ctx;
 
   switch (msg.type) {
@@ -69,6 +69,19 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       case "connectors_reload":
         void connectors.reload();
+        break;
+      // Thumbs 👍/👎 on an assistant message → one audit "feedback" row, the
+      // wired source of the §2.10 `acceptance` personal-fitness signal. 👍 is
+      // recorded as result "success", 👎 as "error"; the rated message id
+      // rides `toolName`. Fire-and-forget — no reply, and audit.log never
+      // throws to us.
+      case "feedback":
+        audit.log({
+          actionType: "feedback",
+          sessionId: msg.sessionId ?? "",
+          result: msg.feedbackValue === "up" ? "success" : "error",
+          toolName: msg.feedbackMessageId,
+        });
         break;
       // BRSI §2.8 `user` Wake trigger: run one dream episode now. The scheduler
       // launches it on its next tick, bypassing the idle/cooldown gate.

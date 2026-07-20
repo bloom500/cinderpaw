@@ -201,6 +201,9 @@ const INBOUND_TYPES = [
   // user's approve/deny reply to a `confirmation_required` event.
   "start_onboarding",
   "tool_confirmation_response",
+  // Thumbs 👍/👎 on an assistant message → audit "feedback" row (the §2.10
+  // `acceptance` personal-fitness signal). Fire-and-forget.
+  "feedback",
   // R5 — MCP over stdin (host manages config, sidecar owns connections).
   "mcp_reload",
   "mcp_status",

@@ -19,7 +19,7 @@ pub const INBOUND_TYPES: &[&str] = &[
     "governance_unfreeze", "governance_verify", "governance_history",
     "modules_list", "module_resolve", "module_evaluate", "module_propose",
     "resume_get", "compact_session", "rsi_response", "start_onboarding",
-    "tool_confirmation_response",
+    "tool_confirmation_response", "feedback",
     "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
 ];
 

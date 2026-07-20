@@ -618,6 +618,8 @@ const raw = {
   feralAgentStatus:         () => invoke<boolean>('feral_agent_status'),
   feralStopGeneration:      (sessionId?: string | null) =>
     invoke<void>('feral_stop_generation', { sessionId: sessionId ?? null }),
+  feralSubmitFeedback:      (sessionId: string, messageId: string, value: 'up' | 'down') =>
+    invoke<void>('feral_submit_feedback', { sessionId, messageId, value }),
   feralSetModel: (
     source: string,
     model: string,

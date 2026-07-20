@@ -53,7 +53,7 @@ import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./l1-config/strategy-seed
 import { PROMPT_STYLE_POOL } from "./l1-config/prompt-pool.ts";
 import { blendedPricePer1kUsd } from "./infra/rsi-cost.ts";
 import { evaluateGate } from "./infra/confidence.ts";
-import { recentToolCalls } from "../egress/audit-log.ts";
+import { recentToolCalls, recentFeedback } from "../egress/audit-log.ts";
 import { PbtController, type StrategyGenome } from "./l1-config/pbt-controller.ts";
 import { DEFAULT_META_GENOME } from "./l6-meta/meta-evolution.ts";
 import { PbtHandler } from "./l1-config/pbt-handler.ts";
@@ -592,10 +592,13 @@ export class RsiSidecar {
           });
         },
         cycleId: () => cycleId,
-        // §2.10 personal fitness: recent tool-call audit rows → a real
-        // userSatisfaction in each candidate's Journal row. Observed only —
-        // the deploy leaf still hands the ratchet the raw score.
-        readRecentAudit: () => recentToolCalls(this.deps.db),
+        // §2.10 personal fitness: recent tool-call outcomes + thumbs feedback
+        // → a real userSatisfaction in each candidate's Journal row. Observed
+        // only — the deploy leaf still hands the ratchet the raw score.
+        readRecentAudit: () => [
+          ...recentToolCalls(this.deps.db),
+          ...recentFeedback(this.deps.db),
+        ],
       },
       selection,
       // taste is wired below on engine.bus, not here — see tasteHolder.

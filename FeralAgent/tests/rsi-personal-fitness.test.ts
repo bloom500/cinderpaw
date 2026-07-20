@@ -200,6 +200,31 @@ describe("auditEntriesToUserSignals", () => {
     ]);
     expect(signals[0]!.kind).toBe("tool_error");
   });
+
+  test("feedback success (👍) → acceptance +1 with message id as context", () => {
+    const signals = auditEntriesToUserSignals([
+      { timestamp: NOW, actionType: "feedback", toolName: "msg-42", result: "success" },
+    ]);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toEqual({
+      timestamp: NOW,
+      value: 1,
+      kind: "acceptance",
+      context: "msg-42",
+    });
+  });
+
+  test("feedback error (👎) → acceptance -1", () => {
+    const signals = auditEntriesToUserSignals([
+      { timestamp: NOW, actionType: "feedback", toolName: "msg-7", result: "error" },
+    ]);
+    expect(signals[0]).toEqual({
+      timestamp: NOW,
+      value: -1,
+      kind: "acceptance",
+      context: "msg-7",
+    });
+  });
 });
 
 describe("recallCountsToUserSignals", () => {
