@@ -549,6 +549,31 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       content += piece;
       req.onToken!(piece);
     };
+    // Some providers (MiniMax-M2) split a word across the reasoning_content /
+    // content boundary: the answer's first fragment ("Re" of "Rejection")
+    // arrives as the tail of reasoning_content, so it lands in the <think>
+    // block and the visible answer starts mid-word ("jection"). We hold back
+    // the trailing non-whitespace run of reasoning until we see what follows:
+    // more reasoning → it was reasoning, flush it; a lowercase word-char in
+    // content with no space → it continues the word, move it into the answer.
+    let reasoningTail = "";
+    const flushReasoningTail = (): void => {
+      if (reasoningTail) { emitPiece(reasoningTail); reasoningTail = ""; }
+    };
+    const emitReasoning = (tok: string): void => {
+      const combined = reasoningTail + tok;
+      const lastWs = Math.max(
+        combined.lastIndexOf(" "),
+        combined.lastIndexOf("\n"),
+        combined.lastIndexOf("\t"),
+      );
+      if (lastWs === -1) {
+        reasoningTail = combined; // no whitespace yet — keep growing the tail
+      } else {
+        emitPiece(combined.slice(0, lastWs + 1));
+        reasoningTail = combined.slice(lastWs + 1);
+      }
+    };
     const closeReasoning = (): void => {
       if (inReasoning) {
         inReasoning = false;
@@ -580,12 +605,24 @@ export class OpenAICompatibleProvider implements InferenceProvider {
             inReasoning = true;
             emitPiece("<think>");
           }
-          emitPiece(reasoningTok);
+          emitReasoning(reasoningTok);
         }
 
         const token = delta?.content ?? "";
         if (token) {
-          closeReasoning();
+          if (inReasoning) {
+            // ponytail: heuristic seam heal. A held tail ending in a word char
+            // followed by a lowercase word-char with no space is a split word
+            // → move the tail into the answer. Otherwise it was real reasoning.
+            if (reasoningTail && /\w$/.test(reasoningTail) && /^[a-z0-9]/.test(token)) {
+              closeReasoning();
+              emitPiece(reasoningTail);
+              reasoningTail = "";
+            } else {
+              flushReasoningTail();
+              closeReasoning();
+            }
+          }
           emitPiece(token);
         }
 
@@ -628,6 +665,9 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // A turn can end while still inside reasoning (all-reasoning turn, or
       // reasoning followed directly by a tool call) — close the tag so the
       // <think> block is well-formed for stripThinking()/the frontend.
+      // An all-reasoning turn ended without content, so the held tail was
+      // genuinely reasoning — flush it inside the block before closing.
+      flushReasoningTail();
       closeReasoning();
 
       // Re-encode EVERY accumulated tool call (previously only [0], which

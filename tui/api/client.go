@@ -1485,7 +1485,14 @@ func feedTag(buf *string, inThink *bool, piece string) string {
 	if reserve > 0 {
 		safe := len(*buf) - reserve
 		if safe > 0 {
-			out += (*buf)[:safe]
+			// While inside a <think> block this text is reasoning — drop it,
+			// never surface it as answer. The flush used to be unconditional,
+			// so a </think> arriving split across tokens (its leading "<"
+			// triggers the reserve) leaked the whole reasoning buffer into the
+			// visible answer.
+			if !*inThink {
+				out += (*buf)[:safe]
+			}
 			*buf = (*buf)[safe:]
 		}
 	} else if !*inThink {
