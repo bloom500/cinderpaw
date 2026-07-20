@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1135,6 +1136,11 @@ type ModelDownload struct {
 // a terminal value ("complete" | "failed" | "cancelled"). A 404 means
 // the gateway restarted and forgot the in-flight download — the caller
 // should treat that as "failed" and surface a Retry CTA.
+// ErrDownloadGone means the gateway no longer knows about this download id
+// (it restarted and forgot the in-flight transfer). Terminal — the caller
+// should stop polling and show a Retry CTA rather than looping forever.
+var ErrDownloadGone = errors.New("download id not found")
+
 func DownloadModel(baseURL, token, id string) (*ModelDownload, error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/models/download/"+id, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -1145,7 +1151,7 @@ func DownloadModel(baseURL, token, id string) (*ModelDownload, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 404 {
-		return nil, fmt.Errorf("download id not found (gateway restarted?)")
+		return nil, fmt.Errorf("gateway restarted and forgot the download: %w", ErrDownloadGone)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"feral-tui/api"
 	"feral-tui/ui"
 	"fmt"
@@ -636,17 +637,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil || msg.Download == nil {
 			a.Wizard.DownloadErr = msg.Err
 			a.rebuildViewport()
-			// Classify: 404 / "not found" / "failed" are terminal — no point polling.
-			// TODO: replace string-match with a typed sentinel error from
-			// api.DownloadModel (e.g. ErrDownloadGone) so the contract is explicit.
-			errStr := ""
-			if msg.Err != nil {
-				errStr = msg.Err.Error()
-			}
-			isTerminal := strings.Contains(errStr, "not found") ||
-				strings.Contains(errStr, "404") ||
-				strings.Contains(errStr, "failed")
-			if isTerminal {
+			// A forgotten download (gateway restarted) is terminal — stop polling
+			// and let the wizard show its Retry CTA. Everything else (network
+			// blips, transient 5xx) is worth another poll.
+			if errors.Is(msg.Err, api.ErrDownloadGone) {
 				return a, nil
 			}
 			return a, a.pollDownload()
