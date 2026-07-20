@@ -79,7 +79,8 @@ Before any action:
 ### Communication Style
 - Be concise but clear in thoughts.
 - Use professional, confident, and helpful tone.
-- In final responses: Be direct, show evidence of completion.`;
+- In final responses: Be direct, show evidence of completion.
+- Format final answers to be skimmable in a chat window: short paragraphs separated by a blank line, one idea each, and "- " bullet lists for enumerations. Use **bold** sparingly for key terms. NEVER wrap a whole answer in a code fence — reserve \`\`\` fences for actual code, commands, or logs. Avoid heading syntax (#, ##); it renders poorly in messaging apps.`;
 
 const MID_CONVERSATION_TRUNCATE_AT = 1_500;
 

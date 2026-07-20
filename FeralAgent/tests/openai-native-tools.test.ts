@@ -565,12 +565,27 @@ describe("parseResponse bare tool-call JSON (chat leak regression)", () => {
     expect(parsed.text).not.toContain('{"name=');
   });
 
-  it("leaves tool-call JSON inside code fences untouched (documentation case)", () => {
+  it("executes a tool call wrapped in a ```json fence (MiniMax M3 shape)", () => {
+    // Cloud models sometimes fence their call instead of using native
+    // tool-calling. Skipping fenced content silently dropped these calls —
+    // the turn ended with the JSON as the visible answer and nothing ran.
+    // Tradeoff: a model that *documents* the format in a fence now triggers a
+    // real call; in an agentic loop that's a recoverable extra call, far
+    // cheaper than core tool-calling being silently broken.
     const raw =
-      'Formatul este:\n```json\n{"name":"web_search","args":{"query":"x"}}\n```\nAtat.';
+      'Caut acum:\n```json\n{"name":"web_search","args":{"query":"x"}}\n```\nRevin imediat.';
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls).toHaveLength(1);
+    expect(parsed.toolCalls[0]!.name).toBe("web_search");
+    expect(parsed.text).not.toContain('{"name":"web_search"');
+  });
+
+  it("leaves a non-tool-shaped JSON fence untouched (real code block)", () => {
+    const raw =
+      'Config-ul:\n```json\n{"port":8080,"host":"localhost"}\n```\nGata.';
     const parsed = parseResponse(raw);
     expect(parsed.toolCalls).toHaveLength(0);
-    expect(parsed.text).toContain('{"name":"web_search"');
+    expect(parsed.text).toContain('{"port":8080');
   });
 
   it("leaves non-tool-shaped JSON in prose untouched", () => {

@@ -1954,12 +1954,9 @@ function extractBareToolCalls(input: string): {
   // invoke XML with a brace) — unparseable, but unmistakably a call attempt.
   const startRe = /\{\s*"?(?:(?:name|tool)"?\s*[:=]|invoke\b)/g;
 
-  for (let s = 0; s < segments.length; s++) {
-    const seg = segments[s]!;
-    if (s % 2 === 1) {
-      out.push(seg);
-      continue;
-    }
+  // Scan one out-of-fence chunk: pull out every tool-call object, hide
+  // corrupted fragments, return the surviving prose.
+  const scan = (seg: string): string => {
     let cursor = 0;
     let kept = "";
     while (cursor < seg.length) {
@@ -1989,7 +1986,30 @@ function extractBareToolCalls(input: string): {
               : seg.length;
       }
     }
-    out.push(kept);
+    return kept;
+  };
+
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s]!;
+    if (s % 2 === 1) {
+      // Fenced block. Cloud models (observed: MiniMax M3) sometimes wrap a
+      // tool call in a ```json / ```tool fence — the same fences
+      // TOOL_CALL_TRIGGERS treats as canonical openers — instead of using
+      // native tool-calling. Unwrap and scan such a fence so the call runs.
+      // Every other fence (real code, {"port":8080} JSON-in-prose) is left
+      // untouched: we only enter here when the interior starts with a
+      // name/tool object.
+      const inner = seg
+        .replace(/^```[^\n]*\n?/, "")
+        .replace(/\n?```[ \t]*$/, "");
+      if (/^\s*\{\s*"?(?:name|tool)"?\s*[:=]/.test(inner)) {
+        out.push(scan(inner));
+      } else {
+        out.push(seg);
+      }
+      continue;
+    }
+    out.push(scan(seg));
   }
 
   return { text: out.join(""), calls, malformed };
