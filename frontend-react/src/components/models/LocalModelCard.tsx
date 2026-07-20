@@ -5,6 +5,7 @@ import { useSystemInfo } from '@/stores/systemInfo';
 import { cleanModelName, quantToQuality, quantToBadge, sizeGb, type QuantVariant } from '@/lib/modelUtils';
 import { scoreFit, type FitLevel, type RunMode } from '@/lib/fitScore';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { ModelInfo } from '@/lib/tauri';
 
 // ── Spinner ──────────────────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const sysInfo      = useSystemInfo((s) => s.info);
 
   const [isDeleting,   setIsDeleting]   = useState(false);
+  const [confirmOpen,  setConfirmOpen]  = useState(false);
   const [loadError,    setLoadError]    = useState<string | null>(null);
   const [deleteError,  setDeleteError]  = useState<string | null>(null);
 
@@ -99,7 +101,8 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const handleDelete = async () => {
     setDeleteError(null);
     setIsDeleting(true);
-    try { await onDelete(path); } catch (err) { setDeleteError(String(err)); }
+    try { await onDelete(path); setConfirmOpen(false); }
+    catch (err) { setDeleteError(String(err)); }
     finally { setIsDeleting(false); }
   };
 
@@ -233,7 +236,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
                 Unload
               </button>
               <button
-                type="button" onClick={handleDelete} disabled={isDeleting} aria-label="Delete"
+                type="button" onClick={() => setConfirmOpen(true)} disabled={isDeleting} aria-label="Delete"
                 className="flex-1 text-xs py-1.5 rounded border border-error text-error hover:bg-bg-hover transition-colors disabled:opacity-60"
               >
                 {isDeleting
@@ -250,7 +253,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
                 Load
               </button>
               <button
-                type="button" onClick={handleDelete} disabled={isDeleting} aria-label="Delete"
+                type="button" onClick={() => setConfirmOpen(true)} disabled={isDeleting} aria-label="Delete"
                 className="flex-1 text-xs py-1.5 rounded border border-border-default text-text-muted hover:bg-bg-hover transition-colors disabled:opacity-60"
               >
                 {isDeleting
@@ -262,8 +265,39 @@ export function LocalModelCard({ model, onDelete }: Props) {
         </div>
       )}
 
-      {loadError   && <p className="text-xs text-error break-words">{loadError}</p>}
-      {deleteError && <p className="text-xs text-error break-words">{deleteError}</p>}
+      {loadError && <p className="text-xs text-error break-words">{loadError}</p>}
+      {deleteError && !confirmOpen && <p className="text-xs text-error break-words">{deleteError}</p>}
+
+      <Dialog open={confirmOpen} onOpenChange={(open) => { if (!isDeleting) { setConfirmOpen(open); if (!open) setDeleteError(null); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete this model?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-text-secondary">
+            This deletes <span className="text-text-primary">{displayName}</span> ({sizeStr}) from disk.
+            You'll have to download it again to use it.
+          </p>
+          {deleteError && <p className="text-xs text-error break-words">{deleteError}</p>}
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => { setConfirmOpen(false); setDeleteError(null); }}
+              disabled={isDeleting}
+              className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDelete()}
+              disabled={isDeleting}
+              className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+            >
+              {isDeleting ? 'Deleting…' : 'Delete'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

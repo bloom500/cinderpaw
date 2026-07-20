@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LocalModelCard } from '@/components/models/LocalModelCard';
 import { useModel } from '@/stores/model';
@@ -57,7 +57,22 @@ describe('LocalModelCard', () => {
     expect(screen.queryByRole('button', { name: /^load$/i })).not.toBeInTheDocument();
   });
 
-  it('deleting: delete button shows spinner text, Load disabled', async () => {
+  it('delete asks for confirmation before calling onDelete', async () => {
+    mockUseModel.mockImplementation((sel: any) =>
+      sel({ loaded: null, isLoading: false, loadProgress: null, load: vi.fn(), unload: vi.fn() })
+    );
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    render(<LocalModelCard model={model} onDelete={onDelete} />);
+    // Clicking Delete on the card opens a confirm dialog — no deletion yet.
+    await userEvent.click(screen.getByRole('button', { name: /delete/i }));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByText(/delete this model/i)).toBeInTheDocument();
+    // Confirming in the dialog performs the delete.
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^delete$/i }));
+    expect(onDelete).toHaveBeenCalledWith(model.path);
+  });
+
+  it('deleting: confirm button shows progress and disables while in flight', async () => {
     mockUseModel.mockImplementation((sel: any) =>
       sel({ loaded: null, isLoading: false, loadProgress: null, load: vi.fn(), unload: vi.fn() })
     );
@@ -65,7 +80,9 @@ describe('LocalModelCard', () => {
     const onDelete = vi.fn().mockImplementation(() => new Promise(() => {}));
     render(<LocalModelCard model={model} onDelete={onDelete} />);
     await userEvent.click(screen.getByRole('button', { name: /delete/i }));
-    // During deletion the Load button should be disabled
-    expect(screen.getByRole('button', { name: /load/i })).toBeDisabled();
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+    // The confirm button flips to a disabled "Deleting…" while onDelete is pending.
+    expect(within(dialog).getByRole('button', { name: /deleting/i })).toBeDisabled();
   });
 });

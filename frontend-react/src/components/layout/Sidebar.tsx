@@ -26,6 +26,8 @@ export const SIDEBAR_COLLAPSED_W = 56;
 
 type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'extensions' | 'connectors' | 'memoryLayers';
 
+type DeleteTarget = { kind: 'chat' | 'project'; id: string; name: string };
+
 interface MenuItem {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
   label: string;
@@ -173,6 +175,11 @@ export function Sidebar() {
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [renameTarget, setRenameTarget]         = useState<Project | null>(null);
   const [renameDraft, setRenameDraft]           = useState('');
+  // Single confirm dialog for both chat + project deletion, lifted to root like
+  // renameTarget so we don't scatter Dialog state across every row instance.
+  const [deleteTarget, setDeleteTarget]         = useState<DeleteTarget | null>(null);
+  const [deleting, setDeleting]                 = useState(false);
+  const [deleteError, setDeleteError]           = useState<string | null>(null);
 
   const handleMenuAction = (action: MenuAction) => {
     if (action === 'newProject') {
@@ -197,6 +204,24 @@ export function Sidebar() {
     if (!name || !renameTarget) return;
     await useProjects.getState().rename(renameTarget.id, name);
     setRenameTarget(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      if (deleteTarget.kind === 'project') {
+        await useProjects.getState().delete(deleteTarget.id);
+      } else {
+        await useConversations.getState().delete(deleteTarget.id);
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(String(err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -244,6 +269,7 @@ export function Sidebar() {
                   setRenameDraft(p.name);
                   setRenameTarget(p);
                 }}
+                onRequestDelete={setDeleteTarget}
               />
             )}
           </AnimatePresence>
@@ -295,6 +321,49 @@ export function Sidebar() {
               className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
             >
               Create
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation (chat or project) */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open && !deleting) { setDeleteTarget(null); setDeleteError(null); } }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {deleteTarget?.kind === 'project' ? 'Delete this project?' : 'Delete this chat?'}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-text-secondary">
+            {deleteTarget?.kind === 'project'
+              ? <>This permanently deletes <span className="text-text-primary">{deleteTarget?.name || 'the project'}</span> and every conversation inside it. This can't be undone.</>
+              : <>This permanently deletes <span className="text-text-primary">{deleteTarget?.name || 'this chat'}</span>. This can't be undone.</>}
+          </p>
+          {deleteError && (
+            <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
+              <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-red-400">{deleteError}</p>
+            </div>
+          )}
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
+              disabled={deleting}
+              className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirmDelete()}
+              disabled={deleting}
+              className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -435,7 +504,10 @@ function MenuRow({
 
 // ── RecentSection ──────────────────────────────────────────────────────────────
 
-function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => void }) {
+function RecentSection({ onRenameProject, onRequestDelete }: {
+  onRenameProject: (p: Project) => void;
+  onRequestDelete: (t: DeleteTarget) => void;
+}) {
   const list         = useConversations((s) => s.list);
   const currentId    = useConversations((s) => s.currentId);
   const streamingIds = useConversations((s) => s.streamingIds);
@@ -465,6 +537,7 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
           allConvs={list ?? []}
           currentId={currentId}
           onRename={onRenameProject}
+          onRequestDelete={onRequestDelete}
           projects={projects}
           isStreaming={isStreaming}
         />
@@ -481,6 +554,7 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
             currentId={currentId}
             projectId={null}
             projects={projects}
+            onRequestDelete={onRequestDelete}
             isStreaming={isStreaming(c.id)}
           />
         ))}
@@ -492,12 +566,13 @@ function RecentSection({ onRenameProject }: { onRenameProject: (p: Project) => v
 // ── ProjectRow ─────────────────────────────────────────────────────────────────
 
 function ProjectRow({
-  project, allConvs, currentId, onRename, projects, isStreaming,
+  project, allConvs, currentId, onRename, onRequestDelete, projects, isStreaming,
 }: {
   project: Project;
   allConvs: ConversationSummary[];
   currentId: string | null;
   onRename: (p: Project) => void;
+  onRequestDelete: (t: DeleteTarget) => void;
   projects: Project[];
   isStreaming: (id: string) => boolean;
 }) {
@@ -508,10 +583,6 @@ function ProjectRow({
   const projectConvs = project.conversation_ids
     .map((id) => convMap.get(id))
     .filter(Boolean) as ConversationSummary[];
-
-  const handleDelete = async () => {
-    await useProjects.getState().delete(project.id);
-  };
 
   return (
     <div className="mb-1">
@@ -544,7 +615,7 @@ function ProjectRow({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => void handleDelete().catch(console.error)}
+              onClick={() => onRequestDelete({ kind: 'project', id: project.id, name: project.name })}
               className="text-red-400 focus:text-red-400"
             >
               <Trash2 size={13} />
@@ -566,6 +637,7 @@ function ProjectRow({
               currentId={currentId}
               projectId={project.id}
               projects={projects}
+              onRequestDelete={onRequestDelete}
               isStreaming={isStreaming(c.id)}
             />
           ))}
@@ -578,21 +650,18 @@ function ProjectRow({
 // ── RecentRow ──────────────────────────────────────────────────────────────────
 
 function RecentRow({
-  conv, currentId, projectId, projects, isStreaming = false,
+  conv, currentId, projectId, projects, onRequestDelete, isStreaming = false,
 }: {
   conv: ConversationSummary;
   currentId: string | null;
   projectId: string | null;
   projects: Project[];
+  onRequestDelete: (t: DeleteTarget) => void;
   isStreaming?: boolean;
 }) {
   const navigate = useNavigate();
   const isActive = conv.id === currentId;
   const isAgentConv = !!conv.agent_id;
-
-  const handleDelete = async () => {
-    await useConversations.getState().delete(conv.id);
-  };
 
   const handleAddToProject = async (pid: string) => {
     await useProjects.getState().addChat(pid, conv.id);
@@ -612,13 +681,13 @@ function RecentRow({
           'flex-1 text-left px-2 py-1.5 text-sm truncate flex items-center gap-2 min-w-0',
           isActive ? 'text-text-primary' : 'text-text-secondary',
         )}
-        title={isStreaming ? 'Generare în curs…' : conv.title}
+        title={isStreaming ? 'Generating…' : conv.title}
       >
         {isStreaming ? (
           <Loader2
             size={12}
             className="shrink-0 text-brand animate-spin"
-            aria-label="Generare în curs"
+            aria-label="Generating"
           />
         ) : isAgentConv ? (
           <Bot
@@ -664,7 +733,7 @@ function RecentRow({
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => void handleDelete().catch(console.error)}
+            onClick={() => onRequestDelete({ kind: 'chat', id: conv.id, name: conv.title })}
             className="text-red-400 focus:text-red-400"
           >
             <Trash2 size={13} />
