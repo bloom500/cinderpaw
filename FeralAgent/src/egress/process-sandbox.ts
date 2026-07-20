@@ -45,7 +45,9 @@ export interface ProcessSandboxConfig {
 }
 
 const DEFAULT_CONFIG: ProcessSandboxConfig = {
-  defaultTimeoutMs: 30_000,
+  // 2 min default (was 30s — too tight for real builds/installs); callers can
+  // still pass a per-call timeout_ms up to maxTimeoutMs.
+  defaultTimeoutMs: 120_000,
   maxTimeoutMs: 300_000,
   maxOutputBytes: 1_048_576, // 1 MB
     safeBaseEnv: {

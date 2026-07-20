@@ -17,8 +17,11 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
   const manifest: ToolManifest = {
     name: "write_file",
     description:
-      "Create or overwrite a UTF-8 text file inside an allowed directory. " +
-      "Creates intermediate directories if needed.",
+      "Create or overwrite a UTF-8 text file. Creates intermediate directories if needed. " +
+      (allowedPaths.length > 0
+        ? `Writes are allowed ONLY inside these directories: ${allowedPaths.join(", ")}. ` +
+          "A path outside them is refused — never guess a directory; use one of these roots."
+        : "No writable directories are configured, so every write will be refused."),
     permissions: ["fs:write"],
     networkAccess: false,
     allowedPaths,
@@ -29,7 +32,10 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
     parameters: {
       path: {
         type: "string",
-        description: "Absolute path to the file to write.",
+        description:
+          allowedPaths.length > 0
+            ? `Absolute path to the file, inside one of the allowed directories (${allowedPaths.join(", ")}).`
+            : "Absolute path to the file to write.",
         required: true,
       },
       content: {

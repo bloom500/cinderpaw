@@ -22,7 +22,11 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
   const manifest: ToolManifest = {
     name: "read_file",
     description:
-      "Read the contents of a UTF-8 text file inside an allowed directory.",
+      "Read the contents of a UTF-8 text file. " +
+      (allowedPaths.length > 0
+        ? `Reads are allowed ONLY inside these directories: ${allowedPaths.join(", ")}. ` +
+          "A path outside them is refused — never guess a directory; use one of these roots."
+        : "No readable directories are configured, so every read will be refused."),
     permissions: ["fs:read"],
     networkAccess: false,
     allowedPaths,
@@ -33,7 +37,10 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
     parameters: {
       path: {
         type: "string",
-        description: "Absolute path to the file to read.",
+        description:
+          allowedPaths.length > 0
+            ? `Absolute path to the file, inside one of the allowed directories (${allowedPaths.join(", ")}).`
+            : "Absolute path to the file to read.",
         required: true,
       },
     },

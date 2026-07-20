@@ -1798,6 +1798,11 @@ export const STREAM_HOLD_OPENERS = [
   '{"name',
   '{"tool',
   '{"invoke',
+  // The canonical instructed format is a ```tool fence (see buildSystemPrompt's
+  // "How to call a tool"). Hold it back too so the fence never flashes mid-
+  // stream before the call is parsed out. Safe: "```tool" is never a real code
+  // language, so this can't stall a genuine code block (unlike "```json").
+  "```tool",
 ] as const;
 export const STREAM_HOLD_MAX_OPENER = Math.max(
   ...STREAM_HOLD_OPENERS.map((o) => o.length),

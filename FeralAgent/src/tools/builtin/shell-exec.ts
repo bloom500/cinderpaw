@@ -240,7 +240,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       },
       timeout_ms: {
         type: "number",
-        description: "Timeout in milliseconds (default 30s, max 5min).",
+        description: "Timeout in milliseconds (default 120000 = 2min, max 300000 = 5min). For a long build, pass a larger value up to the max.",
         required: false,
       },
       env: {
