@@ -494,7 +494,9 @@ export class InferenceRouter {
           throw new InferenceError(
             `both primary and fallback inference failed — primary: ${String(
               primaryErr,
-            )}; fallback: ${String(fallbackErr)}`,
+            )}; fallback: ${String(fallbackErr)}. ` +
+              `If you just added or changed a provider/key, the gateway is still ` +
+              `running with the old config — restart it: \`feral gateway restart\`.`,
           );
         }
       }

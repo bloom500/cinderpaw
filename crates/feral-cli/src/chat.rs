@@ -32,9 +32,12 @@ pub fn run() -> ! {
     }
 
     let Some(tui_bin) = tui_binary_path() else {
-        eprintln!("feral: the interactive TUI isn't part of this CLI-only build.");
-        eprintln!("       connect a provider:   feral setup");
-        eprintln!("       add Discord/Slack:    feral connectors set discord --secret TOKEN=… --enable");
+        eprintln!("feral: interactive chat (the TUI) isn't bundled with this CLI-only install.");
+        eprintln!("       You can still run Feral headless:");
+        eprintln!("         • connect a provider:      feral setup");
+        eprintln!("         • chat via Discord/Slack:  feral connectors set discord --secret TOKEN=… --enable");
+        eprintln!("       Want the full interactive app? Install the desktop build:");
+        eprintln!("         https://github.com/bloom500/feral/releases/latest");
         std::process::exit(1);
     };
 
