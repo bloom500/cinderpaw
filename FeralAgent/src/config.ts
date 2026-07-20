@@ -54,6 +54,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Extra base URLs the inference router may call beyond loopback.", security: true },
   { name: "FERAL_SHELL_WHITELIST", type: "list", default: null,
     description: "Extends the spawn whitelist for shell_exec.", security: true },
+  { name: "FERAL_SHELL_DENYLIST", type: "list", default: null,
+    description: "Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode).", security: true },
   { name: "FERAL_PROACTIVE_ENABLED", type: "bool", default: false,
     description: "Master enable for the proactive/mood-engine loop.", security: true },
   { name: "FERAL_INNER_THOUGHTS_ENABLED", type: "bool", default: false,

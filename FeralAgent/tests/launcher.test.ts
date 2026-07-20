@@ -21,16 +21,24 @@ describe("launcher bin/feral.js", () => {
     expect(r.status).toBe(0);
   });
 
-  test("keeps the Windows-only platform guard", () => {
+  test("resolves the host's per-platform binary (cross-platform, no win-only guard)", () => {
     const src = readFileSync(launcher, "utf8");
-    expect(src).toContain('process.platform !== "win32"');
-    expect(src).toContain("Windows-only");
+    // The launcher resolves the matching per-platform optionalDependency by
+    // host os/arch and computes the exe extension conditionally — it no longer
+    // hard-guards to Windows.
+    expect(src).toContain("@bloommedia/feral-agent-");
+    expect(src).toContain("process.platform");
+    expect(src).toContain("process.arch");
+    expect(src).toContain('process.platform === "win32" ? ".exe" : ""');
+    expect(src).not.toContain("Windows-only");
   });
 
   test("execs the vendored Rust binary, not the TS dist", () => {
     const src = readFileSync(launcher, "utf8");
     expect(src).toContain("vendor");
-    expect(src).toContain("feral-cli.exe");
+    // Extension is computed (feral-cli${ext}), so match the base name, not a
+    // hardcoded .exe.
+    expect(src).toContain("feral-cli");
     expect(src).not.toContain("dist/feral-agent");
   });
 });

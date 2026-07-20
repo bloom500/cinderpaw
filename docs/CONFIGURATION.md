@@ -36,6 +36,7 @@ runner, or anything that handles untrusted input.**
 | `FERAL_HTTP_DOMAINS` | empty | Same shape, for the lower-level `http_request` tool. | Same advice. |
 | `FERAL_TRUSTED_BASE_URLS` | empty | Comma-separated base URLs the inference router may call beyond the loopback default. Bypasses the egression posture in `inference-router.ts`. | List one provider base URL per entry; never `*`. |
 | `FERAL_SHELL_WHITELIST` | default set | Extends the spawn whitelist for `shell_exec`. Same threat as `FERAL_ENABLE_SHELL_EXEC`. | Audit on every change; this list can grow silently. |
+| `FERAL_SHELL_DENYLIST` | default set | Overrides the built-in denylist of dangerous binaries `shell_exec` refuses even in YOLO mode. | Only ever extend it; shrinking it removes a safety net. |
 | `FERAL_PROACTIVE_ENABLED` | off | Enables the inner-thoughts / mood engines. Same prompt-injection surface as the agent loop, just on a timer. | Don't enable on shared hosts. |
 | `FERAL_INNER_THOUGHTS_ENABLED` | off | Sub-flag of proactive. Same threat. | Don't enable on shared hosts. |
 | `FERAL_SEARXNG_URL` | unset | The one origin exempted from the egress SSRF guard's loopback/private block, so `web_search` can reach a SearXNG you host. A wrong value points the agent at an internal service. | Set it to an instance **you** run. The exemption is exact-origin (port included), waives only the private-address check (the domain whitelist still applies), and is re-checked on every redirect hop. |
@@ -127,6 +128,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_HTTP_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for http_request. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
 | `FERAL_TRUSTED_BASE_URLS` | list | `null` | yes | Extra base URLs the inference router may call beyond loopback. |
 | `FERAL_SHELL_WHITELIST` | list | `null` | yes | Extends the spawn whitelist for shell_exec. |
+| `FERAL_SHELL_DENYLIST` | list | `null` | yes | Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode). |
 | `FERAL_PROACTIVE_ENABLED` | bool | `false` | yes | Master enable for the proactive/mood-engine loop. |
 | `FERAL_INNER_THOUGHTS_ENABLED` | bool | `false` | yes | Sub-flag enabling the inner-thoughts loop. |
 | `FERAL_MODEL` | string | `"qwen2.5:7b"` |  | Model id sent to the inference provider. |
@@ -315,6 +317,7 @@ FERAL_RSI_STOP_ON_ACTIVITY
 FERAL_RSI_TELEMETRY
 FERAL_RUN_FRACTAL_BENCH
 FERAL_SEARXNG_URL
+FERAL_SHELL_DENYLIST
 FERAL_SHELL_WHITELIST
 FERAL_SMOKE_GGUF
 FERAL_STALL_MS
