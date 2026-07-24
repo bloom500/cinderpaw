@@ -11,7 +11,7 @@
  * Best-effort by design: a fractal failure or a missing embedding model yields an
  * empty result, never an error into the turn.
  */
-import type { SemanticMemory } from "../../memory/semantic.ts";
+import { memoryScope, type SemanticMemory } from "../../memory/semantic.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 /** Ranked episodic search surface, satisfied in production by FractalMemory.query. */
@@ -62,14 +62,14 @@ const STOPWORDS = new Set([
  * ponytail: substring match over the whole fact table. It is tens of rows;
  * move to FTS5 if it ever grows past a few thousand.
  */
-function searchFacts(semantic: SemanticMemory, query: string): string[] {
+function searchFacts(semantic: SemanticMemory, query: string, scope: string): string[] {
   const words = query
     .toLowerCase()
     .split(/\W+/)
     .filter((w) => w.length > 0 && !STOPWORDS.has(w));
   if (words.length === 0) return [];
   const hits: string[] = [];
-  for (const fact of semantic.all()) {
+  for (const fact of semantic.all(scope)) {
     const hay = `${fact.key} ${fact.value}`.toLowerCase();
     if (words.some((w) => hay.includes(w))) hits.push(`- ${fact.key}: ${fact.value}`);
     if (hits.length >= MAX_FACT_HITS) break;
@@ -107,7 +107,7 @@ export function createRecallTool(
         required: false,
       },
     },
-    async execute(args) {
+    async execute(args, ctx) {
       const query = typeof args.query === "string" && args.query.trim()
         ? args.query.trim() : "";
       if (!query) {
@@ -127,7 +127,8 @@ export function createRecallTool(
 
       let facts: string[] = [];
       try {
-        facts = semantic ? searchFacts(semantic, query) : [];
+        // Scoped: recall must not surface another channel member's facts.
+        facts = semantic ? searchFacts(semantic, query, memoryScope(ctx?.sessionId ?? "")) : [];
       } catch {
         facts = [];
       }

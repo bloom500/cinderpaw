@@ -10,7 +10,7 @@
  * The read side is `recall`, which searches these facts alongside past
  * conversations.
  */
-import type { SemanticMemory } from "../../memory/semantic.ts";
+import { memoryScope, type SemanticMemory } from "../../memory/semantic.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_VALUE_CHARS = 2_000;
@@ -48,14 +48,20 @@ export function createRememberTool(semantic: SemanticMemory): Tool {
         required: false,
       },
     },
-    async execute(args) {
+    async execute(args, ctx) {
       const key = typeof args.key === "string" ? args.key.trim() : "";
       if (!key) {
         return { ok: false, content: "remember: 'key' is required.", error: "bad_args" };
       }
+      // "" for every single-user surface; the speaker on a shared channel, so
+      // one Discord member's "call me Alex" never renames another. See
+      // `memoryScope`.
+      // `ctx?.` — the registry always supplies one, but a tool's execute is a
+      // public boundary and a missing ctx must degrade to global, not throw.
+      const scope = memoryScope(ctx?.sessionId ?? "");
 
       if (args.forget === true) {
-        semantic.delete(key);
+        semantic.delete(key, scope);
         return { ok: true, content: `Forgotten: ${key}.`, data: { key, forgotten: true } };
       }
 
@@ -68,7 +74,7 @@ export function createRememberTool(semantic: SemanticMemory): Tool {
         };
       }
       const stored = value.slice(0, MAX_VALUE_CHARS);
-      semantic.upsert(key, stored);
+      semantic.upsert(key, stored, scope);
       return {
         ok: true,
         content: `Remembered — ${key}: ${stored}`,

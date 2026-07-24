@@ -54,6 +54,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT.", security: true },
   { name: "FERAL_HTTP_DOMAINS", type: "list", default: null,
     description: "Comma-separated domain allowlist for http_request. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT.", security: true },
+  { name: "FERAL_TOOL_ALLOWED_DOMAINS", type: "list", default: null,
+    description: "Set BY the sidecar ON a forged tool's child process — not something a user configures. Carries the hostnames that tool declared via tool_forge's `allowed_domains`; the runner turns it into an EgressProxy-backed globalThis.fetch, so a tool that declared nothing has no network. Setting it in the parent environment has no effect: createCustomTool always overwrites it from the tool's own record.", security: true },
   { name: "FERAL_TRUSTED_BASE_URLS", type: "list", default: null,
     description: "Extra base URLs the inference router may call beyond loopback.", security: true },
   { name: "FERAL_SHELL_WHITELIST", type: "list", default: null,

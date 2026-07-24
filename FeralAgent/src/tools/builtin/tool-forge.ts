@@ -159,7 +159,9 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
       "is a TypeScript/JavaScript module: `export default async function " +
       "(args) { return { ok: true, content: \"...\", data?: any }; }`. It runs " +
       "in a subprocess with Node/Bun builtins available (node:fs, node:path, " +
-      "fetch, …). create/update ask the user for approval and then SMOKE-RUN " +
+      "fetch, …). NETWORK IS OFF unless you list `allowed_domains` — a tool " +
+      "that fetches must declare the hosts it calls. create/update ask the " +
+      "user for approval and then SMOKE-RUN " +
       "the tool once with your `test_args` — if that run fails, the tool is " +
       "not registered (and an update keeps the previous version), so pass " +
       "test_args that genuinely exercise it. On success the tool is callable " +
@@ -219,6 +221,12 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         type: "object",
         description:
           "Arguments for the one smoke run that decides whether the tool gets registered. Must cover every required parameter. Pick values that make the tool do its real work — a run that returns ok:false blocks registration.",
+        required: false,
+      },
+      allowed_domains: {
+        type: "array",
+        description:
+          'Hostnames this tool may fetch, e.g. ["api.github.com"] (or ["*"] for any public host). Omit and the tool has NO network — its fetch calls are refused. Loopback and private addresses are always blocked.',
         required: false,
       },
     },
@@ -286,8 +294,11 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
           : existing?.parameters ?? {};
       const code = typeof args.code === "string" && args.code.trim() ? args.code : existing?.code ?? "";
       const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : existing?.timeoutMs;
+      const allowedDomains = Array.isArray(args.allowed_domains)
+        ? (args.allowed_domains as string[])
+        : existing?.allowedDomains;
 
-      const invalid = validateCustomTool({ name, description, parameters, code });
+      const invalid = validateCustomTool({ name, description, parameters, code, ...(allowedDomains ? { allowedDomains } : {}) });
       if (invalid) return { ok: false, content: `tool_forge: ${invalid}`, error: "bad_args" };
 
       const transpiled = transpileToolCode(code);
@@ -295,6 +306,16 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
       if (!code.includes("export default")) {
         return { ok: false, content: "tool_forge: code must have `export default async function (args) {...}`.", error: "bad_code" };
       }
+
+      // An update that does not touch what EXECUTES (the code, or the hosts it
+      // may reach) has nothing to smoke: the same bytes already passed, with
+      // the same egress, and re-running them costs a spawn plus whatever side
+      // effects the test args have. Metadata-only edits — a better
+      // description, a longer timeout — take this door.
+      const behaviourUnchanged =
+        !!existing &&
+        existing.code === code &&
+        (existing.allowedDomains ?? []).join(",") === (allowedDomains ?? []).join(",");
 
       // The smoke run needs arguments, and only the caller knows which ones
       // are meaningful. Demand coverage of the required params up front —
@@ -306,7 +327,7 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         args.test_args && typeof args.test_args === "object" && !Array.isArray(args.test_args)
           ? (args.test_args as Record<string, unknown>)
           : {};
-      const uncovered = requiredParams.filter((key) => !(key in testArgs));
+      const uncovered = behaviourUnchanged ? [] : requiredParams.filter((key) => !(key in testArgs));
       if (uncovered.length > 0) {
         return {
           ok: false,
@@ -317,7 +338,7 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         };
       }
 
-      if (!ctx.process) {
+      if (!ctx.process && !behaviourUnchanged) {
         return {
           ok: false,
           content: "tool_forge: no process sandbox available — a tool cannot be verified, so it will not be registered.",
@@ -333,6 +354,7 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         parameters,
         code,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        ...(allowedDomains && allowedDomains.length > 0 ? { allowedDomains } : {}),
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
@@ -374,10 +396,14 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         runtime,
       );
       let smoke: Awaited<ReturnType<Tool["execute"]>>;
-      try {
-        smoke = await candidate.execute(testArgs, ctx);
-      } catch (err) {
-        smoke = { ok: false, content: String((err as Error)?.message ?? err), error: "tool_error" };
+      if (behaviourUnchanged) {
+        smoke = { ok: true, content: "(code unchanged — smoke run skipped)" };
+      } else {
+        try {
+          smoke = await candidate.execute(testArgs, ctx);
+        } catch (err) {
+          smoke = { ok: false, content: String((err as Error)?.message ?? err), error: "tool_error" };
+        }
       }
       if (!smoke.ok) {
         restore();

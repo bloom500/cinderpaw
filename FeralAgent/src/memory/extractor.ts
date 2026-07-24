@@ -25,7 +25,7 @@
  */
 
 import type { InferenceRouter } from "../egress/inference-router.ts";
-import type { SemanticMemory } from "./semantic.ts";
+import { memoryScope, type SemanticMemory } from "./semantic.ts";
 import type { EpisodicMemory } from "./episodic.ts";
 import type { ChatMessage, AfterMemoryWritePayload } from "../types.ts";
 import type { MemoryGraph } from "./graph.ts";
@@ -177,7 +177,10 @@ export class MemoryExtractor {
             line.slice(colon + 1),
           );
           if (fact) {
-            this.#semantic.upsert(fact.key, fact.value);
+            // Scoped to the speaker on a multi-party session, global
+            // everywhere else — mined facts leak the same way explicit ones
+            // do. See `memoryScope`.
+            this.#semantic.upsert(fact.key, fact.value, memoryScope(sessionId));
             graphFacts.push(fact);
             // Fire after_memory_write ONCE per fact write — the
             // Reconciler (Pathway 3 step 2) subscribes to upsert into

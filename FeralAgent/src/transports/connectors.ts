@@ -263,6 +263,43 @@ function digits(s: string): string {
   return s.replace(/\D/g, "");
 }
 
+/**
+ * Session id for one Discord speaker.
+ *
+ * Discord is the only connector whose transport id is a ROOM, not a person:
+ * WhatsApp keys on the sender's JID and Slack on the user id, so both are
+ * already per-user. Keying Discord on the channel alone put every member of a
+ * guild channel into one transcript and one set of remembered facts — user A
+ * saying "call me Alex" renamed user B.
+ *
+ *   DM       → `discord:dm:<userId>`      (the DM channel id is an artifact;
+ *                                          the person is the identity)
+ *   channel  → `discord:<channelId>:<userId>`
+ *
+ * Both keep `discord` as the first segment, which is what ChannelAskRouter
+ * splits on to find the sender — routing keeps working unchanged.
+ */
+export function discordSessionId(channelId: string, userId: string, isDM: boolean): string {
+  return isDM ? `discord:dm:${userId}` : `discord:${channelId}:${userId}`;
+}
+
+/**
+ * Inverse of `discordSessionId`. Returns null for anything that is not a
+ * Discord session, and for a legacy `discord:<channelId>` session it returns
+ * the channel with no user — those still LOAD (nothing deletes them), they
+ * just stop being written to once the connector restarts.
+ */
+export function parseDiscordSession(
+  sessionId: string,
+): { dm: boolean; target: string; userId: string | null } | null {
+  const parts = sessionId.split(":");
+  if (parts[0] !== "discord" || !parts[1]) return null;
+  if (parts[1] === "dm") {
+    return parts[2] ? { dm: true, target: parts[2], userId: parts[2] } : null;
+  }
+  return { dm: false, target: parts[1], userId: parts[2] ?? null };
+}
+
 /** A live Discord gateway connection that drives the shared agent. */
 export class DiscordConnector {
   readonly #token: string;
@@ -306,10 +343,12 @@ export class DiscordConnector {
 
     await client.login(this.#token);
 
-    // ask_user over Discord: send the question text into the session's channel.
+    // ask_user over Discord: send the question text back to the person who
+    // triggered the turn. `discordTarget` resolves the session id to a
+    // channel — the shared channel for an in-channel session, that user's DM
+    // for a DM session — so a question never lands in front of the wrong user.
     this.#ask?.registerSender("discord", async (sessionId, text) => {
-      const channelId = sessionId.slice("discord:".length);
-      const ch = await this.#client?.channels.fetch(channelId);
+      const ch = await this.#discordTarget(sessionId);
       if (ch && "send" in ch) await ch.send(text);
     });
   }
@@ -324,6 +363,26 @@ export class DiscordConnector {
       } catch {
         // already closed
       }
+    }
+  }
+
+  /**
+   * Where an out-of-band message for `sessionId` should go. DM sessions carry
+   * the user id (the DM channel id is not stable enough to key a session on),
+   * so we re-open the DM; channel sessions carry the channel id.
+   */
+  async #discordTarget(sessionId: string): Promise<{ send(text: string): unknown } | null> {
+    const parsed = parseDiscordSession(sessionId);
+    if (!parsed) return null;
+    try {
+      if (parsed.dm) {
+        const user = await this.#client?.users.fetch(parsed.target);
+        return (await user?.createDM()) ?? null;
+      }
+      const ch = await this.#client?.channels.fetch(parsed.target);
+      return ch && "send" in ch ? (ch as unknown as { send(text: string): unknown }) : null;
+    } catch {
+      return null; // channel/user gone — the ask just times out
     }
   }
 
@@ -359,7 +418,7 @@ export class DiscordConnector {
     const text = message.content.replace(new RegExp(`<@!?${me.id}>`, "g"), "").trim();
     if (!text) return;
 
-    const sessionId = `discord:${message.channelId}`;
+    const sessionId = discordSessionId(message.channelId, message.author.id, isDM);
     const channel = message.channel;
 
     // A reply to a pending ask_user question answers the question — it must
@@ -421,7 +480,11 @@ export class DiscordConnector {
     try {
       // The shared agent answers with the same model + tools as the app. We
       // watch its tool events to drive the live status message.
-      const reply = await this.#agent.handle(sessionId, text, `discord-${message.id}`, (event) => {
+      // Name the speaker. The session is already per-user, so this is not
+      // what isolates them — it is what lets the agent address them by name
+      // and reason about "who asked" in a shared channel.
+      const authored = `[user:${message.author.username}] ${text}`;
+      const reply = await this.#agent.handle(sessionId, authored, `discord-${message.id}`, (event) => {
         if (event.type === "tool_start") {
           const a = activityFor(event.tool);
           setStatus(`${a.emoji} ${a.label}`);

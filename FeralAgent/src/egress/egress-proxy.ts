@@ -46,6 +46,14 @@ export interface EgressProxyConfig {
    *     from the model, a tool argument, or a fetched page.
    */
   trustedLocalOrigins: string[];
+  /**
+   * The underlying fetch the proxy performs the request WITH. Defaults to the
+   * global one, which is right everywhere except in the custom-tool child:
+   * there the guard replaces `globalThis.fetch` with a proxy-backed one, so a
+   * proxy that resolved `fetch` at call time would call itself, once per hop,
+   * until the rate limiter stopped it. Capture the native fetch, inject it.
+   */
+  underlyingFetch: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 const DEFAULT_CONFIG: EgressProxyConfig = {
@@ -53,6 +61,7 @@ const DEFAULT_CONFIG: EgressProxyConfig = {
   windowMs: 60_000,
   defaultTimeoutMs: 15_000,
   trustedLocalOrigins: [],
+  underlyingFetch: (url, init) => fetch(url, init),
 };
 
 export class EgressProxy {
@@ -186,7 +195,7 @@ export class EgressProxy {
       let currentHost = parsed.hostname.toLowerCase();
 
       for (let hop = 0; ; hop++) {
-        const res = await fetch(parsed.toString(), {
+        const res = await this.#config.underlyingFetch(parsed.toString(), {
           method,
           headers,
           body,

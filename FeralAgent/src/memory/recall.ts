@@ -18,7 +18,7 @@
  */
 
 import type { EpisodicMemory } from "./episodic.ts";
-import type { SemanticMemory } from "./semantic.ts";
+import { memoryScope, type SemanticMemory } from "./semantic.ts";
 import type { MemoryGraph } from "./graph.ts";
 import type { EpisodicEvent } from "../types.ts";
 
@@ -75,8 +75,12 @@ export class RecallEngine {
    */
   recall(query: string, sessionId: string): RecallResult {
     const episodicBlock = this.#recallEpisodic(query, sessionId);
-    const semanticBlock = this.#semantic.renderForPrompt();
-    const semanticFacts = this.#semantic.all().length;
+    // Scoped so a shared-channel session surfaces this speaker's facts plus
+    // the owner's global ones — never another speaker's. Empty for every
+    // single-user surface, i.e. unchanged there. See `memoryScope`.
+    const scope = memoryScope(sessionId);
+    const semanticBlock = this.#semantic.renderForPrompt(scope);
+    const semanticFacts = this.#semantic.all(scope).length;
     const graphBlock = this.#recallGraph();
 
     const parts: string[] = [];

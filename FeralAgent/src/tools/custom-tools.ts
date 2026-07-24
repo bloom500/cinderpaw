@@ -14,18 +14,24 @@
  * declared `process:spawn`, that the executable is on the allowlist, that
  * the cwd is inside `allowedPaths`, and it scrubs the environment. Once
  * the runtime is running the agent's module, that module has the user's
- * full ambient authority: it can read any file the user can read and open
- * any socket the user can open. `allowedPaths` below constrains the cwd,
- * not the child's syscalls, and `networkAccess: false` means only "this
- * tool is not handed an egress-proxied ctx.fetch" — the child calls
- * `fetch` itself, outside the proxy.
+ * full ambient authority: it can read any file the user can read.
+ * `allowedPaths` below constrains the cwd, not the child's syscalls.
+ *
+ * NETWORK is the exception, and it is ENFORCED rather than decorative: the
+ * runner installs an EgressProxy-backed `fetch` in the child before it
+ * imports the agent's module (see `installEgressFetch`), driven by the
+ * `allowedDomains` on the record. A tool that declared no domains has
+ * `networkAccess: false` and every request it makes is refused — the
+ * manifest field now describes the child, not just the ctx it wasn't
+ * handed. The remaining hole is raw sockets (`node:http`, `node:net`),
+ * which no amount of JS closes.
  *
  * ponytail: OS-level confinement (job objects / seccomp / a WASI runtime)
- * is the real fix and is deliberately not attempted here. Until then the
- * containment story is the forge's CONSENT gate — the owner approves the
- * code before it runs — and the deny wall on the fs tools. Upgrade path:
- * run the module under a WASI runtime with an explicit preopen set, which
- * would also make `networkAccess` true rather than decorative.
+ * is the real fix for the filesystem half and is deliberately not attempted
+ * here. Until then the containment story is the forge's CONSENT gate — the
+ * owner approves the code before it runs — the smoke gate, and the deny
+ * wall on the fs tools. Upgrade path: run the module under a WASI runtime
+ * with an explicit preopen set.
  *
  * Trust class: identical to shell_exec (arbitrary code, OS-level ambient
  * authority). That is why boot registers the forge + custom tools ONLY
@@ -49,7 +55,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { cfgBool, feralHome } from "../config.ts";
-import { CUSTOM_TOOL_RUNNER_FLAG } from "./custom-tool-runner.ts";
+import { CUSTOM_TOOL_RUNNER_FLAG, TOOL_DOMAINS_ENV } from "./custom-tool-runner.ts";
 import type { AskUserQuestion, Tool, ToolManifest, ToolParameter, ToolResult } from "../types.ts";
 
 export const MAX_CODE_BYTES = 64 * 1024;
@@ -69,6 +75,13 @@ export interface CustomToolRecord {
   code: string;
   /** Per-call timeout; clamped to [1s, 5min]. */
   timeoutMs?: number;
+  /**
+   * Hosts this tool's child process may reach with `fetch`. Absent / empty =
+   * no network at all (the default — a tool asks for egress explicitly). The
+   * runner enforces it through the same EgressProxy the builtin tools use, so
+   * loopback/private destinations stay blocked even for `["*"]`.
+   */
+  allowedDomains?: string[];
   /**
    * Quarantine counter: how many owner-approved calls this tool has made.
    * Below QUARANTINE_CALLS the tool is "experimental" and every call is
@@ -99,7 +112,19 @@ export function validateCustomTool(args: {
   description: string;
   parameters: Record<string, ToolParameter>;
   code: string;
+  allowedDomains?: string[];
 }): string | null {
+  if (args.allowedDomains !== undefined) {
+    if (!Array.isArray(args.allowedDomains)) return "allowed_domains must be an array of hostnames";
+    for (const d of args.allowedDomains) {
+      // Hostname, "*.example.com", or the open-egress "*". No scheme, no path
+      // — the whitelist is matched against a hostname, and an entry like
+      // "https://api.github.com/" would silently never match anything.
+      if (typeof d !== "string" || !/^(\*|(\*\.)?[a-z0-9][a-z0-9.-]*)$/i.test(d)) {
+        return `invalid allowed_domains entry "${String(d)}" — use a hostname like "api.github.com", "*.example.com", or "*"`;
+      }
+    }
+  }
   if (!NAME_RE.test(args.name)) {
     return `invalid name "${args.name}" — must match ${NAME_RE} (snake_case, 3-32 chars)`;
   }
@@ -248,13 +273,17 @@ export function createCustomTool(
   workspaceRoots: string[],
   runtime: ToolRuntime,
 ): Tool {
+  const allowedDomains = record.allowedDomains ?? [];
   const manifest: ToolManifest = {
     name: record.name,
     description: `[custom tool] ${record.description}`,
     permissions: ["process:spawn", "fs:read"],
-    // Describes what the SANDBOX grants this tool (no proxied ctx.fetch),
-    // NOT what the child process can reach. See the module docblock.
-    networkAccess: false,
+    // ENFORCED in the child, not decorative: the runner installs an
+    // EgressProxy-backed fetch from the same list before importing the
+    // module. false here = the child's fetch refuses every request.
+    // See the module docblock and `installEgressFetch`.
+    networkAccess: allowedDomains.length > 0,
+    ...(allowedDomains.length > 0 ? { allowedDomains } : {}),
     allowedPaths: [...workspaceRoots, dir],
     allowedExecutables: [runtime.executable],
   };
@@ -306,6 +335,11 @@ export function createCustomTool(
           args: [...runtime.prefix, modulePath(dir, record.name)],
           cwd: workspaceRoots[0],
           stdin: JSON.stringify(args ?? {}),
+          // The child reads this to build its egress whitelist. It survives
+          // the sandbox's env filter (FERAL_* is neither a blocked prefix nor
+          // a blocked exact name) and is the ONLY thing the child is told
+          // about the network.
+          env: { [TOOL_DOMAINS_ENV]: allowedDomains.join(",") },
           timeoutMs,
         });
         const parsed = parseRunnerResult(result.stdout);
