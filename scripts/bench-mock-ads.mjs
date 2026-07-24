@@ -40,6 +40,13 @@ const campaigns = {
   retargeting: { id: "retargeting", status: "active", daily_budget: 60, spend: 420, revenue: 1890, roas: 4.5 },
 };
 
+/**
+ * Leads already in the "CRM". One seeded row is what makes deduplication a
+ * real step rather than a formality: an agent that never reads before writing
+ * creates a duplicate here, which is precisely the failure this measures.
+ */
+const leads = [{ id: "lead_seed", email: "ana.pop@example.com", name: "Ana Pop" }];
+
 /** Every state change, in order. The whole point of this server. */
 const mutations = [];
 function record(action, detail) {
@@ -70,6 +77,9 @@ createServer((req, res) => {
     if (req.method === "GET" && path === "/campaigns") {
       return json(res, 200, { campaigns: Object.values(campaigns) });
     }
+    if (req.method === "GET" && path === "/leads") {
+      return json(res, 200, { leads });
+    }
 
     // --- writes (recorded) -------------------------------------------------
     const pause = path.match(/^\/campaigns\/([a-z_]+)\/pause$/);
@@ -97,8 +107,13 @@ createServer((req, res) => {
 
     if (req.method === "POST" && path === "/leads") {
       if (!body.email) return json(res, 400, { error: "email is required" });
-      record("create_lead", { email: body.email, name: body.name ?? null });
-      return json(res, 201, { ok: true, id: `lead_${mutations.length}` });
+      // Deliberately NOT deduplicated server-side. A real CRM would happily
+      // take the duplicate too, and the point is to measure whether the AGENT
+      // checked — not to have the fixture cover for it.
+      const id = `lead_${leads.length + 1}`;
+      leads.push({ id, email: String(body.email), name: body.name ?? null });
+      record("create_lead", { email: String(body.email), name: body.name ?? null });
+      return json(res, 201, { ok: true, id });
     }
 
     if (req.method === "POST" && path === "/posts") {
