@@ -7,7 +7,7 @@
  *   - the host is in the calling tool's `allowedDomains` whitelist
  *   - the host is not localhost / loopback
  *   - the host is not a private / link-local IP range
- *   - the global rate limit has not been exceeded
+ *   - the calling tool's rate limit has not been exceeded
  * Every attempt — allowed or blocked — is written to the audit log.
  */
 
@@ -21,7 +21,22 @@ import type {
 } from "../types.ts";
 
 export interface EgressProxyConfig {
-  /** Max requests allowed inside the rolling window. */
+  /**
+   * Max requests allowed inside the rolling window, PER TOOL.
+   *
+   * Was a single global budget shared by every tool, which made the limiter a
+   * starvation source rather than a safety net: one `deep_research` call
+   * spends dozens of requests, and the next `web_search` in the same minute —
+   * a different tool, doing legitimate work — was refused with a message that
+   * reads like a security block. On a long unattended run that is a silent
+   * derail, because the agent has no way to tell "you are being throttled"
+   * from "this host is forbidden".
+   *
+   * Per-tool is a deliberate loosening (N tools × this, not this in total), so
+   * the number came down with it. The guard that actually matters for safety
+   * is the domain whitelist plus the SSRF check, both of which run before this
+   * and neither of which this affects.
+   */
   maxRequests: number;
   /** Rolling window length in milliseconds. */
   windowMs: number;
@@ -57,7 +72,7 @@ export interface EgressProxyConfig {
 }
 
 const DEFAULT_CONFIG: EgressProxyConfig = {
-  maxRequests: 30,
+  maxRequests: 20,
   windowMs: 60_000,
   defaultTimeoutMs: 15_000,
   trustedLocalOrigins: [],
@@ -67,8 +82,13 @@ const DEFAULT_CONFIG: EgressProxyConfig = {
 export class EgressProxy {
   readonly #audit: AuditLogger;
   readonly #config: EgressProxyConfig;
-  /** Timestamps of recent requests for the rolling-window rate limiter. */
-  readonly #recent: number[] = [];
+  /**
+   * Tool name → timestamps of its recent requests (rolling-window limiter).
+   * Keyed by TOOL, not by tool+session: two surfaces running `web_search`
+   * concurrently share one budget, which is the conservative reading and keeps
+   * the ceiling from multiplying by however many sessions happen to be live.
+   */
+  readonly #recent = new Map<string, number[]>();
 
   constructor(audit: AuditLogger, config: Partial<EgressProxyConfig> = {}) {
     this.#audit = audit;
@@ -158,16 +178,21 @@ export class EgressProxy {
     // 2-4. Validate the first hop before anything touches the network.
     let parsed = await validateHop(url);
 
-    // 5. Rate limit (rolling window, global across all tools). Counts the
-    //    request once regardless of how many redirects it follows.
-    this.#pruneWindow(start);
-    if (this.#recent.length >= this.#config.maxRequests) {
+    // 5. Rate limit (rolling window, per tool). Counts the request once
+    //    regardless of how many redirects it follows.
+    const window = this.#pruneWindow(manifest.name, start);
+    if (window.length >= this.#config.maxRequests) {
+      // Name the tool and say it is temporary. The old wording was
+      // indistinguishable from a permission block, so an agent that hit it
+      // concluded the host was forbidden and stopped trying, instead of
+      // waiting or reaching for another tool.
       block(
-        `rate limit exceeded: ${this.#config.maxRequests} req / ` +
-          `${this.#config.windowMs}ms`,
+        `rate limit exceeded for "${manifest.name}": ${this.#config.maxRequests} req / ` +
+          `${this.#config.windowMs}ms. Temporary throttling, NOT a permission denial — ` +
+          `the host is allowed. Wait and retry, or use a different tool.`,
       );
     }
-    this.#recent.push(start);
+    window.push(start);
 
     // 6. Perform the request with an enforced timeout, following redirects
     //    MANUALLY so every hop is re-validated by `validateHop`.
@@ -290,11 +315,27 @@ export class EgressProxy {
     }
   }
 
-  #pruneWindow(now: number): void {
-    const cutoff = now - this.#config.windowMs;
-    while (this.#recent.length > 0 && this.#recent[0]! < cutoff) {
-      this.#recent.shift();
+  /**
+   * Drop expired timestamps for one tool and return its live window.
+   *
+   * The returned array is the one stored in the map, so the caller's push
+   * lands in the limiter's state. An earlier version deleted the row when the
+   * window emptied — which meant the very first request got a DETACHED array,
+   * pushed into it, and threw it away, so the limit never engaged at all. The
+   * map is bounded by the number of distinct tool names, and an empty array
+   * per tool is not worth a bug.
+   */
+  #pruneWindow(tool: string, now: number): number[] {
+    let window = this.#recent.get(tool);
+    if (!window) {
+      window = [];
+      this.#recent.set(tool, window);
     }
+    const cutoff = now - this.#config.windowMs;
+    while (window.length > 0 && window[0]! < cutoff) {
+      window.shift();
+    }
+    return window;
   }
 }
 
