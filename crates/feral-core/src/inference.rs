@@ -1155,6 +1155,107 @@ mod backend {
         Ok(out)
     }
 
+    /// Bytes of KV cache one token costs, GQA-aware.
+    ///
+    /// `kv_dim = n_embd * n_head_kv / n_head` — grouped-query models share KV
+    /// heads across query heads, which is exactly what makes their cache far
+    /// cheaper than flat `n_embd` suggests (qwen2.5-coder-1.5b: 256, not 1536 —
+    /// a 6x overestimate that would have pinned it to the conservative floor).
+    /// Then: K and V (2), f16 (2 bytes), every layer.
+    ///
+    /// Pure arithmetic, split from `auto_context_cap` so it is testable without
+    /// a loaded model.
+    pub(crate) fn kv_bytes_per_token(n_layer: u64, n_embd: u64, n_head: u64, n_head_kv: u64) -> u64 {
+        let kv_dim = (n_embd * n_head_kv.max(1) / n_head.max(1)).max(1);
+        2 * kv_dim * 2 * n_layer
+    }
+
+    /// How many tokens of KV fit in `budget_bytes`, clamped to [floor, ceiling].
+    /// Split out for the same reason as `kv_bytes_per_token`.
+    pub(crate) fn context_for_budget(
+        bytes_per_token: u64,
+        budget_bytes: u64,
+        floor: u32,
+        ceiling: u32,
+    ) -> u32 {
+        if bytes_per_token == 0 {
+            return floor;
+        }
+        let fits = (budget_bytes / bytes_per_token).min(u32::MAX as u64) as u32;
+        fits.clamp(floor, ceiling)
+    }
+
+    /// Largest context window whose KV cache actually fits in memory, for a
+    /// model the user gave no explicit window for.
+    ///
+    /// The KV cache is allocated EAGERLY at context creation, so this number is
+    /// a real memory commitment, not a limit. Cost per token is
+    ///     2 (K and V) * kv_dim * 2 bytes (f16) * n_layer
+    /// with `kv_dim = n_embd * n_head_kv / n_head` — the GQA-aware form, same as
+    /// `plan_gpu_layers`. Using flat `n_embd` would overestimate modern models
+    /// several-fold and hand them back the conservative floor for no reason.
+    ///
+    /// Budget is a quarter of what is FREE (VRAM when layers are offloaded,
+    /// system RAM otherwise): the weights, the OS, and any other context in the
+    /// pool also need room, and being wrong here means an eager allocation
+    /// failure rather than a slow reply.
+    ///
+    /// Bounded on both sides. The floor is the historical 8192, so a low-memory
+    /// box behaves exactly as it did before. The ceiling is deliberate: past
+    /// ~32K, prompt processing on CPU dominates the reply latency, and anyone
+    /// who genuinely wants a 256K window can ask for it in Hardware settings and
+    /// see the memory cost while doing so.
+    fn auto_context_cap(model: &LlamaModel, gpu_offloaded: bool) -> u32 {
+        const DEFAULT_MAX_CONTEXT: u32 = 8192;
+        const AUTO_CONTEXT_CEILING: u32 = 32_768;
+
+        let n_layer = model.n_layer() as u64;
+        let n_embd = model.n_embd().max(1) as u64;
+        let n_head = model.n_head().max(1) as u64;
+        let n_head_kv = model.n_head_kv().max(1) as u64;
+        if n_layer == 0 {
+            return DEFAULT_MAX_CONTEXT;
+        }
+        let bytes_per_token = kv_bytes_per_token(n_layer, n_embd, n_head, n_head_kv);
+        if bytes_per_token == 0 {
+            return DEFAULT_MAX_CONTEXT;
+        }
+
+        // GPU is deliberately excluded for now. `plan_gpu_layers` decides how
+        // many layers fit BEFORE the model is loaded, and it sizes that budget
+        // from a context length — so if auto-sizing raised the window after the
+        // planner had already committed, the planner and the allocator would
+        // disagree about the KV size and the ladder would burn retries
+        // discovering it. Making both agree means threading the auto value into
+        // the planner's own probe; worth doing, not worth doing blind.
+        // ponytail: CPU-only auto-sizing; extend to GPU when the planner and
+        // this function share one context estimate.
+        if gpu_offloaded {
+            return DEFAULT_MAX_CONTEXT;
+        }
+        let info = crate::sysinfo_mod::collect();
+        if info.ram_total_mb == 0 {
+            return DEFAULT_MAX_CONTEXT; // unknown memory → today's behaviour
+        }
+        let free_mb: u64 = info.ram_total_mb.saturating_sub(info.ram_used_mb);
+
+        let budget_bytes = (free_mb / 4).saturating_mul(1024 * 1024);
+        let chosen = context_for_budget(
+            bytes_per_token,
+            budget_bytes,
+            DEFAULT_MAX_CONTEXT,
+            AUTO_CONTEXT_CEILING,
+        );
+        tracing::info!(
+            kv_bytes_per_token = bytes_per_token,
+            free_mb,
+            gpu_offloaded,
+            chosen_ctx = chosen,
+            "auto-sizing context window to available memory"
+        );
+        chosen
+    }
+
     /// Returns `(active_ctx_len, n_ctx_train)`. `max_context` (when `Some`) is
     /// the user's chosen window from Hardware settings; it takes precedence over
     /// the FERAL_MAX_CONTEXT env and the conservative 8192 default. The active
@@ -1192,16 +1293,30 @@ mod backend {
         // conservative: a user who opts into a bigger window does so knowingly
         // (the UI shows the memory cost), and the GPU→CPU fallback below catches
         // a VRAM-too-small allocation instead of crashing.
+        //
+        // 2026-07-24: the flat 8192 was ALSO the ceiling for models that could
+        // comfortably do far more, and that quietly crippled long-horizon work.
+        // The agent's transcript budget is `ctx - output_reserve - tool_schemas`
+        // = 8192 - 2048 - 3072 = ~3072 tokens, so three tool results triggered
+        // compaction on every single turn: the agent forgot what it had just
+        // done and re-established context in prose. Observed on
+        // qwen2.5-coder-1.5b, which trains at 32768 — 4x the window it was given
+        // — for under 1 GB of KV.
+        //
+        // So: an explicit choice still wins outright (the user saw the memory
+        // cost in the UI). With NO explicit choice we now size the window to
+        // what memory can actually hold instead of guessing 8192, floored at
+        // the old default so this can never regress, and ceilinged well below
+        // the crash hazard above.
         const DEFAULT_MAX_CONTEXT: u32 = 8192;
-        let cap = max_context
+        let explicit_cap = max_context
             .filter(|v| *v >= 512)
             .or_else(|| {
                 std::env::var("FERAL_MAX_CONTEXT")
                     .ok()
                     .and_then(|v| v.trim().parse::<u32>().ok())
                     .filter(|v| *v >= 512)
-            })
-            .unwrap_or(DEFAULT_MAX_CONTEXT);
+            });
 
         // One load attempt at a given GPU-layer count: load weights, size the
         // context to the model (capped), and eagerly create the first pooled
@@ -1246,6 +1361,11 @@ mod backend {
                     Ok(LoraState { path: p.clone(), scale: *scale, adapter: Mutex::new(adapter) })
                 })
                 .transpose()?;
+            // The model is already loaded here, so its geometry is free — no
+            // extra probe load (which, on a model llama.cpp cannot parse, would
+            // leak a file handle and block Delete until restart).
+            let cap = explicit_cap
+                .unwrap_or_else(|| auto_context_cap(&model, requested > 0));
             let ctx_len = model.n_ctx_train().max(2048).min(cap);
             // create_context allocates the KV cache — on the GPU when layers are
             // offloaded, so this is the step that returns a null context when
@@ -1274,7 +1394,12 @@ mod backend {
         // ponytail: `auto` (-1) plans; an explicit user layer count is honored
         // as-is (they overrode us on purpose) but still gets the ladder.
         let planned = if n_gpu_layers < 0 && is_gpu_build {
-            plan_gpu_layers(path, cap).unwrap_or(requested)
+            // Planned against the same conservative window the GPU path
+            // actually allocates (auto-sizing is CPU-only — see
+            // `auto_context_cap`), so planner and allocator never disagree
+            // about how big the KV cache will be.
+            plan_gpu_layers(path, explicit_cap.unwrap_or(DEFAULT_MAX_CONTEXT))
+                .unwrap_or(requested)
         } else {
             requested
         };
@@ -2077,5 +2202,63 @@ mod tests {
             "[load_smoke_real_gguf] {} loaded: ctx_len={} n_ctx_train={}",
             loaded.name, loaded.ctx_len, loaded.n_ctx_train
         );
+    }
+}
+
+#[cfg(test)]
+mod auto_context_tests {
+    use super::backend::{context_for_budget, kv_bytes_per_token};
+
+    /// qwen2.5-coder-1.5b — the model that exposed this. 28 layers, n_embd
+    /// 1536, 12 heads, 2 KV heads (GQA). Loaded at a flat 8192 while training
+    /// at 32768, which left the agent ~3k tokens of transcript and made it
+    /// compact on every turn.
+    const QWEN_25_CODER_1_5B: (u64, u64, u64, u64) = (28, 1536, 12, 2);
+
+    #[test]
+    fn gqa_is_honored_not_flat_n_embd() {
+        let (l, e, h, hkv) = QWEN_25_CODER_1_5B;
+        // kv_dim = 1536 * 2 / 12 = 256 → 2 * 256 * 2 * 28 = 28_672 B/token.
+        assert_eq!(kv_bytes_per_token(l, e, h, hkv), 28_672);
+        // Flat n_embd would say 172_032 — 6x too expensive, which is how a
+        // cheap model gets pinned to the conservative floor for no reason.
+        assert!(kv_bytes_per_token(l, e, h, h) > kv_bytes_per_token(l, e, h, hkv));
+    }
+
+    #[test]
+    fn qwen_reaches_its_full_trained_context_on_a_normal_box() {
+        let bpt = kv_bytes_per_token(QWEN_25_CODER_1_5B.0, QWEN_25_CODER_1_5B.1, QWEN_25_CODER_1_5B.2, QWEN_25_CODER_1_5B.3);
+        // 8 GB free / 4 = 2 GB budget. 32768 tokens costs ~940 MB, so it fits.
+        let budget = 2u64 * 1024 * 1024 * 1024;
+        assert_eq!(context_for_budget(bpt, budget, 8192, 32_768), 32_768);
+    }
+
+    #[test]
+    fn a_low_memory_box_never_regresses_below_the_old_default() {
+        let bpt = kv_bytes_per_token(QWEN_25_CODER_1_5B.0, QWEN_25_CODER_1_5B.1, QWEN_25_CODER_1_5B.2, QWEN_25_CODER_1_5B.3);
+        assert_eq!(context_for_budget(bpt, 0, 8192, 32_768), 8192);
+        assert_eq!(context_for_budget(bpt, 1024 * 1024, 8192, 32_768), 8192);
+    }
+
+    #[test]
+    fn a_huge_box_still_respects_the_ceiling() {
+        let bpt = kv_bytes_per_token(QWEN_25_CODER_1_5B.0, QWEN_25_CODER_1_5B.1, QWEN_25_CODER_1_5B.2, QWEN_25_CODER_1_5B.3);
+        let budget = 512u64 * 1024 * 1024 * 1024; // 512 GB
+        assert_eq!(context_for_budget(bpt, budget, 8192, 32_768), 32_768);
+    }
+
+    #[test]
+    fn a_fat_model_is_sized_down_not_up() {
+        // 70B-class geometry: 80 layers, n_embd 8192, MHA (no GQA saving).
+        let bpt = kv_bytes_per_token(80, 8192, 64, 64);
+        // 2 GB budget cannot hold much of that — floor applies, not the ceiling.
+        let budget = 2u64 * 1024 * 1024 * 1024;
+        assert_eq!(context_for_budget(bpt, budget, 8192, 32_768), 8192);
+    }
+
+    #[test]
+    fn degenerate_geometry_falls_back_to_the_floor() {
+        assert_eq!(context_for_budget(0, 1 << 30, 8192, 32_768), 8192);
+        assert_eq!(kv_bytes_per_token(28, 1536, 0, 0), 2 * 1536 * 2 * 28);
     }
 }
