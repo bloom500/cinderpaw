@@ -162,7 +162,10 @@ test("forge create registers the tool and persists it; update replaces; delete r
   expect(loadCustomTools(dir).some((r) => r.name === "adder")).toBe(true);
   // The gates ran: the owner was asked, and the smoke run got the test args.
   expect(state.asked).toHaveLength(1);
-  expect(state.smokeStdin.at(-1)).toContain('"a":2');
+  // [0] is the smoke run with the caller's test_args; [1] is the adversarial
+  // no-args probe the forge adds so the exam is not entirely self-graded.
+  expect(state.smokeStdin[0]).toContain('"a":2');
+  expect(state.smokeStdin[1]).toBe("{}");
 
   const updated = await call({ action: "update", name: "adder", description: "adds numbers v2", test_args: { a: 1, b: 1 } });
   expect(updated.ok).toBe(true);

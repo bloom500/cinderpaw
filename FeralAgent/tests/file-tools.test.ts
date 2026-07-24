@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createEditFileTool } from "../src/tools/builtin/edit-file.ts";
+import { noteRead } from "../src/tools/read-ledger.ts";
 import { createFileSearchTool } from "../src/tools/builtin/file-search.ts";
 import { createGrepTool } from "../src/tools/builtin/grep.ts";
 import { resolveAllowedPath } from "../src/egress/tool-permissions.ts";
@@ -95,6 +96,7 @@ describe("edit_file", () => {
   it("replaces a unique occurrence of old_string", async () => {
     const f = join(tmp, "hello.txt");
     writeFileSync(f, "Hello world!\nThis is feral.\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
     const tool = createEditFileTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
@@ -111,6 +113,7 @@ describe("edit_file", () => {
   it("fails when old_string is not unique and replace_all is false", async () => {
     const f = join(tmp, "dup.txt");
     writeFileSync(f, "foo bar foo baz foo\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
     const tool = createEditFileTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
@@ -126,6 +129,7 @@ describe("edit_file", () => {
   it("replaces every occurrence with replace_all=true", async () => {
     const f = join(tmp, "dup.txt");
     writeFileSync(f, "foo bar foo baz foo\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
     const tool = createEditFileTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
@@ -142,6 +146,7 @@ describe("edit_file", () => {
   it("fails when old_string is missing entirely", async () => {
     const f = join(tmp, "missing.txt");
     writeFileSync(f, "alpha\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
     const tool = createEditFileTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {

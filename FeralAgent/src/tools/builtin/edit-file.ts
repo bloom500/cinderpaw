@@ -17,6 +17,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
+import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_EDIT_BYTES = 1024 * 1024; // 1 MB safety cap, same as write_file
@@ -96,6 +97,13 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
         };
       }
 
+      // Read-before-edit gate. Cheap, mechanical, and placed BEFORE the file
+      // is loaded so a refusal costs nothing. See read-ledger.ts.
+      const stale = checkBeforeWrite(ctx.sessionId, safePath);
+      if (stale) {
+        return { ok: false, content: `edit_file: ${stale}`, error: "unread_file" };
+      }
+
       let original: string;
       try {
         const buf = await readFile(safePath);
@@ -166,6 +174,8 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
       resolveAllowedPath(ctx.manifest, "fs:write", safePath);
 
       await writeFile(safePath, updated, "utf8");
+      // Our own write must not make the NEXT edit look stale.
+      noteWrite(ctx.sessionId, safePath);
 
       // Build a tiny diff preview. We pick the first replaced region and
       // show the first 5 lines of context on each side.

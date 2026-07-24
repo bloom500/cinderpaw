@@ -9,6 +9,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
+import { noteRead } from "../read-ledger.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 /** Largest file the tool will return, to keep transcripts bounded. */
@@ -60,6 +61,13 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
       const buf = await readFile(safePath);
       const truncated = buf.byteLength > MAX_BYTES;
       const text = buf.toString("utf8", 0, MAX_BYTES);
+
+      // Satisfies the read-before-edit gate in edit_file / write_file.
+      // Deliberately recorded even for a TRUNCATED read: the agent has seen
+      // the head of the file, and edit_file matches an exact old_string that
+      // must appear in what it saw. A blind whole-file write_file over a
+      // truncated read is the risky case, and that one is on the prompt.
+      noteRead(ctx.sessionId, safePath);
 
       return {
         ok: true,

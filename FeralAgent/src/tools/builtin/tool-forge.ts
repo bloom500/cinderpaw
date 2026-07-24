@@ -423,6 +423,47 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
           smoke = { ok: false, content: String((err as Error)?.message ?? err), error: "tool_error" };
         }
       }
+      // ADVERSARIAL half. The run above is a self-graded exam: the model wrote
+      // the tool AND chose the arguments, so it can pick inputs that make its
+      // own code look good. This second run uses arguments the model did not
+      // choose — none at all — and asks a question it cannot dodge: does the
+      // tool still return the documented envelope when its inputs are missing?
+      //
+      // It is allowed to FAIL (ok:false is a fine answer to "no arguments").
+      // What it may not do is crash, hang, or emit nothing, because that is
+      // the shape of a tool that will one day kill an unattended run: a
+      // `args.path.split()` on an absent field throws, the runner emits no
+      // result line, and the agent sees an unexplained tool_error at 3am.
+      //
+      // ponytail: one negative case, not a fuzzer. It catches the single most
+      // common forged-tool defect (unguarded argument access) for the cost of
+      // one extra spawn. Property-based generation from the parameter schema
+      // is the upgrade path if this ever proves too shallow.
+      // Skipped when the code is unchanged (nothing new to probe) and when the
+      // tool takes no arguments (the run above already WAS the no-args case).
+      if (smoke.ok && !behaviourUnchanged && Object.keys(testArgs).length > 0) {
+        let robust: Awaited<ReturnType<Tool["execute"]>>;
+        try {
+          robust = await candidate.execute({}, ctx);
+        } catch (err) {
+          robust = { ok: false, content: String((err as Error)?.message ?? err), error: "tool_error" };
+        }
+        // "no result emitted" is the runner's words for a crash/timeout/silence.
+        if (robust.error === "spawn_error" || /no result emitted/.test(robust.content)) {
+          restore();
+          return {
+            ok: false,
+            content:
+              `tool_forge: "${name}" passed its smoke run but CRASHED when called with no ` +
+              `arguments, so it was NOT registered${existing ? " (the previous version is untouched)" : ""}. ` +
+              `Guard every argument you read — return {ok:false, content:"<what is missing>"} ` +
+              `instead of throwing. It reported: ${robust.content.slice(0, 300)}`,
+            error: "smoke_failed",
+            data: { name, action, phase: "no_args" },
+          };
+        }
+      }
+
       if (!smoke.ok) {
         restore();
         return {

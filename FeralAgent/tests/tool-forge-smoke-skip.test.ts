@@ -250,3 +250,89 @@ test("a tool that has been failing for weeks without an edit is still pruned", a
   expect(registered).not.toContain(name);
   expect(registry.has(name)).toBe(false);
 });
+
+// -------------------------------- adversarial no-args probe (self-graded exam)
+
+/**
+ * `forge()` above always returns a successful stdout. This variant lets the
+ * test decide per-invocation, so a tool can pass the args the MODEL chose and
+ * still blow up on the ones it did not.
+ */
+function forgeWithCrashOnEmptyArgs() {
+  const registry = makeRegistry();
+  const tool = createToolForgeTool({ registry, workspaceRoots: [dir], dir, runtime: FAKE_RUNTIME });
+  const spawns: string[] = [];
+  const ctx = {
+    sessionId: "s",
+    process: {
+      run: async (_m: unknown, _s: string, options: Record<string, unknown>) => {
+        const stdin = String(options.stdin);
+        spawns.push(stdin);
+        // Crash (emit nothing) exactly when called with no arguments — the
+        // classic `args.who.trim()` on an absent field.
+        const crashed = stdin === "{}";
+        return {
+          exitCode: crashed ? 1 : 0,
+          stdout: crashed ? "" : '{"ok":true,"content":"smoke ok"}',
+          stderr: crashed ? "TypeError: Cannot read properties of undefined" : "",
+          durationMs: 1,
+          timedOut: false,
+          outputTruncated: false,
+        };
+      },
+    },
+    askUser: {
+      ask: async (questions: AskUserQuestion[]) => [
+        { question: questions[0]!.question, selected: ["Allow"] },
+      ],
+      cancel: () => {},
+    },
+  } as unknown as ToolContext;
+  return { registry, spawns, call: (a: Record<string, unknown>) => tool.execute(a, ctx) };
+}
+
+test("a tool that passes its own test_args but crashes on missing ones is rejected", async () => {
+  const f = forgeWithCrashOnEmptyArgs();
+  const res = await f.call({
+    action: "create",
+    name: "fragile_tool",
+    description: "d",
+    parameters: { who: { type: "string", description: "w", required: true } },
+    code: CODE,
+    test_args: { who: "alice" },
+  });
+  expect(res.ok).toBe(false);
+  expect(res.error).toBe("smoke_failed");
+  expect(res.content).toContain("no arguments");
+  expect(f.registry.has("fragile_tool")).toBe(false);
+  // It DID pass the exam it set for itself — that is the whole point.
+  expect(f.spawns[0]).toContain('"who":"alice"');
+  expect(f.spawns[1]).toBe("{}");
+});
+
+test("returning ok:false for missing args is fine — only crashing is not", async () => {
+  const f = forge(); // always emits a well-formed envelope
+  const res = await f.call({
+    action: "create",
+    name: "polite_tool",
+    description: "d",
+    parameters: { who: { type: "string", description: "w", required: true } },
+    code: CODE,
+    test_args: { who: "alice" },
+  });
+  expect(res.ok).toBe(true);
+  expect(f.registry.has("polite_tool")).toBe(true);
+});
+
+test("a parameterless tool is not probed twice", async () => {
+  const f = forge();
+  await f.call({
+    action: "create",
+    name: "noargs_tool",
+    description: "d",
+    parameters: {},
+    code: CODE,
+    test_args: {},
+  });
+  expect(f.spawns).toHaveLength(1); // the smoke run already WAS the no-args case
+});

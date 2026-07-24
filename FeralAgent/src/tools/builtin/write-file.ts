@@ -9,6 +9,7 @@
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
+import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_WRITE_BYTES = 1024 * 1024; // 1 MB guard
@@ -77,8 +78,27 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
         // Not readable (absent, or binary/permission) — fall through and write.
       }
 
+      // Read-before-overwrite gate, deliberately AFTER the idempotency check.
+      // `checkBeforeWrite` returns null when the path does not exist, so
+      // CREATING a file is untouched; the gate only stands between the agent
+      // and clobbering a file it never looked at. This is the sharper of the
+      // two write paths — write_file replaces the whole body, so an unread
+      // overwrite destroys everything it did not know was there.
+      //
+      // The ordering is load-bearing: crash-resume REPLAYS writes, in a fresh
+      // process whose ledger is empty. A replay whose content already matches
+      // disk exited above as a no-op; gating before that would have turned
+      // every resumed write into a hard failure, breaking the very walk-away
+      // recovery this gate exists to protect. See read-ledger.ts.
+      const stale = checkBeforeWrite(ctx.sessionId, safePath);
+      if (stale) {
+        return { ok: false, content: `write_file: ${stale}`, error: "unread_file" };
+      }
+
       await mkdir(dirname(safePath), { recursive: true });
       await writeFile(safePath, content, "utf8");
+      // Our own write must not make a follow-up edit look stale.
+      noteWrite(ctx.sessionId, safePath);
 
       return {
         ok: true,
