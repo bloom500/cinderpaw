@@ -325,6 +325,12 @@ export type AuditActionType =
   | "tool_call"
   | "inference"
   | "network"
+  // A STATE-CHANGING request to an external host (POST/PUT/PATCH/DELETE) —
+  // separated from plain "network" because these are the calls with
+  // consequences outside this machine: money spent on an ad platform, a post
+  // published, a CRM record written. Reads are recoverable, these are not, and
+  // they are the ones you want to grep for after an unattended run.
+  | "network_write"
   | "memory_write"
   | "blocked"
   // User thumbs up/down on an assistant message — the wired source of the

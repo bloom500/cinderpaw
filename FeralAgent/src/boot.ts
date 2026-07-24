@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { cfgBool, cfgInt, cfgPath, feralHome, searxngOrigin } from "./config.ts";
+import { cfgBool, cfgInt, cfgList, cfgPath, feralHome, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -384,12 +384,22 @@ export async function boot(transportOverride?: Transport) {
 
   // --- Layer 3: Sandbox (built first) ---
   const audit = new AuditLog(db.raw);
-  // The user's own SearXNG (if any) is the one loopback origin the egress
-  // SSRF guard will let through — see EgressProxyConfig.trustedLocalOrigins.
+  // Loopback origins the SSRF guard may reach: the user's own SearXNG, plus
+  // anything else they declared with FERAL_TRUSTED_LOCAL_ORIGINS. Both come
+  // from the operator's environment — never from the model, a tool argument or
+  // a fetched page — and both are exact-origin, so trusting one local service
+  // does not trust the rest of the loopback interface.
   const searxng = searxngOrigin();
+  const declaredLocal = cfgList("FERAL_TRUSTED_LOCAL_ORIGINS").map((o) =>
+    o.replace(/\/$/, ""),
+  );
   const egress = new EgressProxy(audit.logger, {
-    trustedLocalOrigins: searxng ? [searxng] : [],
+    trustedLocalOrigins: [...(searxng ? [searxng] : []), ...declaredLocal],
+    externalWriteBudget: cfgInt("FERAL_EXTERNAL_WRITE_BUDGET"),
   });
+  if (declaredLocal.length > 0) {
+    log(`egress: ${declaredLocal.length} operator-declared local origin(s) trusted`);
+  }
   if (searxng) log(`web_search backend: SearXNG @ ${searxng}`);
   // NB: deliberately NOT named `process` to avoid shadowing the global
   // Node `process` object (which we still need below for process.env).

@@ -128,6 +128,8 @@ they remain hand-maintained here and are still covered by
 | `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` | list | `null` | yes | Comma-separated allowlist of app names control_app may target. Empty = fail closed. (Read by the Rust host, not FeralAgent/src.) |
 | `FERAL_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
 | `FERAL_HTTP_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for http_request. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
+| `FERAL_EXTERNAL_WRITE_BUDGET` | int | `50` | yes | How many STATE-CHANGING external requests (POST/PUT/PATCH/DELETE) one session may make before the egress proxy stops it. Bounds a runaway loop that keeps changing things outside this machine — ad spend, published posts, CRM rows — during an unattended run. It caps VOLUME, not severity: one wrong write is inside any budget. 0 disables the cap. |
+| `FERAL_TRUSTED_LOCAL_ORIGINS` | list | `null` | yes | Comma-separated exact origins (scheme+host+port) on loopback/private addresses that the SSRF guard may reach, for services the OPERATOR runs themselves. Exact-origin match only — trusting http://127.0.0.1:8080 does not trust any other local port — and the tool's own allowedDomains still applies. Extends the single FERAL_SEARXNG_URL exemption to any self-hosted backend. |
 | `FERAL_TOOL_ALLOWED_DOMAINS` | list | `null` | yes | Set BY the sidecar ON a forged tool's child process — not something a user configures. Carries the hostnames that tool declared via tool_forge's `allowed_domains`; the runner turns it into an EgressProxy-backed globalThis.fetch, so a tool that declared nothing has no network. Setting it in the parent environment has no effect: createCustomTool always overwrites it from the tool's own record. |
 | `FERAL_TRUSTED_BASE_URLS` | list | `null` | yes | Extra base URLs the inference router may call beyond loopback. |
 | `FERAL_SHELL_WHITELIST` | list | `null` | yes | Extends the spawn whitelist for shell_exec. |
@@ -267,6 +269,7 @@ FERAL_EMBED_MODEL
 FERAL_ENABLE_CODE_EXEC
 FERAL_ENABLE_DESKTOP_CONTROL
 FERAL_ENABLE_SHELL_EXEC
+FERAL_EXTERNAL_WRITE_BUDGET
 FERAL_FALLBACK_API_KEY
 FERAL_FALLBACK_BASE_URL
 FERAL_FALLBACK_MODEL
@@ -343,6 +346,7 @@ FERAL_TREE_BRANCH
 FERAL_TREE_CLUSTER_MAX_CHARS
 FERAL_TREE_ITEM_MAX_CHARS
 FERAL_TOOL_ALLOWED_DOMAINS
+FERAL_TRUSTED_LOCAL_ORIGINS
 FERAL_TRUSTED_BASE_URLS
 FERAL_TURN_BUDGET_MS
 FERAL_TTFT_DEADLINE_MS

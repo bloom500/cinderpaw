@@ -8,6 +8,7 @@
  *   - the host is not localhost / loopback
  *   - the host is not a private / link-local IP range
  *   - the calling tool's rate limit has not been exceeded
+ *   - the per-session budget for STATE-CHANGING requests is not spent
  * Every attempt — allowed or blocked — is written to the audit log.
  */
 
@@ -69,6 +70,45 @@ export interface EgressProxyConfig {
    * until the rate limiter stopped it. Capture the native fetch, inject it.
    */
   underlyingFetch: (url: string, init: RequestInit) => Promise<Response>;
+  /**
+   * How many STATE-CHANGING external requests (POST/PUT/PATCH/DELETE) one
+   * session may make before the proxy stops it.
+   *
+   * Every other guard in this file protects THIS MACHINE from the agent: the
+   * SSRF check, the deny wall, the process sandbox. None of them protect the
+   * outside world — and for an agent that manages ad campaigns, posts to
+   * social accounts or writes to a CRM, the outside world is where the damage
+   * is. A wrong file gets rewritten; money spent on an ad platform is spent, a
+   * published post is public, a polluted CRM record is in the CRM.
+   *
+   * This is a VOLUME backstop, and it matters to be precise about what it does
+   * and does not buy:
+   *   - it DOES stop a runaway loop, which is the failure an unattended run
+   *     actually produces: the same POST fired two hundred times;
+   *   - it does NOT stop a single wrong write. One request that sets a budget
+   *     to the wrong number is inside any budget. Severity needs a human, or a
+   *     per-host write allowlist — see the ponytail note on #fetch.
+   *
+   * Deliberately generous by default so no existing setup breaks: the point is
+   * to bound a runaway, not to police normal use. Tune with
+   * FERAL_EXTERNAL_WRITE_BUDGET; 0 disables the cap.
+   */
+  externalWriteBudget: number;
+}
+
+/**
+ * HTTP methods that change state on the far end.
+ *
+ * Classified by METHOD, not by tool: a forged tool, an MCP server and
+ * `http_request` all reach the same APIs, so a guard that trusts the caller
+ * guards nothing. GET/HEAD/OPTIONS are reads; anything else is assumed to
+ * change something — including verbs we do not recognise, because the safe
+ * default for an unknown method is to count it.
+ */
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+export function isWriteMethod(method: string | undefined): boolean {
+  return !READ_METHODS.has((method ?? "GET").toUpperCase());
 }
 
 const DEFAULT_CONFIG: EgressProxyConfig = {
@@ -77,6 +117,7 @@ const DEFAULT_CONFIG: EgressProxyConfig = {
   defaultTimeoutMs: 15_000,
   trustedLocalOrigins: [],
   underlyingFetch: (url, init) => fetch(url, init),
+  externalWriteBudget: 50,
 };
 
 export class EgressProxy {
@@ -89,6 +130,8 @@ export class EgressProxy {
    * the ceiling from multiplying by however many sessions happen to be live.
    */
   readonly #recent = new Map<string, number[]>();
+  /** sessionId → state-changing requests already made in this session. */
+  readonly #writes = new Map<string, number>();
 
   constructor(audit: AuditLogger, config: Partial<EgressProxyConfig> = {}) {
     this.#audit = audit;
@@ -178,7 +221,33 @@ export class EgressProxy {
     // 2-4. Validate the first hop before anything touches the network.
     let parsed = await validateHop(url);
 
-    // 5. Rate limit (rolling window, per tool). Counts the request once
+    // 5. State-changing-request budget. Placed AFTER the host checks so a
+    //    forbidden host still reports as forbidden, and BEFORE the rate
+    //    limiter so a blocked write does not also consume rate budget.
+    //
+    // ponytail: a per-SESSION volume cap, not a per-host write allowlist and
+    // not a spend limit. It bounds "the loop posted 200 times"; it does not
+    // bound "the one POST set the wrong number". Upgrade path when that
+    // matters: an `allowedWriteDomains` on the manifest, defaulting to empty,
+    // so a tool must declare which hosts it may mutate — a bigger change,
+    // because every existing tool would need the declaration.
+    const isWrite = isWriteMethod(init?.method);
+    if (isWrite && this.#config.externalWriteBudget > 0) {
+      const spent = this.#writes.get(sessionId) ?? 0;
+      if (spent >= this.#config.externalWriteBudget) {
+        block(
+          `external write budget spent for this session: ` +
+            `${this.#config.externalWriteBudget} state-changing request(s). ` +
+            `This is a SAFETY STOP, not a permission denial — ${parsed.hostname} is allowed, ` +
+            `but an unattended run should not keep changing things outside this machine ` +
+            `without a human seeing the result. Report what you have done so far and stop. ` +
+            `Raise FERAL_EXTERNAL_WRITE_BUDGET if this workload genuinely needs more.`,
+        );
+      }
+      this.#writes.set(sessionId, spent + 1);
+    }
+
+    // 6. Rate limit (rolling window, per tool). Counts the request once
     //    regardless of how many redirects it follows.
     const window = this.#pruneWindow(manifest.name, start);
     if (window.length >= this.#config.maxRequests) {
@@ -273,7 +342,10 @@ export class EgressProxy {
         this.#audit({
           timestamp: Date.now(),
           sessionId,
-          actionType: "network",
+          // Writes get their own action type: after a two-hour unattended run
+          // the question is "what did it CHANGE out there", and that should be
+          // one grep, not a scan of every GET the agent made.
+          actionType: isWrite ? "network_write" : "network",
           toolName: manifest.name,
           argsJson: JSON.stringify({ url, method: init?.method ?? "GET" }),
           result: "success",
