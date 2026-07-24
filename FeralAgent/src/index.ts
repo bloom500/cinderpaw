@@ -11,9 +11,18 @@
  */
 
 import type { Transport } from "./types.ts";
-import { boot, log, VERSION } from "./boot.ts";
+import { log, VERSION } from "./runtime-meta.ts";
+import { CUSTOM_TOOL_RUNNER_FLAG, runCustomToolModule } from "./tools/custom-tool-runner.ts";
 
-export { loadWorkspaceRoots } from "./boot.ts";
+// NOTE: `boot.ts` is deliberately NOT imported statically. It is the hub of
+// the whole agent module graph, and several tool modules resolve their
+// executable allowlists against PATH at module scope — evaluating it costs
+// ~1.5s on Windows (bare compiled Bun floor: ~120ms). A static import here
+// made every short-lived invocation pay it: `version`, `help`, an unknown
+// subcommand, and every `--custom-tool-runner` child process, i.e. every
+// single call of every agent-forged tool. It is now loaded only on the paths
+// that actually start the agent. Keep it that way — and keep this file's
+// other imports leaf-only.
 
 /**
  * Entry point kept as a thin wrapper (rather than a re-export) so its
@@ -26,6 +35,7 @@ export { loadWorkspaceRoots } from "./boot.ts";
  *   writing JSON to stdout.
  */
 export async function main(transportOverride?: Transport): Promise<void> {
+  const { boot } = await import("./boot.ts");
   await boot(transportOverride);
 }
 
@@ -43,6 +53,16 @@ export async function main(transportOverride?: Transport): Promise<void> {
 // Dynamic imports break the circular dependency between index.ts and
 // src/tui/chat.ts (chat.ts imports main from here).
 if (import.meta.main) {
+  // Custom-tool runner mode: the forge spawns THIS binary to execute one
+  // agent-authored module (tools/custom-tools.ts). Handled before the CLI
+  // parser so a tool's module path can never be read as a subcommand.
+  //
+  const runnerFlagAt = process.argv.indexOf(CUSTOM_TOOL_RUNNER_FLAG);
+  if (runnerFlagAt !== -1) {
+    await runCustomToolModule(process.argv[runnerFlagAt + 1] ?? "");
+    process.exit(0);
+  }
+
   const { parseArgs, tailArgv, dispatch, HELP_TEXT } = await import("./cli.ts");
   const args = parseArgs(tailArgv(process.argv));
   const result = dispatch(args);

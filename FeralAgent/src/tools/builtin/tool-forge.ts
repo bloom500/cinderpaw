@@ -2,80 +2,178 @@
  * tool_forge — the agent's door for creating, modifying and deleting its
  * OWN tools (self-extension of the tool surface).
  *
- * Guardrails:
+ * Guardrails, in the order a create/update crosses them:
  *   - Only tools created through the forge can be modified or deleted —
  *     builtins and MCP tools are untouchable (checked against the live
  *     registry, not just the store).
  *   - Same trust class as shell_exec: registered only under the
  *     FERAL_ENABLE_SHELL_EXEC gate (see boot.ts). Execution runs in a
- *     subprocess through the ProcessSandbox — see custom-tools.ts.
- *   - Create/update transpiles the code (syntax gate) BEFORE anything is
- *     persisted or registered; a broken tool never enters the registry.
+ *     subprocess through the ProcessSandbox — see custom-tools.ts for
+ *     what that sandbox does and does NOT confine.
+ *   - SHAPE gate: the name/params/description must validate.
+ *   - SYNTAX gate: the code transpiles BEFORE anything is persisted.
+ *   - CONSENT gate: the owner approves before agent-written code runs for
+ *     the first time. This is the only gate that covers what the code
+ *     *does* — the subprocess runs with the user's own authority, so a
+ *     smoke run is a correctness check, never a containment one. Fails
+ *     CLOSED when no askUser bridge exists, unless
+ *     FERAL_FORGE_NO_PROMPT_OK=true (headless opt-in, mirroring
+ *     FERAL_DESKTOP_CONTROL_NO_PROMPT_OK).
+ *   - SMOKE gate: the tool is run ONCE with caller-supplied `test_args`
+ *     and must return the documented {ok, content} envelope. A tool that
+ *     cannot complete one call is not a tool — it is not registered, and
+ *     an update that fails restores the previous version.
  *   - Every forge call is audited by the registry like any tool call.
  *
- * The created tool is available immediately (hot-registered) and
- * persists across restarts (~/.feral/tools/).
+ * A tool that passes all five is available immediately (hot-registered)
+ * and persists across restarts (~/.feral/tools/).
  */
 
-import type { Tool, ToolManifest, ToolParameter } from "../../types.ts";
+import type { AskUserQuestion, Tool, ToolContext, ToolManifest, ToolParameter } from "../../types.ts";
 import type { ToolRegistry } from "../registry.ts";
+import { cfgBool } from "../../config.ts";
 import {
   createCustomTool,
   customToolsDir,
   deleteCustomTool,
   loadCustomTools,
   MAX_CUSTOM_TOOLS,
+  QUARANTINE_CALLS,
   resolveToolRuntime,
   saveCustomTool,
   transpileToolCode,
   validateCustomTool,
   type CustomToolRecord,
+  type ToolRuntime,
 } from "../custom-tools.ts";
+
+/** Ceiling on a smoke run, regardless of the tool's own timeout. The
+ *  forge call is blocking the agent loop; a tool that wants 5 minutes per
+ *  call can have them in production, not while we are deciding whether it
+ *  is real. */
+const SMOKE_TIMEOUT_MS = 30_000;
 
 export interface ToolForgeDeps {
   registry: ToolRegistry;
   workspaceRoots: string[];
   /** Injectable for tests. Default: ~/.feral/tools. */
   dir?: string;
-  /** Injectable for tests. Default: resolved bun/node. */
-  runtime?: string | null;
+  /** Injectable for tests. Default: this binary, re-invoked as the runner. */
+  runtime?: ToolRuntime;
+  /**
+   * Tool-health source for the boot-time pruning pass. Omit to disable
+   * pruning (tests, and any caller that has no observation log).
+   */
+  health?: { buildHealthReport(): { tools: Array<{ tool: string; totalRuns: number; successRate: number }> } };
 }
 
-/** Load persisted custom tools and register them. Returns the names
- *  registered — boot calls this once, before registering the forge. */
+/** A forged tool is dropped at boot when it has earned nothing. */
+const PRUNE_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
+const PRUNE_MIN_RUNS = 5;
+const PRUNE_MIN_SUCCESS_RATE = 0.6;
+
+/**
+ * Load persisted custom tools and register them. Returns the names
+ * registered — boot calls this once, before registering the forge.
+ *
+ * Also the capability economy: a tool that has never been called in 30 days,
+ * or that fails most of the time over a meaningful sample, is deleted rather
+ * than re-registered. Without this the forge only ever grows, every dead
+ * experiment keeps costing prompt tokens, and MAX_CUSTOM_TOOLS eventually
+ * blocks the agent from building something it actually needs.
+ *
+ * Deliberately here and not in the dream cycle: this runs on every boot, on
+ * every surface, with no scheduler involved — and it keeps the forge's
+ * lifecycle inside the forge.
+ */
 export function registerPersistedCustomTools(deps: ToolForgeDeps): string[] {
   const dir = deps.dir ?? customToolsDir();
-  const runtime = deps.runtime !== undefined ? deps.runtime : resolveToolRuntime();
-  if (!runtime) return [];
+  const runtime = deps.runtime ?? resolveToolRuntime();
+  const health = deps.health?.buildHealthReport().tools ?? [];
+  const now = Date.now();
   const registered: string[] = [];
   for (const record of loadCustomTools(dir)) {
     if (deps.registry.has(record.name)) continue; // never shadow a builtin
+    const stats = health.find((t) => t.tool === record.name);
+    const runs = stats?.totalRuns ?? 0;
+    // Never prune on the health report alone: with no observation log every
+    // tool looks unused. The age check is what makes "unused" meaningful.
+    const neverUsed = deps.health !== undefined && runs === 0 && now - record.updatedAt > PRUNE_UNUSED_MS;
+    const mostlyBroken = runs >= PRUNE_MIN_RUNS && (stats?.successRate ?? 1) < PRUNE_MIN_SUCCESS_RATE;
+    if (neverUsed || mostlyBroken) {
+      deleteCustomTool(dir, record.name);
+      continue;
+    }
     deps.registry.register(createCustomTool(record, dir, deps.workspaceRoots, runtime));
     registered.push(record.name);
   }
   return registered;
 }
 
+/**
+ * Owner consent for running agent-written code. Mirrors control_app's
+ * `confirmWrite`: no askUser bridge → fail CLOSED unless a headless
+ * deployment opted in, and a timeout / cancel counts as a denial.
+ *
+ * The prompt states the authority honestly rather than the reassuring
+ * version: the module runs as the user, because the ProcessSandbox gates
+ * WHICH binary is spawned, not what the spawned code then does.
+ */
+async function confirmForge(
+  action: string,
+  record: CustomToolRecord,
+  ctx: ToolContext,
+): Promise<boolean> {
+  if (!ctx.askUser) return cfgBool("FERAL_FORGE_NO_PROMPT_OK");
+  const verb = action === "create" ? "wrote a new tool" : "rewrote its tool";
+  const question: AskUserQuestion = {
+    question:
+      `Feral ${verb} "${record.name}" (${record.description}) and wants to run it. ` +
+      `Agent-written tools run as you — your files, your network, your credentials. ` +
+      `Allow ${record.code.split("\n").length} lines of generated code to run?`,
+    header: "New tool",
+    options: [
+      { label: "Allow", description: `Run and keep "${record.name}". You can remove it later.` },
+      { label: "Deny", description: "Nothing is written and nothing runs." },
+    ],
+    multiSelect: false,
+  };
+  try {
+    const answers = await ctx.askUser.ask([question], ctx.sessionId);
+    return (answers[0]?.selected?.[0]?.toLowerCase() ?? "").startsWith("allow");
+  } catch {
+    return false;
+  }
+}
+
 export function createToolForgeTool(deps: ToolForgeDeps): Tool {
   const dir = deps.dir ?? customToolsDir();
-  const runtime = deps.runtime !== undefined ? deps.runtime : resolveToolRuntime();
+  const runtime = deps.runtime ?? resolveToolRuntime();
 
   const manifest: ToolManifest = {
     name: "tool_forge",
     description:
       "Create, modify, delete or inspect your OWN custom tools. Actions: " +
-      "`create` (name, description, parameters, code), `update` (partial), " +
-      "`delete` (name), `list`, `show` (name). The tool's `code` is a " +
-      "TypeScript/JavaScript module: `export default async function (args) " +
-      "{ return { ok: true, content: \"...\", data?: any }; }`. It runs in a " +
-      "sandboxed subprocess with Node/Bun builtins available (node:fs, " +
-      "node:path, fetch, …). The new tool is callable immediately by its " +
-      "name and persists across restarts. Only forge-created tools can be " +
-      "updated or deleted — builtins are protected. Use this when you lack " +
-      "a tool for a recurring task, or an existing custom tool is buggy.",
-    permissions: ["fs:read", "fs:write"],
+      "`create` (name, description, parameters, code, test_args), `update` " +
+      "(partial), `delete` (name), `list`, `show` (name). The tool's `code` " +
+      "is a TypeScript/JavaScript module: `export default async function " +
+      "(args) { return { ok: true, content: \"...\", data?: any }; }`. It runs " +
+      "in a subprocess with Node/Bun builtins available (node:fs, node:path, " +
+      "fetch, …). create/update ask the user for approval and then SMOKE-RUN " +
+      "the tool once with your `test_args` — if that run fails, the tool is " +
+      "not registered (and an update keeps the previous version), so pass " +
+      "test_args that genuinely exercise it. On success the tool is callable " +
+      "immediately by its name and persists across restarts. Only " +
+      "forge-created tools can be updated or deleted — builtins are " +
+      "protected. Use this when you lack a tool for a recurring task, or an " +
+      "existing custom tool is buggy.",
+    // process:spawn is what lets the forge smoke-run a candidate before
+    // registering it. The runtime is always this binary, so the permission
+    // is always usable.
+    permissions: ["fs:read", "fs:write", "process:spawn"],
     networkAccess: false,
     allowedPaths: [dir],
+    allowedExecutables: [runtime.executable],
   };
 
   /** Names created by the forge (loaded from disk + created this session).
@@ -117,8 +215,14 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         description: "Per-call timeout in ms (default 30000, max 300000).",
         required: false,
       },
+      test_args: {
+        type: "object",
+        description:
+          "Arguments for the one smoke run that decides whether the tool gets registered. Must cover every required parameter. Pick values that make the tool do its real work — a run that returns ok:false blocks registration.",
+        required: false,
+      },
     },
-    async execute(args) {
+    async execute(args, ctx) {
       const action = typeof args.action === "string" ? args.action : "";
       const name = typeof args.name === "string" ? args.name.trim() : "";
 
@@ -160,15 +264,6 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         return { ok: false, content: `tool_forge: unknown action "${action}". Use create|update|delete|list|show.`, error: "bad_args" };
       }
 
-      if (!runtime) {
-        return {
-          ok: false,
-          content:
-            "tool_forge: no JS runtime found on PATH (need `bun` or `node`) — custom tools cannot execute. Install one and restart.",
-          error: "no_runtime",
-        };
-      }
-
       const existing = loadCustomTools(dir).find((r) => r.name === name);
       if (action === "create" && deps.registry.has(name) && !ownedNames().has(name)) {
         return { ok: false, content: `tool_forge: "${name}" already exists as a builtin — pick another name.`, error: "name_taken" };
@@ -201,6 +296,35 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         return { ok: false, content: "tool_forge: code must have `export default async function (args) {...}`.", error: "bad_code" };
       }
 
+      // The smoke run needs arguments, and only the caller knows which ones
+      // are meaningful. Demand coverage of the required params up front —
+      // a cheap rejection before we ask the user to approve anything.
+      const requiredParams = Object.entries(parameters)
+        .filter(([, p]) => p.required !== false)
+        .map(([key]) => key);
+      const testArgs =
+        args.test_args && typeof args.test_args === "object" && !Array.isArray(args.test_args)
+          ? (args.test_args as Record<string, unknown>)
+          : {};
+      const uncovered = requiredParams.filter((key) => !(key in testArgs));
+      if (uncovered.length > 0) {
+        return {
+          ok: false,
+          content:
+            `tool_forge: pass test_args covering the required parameter(s) ${uncovered.join(", ")} — ` +
+            `"${name}" is smoke-run once before it is registered.`,
+          error: "bad_args",
+        };
+      }
+
+      if (!ctx.process) {
+        return {
+          ok: false,
+          content: "tool_forge: no process sandbox available — a tool cannot be verified, so it will not be registered.",
+          error: "no_sandbox",
+        };
+      }
+
       const now = Date.now();
       const record: CustomToolRecord = {
         version: 1,
@@ -212,15 +336,69 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
+
+      // CONSENT before the code runs even once. Everything above this line
+      // inspects text; everything below executes it.
+      if (!(await confirmForge(action, record, ctx))) {
+        return {
+          ok: false,
+          content: `tool_forge: the user declined "${action}" for "${name}" — nothing was written.`,
+          error: "denied",
+        };
+      }
+
+      // Persist first: the runner imports the module from disk, so there is
+      // nothing to smoke-run until it exists. An update overwrites the live
+      // module here and `restore()` puts it back if the candidate fails —
+      // the previous version stays REGISTERED throughout, so a failed update
+      // is a no-op from the agent's side.
       saveCustomTool(dir, record, transpiled.js);
+      const restore = () => {
+        const previous = existing ? transpileToolCode(existing.code) : null;
+        if (existing && previous && "js" in previous) saveCustomTool(dir, existing, previous.js);
+        else deleteCustomTool(dir, name);
+      };
+
+      // `calls: QUARANTINE_CALLS` marks the smoke candidate as already
+      // graduated so it does not prompt: the consent gate a few lines above
+      // IS the approval for this one execution. The PERSISTED record still
+      // has calls: 0, so the first real call re-enters quarantine.
+      const candidate = createCustomTool(
+        {
+          ...record,
+          timeoutMs: Math.min(record.timeoutMs ?? SMOKE_TIMEOUT_MS, SMOKE_TIMEOUT_MS),
+          calls: QUARANTINE_CALLS,
+        },
+        dir,
+        deps.workspaceRoots,
+        runtime,
+      );
+      let smoke: Awaited<ReturnType<Tool["execute"]>>;
+      try {
+        smoke = await candidate.execute(testArgs, ctx);
+      } catch (err) {
+        smoke = { ok: false, content: String((err as Error)?.message ?? err), error: "tool_error" };
+      }
+      if (!smoke.ok) {
+        restore();
+        return {
+          ok: false,
+          content:
+            `tool_forge: "${name}" failed its smoke run and was NOT registered` +
+            `${existing ? " (the previous version is untouched)" : ""} — ${smoke.content}`,
+          error: "smoke_failed",
+          data: { name, action, testArgs },
+        };
+      }
+
       deps.registry.unregister(name);
       deps.registry.register(createCustomTool(record, dir, deps.workspaceRoots, runtime));
 
       return {
         ok: true,
         content:
-          `${action === "create" ? "Created" : "Updated"} custom tool "${name}" — it is registered and callable now. ` +
-          "Call it once with test arguments to verify it behaves as intended.",
+          `${action === "create" ? "Created" : "Updated"} custom tool "${name}" — approved, smoke-run with ` +
+          `${JSON.stringify(testArgs)}, and registered. It returned: ${smoke.content.slice(0, 200)}`,
         data: { name, action },
       };
     },

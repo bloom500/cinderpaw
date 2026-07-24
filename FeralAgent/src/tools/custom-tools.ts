@@ -9,6 +9,24 @@
  * agent-written code in-process (trust boundary: same discipline as
  * "the running process never mutates itself").
  *
+ * What the ProcessSandbox actually buys here — read this before trusting
+ * the word "sandboxed": it is a SPAWN-TIME gate. It checks that the tool
+ * declared `process:spawn`, that the executable is on the allowlist, that
+ * the cwd is inside `allowedPaths`, and it scrubs the environment. Once
+ * the runtime is running the agent's module, that module has the user's
+ * full ambient authority: it can read any file the user can read and open
+ * any socket the user can open. `allowedPaths` below constrains the cwd,
+ * not the child's syscalls, and `networkAccess: false` means only "this
+ * tool is not handed an egress-proxied ctx.fetch" — the child calls
+ * `fetch` itself, outside the proxy.
+ *
+ * ponytail: OS-level confinement (job objects / seccomp / a WASI runtime)
+ * is the real fix and is deliberately not attempted here. Until then the
+ * containment story is the forge's CONSENT gate — the owner approves the
+ * code before it runs — and the deny wall on the fs tools. Upgrade path:
+ * run the module under a WASI runtime with an explicit preopen set, which
+ * would also make `networkAccess` true rather than decorative.
+ *
  * Trust class: identical to shell_exec (arbitrary code, OS-level ambient
  * authority). That is why boot registers the forge + custom tools ONLY
  * under the same FERAL_ENABLE_SHELL_EXEC gate — this feature adds
@@ -21,15 +39,18 @@
  *   }
  * Args arrive as JSON on stdin via the runner; the result is the last
  * JSON line on stdout. TypeScript is accepted — it is transpiled at save
- * time (which doubles as the syntax check) so the runner works under
- * plain `node` as well as `bun`.
+ * time, which doubles as the syntax check.
+ *
+ * The runner is THIS binary re-invoked with `--custom-tool-runner` (see
+ * custom-tool-runner.ts): a packaged Feral embeds its Bun runtime, so the
+ * feature no longer depends on the user having `bun` or `node` installed.
  */
 
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { feralHome } from "../config.ts";
-import { resolveExecutables } from "../core/executables.ts";
-import type { Tool, ToolManifest, ToolParameter, ToolResult } from "../types.ts";
+import { basename, join } from "node:path";
+import { cfgBool, feralHome } from "../config.ts";
+import { CUSTOM_TOOL_RUNNER_FLAG } from "./custom-tool-runner.ts";
+import type { AskUserQuestion, Tool, ToolManifest, ToolParameter, ToolResult } from "../types.ts";
 
 export const MAX_CODE_BYTES = 64 * 1024;
 export const MAX_CUSTOM_TOOLS = 64;
@@ -48,9 +69,22 @@ export interface CustomToolRecord {
   code: string;
   /** Per-call timeout; clamped to [1s, 5min]. */
   timeoutMs?: number;
+  /**
+   * Quarantine counter: how many owner-approved calls this tool has made.
+   * Below QUARANTINE_CALLS the tool is "experimental" and every call is
+   * confirmed; at or above it the tool has graduated and runs unattended.
+   * Absent on records written before quarantine existed — treated as 0, so
+   * an already-forged tool re-enters quarantine once. That is deliberate:
+   * those tools were registered by the old transpile-only gate and have
+   * never been reviewed by anyone.
+   */
+  calls?: number;
   createdAt: number;
   updatedAt: number;
 }
+
+/** Owner-approved calls before a forged tool stops asking. */
+export const QUARANTINE_CALLS = 3;
 
 export function customToolsDir(): string {
   return join(feralHome(), "tools");
@@ -106,29 +140,6 @@ export function transpileToolCode(code: string): { js: string } | { error: strin
   }
 }
 
-/** The subprocess entry point. Plain JS (runs under bun OR node); reads
- *  args JSON from stdin, imports the transpiled module, prints the result
- *  as the last JSON line on stdout. Written idempotently at load time. */
-const RUNNER_SOURCE = `import { pathToFileURL } from "node:url";
-const modPath = process.argv[2];
-let input = "";
-for await (const chunk of process.stdin) input += chunk;
-let result;
-try {
-  const mod = await import(pathToFileURL(modPath).href);
-  if (typeof mod.default !== "function") throw new Error("tool module must have a default export function");
-  const raw = await mod.default(input.trim() ? JSON.parse(input) : {});
-  result = raw && typeof raw === "object"
-    ? { ok: raw.ok !== false, content: String(raw.content ?? ""), ...(raw.data !== undefined ? { data: raw.data } : {}) }
-    : { ok: true, content: String(raw ?? "") };
-} catch (err) {
-  result = { ok: false, content: String((err && err.stack) || err), error: "tool_error" };
-}
-process.stdout.write("\\n" + JSON.stringify(result));
-`;
-
-const RUNNER_FILENAME = ".runner.mjs";
-
 function recordPath(dir: string, name: string): string {
   return join(dir, `${name}.json`);
 }
@@ -141,6 +152,25 @@ export function saveCustomTool(dir: string, record: CustomToolRecord, js: string
   mkdirSync(dir, { recursive: true });
   writeFileSync(recordPath(dir, record.name), JSON.stringify(record, null, 2), "utf8");
   writeFileSync(modulePath(dir, record.name), js, "utf8");
+}
+
+/**
+ * Update ONLY the quarantine counter of a stored record. Deliberately does
+ * not go through `saveCustomTool`: that needs the transpiled module, and a
+ * counter bump must never be able to rewrite executable code.
+ */
+export function setCustomToolCalls(dir: string, name: string, calls: number): void {
+  const file = recordPath(dir, name);
+  try {
+    const record = JSON.parse(readFileSync(file, "utf8")) as CustomToolRecord;
+    if (record?.name !== name) return;
+    record.calls = calls;
+    writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
+  } catch {
+    // Missing / corrupt record → nothing to count. The caller still gates
+    // the call; losing the counter costs an extra prompt, never a silent
+    // ungated execution.
+  }
 }
 
 export function deleteCustomTool(dir: string, name: string): void {
@@ -177,16 +207,36 @@ export function loadCustomTools(dir: string): CustomToolRecord[] {
   return out.slice(0, MAX_CUSTOM_TOOLS);
 }
 
-/** Resolve the runtime that executes tool modules: bun preferred, node
- *  fallback. `process.execPath` is useless here — the compiled sidecar
- *  binary re-runs the agent, not a script. Null when neither exists. */
-export function resolveToolRuntime(): string | null {
-  for (const name of ["bun", "node"]) {
-    const [resolved] = resolveExecutables([name]);
-    // resolveExecutables keeps the bare name on failure; a real hit is absolute.
-    if (resolved && (resolved.includes("/") || resolved.includes("\\"))) return resolved;
-  }
-  return null;
+/** How to spawn a tool module: the executable plus the argv that go before
+ *  the module path. */
+export interface ToolRuntime {
+  executable: string;
+  prefix: string[];
+}
+
+/**
+ * Resolve the runtime that executes tool modules — always ourselves.
+ *
+ * Packaged, `process.execPath` IS the sidecar and re-invoking it with the
+ * runner flag runs the module inside the embedded Bun. In development the
+ * sidecar runs *under* a bun interpreter, so the entry script has to be
+ * passed too (`bun <entry> --custom-tool-runner <module>`), otherwise bun
+ * would try to interpret our flag as one of its own.
+ *
+ * Never returns null: unlike the old bun/node PATH lookup, there is no
+ * machine where this feature is unavailable.
+ */
+export function resolveToolRuntime(): ToolRuntime {
+  // ponytail: dev mode is identified by the interpreter's filename. A bun
+  // binary renamed to something else would be misread as a packaged
+  // sidecar; the cost is a failed spawn at forge time, not a wrong result.
+  // Upgrade path if that ever bites: a build-time flag baked into VERSION.
+  const interpreter = basename(process.execPath).toLowerCase().replace(/\.exe$/, "");
+  const underBun = interpreter === "bun" || interpreter === "bun-debug";
+  return {
+    executable: process.execPath,
+    prefix: underBun ? [Bun.main, CUSTOM_TOOL_RUNNER_FLAG] : [CUSTOM_TOOL_RUNNER_FLAG],
+  };
 }
 
 /** Build the registry `Tool` for one custom record. Execution goes
@@ -196,20 +246,28 @@ export function createCustomTool(
   record: CustomToolRecord,
   dir: string,
   workspaceRoots: string[],
-  runtime: string,
+  runtime: ToolRuntime,
 ): Tool {
   const manifest: ToolManifest = {
     name: record.name,
     description: `[custom tool] ${record.description}`,
     permissions: ["process:spawn", "fs:read"],
+    // Describes what the SANDBOX grants this tool (no proxied ctx.fetch),
+    // NOT what the child process can reach. See the module docblock.
     networkAccess: false,
     allowedPaths: [...workspaceRoots, dir],
-    allowedExecutables: [runtime],
+    allowedExecutables: [runtime.executable],
   };
   const timeoutMs = Math.min(
     Math.max(record.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000),
     MAX_TIMEOUT_MS,
   );
+
+  // Quarantine state is cached once it graduates so a trusted tool costs no
+  // disk read per call; while quarantined the counter is re-read from disk so
+  // it stays correct across restarts and across the TUI/desktop/connector
+  // processes that each build their own Tool object from the same store.
+  let graduated = (record.calls ?? 0) >= QUARANTINE_CALLS;
 
   return {
     manifest,
@@ -218,14 +276,34 @@ export function createCustomTool(
       if (!ctx.process) {
         return { ok: false, content: `${record.name}: process sandbox unavailable`, error: "no_sandbox" };
       }
-      // The runner is written idempotently before each call — trivial cost,
-      // and it survives a user wiping the tools dir between boots.
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, RUNNER_FILENAME), RUNNER_SOURCE, "utf8");
+
+      if (!graduated) {
+        const seen = loadCustomTools(dir).find((r) => r.name === record.name)?.calls ?? 0;
+        if (seen >= QUARANTINE_CALLS) {
+          graduated = true;
+        } else {
+          const verdict = await confirmQuarantinedCall(record, args, ctx, seen);
+          if (verdict === "deny") {
+            return {
+              ok: false,
+              content:
+                `${record.name}: the user declined this call. The tool is still experimental ` +
+                `(${seen}/${QUARANTINE_CALLS} approved calls). Explain what you wanted it to do, or use another tool.`,
+              error: "denied",
+            };
+          }
+          if (verdict === "always") {
+            setCustomToolCalls(dir, record.name, QUARANTINE_CALLS);
+            graduated = true;
+          } else {
+            setCustomToolCalls(dir, record.name, seen + 1);
+          }
+        }
+      }
       try {
         const result = await ctx.process.run(manifest, ctx.sessionId, {
-          executable: runtime,
-          args: [join(dir, RUNNER_FILENAME), modulePath(dir, record.name)],
+          executable: runtime.executable,
+          args: [...runtime.prefix, modulePath(dir, record.name)],
           cwd: workspaceRoots[0],
           stdin: JSON.stringify(args ?? {}),
           timeoutMs,
@@ -245,6 +323,51 @@ export function createCustomTool(
       }
     },
   };
+}
+
+/**
+ * Confirm one call of a still-experimental forged tool. Same fail-closed
+ * discipline as the forge's creation gate (`confirmForge`) and control_app's
+ * `confirmWrite`: no bridge to ask through → denied, unless a headless
+ * deployment opted in with FERAL_FORGE_NO_PROMPT_OK.
+ *
+ * The prompt shows the ARGUMENTS, because that is what differs between a
+ * benign call and a harmful one — the code was already reviewed at creation.
+ */
+async function confirmQuarantinedCall(
+  record: CustomToolRecord,
+  args: Record<string, unknown>,
+  ctx: Parameters<Tool["execute"]>[1],
+  seen: number,
+): Promise<"once" | "always" | "deny"> {
+  if (!ctx.askUser) return cfgBool("FERAL_FORGE_NO_PROMPT_OK") ? "once" : "deny";
+  let rendered: string;
+  try {
+    rendered = JSON.stringify(args ?? {}).slice(0, 300);
+  } catch {
+    rendered = "(unserializable arguments)";
+  }
+  const question: AskUserQuestion = {
+    question:
+      `Run the agent-built tool "${record.name}" (${record.description})? ` +
+      `Call ${seen + 1} of ${QUARANTINE_CALLS} while it is still experimental. Arguments: ${rendered}`,
+    header: "Run tool",
+    options: [
+      { label: "Allow once", description: "Run this call. Feral will ask again next time." },
+      { label: "Always allow", description: `Stop asking — "${record.name}" becomes a normal tool.` },
+      { label: "Deny", description: "Skip this call." },
+    ],
+    multiSelect: false,
+  };
+  try {
+    const answers = await ctx.askUser.ask([question], ctx.sessionId);
+    const picked = answers[0]?.selected?.[0]?.toLowerCase() ?? "";
+    if (picked.startsWith("always")) return "always";
+    if (picked.startsWith("allow")) return "once";
+    return "deny";
+  } catch {
+    return "deny"; // timeout / cancel → fail safe
+  }
 }
 
 /** The runner prints the result as the LAST JSON line — anything the

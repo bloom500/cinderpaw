@@ -214,6 +214,21 @@ export class ToolRegistry {
         result: "blocked",
         blockedReason: `unknown or unregistered tool "${name}"`,
       });
+      // A call to a tool that does not exist is the one UNAMBIGUOUS capability
+      // gap the runtime can observe: the model named a capability it needed and
+      // we do not have it. Everything else ("I can't do that") is a text
+      // heuristic that breaks across languages. This used to be audited only,
+      // so the signal never reached the observation log where tool_health and
+      // the pruning pass can see it. `argsKeys` is kept because the shape of
+      // the arguments says what the missing tool was expected to take.
+      this.#observations?.append({
+        sessionId,
+        tool: name,
+        success: false,
+        durationMs: 0,
+        error: "unknown_tool",
+        argsKeys: Object.keys(args),
+      });
       return {
         ok: false,
         content: `Tool "${name}" is not available.`,

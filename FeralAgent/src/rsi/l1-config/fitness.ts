@@ -10,12 +10,17 @@
  *
  *     Accuracy · Latency · Cost · ToolSuccess · Hallucination · UserSatisfaction
  *
- *   Two new components (Hallucination, UserSatisfaction) are not yet
- *   measured by the scorer; the TS adapter marks them as unmeasured
- *   and supplies neutral defaults (0.5) so the weighted aggregate
- *   stays well-defined while the missing signals arrive (Personal
- *   Fitness module for UserSatisfaction; a future eval spec for
- *   Hallucination).
+ *   Two extra components (Hallucination, UserSatisfaction) are not
+ *   produced by the Rust scorer. They are measured elsewhere and merged
+ *   in by `contract-leaves.ts` runBenchmark:
+ *     - UserSatisfaction ← `computePersonalFitness` over recent tool-call
+ *       outcomes + the user's 👍/👎 feedback rows (wired in production at
+ *       `rsi/sidecar.ts` via `readRecentAudit`);
+ *     - Hallucination ← `hallucinationFromOutcomes` over the candidate's
+ *       own eval batch.
+ *   The neutral 0.5 below is the FALLBACK for when a caller supplies
+ *   neither signal (unit tests, the code-RSI path) — not the normal case.
+ *   Anything flagged unmeasured is recorded as such in the Journal.
  *
  * Discipline: pure types + pure functions. No IO. The "fitness vector"
  *   is a shape that downstream consumers (Journal, Gate, Contract)

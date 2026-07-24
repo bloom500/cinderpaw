@@ -123,6 +123,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_ENABLE_DESKTOP_CONTROL` | bool | `false` | yes | Registers control_app (OS accessibility-tree control). Off by default; set to "true" to enable. |
 | `FERAL_DESKTOP_CONTROL_CONFIRM` | bool | `true` | yes | Per-action confirmation dialog for control_app writes. On by default; set to "false" to disable (inverse-toggle var — see report for why this call site is not migrated to cfgBool). |
 | `FERAL_DESKTOP_CONTROL_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, a transport with no askUser bridge may proceed without confirmation instead of failing closed. |
+| `FERAL_FORGE_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, tool_forge may create/update a tool on a transport with no askUser bridge instead of failing closed. This approves running agent-written code unattended — headless deployments only. |
 | `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` | list | `null` | yes | Comma-separated allowlist of app names control_app may target. Empty = fail closed. (Read by the Rust host, not FeralAgent/src.) |
 | `FERAL_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
 | `FERAL_HTTP_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for http_request. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
@@ -273,6 +274,7 @@ FERAL_FMS_EVICTION
 FERAL_FMS_MAX_LEAVES
 FERAL_FMS_MERGE_THRESHOLD
 FERAL_FORCE_SIDECAR_BUILD
+FERAL_FORGE_NO_PROMPT_OK
 FERAL_FRACTAL_BENCH_COUNT
 FERAL_FRACTAL_BENCH_MAX_LEAVES
 FERAL_FRACTAL_BENCH_QUERIES

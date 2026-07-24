@@ -6,7 +6,7 @@
  * answer on top.
  */
 import { describe, expect, test } from "bun:test";
-import { createStreamHoldback, parseResponse } from "../src/core/agent-loop";
+import { BARE_CALL_KEYS, createStreamHoldback, parseResponse } from "../src/core/agent-loop";
 
 function run(tokens: string[], wasProse: boolean): string {
   let out = "";
@@ -19,6 +19,44 @@ function run(tokens: string[], wasProse: boolean): string {
 describe("createStreamHoldback", () => {
   test("plain prose streams through untouched", () => {
     expect(run(["Hello ", "world", "!"], true)).toBe("Hello world!");
+  });
+
+  // A pretty-printing model emits `{ "name": … }` / `{\n  "name": … }`. Those
+  // PARSE fine, so the call executed — but the literal opener list did not
+  // match them, so the raw JSON streamed into the chat first.
+  test("bare call with whitespace after the brace is held back", () => {
+    expect(run(["Let me check.\n", '{ "name": "list_tools", "args": {} }'], false))
+      .toBe("Let me check.\n");
+    expect(run(["Let me check.\n", '{\n  "name": "list_tools",\n  "args": {}\n}'], false))
+      .toBe("Let me check.\n");
+  });
+
+  test("bare call arriving one character at a time is held from the brace", () => {
+    const tokens = 'ok {  "tool_name": "grep", "args": {} }'.split("");
+    expect(run(tokens, false)).toBe("ok ");
+  });
+
+  /**
+   * The holdback and `extractBareToolCalls` recognise the same shapes through
+   * two different mechanisms (character scan vs regex). This asserts they
+   * agree for every declared key — drift between them is exactly the bug
+   * above, and a comment would not have caught it.
+   */
+  test("every bare-call key is both held back and parsed", () => {
+    for (const key of BARE_CALL_KEYS) {
+      const payload =
+        key === "invoke"
+          ? '{ "invoke": "list_tools", "args": {} }'
+          : `{ "${key}": "list_tools", "args": {} }`;
+      const streamed = run(["thinking...\n", payload], false);
+      expect(streamed, `key ${key} leaked into the stream`).toBe("thinking...\n");
+      expect(parseResponse(payload).text, `key ${key} left raw JSON in the text`)
+        .not.toContain("list_tools");
+    }
+  });
+
+  test("ordinary JSON in prose still streams (not every brace is a call)", () => {
+    expect(run(['The config is { "port": 8080 }.'], true)).toBe('The config is { "port": 8080 }.');
   });
 
   test("holds from <tool_call> onward and drops it for a parsed call", () => {

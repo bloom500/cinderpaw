@@ -76,6 +76,14 @@ export class WorkingMemory {
    */
   #skillMenu = "";
 
+  /**
+   * Open items from the durable todo list, rendered per turn like the skill
+   * menu. This is what stops "I already did this" followed by doing it again:
+   * the transcript that recorded the work gets compacted away, but the todo
+   * rows live in SQLite and are re-shown every turn.
+   */
+  #todoList = "";
+
   constructor(systemPrompt: string, config: Partial<WorkingMemoryConfig> = {}) {
     this.#system = systemPrompt;
     this.#config = { ...DEFAULT_CONFIG, ...config };
@@ -115,6 +123,7 @@ export class WorkingMemory {
     let total = 0;
     total += countTokens(this.#system);
     total += countTokens(this.#skillMenu);
+    total += countTokens(this.#todoList);
     total += countTokens(this.#memoryContext);
     for (const m of this.#messages) {
       total += countTokens(m.content);
@@ -153,6 +162,26 @@ export class WorkingMemory {
   }
 
   /**
+   * Update the per-turn view of the durable todo list. Only OPEN items are
+   * shown — a done item is history, and re-listing it every turn would spend
+   * context re-teaching the model something it must not redo.
+   *
+   * ponytail: capped at 20 items, no pagination. A task list longer than that
+   * is a planning problem, not a rendering one.
+   */
+  setTodoList(items: Array<{ id: string; content: string; status: string }>): void {
+    const open = items.filter((t) => t.status !== "done").slice(0, 20);
+    if (open.length === 0) {
+      this.#todoList = "";
+      return;
+    }
+    this.#todoList =
+      "## Your task list (persists across sessions — `todo_write` to update)\n" +
+      "These are still OPEN. Do not redo anything absent from this list.\n\n" +
+      open.map((t) => `- [${t.status}] \`${t.id}\` — ${t.content}`).join("\n");
+  }
+
+  /**
    * Build the full message array for an inference call.
    *
    * P1 (prompt caching): the layout is reshaped so llama.cpp's KV cache
@@ -186,6 +215,7 @@ export class WorkingMemory {
   render(): ChatMessage[] {
     const dynamicBlocks: string[] = [];
     if (this.#skillMenu) dynamicBlocks.push(this.#skillMenu);
+    if (this.#todoList) dynamicBlocks.push(this.#todoList);
     if (this.#memoryContext) dynamicBlocks.push(this.#memoryContext);
 
     if (dynamicBlocks.length === 0) {
@@ -262,6 +292,7 @@ export class WorkingMemory {
     const fixedOverhead =
       countTokens(this.#system) +
       countTokens(this.#skillMenu) +
+      countTokens(this.#todoList) +
       countTokens(this.#memoryContext) +
       summaryReserve;
     const recentBudget = Math.max(0, targetTokens - fixedOverhead);

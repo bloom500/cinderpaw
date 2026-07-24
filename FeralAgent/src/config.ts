@@ -44,6 +44,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Per-action confirmation dialog for control_app writes. On by default; set to \"false\" to disable (inverse-toggle var — see report for why this call site is not migrated to cfgBool).", security: true },
   { name: "FERAL_DESKTOP_CONTROL_NO_PROMPT_OK", type: "bool", default: false,
     description: "Sidecar-internal escape hatch: when true, a transport with no askUser bridge may proceed without confirmation instead of failing closed.", security: true },
+  { name: "FERAL_FORGE_NO_PROMPT_OK", type: "bool", default: false,
+    description: "Sidecar-internal escape hatch: when true, tool_forge may create/update a tool on a transport with no askUser bridge instead of failing closed. This approves running agent-written code unattended — headless deployments only.", security: true },
   { name: "FERAL_DESKTOP_CONTROL_ALLOWED_APPS", type: "list", default: null,
     description: "Comma-separated allowlist of app names control_app may target. Empty = fail closed. (Read by the Rust host, not FeralAgent/src.)", security: true },
   { name: "FERAL_FETCH_DOMAINS", type: "list", default: null,

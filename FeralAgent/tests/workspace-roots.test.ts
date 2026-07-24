@@ -10,7 +10,10 @@
 import { test, expect } from "bun:test";
 import { resolve, delimiter, parse } from "node:path";
 import { homedir } from "node:os";
-import { loadWorkspaceRoots } from "../src/index.ts";
+// Imported from boot.ts, where it is defined. index.ts used to re-export it,
+// but that static re-export forced every short-lived invocation to evaluate
+// the whole agent module graph — see the note in index.ts.
+import { loadWorkspaceRoots } from "../src/boot.ts";
 
 const FERAL_HOME = resolve(homedir(), ".feral");
 const SCRATCH = resolve(FERAL_HOME, "workspace");

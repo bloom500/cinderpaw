@@ -39,6 +39,7 @@ import { createFileSearchTool } from "./tools/builtin/file-search.ts";
 import { createGrepTool } from "./tools/builtin/grep.ts";
 import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
 import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
+import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
 import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
 import { createTimeDateTool } from "./tools/builtin/time-date.ts";
@@ -121,15 +122,12 @@ const FERAL_HOME = feralHome();
 /**
  * Sidecar version, surfaced verbatim in the runtime identity doc emitted
  * by `self_describe` and used as the L4 manifest `compat.runtime` floor.
- * Static import so `bun --compile` bundles it — the previous
- * `readFileSync(new URL("../package.json", …))` silently fell back to
- * "0.0.0-dev" inside the compiled binary (caught live by the B7 smoke:
- * every module manifest failed its runtime floor). Env override kept.
+ * VERSION and log() now live in `runtime-meta.ts` (a leaf module) so a
+ * short-lived invocation can read them without evaluating this file's
+ * module graph. Re-exported here because this was their public home.
  */
-import pkgJson from "../package.json" with { type: "json" };
-export const VERSION: string =
-  cfgPath("FERAL_VERSION") ??
-  ((pkgJson as { version?: string }).version || "0.0.0-dev");
+import { log, VERSION } from "./runtime-meta.ts";
+export { VERSION, log } from "./runtime-meta.ts";
 
 /** When this sidecar process started, for uptime reports. */
 const BOOT_EPOCH_MS = Date.now();
@@ -624,7 +622,10 @@ export async function boot(transportOverride?: Transport) {
     // tool_forge: the agent creates/modifies/deletes its OWN tools. Same
     // trust class as shell_exec (arbitrary code in a sandboxed subprocess),
     // hence the same gate. Persisted tools are re-registered every boot.
-    const forgeDeps = { registry, workspaceRoots: config.workspaceRoots };
+    // `health` enables the boot-time pruning pass: forged tools that were
+    // never called in 30 days, or that mostly fail, are deleted instead of
+    // re-registered. Without it the tool surface only grows.
+    const forgeDeps = { registry, workspaceRoots: config.workspaceRoots, health: observations };
     const restored = registerPersistedCustomTools(forgeDeps);
     if (restored.length > 0) log(`tool_forge: restored ${restored.length} custom tool(s): ${restored.join(", ")}`);
     registry.register(createToolForgeTool(forgeDeps));
@@ -674,6 +675,13 @@ export async function boot(transportOverride?: Transport) {
   // appropriate command (npm test, cargo test, pytest, go test, make test,
   // etc.). All five share the same factory and the same exec allowlist
   // (resolved at module load time per F0.5 hardening).
+  // todo_write: the agent's durable task list. Both the tool and its store
+  // existed but were never instantiated or registered — the agent has been
+  // running without a task list at all, which is why long tasks lose track of
+  // what is already finished. The same store feeds the per-turn todo block in
+  // WorkingMemory (see agent.setTodoStore below).
+  const todoStore = new TodoStore(db.raw);
+  registry.register(createTodoWriteTool(todoStore));
   registry.register(createCodeQualityTool("run_tests", config.workspaceRoots));
   registry.register(createCodeQualityTool("format_code", config.workspaceRoots));
   registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));
@@ -840,6 +848,8 @@ export async function boot(transportOverride?: Transport) {
   // machine sessions and public-persona profiles itself.
   // ponytail: the message text is the title; a model-generated label would
   // cost a completion per turn.
+  agent.setTodoStore(todoStore);
+
   agent.setUserTurnObserver((_sessionId, userText) => {
     const now = Date.now();
     touchLastActive(db.raw, now);
@@ -1513,7 +1523,3 @@ export async function boot(transportOverride?: Transport) {
 /** Everything dispatchMessage() needs from the boot sequence — see ctx above. */
 export type BootContext = Awaited<ReturnType<typeof boot>>;
 
-/** Diagnostics go to stderr; stdout is reserved for the transport protocol. */
-export function log(message: string): void {
-  process.stderr.write(`[feral] ${message}\n`);
-}

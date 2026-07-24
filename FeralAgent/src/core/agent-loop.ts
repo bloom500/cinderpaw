@@ -376,6 +376,19 @@ export class AgentLoop {
   #onUserTurn: ((sessionId: string, userText: string) => void) | null = null;
 
   /** @see #onUserTurn */
+  /**
+   * Attach the durable todo store. Its open items are re-rendered into every
+   * turn's dynamic block, so the task list survives compaction — the fix for
+   * "I already did this" followed by doing it again.
+   *
+   * Structural type on purpose: the loop needs `list()`, not a dependency on
+   * the tools layer.
+   */
+  setTodoStore(store: { list(): Array<{ id: string; content: string; status: string }> }): void {
+    this.#todos = store;
+  }
+  #todos: { list(): Array<{ id: string; content: string; status: string }> } | null = null;
+
   setUserTurnObserver(fn: (sessionId: string, userText: string) => void): void {
     this.#onUserTurn = fn;
   }
@@ -741,6 +754,17 @@ export class AgentLoop {
     // is affected, preserving user privacy across sessions.
     const { text: userTextClean } = stripPrivate(userText);
 
+    // Refresh the durable task list for this turn. Cheap (one indexed SELECT)
+    // and it must run per turn, not per session: the model updates the list
+    // mid-task via todo_write and has to see its own edits.
+    if (this.#todos) {
+      try {
+        memory.setTodoList(this.#todos.list());
+      } catch {
+        // A todo-store failure must never cost the user their turn.
+      }
+    }
+
     memory.addUser(userText, images);
     // Memory Resume: this user turn IS the current task. Fired here, at the one
     // seam every surface goes through (desktop/TUI dispatch, WhatsApp, Discord),
@@ -930,9 +954,17 @@ export class AgentLoop {
     // plus the terminating completion's text — mirroring what the user saw
     // stream into the chat bubble.
     const answerParts: string[] = [];
-    // M1: no-progress detector — consecutive identical (name+args) tool calls.
-    let lastToolKey: string | null = null;
-    let toolRepeatCount = 0;
+    // M1: no-progress detector. Two failure shapes matter and the old
+    // consecutive-only check caught just one of them:
+    //   A,A,A          — the model retries the identical call. Caught before.
+    //   A,B,A,B,A      — a two-cycle (read the same missing file, list the
+    //                    same dir, read it again). NEVER caught, because
+    //                    every call differed from its immediate predecessor.
+    // A sliding window of recent keys catches both, and failures are counted
+    // separately so a call that FAILS twice is corrected immediately rather
+    // than after a third identical attempt.
+    const recentToolKeys: string[] = [];
+    const toolFailureCounts = new Map<string, number>();
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
       // A stop latched by stop() between iterations must not be followed by one
@@ -1170,20 +1202,38 @@ export class AgentLoop {
         const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
         memory.addToolResult(call.name, rendered);
 
-        // M1: detect stuck model — same tool + same args N times in a row.
-        const callKey = `${call.name}:${JSON.stringify(call.args)}`;
-        if (callKey === lastToolKey) {
-          toolRepeatCount++;
-          if (toolRepeatCount >= 3) {
+        // M1: detect a stuck model. See the declarations above for why this
+        // is a window and not a consecutive-run check.
+        const callKey = `${call.name}:${safeArgsKey(call.args)}`;
+        recentToolKeys.push(callKey);
+        if (recentToolKeys.length > LOOP_WINDOW) recentToolKeys.shift();
+
+        if (!result.ok) {
+          const failures = (toolFailureCounts.get(callKey) ?? 0) + 1;
+          toolFailureCounts.set(callKey, failures);
+          // Second failure of the SAME call: quote the actual error back at
+          // the model and forbid the repeat. This is the "read the error,
+          // adjust, don't do it again" step — waiting for a third identical
+          // attempt just burns a turn re-learning what we already know.
+          if (failures === 2) {
             memory.addUser(
-              `(system: you have called "${call.name}" with the same arguments ${toolRepeatCount} times consecutively. ` +
-              "Try a different approach or provide a final answer.)"
+              `(system: "${call.name}" has now failed twice with these exact arguments. ` +
+              `The error was: ${result.content.slice(0, 300)} — do NOT call it with these arguments again. ` +
+              "Change the arguments, use a different tool, or tell the user plainly what is blocking you.)",
             );
-            toolRepeatCount = 0;
           }
-        } else {
-          lastToolKey = callKey;
-          toolRepeatCount = 1;
+        }
+
+        const repeats = recentToolKeys.filter((k) => k === callKey).length;
+        if (repeats >= 3) {
+          memory.addUser(
+            `(system: you have called "${call.name}" with the same arguments ${repeats} times within the ` +
+            `last ${LOOP_WINDOW} tool calls — you are looping. Take a different approach, or give the user ` +
+            "your best answer with what you already have and say what you could not do.)",
+          );
+          // Clear the window so the nudge is not re-emitted on every
+          // subsequent call while the model is recovering.
+          recentToolKeys.length = 0;
         }
 
         const toolWriteTs = Date.now();
@@ -1908,6 +1958,48 @@ export const STREAM_HOLD_MAX_OPENER = Math.max(
 );
 
 /**
+ * First keys that mark a bare JSON object as a tool-call attempt. Must stay
+ * in sync with `extractBareToolCalls`'s `startRe` — the test
+ * "every bare-call key is both held back and parsed" is what enforces that,
+ * because drift between the two is a user-visible bug, not a style issue:
+ *
+ * `startRe` tolerates whitespace after the brace (`{ "name":`, `{\n "name":`)
+ * but STREAM_HOLD_OPENERS only listed the tight literals `{"name` / `{"tool` /
+ * `{"invoke`. A pretty-printing model therefore emitted a call that parsed
+ * and executed correctly — AFTER the raw JSON had already streamed into the
+ * user's chat. Correct behaviour, visible garbage.
+ */
+export const BARE_CALL_KEYS = ["tool_name", "name", "tool", "invoke"] as const;
+
+/**
+ * Index of a `{` that is, or could still become, a bare tool-call opener.
+ * Returns -1 when no brace in `s` qualifies.
+ *
+ * A brace qualifies when what follows it — after optional whitespace and an
+ * optional quote — either matches one of {@link BARE_CALL_KEYS} or is a
+ * strict prefix of one at the end of the buffer (the key is still arriving
+ * token by token). Holding a prefix that never completes is harmless: the
+ * text is flushed verbatim by `resolve(true)`, just at end-of-completion
+ * instead of mid-stream.
+ */
+export function braceOpenerAt(s: string): number {
+  for (let i = s.indexOf("{"); i >= 0; i = s.indexOf("{", i + 1)) {
+    let j = i + 1;
+    while (j < s.length && /\s/.test(s[j]!)) j++;
+    if (j >= s.length) return i; // ran out mid-whitespace — may still qualify
+    if (s[j] === '"') j++;
+    if (j >= s.length) return i; // ran out right after the quote
+    const rest = s.slice(j);
+    for (const key of BARE_CALL_KEYS) {
+      if (rest.startsWith(key)) return i;
+      // Partial key at the very end of the buffer: more tokens may complete it.
+      if (key.startsWith(rest)) return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Stream holdback state machine. `push(token)` forwards prose to `emit`
  * but stops at the first tool-call opener (handling openers split across
  * token boundaries); `resolve(wasProse)` flushes the held tail to `emit`
@@ -1926,6 +2018,9 @@ export function createStreamHoldback(emit: (text: string) => void): {
       const idx = s.indexOf(o);
       if (idx >= 0 && (best < 0 || idx < best)) best = idx;
     }
+    // Whitespace-tolerant bare-call braces, which the literal list misses.
+    const brace = braceOpenerAt(s);
+    if (brace >= 0 && (best < 0 || brace < best)) best = brace;
     return best;
   };
   // Longest suffix of `s` that is a strict prefix of an opener — kept back
@@ -2238,6 +2333,27 @@ export function turnBudgetMs(): number {
   const raw = cfgInt("FERAL_TURN_BUDGET_MS");
   if (!Number.isFinite(raw) || raw <= 0) return 20 * 60_000;
   return Math.min(6 * 3_600_000, Math.max(60_000, raw));
+}
+
+/**
+ * How many recent tool calls the no-progress detector remembers. Six covers
+ * the cycles models actually get stuck in (A,A,A through A,B,C,A,B,C) without
+ * flagging a legitimate re-read of the same file later in a long task.
+ *
+ * ponytail: fixed window, no decay. Raise if long multi-file tasks start
+ * tripping it; the symptom would be the nudge firing on honest repeat reads.
+ */
+export const LOOP_WINDOW = 6;
+
+/** Stable key for a tool call's arguments. Model-supplied args are always
+ *  JSON-safe, but a throw here would kill the turn — so it degrades to a
+ *  constant instead, costing detection accuracy, never the conversation. */
+export function safeArgsKey(args: unknown): string {
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return "[unserializable]";
+  }
 }
 
 export function headTail(text: string, maxChars: number): string {

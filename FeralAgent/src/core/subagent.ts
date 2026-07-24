@@ -18,9 +18,9 @@
  *     blocking result aborts the run cleanly. `subagent_complete`
  *     fires after, regardless of outcome.
  *   - Summary truncation — the parent's context is precious. The
- *     subagent's final answer is capped at MAX_SUMMARY_CHARS (500)
- *     so a 50k-char research dump doesn't dominate the parent's
- *     next turn.
+ *     subagent's final answer is capped at MAX_SUMMARY_CHARS
+ *     (default 4000, see the constant) so a 50k-char research dump
+ *     doesn't dominate the parent's next turn.
  *
  * V1 tradeoffs:
  *   - We do not track per-subagent token usage; the shared

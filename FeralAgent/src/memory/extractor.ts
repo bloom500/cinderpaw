@@ -355,6 +355,7 @@ export function sanitizeFact(
   const value = rawValue.trim();
 
   if (!value || isJunkFactKey(key)) return null;
+  const canonicalKey = canonicalFactKey(key);
   if (value.length > 300) return null;
   // A value starting with a path separator means the colon we split on was
   // a Windows drive letter ("...at c:\Users\...") — the line is not a fact.
@@ -362,7 +363,60 @@ export function sanitizeFact(
   // Thinking markup in the value is model leakage.
   if (/<\/?think/i.test(value)) return null;
 
-  return { key, value };
+  return { key: canonicalKey, value };
+}
+
+/**
+ * Collapse synonym keys onto one canonical name.
+ *
+ * `SemanticMemory.upsert` dedupes on the PRIMARY KEY, so a re-stated fact
+ * correctly overwrites — but only when the key matches exactly. The extractor
+ * is a language model: it writes `project path` one session and
+ * `project directory` the next, so a user who moves their repo ends up with
+ * BOTH rows, both recent, both rendered into the prompt. The model is then
+ * handed two contradictory facts with equal authority. Deduping the storage
+ * layer was never the missing piece; agreeing on the key was.
+ *
+ * ponytail: a fixed table, not embeddings. Whitespace→underscore alone kills
+ * roughly half the collisions; the table handles the identity/location/path
+ * families that actually recur. If contradictions show up on a key that is
+ * not here, add a row — semantic clustering over the fact keys would be more
+ * code than the layer it protects.
+ */
+/**
+ * Every alias maps onto the name ALREADY in use (`name`, `language`, …)
+ * rather than a prettier one. Canonicalising away from the incumbent would
+ * orphan every fact already on disk under the old key — a migration, not a
+ * dedup — and the point here is to stop contradictions, not to rename them.
+ */
+const FACT_KEY_ALIASES: Readonly<Record<string, string>> = {
+  "user name": "name",
+  "users name": "name",
+  "user's name": "name",
+  "full name": "name",
+  "project path": "project_dir",
+  "project directory": "project_dir",
+  "project folder": "project_dir",
+  "project root": "project_dir",
+  "working directory": "project_dir",
+  "repo path": "project_dir",
+  "city": "location",
+  "lives in": "location",
+  "based in": "location",
+  "speaks": "language",
+  "spoken language": "language",
+  "preferred language": "language",
+  "job": "occupation",
+  "role": "occupation",
+  "profession": "occupation",
+};
+
+/** Canonical storage key for an already-lowercased, sanitized fact name. */
+export function canonicalFactKey(key: string): string {
+  const alias = FACT_KEY_ALIASES[key];
+  if (alias) return alias;
+  // `project dir` and `project_dir` must not be two different facts.
+  return key.replace(/\s+/g, "_");
 }
 
 export function parseCombined(raw: string): { facts: string; observation: string } {

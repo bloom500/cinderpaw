@@ -386,6 +386,17 @@ function migrate(db: Database): void {
       value TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    -- The agent's durable task list (todo_write / TodoStore). Survives
+    -- compaction and session boundaries, which is the point: the transcript
+    -- that recorded the work is summarized away, these rows are not.
+    CREATE TABLE IF NOT EXISTS todos (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   // Sprint 1.4 — same workspace scoping as episodic. `semantic` rows MAY be
