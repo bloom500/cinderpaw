@@ -21,7 +21,10 @@ export function createProductInfoTool(): Tool {
     name: "product_info",
     description:
       "Load Feral's product documentation: what Feral is, setup/onboarding, " +
-      "connectors (Discord/WhatsApp/Slack/Telegram), models & providers, " +
+      // Telegram is NOT implemented (connectors.ts has Discord, Slack and
+      // WhatsApp only; PRODUCT.md says "coming soon"). Listing it here made the
+      // agent promise users a connector that does not exist.
+      "connectors (Discord/WhatsApp/Slack), models & providers, " +
       "memory/dreams/LoRA, slash commands, CLI commands, troubleshooting. " +
       "ALWAYS call this before answering questions about Feral itself — " +
       "answer from the document, never from guesses.",

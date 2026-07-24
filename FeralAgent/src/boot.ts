@@ -566,28 +566,12 @@ export async function boot(transportOverride?: Transport) {
   });
   reconciler.start();
 
-  // --- Migration (Pathway 3 step 2 Task 4) ---
-  // One-shot lift of the ~41 pre-step1 facts from SemanticMemory into
-  // the new reactive tree. Idempotent via marker file; failure-tolerant
-  // (missing model is non-fatal — the FTS5 fallback keeps the old
-  // facts reachable via auto-inject). Best-effort, fire-and-forget
-  // — the result is logged but the boot does not block on it.
-  void runMigration({
-    semantic,
-    fractal: fractalMemory,
-    embed,
-    dataDir,
-  }).then((result) => {
-    if (result.ran) {
-      log(`migration: lifted ${result.facts} fact(s) into the reactive tree`);
-    } else if (result.error) {
-      log(`migration: skipped (${result.error}) — will retry next boot`);
-    } else {
-      log("migration: marker present, no-op");
-    }
-  }).catch((e) => {
-    log(`migration: unexpected error: ${String(e)}`);
-  });
+  // NOTE: the fractal migration used to run HERE, ~400 lines before
+  // `setEmbedInvoker(...)` was called. It therefore embedded with no invoker
+  // configured, failed every time with "embed: no invoker configured", logged
+  // "will retry next boot", and retried forever — so the pre-step1 facts were
+  // never lifted into the reactive tree and semantic recall silently stayed
+  // FTS5-only. It now runs immediately after the invoker is wired; see below.
 
   const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
 
@@ -966,6 +950,31 @@ export async function boot(transportOverride?: Transport) {
   // present Rust returns an error and callers fall back to FTS5; this just
   // makes the path available.
   setEmbedInvoker(rsiBridgeEmbed(rsiBridge));
+
+  // --- Migration (Pathway 3 step 2 Task 4) ---
+  // One-shot lift of the ~41 pre-step1 facts from SemanticMemory into the new
+  // reactive tree. Idempotent via marker file; failure-tolerant (missing model
+  // is non-fatal — the FTS5 fallback keeps the old facts reachable via
+  // auto-inject). Best-effort, fire-and-forget.
+  //
+  // MUST stay below `setEmbedInvoker` — it embeds, and running it before the
+  // invoker existed is what made it fail on every boot for good.
+  void runMigration({
+    semantic,
+    fractal: fractalMemory,
+    embed,
+    dataDir,
+  }).then((result) => {
+    if (result.ran) {
+      log(`migration: lifted ${result.facts} fact(s) into the reactive tree`);
+    } else if (result.error) {
+      log(`migration: skipped (${result.error}) — will retry next boot`);
+    } else {
+      log("migration: marker present, no-op");
+    }
+  }).catch((e) => {
+    log(`migration: unexpected error: ${String(e)}`);
+  });
   // RAPTOR tree build, in the background now that embed() can reach Rust.
   // `rebuildIfStale` is a no-op when init() already loaded a fresh tree from
   // disk, so we don't re-pay the (cloud) summary cost on every boot — it only

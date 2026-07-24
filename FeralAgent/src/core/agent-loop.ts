@@ -65,7 +65,7 @@ import {
 } from "./feral-prompt.ts";
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
-import { isCoreTool } from "../tools/tiers.ts";
+import { isConnectorTool, isCoreTool } from "../tools/tiers.ts";
 
 export interface AgentLoopConfig {
   /** Soft token cap passed to each completion. */
@@ -916,6 +916,14 @@ export class AgentLoop {
     // model that can never produce valid JSON doesn't loop forever.
     const MAX_MALFORMED_RETRIES = 3;
     let malformedRetries = 0;
+    // Wall-clock bound on one turn. ABSOLUTE_CEILING bounds ITERATIONS, not
+    // time — and with a 300s per-request cloud deadline, 500 iterations is
+    // ~41 hours. The desktop has a Stop button; Discord/Slack/WhatsApp have
+    // none, so a wedged long-horizon task there ran until the sidecar died.
+    // Checked between iterations only: we never abandon an in-flight tool or
+    // completion, we just stop starting new ones and return what we have.
+    const turnDeadline = Date.now() + turnBudgetMs();
+    let ranOutOfTime = false;
     // Accumulated answer fragments from length-cutoff continuations: each
     // entry is the visible text of one completion that ran out of max_tokens
     // mid-answer. The final answer is the concatenation of all fragments
@@ -930,6 +938,13 @@ export class AgentLoop {
       // A stop latched by stop() between iterations must not be followed by one
       // more model call — check before spending the turn, not only after it.
       if (ctx.stopped) break;
+      // Same discipline for the clock: don't start another round we can't
+      // afford. `i > 0` guarantees at least one attempt even if the budget was
+      // already spent by a slow prompt build.
+      if (i > 0 && Date.now() > turnDeadline) {
+        ranOutOfTime = true;
+        break;
+      }
 
       // Stream tokens live — EXCEPT tool-call-shaped output. Once the stream
       // hits a tool-call opener (canonical tag, invoke-XML, or bare
@@ -1192,6 +1207,20 @@ export class AgentLoop {
     if (ctx.stopped) {
       return {
         text: "(stopped by user)",
+        toolCallCount,
+      };
+    }
+
+    // Wall-clock stop. Return the work done so far with an honest explanation
+    // rather than the ceiling message (which blames the task's scope) — the
+    // task may have been fine and simply slow.
+    if (ranOutOfTime) {
+      return {
+        text:
+          `I ran out of time for this turn after ${toolCallCount} actions ` +
+          `(limit ${Math.round(turnBudgetMs() / 60_000)} min). Here is where I got to — ` +
+          `send "continue" and I'll pick up from here, or narrow the task.` +
+          (answerParts.length > 0 ? `\n\n${answerParts.join("")}` : ""),
         toolCallCount,
       };
     }
@@ -1675,14 +1704,68 @@ export function buildSystemPrompt(
     "Past conversations, installed skills, and optional tools are NOT preloaded — keep the context lean.",
     "- Need continuity or a fact from a previous chat? Call `recall` with a query.",
     "- A task may have a matching skill? Call `list_skills` to find one, then `read_skill` to load it before applying.",
-    "- Need a capability that's not in your current tools (desktop control, deep research, code-quality runners, scanners…)? Call `list_tools`, then `load_tool` with the names you need.",
+    "- Need a capability that's not in your current tools? It is listed below — call `load_tool` with the name, then use it.",
     "",
+    // The capability index. `## Available tools` above carries the full
+    // schemas, but providers with native tool-calling STRIP that section
+    // (stripToolsFromSystemPrompt) and receive only the CORE schemas — so on
+    // every cloud route the agent had no idea its extended tools existed and
+    // would answer "I can't do that" for things it ships with. This block is
+    // names + one line each (~300 tokens, not ~6K of schemas), lives under its
+    // own heading so the strip leaves it alone, and is rebuilt by #syncTools()
+    // so late-registering MCP tools appear too.
+    buildCapabilityIndex(registry),
     "## Rules",
     "- Be concise and direct.",
     "- If you cannot help or a tool fails, say so clearly.",
     "- Never output raw JSON outside a tool block as your final answer.",
     "- Respond in the same language the user writes in.",
   ].filter((s) => s.length > 0).join("\n");
+}
+
+/**
+ * The agent's index of everything it can do that is NOT advertised as a schema
+ * this turn.
+ *
+ * Awareness and schemas are different problems, and conflating them is what
+ * broke this: the drawer model correctly stopped sending ~28 tool schemas every
+ * turn (5-8K tokens), but it also removed the only place the agent could learn
+ * those tools EXIST. On a native-tool provider the `## Available tools` section
+ * is stripped outright, so the agent saw the core set and nothing else — it
+ * would tell the user "I can't run tests" while `run_tests` sat in the drawer.
+ *
+ * One line per tool, first sentence of the description only. Costs a few
+ * hundred tokens instead of thousands, and turns `load_tool` from a guess into
+ * a lookup. Returns "" when everything is already core (nothing to announce).
+ */
+export function buildCapabilityIndex(registry: ToolRegistry): string {
+  // `describe()` is the only method the prompt strictly needs, and several
+  // callers (tests, lightweight fakes) provide just that. Degrade to "no index"
+  // rather than taking the whole prompt down over an optional section.
+  if (typeof registry?.list !== "function") return "";
+  const hidden = registry
+    .list()
+    .map((t) => t.manifest)
+    .filter((m) => !isCoreTool(m.name))
+    .filter((m) => !isConnectorTool(m.name));
+  if (hidden.length === 0) return "";
+
+  const line = (m: { name: string; description: string }): string => {
+    // First sentence, capped — the index is a menu, not documentation.
+    const gist = (m.description.split(/(?<=\.)\s/)[0] ?? m.description).trim();
+    return `- \`${m.name}\` — ${gist.length > 140 ? `${gist.slice(0, 137)}…` : gist}`;
+  };
+
+  return [
+    "## Your full capability index (load before use)",
+    "These tools are installed and available to you RIGHT NOW, but their schemas",
+    "are not loaded this turn to keep the context lean. To use one, call",
+    '`load_tool` with its name (e.g. {"name": "load_tool", "args": {"names": ["run_tests"]}}),',
+    "then call the tool normally on the next turn. NEVER tell the user you lack a",
+    "capability that appears in this list — load it and do the work.",
+    "",
+    ...hidden.map(line),
+  ].join("\n");
 }
 
 /**
@@ -2142,6 +2225,21 @@ export function sanitizeInferParams(raw: {
  * the next turn depends on; a plain tail-slice loses the task framing.
  * ponytail: 25/75 split, no smarter selection — the summarizer reads both ends.
  */
+/**
+ * Wall-clock budget for one agent turn, in ms.
+ *
+ * ponytail: 20 min covers every real multi-step task observed (a 5-file project
+ * with tests lands well under it) while capping a wedged loop at something a
+ * human will wait through. Raise with FERAL_TURN_BUDGET_MS on a box doing
+ * genuinely long builds; the bound only stops NEW iterations, so a single slow
+ * tool is never cut off mid-run.
+ */
+export function turnBudgetMs(): number {
+  const raw = cfgInt("FERAL_TURN_BUDGET_MS");
+  if (!Number.isFinite(raw) || raw <= 0) return 20 * 60_000;
+  return Math.min(6 * 3_600_000, Math.max(60_000, raw));
+}
+
 export function headTail(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   const marker = "\n…[middle of the excerpt elided]…\n";

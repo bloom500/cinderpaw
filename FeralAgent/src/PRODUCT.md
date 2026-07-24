@@ -34,7 +34,7 @@ cycles (background reflection), and eval-gated on-device LoRA personalization.
 - A one-time security acknowledgement is shown: Feral runs with the user's
   permissions, so shared/multi-user machines should be locked down.
 
-## Connectors (Discord, WhatsApp, Slack, Telegram)
+## Connectors (Discord, WhatsApp, Slack)
 
 Connectors let the agent talk on chat platforms. Configuration lives in
 `~/.feral/connectors.json`; secrets are stored per-connector.

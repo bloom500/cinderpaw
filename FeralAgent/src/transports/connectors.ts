@@ -124,6 +124,49 @@ export function buildPublicPersona(knowledgeBase: string): string {
 const DISCORD_MAX = 2000;
 
 /**
+ * What to actually tell someone in a channel when a turn blew up.
+ *
+ * Every connector used to post a flat "Sorry — something went wrong handling
+ * that." and log the cause where only the operator could see it. On a chat
+ * surface there ARE no logs for the person waiting, so a bad API key, an
+ * exhausted budget and a crashed tool were indistinguishable — and the whole
+ * point of surfacing accurate inference errors is lost at the last hop.
+ *
+ * Keeps it one line, no stack traces, no provider URLs or keys (these go to
+ * public channels), and always ends with something the person can act on.
+ */
+export function connectorErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const say = (s: string) => `⚠️ ${s}`;
+
+  if (/\b401\b|unauthorized|invalid[_ ]api[_ ]key|authentication/i.test(raw)) {
+    return say("My AI provider rejected its API key, so I can't answer right now. The owner needs to check it.");
+  }
+  if (/\b429\b|rate.?limit|too many requests/i.test(raw)) {
+    return say("I'm being rate-limited by my AI provider. Give me a minute and ask again.");
+  }
+  if (/\b402\b|quota|billing|credit|insufficient/i.test(raw)) {
+    return say("My AI provider reports a billing/quota problem. The owner needs to top up.");
+  }
+  if (/budget/i.test(raw)) {
+    return say("I've hit my configured token budget for now, so I stopped before spending more.");
+  }
+  if (/context|too long|exceeds? .*(window|length)/i.test(raw)) {
+    return say("This conversation got too long for my model. Start a fresh thread and I'll pick it back up.");
+  }
+  if (/ran out of time|turn budget/i.test(raw)) {
+    return say("That took longer than I'm allowed to spend on one message. Ask me for a smaller piece of it.");
+  }
+  if (/econnrefused|fetch failed|enotfound|network|timed?.?out|unreachable/i.test(raw)) {
+    return say("I couldn't reach my AI provider — looks like a network problem. Try again shortly.");
+  }
+  // Unknown: still better than silence. One short clause of the real error,
+  // trimmed so a stack trace can't spill into the channel.
+  const gist = raw.split("\n")[0]?.slice(0, 160) ?? "unknown error";
+  return say(`Something went wrong handling that: ${gist}`);
+}
+
+/**
  * Playful, on-brand "I'm on it" openers shown the instant the agent picks up a
  * message (before the first tool's live status replaces them). Rotating these
  * keeps the interaction feeling alive instead of a robotic "On it…" every time.
@@ -409,8 +452,8 @@ export class DiscordConnector {
       react("⚠️");
       if (editTimer) clearTimeout(editTimer);
       try {
-        if (statusMsg) await statusMsg.edit("Sorry — something went wrong handling that.");
-        else await message.reply("Sorry — something went wrong handling that.");
+        if (statusMsg) await statusMsg.edit(connectorErrorMessage(e));
+        else await message.reply(connectorErrorMessage(e));
       } catch {
         // channel may be gone
       }
@@ -559,8 +602,8 @@ export class SlackConnector {
       if (timer) clearTimeout(timer);
       void web.reactions.add({ channel, timestamp: event.ts as string, name: "warning" }).catch(() => {});
       try {
-        if (ts) await web.chat.update({ channel, ts, text: "Sorry — something went wrong handling that." });
-        else await web.chat.postMessage({ channel, text: "Sorry — something went wrong handling that.", thread_ts: threadTs });
+        if (ts) await web.chat.update({ channel, ts, text: connectorErrorMessage(e) });
+        else await web.chat.postMessage({ channel, text: connectorErrorMessage(e), thread_ts: threadTs });
       } catch {
         // channel may be gone
       }
@@ -792,7 +835,7 @@ export class WhatsAppConnector {
       this.#log(`whatsapp: agent error: ${String(e)}`);
       void sock.sendMessage(jid, { react: { text: "⚠️", key: msg.key } }).catch(() => {});
       try {
-        await sock.sendMessage(jid, { text: "Sorry — something went wrong handling that." });
+        await sock.sendMessage(jid, { text: connectorErrorMessage(e) });
       } catch {
         // chat may be gone
       }

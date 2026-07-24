@@ -147,6 +147,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_OLLAMA_NUM_CTX` | int | `null` |  | Override Ollama's num_ctx. |
 | `FERAL_MAX_CONTEXT` | int | `8192` |  | Hard ceiling on context length the router allows. |
 | `FERAL_SHELL_MAX_TIMEOUT_MS` | int | `300_000` | yes | Ceiling on shell_exec's per-call timeout_ms (clamped to 60s..60min). Raise it when a real build — cargo, gradle, a cold docker layer — legitimately runs past 5 minutes; the process is hard-killed at this bound and the agent cannot tell that apart from a genuine failure. |
+| `FERAL_TURN_BUDGET_MS` | int | `1_200_000` |  | Wall-clock budget for ONE agent turn (clamped to 60s..6h). The iteration ceiling bounds tool-call count, not time; this bounds time. Only stops NEW iterations, so an in-flight tool is never cut off. Matters most on connectors, which have no Stop button. |
 | `FERAL_SUMMARY_EXCERPT_CHARS` | int | `24_000` |  | Characters of the compacted transcript fed to the working-memory summarizer (head+tail sampled). Raise on big-context models so long tool-heavy tasks keep more detail in the summary note. |
 | `FERAL_TOOL_GRAMMAR` | string | `null` |  | Optional GBNF grammar to constrain tool-call output. Presence alone also toggles useToolGrammar (default on; set to literal "false" to disable — inverse-toggle var, not migrated). |
 | `FERAL_VERSION` | string | `null` |  | Reported in startup logs; set by installer. |
@@ -337,6 +338,7 @@ FERAL_TREE_BRANCH
 FERAL_TREE_CLUSTER_MAX_CHARS
 FERAL_TREE_ITEM_MAX_CHARS
 FERAL_TRUSTED_BASE_URLS
+FERAL_TURN_BUDGET_MS
 FERAL_TTFT_DEADLINE_MS
 FERAL_VERSION
 FERAL_WORKSPACE

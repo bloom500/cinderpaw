@@ -457,10 +457,24 @@ pub async fn spawn(
     // configures NO local fallback rather than one pinned to a model id the
     // engine doesn't serve — a fallback that 404s is worse than none, because
     // it fails at exactly the moment it is supposed to save the turn.
+    //
+    // The cloud-boot arm used to probe `/v1/models` — but that endpoint reports
+    // `scan_models_dir()`, i.e. every GGUF ON DISK, not the one that is loaded.
+    // At sidecar-spawn time nothing is loaded yet, so the probe handed back the
+    // first file it found and the sidecar built a degrade-to-local fallback
+    // pointing at a model the engine was not serving. Every cloud failure then
+    // hit that fallback, got 503 "no model selected" stapled onto the real
+    // error, and `wait_for_model` lazily pulled the multi-GB GGUF into RSS to
+    // satisfy it. The name says "active"; the answer was "first on disk".
+    //
+    // A model is only known-resident when the boot route IS the local engine.
+    // Otherwise leave the var unset: no fallback beats a fallback that cannot
+    // serve. A later switch to a local model re-points the primary through
+    // `set_model`, which is the path that carries `localFallbackAvailable`.
     let local_model = if base_url == local_url {
         Some(model_name.clone())
     } else {
-        discover_active_model(&local_url, api_token).await
+        None
     };
     if let Some(local) = local_model {
         cmd.env("FERAL_LOCAL_MODEL", local);

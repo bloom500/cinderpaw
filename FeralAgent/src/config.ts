@@ -94,6 +94,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Hard ceiling on context length the router allows.", security: false },
   { name: "FERAL_SHELL_MAX_TIMEOUT_MS", type: "int", default: 300_000,
     description: "Ceiling on shell_exec's per-call timeout_ms (clamped to 60s..60min). Raise it when a real build — cargo, gradle, a cold docker layer — legitimately runs past 5 minutes; the process is hard-killed at this bound and the agent cannot tell that apart from a genuine failure.", security: true },
+  { name: "FERAL_TURN_BUDGET_MS", type: "int", default: 1_200_000,
+    description: "Wall-clock budget for ONE agent turn (clamped to 60s..6h). The iteration ceiling bounds tool-call count, not time; this bounds time. Only stops NEW iterations, so an in-flight tool is never cut off. Matters most on connectors, which have no Stop button.", security: false },
   { name: "FERAL_SUMMARY_EXCERPT_CHARS", type: "int", default: 24_000,
     description: "Characters of the compacted transcript fed to the working-memory summarizer (head+tail sampled). Raise on big-context models so long tool-heavy tasks keep more detail in the summary note.", security: false },
   { name: "FERAL_TOOL_GRAMMAR", type: "string", default: null,
