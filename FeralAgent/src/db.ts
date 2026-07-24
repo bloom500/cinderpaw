@@ -397,6 +397,20 @@ function migrate(db: Database): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    -- Mid-turn checkpoint (CheckpointStore). One row per session holds the
+    -- full working-memory transcript so a crash at iteration 7 of 15 resumes
+    -- with every completed step intact, instead of replaying the lossy
+    -- 400-char episodic copy. status 'running' = a turn in flight; a row that
+    -- outlives the process is a crash to resume from.
+    CREATE TABLE IF NOT EXISTS session_checkpoint (
+      session_id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      iteration INTEGER NOT NULL,
+      messages TEXT NOT NULL,
+      status TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   // Sprint 1.4 — same workspace scoping as episodic. `semantic` rows MAY be

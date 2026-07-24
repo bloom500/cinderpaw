@@ -6,7 +6,7 @@
  * out of the workspace is refused and audited by the registry.
  */
 
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
@@ -59,6 +59,23 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
       }
 
       const safePath = resolveAllowedPath(ctx.manifest, "fs:write", requested);
+
+      // Idempotency: if the file already holds exactly this content, skip the
+      // write. Always safe (the on-disk result is identical either way), and it
+      // makes a replayed write after a crash/retry a no-op instead of a
+      // redundant disk churn + mtime bump that could retrigger watchers.
+      try {
+        const existing = await readFile(safePath, "utf8");
+        if (existing === content) {
+          return {
+            ok: true,
+            content: `Unchanged — ${safePath} already contains exactly this content (${Buffer.byteLength(content, "utf8")} bytes), nothing written.`,
+            data: { path: safePath, bytes: Buffer.byteLength(content, "utf8"), skipped: true },
+          };
+        }
+      } catch {
+        // Not readable (absent, or binary/permission) — fall through and write.
+      }
 
       await mkdir(dirname(safePath), { recursive: true });
       await writeFile(safePath, content, "utf8");

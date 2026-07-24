@@ -29,6 +29,8 @@
 
 import type { AskUserAnswer, AskUserQuestion, Tool, ToolResult } from "../../types.ts";
 import { AskUserTimeoutError } from "../../types.ts";
+import { cfgBool } from "../../config.ts";
+import { log } from "../../runtime-meta.ts";
 
 const MAX_QUESTIONS = 4;
 const MIN_OPTIONS = 2;
@@ -201,19 +203,38 @@ export function createAskUserTool(): Tool {
         }
       }
 
-      if (!ctx.askUser) {
+      let answers: AskUserAnswer[];
+      let autoResolved = false;
+      let autoResolveReason: string | null = null;
+
+      // Autonomous / walk-away mode: the user is not at the machine, so do NOT
+      // block on a question. Take the recommended option (or the first) for
+      // each, exactly as the timeout path does, but without the 5-minute wait —
+      // and log the decision so the end-of-turn summary can report what was
+      // chosen without a human present. Reuses the same picker as the timeout
+      // branch below; the only difference is we never call the bridge.
+      if (cfgBool("FERAL_AUTONOMOUS")) {
+        answers = questions.map((q) => {
+          const rec = q.options.find((o: { label: string; recommended?: boolean }) => o.recommended);
+          const picked = rec ?? q.options[0];
+          return { question: q.question, selected: picked ? [picked.label] : [] };
+        });
+        autoResolved = true;
+        autoResolveReason = "autonomous mode (FERAL_AUTONOMOUS) — auto-selected the recommended option without waiting for the user";
+        for (let i = 0; i < questions.length; i++) {
+          const picked = answers[i]?.selected?.[0] ?? "(none)";
+          log(`autonomous: ask_user "${(questions[i] as AskUserQuestion).question}" → "${picked}"`);
+        }
+      } else if (!ctx.askUser) {
         return {
           ok: false,
           content:
             "ask_user: the current transport does not support interactive questions " +
-            "(no askUser bridge in the tool context).",
+            "(no askUser bridge in the tool context). Set FERAL_AUTONOMOUS=true to " +
+            "auto-answer with the recommended option instead of blocking.",
           error: "no_ask_user_bridge",
         };
-      }
-
-      let answers: AskUserAnswer[];
-      let autoResolved = false;
-      let autoResolveReason: string | null = null;
+      } else {
       try {
         answers = await ctx.askUser.ask(questions as AskUserQuestion[], ctx.sessionId);
       } catch (err) {
@@ -237,6 +258,7 @@ export function createAskUserTool(): Tool {
           };
         }
       }
+      } // end interactive branch (non-autonomous)
 
       // Render the answers as a compact, scannable summary for the model.
       const lines: string[] = ["User answered:"];

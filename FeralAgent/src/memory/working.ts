@@ -94,6 +94,17 @@ export class WorkingMemory {
     this.#messages.push(message);
   }
 
+  /**
+   * Replace the transcript wholesale. Used by crash-resume to rehydrate a
+   * full mid-turn checkpoint (CheckpointStore) — including tool-role messages,
+   * which the episodic replay path deliberately omits. System messages are
+   * dropped: the system prompt is this WorkingMemory's own, injected at
+   * render(), not part of the stored turns.
+   */
+  restore(messages: ChatMessage[]): void {
+    this.#messages = messages.filter((m) => m.role !== "system");
+  }
+
   addUser(content: string, images?: string[]): void {
     this.add({ role: "user", content, ...(images && images.length > 0 ? { images } : {}) });
   }

@@ -15,6 +15,7 @@
 
 import type { InferenceRouter } from "../egress/inference-router.ts";
 import { isBackgroundSession } from "../egress/inference-router.ts";
+import { log } from "../runtime-meta.ts";
 import {
   BudgetExhaustedError,
   InferenceError,
@@ -160,6 +161,8 @@ export type EventSink = (event: OutboundEvent) => void;
 interface SessionRunContext {
   stopped: boolean;
   readonly emit: EventSink;
+  /** Decisions ask_user made without a human this turn (walk-away audit). */
+  autoDecisions?: string[];
 }
 
 /**
@@ -388,6 +391,26 @@ export class AgentLoop {
     this.#todos = store;
   }
   #todos: { list(): Array<{ id: string; content: string; status: string }> } | null = null;
+
+  /**
+   * Attach the crash-resume checkpoint store. When present, the loop snapshots
+   * the full transcript after each tool call and rehydrates a `running`
+   * checkpoint when a session's working memory is (re)built — so a sidecar
+   * that died mid-turn continues instead of starting over. Structural type:
+   * the loop needs the three methods, not the memory layer.
+   */
+  setCheckpointStore(store: {
+    save(a: { sessionId: string; messageId: string; iteration: number; messages: ChatMessage[] }): void;
+    markDone(sessionId: string): void;
+    loadRunning(sessionId: string): { messages: ChatMessage[]; iteration: number } | null;
+  }): void {
+    this.#checkpoints = store;
+  }
+  #checkpoints: {
+    save(a: { sessionId: string; messageId: string; iteration: number; messages: ChatMessage[] }): void;
+    markDone(sessionId: string): void;
+    loadRunning(sessionId: string): { messages: ChatMessage[]; iteration: number } | null;
+  } | null = null;
 
   setUserTurnObserver(fn: (sessionId: string, userText: string) => void): void {
     this.#onUserTurn = fn;
@@ -797,7 +820,7 @@ export class AgentLoop {
       // Self-terminating loop: no limit computation needed. #run() returns
       // naturally when the model produces a text-only turn (no tool calls).
       // The 500-ceiling inside #run() is an emergency backstop only.
-      const { text: final, toolCallCount: runToolCount } = await this.#run(
+      const { text: runText, toolCallCount: runToolCount } = await this.#run(
         sessionId,
         memory,
         messageId,
@@ -806,6 +829,20 @@ export class AgentLoop {
         routeTargets,
       );
       toolCallCount = runToolCount;
+      // The turn returned (completed, stopped, or out of time) — it is not a
+      // crash, so retire its checkpoint. Only a process that dies mid-turn
+      // leaves a `running` row, and that is exactly what resume keys on.
+      this.#checkpoints?.markDone(sessionId);
+
+      // Walk-away summary: if any decision was taken without the user this turn,
+      // append an audit block so they can review every autonomous choice when
+      // they return. Free — no extra completion, just the decisions collected
+      // in #run. The model's own text is already its "what I did" narrative.
+      const decisions = ctx.autoDecisions ?? [];
+      const final = decisions.length > 0
+        ? `${runText}\n\n---\n**Decisions I made on your behalf** (you weren't asked — review these):\n` +
+          decisions.map((d) => `- ${d}`).join("\n")
+        : runText;
       memory.addAssistant(final);
       const { text: finalClean } = stripPrivate(final);
       const asstWriteTs = Date.now();
@@ -841,6 +878,14 @@ export class AgentLoop {
 
       return final;
     } catch (err) {
+      // Checkpoint policy on a handled failure (crash is handled elsewhere — a
+      // dead process leaves the row `running` on its own):
+      //   - a user STOP retires the checkpoint (they chose to end it);
+      //   - an ERROR (a wedged model, a total provider outage) LEAVES it
+      //     running, so the turn resumes from its last good step when the
+      //     session is next touched — a provider outage during a walk-away run
+      //     must not become permanent data loss. It self-retires when the next
+      //     turn on that session completes.
       // User-initiated stop: the router's fetch was aborted by `stop()`. Emit
       // a `done` event with `stopped: true` so the frontend can render a
       // "stopped" state without surfacing an error to the user. Use the
@@ -859,6 +904,8 @@ export class AgentLoop {
         return message;
       }
       if (isAbortError(err)) {
+        // A user stop is a deliberate end — retire the checkpoint.
+        this.#checkpoints?.markDone(sessionId);
         ctx.stopped = true;
         const partial = memory.render();
         const lastAssistant = [...partial].reverse().find((m) => m.role === "assistant");
@@ -965,6 +1012,26 @@ export class AgentLoop {
     // than after a third identical attempt.
     const recentToolKeys: string[] = [];
     const toolFailureCounts = new Map<string, number>();
+
+    // Walk-away audit trail: decisions ask_user made without a human (autonomous
+    // mode or a timeout). Surfaced at turn end so the user, coming back, can see
+    // and check every choice that was taken on their behalf. Held on ctx so the
+    // caller (#handle) can append the summary without #run's many exit points
+    // each having to thread it back.
+    const autoDecisions: string[] = ctx.autoDecisions ??= [];
+
+    // Crash-resume: snapshot the transcript after each tool call so a sidecar
+    // death mid-turn resumes with completed steps intact. No-op without a
+    // checkpoint store. Guarded against throwing — a checkpoint must never
+    // cost the turn it is protecting.
+    const checkpoint = (iteration: number): void => {
+      if (!this.#checkpoints) return;
+      try {
+        this.#checkpoints.save({ sessionId, messageId, iteration, messages: [...memory.turns] });
+      } catch {
+        /* a failed checkpoint just means this step is not resumable */
+      }
+    };
 
     for (let i = 0; i < ABSOLUTE_CEILING; i++) {
       // A stop latched by stop() between iterations must not be followed by one
@@ -1169,6 +1236,7 @@ export class AgentLoop {
             this.#recall?.noteWrite?.({ id: toolLeafId, sessionId, ts: Date.now() });
           }
         }
+        checkpoint(i);
         if (ctx.stopped) break;
         continue;
       }
@@ -1201,6 +1269,17 @@ export class AgentLoop {
 
         const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
         memory.addToolResult(call.name, rendered);
+
+        // Record any decision ask_user made on the user's behalf (autonomous
+        // mode or a timeout auto-resolve), for the end-of-turn summary.
+        if (call.name === "ask_user" && result.ok) {
+          const d = result.data as { autoResolved?: boolean; answers?: Array<{ question?: string; selected?: string[] }> } | undefined;
+          if (d?.autoResolved && Array.isArray(d.answers)) {
+            for (const a of d.answers) {
+              autoDecisions.push(`"${a.question ?? "(question)"}" → ${a.selected?.join(", ") || "(none)"}`);
+            }
+          }
+        }
 
         // M1: detect a stuck model. See the declarations above for why this
         // is a window and not a consecutive-run check.
@@ -1246,6 +1325,9 @@ export class AgentLoop {
         if (toolLeafId !== null) {
           this.#recall?.noteWrite?.({ id: toolLeafId, sessionId, ts: toolWriteTs });
         }
+        // Checkpoint after each tool call, not each batch: a crash between two
+        // sequential calls should resume after the one that finished.
+        checkpoint(i);
       }
 
       if (ctx.stopped) break;
@@ -1643,7 +1725,16 @@ export class AgentLoop {
       // would burn tokens and steer the task with stale context.
       // `episodic.conversation()` handles which ROWS are replayable (no tool
       // rows, no extractor notes) — see its docstring.
-      if (isReplayableSession(sessionId)) {
+      // Crash resume takes precedence over episodic replay. A `running`
+      // checkpoint is a turn the sidecar died in the middle of; its stored
+      // transcript is faithful (tool results included), where episodic is
+      // lossy (tool output truncated to 400 chars). Restoring it lets the
+      // model continue from the exact step it reached instead of redoing work.
+      const resume = isReplayableSession(sessionId) ? this.#checkpoints?.loadRunning(sessionId) : null;
+      if (resume && resume.messages.length > 0) {
+        memory.restore(resume.messages);
+        log(`checkpoint: resumed session ${sessionId} from iteration ${resume.iteration} (${resume.messages.length} messages)`);
+      } else if (isReplayableSession(sessionId)) {
         for (const ev of this.#episodic.conversation(sessionId, REHYDRATE_TURNS)) {
           if (ev.role === "user") memory.addUser(ev.content);
           else memory.addAssistant(ev.content);

@@ -40,6 +40,7 @@ import { createGrepTool } from "./tools/builtin/grep.ts";
 import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
 import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
+import { CheckpointStore } from "./memory/checkpoint.ts";
 import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
 import { createTimeDateTool } from "./tools/builtin/time-date.ts";
@@ -849,6 +850,16 @@ export async function boot(transportOverride?: Transport) {
   // ponytail: the message text is the title; a model-generated label would
   // cost a completion per turn.
   agent.setTodoStore(todoStore);
+
+  // Crash-resume checkpointing: the loop snapshots the transcript after each
+  // tool call and rehydrates a session that died mid-turn. On boot, log any
+  // in-flight turns left by a previous process so the crash is visible.
+  const checkpoints = new CheckpointStore(db.raw);
+  agent.setCheckpointStore(checkpoints);
+  const stranded = checkpoints.incomplete();
+  if (stranded.length > 0) {
+    log(`checkpoint: ${stranded.length} session(s) left mid-turn by a prior process — will resume on next access`);
+  }
 
   agent.setUserTurnObserver((_sessionId, userText) => {
     const now = Date.now();
