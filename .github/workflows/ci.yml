@@ -170,9 +170,13 @@ jobs:
         run: cargo audit
 
       # Frontend (npm) — gate on high+ severity only to avoid dev-only noise.
+      # Wrapped so an advisory whose only npm remediation is a DOWNGRADE into
+      # other advisories can be waived explicitly, with a written reason and a
+      # recheck date, instead of forcing the wrong trade. Anything not on that
+      # allowlist still fails. See the script's docblock.
       - name: npm audit (frontend-react)
         working-directory: frontend-react
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs
 
       # Sidecar (bun) — same high+ gate against the bun lockfile.
       - name: bun audit (FeralAgent)
