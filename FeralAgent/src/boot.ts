@@ -135,6 +135,18 @@ export const VERSION: string =
 const BOOT_EPOCH_MS = Date.now();
 
 /**
+ * Leaves a single fractal rebuild may summarise when the active model is a
+ * CLOUD provider and the operator set no explicit cap.
+ *
+ * ponytail: 200 is the number the old warning told operators to use, so it is
+ * the value already known to work; the point of the constant is that we now
+ * apply it instead of asking. Local primaries are uncapped — see
+ * `fractalMaxLeaves`. Raise via FERAL_FRACTAL_BENCH_MAX_LEAVES on a
+ * long-context provider where the whole corpus does fit.
+ */
+const CLOUD_REBUILD_LEAF_CAP = 200;
+
+/**
  * Resolve the agent's filesystem sandbox roots.
  *
  * - `FERAL_WORKSPACE` is a path-list (`;` on Windows, `:` elsewhere). When
@@ -473,6 +485,33 @@ export async function boot(transportOverride?: Transport) {
   const fractalActivitySink: { current: (a: FractalActivity) => void } = {
     current: () => {},
   };
+  // --- Rebuild cap ---
+  // A rebuild summarises the corpus through the ACTIVE model. On a cloud
+  // primary an uncapped rebuild ships ~2.7k leaves in one call, the provider
+  // rejects it with "context window exceeds limit", and the tree is left EMPTY
+  // — 0% recall on both engines, silently, until someone notices recall has
+  // stopped working. This used to be only a warning telling the operator to
+  // set an env var before launching; nobody reads a log line at boot, and the
+  // failure it predicts is invisible. Cap it ourselves and say so.
+  //
+  // Local primaries stay uncapped: the summariser is on-device, a big rebuild
+  // costs time rather than a hard provider rejection, and the full corpus
+  // gives the best tree.
+  const fractalMaxLeaves = ((): number => {
+    const explicit = cfgInt("FERAL_FRACTAL_BENCH_MAX_LEAVES");
+    if (explicit > 0) return explicit;
+    const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
+    const isLoopback = baseUrl === "" || /^(https?:\/\/)?(127\.|localhost)/i.test(baseUrl);
+    if (isLoopback) return 0; // uncapped — on-device summariser
+    log(
+      `[bench-cap] cloud primary (${baseUrl}) with no FERAL_FRACTAL_BENCH_MAX_LEAVES — ` +
+        `capping the fractal rebuild at ${CLOUD_REBUILD_LEAF_CAP} leaves so the provider ` +
+        `cannot reject the whole corpus and leave an empty tree (0% recall). ` +
+        `Set FERAL_FRACTAL_BENCH_MAX_LEAVES explicitly to override.`,
+    );
+    return CLOUD_REBUILD_LEAF_CAP;
+  })();
+
   const fractalMemory = new FractalMemory({
     loadLeaves: () =>
       episodic.all().map((e) => ({
@@ -491,37 +530,17 @@ export async function boot(transportOverride?: Transport) {
     // Dev-only subset cap for the benchmark gate: build/measure over the first
     // N leaves so we get real numbers in minutes on CPU instead of hours over
     // the full corpus. Unset in production (whole corpus). See FractalMemoryDeps.
-    maxLeaves: cfgInt("FERAL_FRACTAL_BENCH_MAX_LEAVES"),
+    maxLeaves: fractalMaxLeaves,
     log,
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
     clearEmbeddings: () => episodic.clearEmbeddings(),
     onActivity: (a) => fractalActivitySink.current(a),
   });
 
-  // --- Env-cap guard ---
-  // If the user is routing through a *cloud* provider (anything not on the
-  // loopback) but forgot to set FERAL_FRACTAL_BENCH_MAX_LEAVES, the next
-  // rebuild will try to summarise every leaf in the corpus and the
-  // provider will reject the call with "context window exceeds limit".
-  // That bug has already broken a manual UI bench run once (silent empty
-  // tree, 0% recall on both engines). Warn loudly so the next operator
-  // sees it before clicking Run Benchmark.
-  {
-    const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
-    const isLoopback = baseUrl === "" || /^(https?:\/\/)?(127\.|localhost)/i.test(baseUrl);
-    const cap = cfgInt("FERAL_FRACTAL_BENCH_MAX_LEAVES");
-    if (!isLoopback && cap === 0) {
-      log(
-        `[bench-cap] WARN: FERAL_BASE_URL=${baseUrl} is non-loopback but ` +
-          `FERAL_FRACTAL_BENCH_MAX_LEAVES is unset. The next fractal rebuild ` +
-          `will try to summarise the full corpus (~2.7k leaves) and the ` +
-          `cloud provider will likely reject with "context window exceeds limit", ` +
-          `leaving you with an empty tree and 0% recall. ` +
-          `Set FERAL_FRACTAL_BENCH_MAX_LEAVES=200 (or another small number) ` +
-          `before launching, or the next rebuild may fail.`,
-      );
-    }
-  }
+  // (The old [bench-cap] WARN lived here. It told the operator to set an env
+  // var *before launching* — advice nobody can act on from a log line emitted
+  // during launch, for a failure that is silent when it happens. `fractalMaxLeaves`
+  // above now applies the cap itself and logs what it did.)
 
   fractalMemory.init();
 
