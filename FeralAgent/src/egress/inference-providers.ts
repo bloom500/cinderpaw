@@ -149,13 +149,7 @@ export class OllamaProvider implements InferenceProvider {
       for (const call of toolCalls) {
         const fn = call?.function;
         if (!fn?.name) continue;
-        let args = {};
-        if (typeof fn.arguments === "string") {
-          try { args = JSON.parse(fn.arguments); } catch {}
-        } else if (fn.arguments && typeof fn.arguments === "object") {
-          args = fn.arguments;
-        }
-        content += `\n<tool_call>\n${JSON.stringify({ name: fn.name, args })}\n</tool_call>`;
+        content += encodeToolCall(fn.name, fn.arguments);
       }
     }
 
@@ -343,13 +337,10 @@ export class OllamaProvider implements InferenceProvider {
       if (completedCalls.length > 0) {
         content = trimDanglingToolCallTag(content);
         for (const tc of completedCalls) {
-          let args = {};
-          if (tc.argumentsObject) {
-            args = tc.argumentsObject;
-          } else if (tc.argumentsString) {
-            try { args = JSON.parse(tc.argumentsString); } catch {}
-          }
-          content += `\n<tool_call>\n${JSON.stringify({ name: tc.name, args })}\n</tool_call>`;
+          content += encodeToolCall(
+            tc.name!,
+            tc.argumentsObject ?? tc.argumentsString,
+          );
         }
       }
     } finally {
@@ -458,13 +449,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       for (const call of toolCalls) {
         const fn = call?.function;
         if (!fn?.name) continue;
-        let args = {};
-        if (typeof fn.arguments === "string") {
-          try { args = JSON.parse(fn.arguments); } catch {}
-        } else if (fn.arguments && typeof fn.arguments === "object") {
-          args = fn.arguments;
-        }
-        content += `\n<tool_call>\n${JSON.stringify({ name: fn.name, args })}\n</tool_call>`;
+        content += encodeToolCall(fn.name, fn.arguments);
       }
     }
     const promptTokens = raw.usage?.prompt_tokens ?? estimateTokens(req.messages);
@@ -680,9 +665,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       if (completedCalls.length > 0) {
         content = trimDanglingToolCallTag(content);
         for (const tc of completedCalls) {
-          let args = {};
-          try { args = JSON.parse(tc.arguments || "{}"); } catch {}
-          content += `\n<tool_call>\n${JSON.stringify({ name: tc.name, args })}\n</tool_call>`;
+          content += encodeToolCall(tc.name!, tc.arguments);
         }
       }
     } finally {
@@ -755,8 +738,7 @@ export class AnthropicProvider implements InferenceProvider {
     for (const block of raw.content ?? []) {
       if (block.type === "tool_use" && block.name) {
         // Serialise as <tool_call> XML so Pass 0 of parseResponse picks it up.
-        const args = block.input ?? {};
-        content += `\n<tool_call>\n${JSON.stringify({ name: block.name, args })}\n</tool_call>`;
+        content += encodeToolCall(block.name, block.input ?? {});
       }
     }
     const promptTokens = raw.usage?.input_tokens ?? estimateTokens(req.messages);
@@ -862,12 +844,13 @@ export class AnthropicProvider implements InferenceProvider {
           if (activeBlockType === "tool_use") {
             const block = toolBlocks.get(activeBlockIndex);
             if (block) {
-              let args: unknown = {};
-              try { args = JSON.parse(block.json || "{}"); } catch { args = {}; }
               // Appended to `content` only, NOT emitted via onToken — chunk
               // events reach the chat UI verbatim and the raw tag leaked into
               // the visible answer after prose. parseResponse reads content.
-              content += `\n<tool_call>\n${JSON.stringify({ name: block.name, args })}\n</tool_call>`;
+              // A `max_tokens` cutoff mid-`input_json_delta` leaves `json`
+              // truncated; encodeToolCall turns that into a malformed call the
+              // loop retries, instead of a silent empty-args execution.
+              content += encodeToolCall(block.name, block.json);
             }
           }
           activeBlockIndex = -1;
@@ -1322,6 +1305,51 @@ function trimSlash(url: string): string {
  * `<tool_call>{json}</tool_call>` tag after that leftover produces a doubled
  * opener that breaks the agent loop's parser and leaks raw tags into chat.
  */
+/**
+ * Re-encode ONE native tool call into the canonical `<tool_call>` tag the agent
+ * loop parses.
+ *
+ * The argument string is the part that breaks on long-horizon tasks: providers
+ * stream `function.arguments` as a JSON fragment, and a turn that hits
+ * `max_tokens` mid-`write_file` (or a connection that drops) delivers a
+ * TRUNCATED fragment. Every call site used to do `try { JSON.parse(...) }
+ * catch {}` over a `let args = {}`, so a truncated fragment silently became an
+ * EMPTY argument object: `write_file` then ran with no path and no content, and
+ * the loop saw a perfectly valid call, so no retry ever fired. That is the
+ * "executes with wrong arguments / paths invented by the model" report.
+ *
+ * Now an unparseable non-empty fragment is emitted as an unmistakably malformed
+ * call. `parseResponse` flags it (`malformedToolCall`), and the loop's existing
+ * MAX_MALFORMED_RETRIES nudge asks the model to re-emit it — losing a turn
+ * instead of writing a file to the wrong place.
+ */
+export function encodeToolCall(name: string, rawArgs: unknown): string {
+  if (rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)) {
+    return `\n<tool_call>\n${JSON.stringify({ name, args: rawArgs })}\n</tool_call>`;
+  }
+  const text = typeof rawArgs === "string" ? rawArgs.trim() : "";
+  if (text === "") {
+    // Genuinely no arguments — a zero-arg tool (time_date, self_health, …).
+    return `\n<tool_call>\n${JSON.stringify({ name, args: {} })}\n</tool_call>`;
+  }
+  try {
+    const parsed = JSON.parse(text);
+    const args =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    return `\n<tool_call>\n${JSON.stringify({ name, args })}\n</tool_call>`;
+  } catch {
+    // Truncated / corrupted fragment. Emit the tag with the raw fragment so the
+    // parser cannot mistake it for a complete call (its brace depth never
+    // closes, so `findJsonEnd` returns -1 and `malformedToolCall` is set), and
+    // cap + flatten it so a runaway fragment can't dominate the transcript.
+    const fragment = text.slice(0, 2000).replace(/\s+/g, " ");
+    return (
+      `\n<tool_call>\n{"name": ${JSON.stringify(name)}, "args": ` +
+      `${fragment}\n</tool_call>`
+    );
+  }
+}
+
 function trimDanglingToolCallTag(content: string): string {
   return content.replace(/(?:\s*<tool_call>\s*)+$/, "");
 }

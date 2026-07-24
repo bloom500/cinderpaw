@@ -203,7 +203,9 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       "or [\"powershell\",\"-Command\",\"...\"]; elsewhere argv=[\"sh\",\"-c\",\"ls | grep foo\"]. " +
       "The shell then interprets the whole command line. Set `cwd` to run inside a " +
       "specific directory. Output is capped at 1 MB; processes are hard-killed after the " +
-      "timeout (default 30s, max 5min). The git_* / run_tests / format_code tools are " +
+      "timeout (default 2min, max 5min unless the host raised it). ALWAYS pass an explicit " +
+      "`timeout_ms` for a build, install, or test run — a killed process is reported as a " +
+      "failure and you cannot tell it apart from a real one. The git_* / run_tests / format_code tools are " +
       "convenient shortcuts but this tool can do anything a terminal can.",
     permissions: ["process:spawn", "fs:read"],
     networkAccess: false,
@@ -240,7 +242,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       },
       timeout_ms: {
         type: "number",
-        description: "Timeout in milliseconds (default 120000 = 2min, max 300000 = 5min). For a long build, pass a larger value up to the max.",
+        description: "Timeout in milliseconds (default 120000 = 2min; max 300000 = 5min unless the host raised it via FERAL_SHELL_MAX_TIMEOUT_MS). Values above the max are clamped, not rejected. For a build or install, pass a larger value.",
         required: false,
       },
       env: {

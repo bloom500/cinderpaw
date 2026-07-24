@@ -32,8 +32,11 @@ const DEFAULT_CONFIG: WorkingMemoryConfig = {
 };
 
 /** Tokens reserved for the summary note maybeCompress prepends, so the kept
- *  recent transcript + the summary still fit under the target budget. */
-const SUMMARY_RESERVE_TOKENS = 512;
+ *  recent transcript + the summary still fit under the target budget.
+ *  Must cover the summarizer's `maxTokens` (see AgentLoop.#summarize) — when it
+ *  was 512 against a 1024-token summary, compaction handed back a prompt bigger
+ *  than the budget it was called with and the next turn compacted again. */
+const SUMMARY_RESERVE_TOKENS = 1_200;
 
 /** Last-resort truncation of a single message larger than the whole recent
  *  budget (e.g. one giant tool output). Keeps head + tail (where the useful
@@ -247,11 +250,20 @@ export class WorkingMemory {
     // context: the static system prompt, the per-turn drawers, and the summary
     // note we're about to prepend. The local KV cache overflows on the full
     // prompt, not just the transcript, so reserve it before sizing "recent".
+    // The reserve is a ceiling, not a fixed cost: on a small target budget a
+    // flat 1200 would swallow the whole allowance and leave `recentBudget` at
+    // 0, so an oversized message survived verbatim into a prompt that was
+    // already overflowing. Never spend more than a quarter of the budget
+    // holding room for a summary that hasn't been written yet.
+    const summaryReserve = Math.min(
+      SUMMARY_RESERVE_TOKENS,
+      Math.floor(targetTokens * 0.25),
+    );
     const fixedOverhead =
       countTokens(this.#system) +
       countTokens(this.#skillMenu) +
       countTokens(this.#memoryContext) +
-      SUMMARY_RESERVE_TOKENS;
+      summaryReserve;
     const recentBudget = Math.max(0, targetTokens - fixedOverhead);
 
     // Keep newest-first until the next message would blow the recent budget.

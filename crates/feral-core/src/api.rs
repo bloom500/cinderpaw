@@ -2239,6 +2239,12 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
             "baseUrl": base_url,
             "apiKey": api_key,
             "contextWindow": context_window,
+            // We unload the local engine a few lines below, so its
+            // degrade-to-local fallback can only answer 503 "no model
+            // selected" — a message the router used to staple onto every
+            // cloud failure, and a lazy-load that would drag the GGUF we are
+            // about to release straight back into RSS.
+            "localFallbackAvailable": false,
         })
         .to_string();
         if tx.try_send(msg).is_err() {

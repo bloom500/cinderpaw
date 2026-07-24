@@ -146,6 +146,30 @@ export class McpManager {
     return this.#reconciling;
   }
 
+  /**
+   * Resolve once the in-flight reconcile settles, or after `timeoutMs` —
+   * whichever comes first. Never rejects.
+   *
+   * The boot reconcile is deliberately fire-and-forget (a broken extension must
+   * not delay startup), which left a window where the FIRST user message was
+   * planned against a tool registry that did not yet contain any MCP tool. The
+   * agent then answered "I don't have a tool for that" for a server the user
+   * could see connected a second later. Waiting a bounded moment on the first
+   * message closes that window without reintroducing the startup stall — and
+   * `#complete` still calls `#syncTools()` every turn, so anything slower than
+   * the timeout is picked up on the next turn as before.
+   */
+  async ready(timeoutMs = 3_000): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      this.#reconciling.catch(() => {}),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+  }
+
   async #reconcileOnce(): Promise<void> {
     const servers = loadMcpConfig(this.#configPath);
     const wanted = new Map(servers.filter((s) => s.enabled).map((s) => [s.id, s]));

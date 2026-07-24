@@ -44,7 +44,12 @@ mod command_count_test {
     // That commit added the command without bumping this constant, so the test
     // has been failing on main ever since — CI does not run the src-tauri
     // suite, which is why it went unnoticed.
-    const EXPECTED_COMMAND_COUNT: usize = 131;
+    // 132 = + feral_submit_feedback (thumbs 👍/👎 → RSI acceptance signal,
+    // 9c1849f). Same story as fe5b5b6: added without bumping the baseline, so
+    // the suite has been red since. CI still does not run it — until it does,
+    // this constant only moves when someone runs `cargo test -p feral --lib`
+    // by hand.
+    const EXPECTED_COMMAND_COUNT: usize = 132;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

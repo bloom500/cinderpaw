@@ -146,6 +146,8 @@ they remain hand-maintained here and are still covered by
 | `FERAL_FALLBACK_API_KEY` | string | `null` |  | Bearer token for the fallback provider. |
 | `FERAL_OLLAMA_NUM_CTX` | int | `null` |  | Override Ollama's num_ctx. |
 | `FERAL_MAX_CONTEXT` | int | `8192` |  | Hard ceiling on context length the router allows. |
+| `FERAL_SHELL_MAX_TIMEOUT_MS` | int | `300_000` | yes | Ceiling on shell_exec's per-call timeout_ms (clamped to 60s..60min). Raise it when a real build — cargo, gradle, a cold docker layer — legitimately runs past 5 minutes; the process is hard-killed at this bound and the agent cannot tell that apart from a genuine failure. |
+| `FERAL_SUMMARY_EXCERPT_CHARS` | int | `24_000` |  | Characters of the compacted transcript fed to the working-memory summarizer (head+tail sampled). Raise on big-context models so long tool-heavy tasks keep more detail in the summary note. |
 | `FERAL_TOOL_GRAMMAR` | string | `null` |  | Optional GBNF grammar to constrain tool-call output. Presence alone also toggles useToolGrammar (default on; set to literal "false" to disable — inverse-toggle var, not migrated). |
 | `FERAL_VERSION` | string | `null` |  | Reported in startup logs; set by installer. |
 | `FERAL_EMBED_GPU_LAYERS` | int | `null` |  | Embedding-model layers offloaded to GPU. 0 = CPU-only. |
@@ -318,8 +320,10 @@ FERAL_RSI_TELEMETRY
 FERAL_RUN_FRACTAL_BENCH
 FERAL_SEARXNG_URL
 FERAL_SHELL_DENYLIST
+FERAL_SHELL_MAX_TIMEOUT_MS
 FERAL_SHELL_WHITELIST
 FERAL_SMOKE_GGUF
+FERAL_SUMMARY_EXCERPT_CHARS
 FERAL_STALL_MS
 FERAL_SUBAGENT_MAX_SUMMARY_CHARS
 FERAL_THOUGHTS_COOLDOWN_MS

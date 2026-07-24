@@ -505,6 +505,13 @@ pub(crate) async fn feral_set_model(
         state.manager.unload();
     }
 
+    // After that unload the engine serves nothing, so the sidecar's
+    // degrade-to-local fallback can only 503 ("no model selected") — which the
+    // router used to staple onto every cloud failure, and which made the API's
+    // lazy-load pull the GGUF we just released back into RSS. Tell the sidecar
+    // the truth and let it drop the fallback while we're on a cloud route.
+    let local_fallback_available = state.manager.current().is_some();
+
     let msg = serde_json::json!({
         "type": "set_model",
         "provider": provider,
@@ -512,6 +519,7 @@ pub(crate) async fn feral_set_model(
         "baseUrl": resolved_url,
         "apiKey": api_key,
         "contextWindow": context_window,
+        "localFallbackAvailable": local_fallback_available,
     })
     .to_string();
 

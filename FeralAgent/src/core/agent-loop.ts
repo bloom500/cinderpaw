@@ -1460,22 +1460,38 @@ export class AgentLoop {
         "— set primary to a local engine to keep compression on-device",
       );
     }
-    const transcript = msgs
-      .map((m) => `${m.role}: ${m.content}`)
-      .join("\n")
-      .slice(0, 6_000);
+    // The excerpt fed to the summarizer used to be `.slice(0, 6_000)` — the
+    // FIRST 6000 chars of everything being compacted. On a multi-step task the
+    // compacted region is tens of thousands of chars, so the summary described
+    // the opening of the session and EVERY later fact (the paths just written,
+    // the commands just run, the errors just fixed) was dropped on the floor.
+    // That is the "forgets file paths it wrote earlier / repeats actions it
+    // already completed" report. Head+tail sampling keeps the framing AND the
+    // recent work; the head is small because the tail is what the next turn
+    // needs. Raise FERAL_SUMMARY_EXCERPT_CHARS on big-context models.
+    const transcript = headTail(
+      msgs.map((m) => `${m.role}: ${m.content}`).join("\n"),
+      cfgInt("FERAL_SUMMARY_EXCERPT_CHARS") || 24_000,
+    );
     const res = await this.#router.complete({
       sessionId,
       messages: [
         {
           role: "system",
           content:
-            "Summarize the following conversation excerpt in 3-4 sentences, " +
-            "preserving facts, decisions, and open questions.",
+            "Summarize the following conversation excerpt for an agent that must " +
+            "continue the task. Preserve VERBATIM every identifier the agent will " +
+            "need again: file paths it created or edited, commands it ran and " +
+            "their outcome, URLs, ids, and decisions already made. State what is " +
+            "already DONE so it is not repeated, and what is still open. Prefer a " +
+            "terse bulleted list over prose.",
         },
         { role: "user", content: transcript },
       ],
-      maxTokens: 256,
+      // 256 could not hold a path list. The summary is written once per
+      // compaction and re-sent every turn afterwards, so it is worth the tokens
+      // — SUMMARY_RESERVE_TOKENS in working.ts reserves room for it.
+      maxTokens: 1024,
       // Bypass the budget gate: this call exists to RECOVER from budget
       // pressure, so it must run even when the conversation is over budget.
       skipBudgetCheck: true,
@@ -1957,7 +1973,11 @@ function extractBareToolCalls(input: string): {
   // the colon was emitted as `=`. The `invoke` branch catches the JSON/XML
   // hybrid {"invoke name="write_file"> (model imitating Anthropic-style
   // invoke XML with a brace) — unparseable, but unmistakably a call attempt.
-  const startRe = /\{\s*"?(?:(?:name|tool)"?\s*[:=]|invoke\b)/g;
+  // `tool_name` is the third observed shape ({"tool_name":"write_file",
+  // "arguments":{…}}): the old alternation matched `tool` and then demanded
+  // `[:=]`, hit the `_`, and gave up — so the whole call was rendered to the
+  // user as raw JSON instead of executing.
+  const startRe = /\{\s*"?(?:(?:tool_name|name|tool)"?\s*[:=]|invoke\b)/g;
 
   // Scan one out-of-fence chunk: pull out every tool-call object, hide
   // corrupted fragments, return the surviving prose.
@@ -2007,7 +2027,7 @@ function extractBareToolCalls(input: string): {
       const inner = seg
         .replace(/^```[^\n]*\n?/, "")
         .replace(/\n?```[ \t]*$/, "");
-      if (/^\s*\{\s*"?(?:name|tool)"?\s*[:=]/.test(inner)) {
+      if (/^\s*\{\s*"?(?:tool_name|name|tool)"?\s*[:=]/.test(inner)) {
         out.push(scan(inner));
       } else {
         out.push(seg);
@@ -2042,8 +2062,9 @@ function tryParseCall(candidate: string): ParsedToolCall | null {
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return null;
 
   const record = obj as Record<string, unknown>;
-  // Support {"name":..,"args":..}, {"tool":..,"args":..}, {"tool":..,"parameters":..}
-  const name = record.name ?? record.tool;
+  // Support {"name":..,"args":..}, {"tool":..,"args":..}, {"tool":..,"parameters":..},
+  // {"tool_name":..,"arguments":..}
+  const name = record.name ?? record.tool ?? record.tool_name;
   if (typeof name !== "string" || !name.trim()) return null;
 
   const rawArgs = record.args ?? record.arguments ?? record.parameters ?? record.input ?? {};
@@ -2113,6 +2134,21 @@ export function sanitizeInferParams(raw: {
     out.maxTokens = Math.min(32_768, Math.max(128, Math.floor(raw.max_tokens)));
   }
   return out;
+}
+
+/**
+ * Keep the head and (mostly) the tail of an oversized excerpt, with an explicit
+ * elision marker in between. A plain head-slice loses exactly the recent work
+ * the next turn depends on; a plain tail-slice loses the task framing.
+ * ponytail: 25/75 split, no smarter selection — the summarizer reads both ends.
+ */
+export function headTail(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const marker = "\n…[middle of the excerpt elided]…\n";
+  const budget = Math.max(0, maxChars - marker.length);
+  const head = Math.floor(budget * 0.25);
+  const tail = budget - head;
+  return text.slice(0, head) + marker + text.slice(text.length - tail);
 }
 
 function errorMessage(err: unknown): string {

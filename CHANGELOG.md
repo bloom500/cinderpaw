@@ -5,6 +5,40 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## Unreleased
+
+Reliability on long tasks. Every fix here is something you only hit after the
+agent has been working for a while — which is exactly when it hurts most.
+
+### Fixed
+
+- **"No model loaded" no longer hides the real error.** On a cloud model, a
+  failed request used to fall back to the local engine — which the app had
+  deliberately unloaded when you switched to cloud — and report *its* complaint
+  ("no model selected") instead of what actually went wrong. You now see the
+  real cause: rate limit, expired key, or a conversation grown past the model's
+  context. As a side effect, a single cloud hiccup no longer drags a multi-GB
+  local model back into memory.
+- **A tool call cut off mid-argument is retried instead of run blind.** When a
+  reply hit its token limit while the model was still writing a tool call's
+  arguments, the truncated JSON was silently treated as *no arguments at all* —
+  so `write_file` ran with no path and no content, and nothing flagged it. Feral
+  now recognises the truncation and asks the model to re-send the call.
+- **Compressing a long conversation no longer throws away the recent half.**
+  The summary that replaces older turns was built from only the first few
+  thousand characters — the opening of the session — so every file path,
+  command, and fix from the actual work was lost. That is why the agent forgot
+  paths it had just written and repeated steps it had already done. The summary
+  now covers both ends of what it replaces and is told to keep paths, commands,
+  and outcomes verbatim.
+- **Extension (MCP) tools are available on the very first message.** They
+  connect in the background at startup, and a message sent in that window used
+  to be answered with "I don't have a tool for that" for a server you could see
+  was connected.
+- **`shell_exec` tells the truth about its timeout,** and the 5-minute ceiling
+  is now raisable (`FERAL_SHELL_MAX_TIMEOUT_MS`) for builds that legitimately
+  run longer.
+
 ## 2026.07.19
 
 A big one. Feral can now split work across sub-agents, ask you a question

@@ -28,6 +28,7 @@ import type {
   ToolManifest,
 } from "../types.ts";
 import { hasPermission, resolveAllowedPath } from "./tool-permissions.ts";
+import { cfgInt } from "../config.ts";
 
 export interface ProcessSandboxConfig {
   /** Default per-process timeout in ms when the caller does not specify one. */
@@ -48,7 +49,11 @@ const DEFAULT_CONFIG: ProcessSandboxConfig = {
   // 2 min default (was 30s — too tight for real builds/installs); callers can
   // still pass a per-call timeout_ms up to maxTimeoutMs.
   defaultTimeoutMs: 120_000,
-  maxTimeoutMs: 300_000,
+  // ponytail: calibration knob. 5 min covers `bun install` and most test runs,
+  // but a cold `cargo build` on a real project routinely exceeds it and the
+  // agent then sees a killed process it cannot distinguish from a failure.
+  // Raise with FERAL_SHELL_MAX_TIMEOUT_MS on machines that need it.
+  maxTimeoutMs: readMaxTimeoutMs(),
   maxOutputBytes: 1_048_576, // 1 MB
     safeBaseEnv: {
       PATH: process.env.PATH ?? "",
@@ -57,6 +62,17 @@ const DEFAULT_CONFIG: ProcessSandboxConfig = {
       LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
     },
 };
+
+/**
+ * Ceiling on any caller-requested `timeout_ms`. Read once at module load;
+ * clamped to [60s, 60min] so a typo can neither make every build fail instantly
+ * nor let a wedged process hold a tool slot for the life of the sidecar.
+ */
+function readMaxTimeoutMs(): number {
+  const raw = cfgInt("FERAL_SHELL_MAX_TIMEOUT_MS");
+  if (!Number.isFinite(raw) || raw <= 0) return 300_000;
+  return Math.min(3_600_000, Math.max(60_000, raw));
+}
 
 /**
  * Variable names that may not be set or overridden by the caller. Anything

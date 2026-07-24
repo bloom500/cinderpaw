@@ -92,6 +92,28 @@ export function isBackgroundSession(sessionId: string): boolean {
   return BACKGROUND_SESSION_PREFIXES.some((p) => sessionId.startsWith(p));
 }
 
+/**
+ * True when an error means "this target has no model resident", not "your
+ * request was bad". The bundled local engine answers `503 {"type":
+ * "model_not_ready"}` (see `no_model_response` in crates/feral-core/src/api.rs)
+ * whenever the desktop has unloaded the GGUF — which it does deliberately on
+ * every switch to a cloud route. A fallback that says this was never eligible
+ * for the turn, so its message must not be pinned onto the primary's failure.
+ */
+export function isNoModelReady(err: unknown): boolean {
+  const status = (err as { status?: number } | null)?.status;
+  const msg = String((err as { message?: string } | null)?.message ?? err);
+  return (
+    /model_not_ready|no model (selected|loaded)/i.test(msg) ||
+    (status === 503 && /\bmodel\b/i.test(msg))
+  );
+}
+
+/** Re-throwable form of an unknown error, preserving InferenceError instances. */
+function asInferenceError(err: unknown): Error {
+  return err instanceof Error ? err : new InferenceError(String(err));
+}
+
 export class InferenceRouter {
   // Mutable so reconfigure() can hot-swap the active model at runtime.
   #primary: ModelTarget;
@@ -487,6 +509,12 @@ export class InferenceRouter {
             start,
             `primary: ${String(primaryErr)}; fallback: ${String(fallbackErr)}`,
           );
+          // The local engine answering "I have no model resident" is not a
+          // diagnosis of the user's request — it is the fallback saying it was
+          // never eligible. Appending it buried the REAL cloud failure (context
+          // overflow, timeout, 429) behind "no model selected — choose one in
+          // Models", which reads to the user as "Feral lost my model".
+          if (isNoModelReady(fallbackErr)) throw asInferenceError(primaryErr);
           // Surface BOTH errors. The primary (usually the cloud/BYOK model)
           // is the one the user actually wants working; showing only the
           // fallback's error hid a bad key / URL / model name behind a

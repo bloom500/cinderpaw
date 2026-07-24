@@ -1075,6 +1075,13 @@ export interface InboundMessage {
   /** Active context window (tokens) for a LOCAL model, forwarded by Rust so the
    *  agent compacts to the engine's real KV-cache size. Absent for cloud. */
   contextWindow?: number;
+  /** Whether the bundled local engine still has a model resident and may be
+   *  used as the degrade-to-local fallback. The desktop UNLOADS the GGUF when
+   *  the user switches to a cloud route, so it sends `false` there: keeping the
+   *  fallback made every cloud hiccup 503 on "no model selected" AND made the
+   *  Rust API lazily re-load the multi-GB model the unload just released.
+   *  Absent = unknown; the sidecar keeps its boot-time behaviour. */
+  localFallbackAvailable?: boolean;
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
   requestId?: string;

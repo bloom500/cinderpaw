@@ -979,7 +979,16 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           // cloud (non-loopback) model, so a 429/transient cloud failure
           // degrades to on-device inference instead of a hard error. Switching
           // BACK to a local primary needs no fallback (it IS the safe target).
-          const fallback = isLoopbackUrl(baseUrl) ? undefined : localFallbackTarget;
+          //
+          // …unless the host tells us the engine has no model resident. The
+          // desktop unloads the GGUF on every switch to cloud, so the fallback
+          // was guaranteed to 503 "no model selected" — burying the real cloud
+          // error — and the Rust API's lazy-load would drag the multi-GB model
+          // straight back into RSS on the first hiccup.
+          const fallback =
+            isLoopbackUrl(baseUrl) || msg.localFallbackAvailable === false
+              ? undefined
+              : localFallbackTarget;
           router.reconfigure(primary, fallback);
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past
@@ -1061,6 +1070,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           msg.inferParams && typeof msg.inferParams === "object"
             ? msg.inferParams
             : undefined;
+        // The boot MCP reconcile is fire-and-forget, so the very first message
+        // could be planned against a registry that had no MCP tools in it yet —
+        // the agent answered "I have no tool for that" for a server the user
+        // could see connected. Bounded wait; a slow server still lands on the
+        // next turn via #syncTools(). No-op once the reconcile has settled.
+        await mcpManager.ready();
         await agent.handle(sessionId, content, id, (event) => {
           transport.send(event);
           // X1 fix: same gating as the message-received update above.
