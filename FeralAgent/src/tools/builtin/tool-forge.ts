@@ -71,6 +71,21 @@ export interface ToolForgeDeps {
 const PRUNE_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
 const PRUNE_MIN_RUNS = 5;
 const PRUNE_MIN_SUCCESS_RATE = 0.6;
+/**
+ * Grace period after an edit before failure statistics may condemn a tool.
+ *
+ * The health report is LIFETIME per tool name, with no notion of which version
+ * of the code produced each run. So the normal way a tool gets fixed — forge
+ * it, watch it fail five times, rewrite it — leaves it permanently below the
+ * success-rate floor, and the next boot deletes the working version on the
+ * strength of the broken one's record.
+ *
+ * ponytail: a week of grace, not versioned statistics. The real fix is to key
+ * observations by code hash and reset the window on update; that needs the
+ * observation log to carry the hash, which is a bigger change than the bug
+ * warrants. Unused-pruning is untouched — it already requires 30 days.
+ */
+const PRUNE_RECENT_EDIT_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Load persisted custom tools and register them. Returns the names
@@ -99,7 +114,10 @@ export function registerPersistedCustomTools(deps: ToolForgeDeps): string[] {
     // Never prune on the health report alone: with no observation log every
     // tool looks unused. The age check is what makes "unused" meaningful.
     const neverUsed = deps.health !== undefined && runs === 0 && now - record.updatedAt > PRUNE_UNUSED_MS;
-    const mostlyBroken = runs >= PRUNE_MIN_RUNS && (stats?.successRate ?? 1) < PRUNE_MIN_SUCCESS_RATE;
+    // …and never on stats that predate the current code (see the constant).
+    const settled = now - record.updatedAt > PRUNE_RECENT_EDIT_MS;
+    const mostlyBroken =
+      settled && runs >= PRUNE_MIN_RUNS && (stats?.successRate ?? 1) < PRUNE_MIN_SUCCESS_RATE;
     if (neverUsed || mostlyBroken) {
       deleteCustomTool(dir, record.name);
       continue;

@@ -852,8 +852,27 @@ export class AgentLoop {
       }
       ctx.emit({ type: "done", id: messageId, content: final, stopped: ctx.stopped, traceId });
 
-      // Fire-and-forget: extract durable user facts from the turn just completed.
-      this.#extractor?.extractAsync(sessionId, [...memory.turns]);
+      // Fire-and-forget: extract durable user facts from the turn just
+      // completed — but only when the speaker IS the user.
+      //
+      // SemanticMemory is "the persistent model of the user". A session under
+      // a RESTRICTED profile is, by construction, someone else: the public
+      // WhatsApp lead mode answers strangers who were never on the allowlist.
+      // Mining "durable facts about the user" from them is a category error
+      // before it is a leak — a lead saying "my name is Bob, I run a
+      // competitor" became a global fact the owner's `recall` would later
+      // return as truth about the owner. It is also a prompt-injection
+      // channel: whoever messages the business account gets to write into the
+      // owner's durable memory.
+      //
+      // Restricted (`allowed` non-null) is the right test, not "has a
+      // profile": a persona-only profile is still the owner in a different
+      // voice, and their facts should keep being learned. The sanctioned way
+      // for a lead's details to persist is `capture_lead`, which the public
+      // toolset does include.
+      if (!this.#profileFor(sessionId)?.allowed) {
+        this.#extractor?.extractAsync(sessionId, [...memory.turns]);
+      }
 
       // P0-4: agent_end hook. Informational. Carries the final answer,
       // the tool-call count, the duration, and the token total so a

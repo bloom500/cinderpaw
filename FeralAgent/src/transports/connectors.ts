@@ -264,6 +264,19 @@ function digits(s: string): string {
 }
 
 /**
+ * Session id for one Slack speaker.
+ *
+ * Same shape and same reason as `discordSessionId`: a Slack `event.channel` is
+ * a ROOM (`C…` for a channel, `D…` for an IM), not a person. Keying on it put
+ * every member of a shared channel into one transcript and one fact store.
+ * IMs are already 1:1, but they go through the same form so the parse is
+ * uniform and `memoryScope` needs no special case.
+ */
+export function slackSessionId(channel: string, userId: string): string {
+  return `slack:${channel}:${userId}`;
+}
+
+/**
  * Session id for one Discord speaker.
  *
  * Discord is the only connector whose transport id is a ROOM, not a person:
@@ -569,8 +582,10 @@ export class SlackConnector {
 
     // ask_user over Slack: post the question text into the session's channel.
     this.#ask?.registerSender("slack", async (sessionId, text) => {
-      const channel = sessionId.slice("slack:".length);
-      await this.#web?.chat.postMessage({ channel, text });
+      // `slack:<channel>:<user>` — the channel is segment 1. A question goes
+      // to the channel the asker is in, which is where they will answer.
+      const channel = sessionId.split(":")[1] ?? "";
+      if (channel) await this.#web?.chat.postMessage({ channel, text });
     });
   }
 
@@ -607,7 +622,7 @@ export class SlackConnector {
 
     const web = this.#web!;
     const threadTs = (event.thread_ts as string | undefined) ?? (event.ts as string | undefined);
-    const sessionId = `slack:${channel}`;
+    const sessionId = slackSessionId(channel, user);
 
     // A reply to a pending ask_user question answers it — no agent turn.
     if (this.#ask?.handleInbound(sessionId, text)) {
@@ -650,7 +665,7 @@ export class SlackConnector {
     };
 
     try {
-      const reply = await runAgent(this.#agent, sessionId, text, `slack-${event.ts}`, setStatus);
+      const reply = await runAgent(this.#agent, sessionId, `[user:${user}] ${text}`, `slack-${event.ts}`, setStatus);
       if (timer) clearTimeout(timer);
       pending = null;
       const parts = chunk(reply);

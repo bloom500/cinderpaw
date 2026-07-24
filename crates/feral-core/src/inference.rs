@@ -1511,8 +1511,25 @@ mod backend {
         // every pooled context are freed when the last Arc drops (within
         // each PooledContext, the context drops before the model Arc by
         // field order).
-        *STATE.lock() = None;
-        tracing::info!("model unloaded (pool + KV caches released with last reference)");
+        let state = STATE.lock().take();
+        // Say what actually happened. `Arc::strong_count == 1` means ours was
+        // the last reference and the weights + KV caches are freed by the time
+        // this line runs. Anything higher means a generation is still in
+        // flight holding its own Arc: the release is DEFERRED to whenever that
+        // finishes, and on Windows the GGUF stays mapped (and undeletable)
+        // until then. The previous unconditional "model unloaded" read as a
+        // completed release and made the mmap-still-held case look impossible.
+        match state.as_ref().map(Arc::strong_count) {
+            None => tracing::info!("unload: no model was loaded"),
+            Some(1) => tracing::info!("model unloaded (pool + KV caches released)"),
+            Some(n) => tracing::warn!(
+                in_flight = n - 1,
+                "unload requested while {} generation(s) still hold the model — \
+                 weights stay resident (and the GGUF stays memory-mapped) until they finish",
+                n - 1
+            ),
+        }
+        drop(state);
     }
 
     fn detect_template(name: &str) -> &'static str { super::detect_template(name) }

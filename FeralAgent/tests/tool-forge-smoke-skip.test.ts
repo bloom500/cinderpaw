@@ -6,6 +6,9 @@
  *   2. the child is told its egress whitelist, so the smoke run happens
  *      through the same network policy as the real calls.
  *
+ * Plus the boot-pruning fix: lifetime failure stats must not condemn a tool
+ * whose code was just rewritten.
+ *
  * The existing gates (consent, smoke-fails-blocks-registration, restore on a
  * failed update) are covered in tool-forge.test.ts — these are the deltas.
  */
@@ -13,7 +16,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createToolForgeTool } from "../src/tools/builtin/tool-forge.ts";
+import { createToolForgeTool, registerPersistedCustomTools } from "../src/tools/builtin/tool-forge.ts";
+import { saveCustomTool, transpileToolCode, type CustomToolRecord } from "../src/tools/custom-tools.ts";
 import { TOOL_DOMAINS_ENV } from "../src/tools/custom-tool-runner.ts";
 import type { AskUserQuestion, Tool, ToolContext } from "../src/types.ts";
 
@@ -188,4 +192,61 @@ test("a bad allowed_domains entry is rejected before anything is written", async
   expect(res.ok).toBe(false);
   expect(f.spawns).toHaveLength(0);
   expect(f.asked).toHaveLength(0);
+});
+
+// ------------------------------------------------ boot pruning (issue #4)
+
+
+/** Persist a record whose last edit was `ageMs` ago. */
+function persist(name: string, ageMs: number): CustomToolRecord {
+  const t = Date.now() - ageMs;
+  const record: CustomToolRecord = {
+    version: 1,
+    name,
+    description: "d",
+    parameters: {},
+    code: CODE,
+    createdAt: t,
+    updatedAt: t,
+  };
+  const js = transpileToolCode(CODE);
+  saveCustomTool(dir, record, "js" in js ? js.js : "");
+  return record;
+}
+
+/** Health report saying the tool failed most of its (lifetime) runs. */
+const brokenHealth = (name: string) => ({
+  buildHealthReport: () => ({ tools: [{ tool: name, totalRuns: 8, successRate: 0.1 }] }),
+});
+
+const DAY = 24 * 60 * 60 * 1000;
+
+test("a tool fixed today is not deleted for failures its old code caused", async () => {
+  const name = "recent_edit_tool";
+  persist(name, 1 * DAY); // rewritten yesterday
+  const registry = makeRegistry();
+  const registered = registerPersistedCustomTools({
+    registry,
+    workspaceRoots: [dir],
+    dir,
+    runtime: FAKE_RUNTIME,
+    health: brokenHealth(name),
+  });
+  expect(registered).toContain(name);
+  expect(registry.has(name)).toBe(true);
+});
+
+test("a tool that has been failing for weeks without an edit is still pruned", async () => {
+  const name = "settled_broken_tool";
+  persist(name, 30 * DAY);
+  const registry = makeRegistry();
+  const registered = registerPersistedCustomTools({
+    registry,
+    workspaceRoots: [dir],
+    dir,
+    runtime: FAKE_RUNTIME,
+    health: brokenHealth(name),
+  });
+  expect(registered).not.toContain(name);
+  expect(registry.has(name)).toBe(false);
 });

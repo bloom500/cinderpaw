@@ -48,19 +48,18 @@ const SCOPE_SEP = "";
  * written from such a session are scoped to the speaker; reads see their own
  * facts plus the global ones, never another user's.
  *
- * ponytail: Discord only. WhatsApp/Slack sessions are already one-per-person
- * so their transcripts don't cross — but their FACTS still land globally,
- * which matters for the public WhatsApp lead mode where the writer is a
- * stranger. Extending this to `whatsapp:`/`slack:` is one branch here; it is
- * deliberately not taken in the same change that fixes Discord.
+ * WhatsApp is genuinely one-session-per-person (the JID *is* the sender), so
+ * it needs no scope here. Its separate problem — a public lead's facts being
+ * mined into memory at all — is fixed upstream in the agent loop, which does
+ * not run the extractor for restricted-profile sessions.
  */
 export function memoryScope(sessionId: string): string {
-  const parts = sessionId.split(":");
-  if (parts[0] !== "discord") return "";
-  // discord:dm:<userId> and discord:<channelId>:<userId> both put the speaker
-  // last; legacy discord:<channelId> has no speaker and stays global.
-  const userId = parts[2];
-  return userId ? `discord/${userId}` : "";
+  const [transport, , userId] = sessionId.split(":");
+  // Discord and Slack are the room-keyed transports: `<transport>:<room>:<user>`
+  // (plus `discord:dm:<user>`, where the speaker is still last). A legacy
+  // two-segment session has no speaker and stays global.
+  if (transport !== "discord" && transport !== "slack") return "";
+  return userId ? `${transport}/${userId}` : "";
 }
 
 /** Storage key for `key` under `scope`. Global scope stores the bare key. */
