@@ -16,17 +16,26 @@
  *   node scripts/walkaway-bench.mjs --timeout 1800      # per-task cap (s)
  *   node scripts/walkaway-bench.mjs --repeat 3          # N runs per task
  *
- * REQUIRES a working model. Each run gets an isolated FERAL_HOME (so memory
- * cannot leak between tasks), which also means it does not inherit whichever
- * model your desktop app has selected — that lives in the home you just
- * isolated. Point it at one explicitly:
+ * REQUIRES a working model, and will refuse to start without one (see
+ * preflight below) rather than burn your afternoon discovering it.
  *
- *   FERAL_MODEL=MiniMax-M3 FERAL_PROVIDER=minimax node scripts/walkaway-bench.mjs
+ * The sidecar does NOT read ~/.feral/byok.json — the Rust host resolves the
+ * BYOK route and hands the sidecar FERAL_PROVIDER / FERAL_MODEL /
+ * FERAL_BASE_URL / FERAL_API_KEY. This script spawns the sidecar directly, so
+ * it has to do the same job. It resolves the base URL and model from
+ * byok.json (both non-secret), and takes the KEY from the environment:
  *
- * BYOK keys are read from the OS keychain by provider name, so they follow you
- * without being copied anywhere. If inference does not come up the run is
- * reported as HARNESS/INFRA and NOT counted as an agent failure — a number
- * that includes "there was no model" measures nothing.
+ *   FERAL_BYOK_PROVIDER=minimax FERAL_API_KEY=sk-... node scripts/walkaway-bench.mjs
+ *
+ * The key is deliberately NOT read out of the OS keychain. A benchmark script
+ * has no business extracting credentials, and one that did would be a fine
+ * template for something that is not a benchmark script. Export it for the one
+ * command, or set FERAL_BASE_URL / FERAL_MODEL / FERAL_API_KEY yourself and
+ * skip byok.json entirely.
+ *
+ * If inference does not come up the run is reported as HARNESS/INFRA and NOT
+ * counted as an agent failure — a number that includes "there was no model"
+ * measures nothing.
  *
  * A task passes when its `check` says so. The checks are deliberately
  * mechanical — a file exists and contains X, a command exits 0 — because a
@@ -57,15 +66,178 @@ const SIDECAR_ENTRY = join(ROOT, "FeralAgent", "src", "index.ts");
  */
 function resolveBun() {
   if (process.env.FERAL_BENCH_BUN) return process.env.FERAL_BENCH_BUN;
-  const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["bun"], {
+  const probe = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["bun"], {
     encoding: "utf8",
-    shell: true,
   });
-  const first = (probe.stdout ?? "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean);
-  // Prefer a real .exe over a .cmd shim; spawn handles the former directly.
-  return first.find((p) => p.toLowerCase().endsWith(".exe")) ?? first[0] ?? "bun";
+  const hits = (probe.stdout ?? "")
+    .split(String.fromCharCode(10))
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  // A real executable, so spawn needs no shell. That matters beyond tidiness:
+  // `shell: true` on Windows routes argv through cmd.exe, which mangles paths
+  // containing spaces and emits a deprecation warning into the run output.
+  const exe = hits.find((h) => h.toLowerCase().endsWith(".exe"));
+  if (exe) return exe;
+
+  // npm installs bun as a shell script + .cmd shim with no .exe on PATH; the
+  // real binary sits next to them under node_modules. Prefer it over shelling
+  // out to the shim.
+  for (const hit of hits) {
+    const real = join(dirname(hit), "node_modules", "bun", "bin", "bun.exe");
+    if (existsSync(real)) return real;
+  }
+  return hits[0] ?? "bun";
 }
 const BUN = resolveBun();
+
+/**
+ * Base URLs per BYOK provider id. Mirrors `Provider::base_url` in
+ * crates/feral-core/src/byok.rs — the sidecar never sees byok.json, so
+ * whichever process spawns it owns this mapping. Kept short on purpose: add a
+ * row when you actually bench against that provider.
+ */
+const PROVIDER_BASE_URL = {
+  openai: "https://api.openai.com/v1",
+  anthropic: "https://api.anthropic.com/v1",
+  minimax: "https://api.minimax.io/v1",
+  groq: "https://api.groq.com/openai/v1",
+  nvidia: "https://integrate.api.nvidia.com/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+  deepseek: "https://api.deepseek.com/v1",
+  mistral: "https://api.mistral.ai/v1",
+};
+
+/**
+ * Work out which model the bench should run against.
+ *
+ * Explicit env always wins. Otherwise: read byok.json (base URL + default
+ * model only — never a secret) for the provider named by FERAL_BYOK_PROVIDER.
+ * Returns the env block to hand the sidecar, or a string explaining what is
+ * missing.
+ */
+/**
+ * Strip a trailing `/v1` (and slash) from a base URL.
+ *
+ * The sidecar builds `${baseUrl}/v1/chat/completions` itself
+ * (egress/inference-providers.ts), while every provider documents its base
+ * URL WITH the /v1 — byok.rs returns "https://api.minimax.io/v1". Handing that
+ * through unchanged produces /v1/v1/chat/completions and a 404 on every turn.
+ * crates/feral-core/src/feral_agent.rs does exactly this trim before spawning
+ * the sidecar; this script spawns it directly, so it owns the same job.
+ *
+ * Caught by pointing the bench at a local stub and reading its access log:
+ * the preflight hit /v1/chat/completions and the sidecar hit
+ * /v1/v1/chat/completions, two lines apart.
+ */
+function sidecarBaseUrl(url) {
+  return url.replace(new RegExp("/+$"), "").replace(new RegExp("/v1$"), "");
+}
+
+function resolveRoute() {
+  const explicit = {
+    FERAL_BASE_URL: process.env.FERAL_BASE_URL,
+    FERAL_MODEL: process.env.FERAL_MODEL,
+    FERAL_API_KEY: process.env.FERAL_API_KEY,
+    FERAL_PROVIDER: process.env.FERAL_PROVIDER ?? "openai_compatible",
+  };
+  if (explicit.FERAL_BASE_URL && explicit.FERAL_MODEL) {
+    return { env: { ...explicit, FERAL_BASE_URL: sidecarBaseUrl(explicit.FERAL_BASE_URL) } };
+  }
+
+  const id = process.env.FERAL_BYOK_PROVIDER;
+  if (!id) {
+    return {
+      error: [
+        "no model configured. Either set FERAL_BASE_URL + FERAL_MODEL (+ FERAL_API_KEY),",
+        "  or set FERAL_BYOK_PROVIDER=<id> to read the route from ~/.feral/byok.json.",
+        `  known providers: ${Object.keys(PROVIDER_BASE_URL).join(", ")}`,
+      ].join(String.fromCharCode(10)),
+    };
+  }
+  const file = join(homedir(), ".feral", "byok.json");
+  if (!existsSync(file)) return { error: `FERAL_BYOK_PROVIDER=${id} but ${file} does not exist` };
+  let cfg;
+  try {
+    cfg = JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    return { error: `could not parse ${file}: ${String(e).slice(0, 120)}` };
+  }
+  const entry = cfg?.providers?.[id];
+  if (!entry) return { error: `byok.json has no provider "${id}"` };
+  const baseUrl = entry.base_url ?? PROVIDER_BASE_URL[id];
+  if (!baseUrl) return { error: `no base URL known for provider "${id}" — set FERAL_BASE_URL` };
+  const model = explicit.FERAL_MODEL ?? entry.default_model;
+  if (!model) return { error: `provider "${id}" has no default_model — set FERAL_MODEL` };
+  // byok.json does NOT hold the key (it lives in the OS keychain), so the key
+  // still has to come from the environment. This is the common stumble, so the
+  // message says exactly that rather than letting the first task 401.
+  const apiKey = explicit.FERAL_API_KEY;
+  if (!apiKey) {
+    return {
+      error: [
+        `found the "${id}" route in byok.json (${baseUrl}, ${model}) but no API key.`,
+        "  byok.json never stores keys — they live in the OS keychain, and this script",
+        "  deliberately does not read credentials. Export it for this one command:",
+        `    FERAL_API_KEY=... FERAL_BYOK_PROVIDER=${id} node scripts/walkaway-bench.mjs`,
+      ].join(String.fromCharCode(10)),
+    };
+  }
+  return {
+    env: {
+      FERAL_PROVIDER: "openai_compatible",
+      FERAL_BASE_URL: sidecarBaseUrl(baseUrl),
+      FERAL_MODEL: model,
+      FERAL_API_KEY: apiKey,
+    },
+  };
+}
+
+/**
+ * One cheap chat completion before any task runs.
+ *
+ * Without this the first failure mode of an overnight run is "all N tasks
+ * failed" with N identical inference errors, discovered hours later. The whole
+ * value of the bench is the number it produces, and a run that could never
+ * have produced one should refuse to start.
+ */
+async function preflight(routeEnv) {
+  // Built the same way inference-providers.ts builds it, deliberately: a
+  // preflight that probes a different URL than the sidecar uses can pass while
+  // every task 404s, which is worse than having no preflight.
+  const url = `${routeEnv.FERAL_BASE_URL}/v1/chat/completions`;
+  // An explicit controller rather than AbortSignal.timeout: the latter leaves a
+  // live timer handle, and exiting while it is mid-close trips a libuv
+  // assertion that aborts the process with 127 — which automation reads as
+  // "command not found" rather than "preflight failed".
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(routeEnv.FERAL_API_KEY ? { authorization: `Bearer ${routeEnv.FERAL_API_KEY}` } : {}),
+      },
+      body: JSON.stringify({
+        model: routeEnv.FERAL_MODEL,
+        messages: [{ role: "user", content: "reply with the single word: ok" }],
+        max_tokens: 8,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      return `${res.status} ${res.statusText} from ${url} — ${(await res.text()).slice(0, 200)}`;
+    }
+    const body = await res.json();
+    if (!body?.choices?.length) return `no choices in the response from ${url}`;
+    return null;
+  } catch (e) {
+    return `cannot reach ${url}: ${String(e).slice(0, 200)}`;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Give the isolated run a working brain.
@@ -214,22 +386,24 @@ function runNode(args) {
  * than a polite request: "it was still going after 25 minutes" is a FAILURE,
  * not a longer wait.
  */
-function runTask(task, workspace, logPath, timeoutMs) {
+function runTask(task, workspace, logPath, timeoutMs, routeEnv) {
   const benchHome = join(workspace, ".feral");
   seedProviderConfig(benchHome);
   return new Promise((done) => {
     const events = [];
     let lastError = null;
     const child = spawn(BUN, [SIDECAR_ENTRY], {
-      shell: process.platform === "win32", // .cmd shim needs it; harmless for .exe
       cwd: workspace,
       env: {
         ...process.env,
         // The whole point: no human to answer ask_user.
         FERAL_AUTONOMOUS: "true",
-        // Inherited explicitly: the isolated home has no model selection in it.
-        ...(process.env.FERAL_MODEL ? { FERAL_MODEL: process.env.FERAL_MODEL } : {}),
-        ...(process.env.FERAL_PROVIDER ? { FERAL_PROVIDER: process.env.FERAL_PROVIDER } : {}),
+        // The resolved route. Passed explicitly because the isolated home has
+        // no model selection in it, and because the sidecar never reads
+        // byok.json — normally the Rust host hands it exactly these four.
+        // Missing them was the whole reason the first run reported
+        // "Inference unavailable" against a default of qwen2.5:7b.
+        ...routeEnv,
         FERAL_WORKSPACE: workspace,
         FERAL_ENABLE_SHELL_EXEC: "true",
         // Isolate state so one task cannot poison the next through memory.
@@ -302,76 +476,101 @@ if (selected.length === 0) {
   process.exit(2);
 }
 
-if (!process.env.FERAL_MODEL) {
-  console.log(
-    [
-      "note: FERAL_MODEL is unset, so the sidecar falls back to its default",
-      "      (qwen2.5:7b) and will fail unless that is running locally.",
-      "      e.g. FERAL_MODEL=MiniMax-M3 FERAL_PROVIDER=minimax node scripts/walkaway-bench.mjs",
-      "",
-    ].join("\n"),
-  );
-}
-console.log(`walk-away bench — ${selected.length} task(s) x ${repeat} run(s)`);
-console.log(`results: ${outDir}\n`);
+/** Run every selected task. Only reached once preflight confirmed a model. */
+async function runAll(routeEnv) {
+  console.log(`walk-away bench — ${selected.length} task(s) x ${repeat} run(s)`);
+  console.log(`results: ${outDir}\n`);
 
-const results = [];
-for (const task of selected) {
-  for (let run = 1; run <= repeat; run++) {
-    const label = repeat > 1 ? `${task.id}#${run}` : task.id;
-    const ws = join(outDir, label);
-    rmSync(ws, { recursive: true, force: true });
-    mkdirSync(ws, { recursive: true });
-    task.setup?.(ws);
+  const results = [];
+  for (const task of selected) {
+    for (let run = 1; run <= repeat; run++) {
+      const label = repeat > 1 ? `${task.id}#${run}` : task.id;
+      const ws = join(outDir, label);
+      rmSync(ws, { recursive: true, force: true });
+      mkdirSync(ws, { recursive: true });
+      task.setup?.(ws);
 
-    const timeoutMs = (timeoutOverride ? Number(timeoutOverride) * 1000 : task.minutes * 60_000);
-    const started = Date.now();
-    process.stdout.write(`  ${label.padEnd(28)} `);
+      const timeoutMs = (timeoutOverride ? Number(timeoutOverride) * 1000 : task.minutes * 60_000);
+      const started = Date.now();
+      process.stdout.write(`  ${label.padEnd(28)} `);
 
-    const { outcome, detail, lastError } = await runTask(task, ws, join(ws, "events.jsonl"), timeoutMs);
-    const elapsedMin = ((Date.now() - started) / 60_000).toFixed(1);
+      const { outcome, detail, lastError } = await runTask(task, ws, join(ws, "events.jsonl"), timeoutMs, routeEnv);
+      const elapsedMin = ((Date.now() - started) / 60_000).toFixed(1);
 
-    // The agent finishing is NOT the same as the work being right — check the
-    // artifacts regardless of how the run ended.
-    // Infrastructure failures are reported FIRST and never dressed up as an
-    // agent failure — if the sidecar could not start, "the file was never
-    // created" is true but says nothing about the agent.
-    let failure = null;
-    if (outcome === "spawn_error" || outcome === "exited") {
-      failure = `HARNESS/INFRA — ${outcome}: ${detail}`;
-    } else if (lastError && /inference unavailable|no fallback configured/i.test(lastError)) {
-      // Not a reliability datapoint: the agent never got a model to think with.
-      failure = `HARNESS/INFRA — no working inference: ${lastError.slice(0, 200)}`;
-    } else {
-      try {
-        failure = task.check(ws);
-      } catch (e) {
-        failure = `check threw: ${String(e).slice(0, 200)}`;
+      // The agent finishing is NOT the same as the work being right — check the
+      // artifacts regardless of how the run ended.
+      // Infrastructure failures are reported FIRST and never dressed up as an
+      // agent failure — if the sidecar could not start, "the file was never
+      // created" is true but says nothing about the agent.
+      let failure = null;
+      if (outcome === "spawn_error" || outcome === "exited") {
+        failure = `HARNESS/INFRA — ${outcome}: ${detail}`;
+      } else if (lastError && /inference unavailable|no fallback configured/i.test(lastError)) {
+        // Not a reliability datapoint: the agent never got a model to think with.
+        failure = `HARNESS/INFRA — no working inference: ${lastError.slice(0, 200)}`;
+      } else {
+        try {
+          failure = task.check(ws);
+        } catch (e) {
+          failure = `check threw: ${String(e).slice(0, 200)}`;
+        }
+        if (!failure && outcome !== "done") failure = `${outcome}: ${detail}`;
+        if (failure && lastError && outcome !== "done") failure += ` | last error: ${lastError.slice(0, 200)}`;
       }
-      if (!failure && outcome !== "done") failure = `${outcome}: ${detail}`;
-      if (failure && lastError && outcome !== "done") failure += ` | last error: ${lastError.slice(0, 200)}`;
+
+      const passed = failure === null;
+      console.log(`${passed ? "PASS" : "FAIL"}  ${elapsedMin}min  ${failure ?? ""}`);
+      results.push({ task: task.id, run, passed, elapsedMin: Number(elapsedMin), outcome, detail, failure });
     }
-
-    const passed = failure === null;
-    console.log(`${passed ? "PASS" : "FAIL"}  ${elapsedMin}min  ${failure ?? ""}`);
-    results.push({ task: task.id, run, passed, elapsedMin: Number(elapsedMin), outcome, detail, failure });
   }
+
+  const passed = results.filter((r) => r.passed).length;
+  const rate = results.length ? Math.round((passed / results.length) * 100) : 0;
+  writeFileSync(
+    join(outDir, "summary.json"),
+    JSON.stringify({ stamp, passed, total: results.length, rate, results }, null, 2),
+    "utf8",
+  );
+
+  console.log(`\n${passed}/${results.length} passed (${rate}%)`);
+  console.log(`summary: ${join(outDir, "summary.json")}`);
+  if (passed < results.length) {
+    console.log("\nfailures:");
+    for (const r of results.filter((x) => !x.passed)) {
+      console.log(`  ${r.task}#${r.run}: ${r.failure}`);
+    }
+  }
+
+  process.exitCode = passed === results.length ? 0 : 1;
 }
 
-const passed = results.filter((r) => r.passed).length;
-const rate = results.length ? Math.round((passed / results.length) * 100) : 0;
-writeFileSync(
-  join(outDir, "summary.json"),
-  JSON.stringify({ stamp, passed, total: results.length, rate, results }, null, 2),
-  "utf8",
-);
+/**
+ * Stop with a code the caller can branch on.
+ *
+ * `process.exit()` after a `fetch` trips a libuv assertion on Windows
+ * (`UV_HANDLE_CLOSING` in win/async.c) because undici is still tearing its
+ * handles down — the process aborts with 127, which reads as "command not
+ * found" rather than "preflight failed". Setting `exitCode` and returning lets
+ * the loop drain and exits with the code we actually meant.
+ */
+function stop(code, message) {
+  if (message) console.error(message);
+  process.exitCode = code;
+}
 
-console.log(`\n${passed}/${results.length} passed (${rate}%)`);
-console.log(`summary: ${join(outDir, "summary.json")}`);
-if (passed < results.length) {
-  console.log("\nfailures:");
-  for (const r of results.filter((x) => !x.passed)) {
-    console.log(`  ${r.task}#${r.run}: ${r.failure}`);
+// Refuse to start without a model rather than produce N identical inference
+// failures and call it a reliability measurement.
+const route = resolveRoute();
+if (route.error) {
+  stop(2, `walk-away bench cannot start — ${route.error}`);
+}
+if (!route.error) {
+  process.stdout.write(`preflight: ${route.env.FERAL_MODEL} @ ${route.env.FERAL_BASE_URL} ... `);
+  const preflightError = await preflight(route.env);
+  if (preflightError) {
+    stop(2, `FAILED\n\n  ${preflightError}\n\nNothing was run.`);
+  } else {
+    console.log("ok");
+    await runAll(route.env);
   }
 }
-process.exit(passed === results.length ? 0 : 1);
