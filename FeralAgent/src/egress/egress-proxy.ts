@@ -94,6 +94,40 @@ export interface EgressProxyConfig {
    * FERAL_EXTERNAL_WRITE_BUDGET; 0 disables the cap.
    */
   externalWriteBudget: number;
+  /**
+   * Hosts whose STATE-CHANGING requests may not happen unattended.
+   *
+   * The operator names them; the model cannot. That is the whole point — the
+   * write budget bounds volume and `forceEscalate` covers the agent's own
+   * hard calls, but neither helps when the agent simply does not realise a
+   * call is expensive. This does, because it does not consult the agent about
+   * anything.
+   *
+   * Deliberately an allowlist of SENSITIVE hosts declared by a human, not a
+   * built-in pattern list of "known money endpoints". A pattern list is a
+   * denylist wearing a safety hat: it fails open for every API not on it —
+   * your CRM, a new ad platform, whatever a forged tool reaches — while
+   * reading as though everything is covered. Rotting quietly is the worst
+   * property a safety control can have.
+   *
+   * Reads are never affected: the agent can look at your ad account all it
+   * likes, it just cannot change it while you are away.
+   */
+  unattendedWriteDenyHosts: string[];
+  /**
+   * True when nobody is at the machine (mirrors FERAL_AUTONOMOUS). Only
+   * consulted for `unattendedWriteDenyHosts`.
+   */
+  unattended: boolean;
+  /**
+   * Log every state-changing request and DO NOT send it.
+   *
+   * The honest first run against a real ad account: let it do the whole task,
+   * then read exactly what it would have changed. The agent is told the call
+   * was a dry run rather than being handed a fake success, because an agent
+   * that believes a write landed will build its next step on a fiction.
+   */
+  dryRunWrites: boolean;
 }
 
 /**
@@ -118,6 +152,9 @@ const DEFAULT_CONFIG: EgressProxyConfig = {
   trustedLocalOrigins: [],
   underlyingFetch: (url, init) => fetch(url, init),
   externalWriteBudget: 50,
+  unattendedWriteDenyHosts: [],
+  unattended: false,
+  dryRunWrites: false,
 };
 
 export class EgressProxy {
@@ -232,6 +269,22 @@ export class EgressProxy {
     // so a tool must declare which hosts it may mutate — a bigger change,
     // because every existing tool would need the declaration.
     const isWrite = isWriteMethod(init?.method);
+
+    // Operator-declared sensitive host + nobody watching → refused outright.
+    // Checked before the budget so the reason the agent gets is the real one.
+    if (
+      isWrite &&
+      this.#config.unattended &&
+      hostMatchesWhitelist(parsed.hostname.toLowerCase(), this.#config.unattendedWriteDenyHosts)
+    ) {
+      block(
+        `"${parsed.hostname}" may not be CHANGED while running unattended — the owner ` +
+          `listed it as consequential (FERAL_WRITE_CONFIRM_HOSTS). Reading it is fine. ` +
+          `Do the parts of the task that do not change it, then stop and report what ` +
+          `needs a human.`,
+      );
+    }
+
     if (isWrite && this.#config.externalWriteBudget > 0) {
       const spent = this.#writes.get(sessionId) ?? 0;
       if (spent >= this.#config.externalWriteBudget) {
@@ -281,6 +334,37 @@ export class EgressProxy {
     const MAX_REDIRECTS = 5;
 
     try {
+      // Dry run: record the intent, send nothing, and TELL the agent — a
+      // fabricated success would have it plan its next step on a write that
+      // never happened.
+      if (isWrite && this.#config.dryRunWrites) {
+        this.#audit({
+          timestamp: Date.now(),
+          sessionId,
+          actionType: "network_write",
+          toolName: manifest.name,
+          argsJson: JSON.stringify({ url, method: init?.method, dryRun: true }),
+          result: "blocked",
+          blockedReason: "dry run — request was logged, not sent",
+          durationMs: Date.now() - start,
+        });
+        const body = JSON.stringify({
+          dry_run: true,
+          message:
+            "FERAL_DRY_RUN is on: this state-changing request was recorded and NOT sent. " +
+            "Nothing changed on the far end. Continue as if you had made the call, but do " +
+            "not claim the change happened — say it was a dry run.",
+          would_have_sent: { method: init?.method, url },
+        });
+        return {
+          status: 200,
+          ok: true,
+          headers: { "content-type": "application/json", "x-feral-dry-run": "1" },
+          text: async () => body,
+          json: async () => JSON.parse(body) as unknown,
+        };
+      }
+
       let method = init?.method ?? "GET";
       let body = init?.body;
       // Copy caller headers so we can strip credentials on a cross-origin hop

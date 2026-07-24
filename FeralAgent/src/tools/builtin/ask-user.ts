@@ -118,6 +118,15 @@ export function createAskUserTool(): Tool {
                 type: "boolean",
                 description: "Allow selecting multiple options (default false).",
               },
+              force_escalate: {
+                type: "boolean",
+                description:
+                  "Set true when being wrong is NOT recoverable by re-running: spending money, " +
+                  "publishing something public, deleting data, sending on the user’s behalf. " +
+                  "A question marked this way is never auto-answered, even in walk-away mode — " +
+                  "a human decides. Use it sparingly and honestly; marking routine choices this " +
+                  "way just stalls unattended work.",
+              },
             },
             required: ["question", "options"],
           },
@@ -147,6 +156,17 @@ export function createAskUserTool(): Tool {
             `Limit to ${MAX_QUESTIONS} per call.`,
           error: "bad_args",
         };
+      }
+
+      // The tool schema is snake_case (force_escalate) like the rest of the
+      // tool surface; the internal type is camelCase. Normalise once, here,
+      // rather than reading both spellings at the use site — a safety flag
+      // that silently does nothing because of a casing mismatch is the worst
+      // possible failure for this particular field.
+      for (const q of questions as Array<Record<string, unknown>>) {
+        if (q && typeof q === "object" && q.force_escalate === true) {
+          (q as { forceEscalate?: boolean }).forceEscalate = true;
+        }
       }
 
       // Validate each question's shape.
@@ -213,7 +233,30 @@ export function createAskUserTool(): Tool {
       // and log the decision so the end-of-turn summary can report what was
       // chosen without a human present. Reuses the same picker as the timeout
       // branch below; the only difference is we never call the bridge.
-      if (cfgBool("FERAL_AUTONOMOUS")) {
+      // An escalated question is exactly the one walk-away mode must NOT
+      // answer for itself: "should I raise the daily budget to $500?" is not a
+      // decision to take by picking option one because nobody is at the desk.
+      // If any question in the batch demands a human, the whole batch does —
+      // they are answered together and splitting them would half-decide.
+      const mustEscalate = questions.some(
+        (q) => (q as AskUserQuestion).forceEscalate === true,
+      );
+      if (cfgBool("FERAL_AUTONOMOUS") && mustEscalate && !ctx.askUser) {
+        // Fail CLOSED, and say why in terms the agent can act on: this is not
+        // a tool malfunction, it is the one class of decision it may not take
+        // alone. Same discipline as the forge's consent gate.
+        return {
+          ok: false,
+          content:
+            "ask_user: this question needs a human and there is nobody to ask " +
+            "(walk-away mode, no interactive transport). Consequential decisions — " +
+            "spending money, publishing, deleting, sending on someone's behalf — are " +
+            "not auto-answered. Do the parts of the task that do NOT need this " +
+            "decision, then stop and report what is waiting on the user.",
+          error: "escalation_required",
+        };
+      }
+      if (cfgBool("FERAL_AUTONOMOUS") && !mustEscalate) {
         answers = questions.map((q) => {
           const rec = q.options.find((o: { label: string; recommended?: boolean }) => o.recommended);
           const picked = rec ?? q.options[0];

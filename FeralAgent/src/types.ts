@@ -1134,6 +1134,24 @@ export interface AskUserQuestion {
   options: AskUserOption[];
   /** Allow multiple selections. */
   multiSelect: boolean;
+  /**
+   * "A human must answer this one." Walk-away mode (FERAL_AUTONOMOUS) answers
+   * questions by itself so a long task is not blocked by an absent user; a
+   * question marked this way is exempt and waits for a real person, or fails
+   * closed when there is nobody to wait for.
+   *
+   * For decisions where being wrong is not recoverable by re-running: spending
+   * money, publishing something public, deleting, sending on someone's behalf.
+   *
+   * Honest about its limits — this protects against a CONSCIENTIOUS agent's
+   * hard calls, not against a confused one. The agent writes the question AND
+   * decides whether to set this flag, so an agent that does not realise a
+   * decision is expensive simply will not mark it. The guard that does not
+   * depend on the agent's judgement is at the egress layer, where writes are
+   * counted and sensitive hosts are refused unattended. Both layers exist
+   * because each covers the other's blind spot.
+   */
+  forceEscalate?: boolean;
 }
 
 export interface AskUserAnswer {

@@ -129,6 +129,8 @@ they remain hand-maintained here and are still covered by
 | `FERAL_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
 | `FERAL_HTTP_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for http_request. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
 | `FERAL_EXTERNAL_WRITE_BUDGET` | int | `50` | yes | How many STATE-CHANGING external requests (POST/PUT/PATCH/DELETE) one session may make before the egress proxy stops it. Bounds a runaway loop that keeps changing things outside this machine — ad spend, published posts, CRM rows — during an unattended run. It caps VOLUME, not severity: one wrong write is inside any budget. 0 disables the cap. |
+| `FERAL_DRY_RUN` | bool | `false` | yes | Log every STATE-CHANGING external request (POST/PUT/PATCH/DELETE) and do NOT send it. The agent is told the call was a dry run rather than handed a fake success, so it cannot build its next step on a write that never happened. The honest first run against a real ad or social account: let it do the whole task, then read exactly what it would have changed. |
+| `FERAL_WRITE_CONFIRM_HOSTS` | list | `null` | yes | Hosts whose STATE-CHANGING requests are REFUSED while running unattended (FERAL_AUTONOMOUS). Reads are unaffected. Declared by the operator, never by the model — this is the guard that does not depend on the agent realising a call is expensive. Deliberately a human-declared list rather than built-in patterns for known money endpoints: a pattern list fails open for every API not on it while reading as though everything is covered. |
 | `FERAL_TRUSTED_LOCAL_ORIGINS` | list | `null` | yes | Comma-separated exact origins (scheme+host+port) on loopback/private addresses that the SSRF guard may reach, for services the OPERATOR runs themselves. Exact-origin match only — trusting http://127.0.0.1:8080 does not trust any other local port — and the tool's own allowedDomains still applies. Extends the single FERAL_SEARXNG_URL exemption to any self-hosted backend. |
 | `FERAL_TOOL_ALLOWED_DOMAINS` | list | `null` | yes | Set BY the sidecar ON a forged tool's child process — not something a user configures. Carries the hostnames that tool declared via tool_forge's `allowed_domains`; the runner turns it into an EgressProxy-backed globalThis.fetch, so a tool that declared nothing has no network. Setting it in the parent environment has no effect: createCustomTool always overwrites it from the tool's own record. |
 | `FERAL_TRUSTED_BASE_URLS` | list | `null` | yes | Extra base URLs the inference router may call beyond loopback. |
@@ -264,6 +266,7 @@ FERAL_DESKTOP_CONTROL_CONFIRM
 FERAL_DESKTOP_CONTROL_NO_PROMPT_OK
 FERAL_DISCORD_CLIENT_ID
 FERAL_EMBED_CHUNK
+FERAL_DRY_RUN
 FERAL_EMBED_GPU_LAYERS
 FERAL_EMBED_MODEL
 FERAL_ENABLE_CODE_EXEC
@@ -351,5 +354,6 @@ FERAL_TRUSTED_BASE_URLS
 FERAL_TURN_BUDGET_MS
 FERAL_TTFT_DEADLINE_MS
 FERAL_VERSION
+FERAL_WRITE_CONFIRM_HOSTS
 FERAL_WORKSPACE
 ```

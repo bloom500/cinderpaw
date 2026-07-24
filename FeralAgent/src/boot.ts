@@ -396,7 +396,13 @@ export async function boot(transportOverride?: Transport) {
   const egress = new EgressProxy(audit.logger, {
     trustedLocalOrigins: [...(searxng ? [searxng] : []), ...declaredLocal],
     externalWriteBudget: cfgInt("FERAL_EXTERNAL_WRITE_BUDGET"),
+    unattendedWriteDenyHosts: cfgList("FERAL_WRITE_CONFIRM_HOSTS"),
+    unattended: cfgBool("FERAL_AUTONOMOUS"),
+    dryRunWrites: cfgBool("FERAL_DRY_RUN"),
   });
+  if (cfgBool("FERAL_DRY_RUN")) {
+    log("egress: DRY RUN — state-changing requests will be logged, not sent");
+  }
   if (declaredLocal.length > 0) {
     log(`egress: ${declaredLocal.length} operator-declared local origin(s) trusted`);
   }
