@@ -281,6 +281,10 @@ mod tests {
             file_set("p", "secret").unwrap();
             let path = file_path();
             let meta = std::fs::metadata(&path).expect("metadata");
+            // Same scoped import `save_store` uses. Easy to miss: this whole
+            // module is #[cfg(target_os = "linux")], so a Windows dev box
+            // never compiles it and only the Linux CI job catches the gap.
+            use std::os::unix::fs::PermissionsExt;
             let mode = meta.permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "expected 0600, got {:o}", mode);
         });
