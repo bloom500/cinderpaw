@@ -281,3 +281,86 @@ describe("MetaEvolution hardening (audit fixes)", () => {
     expect(reloaded.history().some((h) => h.event === "bootstrap")).toBe(true);
   });
 });
+
+/**
+ * Calibration: the engine is scored on accepts that DESERVED to be accepted,
+ * not on accepting more. Before this, `acceptRate` was flat, so the fittest
+ * genome was simply the most permissive one and an engine that waved through
+ * a regression tied with one that was right.
+ */
+describe("metaFitness rewards being right, not being permissive", () => {
+  /** An accept made over an evaluation that says the change is bad. */
+  const recklessAccept = (aggregate: number, timestamp = 1_000): JournalEntry => {
+    const e = cycle("accept", aggregate, timestamp);
+    return { ...e, result: { ...e.result!, tier0: "failed", tier1: "regression" } };
+  };
+  /** An accept with no evaluation at all — nothing established it was safe. */
+  const blindAccept = (timestamp = 1_000): JournalEntry => ({
+    ...cycle("accept", 0.9, timestamp),
+    result: null,
+  });
+
+  const clean = [
+    cycle("accept", 0.9), cycle("accept", 0.8), cycle("accept", 0.85),
+    cycle("accept", 0.9), cycle("reject", 0.7),
+  ];
+
+  test("a clean window is scored exactly as before — the change is a no-op there", () => {
+    const f = metaFitness(clean)!;
+    // 0.4*(4/5) + 0.4*mean(0.9,0.8,0.85,0.9,0.7) + 0.2*(1-0) - 0.4*0
+    const mean = (0.9 + 0.8 + 0.85 + 0.9 + 0.7) / 5;
+    expect(f.score).toBeCloseTo(0.4 * 0.8 + 0.4 * mean + 0.2, 4);
+    expect(f.recklessAcceptRate).toBe(0);
+    expect(f.soundAcceptRate).toBe(f.acceptRate);
+  });
+
+  test("accepting over a regression scores WORSE than not accepting at all", () => {
+    const reckless = metaFitness([
+      recklessAccept(0.9), recklessAccept(0.8), recklessAccept(0.85),
+      recklessAccept(0.9), cycle("reject", 0.7),
+    ])!;
+    const restrained = metaFitness([
+      cycle("reject", 0.9), cycle("reject", 0.8), cycle("reject", 0.85),
+      cycle("reject", 0.9), cycle("reject", 0.7),
+    ])!;
+    expect(reckless.score).toBeLessThan(restrained.score);
+    expect(reckless.recklessAcceptRate).toBeCloseTo(0.8, 4);
+    expect(reckless.soundAcceptRate).toBe(0);
+  });
+
+  test("the accurate engine beats the permissive one on identical evaluations", () => {
+    const accurate = metaFitness(clean)!;
+    const permissive = metaFitness([
+      cycle("accept", 0.9), cycle("accept", 0.8), cycle("accept", 0.85),
+      cycle("accept", 0.9), recklessAccept(0.7),
+    ])!;
+    // Both accept a lot; only one of them was right about the last candidate.
+    expect(permissive.acceptRate).toBeGreaterThan(accurate.acceptRate);
+    expect(permissive.score).toBeLessThan(accurate.score);
+  });
+
+  test("an accept with no evaluation counts as reckless", () => {
+    const f = metaFitness([
+      blindAccept(), blindAccept(), blindAccept(), blindAccept(), cycle("reject", 0.7),
+    ])!;
+    expect(f.soundAcceptRate).toBe(0);
+    expect(f.recklessAcceptRate).toBeCloseTo(0.8, 4);
+  });
+
+  test("halting every cycle is still a failure — declining is a reject, not a halt", () => {
+    const halting = metaFitness([
+      cycle("halt", 0), cycle("halt", 0), cycle("halt", 0), cycle("halt", 0), cycle("halt", 0),
+    ])!;
+    const rejecting = metaFitness([
+      cycle("reject", 0.8), cycle("reject", 0.8), cycle("reject", 0.8),
+      cycle("reject", 0.8), cycle("reject", 0.8),
+    ])!;
+    expect(halting.score).toBeLessThan(rejecting.score);
+  });
+
+  test("the score stays inside [0, 1] however reckless the engine is", () => {
+    const f = metaFitness(Array(10).fill(recklessAccept(0)))!;
+    expect(f.score).toBeGreaterThanOrEqual(0);
+    expect(f.score).toBeLessThanOrEqual(1);
+  });
+});

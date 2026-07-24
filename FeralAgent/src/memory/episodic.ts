@@ -21,13 +21,28 @@ export class EpisodicMemory {
    * `record()` is scoped without each caller having to thread the id through.
    * Null (tests, legacy callers) writes an unscoped row — same as before.
    */
-  constructor(db: Database, audit: AuditLogger, getWorkspaceId?: () => string | null) {
+  readonly #isPrivate: ((sessionId: string) => boolean) | null;
+
+  constructor(
+    db: Database,
+    audit: AuditLogger,
+    getWorkspaceId?: () => string | null,
+    /**
+     * Resolves "this session is not the owner" at WRITE time, so no caller has
+     * to thread a flag through every record(). Same injection shape as
+     * getWorkspaceId above. Omitted (tests, legacy callers) = everything is
+     * the owner's, which is the pre-existing behaviour.
+     * Production passes `isRestrictedSession` — see core/session-visibility.ts.
+     */
+    isPrivate?: (sessionId: string) => boolean,
+  ) {
     this.#db = db;
     this.#audit = audit;
     this.#getWorkspaceId = getWorkspaceId ?? null;
+    this.#isPrivate = isPrivate ?? null;
     this.#insert = db.query(`
-      INSERT INTO episodic (session_id, timestamp, role, content, workspace_id)
-      VALUES ($sessionId, $timestamp, $role, $content, $workspaceId)
+      INSERT INTO episodic (session_id, timestamp, role, content, workspace_id, private)
+      VALUES ($sessionId, $timestamp, $role, $content, $workspaceId, $private)
     `);
   }
 
@@ -47,6 +62,7 @@ export class EpisodicMemory {
         $role: role,
         $content: content,
         $workspaceId: this.#getWorkspaceId?.() ?? null,
+        $private: this.#isPrivate?.(sessionId) ? 1 : 0,
       });
       // `lastInsertRowid` exists at runtime on bun:sqlite's `Database` but
       // isn't surfaced on the TypeScript types, so go through a one-shot
@@ -121,8 +137,12 @@ export class EpisodicMemory {
   }
 
   /**
-   * Every event across all sessions, oldest-first, capped at `limit`. Used by
-   * Fractal Memory Search to (re)build the RAPTOR tree over the whole corpus.
+   * Every OWNER event across all sessions, oldest-first, capped at `limit`.
+   * Used by Fractal Memory Search to (re)build the RAPTOR tree over the whole
+   * corpus — which is why non-owner rows are excluded here too and not only in
+   * `search()`: the tree backs the same `recall` tool, so indexing a stranger's
+   * turn would reintroduce the leak through the semantic path after the
+   * keyword path was closed.
    * The cap bounds memory for very large histories; offline tree-building
    * tolerates a ceiling, and FTS5 still covers anything beyond it.
    *
@@ -136,6 +156,7 @@ export class EpisodicMemory {
       .query<EpisodicRow, [number]>(
         `SELECT id, session_id, timestamp, role, content, embedding
          FROM episodic
+         WHERE private = 0
          ORDER BY timestamp ASC
          LIMIT ?`,
       )
@@ -205,6 +226,12 @@ export class EpisodicMemory {
    * Full-text search across all sessions. Returns the best-matching events,
    * most relevant first. The query is sanitized into an FTS5 prefix-OR query so
    * arbitrary user text never produces a syntax error.
+   *
+   * Non-owner rows (`private = 1`) are excluded: this is the query that
+   * crosses session boundaries, so it is exactly where a public lead's
+   * transcript would otherwise reach the owner. Per-session reads
+   * (`recent`/`conversation`) are unfiltered — a lead still gets their own
+   * thread back.
    */
   search(query: string, limit = 10): EpisodicEvent[] {
     const match = toFtsQuery(query);
@@ -216,6 +243,7 @@ export class EpisodicMemory {
            FROM episodic_fts f
            JOIN episodic e ON e.id = f.rowid
            WHERE episodic_fts MATCH ?
+             AND e.private = 0
            ORDER BY rank
            LIMIT ?`,
         )

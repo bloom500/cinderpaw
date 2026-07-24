@@ -418,6 +418,14 @@ function migrate(db: Database): void {
   // style — to survive workspace switches.
   addColumnIfMissing(db, "semantic", "workspace_id", "TEXT");
 
+  // Non-owner rows: a turn written by a session under a RESTRICTED profile
+  // (the public WhatsApp lead mode — a stranger, not the user). Excluded from
+  // the CROSS-session searches, `search()` and `all()`, so a lead's transcript
+  // never surfaces in the owner's `recall` and never enters the fractal tree.
+  // Session-scoped reads ignore the flag, so the lead keeps their own thread.
+  // Default 0 = every pre-existing row is the owner's, which it was.
+  addColumnIfMissing(db, "episodic", "private", "INTEGER NOT NULL DEFAULT 0");
+
   // Inner-thoughts log: record of every proactive thought the agent generated,
   // whether it was surfaced to the user or suppressed by mood/threshold.
   db.exec(`

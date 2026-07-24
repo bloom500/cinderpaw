@@ -119,3 +119,4 @@ docs/code-rsi-*.md
 docs/session-*.md
 docs/2026-*.md
 .superpowers/
+bench-results/

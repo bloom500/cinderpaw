@@ -206,29 +206,76 @@ export interface MetaFitness {
   acceptRate: number;
   meanAggregate: number;
   haltRate: number;
+  /** Accepts whose evaluation was clean (tier0 passed, tier1 no regression). */
+  soundAcceptRate: number;
+  /** Accepts made ANYWAY over a failed or regressed evaluation. */
+  recklessAcceptRate: number;
 }
 
-/** Aggregate fitness over the journal window (BRSI L6): the engine is
- *  fitter when more candidates are accepted, mean scores are higher and
- *  fewer cycles halt. All three components live in [0, 1]. */
+/**
+ * Aggregate fitness over the journal window (BRSI L6).
+ *
+ * The engine is fitter when it accepts candidates that DESERVED to be
+ * accepted, when mean scores are higher, and when fewer cycles halt.
+ *
+ * The middle clause is the correction. This used to reward `acceptRate`
+ * flat — accepting more, full stop — so the fittest genome was simply the
+ * most permissive one, and an engine that waved through a candidate whose own
+ * evaluation reported a regression scored the same as one that was right.
+ * Over enough generations that selects for a rubber stamp, which is the
+ * meta-level version of an agent that never surfaces a caveat.
+ *
+ * An accept is SOUND when the evaluation behind it was clean (tier0 passed,
+ * tier1 no regression) and RECKLESS otherwise. Sound accepts pay exactly what
+ * accepts used to pay; reckless ones now cost more than they earn, so the
+ * permissive genome loses to the accurate one instead of tying with it.
+ *
+ * Deliberately shaped so it is a NO-OP for an engine that was already behaving
+ * — with zero reckless accepts the score is identical to the previous formula.
+ * That matters because this function selects the genome of a self-modifying
+ * loop: a change that moves every score is a change whose blast radius nobody
+ * can bound from a unit test.
+ *
+ * The anti-halt term is kept: an engine that halts every cycle makes no
+ * progress, and that IS a failure, distinct from declining a bad candidate
+ * (which is a `reject`, not a `halt`, and costs nothing here).
+ *
+ * All reported components live in [0, 1] and `score` is clamped to it.
+ */
 export function metaFitness(entries: readonly JournalEntry[]): MetaFitness | null {
   if (entries.length < MIN_META_CYCLES) return null;
   const n = entries.length;
-  const accepts = entries.filter((e) => e.decided.action === "accept").length;
+  const accepted = entries.filter((e) => e.decided.action === "accept");
   const halts = entries.filter((e) => e.decided.action === "halt").length;
   const scored = entries.filter((e) => e.result != null);
   const meanAggregate =
     scored.length === 0
       ? 0
       : scored.reduce((s, e) => s + clamp(e.result!.aggregate, [0, 1]), 0) / scored.length;
-  const acceptRate = accepts / n;
+
+  // An accept with NO evaluation at all is reckless too: nothing established
+  // that the change was safe, which is the situation this term exists for.
+  const sound = accepted.filter(
+    (e) => e.result != null && e.result.tier0 === "passed" && e.result.tier1 === "no_regression",
+  ).length;
+  const reckless = accepted.length - sound;
+
+  const acceptRate = accepted.length / n;
+  const soundAcceptRate = sound / n;
+  const recklessAcceptRate = reckless / n;
   const haltRate = halts / n;
+  const score = clamp(
+    0.4 * soundAcceptRate + 0.4 * meanAggregate + 0.2 * (1 - haltRate) - 0.4 * recklessAcceptRate,
+    [0, 1],
+  );
   return {
-    score: round4(0.4 * acceptRate + 0.4 * meanAggregate + 0.2 * (1 - haltRate)),
+    score: round4(score),
     cycles: n,
     acceptRate: round4(acceptRate),
     meanAggregate: round4(meanAggregate),
     haltRate: round4(haltRate),
+    soundAcceptRate: round4(soundAcceptRate),
+    recklessAcceptRate: round4(recklessAcceptRate),
   };
 }
 

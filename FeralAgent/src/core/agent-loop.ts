@@ -44,6 +44,7 @@ import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { countTokens } from "./tokenizer.ts";
 import { stripPrivate } from "../memory/privacy.ts";
+import { isRestrictedSession, markSessionRestricted } from "./session-visibility.ts";
 import type { BrainStack } from "../brain/brain-stack.ts";
 import type { ModelTarget } from "../types.ts";
 import type {
@@ -515,14 +516,21 @@ export class AgentLoop {
    * silent fallback to the owner profile) if the id was never registered.
    */
   setSessionProfile(sessionId: string, profileId: string): void {
-    if (this.#profiles.has(profileId)) {
+    const profile = this.#profiles.get(profileId);
+    if (profile) {
       this.#sessionProfile.set(sessionId, profileId);
+      // Publish "not the owner" for the subsystems that write durable memory
+      // (extractor, episodic, and through it the fractal tree). A profile with
+      // no tool whitelist is persona-only — still the owner, in a different
+      // voice — and is deliberately not restricted. See session-visibility.ts.
+      markSessionRestricted(sessionId, profile.allowed !== null);
     }
   }
 
   /** Clear a session's profile binding (reverts to the owner profile). */
   clearSessionProfile(sessionId: string): void {
     this.#sessionProfile.delete(sessionId);
+    markSessionRestricted(sessionId, false);
   }
 
   /**
@@ -870,7 +878,7 @@ export class AgentLoop {
       // voice, and their facts should keep being learned. The sanctioned way
       // for a lead's details to persist is `capture_lead`, which the public
       // toolset does include.
-      if (!this.#profileFor(sessionId)?.allowed) {
+      if (!isRestrictedSession(sessionId)) {
         this.#extractor?.extractAsync(sessionId, [...memory.turns]);
       }
 

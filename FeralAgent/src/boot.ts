@@ -20,6 +20,7 @@ import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
+import { isRestrictedSession } from "./core/session-visibility.ts";
 import { SemanticMemory } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
@@ -431,7 +432,14 @@ export async function boot(transportOverride?: Transport) {
       : undefined;
 
   // --- Layer 2: Memory ---
-  const episodic = new EpisodicMemory(db.raw, audit.logger, () => getActiveWorkspaceId(db.raw));
+  // The 4th argument marks rows written by non-owner (restricted-profile)
+  // sessions so they stay out of cross-session recall and the fractal tree.
+  const episodic = new EpisodicMemory(
+    db.raw,
+    audit.logger,
+    () => getActiveWorkspaceId(db.raw),
+    isRestrictedSession,
+  );
   const semantic = new SemanticMemory(db.raw, audit.logger);
   const recall = new RecallEngine(episodic, semantic);
 

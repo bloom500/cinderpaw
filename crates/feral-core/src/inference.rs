@@ -815,8 +815,22 @@ mod backend {
             return None; // unknown card — don't pretend to compute a budget
         }
         let backend = BACKEND.get().or_else(|| BACKEND.get())?;
-        // Probe load: 0 offloaded layers = metadata + mmap only.
-        let params = LlamaModelParams::default().with_n_gpu_layers(0);
+        // Probe load: vocab_only, so llama.cpp stops after load_hparams /
+        // load_vocab and never reaches load_tensors — i.e. it never MAPS the
+        // weights. Everything read below (n_layer / n_embd / n_head /
+        // n_head_kv) is hparams, populated before that return.
+        //
+        // This used to be a full load, which contradicted the note in
+        // `attempt()` below explaining that an extra probe was removed
+        // precisely because it "would leak a file handle and block Delete
+        // until restart". The weights mapping is the expensive half of that:
+        // ggml opens the GGUF through `_wfopen` (ggml.c), which never passes
+        // FILE_SHARE_DELETE, so on Windows anything holding the file blocks
+        // deletion. vocab_only also makes the probe near-instant on a large
+        // model instead of a full mmap + metadata walk.
+        let params = LlamaModelParams::default()
+            .with_n_gpu_layers(0)
+            .with_vocab_only(true);
         let probe = LlamaModel::load_from_file(backend, path, &params).ok()?;
 
         let n_layer = probe.n_layer();
