@@ -68,6 +68,11 @@ import {
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
 import { isConnectorTool, isCoreTool } from "../tools/tiers.ts";
+// Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
+import {
+  parseStandalonePlainTextToolCallBlocks,
+  stripPlainTextToolCallBlocks,
+} from "../vendor/tool-call-repair/payload.ts";
 
 export interface AgentLoopConfig {
   /** Soft token cap passed to each completion. */
@@ -1104,7 +1109,14 @@ export class AgentLoop {
       // consumption (the latest call's prompt = full context fed to the model,
       // plus this turn's completion) instead of a rough message estimate.
       ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
-      const parsed = parseResponse(completion);
+      // The live registry is the allowlist for the vendored repair pass: a
+      // shape we do not natively parse may only become a call if it names a
+      // tool that actually exists. Read fresh each turn — load_tool can add
+      // tools mid-task, and a stale list would reject the call it just enabled.
+      const parsed = parseResponse(
+        completion,
+        this.#registry.list().map((t) => t.manifest.name),
+      );
 
       // Resolve the stream holdback: tool call or malformed garbage → the
       // held text never reaches the UI; plain prose → flush it now.
@@ -2281,7 +2293,44 @@ export function parseInvokeXml(input: string): ParsedToolCall[] {
   return calls;
 }
 
-export function parseResponse(raw: string): ParsedResponse {
+/**
+ * Last-resort pass: the vendored OpenClaw repair scanner.
+ *
+ * Runs only after every pass above has failed, and only when the whole message
+ * parses as tool-call blocks — so it can add calls we would otherwise lose, but
+ * can never reinterpret prose that an earlier pass already understood.
+ *
+ * `allowedToolNames` is what makes this safe to run at all: an unrecognised
+ * name is rejected instead of invented. Callers pass the live registry; without
+ * it the scanner still works, but nothing constrains a hallucinated name, so
+ * the loop always supplies one.
+ */
+function repairWithVendoredScanner(
+  text: string,
+  allowedToolNames?: Iterable<string>,
+): ParsedToolCall[] {
+  try {
+    const opts = allowedToolNames ? { allowedToolNames } : undefined;
+    let blocks = parseStandalonePlainTextToolCallBlocks(text, opts);
+    if (!blocks && text.includes("to=functions.")) {
+      // Harmony's namespaced form. The scanner's tool-name charset stops at the
+      // dot, so `to=functions.exec_command` never resolves — and that is the
+      // shape Hermes documents for GPT-OSS, i.e. the common one in the wild.
+      // Normalised HERE rather than in the vendored file so upgrading that file
+      // stays a re-copy instead of a merge.
+      blocks = parseStandalonePlainTextToolCallBlocks(
+        text.split("to=functions.").join("to="),
+        opts,
+      );
+    }
+    return (blocks ?? []).map((b) => ({ name: b.name, args: b.arguments }));
+  } catch {
+    // A repair pass must never cost the turn it is trying to save.
+    return [];
+  }
+}
+
+export function parseResponse(raw: string, allowedToolNames?: Iterable<string>): ParsedResponse {
   const toolCalls: ParsedToolCall[] = [];
   let text = raw;
 
@@ -2365,6 +2414,22 @@ export function parseResponse(raw: string): ParsedResponse {
   // sentinel only ever appears inside tool-call framing — so the turn was an
   // attempted call, not prose, and must be retried rather than returned.
   const scrubbed = extractBareToolCalls(preScrubbed);
+
+  // Nothing we understand natively. Hand the raw text to the vendored scanner,
+  // which knows the shapes we do not: <function=…>, [tool:name], Harmony
+  // channels. A hit here is a real call the turn would otherwise have thrown
+  // away as prose.
+  if (scrubbed.calls.length === 0) {
+    const repaired = repairWithVendoredScanner(raw, allowedToolNames);
+    if (repaired.length > 0) {
+      return {
+        text: stripPlainTextToolCallBlocks(raw).trim(),
+        toolCalls: repaired,
+        malformedToolCall: false,
+        droppedToolCalls: 0,
+      };
+    }
+  }
   // A <tool_call> opener with no parseable call inside also counts as a
   // malformed attempt — the model opened a call and never produced valid JSON.
   // An orphan CLOSER counts too: when the opener is lost to a truncated

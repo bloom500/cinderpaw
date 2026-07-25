@@ -181,6 +181,82 @@ describe("createStreamHoldback", () => {
     expect(parsed.toolCalls.map((c) => (c.args as { url: string }).url)).toEqual(["/a", "/b"]);
   });
 
+  // Vendored OpenClaw scanner (MIT) — shapes our own passes cannot read.
+  // The allowlist is what makes running it safe, so it is tested as hard as
+  // the formats: a name we do not have must NOT become a call.
+  describe("vendored repair pass", () => {
+    const allowed = ["read_file", "http_request"];
+
+    test("<function=…><parameter=…> executes", () => {
+      const parsed = parseResponse(
+        "<function=read_file><parameter=path>/tmp/a.txt</parameter></function>",
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.name).toBe("read_file");
+      expect(parsed.toolCalls[0]?.args).toEqual({ path: "/tmp/a.txt" });
+    });
+
+    test("[tool:name] + JSON executes", () => {
+      const parsed = parseResponse('[tool:read_file]\n{"path":"/tmp/b.txt"}', allowed);
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.args).toEqual({ path: "/tmp/b.txt" });
+    });
+
+    // Narrower than the exported constants suggest: the scanner requires the
+    // literal " code" after the tool name. Pinned so an upgrade that changes
+    // it is caught here rather than by a bench run.
+    test("Harmony channel syntax executes", () => {
+      const parsed = parseResponse(
+        '<|channel|>commentary to=read_file code<|message|>{"path":"/tmp/c.txt"}<|call|>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.name).toBe("read_file");
+    });
+
+    test("Harmony's namespaced to=functions.NAME resolves", () => {
+      const parsed = parseResponse(
+        '<|channel|>commentary to=functions.read_file code<|message|>{"path":"/x"}<|call|>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.name).toBe("read_file");
+    });
+
+    test("the namespace rewrite does not bypass the allowlist", () => {
+      const parsed = parseResponse(
+        '<|channel|>commentary to=functions.exfiltrate code<|message|>{"a":1}<|call|>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(0);
+    });
+
+    test("an unknown tool name is REJECTED, not invented", () => {
+      const parsed = parseResponse(
+        "<function=exfiltrate_secrets><parameter=to>evil.example</parameter></function>",
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(0);
+    });
+
+    test("plain prose is never reinterpreted as a call", () => {
+      const parsed = parseResponse("I read the file and it looks fine.", allowed);
+      expect(parsed.toolCalls.length).toBe(0);
+      expect(parsed.malformedToolCall).toBe(false);
+      expect(parsed.text).toBe("I read the file and it looks fine.");
+    });
+
+    test("the canonical format still wins — the repair pass never sees it", () => {
+      const parsed = parseResponse(
+        '<tool_call>{"name":"http_request","args":{"url":"/a"}}</tool_call>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.args).toEqual({ url: "/a" });
+    });
+  });
+
   test("false alarm (prose containing {\"name) is flushed on resolve", () => {
     const out = run(['config example: {"name', '": "demo"} rest'], true);
     expect(out).toBe('config example: {"name": "demo"} rest');
