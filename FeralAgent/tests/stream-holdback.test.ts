@@ -83,6 +83,104 @@ describe("createStreamHoldback", () => {
     expect(parsed.malformedToolCall).toBe(true);
   });
 
+  // Walk-away bench, 2026-07-25: 4 of the 4 non-infra failures ended here.
+  // MiniMax dropped the <tool_call> wrapper entirely and emitted its native
+  // XML framing naked, so nothing flagged it and the loop terminated with the
+  // task half-done (a.mjs renamed, b.mjs never touched).
+  test.each([
+    [
+      "write-cli#2 — shell_exec argv, no wrapper",
+      "Let me use create_scripts instead.\n\n]<]minimax[>[<argv>]<]minimax[>[<item>cmd]<]minimax[>[</item>]<]minimax[>[</argv>]<]minimax[>[",
+    ],
+    [
+      "multi-file-refactor#1 — edit_file, cut off mid-args",
+      "export function greetB(n) { return GREETING; }]<]minimax[>[</old_string>]<]minimax[>[<new_string>import { SALUTATION } from './a.mjs';]<]minimax[>[</new_string>]<]minimax[>[",
+    ],
+    ["multi-file-refactor#2 — bare sentinel only", "]<]minimax[>["],
+    [
+      "fix-failing-test#2 — orphan closer, opener lost",
+      '07-25T11-17-34-476Z\\\\fix-failing-test#2"}} </tool_call>',
+    ],
+  ])("naked MiniMax tool-call debris is malformed, not prose: %s", (_name, garbage) => {
+    const parsed = parseResponse(garbage);
+    expect(parsed.toolCalls.length).toBe(0);
+    expect(parsed.malformedToolCall).toBe(true);
+    expect(parsed.text).not.toContain("]<]minimax[>[");
+  });
+
+  test("naked MiniMax debris never reaches the stream", () => {
+    const out = run(["Let me edit b.mjs.\n", "]<]minimax[>[<new_string>x]<]minimax[>["], false);
+    expect(out).toBe("Let me edit b.mjs.\n");
+  });
+
+  // Walk-away bench, 2026-07-25 run 2: leads-to-crm. The model POSTed three
+  // leads in one turn; one block parsed, two did not. The two were dropped
+  // silently and the turn reported success, so the model told the user "all
+  // three POSTs returned 201" while the CRM held one. Partial execution must
+  // be visible or the follow-up retry duplicates whatever DID land.
+  test("a mixed batch reports the calls that were dropped", () => {
+    const raw =
+      '<tool_call>{"name":"http_request","args":{"method":"POST","url":"/leads"}}</tool_call>' +
+      '<tool_call>{"name":"http_request","args":{"method":"POST",,,}}</tool_call>' +
+      '<tool_call>{"name"=http_request>broken</tool_call>';
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls.length).toBe(1);
+    expect(parsed.droppedToolCalls).toBe(2);
+    // The dropped blocks are scrubbed, never shown as prose.
+    expect(parsed.text).not.toContain("http_request");
+  });
+
+  test("an all-good batch reports nothing dropped", () => {
+    const raw =
+      '<tool_call>{"name":"read_file","args":{"path":"a"}}</tool_call>' +
+      '<tool_call>{"name":"read_file","args":{"path":"b"}}</tool_call>';
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls.length).toBe(2);
+    expect(parsed.droppedToolCalls).toBe(0);
+  });
+
+  // n=9 run, 2026-07-25: asking the model for JSON did not work. It re-emitted
+  // the same XML every retry and ads-campaign-triage finished having changed
+  // nothing, 3 of 9 times. These are the literal completions from that run.
+  test("MiniMax invoke-XML executes instead of being rejected", () => {
+    const raw =
+      'Let me pause the losing one.\n\n<invoke name="http_request">]<]minimax[>[<method>POST' +
+      "]<]minimax[>[</method>]<]minimax[>[<url>http://127.0.0.1:18924/campaigns/summer_sale/pause" +
+      "]<]minimax[>[</url>]<]minimax[>[</invoke>";
+    const parsed = parseResponse(raw);
+    expect(parsed.malformedToolCall).toBe(false);
+    expect(parsed.toolCalls.length).toBe(1);
+    expect(parsed.toolCalls[0]?.name).toBe("http_request");
+    expect(parsed.toolCalls[0]?.args).toEqual({
+      method: "POST",
+      url: "http://127.0.0.1:18924/campaigns/summer_sale/pause",
+    });
+    expect(parsed.text).toBe("Let me pause the losing one.");
+  });
+
+  test("invoke-XML <item> children become an array", () => {
+    const parsed = parseResponse(
+      '<invoke name="shell_exec"><argv><item>cmd</item><item>/c</item>' +
+        "<item>node --version</item></argv></invoke>",
+    );
+    expect(parsed.toolCalls[0]?.args).toEqual({ argv: ["cmd", "/c", "node --version"] });
+  });
+
+  test("invoke-XML JSON-valued arg is parsed, not stringified", () => {
+    const parsed = parseResponse(
+      '<invoke name="http_request"><json>{"email":"a@b.co","name":"A"}</json></invoke>',
+    );
+    expect(parsed.toolCalls[0]?.args).toEqual({ json: { email: "a@b.co", name: "A" } });
+  });
+
+  test("parallel invoke-XML calls all survive", () => {
+    const parsed = parseResponse(
+      '<invoke name="http_request"><url>/a</url></invoke>\n' +
+        '<invoke name="http_request"><url>/b</url></invoke>',
+    );
+    expect(parsed.toolCalls.map((c) => (c.args as { url: string }).url)).toEqual(["/a", "/b"]);
+  });
+
   test("false alarm (prose containing {\"name) is flushed on resolve", () => {
     const out = run(['config example: {"name', '": "demo"} rest'], true);
     expect(out).toBe('config example: {"name": "demo"} rest');

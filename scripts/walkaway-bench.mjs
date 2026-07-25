@@ -695,13 +695,30 @@ async function runAll(routeEnv) {
 
   const passed = results.filter((r) => r.passed).length;
   const rate = results.length ? Math.round((passed / results.length) * 100) : 0;
+  // A provider timeout is not the agent failing the task, and burying both in
+  // one number makes two runs incomparable — a bad afternoon at the provider
+  // reads exactly like a regression. Report the agent's rate over the runs
+  // that actually got inference, alongside the raw one. The headline stays the
+  // raw rate: an agent you can't run is still an agent you can't walk away from.
+  const infra = results.filter((r) => !r.passed && r.failure?.startsWith("HARNESS/INFRA"));
+  const scored = results.length - infra.length;
   writeFileSync(
     join(outDir, "summary.json"),
-    JSON.stringify({ stamp, passed, total: results.length, rate, results }, null, 2),
+    JSON.stringify(
+      { stamp, passed, total: results.length, rate, infra: infra.length, scored, results },
+      null,
+      2,
+    ),
     "utf8",
   );
 
   console.log(`\n${passed}/${results.length} passed (${rate}%)`);
+  if (infra.length > 0) {
+    const agentRate = scored ? Math.round((passed / scored) * 100) : 0;
+    console.log(
+      `  ${infra.length} run(s) never got inference — agent rate over the ${scored} scored run(s): ${passed}/${scored} (${agentRate}%)`,
+    );
+  }
   console.log(`summary: ${join(outDir, "summary.json")}`);
   if (passed < results.length) {
     console.log("\nfailures:");
