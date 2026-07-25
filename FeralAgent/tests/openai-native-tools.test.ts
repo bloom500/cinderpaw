@@ -256,6 +256,73 @@ describe("OpenAICompatibleProvider native function calling", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  // Walk-away bench, 2026-07-25: a batch of parallel calls executed as ONE.
+  // Three lead POSTs became one; "pause + raise budget" only paused; "GET then
+  // POST" dropped the GET and wrote a record it had never checked for. All of
+  // it was `tc.index ?? 0` collapsing an index-less batch into a single slot,
+  // where names overwrote each other and argument fragments concatenated.
+  it("keeps parallel tool calls apart when the provider omits index", async () => {
+    const provider = new OpenAICompatibleProvider();
+    const mockRequest = {
+      sessionId: "test-sess",
+      messages: [{ role: "user" as const, content: "import the leads" }],
+      openAITools: [
+        {
+          type: "function" as const,
+          function: {
+            name: "http_request",
+            description: "HTTP",
+            parameters: { type: "object" as const, properties: {}, required: [] },
+          },
+        },
+      ],
+      onToken: () => {},
+    };
+
+    const originalFetch = globalThis.fetch;
+    const delta = (tc: unknown) =>
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [tc] } }] })}\n`;
+    globalThis.fetch = (async () => {
+      const chunks = [
+        // No `index` anywhere — the shape that broke. Arguments arrive split,
+        // so the continuation fragments must land on the call they follow.
+        delta({ id: "c1", type: "function", function: { name: "http_request" } }),
+        delta({ function: { arguments: '{"url":' } }),
+        delta({ function: { arguments: '"/a"}' } }),
+        delta({ id: "c2", type: "function", function: { name: "http_request" } }),
+        delta({ function: { arguments: '{"url":"/b"}' } }),
+        delta({ id: "c3", type: "function", function: { name: "http_request" } }),
+        delta({ function: { arguments: '{"url":"/c"}' } }),
+        "data: [DONE]\n",
+      ];
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const res = await provider.complete(
+        { provider: "openai-compatible", model: "m", baseUrl: "https://api.example.com" },
+        mockRequest,
+        false,
+      );
+      // All three survive, each with its OWN url — not one merged survivor.
+      expect(res.content).toContain('{"name":"http_request","args":{"url":"/a"}}');
+      expect(res.content).toContain('{"name":"http_request","args":{"url":"/b"}}');
+      expect(res.content).toContain('{"name":"http_request","args":{"url":"/c"}}');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("OllamaProvider native function calling", () => {
