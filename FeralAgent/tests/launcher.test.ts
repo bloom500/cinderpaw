@@ -43,6 +43,38 @@ describe("launcher bin/feral.js", () => {
   });
 });
 
+describe("feral update", () => {
+  // The whole point of handling `update` in the shim is that it runs when the
+  // Rust binary can't: Windows won't overwrite a running .exe, and a
+  // half-installed machine has no binary at all. So the branch MUST sit above
+  // the "could not find its runtime" bail, and it must drive npm.
+  test("is intercepted by the shim, above the missing-runtime bail", () => {
+    const src = readFileSync(launcher, "utf8");
+    const update = src.indexOf('process.argv[2] === "update"');
+    const bail = src.indexOf("could not find its runtime");
+    expect(update).toBeGreaterThan(-1);
+    expect(bail).toBeGreaterThan(update);
+    // Updating the files on disk changes nothing for a running Discord/Slack
+    // connector — the restart is the half that makes the update take effect.
+    expect(src).toContain("feral-agent@latest");
+    expect(src).toContain('"gateway", "restart"');
+  });
+
+  test("fails loudly with a manual fallback when npm is unreachable", () => {
+    // Empty PATH ⇒ npm (and cmd.exe) cannot be spawned, which exercises the
+    // failure branch without installing anything globally.
+    // Absolute node path: an empty PATH would otherwise stop us launching the
+    // shim at all, and the test would pass for the wrong reason.
+    const r = spawnSync(process.execPath, [launcher, "update"], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: "", Path: "" },
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("npm install -g feral-agent@latest");
+    expect(r.stderr).not.toContain("could not find its runtime");
+  }, 30_000);
+});
+
 describe("npm pack manifest (files whitelist)", () => {
   test("ships bin, excludes src/ and dist/", () => {
     const r = spawnSync("npm", ["pack", "--dry-run", "--json"], {

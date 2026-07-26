@@ -22,26 +22,64 @@ const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const ext = process.platform === "win32" ? ".exe" : "";
 
-// 1. Production: the matching per-platform package (an optionalDependency).
-const platformPkg = `@bloommedia/feral-agent-${process.platform}-${process.arch}`;
-let exe = null;
-try {
-  exe = require.resolve(`${platformPkg}/feral-cli${ext}`);
-} catch {
-  /* package not installed for this platform — fall through to the dev path */
+// `feral update` is handled HERE and never reaches the Rust binary. Two reasons,
+// both fatal if we delegated: on Windows npm cannot overwrite a running .exe, and
+// a half-installed machine (platform package missing) has no Rust binary to run —
+// which is exactly when you most want to re-install. This shim is the one file in
+// the install that is never locked.
+if (process.argv[2] === "update") {
+  const win = process.platform === "win32";
+  // Was a gateway serving before the update? If so it is running the OLD binary,
+  // and a Discord/Slack connector keeps running it until something restarts it.
+  // Checked BEFORE the install so we never start a daemon the user didn't have.
+  const old = exeFor();
+  const wasOnline =
+    !!old && spawnSync(old, ["gateway", "status"], { stdio: "ignore" }).status === 0;
+
+  const install = spawnSync(win ? "npm.cmd" : "npm", ["install", "-g", "feral-agent@latest"], {
+    stdio: "inherit",
+    shell: win, // npm.cmd is a batch file; Node needs a shell to exec it
+  });
+  if (install.error || install.status !== 0) {
+    process.stderr.write(
+      "feral: update failed. Install manually with: npm install -g feral-agent@latest\n",
+    );
+    process.exit(install.status ?? 1);
+  }
+  if (!wasOnline) {
+    process.stdout.write("feral: updated. Start it with: feral gateway start\n");
+    process.exit(0);
+  }
+  // Re-run THIS file — npm has just replaced it with the new version, so the
+  // restart is driven by the new shim and starts the new binary.
+  process.stdout.write("feral: updated — restarting the gateway…\n");
+  const restart = spawnSync(
+    process.execPath,
+    [fileURLToPath(import.meta.url), "gateway", "restart"],
+    { stdio: "inherit" },
+  );
+  process.exit(restart.status ?? 1);
 }
 
-// 2. Dev / manual build: binaries staged in ./vendor next to this shim
-//    (what `node scripts/package-win.mjs` produces for a local Windows build).
-if (!exe || !existsSync(exe)) {
+/** Resolve the platform binary, or null when this install has none. */
+function exeFor() {
+  const pkg = `@bloommedia/feral-agent-${process.platform}-${process.arch}`;
+  try {
+    const p = require.resolve(`${pkg}/feral-cli${ext}`);
+    if (existsSync(p)) return p;
+  } catch {
+    /* fall through to the dev path */
+  }
   const local = join(here, "..", "vendor", `feral-cli${ext}`);
-  if (existsSync(local)) exe = local;
+  return existsSync(local) ? local : null;
 }
 
-if (!exe || !existsSync(exe)) {
+const exe = exeFor();
+
+if (!exe) {
   process.stderr.write(
     `Feral could not find its runtime for ${process.platform}-${process.arch}.\n` +
-      `The matching package \`${platformPkg}\` may have failed to install ` +
+      `The matching package \`@bloommedia/feral-agent-${process.platform}-${process.arch}\` may have failed to install ` +
       "(a blocked optional dependency, an unsupported platform, or " +
       "`--ignore-optional`).\n" +
       "Reinstall with: npm install -g feral-agent\n" +
