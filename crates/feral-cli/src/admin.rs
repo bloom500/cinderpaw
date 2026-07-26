@@ -348,10 +348,33 @@ pub fn gateway_stop() -> i32 {
 }
 
 pub fn gateway_restart() -> i32 {
-    if port_in_use(api_port()) {
-        let code = gateway_stop();
-        if code != 0 {
-            return code;
+    let port = api_port();
+    if port_in_use(port) && gateway_stop() != 0 {
+        // A stop that ran out of patience is NOT a failed restart. The drain
+        // routinely finishes seconds after `gateway_stop` stops watching, and
+        // bailing here left the gateway down for good — whatever it was serving
+        // (a Discord or Slack connector, most of the time) simply vanished, with
+        // the CLI reporting a restart it never performed. `feral update` rides
+        // this path, so the failure landed exactly where nobody was watching.
+        //
+        // Keep waiting for the port instead. Only a port still bound after the
+        // extra minute is a real failure: starting a second gateway on a live
+        // one gets us two agents answering the same channel.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while std::time::Instant::now() < deadline {
+            if !port_in_use(port) {
+                let _ = std::fs::remove_file(feral_file("gateway.pid"));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if port_in_use(port) {
+            let Palette { fail: FAIL, reset: RESET, .. } = palette();
+            eprintln!(
+                "{FAIL}gateway still bound to port {port} after 95s — not starting a second one.{RESET}"
+            );
+            eprintln!("       inspect it with `feral status`, or kill the process and run `feral gateway start`.");
+            return 1;
         }
     }
     gateway_start()
