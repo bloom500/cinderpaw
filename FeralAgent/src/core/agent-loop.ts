@@ -68,6 +68,11 @@ import {
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
 import { isConnectorTool, isCoreTool } from "../tools/tiers.ts";
+// Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
+import {
+  parseStandalonePlainTextToolCallBlocks,
+  stripPlainTextToolCallBlocks,
+} from "../vendor/tool-call-repair/payload.ts";
 
 export interface AgentLoopConfig {
   /** Soft token cap passed to each completion. */
@@ -1104,7 +1109,14 @@ export class AgentLoop {
       // consumption (the latest call's prompt = full context fed to the model,
       // plus this turn's completion) instead of a rough message estimate.
       ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
-      const parsed = parseResponse(completion);
+      // The live registry is the allowlist for the vendored repair pass: a
+      // shape we do not natively parse may only become a call if it names a
+      // tool that actually exists. Read fresh each turn — load_tool can add
+      // tools mid-task, and a stale list would reject the call it just enabled.
+      const parsed = parseResponse(
+        completion,
+        this.#registry.list().map((t) => t.manifest.name),
+      );
 
       // Resolve the stream holdback: tool call or malformed garbage → the
       // held text never reaches the UI; plain prose → flush it now.
@@ -1138,7 +1150,15 @@ export class AgentLoop {
         // No tool calls → natural termination. The model chose to answer
         // rather than call another tool. Strip reasoning tags so a
         // thinking-only completion never leaks raw tags as the answer.
-        const answer = stripThinking(parsed.text) || stripThinking(streamedSoFar);
+        // A turn whose whole visible output is a stray tag is not an answer.
+        // Observed on the bench: MiniMax ended a half-done refactor by emitting
+        // the single token `<boundary>` — no tool call, no prose, so the loop
+        // read it as a final answer and returned with the task untouched (files
+        // read, nothing edited). Anything with no letters or digits once tags
+        // are stripped is degenerate output; fall through to the empty-answer
+        // path, which already knows how to ask for a real continuation.
+        const rawAnswer = stripThinking(parsed.text) || stripThinking(streamedSoFar);
+        const answer = /[\p{L}\p{N}]/u.test(rawAnswer.replace(/<[^>]*>/g, "")) ? rawAnswer : "";
 
         // Mid-answer token cutoff: the model was still WRITING when it ran
         // out of max_tokens (finish_reason "length" with visible text). The
@@ -1172,7 +1192,12 @@ export class AgentLoop {
           // a true silence so the user knows whether to retry with a shorter
           // prompt (cut-off) or a different model (degenerate).
           const hadThinking = /<think>|<thinking>|<\|channel>thought/i.test(completion);
-          if (hadThinking) {
+          // Degenerate output (a bare `<boundary>`-style tag and nothing else)
+          // spends a continuation too. Giving up here ends the task silently
+          // mid-work; one nudge is far cheaper than a half-done refactor the
+          // user has to discover themselves.
+          const degenerate = rawAnswer !== "" && answer === "";
+          if (hadThinking || degenerate) {
             if (continuations < MAX_CONTINUATIONS) {
               continuations++;
               // Store the turn WITHOUT its <think> reasoning. The chain-of-thought was
@@ -1183,10 +1208,14 @@ export class AgentLoop {
       // visible answer + any <tool_call> tags belong in re-sent history.
       memory.addAssistant(stripThinking(completion));
               memory.addUser(
-                "(system: your previous reply hit the per-call token limit while you " +
-                  "were still reasoning. Do NOT restart your reasoning from scratch — " +
-                  "pick up where you left off and produce the final answer directly " +
-                  "and concisely.)",
+                degenerate
+                  ? "(system: your previous reply contained no answer — only a stray tag. " +
+                      "If the task is not finished, continue working: call the next tool. " +
+                      "If it is finished, state plainly what you did and what you verified.)"
+                  : "(system: your previous reply hit the per-call token limit while you " +
+                      "were still reasoning. Do NOT restart your reasoning from scratch — " +
+                      "pick up where you left off and produce the final answer directly " +
+                      "and concisely.)",
               );
               continue;
             }
@@ -1355,6 +1384,21 @@ export class AgentLoop {
         // Checkpoint after each tool call, not each batch: a crash between two
         // sequential calls should resume after the one that finished.
         checkpoint(i);
+      }
+
+      // Some calls in this batch never ran. Say so BEFORE the model reasons
+      // over the results it did get — left unsaid, it reads the successful
+      // results as the whole batch and reports work it never did. Naming the
+      // count (not just "something failed") is what lets it work out WHICH
+      // ones are missing by diffing against what it sent.
+      if (parsed.droppedToolCalls > 0) {
+        memory.addUser(
+          `(system: ${parsed.droppedToolCalls} tool call(s) in your previous message were malformed ` +
+            "and did NOT run — you only have results for the ones that did. Work out which are " +
+            "missing and re-emit ONLY those, one valid JSON object per <tool_call> block. Verify " +
+            "the current state first if the missing calls had side effects: re-sending a write " +
+            "that actually succeeded creates a duplicate.)",
+        );
       }
 
       if (ctx.stopped) break;
@@ -2070,6 +2114,8 @@ export const STREAM_HOLD_OPENERS = [
   // stream before the call is parsed out. Safe: "```tool" is never a real code
   // language, so this can't stall a genuine code block (unlike "```json").
   "```tool",
+  // MiniMax M3 tool-call framing leaking as literal text (see MINIMAX_DEBRIS).
+  "]<]minimax[>[",
 ] as const;
 export const STREAM_HOLD_MAX_OPENER = Math.max(
   ...STREAM_HOLD_OPENERS.map((o) => o.length),
@@ -2181,7 +2227,110 @@ export function createStreamHoldback(emit: (text: string) => void): {
   };
 }
 
-export function parseResponse(raw: string): ParsedResponse {
+/**
+ * MiniMax M3's native tool-call tag delimiter, decoded literally by the
+ * OpenAI-compatible endpoint instead of as a control token. Never valid prose.
+ */
+export const MINIMAX_DEBRIS = "]<]minimax[>[";
+
+/**
+ * Parse Anthropic-style `<invoke name="tool"><arg>value</arg></invoke>` XML
+ * into real tool calls.
+ *
+ * Models fall back to this shape unprompted — MiniMax M3 switches to it
+ * mid-task, and it is the native format for several others. The loop used to
+ * only SCRUB it and ask (via the malformed nudge) for JSON instead. The bench
+ * settled whether asking is enough: it is not. `ads-campaign-triage` re-emitted
+ * the same XML on every retry, burned the retry budget and finished having
+ * changed nothing — 3 of 9 runs, in a task whose whole point is measuring
+ * damage to a live account. Reading the format the model actually speaks is
+ * strictly better than losing the turn insisting on ours.
+ *
+ * `<item>` children make an array (`<argv><item>cmd</item></argv>`); a value
+ * that parses as JSON becomes that value; everything else stays a string.
+ * A missing `</invoke>` (truncated stream) still yields the call — the args
+ * gathered so far are better than nothing, and a wrong-arity call surfaces as
+ * a tool error the model can see and correct.
+ */
+export function parseInvokeXml(input: string): ParsedToolCall[] {
+  const coerce = (body: string): unknown => {
+    if (/<item>/.test(body)) {
+      return [...body.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => coerce(m[1] ?? ""));
+    }
+    const text = body.trim();
+    if (/^[[{]|^-?\d|^(true|false|null)$/.test(text)) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        /* not JSON after all — fall through to the raw string */
+      }
+    }
+    return text;
+  };
+
+  const calls: ParsedToolCall[] = [];
+  const invokeRe = /<invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)(?:<\/invoke>|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = invokeRe.exec(input)) !== null) {
+    const name = m[1];
+    if (!name) continue;
+    const args: Record<string, unknown> = {};
+    // Backreferenced closer, so a parameter's body is consumed whole — nested
+    // <item> tags belong to their parent and must not be read as parameters.
+    const paramRe = /<([A-Za-z_][\w.-]*)>([\s\S]*?)<\/\1>/g;
+    let p: RegExpExecArray | null;
+    while ((p = paramRe.exec(m[2] ?? "")) !== null) {
+      if (p[1] === "item") continue;
+      args[p[1] as string] = coerce(p[2] ?? "");
+    }
+    // A bare opener with no arguments and no closer is an ANNOUNCEMENT, not a
+    // call — the model wrote "<invoke name="write_file">" and stopped. Running
+    // it would mean write_file with no path. A closed invoke with no args is
+    // different and legitimate: the zero-arg tools (time_date, self_health).
+    if (!m[0].endsWith("</invoke>") && Object.keys(args).length === 0) continue;
+    calls.push({ name, args });
+  }
+  return calls;
+}
+
+/**
+ * Last-resort pass: the vendored OpenClaw repair scanner.
+ *
+ * Runs only after every pass above has failed, and only when the whole message
+ * parses as tool-call blocks — so it can add calls we would otherwise lose, but
+ * can never reinterpret prose that an earlier pass already understood.
+ *
+ * `allowedToolNames` is what makes this safe to run at all: an unrecognised
+ * name is rejected instead of invented. Callers pass the live registry; without
+ * it the scanner still works, but nothing constrains a hallucinated name, so
+ * the loop always supplies one.
+ */
+function repairWithVendoredScanner(
+  text: string,
+  allowedToolNames?: Iterable<string>,
+): ParsedToolCall[] {
+  try {
+    const opts = allowedToolNames ? { allowedToolNames } : undefined;
+    let blocks = parseStandalonePlainTextToolCallBlocks(text, opts);
+    if (!blocks && text.includes("to=functions.")) {
+      // Harmony's namespaced form. The scanner's tool-name charset stops at the
+      // dot, so `to=functions.exec_command` never resolves — and that is the
+      // shape Hermes documents for GPT-OSS, i.e. the common one in the wild.
+      // Normalised HERE rather than in the vendored file so upgrading that file
+      // stays a re-copy instead of a merge.
+      blocks = parseStandalonePlainTextToolCallBlocks(
+        text.split("to=functions.").join("to="),
+        opts,
+      );
+    }
+    return (blocks ?? []).map((b) => ({ name: b.name, args: b.arguments }));
+  } catch {
+    // A repair pass must never cost the turn it is trying to save.
+    return [];
+  }
+}
+
+export function parseResponse(raw: string, allowedToolNames?: Iterable<string>): ParsedResponse {
   const toolCalls: ParsedToolCall[] = [];
   let text = raw;
 
@@ -2200,19 +2349,22 @@ export function parseResponse(raw: string): ParsedResponse {
   // chat instead of executing.
   const toolCallTag = /<tool_call>((?:(?!<tool_call>)[\s\S])*?)<\/tool_call>/g;
   let match: RegExpExecArray | null;
+  // Blocks that failed to parse while siblings succeeded. Counted, not
+  // discarded: see ParsedResponse.droppedToolCalls — losing one call out of a
+  // batch and reporting success is how three lead imports become one.
+  let dropped = 0;
   while ((match = toolCallTag.exec(raw)) !== null) {
-    const call = tryParseCall(match[1]?.trim() ?? "");
-    if (call) {
-      toolCalls.push(call);
-      text = text.replace(match[0], "").trim();
-    }
+    const block = parseCallBlock(match[1]?.trim() ?? "");
+    toolCalls.push(...block.calls);
+    dropped += block.dropped;
+    text = text.replace(match[0], "").trim();
   }
 
   if (toolCalls.length > 0) {
     // Sweep orphan tags (the dangling "<tool_call>" prose case above, or a
     // stray closer) so they never reach the UI or the stored transcript.
     text = text.replace(/<\/?tool_call>/g, "").trim();
-    return { text, toolCalls, malformedToolCall: false };
+    return { text, toolCalls, malformedToolCall: false, droppedToolCalls: dropped };
   }
 
   // Pass 1 (narrow): bare tool-call JSON in the content. Grammar-constrained
@@ -2230,20 +2382,63 @@ export function parseResponse(raw: string): ParsedResponse {
   // function-call XML the loop never taught them. Scrub and flag so the turn
   // is retried instead of ending mid-task with the tag in the visible text.
   let preScrubbed = raw.replace(/<\/?tool_call>/g, "");
+
+  // Strip the debris FIRST: it sits between the XML tags, so the invoke parser
+  // below cannot see the structure until it is gone.
+  const hadMinimaxDebris = preScrubbed.includes(MINIMAX_DEBRIS);
+  if (hadMinimaxDebris) {
+    preScrubbed = preScrubbed.split(MINIMAX_DEBRIS).join("");
+  }
+
   const hadInvokeXml = /<\/?invoke\b/.test(preScrubbed);
   if (hadInvokeXml) {
+    // Read it rather than reject it — see parseInvokeXml.
+    const xmlCalls = parseInvokeXml(preScrubbed);
+    if (xmlCalls.length > 0) {
+      return {
+        text: preScrubbed.replace(/<invoke[\s\S]*?(?:<\/invoke>|$)/g, "").trim(),
+        toolCalls: xmlCalls,
+        malformedToolCall: false,
+        droppedToolCalls: 0,
+      };
+    }
     preScrubbed = preScrubbed.replace(/<\/?invoke\b[^>\n]*>?/g, "");
   }
 
+  // Debris with no recoverable <invoke> structure around it (a lone sentinel,
+  // or args whose opener was lost to truncation). Nothing to execute, but the
+  // sentinel only ever appears inside tool-call framing — so the turn was an
+  // attempted call, not prose, and must be retried rather than returned.
   const scrubbed = extractBareToolCalls(preScrubbed);
+
+  // Nothing we understand natively. Hand the raw text to the vendored scanner,
+  // which knows the shapes we do not: <function=…>, [tool:name], Harmony
+  // channels. A hit here is a real call the turn would otherwise have thrown
+  // away as prose.
+  if (scrubbed.calls.length === 0) {
+    const repaired = repairWithVendoredScanner(raw, allowedToolNames);
+    if (repaired.length > 0) {
+      return {
+        text: stripPlainTextToolCallBlocks(raw).trim(),
+        toolCalls: repaired,
+        malformedToolCall: false,
+        droppedToolCalls: 0,
+      };
+    }
+  }
   // A <tool_call> opener with no parseable call inside also counts as a
   // malformed attempt — the model opened a call and never produced valid JSON.
-  const danglingTag = scrubbed.calls.length === 0 && /<tool_call>/.test(raw);
+  // An orphan CLOSER counts too: when the opener is lost to a truncated
+  // stream what remains is a naked JSON tail plus `</tool_call>`.
+  const danglingTag = scrubbed.calls.length === 0 && /<\/?tool_call>/.test(raw);
   return {
     text: scrubbed.text.trim(),
     toolCalls: scrubbed.calls,
     malformedToolCall:
-      scrubbed.malformed || danglingTag || (scrubbed.calls.length === 0 && hadInvokeXml),
+      scrubbed.malformed ||
+      danglingTag ||
+      (scrubbed.calls.length === 0 && (hadInvokeXml || hadMinimaxDebris)),
+    droppedToolCalls: 0,
   };
 }
 
@@ -2334,6 +2529,50 @@ function extractBareToolCalls(input: string): {
   }
 
   return { text: out.join(""), calls, malformed };
+}
+
+/**
+ * Every top-level JSON object inside ONE `<tool_call>` block.
+ *
+ * Models batch parallel calls by stacking objects in a single block rather than
+ * opening a second tag:
+ *
+ *     <tool_call>
+ *     {"name":"http_request","args":{…pause…}}
+ *     {"name":"http_request","args":{…budget…}}
+ *     </tool_call>
+ *
+ * `tryParseCall` returns the FIRST object and silently discards the rest, which
+ * is how "pause the losing campaign and raise the winner's budget" executed only
+ * the pause — and, because nothing was counted as dropped, the model was told
+ * nothing and reported both done. Measured on the walk-away bench, where the
+ * model's own words were "Both calls succeeded."
+ *
+ * A malformed object is COUNTED, never skipped: droppedToolCalls is what makes
+ * the loop tell the model which calls never ran.
+ */
+function parseCallBlock(body: string): { calls: ParsedToolCall[]; dropped: number } {
+  const calls: ParsedToolCall[] = [];
+  let dropped = 0;
+  let rest = body.trim();
+
+  while (rest.startsWith("{")) {
+    const end = findJsonEnd(rest);
+    if (end < 0) {
+      // Truncated object — the stream was cut mid-call.
+      dropped++;
+      break;
+    }
+    const call = tryParseCall(rest.slice(0, end + 1));
+    if (call) calls.push(call);
+    else dropped++;
+    rest = rest.slice(end + 1).trim();
+  }
+
+  // The block held no JSON at all (prose, an array, an XML hybrid). One
+  // malformed call, which is what the single-object path always reported.
+  if (calls.length === 0 && dropped === 0) dropped = 1;
+  return { calls, dropped };
 }
 
 function tryParseCall(candidate: string): ParsedToolCall | null {

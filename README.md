@@ -69,6 +69,10 @@ npm pulls only the binary for your platform (Windows, macOS Intel/Apple Silicon,
 or Linux x64). Then `feral setup` to configure, `feral chat` for the terminal
 UI, `feral gateway start` to run it as a service.
 
+`feral update` pulls the latest release and restarts the gateway, so a running
+connector (Discord, Slack, …) picks up the new build instead of staying on the
+old one until you notice.
+
 > **Note:** the npm build is a **cloud/gateway CLI — it does not bundle the local
 > llama.cpp inference engine.** Point it at a cloud provider (BYOK via
 > `FERAL_BASE_URL` / `FERAL_API_KEY` / `FERAL_MODEL`) or at a running desktop

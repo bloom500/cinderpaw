@@ -83,6 +83,180 @@ describe("createStreamHoldback", () => {
     expect(parsed.malformedToolCall).toBe(true);
   });
 
+  // Walk-away bench, 2026-07-25: 4 of the 4 non-infra failures ended here.
+  // MiniMax dropped the <tool_call> wrapper entirely and emitted its native
+  // XML framing naked, so nothing flagged it and the loop terminated with the
+  // task half-done (a.mjs renamed, b.mjs never touched).
+  test.each([
+    [
+      "write-cli#2 — shell_exec argv, no wrapper",
+      "Let me use create_scripts instead.\n\n]<]minimax[>[<argv>]<]minimax[>[<item>cmd]<]minimax[>[</item>]<]minimax[>[</argv>]<]minimax[>[",
+    ],
+    [
+      "multi-file-refactor#1 — edit_file, cut off mid-args",
+      "export function greetB(n) { return GREETING; }]<]minimax[>[</old_string>]<]minimax[>[<new_string>import { SALUTATION } from './a.mjs';]<]minimax[>[</new_string>]<]minimax[>[",
+    ],
+    ["multi-file-refactor#2 — bare sentinel only", "]<]minimax[>["],
+    [
+      "fix-failing-test#2 — orphan closer, opener lost",
+      '07-25T11-17-34-476Z\\\\fix-failing-test#2"}} </tool_call>',
+    ],
+  ])("naked MiniMax tool-call debris is malformed, not prose: %s", (_name, garbage) => {
+    const parsed = parseResponse(garbage);
+    expect(parsed.toolCalls.length).toBe(0);
+    expect(parsed.malformedToolCall).toBe(true);
+    expect(parsed.text).not.toContain("]<]minimax[>[");
+  });
+
+  test("naked MiniMax debris never reaches the stream", () => {
+    const out = run(["Let me edit b.mjs.\n", "]<]minimax[>[<new_string>x]<]minimax[>["], false);
+    expect(out).toBe("Let me edit b.mjs.\n");
+  });
+
+  // Walk-away bench, 2026-07-25 run 2: leads-to-crm. The model POSTed three
+  // leads in one turn; one block parsed, two did not. The two were dropped
+  // silently and the turn reported success, so the model told the user "all
+  // three POSTs returned 201" while the CRM held one. Partial execution must
+  // be visible or the follow-up retry duplicates whatever DID land.
+  test("a mixed batch reports the calls that were dropped", () => {
+    const raw =
+      '<tool_call>{"name":"http_request","args":{"method":"POST","url":"/leads"}}</tool_call>' +
+      '<tool_call>{"name":"http_request","args":{"method":"POST",,,}}</tool_call>' +
+      '<tool_call>{"name"=http_request>broken</tool_call>';
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls.length).toBe(1);
+    expect(parsed.droppedToolCalls).toBe(2);
+    // The dropped blocks are scrubbed, never shown as prose.
+    expect(parsed.text).not.toContain("http_request");
+  });
+
+  test("an all-good batch reports nothing dropped", () => {
+    const raw =
+      '<tool_call>{"name":"read_file","args":{"path":"a"}}</tool_call>' +
+      '<tool_call>{"name":"read_file","args":{"path":"b"}}</tool_call>';
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls.length).toBe(2);
+    expect(parsed.droppedToolCalls).toBe(0);
+  });
+
+  // n=9 run, 2026-07-25: asking the model for JSON did not work. It re-emitted
+  // the same XML every retry and ads-campaign-triage finished having changed
+  // nothing, 3 of 9 times. These are the literal completions from that run.
+  test("MiniMax invoke-XML executes instead of being rejected", () => {
+    const raw =
+      'Let me pause the losing one.\n\n<invoke name="http_request">]<]minimax[>[<method>POST' +
+      "]<]minimax[>[</method>]<]minimax[>[<url>http://127.0.0.1:18924/campaigns/summer_sale/pause" +
+      "]<]minimax[>[</url>]<]minimax[>[</invoke>";
+    const parsed = parseResponse(raw);
+    expect(parsed.malformedToolCall).toBe(false);
+    expect(parsed.toolCalls.length).toBe(1);
+    expect(parsed.toolCalls[0]?.name).toBe("http_request");
+    expect(parsed.toolCalls[0]?.args).toEqual({
+      method: "POST",
+      url: "http://127.0.0.1:18924/campaigns/summer_sale/pause",
+    });
+    expect(parsed.text).toBe("Let me pause the losing one.");
+  });
+
+  test("invoke-XML <item> children become an array", () => {
+    const parsed = parseResponse(
+      '<invoke name="shell_exec"><argv><item>cmd</item><item>/c</item>' +
+        "<item>node --version</item></argv></invoke>",
+    );
+    expect(parsed.toolCalls[0]?.args).toEqual({ argv: ["cmd", "/c", "node --version"] });
+  });
+
+  test("invoke-XML JSON-valued arg is parsed, not stringified", () => {
+    const parsed = parseResponse(
+      '<invoke name="http_request"><json>{"email":"a@b.co","name":"A"}</json></invoke>',
+    );
+    expect(parsed.toolCalls[0]?.args).toEqual({ json: { email: "a@b.co", name: "A" } });
+  });
+
+  test("parallel invoke-XML calls all survive", () => {
+    const parsed = parseResponse(
+      '<invoke name="http_request"><url>/a</url></invoke>\n' +
+        '<invoke name="http_request"><url>/b</url></invoke>',
+    );
+    expect(parsed.toolCalls.map((c) => (c.args as { url: string }).url)).toEqual(["/a", "/b"]);
+  });
+
+  // Vendored OpenClaw scanner (MIT) — shapes our own passes cannot read.
+  // The allowlist is what makes running it safe, so it is tested as hard as
+  // the formats: a name we do not have must NOT become a call.
+  describe("vendored repair pass", () => {
+    const allowed = ["read_file", "http_request"];
+
+    test("<function=…><parameter=…> executes", () => {
+      const parsed = parseResponse(
+        "<function=read_file><parameter=path>/tmp/a.txt</parameter></function>",
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.name).toBe("read_file");
+      expect(parsed.toolCalls[0]?.args).toEqual({ path: "/tmp/a.txt" });
+    });
+
+    test("[tool:name] + JSON executes", () => {
+      const parsed = parseResponse('[tool:read_file]\n{"path":"/tmp/b.txt"}', allowed);
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.args).toEqual({ path: "/tmp/b.txt" });
+    });
+
+    // Narrower than the exported constants suggest: the scanner requires the
+    // literal " code" after the tool name. Pinned so an upgrade that changes
+    // it is caught here rather than by a bench run.
+    test("Harmony channel syntax executes", () => {
+      const parsed = parseResponse(
+        '<|channel|>commentary to=read_file code<|message|>{"path":"/tmp/c.txt"}<|call|>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.name).toBe("read_file");
+    });
+
+    test("Harmony's namespaced to=functions.NAME resolves", () => {
+      const parsed = parseResponse(
+        '<|channel|>commentary to=functions.read_file code<|message|>{"path":"/x"}<|call|>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.name).toBe("read_file");
+    });
+
+    test("the namespace rewrite does not bypass the allowlist", () => {
+      const parsed = parseResponse(
+        '<|channel|>commentary to=functions.exfiltrate code<|message|>{"a":1}<|call|>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(0);
+    });
+
+    test("an unknown tool name is REJECTED, not invented", () => {
+      const parsed = parseResponse(
+        "<function=exfiltrate_secrets><parameter=to>evil.example</parameter></function>",
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(0);
+    });
+
+    test("plain prose is never reinterpreted as a call", () => {
+      const parsed = parseResponse("I read the file and it looks fine.", allowed);
+      expect(parsed.toolCalls.length).toBe(0);
+      expect(parsed.malformedToolCall).toBe(false);
+      expect(parsed.text).toBe("I read the file and it looks fine.");
+    });
+
+    test("the canonical format still wins — the repair pass never sees it", () => {
+      const parsed = parseResponse(
+        '<tool_call>{"name":"http_request","args":{"url":"/a"}}</tool_call>',
+        allowed,
+      );
+      expect(parsed.toolCalls.length).toBe(1);
+      expect(parsed.toolCalls[0]?.args).toEqual({ url: "/a" });
+    });
+  });
+
   test("false alarm (prose containing {\"name) is flushed on resolve", () => {
     const out = run(['config example: {"name', '": "demo"} rest'], true);
     expect(out).toBe('config example: {"name": "demo"} rest');

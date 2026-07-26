@@ -256,6 +256,73 @@ describe("OpenAICompatibleProvider native function calling", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  // Walk-away bench, 2026-07-25: a batch of parallel calls executed as ONE.
+  // Three lead POSTs became one; "pause + raise budget" only paused; "GET then
+  // POST" dropped the GET and wrote a record it had never checked for. All of
+  // it was `tc.index ?? 0` collapsing an index-less batch into a single slot,
+  // where names overwrote each other and argument fragments concatenated.
+  it("keeps parallel tool calls apart when the provider omits index", async () => {
+    const provider = new OpenAICompatibleProvider();
+    const mockRequest = {
+      sessionId: "test-sess",
+      messages: [{ role: "user" as const, content: "import the leads" }],
+      openAITools: [
+        {
+          type: "function" as const,
+          function: {
+            name: "http_request",
+            description: "HTTP",
+            parameters: { type: "object" as const, properties: {}, required: [] },
+          },
+        },
+      ],
+      onToken: () => {},
+    };
+
+    const originalFetch = globalThis.fetch;
+    const delta = (tc: unknown) =>
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [tc] } }] })}\n`;
+    globalThis.fetch = (async () => {
+      const chunks = [
+        // No `index` anywhere — the shape that broke. Arguments arrive split,
+        // so the continuation fragments must land on the call they follow.
+        delta({ id: "c1", type: "function", function: { name: "http_request" } }),
+        delta({ function: { arguments: '{"url":' } }),
+        delta({ function: { arguments: '"/a"}' } }),
+        delta({ id: "c2", type: "function", function: { name: "http_request" } }),
+        delta({ function: { arguments: '{"url":"/b"}' } }),
+        delta({ id: "c3", type: "function", function: { name: "http_request" } }),
+        delta({ function: { arguments: '{"url":"/c"}' } }),
+        "data: [DONE]\n",
+      ];
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const res = await provider.complete(
+        { provider: "openai-compatible", model: "m", baseUrl: "https://api.example.com" },
+        mockRequest,
+        false,
+      );
+      // All three survive, each with its OWN url — not one merged survivor.
+      expect(res.content).toContain('{"name":"http_request","args":{"url":"/a"}}');
+      expect(res.content).toContain('{"name":"http_request","args":{"url":"/b"}}');
+      expect(res.content).toContain('{"name":"http_request","args":{"url":"/c"}}');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("OllamaProvider native function calling", () => {
@@ -529,6 +596,39 @@ describe("parseResponse tool_call tag robustness", () => {
     const parsed = parseResponse("Here you go. <tool_call>");
     expect(parsed.toolCalls).toHaveLength(0);
     expect(parsed.text).toBe("Here you go.");
+  });
+
+  // Walk-away bench, 2026-07-26: the ads-triage task failed intermittently with
+  // "did not raise retargeting's budget" while the model insisted "Both calls
+  // succeeded." It batches parallel calls by STACKING objects in one block
+  // instead of opening a second tag, and we kept only the first — with
+  // droppedToolCalls at 0, so nothing ever told the model.
+  it("parses every stacked JSON object inside ONE <tool_call> block", () => {
+    const raw =
+      "Pausing the loser and raising the winner.\n<tool_call>\n" +
+      '{"name":"http_request","args":{"method":"POST","url":"http://x/campaigns/summer_sale/pause"}}\n' +
+      '{"name":"http_request","args":{"method":"POST","url":"http://x/campaigns/retargeting/budget","json":{"daily_budget":90}}}\n' +
+      "</tool_call>";
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls).toHaveLength(2);
+    expect(parsed.toolCalls[1]!.args).toEqual({
+      method: "POST",
+      url: "http://x/campaigns/retargeting/budget",
+      json: { daily_budget: 90 },
+    });
+    expect(parsed.droppedToolCalls).toBe(0);
+  });
+
+  it("counts a malformed sibling as dropped instead of losing it in silence", () => {
+    const raw =
+      "<tool_call>\n" +
+      '{"name":"http_request","args":{"url":"http://x/a"}}\n' +
+      '{"name":"http_request","args":{"url":\n' +
+      "</tool_call>";
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls).toHaveLength(1);
+    // The half-call must be reported, or the model reads one result as two.
+    expect(parsed.droppedToolCalls).toBe(1);
   });
 });
 

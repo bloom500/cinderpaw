@@ -680,6 +680,21 @@ export interface ParsedResponse {
    * so the model re-emits a valid call instead of silently stopping mid-task.
    */
   malformedToolCall: boolean;
+
+  /**
+   * How many `<tool_call>` blocks in this turn failed to parse while OTHERS in
+   * the same turn succeeded. Those calls did NOT run.
+   *
+   * `malformedToolCall` cannot cover this: it only fires when the turn produced
+   * no usable call at all. A mixed batch used to drop the bad blocks silently
+   * and report success, so the model believed every call in its batch had run.
+   * Observed on the walk-away bench's leads-to-crm task (2026-07-25): the model
+   * POSTed three leads in one turn, one parsed, two vanished, and it then told
+   * the user "all three POSTs returned 201". Silent partial execution is the
+   * worst failure shape for write workloads — the retry that follows creates
+   * duplicates. The loop feeds this count back so the model knows what to redo.
+   */
+  droppedToolCalls: number;
 }
 
 // ---------------------------------------------------------------------------

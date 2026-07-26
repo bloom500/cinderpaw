@@ -66,6 +66,8 @@ enum Command {
     Status,
     /// Stop the running gateway (alias for `gateway stop`)
     Stop,
+    /// Update Feral to the latest release, then restart the gateway
+    Update,
     /// Diagnose the install (port, token, model, sidecar, GPU, connectors)
     Doctor,
     /// List installed models
@@ -231,6 +233,15 @@ fn main() {
             }
         }
         Some(Command::Chat) | Some(Command::Tui) => chat::run(), // never returns
+        // Declared so `feral --help` and shell completions list it, but the npm
+        // launcher (bin/feral.js) intercepts `update` and never gets here: this
+        // binary is the file npm has to replace, and Windows will not overwrite a
+        // running .exe. Reaching this arm means the binary was invoked directly.
+        Some(Command::Update) => {
+            eprintln!("feral: `update` is handled by the npm launcher, not this binary.");
+            eprintln!("       run:  npm install -g feral-agent@latest");
+            1
+        }
         Some(Command::Doctor) => admin::doctor(),
         Some(Command::Logs { follow }) => admin::logs(follow),
         Some(Command::Model) => admin::model_list(),

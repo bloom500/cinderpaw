@@ -618,7 +618,24 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         const toolCalls = (chunk as { choices?: { delta?: { tool_calls?: any[] } }[] }).choices?.[0]?.delta?.tool_calls;
         if (toolCalls) {
           for (const tc of toolCalls) {
-            const idx = tc.index ?? 0;
+            // `index` is how the OpenAI wire format keeps parallel calls apart.
+            // Providers that omit it used to collapse EVERY call in a batch into
+            // slot 0: the later ones overwrote the earlier name and their
+            // argument fragments concatenated into garbage, so a batch of three
+            // executed as one. Confirmed on the walk-away bench across two
+            // tasks — three lead POSTs became one, "pause + raise budget"
+            // executed only the pause, and a "GET then POST" dropped the GET so
+            // the agent wrote a record it had never checked for. Every symptom
+            // is one call surviving a batch.
+            //
+            // Without an index, use the delta's own shape: a fragment carrying
+            // a name or an id STARTS a call, one carrying only arguments
+            // CONTINUES the call it follows.
+            const idx =
+              tc.index ??
+              (tc.function?.name || tc.id
+                ? toolCallsAccumulator.length
+                : Math.max(0, toolCallsAccumulator.length - 1));
             if (!toolCallsAccumulator[idx]) {
               toolCallsAccumulator[idx] = { arguments: "" };
             }
