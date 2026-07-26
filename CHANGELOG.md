@@ -5,13 +5,39 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## Unreleased
+## 2026.07.26
 
 Reliability on long tasks. Every fix here is something you only hit after the
 agent has been working for a while — which is exactly when it hurts most.
 
+This is the first release measured against a walk-away benchmark: real tasks run
+end to end, unattended, nine times each. It is why several of the entries below
+name a number instead of a hunch.
+
+### Added
+
+- **`feral update`** — pulls the latest release and restarts the gateway, so a
+  connector already running on Discord or Slack picks up the new build instead
+  of quietly serving the old one until you notice.
+
 ### Fixed
 
+- **Parallel tool calls all run now, instead of just the first one.** When the
+  model batched two actions into a single reply — "pause the losing campaign and
+  raise the winner's budget" — only the first was executed, nothing recorded the
+  loss, and the model reported both as done. Half a task, reported as finished.
+  On the benchmark this failed 5 runs out of 17; after the fix, 0 out of 9. A
+  call that genuinely can't be read is now counted and named back to the model,
+  so it re-sends what's missing rather than assuming it landed.
+- **A batch of calls no longer collapses into one.** Providers that omit the
+  wire-format `index` had every call in a batch folded into the same slot, where
+  names overwrote each other and arguments concatenated into garbage. Three lead
+  imports became one; a "check the CRM, then write" dropped the check and
+  duplicated a person already on file.
+- **Tool calls in the format the model actually speaks.** Feral now reads the
+  shapes models fall back to when they abandon the format they were asked for —
+  `<function=…>`, `[tool:name]`, Harmony channels — instead of showing them to
+  you as prose. Unrecognised tool names are rejected, never invented.
 - **"No model loaded" no longer hides the real error.** On a cloud model, a
   failed request used to fall back to the local engine — which the app had
   deliberately unloaded when you switched to cloud — and report *its* complaint
