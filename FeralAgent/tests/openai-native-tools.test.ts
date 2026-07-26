@@ -597,6 +597,39 @@ describe("parseResponse tool_call tag robustness", () => {
     expect(parsed.toolCalls).toHaveLength(0);
     expect(parsed.text).toBe("Here you go.");
   });
+
+  // Walk-away bench, 2026-07-26: the ads-triage task failed intermittently with
+  // "did not raise retargeting's budget" while the model insisted "Both calls
+  // succeeded." It batches parallel calls by STACKING objects in one block
+  // instead of opening a second tag, and we kept only the first — with
+  // droppedToolCalls at 0, so nothing ever told the model.
+  it("parses every stacked JSON object inside ONE <tool_call> block", () => {
+    const raw =
+      "Pausing the loser and raising the winner.\n<tool_call>\n" +
+      '{"name":"http_request","args":{"method":"POST","url":"http://x/campaigns/summer_sale/pause"}}\n' +
+      '{"name":"http_request","args":{"method":"POST","url":"http://x/campaigns/retargeting/budget","json":{"daily_budget":90}}}\n' +
+      "</tool_call>";
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls).toHaveLength(2);
+    expect(parsed.toolCalls[1]!.args).toEqual({
+      method: "POST",
+      url: "http://x/campaigns/retargeting/budget",
+      json: { daily_budget: 90 },
+    });
+    expect(parsed.droppedToolCalls).toBe(0);
+  });
+
+  it("counts a malformed sibling as dropped instead of losing it in silence", () => {
+    const raw =
+      "<tool_call>\n" +
+      '{"name":"http_request","args":{"url":"http://x/a"}}\n' +
+      '{"name":"http_request","args":{"url":\n' +
+      "</tool_call>";
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls).toHaveLength(1);
+    // The half-call must be reported, or the model reads one result as two.
+    expect(parsed.droppedToolCalls).toBe(1);
+  });
 });
 
 describe("parseResponse bare tool-call JSON (chat leak regression)", () => {

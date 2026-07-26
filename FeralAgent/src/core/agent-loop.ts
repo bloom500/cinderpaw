@@ -2354,14 +2354,10 @@ export function parseResponse(raw: string, allowedToolNames?: Iterable<string>):
   // batch and reporting success is how three lead imports become one.
   let dropped = 0;
   while ((match = toolCallTag.exec(raw)) !== null) {
-    const call = tryParseCall(match[1]?.trim() ?? "");
-    if (call) {
-      toolCalls.push(call);
-      text = text.replace(match[0], "").trim();
-    } else {
-      dropped++;
-      text = text.replace(match[0], "").trim();
-    }
+    const block = parseCallBlock(match[1]?.trim() ?? "");
+    toolCalls.push(...block.calls);
+    dropped += block.dropped;
+    text = text.replace(match[0], "").trim();
   }
 
   if (toolCalls.length > 0) {
@@ -2533,6 +2529,50 @@ function extractBareToolCalls(input: string): {
   }
 
   return { text: out.join(""), calls, malformed };
+}
+
+/**
+ * Every top-level JSON object inside ONE `<tool_call>` block.
+ *
+ * Models batch parallel calls by stacking objects in a single block rather than
+ * opening a second tag:
+ *
+ *     <tool_call>
+ *     {"name":"http_request","args":{…pause…}}
+ *     {"name":"http_request","args":{…budget…}}
+ *     </tool_call>
+ *
+ * `tryParseCall` returns the FIRST object and silently discards the rest, which
+ * is how "pause the losing campaign and raise the winner's budget" executed only
+ * the pause — and, because nothing was counted as dropped, the model was told
+ * nothing and reported both done. Measured on the walk-away bench, where the
+ * model's own words were "Both calls succeeded."
+ *
+ * A malformed object is COUNTED, never skipped: droppedToolCalls is what makes
+ * the loop tell the model which calls never ran.
+ */
+function parseCallBlock(body: string): { calls: ParsedToolCall[]; dropped: number } {
+  const calls: ParsedToolCall[] = [];
+  let dropped = 0;
+  let rest = body.trim();
+
+  while (rest.startsWith("{")) {
+    const end = findJsonEnd(rest);
+    if (end < 0) {
+      // Truncated object — the stream was cut mid-call.
+      dropped++;
+      break;
+    }
+    const call = tryParseCall(rest.slice(0, end + 1));
+    if (call) calls.push(call);
+    else dropped++;
+    rest = rest.slice(end + 1).trim();
+  }
+
+  // The block held no JSON at all (prose, an array, an XML hybrid). One
+  // malformed call, which is what the single-object path always reported.
+  if (calls.length === 0 && dropped === 0) dropped = 1;
+  return { calls, dropped };
 }
 
 function tryParseCall(candidate: string): ParsedToolCall | null {
