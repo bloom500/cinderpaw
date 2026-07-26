@@ -958,6 +958,19 @@ export function configPath(): string {
 const sig = (...parts: (string[] | string | undefined)[]): string =>
   parts.map((p) => (Array.isArray(p) ? [...p].sort().join(",") : p ?? "")).join("|");
 
+/** Where the supervisor publishes what actually connected. */
+export function connectorHealthPath(): string {
+  return join(feralHome(), "connector-health.json");
+}
+
+/** One connector's real state, as opposed to what the config asks for. */
+export type ConnectorHealth = {
+  /** The connection started and was not torn down. */
+  live: boolean;
+  /** Why it isn't live. Absent when it is. */
+  error?: string;
+};
+
 export class ConnectorManager {
   readonly #agent: AgentLike;
   readonly #log: Log;
@@ -972,6 +985,17 @@ export class ConnectorManager {
   readonly #leadDesk: LeadDesk | null;
   /** Serialize reloads so overlapping pokes can't double-start a connection. */
   #reloading: Promise<void> = Promise.resolve();
+  /**
+   * What actually connected, by connector id.
+   *
+   * A connector that fails to start used to be logged and swallowed here, while
+   * `feral connectors list` and the desktop both read connectors.json and
+   * cheerfully reported "on" — because "on" meant "enabled in a file", not
+   * "connected". An invalid Discord token left the bot dead and every surface
+   * insisting it was running. This is the only place that knows the difference,
+   * so it is the place that has to write it down.
+   */
+  readonly #health = new Map<string, ConnectorHealth>();
 
   constructor(agent: AgentLike, log: Log, leadDesk?: LeadDesk) {
     this.#agent = agent;
@@ -1017,6 +1041,43 @@ export class ConnectorManager {
     await this.#reconcileDiscord(rows.find((r) => r.id === "discord"));
     await this.#reconcileSlack(rows.find((r) => r.id === "slack"));
     await this.#reconcileWhatsApp(rows.find((r) => r.id === "whatsapp"));
+    await this.#publishHealth();
+  }
+
+  /** Record what a reconcile actually achieved. */
+  #mark(id: string, live: boolean, error?: unknown): void {
+    if (!live && error !== undefined) {
+      // Bounded: a connector library's error can carry a stack, and this file is
+      // read by the CLI and rendered in the desktop.
+      this.#health.set(id, { live: false, error: String(error).slice(0, 300) });
+    } else {
+      this.#health.set(id, { live });
+    }
+  }
+
+  /**
+   * Publish health next to the config both readers already open.
+   *
+   * Deliberately a file rather than a request/response over the sidecar pipe:
+   * `feral connectors list` reads connectors.json directly and works with the
+   * gateway down, and the desktop reads the same catalog. A file keeps both
+   * paths as they are. The tradeoff is staleness — the writer is gone but the
+   * file remains — so `updatedAt` is stamped and readers that know the gateway
+   * is offline must ignore it rather than report a bot that died with it.
+   */
+  async #publishHealth(): Promise<void> {
+    const connectors: Record<string, ConnectorHealth> = {};
+    for (const [id, h] of this.#health) connectors[id] = h;
+    try {
+      await writeFile(
+        connectorHealthPath(),
+        JSON.stringify({ updatedAt: Date.now(), connectors }, null, 2),
+        "utf8",
+      );
+    } catch (e) {
+      // Never let reporting break the thing it reports on.
+      this.#log(`connector health could not be written: ${String(e)}`);
+    }
   }
 
   async #reconcileDiscord(row?: ConnectorRow): Promise<void> {
@@ -1030,6 +1091,7 @@ export class ConnectorManager {
         this.#discordKey = "";
         this.#log("discord connector stopped");
       }
+      this.#health.delete("discord"); // off by configuration, not broken
       return;
     }
     const key = sig(token, row.allowlist, row.channels, row.persona, row.personaTools);
@@ -1042,8 +1104,10 @@ export class ConnectorManager {
       await conn.start();
       this.#discord = conn;
       this.#discordKey = key;
+      this.#mark("discord", true);
     } catch (e) {
       this.#log(`discord connector failed to start: ${String(e)}`);
+      this.#mark("discord", false, e);
       await conn.stop();
     }
   }
@@ -1058,6 +1122,7 @@ export class ConnectorManager {
         this.#slackKey = "";
         this.#log("slack connector stopped");
       }
+      this.#health.delete("slack"); // off by configuration, not broken
       return;
     }
     const key = sig(appToken, botToken, row.allowlist, row.channels, row.persona, row.personaTools);
@@ -1070,8 +1135,10 @@ export class ConnectorManager {
       await conn.start();
       this.#slack = conn;
       this.#slackKey = key;
+      this.#mark("slack", true);
     } catch (e) {
       this.#log(`slack connector failed to start: ${String(e)}`);
+      this.#mark("slack", false, e);
       await conn.stop();
     }
   }
@@ -1084,6 +1151,7 @@ export class ConnectorManager {
         this.#whatsappKey = "";
         this.#log("whatsapp connector stopped");
       }
+      this.#health.delete("whatsapp"); // off by configuration, not broken
       return;
     }
     const mode: ConnectorMode = row.mode === "public" ? "public" : "owner";
@@ -1107,8 +1175,10 @@ export class ConnectorManager {
       await conn.start();
       this.#whatsapp = conn;
       this.#whatsappKey = key;
+      this.#mark("whatsapp", true);
     } catch (e) {
       this.#log(`whatsapp connector failed to start: ${String(e)}`);
+      this.#mark("whatsapp", false, e);
       await conn.stop();
     }
   }

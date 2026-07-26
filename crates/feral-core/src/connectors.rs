@@ -387,6 +387,42 @@ pub struct ConnectorRedactedView {
     pub mode: String,
     #[serde(rename = "knowledgeBase")]
     pub knowledge_base: String,
+    /// Whether the connector actually connected, from the sidecar's
+    /// `connector-health.json`. `None` = no report yet (the supervisor has not
+    /// reconciled since boot), which is NOT the same as "off" — `enabled` alone
+    /// only ever said what the config asks for, and an invalid Discord token
+    /// used to leave a dead bot showing as on everywhere.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    /// Why it isn't live. Present only alongside `live: false`.
+    #[serde(rename = "liveError", skip_serializing_if = "Option::is_none")]
+    pub live_error: Option<String>,
+}
+
+/// One connector's entry in `connector-health.json`.
+#[derive(serde::Deserialize)]
+struct HealthEntry {
+    live: bool,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Read what the sidecar last published about real connector state.
+///
+/// Callers must only trust this while the runtime is up: the file outlives the
+/// process that wrote it, so a stale "live: true" would claim a bot that died
+/// with its gateway.
+fn read_health() -> std::collections::HashMap<String, HealthEntry> {
+    let path = crate::paths::feral_dir().join("connector-health.json");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Default::default();
+    };
+    #[derive(serde::Deserialize)]
+    struct File {
+        #[serde(default)]
+        connectors: std::collections::HashMap<String, HealthEntry>,
+    }
+    serde_json::from_str::<File>(&raw).map(|f| f.connectors).unwrap_or_default()
 }
 
 pub fn redact_for_frontend(cfg: &ConnectorConfig) -> ConnectorRedactedView {
@@ -397,6 +433,8 @@ pub fn redact_for_frontend(cfg: &ConnectorConfig) -> ConnectorRedactedView {
         .map(|(k, _)| k.clone())
         .collect();
     filled.sort();
+    let health = read_health();
+    let entry = health.get(&cfg.id);
     ConnectorRedactedView {
         id: cfg.id.clone(),
         enabled: cfg.enabled,
@@ -405,6 +443,8 @@ pub fn redact_for_frontend(cfg: &ConnectorConfig) -> ConnectorRedactedView {
         channels: cfg.channels.clone(),
         mode: cfg.mode.clone().unwrap_or_else(|| "owner".into()),
         knowledge_base: cfg.knowledge_base.clone().unwrap_or_default(),
+        live: entry.map(|e| e.live),
+        live_error: entry.and_then(|e| e.error.clone()),
     }
 }
 

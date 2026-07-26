@@ -466,7 +466,7 @@ pub fn logs(follow: bool) -> i32 {
 // ── connectors ─────────────────────────────────────────────────────────────
 
 pub fn connectors_list() -> i32 {
-    let Palette { accent: ACCENT, text: TEXT, meta: META, ok: OK, bold: BOLD, dim: DIM, reset: RESET, .. } =
+    let Palette { accent: ACCENT, text: TEXT, meta: META, ok: OK, fail: FAIL, bold: BOLD, dim: DIM, reset: RESET, .. } =
         palette();
     let path = feral_file("connectors.json");
     let raw = match std::fs::read_to_string(&path) {
@@ -521,6 +521,12 @@ pub fn connectors_list() -> i32 {
         println!("{META}no connectors configured{RESET} {DIM}{META}(~/.feral/connectors.json){RESET}");
         return 0;
     }
+    // What actually connected, published by the sidecar's connector supervisor.
+    // Only meaningful while the gateway is up: the file outlives the process
+    // that wrote it, and reporting a bot as live when the runtime holding the
+    // connection is gone is the same lie in the opposite direction.
+    let health = if port_in_use(api_port()) { read_connector_health() } else { None };
+
     println!("{BOLD}{TEXT}connectors{RESET}");
     for row in &rows {
         let id = row.get("id").and_then(|i| i.as_str()).unwrap_or("?");
@@ -532,10 +538,37 @@ pub fn connectors_list() -> i32 {
             .unwrap_or(0);
         let (dot, label) = if enabled { (OK, "on ") } else { (META, "off") };
         let ch = if channels > 0 { format!(" · {channels} channel(s)") } else { String::new() };
+
+        // "on" only ever meant "enabled in this file". An invalid Discord token
+        // left the bot dead while every surface reported it running, so a
+        // connector the supervisor could not start now says so, here, in red.
+        let state = health.as_ref().and_then(|h| h.get(id));
+        let live = state.and_then(|s| s.get("live").and_then(|l| l.as_bool()));
+        let (dot, note): (&str, String) = match (enabled, live) {
+            (true, Some(false)) => {
+                let why = state
+                    .and_then(|s| s.get("error").and_then(|e| e.as_str()))
+                    .unwrap_or("failed to start");
+                (FAIL, format!("  {FAIL}└ NOT CONNECTED{RESET} {DIM}{META}{why}{RESET}"))
+            }
+            _ => (dot, String::new()),
+        };
         println!("  {dot}●{RESET} {TEXT}{id}{RESET} {DIM}{META}{label}{ch}{RESET}");
+        if !note.is_empty() {
+            println!("{note}");
+        }
     }
     let _ = ACCENT;
     0
+}
+
+/// `connector-health.json`, written by the sidecar on every reconcile: which
+/// connectors actually connected, as opposed to which are switched on in the
+/// config. Absent (old sidecar, never reloaded) → no claim either way.
+fn read_connector_health() -> Option<serde_json::Map<String, serde_json::Value>> {
+    let raw = std::fs::read_to_string(feral_file("connector-health.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    v.get("connectors")?.as_object().cloned()
 }
 
 pub fn connectors_reload() -> i32 {
