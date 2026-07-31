@@ -13,6 +13,7 @@
  *   - budget exhaustion triggers compression or a clean stop, per config
  */
 
+import { createHash } from "node:crypto";
 import type { InferenceRouter } from "../egress/inference-router.ts";
 import { isBackgroundSession } from "../egress/inference-router.ts";
 import { log } from "../runtime-meta.ts";
@@ -1044,6 +1045,14 @@ export class AgentLoop {
     // than after a third identical attempt.
     const recentToolKeys: string[] = [];
     const toolFailureCounts = new Map<string, number>();
+    // C-02: outcome-aware no-progress counter. `recentToolKeys` above keys on
+    // arguments alone, so it can only warn — it cannot tell a productive repeat
+    // (a poll whose output advances) from a stuck one. Keying on args AND the
+    // rendered result makes "no progress" a fact rather than a guess, which is
+    // what licenses a hard stop. Counts are per turn and reset with the loop.
+    const noProgressCounts = new Map<string, number>();
+    /** Set when a proven no-progress loop trips the hard stop; ends the turn. */
+    let stuckOn: { tool: string; count: number } | null = null;
 
     // Walk-away audit trail: decisions ask_user made without a human (autonomous
     // mode or a timeout). Surfaced at turn end so the user, coming back, can see
@@ -1359,6 +1368,15 @@ export class AgentLoop {
           }
         }
 
+        // C-02: identical call AND identical output = proven zero progress.
+        const outcomeKey = `${callKey}:${resultDigest(rendered)}`;
+        const noProgress = (noProgressCounts.get(outcomeKey) ?? 0) + 1;
+        noProgressCounts.set(outcomeKey, noProgress);
+        if (noProgress >= NO_PROGRESS_STOP) {
+          stuckOn = { tool: call.name, count: noProgress };
+          break;
+        }
+
         const repeats = recentToolKeys.filter((k) => k === callKey).length;
         if (repeats >= 3) {
           memory.addUser(
@@ -1401,7 +1419,22 @@ export class AgentLoop {
         );
       }
 
+      if (stuckOn) break;
       if (ctx.stopped) break;
+    }
+
+    // C-02: a proven no-progress loop. Report honestly rather than burning the
+    // rest of the iteration ceiling or the wall clock on an identical call.
+    if (stuckOn) {
+      return {
+        text:
+          `I stopped: "${stuckOn.tool}" returned exactly the same result ${stuckOn.count} times ` +
+          `with the same arguments, so repeating it cannot make progress. Here is what I ` +
+          `completed in ${toolCallCount} actions before getting stuck — tell me how you'd ` +
+          `like to approach it differently, or narrow the task.` +
+          (answerParts.length > 0 ? `\n\n${answerParts.join("")}` : ""),
+        toolCallCount,
+      };
     }
 
     // User-initiated stop via tool-cancel path: the break above exited the main
@@ -2701,6 +2734,51 @@ export function turnBudgetMs(): number {
  * tripping it; the symptom would be the nudge firing on honest repeat reads.
  */
 export const LOOP_WINDOW = 6;
+
+/**
+ * Hard stop for a *proven* no-progress loop: the same tool, the same arguments,
+ * AND the same result, this many times in one turn.
+ *
+ * The `LOOP_WINDOW` nudge above is argument-only, so it fires as a warning and
+ * then trusts the model to change course. When the model ignores it, nothing
+ * stopped the turn short of `ABSOLUTE_CEILING` (500 iterations) or the wall
+ * clock — on a cloud provider that is real money spent re-running an identical
+ * call. Identical args + identical output is not a heuristic: it is definitionally
+ * zero progress, so blocking on it cannot false-positive the way an
+ * argument-only rule can (a poll whose output changes keeps running freely).
+ *
+ * Deliberately far higher than the nudge threshold (3): the model gets warned,
+ * gets a long chance to recover, and only then is stopped.
+ *
+ * ponytail: 20, not 6. A poll that legitimately reports `{"status":"running"}`
+ * with byte-identical output IS honest waiting, and a low threshold would cut it
+ * off — the false positive an outcome-only rule can still produce. 20 sits above
+ * any plausible legitimate identical-repeat run while still saving 480 iterations
+ * against ABSOLUTE_CEILING. Lower it only with evidence that real loops are
+ * running long; the symptom of it being too low is a stopped turn whose tool was
+ * genuinely waiting on something.
+ */
+export const NO_PROGRESS_STOP = 20;
+
+/**
+ * Stable digest of a rendered tool result, for no-progress detection.
+ *
+ * sha1 over the full text: tool output runs to 64 KB (read_file), and keeping
+ * whole results in the per-turn map would hold the transcript twice in RAM.
+ * Not security-sensitive — it only needs to be stable and collision-shy across
+ * one turn's results.
+ *
+ * `surrogatepass`-equivalent guard: web-scraped tool output can carry unpaired
+ * UTF-16 surrogates, and a strict encode of those throws. A digest failure must
+ * cost detection accuracy, never the turn — so it degrades to a length key.
+ */
+export function resultDigest(rendered: string): string {
+  try {
+    return createHash("sha1").update(rendered, "utf8").digest("hex");
+  } catch {
+    return `len:${rendered.length}`;
+  }
+}
 
 /** Stable key for a tool call's arguments. Model-supplied args are always
  *  JSON-safe, but a throw here would kill the turn — so it degrades to a

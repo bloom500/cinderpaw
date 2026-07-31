@@ -91,6 +91,47 @@ export class ToolRegistry {
 
 
   /**
+   * The single post-execution tail every `call()` return point goes through:
+   * release the timer/listener, fire `after_tool_call`, then try the fallback
+   * chain. Both the fast path and the retry path use it, so a tool's observable
+   * behavior no longer depends on whether it happens to declare `manifest.retry`.
+   *
+   * `allowFallback` is false for aborted/cancelled outcomes: the call was
+   * interrupted, the tool did not return a failure, and starting a fallback tool
+   * after the user pressed Stop would defeat the cancellation.
+   */
+  async #settle(
+    name: string,
+    tool: Tool,
+    raw: ToolResult,
+    args: Record<string, unknown>,
+    sessionId: string,
+    opts: ToolCallOptions,
+    startedAt: number,
+    ac: AbortController,
+    timer: ReturnType<typeof setTimeout>,
+    onCallerAbort: () => void,
+    allowFallback: boolean,
+  ): Promise<ToolResult> {
+    const result = finalize(raw, ac, timer, opts.signal, onCallerAbort);
+    if (this.#hooks) {
+      try {
+        await this.#hooks.fire("after_tool_call", {
+          tool: name,
+          args,
+          result: { ok: result.ok, content: result.content, error: result.error },
+          sessionId,
+          durationMs: Date.now() - startedAt,
+        });
+      } catch (err) {
+        process.stderr.write(`[tools] after_tool_call hook fire failed: ${String(err)}\n`);
+      }
+    }
+    if (!allowFallback) return result;
+    return await this.#tryFallbackChain(name, tool, result, args, sessionId, opts);
+  }
+
+  /**
    * Feral-WIP #2: try the fallback chain declared in `tool.manifest.fallback`.
    *
    * Returns a new ToolResult if a fallback succeeded, or null if the chain
@@ -349,48 +390,58 @@ export class ToolRegistry {
         ac.signal,
       );
       if (typeof outcome === "object" && outcome !== null && "kind" in outcome && outcome.kind === "aborted") {
-        const aborted = finalize(
+        return await this.#settle(
+          name,
+          tool,
           {
             ok: false,
             content: `Tool "${name}" aborted: ${outcome.reason}`,
             error: outcome.reason === "timeout" ? "timeout" : "cancelled",
           },
+          args,
+          sessionId,
+          opts,
+          start,
           ac,
           timer,
-          opts.signal,
           onCallerAbort,
+          false,
         );
-        if (this.#hooks) {
-          try {
-            await this.#hooks.fire("after_tool_call", {
-              tool: name,
-              args,
-              result: { ok: aborted.ok, content: aborted.content, error: aborted.error },
-              sessionId,
-              durationMs: Date.now() - start,
-            });
-          } catch (err) {
-            process.stderr.write(`[tools] after_tool_call hook fire failed: ${String(err)}\n`);
-          }
-        }
-        return aborted;
       }
-      const ok = finalize(outcome as ToolResult, ac, timer, opts.signal, onCallerAbort);
-      if (this.#hooks) {
-        try {
-          await this.#hooks.fire("after_tool_call", {
-            tool: name,
-            args,
-            result: { ok: ok.ok, content: ok.content, error: ok.error },
-            sessionId,
-            durationMs: Date.now() - start,
-          });
-        } catch (err) {
-          process.stderr.write(`[tools] after_tool_call hook fire failed: ${String(err)}\n`);
-        }
+      // Unreachable while #executeOnce catches internally, but kept in-band so a
+      // rejecting producer degrades to a tool error instead of hanging the loop.
+      if (typeof outcome === "object" && outcome !== null && "kind" in outcome && outcome.kind === "thrown") {
+        return await this.#settle(
+          name,
+          tool,
+          {
+            ok: false,
+            content: `Tool "${name}" failed: ${String(outcome.error)}`,
+            error: "execution_error",
+          },
+          args,
+          sessionId,
+          opts,
+          start,
+          ac,
+          timer,
+          onCallerAbort,
+          true,
+        );
       }
-      const withFb = await this.#tryFallbackChain(name, tool, ok, args, sessionId, opts);
-      return withFb;
+      return await this.#settle(
+        name,
+        tool,
+        outcome as ToolResult,
+        args,
+        sessionId,
+        opts,
+        start,
+        ac,
+        timer,
+        onCallerAbort,
+        true,
+      );
     }
 
     // Retry path: try up to attempts+1 times, sleeping backoffMs * attempt
@@ -404,13 +455,23 @@ export class ToolRegistry {
       // Honour caller cancellation between attempts too — no point retrying
       // a tool the user has already stopped.
       if (ac.signal.aborted) {
-        clearTimeout(timer);
-        if (opts.signal) opts.signal.removeEventListener("abort", onCallerAbort);
-        return {
-          ok: false,
-          content: `Tool "${name}" cancelled after ${attempt - 1} attempt(s).`,
-          error: "cancelled",
-        };
+        return await this.#settle(
+          name,
+          tool,
+          {
+            ok: false,
+            content: `Tool "${name}" cancelled after ${attempt - 1} attempt(s).`,
+            error: "cancelled",
+          },
+          args,
+          sessionId,
+          opts,
+          start,
+          ac,
+          timer,
+          onCallerAbort,
+          false,
+        );
       }
       if (attempt > 1) {
         await sleep(RETRY_BACKOFF_MS * (attempt - 1));
@@ -420,42 +481,49 @@ export class ToolRegistry {
         ac.signal,
       );
       if (outcome.kind === "ok") {
-        return finalize(outcome.result, ac, timer, opts.signal, onCallerAbort);
+        return await this.#settle(
+          name, tool, outcome.result, args, sessionId, opts,
+          start, ac, timer, onCallerAbort, true,
+        );
       }
       if (outcome.kind === "result") {
         lastFailedResult = outcome.result;
         if (!isRetryable(policy, outcome.result)) {
-          return finalize(outcome.result, ac, timer, opts.signal, onCallerAbort);
+          // Non-retryable failure — exactly the case `manifest.fallback` is
+          // documented to cover, so the chain must be tried here and not only
+          // after retries are exhausted.
+          return await this.#settle(
+            name, tool, outcome.result, args, sessionId, opts,
+            start, ac, timer, onCallerAbort, true,
+          );
         }
       } else if (outcome.kind === "thrown") {
         // "thrown" — recorded as an execution_error inside #executeOnceCapture
         lastThrown = outcome.error;
         if (!isRetryable(policy, "thrown")) {
-          return finalize(
+          return await this.#settle(
+            name,
+            tool,
             {
               ok: false,
               content: `Tool "${name}" failed: ${String(outcome.error)}`,
               error: "execution_error",
             },
-            ac,
-            timer,
-            opts.signal,
-            onCallerAbort,
+            args, sessionId, opts, start, ac, timer, onCallerAbort, true,
           );
         }
       } else {
         // "aborted" — the timeout or caller signal fired. The agent loop
         // gets a clean stop/timeout result so it can keep moving.
-        return finalize(
+        return await this.#settle(
+          name,
+          tool,
           {
             ok: false,
             content: `Tool "${name}" aborted: ${outcome.reason}`,
             error: outcome.reason === "timeout" ? "timeout" : "cancelled",
           },
-          ac,
-          timer,
-          opts.signal,
-          onCallerAbort,
+          args, sessionId, opts, start, ac, timer, onCallerAbort, false,
         );
       }
     }
@@ -467,31 +535,12 @@ export class ToolRegistry {
       content: `Tool "${name}" failed: ${String(lastThrown)}`,
       error: "execution_error",
     };
-    const result = finalize(finalResult, ac, timer, opts.signal, onCallerAbort);
-
-    // P0-4: after_tool_call hook. Informational — runs after audit +
-    // observation + circuit-breaker are recorded, so handlers can
-    // observe the same view of the world the rest of the system has.
-    // Errors are swallowed inside the registry; the result is what the
-    // agent loop sees regardless of hook behaviour.
-    if (this.#hooks) {
-      try {
-        await this.#hooks.fire("after_tool_call", {
-          tool: name,
-          args,
-          result: { ok: result.ok, content: result.content, error: result.error },
-          sessionId,
-          durationMs: Date.now() - start,
-        });
-      } catch (err) {
-        process.stderr.write(
-          `[tools] after_tool_call hook fire failed: ${String(err)}\n`,
-        );
-      }
-    }
-
-    const withFb = await this.#tryFallbackChain(name, tool, result, args, sessionId, opts);
-    return withFb;
+    // P0-4: after_tool_call hook + fallback chain, via the shared tail so this
+    // path stays identical to every other return point.
+    return await this.#settle(
+      name, tool, finalResult, args, sessionId, opts,
+      start, ac, timer, onCallerAbort, true,
+    );
   }
 
   /**
@@ -696,15 +745,25 @@ function finalize(
  * will see the abort and unwind; tools that don't will resolve eventually
  * and the result will be discarded (slight memory pressure in pathological
  * cases, acceptable trade-off for keeping the agent loop responsive).
+ *
+ * A rejecting producer resolves as `{kind:"thrown"}` rather than rejecting.
+ * Both current producers catch internally so this is unreachable today, but the
+ * previous version removed the abort listener and then threw inside a `.then`
+ * rejection handler — which left the outer promise permanently unsettled, so the
+ * awaiting `call()` would hang forever with the timeout already disarmed. Keeping
+ * the failure in-band means a future producer that CAN reject degrades to a
+ * normal tool error instead of deadlocking the agent loop.
  */
 async function raceWithAbort<T>(
   producer: () => Promise<T>,
   signal: AbortSignal,
-): Promise<T | { kind: "aborted"; reason: string }> {
+): Promise<T | { kind: "aborted"; reason: string } | { kind: "thrown"; error: unknown }> {
   if (signal.aborted) {
     return { kind: "aborted", reason: String(signal.reason) };
   }
-  return new Promise<T | { kind: "aborted"; reason: string }>((resolve) => {
+  return new Promise<
+    T | { kind: "aborted"; reason: string } | { kind: "thrown"; error: unknown }
+  >((resolve) => {
     const onAbort = () =>
       resolve({ kind: "aborted", reason: String(signal.reason) });
     signal.addEventListener("abort", onAbort, { once: true });
@@ -713,18 +772,9 @@ async function raceWithAbort<T>(
         signal.removeEventListener("abort", onAbort);
         resolve(value);
       },
-      (err) => {
-        // Producer rejected — treat as a thrown error from the tool. This
-        // differs from "aborted" because the tool itself decided to fail,
-        // not the timeout/cancel. Let the caller decide what to do.
+      (err: unknown) => {
         signal.removeEventListener("abort", onAbort);
-        // Re-throw by resolving with a marker so the type system stays sane.
-        // The caller (call()) only ever races with executeOnceCapture, which
-        // already catches throws internally and converts them to a
-        // `{kind:"thrown"}` outcome. If we ever race with a producer that
-        // can reject, the caller's await would re-throw — handled by the
-        // try/catch in call(). We keep this path strict on purpose.
-        throw err;
+        resolve({ kind: "thrown", error: err });
       },
     );
   });
