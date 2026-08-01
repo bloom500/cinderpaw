@@ -5,6 +5,30 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## Unreleased
+
+### Added
+
+- **`feral uninstall`** — removes Feral and **keeps `~/.feral`**: settings,
+  memory, API keys and downloaded models survive, so changing your mind costs a
+  reinstall rather than a fresh start. It prints exactly what it will delete
+  (with sizes) and what it is keeping before asking. `--purge` deletes the data
+  too, and says plainly that it is permanent. On npm/apt/dnf installs it hands
+  you the package manager's own command instead of racing it, and it refuses
+  outright to touch a git checkout you build from.
+
+### Fixed
+
+- **`feral update` works on a from-source install.** On a headless server the
+  command did not merely fail, it pointed the wrong way: `update` lives in the
+  npm launcher, so a server that built from source either had no such subcommand
+  or was told to `npm install -g feral-agent@latest` — which installs a second,
+  unrelated `feral` earlier on PATH and leaves the real one behind. Feral now
+  detects how it was installed and runs that install's actual update: a git pull
+  and rebuild from source, npm where npm applies, the installer elsewhere. The
+  gateway restart still only fires if a gateway was already running, so the
+  Discord/Slack connector lands on the new build.
+
 ## 2026.08.01
 
 Reliability on long tasks. Every fix here is something you only hit after the

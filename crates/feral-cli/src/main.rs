@@ -22,6 +22,7 @@ mod admin;
 mod chat;
 mod common;
 mod guided;
+mod install;
 
 /// Feral — your local AI runtime, headless. One brain, many faces: the same
 /// memory, LoRA, dreams and tools as the desktop app, reachable over a small
@@ -68,6 +69,15 @@ enum Command {
     Stop,
     /// Update Feral to the latest release, then restart the gateway
     Update,
+    /// Remove Feral. Settings, memory, keys and models are KEPT unless --purge
+    Uninstall {
+        /// Also delete ~/.feral — settings, memory, API keys, models. Permanent.
+        #[arg(long)]
+        purge: bool,
+        /// Skip the confirmation prompt (for scripts)
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
     /// Diagnose the install (port, token, model, sidecar, GPU, connectors)
     Doctor,
     /// List installed models
@@ -233,15 +243,12 @@ fn main() {
             }
         }
         Some(Command::Chat) | Some(Command::Tui) => chat::run(), // never returns
-        // Declared so `feral --help` and shell completions list it, but the npm
-        // launcher (bin/feral.js) intercepts `update` and never gets here: this
-        // binary is the file npm has to replace, and Windows will not overwrite a
-        // running .exe. Reaching this arm means the binary was invoked directly.
-        Some(Command::Update) => {
-            eprintln!("feral: `update` is handled by the npm launcher, not this binary.");
-            eprintln!("       run:  npm install -g feral-agent@latest");
-            1
-        }
+        // Both branch on how Feral was installed — npm, from source, or a
+        // system package — because the answer is a different command each time
+        // (see install.rs). The npm launcher still intercepts `update` before it
+        // reaches this binary; every other install lands here.
+        Some(Command::Update) => install::update(),
+        Some(Command::Uninstall { purge, yes }) => install::uninstall(purge, yes),
         Some(Command::Doctor) => admin::doctor(),
         Some(Command::Logs { follow }) => admin::logs(follow),
         Some(Command::Model) => admin::model_list(),

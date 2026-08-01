@@ -71,7 +71,12 @@ UI, `feral gateway start` to run it as a service.
 
 `feral update` pulls the latest release and restarts the gateway, so a running
 connector (Discord, Slack, …) picks up the new build instead of staying on the
-old one until you notice.
+old one until you notice. It knows how Feral got onto the machine — npm here,
+a `git pull` + rebuild on a from-source server — and does the right one.
+
+`feral uninstall` removes the binaries. **Your `~/.feral` stays**: settings,
+memory, API keys and downloaded models, so reinstalling resumes instead of
+starting over. `feral uninstall --purge` deletes that too (permanently).
 
 > **Note:** the npm build is a **cloud/gateway CLI — it does not bundle the local
 > llama.cpp inference engine.** Point it at a cloud provider (BYOK via
