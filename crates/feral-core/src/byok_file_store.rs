@@ -183,34 +183,20 @@ pub fn file_store_used() -> bool {
 mod tests {
     use super::*;
 
-    /// Process-global serialisation for tests that mutate `FERAL_HOME`.
-    /// The file-store path is rooted there, so concurrent tests would race
-    /// on the same file without a lock.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    struct EnvGuard {
-        prev: Option<std::ffi::OsString>,
-        _lock: std::sync::MutexGuard<'static, ()>,
-    }
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            match self.prev.take() {
-                Some(v) => std::env::set_var("FERAL_HOME", v),
-                None => std::env::remove_var("FERAL_HOME"),
-            }
-        }
-    }
-
+    /// `FERAL_HOME` is process-global and every test module in this crate's lib
+    /// binary shares it, so the lock that serialises them has to be shared too.
+    /// This module used to keep its OWN mutex and its own guard — a copy that
+    /// looked identical and locked nothing the RSI tests respected. Both halves
+    /// ran in parallel threads of the same process, each pointing `FERAL_HOME`
+    /// somewhere else: the byok tests read keys back out of a directory the RSI
+    /// tests had just swapped away, and the RSI tests fell through to the real
+    /// `~/.feral` and failed to find a repo there on any machine that didn't
+    /// already have one. Green on a developer box with a populated `~/.feral`,
+    /// red on a fresh CI runner.
+    ///
+    /// There is exactly one such lock now, in `rsi::test_support`.
     fn with_temp_home<R>(f: impl FnOnce() -> R) -> R {
-        let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = tempfile::Builder::new()
-            .prefix("feral-byok-fs-test-")
-            .tempdir()
-            .expect("tempdir");
-        let prev = std::env::var_os("FERAL_HOME");
-        std::env::set_var("FERAL_HOME", tmp.path());
-        let _g = EnvGuard { prev, _lock: lock };
-        f()
+        crate::rsi::test_support::with_temp_feral_home(|_| f())
     }
 
     #[test]
