@@ -32,7 +32,9 @@ prove the behaviour instead of code that looks correct.
 
 - **`feral update`** — pulls the latest release and restarts the gateway, so a
   connector already running on Discord or Slack picks up the new build instead
-  of quietly serving the old one until you notice.
+  of quietly serving the old one until you notice. If npm's global directory
+  isn't yours to write to — the usual Linux setup — it names that directory and
+  gives you both ways out, instead of suggesting the command that just failed.
 
 ### Fixed
 

@@ -15,7 +15,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { join, dirname } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,9 +41,7 @@ if (process.argv[2] === "update") {
     shell: win, // npm.cmd is a batch file; Node needs a shell to exec it
   });
   if (install.error || install.status !== 0) {
-    process.stderr.write(
-      "feral: update failed. Install manually with: npm install -g feral-agent@latest\n",
-    );
+    process.stderr.write(`feral: update failed.\n${updateFailureHint(win)}`);
     process.exit(install.status ?? 1);
   }
   if (!wasOnline) {
@@ -59,6 +57,46 @@ if (process.argv[2] === "update") {
     { stdio: "inherit" },
   );
   process.exit(restart.status ?? 1);
+}
+
+/**
+ * What to print when `npm install -g` fails. NOT "run the command that just
+ * failed": the common Unix failure is EACCES on a root-owned global prefix, and
+ * repeating it there fails identically forever — which is how a working update
+ * path reads as a broken product.
+ *
+ * The cause is diagnosed, not guessed: ask npm where its global prefix is and
+ * test whether we can write to it. Guessing from uid instead would tell every
+ * nvm/homebrew user to `sudo`, and `sudo npm -g` on those installs is the one
+ * thing that actually breaks them.
+ */
+function updateFailureHint(win) {
+  const manual = "Install manually with:\n  npm install -g feral-agent@latest\n";
+  if (win) return manual; // no EACCES-on-prefix equivalent worth guessing at
+
+  const prefix = spawnSync("npm", ["prefix", "-g"], { encoding: "utf8" });
+  if (prefix.error || prefix.status !== 0) return manual;
+  const root = prefix.stdout.trim();
+  // Global packages land in <prefix>/lib/node_modules; fall back outward for
+  // layouts that differ, and give up rather than invent a diagnosis.
+  const target = [join(root, "lib", "node_modules"), join(root, "lib"), root].find(existsSync);
+  if (!target) return manual;
+
+  try {
+    accessSync(target, constants.W_OK);
+  } catch {
+    return (
+      `No write access to npm's global directory (${target}).\n` +
+      "Either install as root:\n" +
+      "  sudo npm install -g feral-agent@latest\n" +
+      "or point npm at a prefix you own — this also makes every future\n" +
+      "`feral update` work without sudo:\n" +
+      "  npm config set prefix ~/.npm-global\n" +
+      "  export PATH=~/.npm-global/bin:$PATH   # add this to your shell rc\n" +
+      "  npm install -g feral-agent@latest\n"
+    );
+  }
+  return manual;
 }
 
 /** Resolve the platform binary, or null when this install has none. */
