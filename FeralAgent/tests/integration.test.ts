@@ -67,9 +67,11 @@ function installSequencedFetch(steps: MockStep[]): {
     }
     idx++;
 
-    return new Response(JSON.stringify(step.body), {
+    // A string body is served verbatim (HTML backends); anything else as JSON.
+    const isHtml = typeof step.body === "string";
+    return new Response(isHtml ? (step.body as string) : JSON.stringify(step.body), {
       status: step.status,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": isHtml ? "text/html" : "application/json" },
     });
   }) as typeof fetch;
 
@@ -101,11 +103,11 @@ const ollamaOk = (content: string, promptTokens = 10, evalTokens = 5) => ({
   eval_count: evalTokens,
 });
 
-const ddgOk = (text: string) => ({
-  AbstractText: text,
-  AbstractURL: "https://duckduckgo.com/?q=test",
-  RelatedTopics: [],
-});
+/** DDG Lite result markup — what web_search actually parses now that the
+ *  Instant Answer API (a disambiguation service) is no longer the backend. */
+const ddgOk = (text: string) =>
+  `<a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fdental" class='result-link'>Dental visit length</a>` +
+  `<td class='result-snippet'>${text}</td>`;
 
 /** A3: Pass 1 (fenced blocks) removed. Use the only remaining format: <tool_call> XML. */
 function toolBlock(name: string, args: Record<string, unknown>): string {
@@ -116,6 +118,10 @@ function toolBlock(name: string, args: Record<string, unknown>): string {
 
 let restoreFetch: (() => void) | null = null;
 afterEach(() => { restoreFetch?.(); restoreFetch = null; });
+
+// web_search's DDG path is paced (5s between queries by default) via
+// module-level state — neutralise it so this suite doesn't sit and wait.
+process.env.FERAL_DDG_MIN_INTERVAL_MS = "0";
 
 // ---------------------------------------------------------------------------
 

@@ -119,6 +119,16 @@ export class InferenceRouter {
   #primary: ModelTarget;
   #fallback: ModelTarget | undefined;
   #trusted: Set<string>;
+  /**
+   * The operator's EXPLICIT allowlist (`FERAL_TRUSTED_BASE_URLS`), kept
+   * separately from `#trusted` because `#trusted` is derived and gets rebuilt
+   * on every hot-swap. Before F-03 that rebuild seeded itself from the very
+   * target it was about to validate, so a `set_model` silently discarded the
+   * operator's list and then "validated" the new URL against itself — the
+   * check could not fail. Undefined when no list was configured, which keeps
+   * the derive-from-targets default intact.
+   */
+  readonly #configuredTrusted: string[] | undefined;
   /** Active local-model context window (tokens), forwarded by Rust on set_model.
    *  Drives the agent's transcript-compaction budget so it matches the KV cache
    *  the engine actually allocated. 0 = unknown (fall back to env/default). */
@@ -197,6 +207,7 @@ export class InferenceRouter {
     this.#audit = audit;
     this.#db = db;
     this.#rateLimiter = new RequestRateLimiter(config.rateLimitRpm ?? 0);
+    this.#configuredTrusted = config.trustedBaseUrls;
     this.#trusted = this.#buildTrusted(
       config.primary,
       config.fallback,
@@ -221,13 +232,25 @@ export class InferenceRouter {
    * trusted endpoint that is no longer configured is no longer reachable.
    * In-flight completions already in progress are not affected (they snapshot
    * primary/fallback at call time).
+   *
+   * F-03: when the operator configured an explicit allowlist, it survives the
+   * swap and the new target must be a member — `set_model` picks FROM the list,
+   * it does not get to replace it. `dispatch.ts` passes no `trustedUrls`, so
+   * without the fallback to `#configuredTrusted` the allowlist stopped applying
+   * at the first model switch. No list configured → unchanged: the trusted set
+   * is derived from the new targets and any endpoint is reachable, gated only
+   * by the host channel (loopback + bearer token).
    */
   reconfigure(
     primary: ModelTarget,
     fallback?: ModelTarget,
     trustedUrls?: string[],
   ): void {
-    const newTrusted = this.#buildTrusted(primary, fallback, trustedUrls);
+    const newTrusted = this.#buildTrusted(
+      primary,
+      fallback,
+      trustedUrls ?? this.#configuredTrusted,
+    );
 
     for (const target of [primary, fallback]) {
       if (target && !newTrusted.has(normalizeBaseUrl(target.baseUrl))) {

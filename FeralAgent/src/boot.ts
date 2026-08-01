@@ -235,10 +235,14 @@ function loadConfig(): AppConfig {
         model: env.FERAL_MODEL ?? "qwen2.5:7b",
         baseUrl: env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
         // Optional API key for cloud providers (OpenAI-compatible
-        // / Anthropic / Nvidia NIM). Ignored for `ollama`. The
-        // trustedBaseUrls check below is what prevents this from
-        // being a free-for-all — a stray key still needs an
-        // allowlisted baseUrl to actually reach a model.
+        // / Anthropic / Nvidia NIM). Ignored for `ollama`.
+        //
+        // Set FERAL_TRUSTED_BASE_URLS below to bound where this key can
+        // travel: with a list configured, neither boot nor a later
+        // `set_model` can point inference outside it. WITHOUT one — the
+        // default — the only gate is the host channel that carries
+        // `set_model`, which is loopback-only + bearer token (`api.rs`).
+        // Do not read the allowlist as protection you have not enabled.
         ...(env.FERAL_API_KEY ? { apiKey: env.FERAL_API_KEY } : {}),
       },
       ...(env.FERAL_FALLBACK_MODEL
@@ -406,7 +410,13 @@ export async function boot(transportOverride?: Transport) {
   if (declaredLocal.length > 0) {
     log(`egress: ${declaredLocal.length} operator-declared local origin(s) trusted`);
   }
-  if (searxng) log(`web_search backend: SearXNG @ ${searxng}`);
+  // Always say which backend is live — "why is search failing" was previously
+  // unanswerable from the log, because the unconfigured case printed nothing.
+  log(
+    searxng
+      ? `web_search backend: SearXNG @ ${searxng}`
+      : "web_search backend: DuckDuckGo (keyless default; set FERAL_SEARXNG_URL for a self-hosted one)",
+  );
   // NB: deliberately NOT named `process` to avoid shadowing the global
   // Node `process` object (which we still need below for process.env).
   const processSandbox = new RealProcessSandbox(audit.logger);

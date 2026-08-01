@@ -21,6 +21,7 @@ import {
   GatewayIntentBits,
   Events,
   ChannelType,
+  Partials,
   type Message,
 } from "discord.js";
 import { SocketModeClient } from "@slack/socket-mode";
@@ -343,6 +344,17 @@ export class DiscordConnector {
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
       ],
+      // Without this, DMs NEVER arrive. discord.js only emits MessageCreate for
+      // channels it has cached, and a DM channel is not cached until someone
+      // uses it — which cannot happen if the event that would populate it is
+      // the one being dropped. The DirectMessages intent alone is not enough;
+      // the partial is what lets an uncached DM channel through.
+      //
+      // This was a silent, total failure of the one path a single user is most
+      // likely to try first, while the connector's own docstring promised it
+      // answered "always in DMs". Proven against a live bot: two DMs reached a
+      // bare client carrying this partial, and neither reached Feral's.
+      partials: [Partials.Channel],
     });
     this.#client = client;
 
@@ -405,7 +417,13 @@ export class DiscordConnector {
 
     const isDM = message.channel.type === ChannelType.DM;
     const mentioned = message.mentions.users.has(me.id);
-    const dedicated = this.#channels.has(message.channelId);
+    // No configured channel list = every channel the bot can see counts as
+    // dedicated, so an allowlisted user is answered without having to @mention.
+    // Naming channels narrows it back down to exactly those. The allowlist is
+    // still the gate that matters: only people the owner listed are ever
+    // answered, so "answers everywhere" means "answers you everywhere", not
+    // "joins every conversation in the server".
+    const dedicated = this.#channels.size === 0 || this.#channels.has(message.channelId);
 
     // Reply-to-continue: once a thread is going, replying to one of the bot's
     // own messages keeps the conversation alive without re-@mentioning it.
@@ -420,7 +438,14 @@ export class DiscordConnector {
     // When to answer: always in DMs; in a dedicated channel; on @mention; or
     // when continuing a reply thread with the bot. Otherwise stay quiet so the
     // bot never barges into conversations between other people.
-    if (!isDM && !mentioned && !dedicated && !replyToBot) return;
+    if (!isDM && !mentioned && !dedicated && !replyToBot) {
+      // Log it. Every silent `return` on this path costs someone an evening of
+      // "why is my bot dead" — this one is legitimate (the bot stays out of
+      // other people's conversations), but invisible legitimacy is
+      // indistinguishable from a crash.
+      this.#log(`discord: not addressed to me in ${message.channelId} — staying quiet`);
+      return;
+    }
 
     // Allowlist gate — exact user ID. Unlisted senders get no reply at all.
     if (!this.#allow.has(message.author.id)) {
@@ -429,7 +454,18 @@ export class DiscordConnector {
     }
 
     const text = message.content.replace(new RegExp(`<@!?${me.id}>`, "g"), "").trim();
-    if (!text) return;
+    if (!text) {
+      // A bare @mention with nothing else. There is no question to answer, but
+      // total silence is the one response that reads as "the bot is broken" —
+      // which is exactly how this was found. Acknowledge and invite the ask
+      // instead of spending an agent turn on an empty prompt.
+      this.#log(`discord: bare mention from ${message.author.id} — nudging`);
+      void message.react("🐾").catch(() => {});
+      if ("send" in message.channel) {
+        void message.channel.send("🐾 Here. What do you need?").catch(() => {});
+      }
+      return;
+    }
 
     const sessionId = discordSessionId(message.channelId, message.author.id, isDM);
     const channel = message.channel;

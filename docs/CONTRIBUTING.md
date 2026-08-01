@@ -1,14 +1,58 @@
 # Contributing to Feral
 
-> Want the deep dive? See the full [Contributor Guide](./CONTRIBUTOR_GUIDE.md)
-> — architecture in depth, IPC protocols, test matrix, build & release flow.
->
-> **For the layer map (L0–L6), file locations, Faza ↔ L-layer
-> translation, and the glossary of evocative terms, see
-> [ARCHITECTURE.md](../ARCHITECTURE.md).**
->
-> **For every `FERAL_*` env var (security-group with threat notes
-> included), see [CONFIGURATION.md](./CONFIGURATION.md).**
+**Start here.** This page gets you from a fresh clone to a merged PR. It is
+deliberately short.
+
+> Deep dive: [Contributor Guide](./CONTRIBUTOR_GUIDE.md) — IPC protocols, test
+> matrix, build & release flow.
+> Layer map (L0–L6), file locations, glossary: [ARCHITECTURE.md](../ARCHITECTURE.md).
+> Every `FERAL_*` env var with threat notes: [CONFIGURATION.md](./CONFIGURATION.md).
+
+---
+
+## Read this first: the license
+
+Feral is **Business Source License 1.1** — source-available, *not* OSI open
+source. Free for individuals, small orgs (<$2M revenue), education, research and
+self-hosting; commercial licence needed above that or to offer Feral as a hosted
+service. **Each version converts to Apache 2.0 four years after its release.**
+
+By submitting a contribution you agree it ships under those terms. We would
+rather you know that in the first thirty seconds than after writing a patch.
+
+---
+
+## Five minutes to a running build
+
+```bash
+# Prereqs: Rust stable, Node 20+, Bun 1.x
+cd frontend-react && npm install
+cd ../FeralAgent && bun install
+
+# Dev (builds the sidecar, starts Vite + Tauri):
+cargo tauri dev                       # from src-tauri/ or repo root
+```
+
+Sidecar looking stale? `FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev`
+(or directly: `node src-tauri/scripts/build-sidecar.mjs`).
+
+GPU inference is a **compile-time** feature — default builds are CPU-only and
+silently ignore `default_gpu_layers`:
+
+```bash
+cargo tauri dev --features inference-vulkan     # GPU
+cargo tauri dev --features whisper              # on-device STT (needs LLVM on Windows)
+```
+
+**Just want to work on the agent?** You do not need the desktop app at all:
+
+```bash
+cd FeralAgent && bun test        # 2400+ tests, ~60s, no GPU, no model needed
+```
+
+That is the fastest loop in the repo and where most of the interesting work is.
+
+---
 
 ## Architecture in 60 seconds
 
@@ -16,9 +60,9 @@ Three runtimes, three languages, one repo:
 
 ```
 src-tauri/        Rust — Tauri v2 shell
-  src/lib.rs        command handlers (chat, models, BYOK, skills, …)
-  src/inference.rs  llama.cpp engine: model load, context pool, KV reuse
-  src/api.rs        loopback OpenAI/Ollama-compatible HTTP API (:11435, token-gated)
+  src/lib.rs          command handlers (chat, models, BYOK, skills, …)
+  src/inference.rs    llama.cpp engine: model load, context pool, KV reuse
+  src/api.rs          loopback OpenAI/Ollama-compatible HTTP API (:11435, token-gated)
   src/feral_agent.rs  sidecar spawn + supervision + stdio bridge
 
 frontend-react/   React + TS + Vite + Tailwind — the UI
@@ -29,90 +73,115 @@ frontend-react/   React + TS + Vite + Tailwind — the UI
 
 FeralAgent/       Bun + TS — the agent sidecar (compiled to a single binary)
   src/core/         agent loop, working memory, soul/system prompt
-  src/sandbox/      inference router (primary→fallback), egress proxy,
-                    process sandbox, tool permissions
-  src/tools/        built-in tools
-  src/memory/       episodic (SQLite+FTS5) + semantic memory
+  src/egress/       inference router (primary→fallback), egress proxy,
+                    process sandbox, tool permissions, circuit breaker
+  src/tools/        tool registry (the sandbox choke point) + built-ins
+  src/memory/       episodic (SQLite+FTS5), semantic, working, fractal
+  src/rsi/          self-improvement layers L1–L6
 ```
 
-Data flow: React → Tauri commands → either the local engine (chat mode) or
-the sidecar's stdin (agent mode). Streaming comes back as Tauri events
-(`feral://token`, `feral://agent-output`, …). The sidecar does its inference
-through the loopback API on `:11435` (or a BYOK provider) — never directly
-against the GGUF.
+Data flow: React → Tauri commands → either the local engine (chat mode) or the
+sidecar's stdin (agent mode). Streaming returns as Tauri events
+(`feral://token`, `feral://agent-output`, …). The sidecar infers through the
+loopback API on `:11435` (or a BYOK provider) — never directly against the GGUF.
 
-## Running it
+---
+
+## Your first contribution
+
+Pick from the ladder — each rung is genuinely self-contained.
+
+**Rung 1 — no architecture knowledge needed**
+- Anything that confused you in the first hour. Seriously: open an issue saying
+  so. Onboarding friction is a bug and outsiders see it best.
+- Docs that disagree with the code. (This file told people to look in
+  `src/sandbox/` for over a year. That directory is `src/egress/`.)
+- A test for an untested built-in tool — see `FeralAgent/src/tools/builtin/`.
+
+**Rung 2 — scoped, with a known shape**
+
+These come out of the pre-release hardening audit. Each has a defined failure
+mode, so you are not guessing at intent:
+
+| Task | Where | Why it matters |
+|---|---|---|
+| Typed execution provenance | `src/tools/registry.ts` → `src/core/agent-loop.ts` | Tool results flatten to `ok ? content : "ERROR: …"`, so the model cannot tell *never ran* from *ran and failed*. Needs an `executionStarted` equivalent threaded to the transcript. |
+| Interrupted-turn marker | `src/core/agent-loop.ts` | A stopped turn leaves no record that a side-effectful tool may have half-run. The next turn should be told. |
+| Cross-turn loop detection | `src/core/agent-loop.ts` | Loop counters reset every turn, so a model steered back into the same failing action is undetected. |
+| Typed exit reason | `src/core/agent-loop.ts` | "Why did execution stop?" is encoded in prose, not a field. Not machine-answerable. |
+| Desktop tests | `src-tauri/`, `frontend-react/` | The desktop app has **zero** test files. Highest-visibility, weakest-evidenced surface. |
+
+**Rung 3 — the big one**
+
+**End-to-end tests against a live provider.** Everything in the suite mocks
+`fetch`. That single gap is the largest limit on Feral's release maturity, and
+it is wide open for someone who wants real impact.
+
+---
+
+## Please don't break these
+
+Two subsystems are the product's differentiator and have the deepest test
+coverage in the repo (115 of ~230 test files):
+
+- `FeralAgent/src/rsi/**` — self-improvement layers
+- `FeralAgent/src/memory/fractal/**` — fractal memory search
+
+Changing them is welcome; changing them *accidentally* is not. Run the gate:
 
 ```bash
-# Prereqs: Rust stable, Node 20+, Bun 1.x
-cd frontend-react && npm install
-cd FeralAgent && bun install
-
-# Dev (builds the sidecar, starts Vite + Tauri):
-cargo tauri dev                       # from src-tauri/ or repo root
-
-# Force a sidecar rebuild if it seems stale:
-FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev
-# or directly: node src-tauri/scripts/build-sidecar.mjs
+cd FeralAgent && bun test tests/rsi-*.test.ts tests/fractal-*.test.ts \
+  tests/leaf-store.test.ts tests/upsert-leaf.test.ts \
+  tests/tree-builder-context-cap.test.ts tests/embed-cpu-mode.test.ts tests/recall.test.ts
 ```
 
-GPU inference: build with `--features inference-vulkan` (default is CPU).
+Expected: **1104 pass, 5 skip, 0 fail.** Any deviation means stop and look.
 
-Voice messages (on-device whisper.cpp STT) are feature-gated like inference and
-are **not** in the default build. Enable them locally with:
+---
+
+## Before you open the PR
 
 ```bash
-cargo tauri dev --features whisper          # add to inference, e.g. --features whisper,inference-vulkan
+cd frontend-react && npx vitest run      # frontend
+cd FeralAgent     && bun test            # sidecar (2400+)
+cd FeralAgent     && bunx tsc --noEmit   # types
+cd src-tauri      && cargo test --lib    # Rust host
 ```
 
-Windows prerequisite: whisper-rs's bindgen needs a native LLVM/clang. Install
-LLVM (e.g. to `C:\Program Files\LLVM`) — `src-tauri/.cargo/config.toml` points
-`LIBCLANG_PATH` there, or export your own `LIBCLANG_PATH` to override it. Without
-the `whisper` feature the app still runs; voice transcription returns
-`voice-unavailable` and the UI falls back to text input.
+All four green. Windows note: `shell-git` integration tests can flake on
+temp-dir `EBUSY` — everything else should be green.
 
-## Tests
+Touched streaming? Run the app and exercise **both** paths (Chat and Agent):
+send, stop mid-stream, switch tabs mid-stream, send again.
 
-```bash
-# Frontend (Vitest):
-cd frontend-react && npx vitest run
+---
 
-# Sidecar (bun:test):
-cd FeralAgent && bun test
-#   Note: shell-git integration tests can be flaky on Windows (temp-dir
-#   EBUSY); everything else should be green.
+## Conventions that actually get enforced in review
 
-# Rust:
-cd src-tauri && cargo test --lib
-```
-
-All three suites must pass before a PR. If you touched streaming, run the app
-and check both paths (Chat and Agent): send, stop mid-stream, switch tabs
-mid-stream, send again.
-
-## Conventions
-
-- **Comments explain *why*, not *what*.** Most non-obvious decisions carry a
-  comment referencing the audit/issue id (A2, P3, #11, …) — keep that habit.
+- **Comments explain *why*, not *what*.** Non-obvious decisions carry a comment
+  naming the failure that motivated them. This is the single most valuable habit
+  in the codebase — keep it.
 - **Errors must reach the user.** No silent `catch {}` on user-facing paths;
-  route errors to `stream-error` events / toasts (see `lib/humanizeError.ts`).
-- **Two streaming paths, one semantics.** Stop/interrupt behaviour must stay
-  identical between `chatStream.ts` and `feralAgentStream.ts`; UI code calls
+  route to `stream-error` events / toasts (`lib/humanizeError.ts`).
+- **Two streaming paths, one semantics.** Stop/interrupt behaviour stays
+  identical between `chatStream.ts` and `feralAgentStream.ts`. UI calls
   `streamControl.stopActiveStream()` — never one path directly.
-- **Strings:** new user-facing UI text goes through `lib/i18n.ts` (EN + RO).
-- **Security:** anything that touches the filesystem, network, or child
-  processes in the sidecar goes through the sandbox layers (see SECURITY.md).
-  New tools must declare manifest permissions.
+- **Strings:** user-facing UI text goes through `lib/i18n.ts` (EN + RO).
+- **Security:** anything touching filesystem, network or child processes goes
+  through the sandbox layers (see [SECURITY.md](../SECURITY.md)). New tools must
+  declare manifest permissions — the registry validates them at registration.
+- **Tests prove behaviour, not implementation.** A regression test should fail
+  for the reason described in its name.
 
-## License of contributions
+---
 
-Feral is licensed under the [Business Source License 1.1](../LICENSE) (free
-for individuals and small organizations, converts to Apache 2.0 after four
-years per version). By submitting a contribution you agree it's licensed
-under the same terms.
+## Where to ask
 
-## Release
+- [Discussions](https://github.com/bloom500/feral/discussions) — ideas, questions,
+  "is this a bug or am I holding it wrong"
+- [Issues](https://github.com/bloom500/feral/issues) — bugs and scoped work
+- Security vulnerabilities: **do not** open a public issue — see
+  [SECURITY.md](../SECURITY.md)
 
-See `docs/UPDATER_KEY_MIGRATION.md` for the 0.1.x → 0.2.0 signing-key
-transition. CI builds installers for Windows/macOS/Linux from
-`.github/workflows/`; releases are signed via `TAURI_SIGNING_PRIVATE_KEY`.
+Bug reports that include what you expected, what happened, and the smallest way
+to reproduce it get fixed fastest. A failing test is the best bug report there is.

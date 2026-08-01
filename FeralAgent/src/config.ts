@@ -170,6 +170,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Jina Reader key for read_webpage / deep_research.", security: false },
   { name: "FERAL_SEARXNG_URL", type: "string", default: null,
     description: "Base URL of a SearXNG instance backing web_search (e.g. http://127.0.0.1:8888). A loopback/private origin here is trusted by the egress SSRF guard for web_search ONLY — set it only to an instance you run.", security: true },
+  { name: "FERAL_DDG_MIN_INTERVAL_MS", type: "int", default: 5000,
+    description: "Minimum gap between DuckDuckGo queries on the keyless web_search fallback. DDG throttles by rate, not volume: measured from one IP, 12 back-to-back queries got 7 served then a >10min anti-bot block, while the same queries paced 3s/5s/10s apart all succeeded. The limit is per-IP and shared with everything else on the connection, so raise this if you see rate_limited; ~3s is the floor. 0 disables pacing. Ignored when FERAL_SEARXNG_URL is set.", security: false },
 
   // ---- RSI / dream cycle / governance -------------------------------------------
   { name: "FERAL_RSI_PASSIVE", type: "bool", default: true,

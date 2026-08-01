@@ -5,7 +5,7 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## 2026.07.26
+## 2026.08.01
 
 Reliability on long tasks. Every fix here is something you only hit after the
 agent has been working for a while — which is exactly when it hurts most.
@@ -14,13 +14,56 @@ This is the first release measured against a walk-away benchmark: real tasks run
 end to end, unattended, nine times each. It is why several of the entries below
 name a number instead of a hunch.
 
+It also closes out a hardening pass against the agent runtime, using two mature
+agent runtimes as behavioural references. Most of what that pass produced is not
+in this list, because most of it was evidence rather than repair: the four
+capabilities most likely to fail a user quietly — surviving a restart, switching
+provider mid-session, resuming memory, and writing memory — now have tests that
+prove the behaviour instead of code that looks correct.
+
 ### Added
+
+- **Feral stops when it is provably stuck.** If a tool returns byte-identical
+  output for the same arguments twenty times over, repeating it cannot make
+  progress, so the turn ends and says which tool got stuck — instead of quietly
+  burning up to 500 iterations or your whole time budget on the same call. A
+  tool whose output keeps changing (a build still running, a job still queued)
+  is left alone: waiting is not looping.
 
 - **`feral update`** — pulls the latest release and restarts the gateway, so a
   connector already running on Discord or Slack picks up the new build instead
   of quietly serving the old one until you notice.
 
 ### Fixed
+
+- **Web search works, with no setup.** It did not work at all before, on any
+  install: the only real backend was a SearXNG server you had to host yourself,
+  and both paths meant to cover its absence were dead — the no-backend fallback
+  called a DuckDuckGo endpoint that answers definitions rather than searches,
+  and the escalation to `deep_research` searched through a service that now
+  requires a paid key. Three dead paths, so nearly every search failed, each
+  time with a different-looking error.
+
+  Search now runs keyless on DuckDuckGo out of the box, and it is **paced** —
+  one query every 5 seconds, with parallel calls queuing rather than bursting.
+  The pacing is the fix, not a precaution: DuckDuckGo throttles by rate, so a
+  burst of 14 searches got 7 answered and then a ten-minute block, while the
+  same 14 paced through the new limiter returned 14 for 14. If the limit is
+  tripped anyway, Feral backs off and says so instead of reporting an empty web.
+  A self-hosted SearXNG is still worth it — several engines, no rate limit, no
+  pacing delay — and if it goes down, searches fall back to DuckDuckGo and say
+  which backend answered.
+
+- **A tool with a backup now actually falls back to it.** Tools can declare a
+  standby to try when they fail. If that tool *also* declared a retry policy,
+  the standby was skipped for exactly the failures it was meant to cover — a
+  missing file, a bad argument — and you got the original error instead of the
+  working result. The two code paths that handled this had drifted apart; they
+  are now one path and cannot drift again.
+- **A hung tool can no longer hang the whole agent.** One internal failure shape
+  left a tool call waiting forever with its own timeout already switched off.
+  Nothing could recover it short of restarting. It is now impossible to reach
+  that state.
 
 - **Parallel tool calls all run now, instead of just the first one.** When the
   model batched two actions into a single reply — "pause the losing campaign and
@@ -64,6 +107,36 @@ name a number instead of a hunch.
 - **`shell_exec` tells the truth about its timeout,** and the 5-minute ceiling
   is now raisable (`FERAL_SHELL_MAX_TIMEOUT_MS`) for builds that legitimately
   run longer.
+- **Discord DMs reach the agent.** They never had. The connector asked Discord
+  for direct-message events but not for the one extra flag that lets an
+  uncached DM channel through, so every DM was dropped before any Feral code
+  ran — while the connector's own documentation said it always answers DMs.
+  Confirmed against a live bot: two DMs arrived at a client carrying the flag
+  and neither arrived at Feral's.
+- **A bare @mention gets an answer instead of silence.** Mentioning the bot with
+  no other text stripped down to an empty message, which was discarded without
+  a reply, a reaction, or a log line — indistinguishable from a dead bot. It now
+  acknowledges and asks what you need.
+- **In a server, Feral answers you without an @mention by default.** Naming
+  channels (`feral connectors set discord --channel …`) still narrows it to
+  exactly those. The allowlist is unchanged and remains the real gate: only
+  people you list are ever answered, so this means "answers you anywhere it can
+  see you", not "joins every conversation".
+- **`feral doctor` no longer reports a healthy sidecar as dead on Windows and
+  macOS.** It contradicted itself in the same output — `api port` said the
+  sidecar was alive, `sidecar` said it was DOWN and pointed you at the log to
+  investigate a failure that had not happened. The liveness guess came from a
+  PID-file check that only ever worked on Linux; everywhere else it answered
+  "cannot tell" and the caller printed that as "dead". Liveness now comes from
+  the gateway itself, which is the only thing that knows.
+- **The endpoint allowlist stays an allowlist after you switch models.** If you
+  pin the servers Feral is permitted to send your conversation to
+  (`FERAL_TRUSTED_BASE_URLS`), that list used to be quietly thrown away and
+  replaced the first time the model was changed — and the check that was
+  supposed to enforce it then validated the new address against itself, so it
+  could never refuse anything. The list now holds across model switches: a
+  switch picks from it and cannot widen it. Unchanged if you never set the
+  variable, which is the default.
 
 ## 2026.07.19
 

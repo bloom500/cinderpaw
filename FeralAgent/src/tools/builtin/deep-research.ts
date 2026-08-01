@@ -7,11 +7,12 @@
  * invocation, transparently to the outer agent loop.
  *
  * Allowed domains (declared in manifest, enforced by EgressProxy):
- *   s.jina.ai — Jina Search (web search, returns structured results)
- *   r.jina.ai — Jina Reader (extracts clean markdown from any URL)
+ *   s.jina.ai — Jina Search, used ONLY with an API key (401 without one)
+ *   r.jina.ai — Jina Reader (extracts clean markdown from any URL, keyless)
+ *   duckduckgo.com — the keyless search fallback (see ddg-lite.ts)
  *
  * Optional env vars:
- *   FERAL_JINA_API_KEY — Bearer token for higher Jina rate limits
+ *   FERAL_JINA_API_KEY — Bearer token; enables Jina Search and raises Reader limits
  */
 
 import type { Tool, ToolManifest } from "../../types.ts";
@@ -53,7 +54,9 @@ export function createDeepResearchTool(
       "Use this for complex questions that require up-to-date information from multiple sources.",
     permissions: ["network:outbound"],
     networkAccess: true,
-    allowedDomains: ["s.jina.ai", "r.jina.ai"],
+    // duckduckgo.com: the keyless search fallback ResearchLoop uses when no
+    // Jina key is set (s.jina.ai answers 401 without one).
+    allowedDomains: ["s.jina.ai", "r.jina.ai", "duckduckgo.com"],
     // Feral-WIP #2: if Jina search fails (network / quota), fall back
     // to read_webpage which can be invoked with a URL. The agent may
     // also chain web_search -> deep_research via web_search's own

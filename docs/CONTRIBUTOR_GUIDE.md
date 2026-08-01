@@ -40,7 +40,7 @@ Feral is one repo, three runtimes, three languages:
 │                                    │ FeralAgent/ (sidecar)        │  │
 │                                    │ Bun + TS → single .exe       │  │
 │                                    │  core/     agent loop, soul  │  │
-│                                    │  sandbox/  inference router, │  │
+│                                    │  egress/   inference router, │  │
 │                                    │            egress proxy      │  │
 │                                    │  tools/    built-in tools    │  │
 │                                    │  memory/   SQLite + FTS5     │  │
@@ -95,10 +95,14 @@ Feral is one repo, three runtimes, three languages:
   `ask_user_response`, `cron_*`, …).
 - **`src/core/agent-loop.ts`** — the agent loop: system-prompt assembly,
   tool-call parsing, per-session abort (`stop(sessionId)`), budget handling.
-- **`src/sandbox/`** — inference router (primary → fallback, trusted base
-  URLs only), egress proxy, process sandbox, tool permissions.
-- **`src/tools/`** — built-in tools; each declares manifest permissions.
-- **`src/memory/`** — episodic (SQLite + FTS5) and semantic memory.
+- **`src/egress/`** — inference router (primary → fallback, trusted base
+  URLs only), egress proxy, process sandbox, tool permissions, circuit breaker.
+- **`src/tools/`** — the tool registry (the single choke point every tool call
+  passes through: permissions, timeout, abort, retry, fallback) plus built-ins;
+  each tool declares manifest permissions.
+- **`src/memory/`** — episodic (SQLite + FTS5), semantic, working, and fractal
+  memory.
+- **`src/rsi/`** — self-improvement layers L1–L6.
 
 > ⚠️ **The sidecar gotcha:** `cargo tauri dev` does **not** rebuild the sidecar
 > when you change TS code. After any `FeralAgent/` change run

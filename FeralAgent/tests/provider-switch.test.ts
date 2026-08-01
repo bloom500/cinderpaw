@@ -67,12 +67,14 @@ const A = { provider: "ollama", model: "model-a", baseUrl: "http://localhost:114
 const B = { provider: "ollama", model: "model-b", baseUrl: "http://localhost:11435" };
 const UNTRUSTED = { provider: "ollama", model: "evil", baseUrl: "http://evil.example.com" };
 
-function newRouter() {
+// `null` = no allowlist configured at all. Not `undefined`: that is what a default
+// parameter substitutes for, so it could never express "omitted".
+function newRouter(trustedBaseUrls: string[] | null = [A.baseUrl, B.baseUrl]) {
   const db = openDatabase(":memory:");
   const audit = new AuditLog(db.raw);
   const config: InferenceConfig = {
     primary: A,
-    trustedBaseUrls: [A.baseUrl, B.baseUrl],
+    ...(trustedBaseUrls ? { trustedBaseUrls } : {}),
     tokenBudget: BUDGET,
   };
   return { router: new InferenceRouter(config, audit.logger, db.raw), db };
@@ -142,34 +144,51 @@ describe("provider switch — failover still works after a switch", () => {
   });
 });
 
-describe("provider switch — trusted-URL boundary (CHARACTERIZATION, see F-03)", () => {
+describe("provider switch — trusted-URL boundary (F-03, RESOLVED)", () => {
   /**
-   * These pin CURRENT behaviour, not desired behaviour.
+   * The boundary question these tests were drafted to pin — is the host's `set_model`
+   * channel the authority, or is `trustedBaseUrls` a floor? — was answered: it is a
+   * floor. An operator who names an explicit allowlist keeps it across hot-swaps.
    *
-   * `reconfigure()` contains a validation loop that throws `InferenceError` when a
-   * target is absent from the trusted set — but it builds that set FROM the targets
-   * it is about to validate (`#buildTrusted` falls back to
+   * The bug was that `reconfigure()`'s validation loop built its trusted set FROM the
+   * targets it was about to validate: `#buildTrusted` falls back to
    * `[primary.baseUrl, fallback.baseUrl]` when no explicit list is passed, and
-   * `dispatch.ts` never passes one). The loop can therefore never fire: the throw at
-   * `inference-router.ts:234` is unreachable.
+   * `dispatch.ts:992` never passes one. So the loop could not fire, and the operator's
+   * list was silently discarded at the first `set_model`. `reconfigure` now falls back
+   * to the configured list instead of to the incoming targets.
    *
-   * Consequence: a `set_model` message can point inference at ANY base URL, and the
-   * previously-configured trusted list is discarded rather than enforced.
-   *
-   * This is a security-boundary question (is the host's `set_model` channel the
-   * authority, or is `trustedBaseUrls` a floor?), so it is FLAGGED for human review
-   * rather than changed. These tests exist so that whichever way that decision goes,
-   * the change is visible: if enforcement is added, these tests fail loudly and must
-   * be rewritten as the `.toThrow()` assertions they were originally drafted as.
+   * Unchanged when NO list is configured (the default, and every shipped install):
+   * the trusted set is still derived from the targets and any endpoint is reachable —
+   * gated by the host channel, which is loopback-only + bearer token (`api.rs`).
    */
-  test("CURRENT: switching to a previously-untrusted primary is ACCEPTED", () => {
+  test("switching to a previously-untrusted primary is REFUSED", () => {
     const { router, db } = newRouter();
+    expect(() => router.reconfigure(UNTRUSTED)).toThrow(InferenceError);
+    // Rejected switch must not half-apply.
+    expect(router.currentModel.baseUrl).toBe(A.baseUrl);
+    db.close();
+  });
+
+  test("the allowlist survives a hot-swap — it is not replaced by the target", () => {
+    const { router, db } = newRouter();
+    // B is on the list, so this switch is fine…
+    router.reconfigure(B);
+    expect(router.currentModel.model).toBe("model-b");
+    // …and it must not have narrowed the list to just B, nor widened it to allow evil.
+    expect(() => router.reconfigure(UNTRUSTED)).toThrow(InferenceError);
+    router.reconfigure(A);
+    expect(router.currentModel.model).toBe("model-a");
+    db.close();
+  });
+
+  test("with NO configured allowlist, any target is accepted (unchanged default)", () => {
+    const { router, db } = newRouter(null);
     router.reconfigure(UNTRUSTED);
     expect(router.currentModel.baseUrl).toBe(UNTRUSTED.baseUrl);
     db.close();
   });
 
-  test("CURRENT: switching adopts the new target and drops the old trusted entries", async () => {
+  test("a switch to an allowlisted target still routes there", async () => {
     const { router, db } = newRouter();
     const mock = installFetchMock();
     restoreFetch = mock.restore;

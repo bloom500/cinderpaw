@@ -18,6 +18,7 @@
 
 import type { InferenceRouter } from "../egress/inference-router.ts";
 import type { FeralFetch, ToolProgressPayload } from "../types.ts";
+import { ddgLiteSearch } from "../tools/builtin/ddg-lite.ts";
 
 export type ResearchProgressStage =
   | "start"
@@ -295,8 +296,23 @@ export class ResearchLoop {
     return { action: "search", query: question };
   }
 
-  /** Search via Jina Search API; parse JSON or markdown fallback. */
+  /**
+   * One search step. Jina Search needs an API key now (it answers 401 without
+   * one), which made deep_research dead on a default install — including as
+   * web_search's declared escalation. So: Jina only when a key exists, and DDG
+   * Lite whenever Jina is absent or comes up empty.
+   */
   async #search(query: string): Promise<SearchResult[]> {
+    if (this.#jinaApiKey) {
+      const hits = await this.#jinaSearch(query);
+      if (hits.length > 0) return hits;
+    }
+    const { results } = await ddgLiteSearch(this.#fetch, query, { signal: this.#signal });
+    return results.map((r) => ({ title: r.title, url: r.url, snippet: r.snippet ?? "" }));
+  }
+
+  /** Search via Jina Search API; parse JSON or markdown fallback. */
+  async #jinaSearch(query: string): Promise<SearchResult[]> {
     try {
       const encoded = encodeURIComponent(query);
       const url = `https://s.jina.ai/${encoded}`;

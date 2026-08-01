@@ -41,11 +41,28 @@ runner, or anything that handles untrusted input.**
 | `FERAL_INNER_THOUGHTS_ENABLED` | off | Sub-flag of proactive. Same threat. | Don't enable on shared hosts. |
 | `FERAL_SEARXNG_URL` | unset | The one origin exempted from the egress SSRF guard's loopback/private block, so `web_search` can reach a SearXNG you host. A wrong value points the agent at an internal service. | Set it to an instance **you** run. The exemption is exact-origin (port included), waives only the private-address check (the domain whitelist still applies), and is re-checked on every redirect hop. |
 
-## 1b. Web search (SearXNG)
+## 1b. Web search
 
-`web_search` needs a search index. It uses [SearXNG](https://docs.searxng.org/),
-a self-hosted metasearch aggregator: no API key, no per-query cost, and queries
-never leave your machine — which is the point of a local-first agent.
+With nothing configured, `web_search` queries DuckDuckGo — keyless, no setup,
+real ranked results.
+
+DuckDuckGo rate-limits automated queries, so Feral **paces** them: at most one
+every 5 seconds (`FERAL_DDG_MIN_INTERVAL_MS`), serialised, so parallel tool
+calls queue instead of bursting. That gap is what keeps the backend working —
+measured from one IP, 12 queries back-to-back got 7 served and then a
+ten-minute block, while the same queries paced 3, 5 or 10 seconds apart all
+succeeded. If the limiter is tripped anyway, Feral backs off for two minutes
+and says so (`rate_limited`) rather than pretending the web went empty.
+
+The limit is per-IP, so everything else on your connection shares it. Raise the
+interval if you see `rate_limited`; about 3s is the floor.
+
+The cost of that pacing is latency: a research loop doing eight searches spends
+about 40 seconds waiting. If that bothers you, or you search heavily, run
+[SearXNG](https://docs.searxng.org/) — a self-hosted metasearch aggregator:
+several engines at once, no rate limit, no pacing delay, no API key, no
+per-query cost, and the queries never leave your machine, which is the point of
+a local-first agent.
 
 ```bash
 docker run -d --name searxng -p 8888:8080 \
@@ -70,8 +87,9 @@ Restart it, then point Feral at it:
 export FERAL_SEARXNG_URL=http://127.0.0.1:8888
 ```
 
-Without `FERAL_SEARXNG_URL`, `web_search` reports that it has no backend and
-escalates to `deep_research` rather than pretending a query succeeded.
+If a configured SearXNG is unreachable or misconfigured, `web_search` falls back
+to DuckDuckGo and says so in the result — a working search beats a dead tool, but
+a backend that has been down for a week should not be invisible either.
 
 ## 2. The `WORKSPACE` trap
 
@@ -181,6 +199,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_PII_REDACTION` | string | `"on"` |  | Master switch for PII redaction in memory writes; "off" disables (inverse-toggle var). |
 | `FERAL_JINA_API_KEY` | string | `null` |  | Jina Reader key for read_webpage / deep_research. |
 | `FERAL_SEARXNG_URL` | string | `null` | yes | Base URL of a SearXNG instance backing web_search (e.g. http://127.0.0.1:8888). A loopback/private origin here is trusted by the egress SSRF guard for web_search ONLY — set it only to an instance you run. |
+| `FERAL_DDG_MIN_INTERVAL_MS` | int | `5000` |  | Minimum gap between DuckDuckGo queries on the keyless web_search fallback. DDG throttles by rate, not volume: measured from one IP, 12 back-to-back queries got 7 served then a >10min anti-bot block, while the same queries paced 3s/5s/10s apart all succeeded. The limit is per-IP and shared with everything else on the connection, so raise this if you see rate_limited; ~3s is the floor. 0 disables pacing. Ignored when FERAL_SEARXNG_URL is set. |
 | `FERAL_RSI_PASSIVE` | bool | `true` |  | RSI supervisor passive mode. "false" disables (read via injected env in passive-supervisor.ts). |
 | `FERAL_RSI_ALLOW_CLOUD` | bool | `false` |  | Opt-in: allow RSI to call cloud providers (anti-burn guard). |
 | `FERAL_RSI_MAX_ITER` | int | `null` |  | Pin the episode iteration cap; unset = dynamic (genome/policy-derived). |
@@ -331,6 +350,7 @@ FERAL_RSI_STOP_ON_ACTIVITY
 FERAL_RSI_TELEMETRY
 FERAL_RUN_FRACTAL_BENCH
 FERAL_SEARXNG_URL
+FERAL_DDG_MIN_INTERVAL_MS
 FERAL_SHELL_DENYLIST
 FERAL_SHELL_MAX_TIMEOUT_MS
 FERAL_SHELL_WHITELIST

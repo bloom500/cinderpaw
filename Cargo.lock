@@ -1536,7 +1536,7 @@ dependencies = [
 
 [[package]]
 name = "feral"
-version = "2026.7.26"
+version = "2026.8.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1585,7 +1585,7 @@ dependencies = [
 
 [[package]]
 name = "feral-cli"
-version = "2026.7.26"
+version = "2026.8.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1600,7 +1600,7 @@ dependencies = [
 
 [[package]]
 name = "feral-core"
-version = "2026.7.26"
+version = "2026.8.1"
 dependencies = [
  "aes-gcm",
  "anyhow",

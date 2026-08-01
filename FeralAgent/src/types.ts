@@ -456,8 +456,13 @@ export interface InferenceConfig {
   /**
    * Allowlist of base URLs the router may ever contact. Every configured target
    * (primary + fallback) must be a member; a target outside the list is refused.
-   * When omitted, the allowlist defaults to exactly the configured targets, so
-   * the router can never call an endpoint that was not explicitly set up.
+   * The list is a FLOOR, not a default: a runtime `set_model` picks from it and
+   * cannot replace it (F-03 — it used to, silently, at the first hot-swap).
+   *
+   * When omitted, the trusted set is derived from whatever targets are active at
+   * the time, so a `set_model` can point inference anywhere. That is the shipped
+   * default; the boundary in that configuration is the host channel carrying
+   * `set_model` (loopback + bearer token), not this list.
    */
   trustedBaseUrls?: string[];
   /**

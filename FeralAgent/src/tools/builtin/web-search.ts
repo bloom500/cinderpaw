@@ -6,35 +6,30 @@
  * proxy), which enforces the whitelist, blocks private/loopback destinations,
  * rate-limits, and audits every request.
  *
- * Backend: a SearXNG instance the user runs (`FERAL_SEARXNG_URL`). SearXNG is
- * a metasearch aggregator — it queries Google/Bing/DDG/etc. and returns ranked
- * results as JSON, with no API key and no per-query cost. Self-hosting also
- * keeps queries on the user's own machine, which is the whole point of a
- * local-first agent.
+ * Two backends, in preference order:
+ *   1. a SearXNG instance the user runs (`FERAL_SEARXNG_URL`) — a metasearch
+ *      aggregator over Google/Bing/DDG/etc., and the queries never leave the
+ *      user's machine, which is the whole point of a local-first agent;
+ *   2. DuckDuckGo Lite (see ddg-lite.ts) — keyless, zero setup, so search works
+ *      on a default install. Also the fallback when a configured SearXNG is
+ *      down, in which case the result says so rather than hiding it.
  *
- * Why not the previous backend: this tool used to call the DuckDuckGo *Instant
- * Answer* API, which is a disambiguation service, not a search index. It
- * returns nothing for most real queries ("who won the 2026 super bowl" → {}),
- * and worse, it returned that emptiness as a SUCCESS — so the declared
- * fallback chain never fired and the model quietly answered from stale
- * training data. Both halves of that bug are fixed here: a real index, and an
- * empty result set is an honest failure.
- *
- * The DDG endpoint is kept as a last-resort safety net for the no-SearXNG
- * case, but it is never treated as a working search engine.
+ * Neither one may report emptiness as success. That was the original bug here:
+ * the tool called DuckDuckGo's *Instant Answer* API — a disambiguation service,
+ * not a search index, which returns `{}` for most real queries — and returned
+ * that as `ok: true`. The declared fallback chain never fired and the model
+ * quietly answered from stale training data. An empty result set is a FAILURE.
  */
 
 import type { Tool, ToolManifest } from "../../types.ts";
+import { DDG_DOMAIN, DDG_THROTTLED_HINT, ddgLiteSearch, type DdgResult } from "./ddg-lite.ts";
 
-const DDG_DOMAINS = ["duckduckgo.com", "api.duckduckgo.com"];
-
-/** How to tell the user to get real search. Repeated in every failure path —
- *  a dead search tool that doesn't say WHY is the thing that wastes an hour. */
+/** Offered only when the fallback ALSO came up empty — a working default
+ *  install should never be told to go install something. */
 const SETUP_HINT =
-  "web_search has no search backend configured. Run a SearXNG instance and " +
-  "point FERAL_SEARXNG_URL at it (e.g. http://127.0.0.1:8888) — it is free, " +
-  "needs no API key, and keeps queries on this machine. " +
-  "See docs/CONFIGURATION.md.";
+  " For better results (several engines, and queries that never leave this " +
+  "machine), run a SearXNG instance and point FERAL_SEARXNG_URL at it — " +
+  "free, no API key. See docs/CONFIGURATION.md.";
 
 export interface WebSearchOpts {
   /** Origin of the operator's SearXNG instance, or null when unset.
@@ -55,8 +50,8 @@ export function createWebSearchTool(opts: WebSearchOpts = {}): Tool {
     permissions: ["network:outbound"],
     networkAccess: true,
     // Only the configured SearXNG host is whitelisted — plus DDG for the
-    // degraded no-backend path. The egress proxy still validates every hop.
-    allowedDomains: searxHost ? [searxHost, ...DDG_DOMAINS] : DDG_DOMAINS,
+    // keyless fallback. The egress proxy still validates every hop.
+    allowedDomains: searxHost ? [searxHost, DDG_DOMAIN] : [DDG_DOMAIN],
     // If search yields nothing (or no backend is configured), escalate to
     // deep_research, which does multi-page synthesis via its own backend.
     fallback: ["deep_research"],
@@ -82,12 +77,42 @@ export function createWebSearchTool(opts: WebSearchOpts = {}): Tool {
       }
 
       if (!origin) {
-        // No index configured. Try DDG's instant answer as a courtesy — it
-        // occasionally has a definition — but never claim success on empty.
-        const ia = await instantAnswer(query, ctx.fetch);
-        if (ia.length > 0) return { ok: true, content: render(query, ia), data: ia };
-        return { ok: false, content: SETUP_HINT, error: "no_backend" };
+        // No SearXNG configured — the default install. DDG Lite is a real
+        // index, so this path returns real results; empty still means failed.
+        const { results: hits, throttled } = await ddgLiteSearch(ctx.fetch, query, {
+          signal: ctx.signal,
+        });
+        if (hits.length > 0) return { ok: true, content: render(query, toResults(hits)), data: hits };
+        return throttled
+          ? { ok: false, content: DDG_THROTTLED_HINT, error: "rate_limited" }
+          : {
+              ok: false,
+              content: `No results for "${query}" (DuckDuckGo).${SETUP_HINT}`,
+              error: "no_results",
+            };
       }
+
+      // A configured-but-broken SearXNG used to mean no search at all. Now it
+      // degrades to DDG and SAYS SO — a working search plus a visible warning
+      // beats a dead tool, and staying silent about it would train the user to
+      // ignore a backend that has been down for a week.
+      const degrade = async (why: string, error: string) => {
+        const { results: hits, throttled } = await ddgLiteSearch(ctx.fetch, query, {
+          signal: ctx.signal,
+        });
+        if (hits.length === 0) {
+          return {
+            ok: false as const,
+            content: throttled ? `${why}\n\n${DDG_THROTTLED_HINT}` : why,
+            error,
+          };
+        }
+        return {
+          ok: true as const,
+          content: `[web_search fell back to DuckDuckGo — ${why}]\n\n${render(query, toResults(hits))}`,
+          data: hits,
+        };
+      };
 
       const url =
         `${origin}/search?q=${encodeURIComponent(query.trim())}` +
@@ -97,13 +122,11 @@ export function createWebSearchTool(opts: WebSearchOpts = {}): Tool {
       try {
         res = await ctx.fetch(url, { timeoutMs: 15_000 });
       } catch (err) {
-        return {
-          ok: false,
-          content:
-            `Could not reach the SearXNG instance at ${origin} ` +
+        return degrade(
+          `could not reach the SearXNG instance at ${origin} ` +
             `(${err instanceof Error ? err.message : String(err)}). Is it running?`,
-          error: "backend_unreachable",
-        };
+          "backend_unreachable",
+        );
       }
 
       if (!res.ok) {
@@ -114,24 +137,18 @@ export function createWebSearchTool(opts: WebSearchOpts = {}): Tool {
             ? ` — SearXNG returns 403 for JSON when the format is not enabled. ` +
               `Add \`formats: [html, json]\` under \`search:\` in its settings.yml and restart it.`
             : "";
-        return {
-          ok: false,
-          content: `SearXNG at ${origin} returned HTTP ${res.status}.${hint}`,
-          error: "http_error",
-        };
+        return degrade(`SearXNG at ${origin} returned HTTP ${res.status}.${hint}`, "http_error");
       }
 
       let body: SearxngResponse;
       try {
         body = (await res.json()) as SearxngResponse;
       } catch {
-        return {
-          ok: false,
-          content:
-            `SearXNG at ${origin} did not return JSON. Enable the JSON format ` +
+        return degrade(
+          `SearXNG at ${origin} did not return JSON. Enable the JSON format ` +
             `(\`formats: [html, json]\` under \`search:\` in settings.yml) and restart it.`,
-          error: "bad_response",
-        };
+          "bad_response",
+        );
       }
 
       const results: SearchResult[] = [];
@@ -167,29 +184,12 @@ interface SearchResult {
   url?: string;
 }
 
-/** DuckDuckGo Instant Answer — the degraded path only. Returns [] far more
- *  often than not; callers must treat [] as a failure, never an empty win. */
-async function instantAnswer(
-  query: string,
-  fetch: (url: string, init?: { timeoutMs?: number }) => Promise<{ ok: boolean; json(): Promise<unknown> }>,
-): Promise<SearchResult[]> {
-  try {
-    const url =
-      `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}` +
-      `&format=json&no_html=1&no_redirect=1&skip_disambig=1`;
-    const res = await fetch(url, { timeoutMs: 12_000 });
-    if (!res.ok) return [];
-    const body = (await res.json()) as {
-      AbstractText?: string;
-      AbstractURL?: string;
-      Answer?: string;
-      Definition?: string;
-    };
-    const headline = body.Answer || body.AbstractText || body.Definition;
-    return headline ? [{ text: headline, url: body.AbstractURL }] : [];
-  } catch {
-    return [];
-  }
+/** DDG results into the same shape SearXNG results render through. */
+function toResults(hits: DdgResult[]): SearchResult[] {
+  return hits.map((h) => ({
+    text: h.snippet ? `${h.title} — ${h.snippet}` : h.title,
+    url: h.url,
+  }));
 }
 
 function render(query: string, results: SearchResult[]): string {

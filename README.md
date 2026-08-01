@@ -108,9 +108,24 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 
 ---
 
-## What's new — July 2026 release
+## What's new — 2026.08.01
 
-*Power-user preview — we're looking for testers and contributors.*
+*Power-user preview — we're looking for testers and contributors.
+[Start here](docs/CONTRIBUTING.md) if you want to help.*
+
+- 🛑 **It stops when it's provably stuck.** If a tool returns byte-identical
+  output for the same arguments twenty times, repeating it can't make progress —
+  so the turn ends and names the tool, instead of burning up to 500 iterations
+  on the same call. A tool whose output keeps changing (a build still running) is
+  left alone: waiting isn't looping.
+- 🔁 **Tool fallbacks actually fire.** A tool that declares a standby now falls
+  back to it for the failures it was meant to cover, even when it also declares
+  retries — previously those two paths disagreed and you got the original error.
+- 🧾 **The reliability claims now have tests behind them.** Surviving a restart,
+  switching provider mid-session, resuming memory and writing memory each have
+  regression tests proving the behaviour end to end — including a
+  write → process restart → read round-trip. Previously several of these were
+  backed by code review alone.
 
 - 🧬 **Sub-agents** — the agent can hand a slice of work to a fresh sub-agent (`delegate_task`), run several in parallel, and stream their progress back live. A depth guard keeps it from recursively spawning itself.
 - 🙋 **It asks before it guesses** — hit a real fork in the road and Feral stops to ask you (`ask_user`) instead of guessing — and the question reaches you wherever you are: the desktop app, the `feral chat` TUI, or right in your Discord/Slack/WhatsApp channel.
@@ -183,7 +198,7 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 
 - **Local models:** inference, conversations, and memory never leave your machine. No background network requests, no telemetry, no analytics — by design.
 - **Cloud models (BYOK):** your messages go to the provider you configured (OpenAI, Anthropic, …) when — and only when — you hit send. Feral talks to their API directly with your key; nothing is routed through our servers, because we don't have any. Their privacy policy applies to what you send them.
-- **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
+- **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo or your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
 - **Update check:** once per launch, Feral asks GitHub Releases whether a newer version exists. Only the version request is sent — no usage data, no identifiers beyond a normal HTTP request. Turn it off in **Settings → General** for a fully offline app.
 
 | | |
@@ -301,7 +316,7 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 
 | Tool | Permissions | Description |
 |---|---|---|
-| `web_search` | `network:outbound` | Ranked web results via a [SearXNG](https://docs.searxng.org/) instance you run — point `FERAL_SEARXNG_URL` at it (it's free, self-hosted, no API key). If unset, `web_search` reports the failure and the agent falls back to `deep_research`. |
+| `web_search` | `network:outbound` | Ranked web results, no setup needed: keyless via DuckDuckGo, paced at one query per 5s (`FERAL_DDG_MIN_INTERVAL_MS`) to stay under its rate limit. For search with no rate limit and no pacing delay, run a [SearXNG](https://docs.searxng.org/) instance and point `FERAL_SEARXNG_URL` at it: several engines, and queries that never leave your machine. DuckDuckGo then stays as the fallback if it goes down. |
 | `read_webpage` | `network:outbound` | Extracts clean Markdown from any URL via Jina Reader (`r.jina.ai`). No API key required. |
 | `deep_research` | `network:outbound` | DeepResearch-style iterative loop: plan → search (Jina Search) → select URLs → read pages → extract findings → repeat → synthesize cited Markdown report. 4–8 iterations. |
 | `read_file` | `fs:read` | Read files from the workspace. 64 KB cap. |
@@ -385,7 +400,7 @@ Hover the score bar on any model card to see the 4-component breakdown, memory u
 | Local inference | llama.cpp (bundled) via OpenAI-compatible REST at `localhost:11435` |
 | Agent sidecar | Bun + TypeScript (compiled to single binary via `bun build --compile`) |
 | Agent memory | SQLite (via `bun:sqlite`) + FTS5 full-text index |
-| Web research | SearXNG (`web_search`, self-hosted) + Jina Reader (`read_webpage`/`deep_research`) |
+| Web research | DuckDuckGo by default, SearXNG when self-hosted (`web_search`) + Jina Reader (`read_webpage`/`deep_research`) |
 | Model discovery | HuggingFace Hub API |
 | Signing & updates | tauri-plugin-updater + minisign |
 
@@ -408,7 +423,8 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 | `FERAL_ENABLE_SHELL_EXEC` | `true` | Register the `shell_exec` tool. Set `false` to disable shell access entirely. |
 | `FERAL_SHELL_WHITELIST` | `git,node,python,…` | Comma-separated binaries `shell_exec` may run |
 | `FERAL_TOOL_GRAMMAR` | `false` | Grammar-constrain tool calls on the bundled engine (lazy GBNF) |
-| `FERAL_SEARXNG_URL` | — | Origin of a [SearXNG](https://docs.searxng.org/) instance for `web_search` (e.g. `http://127.0.0.1:8888`). Unset = `web_search` has no backend |
+| `FERAL_SEARXNG_URL` | — | Origin of a [SearXNG](https://docs.searxng.org/) instance for `web_search` (e.g. `http://127.0.0.1:8888`). Unset = keyless DuckDuckGo, paced |
+| `FERAL_DDG_MIN_INTERVAL_MS` | `5000` | Minimum gap between keyless DuckDuckGo queries. Raise if you see `rate_limited`; ~3s is the floor |
 | `FERAL_JINA_API_KEY` | — | Jina API key for higher rate limits on `read_webpage` + `deep_research` |
 | `FERAL_FETCH_DOMAINS` | — | Domain allowlist for `fetch_url`. Unset = all public hosts (SSRF guard still applies); set to RESTRICT |
 | `FERAL_HTTP_DOMAINS` | — | Same as above, for the `http_request` tool |
@@ -453,9 +469,21 @@ Found a vulnerability? Please report it responsibly — see [SECURITY.md](SECURI
 
 Contributions are welcome — code, docs, bug reports, model recommendations, or just telling us what confused you.
 
-- Start with the [Contributing guide](docs/CONTRIBUTING.md) and the [Contributor guide](docs/CONTRIBUTOR_GUIDE.md) (architecture, IPC protocols, test matrix, build & release flow)
+**[→ Start here: CONTRIBUTING.md](docs/CONTRIBUTING.md)** — five minutes to a running build, plus a ladder of genuinely scoped first tasks.
+
+You don't need the desktop app, a GPU, or a model to work on the agent:
+
+```bash
+cd FeralAgent && bun install && bun test    # 2400+ tests, ~60s
+```
+
+That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Feral's release maturity.
+
+- Deep dive: [Contributor guide](docs/CONTRIBUTOR_GUIDE.md) (IPC protocols, test matrix, build & release flow)
 - Open a [Discussion](https://github.com/bloom500/feral/discussions) for ideas and questions
 - Check [open issues](https://github.com/bloom500/feral/issues) for something to pick up
+
+Note that Feral is **source-available under BSL 1.1, not OSI open source** — free for individuals and small orgs, converting to Apache 2.0 four years after each release. Details in [Licence](#license) below; we'd rather you know upfront.
 
 ## License
 
