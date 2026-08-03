@@ -25,6 +25,7 @@ import { governanceCheck } from "./rsi/l5-gov/governance.ts";
 import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
+import { parseResponse } from "./core/agent-loop.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -560,6 +561,41 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // session's transcript now. Replies with one `compact_result` paired by
       // `id`. The summarizer is a full LLM completion, so this can take a
       // while on CPU — the caller owns its own timeout.
+      // Provider conformance (see egress/conformance.ts): three short probes
+      // that establish whether the configured model can actually drive the
+      // agent, as opposed to merely answering chat. Run on demand from setup.
+      case "provider_conformance": {
+        void (async () => {
+          try {
+            const { probeProvider } = await import("./egress/conformance.ts");
+            const report = await probeProvider(
+              (req) => router.complete(req),
+              (raw) => ({
+                calls: parseResponse(raw).toolCalls.map((c) => ({ name: c.name, args: c.args })),
+              }),
+            );
+            transport.send({
+              type: "provider_conformance_result",
+              id: msg.id ?? "",
+              ok: true,
+              ready: report.ready,
+              summary: report.summary,
+              probes: report.probes,
+            });
+          } catch (err) {
+            transport.send({
+              type: "provider_conformance_result",
+              id: msg.id ?? "",
+              ok: false,
+              ready: false,
+              summary: `conformance probe failed: ${String(err)}`,
+              probes: [],
+            });
+          }
+        })();
+        break;
+      }
+
       case "compact_session": {
         const sessionId = msg.sessionId ?? "default";
         try {

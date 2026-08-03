@@ -174,6 +174,8 @@ they remain hand-maintained here and are still covered by
 | `FERAL_SHELL_MAX_TIMEOUT_MS` | int | `300_000` | yes | Ceiling on shell_exec's per-call timeout_ms (clamped to 60s..60min). Raise it when a real build — cargo, gradle, a cold docker layer — legitimately runs past 5 minutes; the process is hard-killed at this bound and the agent cannot tell that apart from a genuine failure. |
 | `FERAL_TURN_BUDGET_MS` | int | `1_200_000` |  | Wall-clock budget for ONE agent turn (clamped to 60s..6h). The iteration ceiling bounds tool-call count, not time; this bounds time. Only stops NEW iterations, so an in-flight tool is never cut off. Matters most on connectors, which have no Stop button. |
 | `FERAL_SUMMARY_EXCERPT_CHARS` | int | `24_000` |  | Characters of the compacted transcript fed to the working-memory summarizer (head+tail sampled). Raise on big-context models so long tool-heavy tasks keep more detail in the summary note. |
+| `FERAL_UNATTENDED_CONTINUATIONS` | int | `3` |  | Automatic continuations allowed after a turn hits the wall-clock budget during an UNATTENDED run (cron job, or a connector message answered while nobody is watching). 0 disables continuation and restores the old behaviour, where a long task simply stopped half-done and was reported as finished. Total wall clock is roughly (this + 1) x FERAL_TURN_BUDGET_MS, and is additionally capped by FERAL_CRON_JOB_TIMEOUT_MS for cron. |
+| `FERAL_ATTACHMENT_MAX_CHARS` | int | `12_000` |  | Characters kept from ONE inbound attachment (a .txt/.md/code file, or the text extracted from a PDF) before it is truncated into the prompt. The default is sized for an 8k local context; raise it on a big-context cloud model so a whole document arrives in one message instead of a head slice. |
 | `FERAL_TOOL_GRAMMAR` | string | `null` |  | Optional GBNF grammar to constrain tool-call output. Presence alone also toggles useToolGrammar (default on; set to literal "false" to disable — inverse-toggle var, not migrated). |
 | `FERAL_VERSION` | string | `null` |  | Reported in startup logs; set by installer. |
 | `FERAL_EMBED_GPU_LAYERS` | int | `null` |  | Embedding-model layers offloaded to GPU. 0 = CPU-only. |
@@ -266,6 +268,7 @@ they remain hand-maintained here and are still covered by
 FERAL_AGENT_BASE_PROMPT
 FERAL_AGENT_WORKSPACE
 FERAL_API_KEY
+FERAL_ATTACHMENT_MAX_CHARS
 FERAL_AUTONOMOUS
 FERAL_BASE_URL
 FERAL_BRAIN
@@ -372,6 +375,7 @@ FERAL_TOOL_ALLOWED_DOMAINS
 FERAL_TRUSTED_LOCAL_ORIGINS
 FERAL_TRUSTED_BASE_URLS
 FERAL_TURN_BUDGET_MS
+FERAL_UNATTENDED_CONTINUATIONS
 FERAL_TTFT_DEADLINE_MS
 FERAL_VERSION
 FERAL_WRITE_CONFIRM_HOSTS

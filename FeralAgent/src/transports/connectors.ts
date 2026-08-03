@@ -33,9 +33,11 @@ import makeWASocket, {
   type WAMessage,
 } from "@whiskeysockets/baileys";
 import qrcode from "qrcode-terminal";
-import type { OutboundEvent } from "../types.ts";
+import type { OutboundEvent, SkillMeta } from "../types.ts";
 import type { LeadDesk } from "../core/lead-desk.ts";
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
+import { readAttachments } from "./attachments.ts";
+import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
 
 /** The slice of `AgentLoop` a connector needs. */
 export interface AgentLike {
@@ -44,6 +46,10 @@ export interface AgentLike {
     userText: string,
     messageId: string,
     emit: (event: OutboundEvent) => void,
+    /** Unused by connectors; present so the shape matches `AgentLoop.handle`. */
+    skillsContext?: SkillMeta[],
+    /** data: URLs from inbound attachments — see transports/attachments.ts. */
+    images?: string[],
   ): Promise<string>;
   /**
    * Register a constrained operating profile (system prompt + tool whitelist).
@@ -53,6 +59,52 @@ export interface AgentLike {
   registerProfile?(id: string, opts: { systemPrompt: string; allowedTools?: string[] }): void;
   /** Bind a session to a registered profile. See `registerProfile`. */
   setSessionProfile?(sessionId: string, profileId: string): void;
+  /** Tell the session it is answering in a chat app. See `chatStyleBrief`. */
+  setSessionSurface?(sessionId: string, brief: string): void;
+  /** Start this session over. Backs `/new` — see `runChatCommand`. */
+  resetSession?(sessionId: string): void;
+  /** Fold the older half of this session's transcript. Backs `/compact`. */
+  compactSession?(sessionId: string): Promise<"compacted" | "not needed">;
+}
+
+/**
+ * Commands a connector answers itself, without spending an agent turn.
+ *
+ * The desktop app has had `/compact` since the OpenClaw parity work, but from
+ * Discord, Slack or WhatsApp there was no way to do anything about a
+ * conversation that had gone long: no reset, no fold, nothing. The only
+ * remedies were restarting Feral or waiting for the idle eviction window.
+ *
+ * `/new` cuts the thread and starts clean — the blunt fix when a chat has
+ * drifted past saving. `/compact` is the non-destructive version: the thread
+ * continues, the older turns become a summary. Reach for `/compact` first.
+ *
+ * Returns the reply to send, or null when the text is not a command (the
+ * normal case) and should go to the agent.
+ */
+export async function runChatCommand(
+  agent: AgentLike,
+  sessionId: string,
+  text: string,
+): Promise<string | null> {
+  switch (text.trim().toLowerCase()) {
+    case "/new":
+    case "/reset":
+    case "/clear":
+      agent.resetSession?.(sessionId);
+      return (
+        "🆕 Fresh start — this chat's history is cleared.\n" +
+        "Anything you asked me to remember is still in memory; only the running conversation went."
+      );
+    case "/compact": {
+      const result = await agent.compactSession?.(sessionId);
+      return result === "compacted"
+        ? "🗜️ Compacted — older turns are now a summary and we keep going from here."
+        : "🗜️ Nothing worth compacting yet.";
+    }
+    default:
+      return null;
+  }
 }
 
 type Log = (message: string) => void;
@@ -122,7 +174,6 @@ export function buildPublicPersona(knowledgeBase: string): string {
   ].join("\n");
 }
 
-const DISCORD_MAX = 2000;
 
 /**
  * What to actually tell someone in a channel when a turn blew up.
@@ -191,21 +242,13 @@ function thinkingOpener(): string {
   return THINKING_OPENERS[Math.floor(Math.random() * THINKING_OPENERS.length)] ?? "🐾 On it…";
 }
 
-/** Split a reply into Discord-sized chunks without cutting mid-line when avoidable. */
-function chunk(text: string): string[] {
-  const trimmed = text.trim() || "(no response)";
-  if (trimmed.length <= DISCORD_MAX) return [trimmed];
-  const out: string[] = [];
-  let rest = trimmed;
-  while (rest.length > DISCORD_MAX) {
-    let cut = rest.lastIndexOf("\n", DISCORD_MAX);
-    if (cut < DISCORD_MAX * 0.5) cut = DISCORD_MAX; // no good break — hard split
-    out.push(rest.slice(0, cut));
-    rest = rest.slice(cut).replace(/^\n/, "");
-  }
-  if (rest) out.push(rest);
-  return out;
-}
+/**
+ * Per-surface message ceilings. Slack accepts 4000 but degrades formatting past
+ * ~3000; WhatsApp accepts 4096. They were all being cut at Discord's 2000,
+ * which split answers that never needed splitting.
+ */
+const SLACK_MAX = 3000;
+const WHATSAPP_MAX = 4096;
 
 /** Strip MCP prefixes / separators so a tool id reads like a phrase. */
 function prettyTool(tool: string): string {
@@ -454,7 +497,11 @@ export class DiscordConnector {
     }
 
     const text = message.content.replace(new RegExp(`<@!?${me.id}>`, "g"), "").trim();
-    if (!text) {
+    // "here, look at this" is very often sent as a file with no words at all.
+    // Treating that as an empty prompt is what made Feral answer a bare nudge
+    // to someone who had just sent it a document.
+    const attachments = [...message.attachments.values()];
+    if (!text && attachments.length === 0) {
       // A bare @mention with nothing else. There is no question to answer, but
       // total silence is the one response that reads as "the bot is broken" —
       // which is exactly how this was found. Acknowledge and invite the ask
@@ -470,6 +517,17 @@ export class DiscordConnector {
     const sessionId = discordSessionId(message.channelId, message.author.id, isDM);
     const channel = message.channel;
 
+    // Chat commands run BEFORE the ask-router, deliberately. `/new` is the
+    // escape hatch for a conversation that has gone wrong, and a pending
+    // ask_user question would otherwise consume it as the answer — an escape
+    // hatch that can be swallowed is not an escape hatch.
+    const command = await runChatCommand(this.#agent, sessionId, text);
+    if (command) {
+      void message.react("🐾").catch(() => {});
+      await message.reply(command).catch(() => {});
+      return;
+    }
+
     // A reply to a pending ask_user question answers the question — it must
     // not start a new agent turn.
     if (this.#ask?.handleInbound(sessionId, text)) {
@@ -482,6 +540,8 @@ export class DiscordConnector {
     if (this.#profileId) {
       this.#agent.setSessionProfile?.(sessionId, this.#profileId);
     }
+    // Tell the model it is writing into a chat window, not the desktop app.
+    this.#agent.setSessionSurface?.(sessionId, chatStyleBrief("Discord"));
 
     // Discord's typing indicator self-expires after ~10s. Agent turns that use
     // tools routinely run much longer, so the indicator vanishes and the user
@@ -529,25 +589,53 @@ export class DiscordConnector {
     try {
       // The shared agent answers with the same model + tools as the app. We
       // watch its tool events to drive the live status message.
+      // Attachments become part of the prompt: documents inlined as text,
+      // images handed to the vision path the provider layer already speaks.
+      // Downloading happens here, inside the try and after the status message
+      // exists, so a slow 30 MB PDF shows progress instead of dead air.
+      let prompt = text;
+      let images: string[] | undefined;
+      if (attachments.length > 0) {
+        setStatus(`📎 Reading ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}…`);
+        const payload = await readAttachments(
+          attachments.map((a) => ({
+            name: a.name,
+            url: a.url,
+            contentType: a.contentType,
+            size: a.size,
+          })),
+          this.#log,
+        );
+        if (payload.images.length > 0) images = payload.images;
+        prompt = prompt ? `${prompt}\n\n${payload.text}` : payload.text;
+      }
+
       // Name the speaker. The session is already per-user, so this is not
       // what isolates them — it is what lets the agent address them by name
       // and reason about "who asked" in a shared channel.
-      const authored = `[user:${message.author.username}] ${text}`;
-      const reply = await this.#agent.handle(sessionId, authored, `discord-${message.id}`, (event) => {
-        if (event.type === "tool_start") {
-          const a = activityFor(event.tool);
-          setStatus(`${a.emoji} ${a.label}`);
-        } else if (event.type === "tool_progress" && event.message) {
-          const a = activityFor(event.tool);
-          setStatus(`${a.emoji} ${event.message}`);
-        }
-      });
+      const authored = `[user:${message.author.username}] ${prompt}`;
+      const reply = await this.#agent.handle(
+        sessionId,
+        authored,
+        `discord-${message.id}`,
+        (event) => {
+          if (event.type === "tool_start") {
+            const a = activityFor(event.tool);
+            setStatus(`${a.emoji} ${a.label}`);
+          } else if (event.type === "tool_progress" && event.message) {
+            const a = activityFor(event.tool);
+            setStatus(`${a.emoji} ${event.message}`);
+          }
+        },
+        undefined,
+        images,
+      );
 
       // Done working: stop status churn and turn the status message into the
       // answer (or post a fresh reply if the status message never landed).
       if (editTimer) clearTimeout(editTimer);
       pendingStatus = null;
-      const parts = chunk(reply);
+      const parts = formatForChat(reply, DISCORD_LIMIT);
       if (statusMsg) {
         await statusMsg.edit(parts[0] ?? "(no response)");
       } else {
@@ -660,6 +748,13 @@ export class SlackConnector {
     const threadTs = (event.thread_ts as string | undefined) ?? (event.ts as string | undefined);
     const sessionId = slackSessionId(channel, user);
 
+    // Before the ask-router — see the Discord handler for why.
+    const command = await runChatCommand(this.#agent, sessionId, text);
+    if (command) {
+      await web.chat.postMessage({ channel, text: command, thread_ts: threadTs }).catch(() => {});
+      return;
+    }
+
     // A reply to a pending ask_user question answers it — no agent turn.
     if (this.#ask?.handleInbound(sessionId, text)) {
       void web.reactions.add({ channel, timestamp: event.ts as string, name: "paw_prints" }).catch(() => {});
@@ -670,6 +765,7 @@ export class SlackConnector {
     if (this.#profileId) {
       this.#agent.setSessionProfile?.(sessionId, this.#profileId);
     }
+    this.#agent.setSessionSurface?.(sessionId, chatStyleBrief("Slack"));
     void web.reactions.add({ channel, timestamp: event.ts as string, name: "paw_prints" }).catch(() => {});
 
     const status = await web.chat
@@ -704,7 +800,7 @@ export class SlackConnector {
       const reply = await runAgent(this.#agent, sessionId, `[user:${user}] ${text}`, `slack-${event.ts}`, setStatus);
       if (timer) clearTimeout(timer);
       pending = null;
-      const parts = chunk(reply);
+      const parts = formatForChat(reply, SLACK_MAX);
       if (ts) await web.chat.update({ channel, ts, text: parts[0] ?? "(no response)" });
       else await web.chat.postMessage({ channel, text: parts[0] ?? "(no response)", thread_ts: threadTs });
       for (const part of parts.slice(1)) {
@@ -909,6 +1005,18 @@ export class WhatsAppConnector {
     const sock = this.#sock!;
     const sessionId = `whatsapp:${jid}`;
 
+    // Before the ask-router — see the Discord handler for why. Owner-only: a
+    // public lead is talking to a business, and a stranger discovering that the
+    // salesperson takes slash commands is both off-persona and a way to wipe
+    // the context a hand-off to a human depends on.
+    if (isOwner) {
+      const command = await runChatCommand(this.#agent, sessionId, text);
+      if (command) {
+        await sock.sendMessage(jid, { text: command }).catch(() => {});
+        return;
+      }
+    }
+
     // A reply to a pending ask_user question answers it — no agent turn.
     if (this.#ask?.handleInbound(sessionId, text)) {
       void sock.sendMessage(jid, { react: { text: "🐾", key: msg.key } }).catch(() => {});
@@ -932,6 +1040,7 @@ export class WhatsAppConnector {
     } else if (this.#profileId) {
       this.#agent.setSessionProfile?.(sessionId, this.#profileId);
     }
+    this.#agent.setSessionSurface?.(sessionId, chatStyleBrief("WhatsApp"));
     void sock.sendMessage(jid, { react: { text: "🐾", key: msg.key } }).catch(() => {});
     void sock.sendPresenceUpdate("composing", jid).catch(() => {});
     const keepTyping = setInterval(() => {
@@ -940,7 +1049,7 @@ export class WhatsAppConnector {
 
     try {
       const reply = await runAgent(this.#agent, sessionId, text, `wa-${msg.key.id}`);
-      const parts = chunk(reply);
+      const parts = formatForChat(reply, WHATSAPP_MAX);
       for (const part of parts) {
         await sock.sendMessage(jid, { text: part });
       }

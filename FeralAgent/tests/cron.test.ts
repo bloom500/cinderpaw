@@ -339,7 +339,8 @@ describe("CronScheduler", () => {
     db = makeDb();
     repo = new CronJobsRepo(db.raw);
     emitted = [];
-    runFn = mock(async () => "ok-result");
+    // A run now reports whether the task actually finished, not just its text.
+    runFn = mock(async () => ({ text: "ok-result", finished: true }));
     runFnImpl = runFn as unknown as CronRunFn;
     scheduler = new CronScheduler({
       repo,
@@ -475,5 +476,92 @@ describe("CronScheduler", () => {
     await scheduler.tick();
     const back = repo.get(job.id)!;
     expect(back.enabled).toBe(false); // one-shot consumed
+  });
+});
+
+describe("CronScheduler — an unfinished run is not a success", () => {
+  let db: FeralDb;
+  let repo: CronJobsRepo;
+  let delivered: string[];
+
+  const build = (finished: boolean, errors: string[]) =>
+    new CronScheduler({
+      repo,
+      runJob: (async () => ({ text: "got halfway", finished })) as unknown as CronRunFn,
+      deliver: (_t, content) => {
+        delivered.push(content);
+      },
+      onJobError: (_j, message) => errors.push(message),
+      tickIntervalMs: 100,
+      jobTimeoutMs: 5_000,
+      now,
+    });
+
+  const makeDue = (job: { id: string }) =>
+    repo.updateAfterRun(
+      job.id,
+      now().getTime() - 120_000,
+      now().getTime() - 60_000,
+      { runAt: now().getTime() - 120_000, status: "success", durationMs: 0 },
+      0,
+    );
+
+  beforeEach(() => {
+    db = makeDb();
+    repo = new CronJobsRepo(db.raw);
+    delivered = [];
+  });
+  afterEach(() => db.close());
+
+  test("records `incomplete`, climbs the retry streak, still delivers the partial", async () => {
+    const errors: string[] = [];
+    const job = repo.upsert(makeInput({ schedule: { kind: "every", intervalMs: 60_000 } }));
+    makeDue(job);
+
+    await build(false, errors).tick();
+
+    const back = repo.get(job.id)!;
+    // The whole point: not "success".
+    expect(back.history.at(-1)?.status).toBe("incomplete");
+    // A job that never finishes must eventually read as stuck, not fine.
+    expect(back.retryCount).toBe(1);
+    // Partial work is still worth seeing.
+    expect(delivered).toEqual(["got halfway"]);
+    // And it is surfaced, not buried in the history table.
+    expect(errors.some((e) => e.includes("incomplete"))).toBe(true);
+  });
+
+  test("a one-shot that did not finish stays enabled for the next tick", async () => {
+    const job = repo.upsert(makeInput({ schedule: { kind: "at", atMs: now().getTime() - 1_000 } }));
+    makeDue(job);
+
+    await build(false, []).tick();
+    expect(repo.get(job.id)!.enabled).toBe(true);
+  });
+
+  test("a one-shot that DID finish is consumed as before", async () => {
+    const job = repo.upsert(makeInput({ schedule: { kind: "at", atMs: now().getTime() - 1_000 } }));
+    makeDue(job);
+
+    await build(true, []).tick();
+    const back = repo.get(job.id)!;
+    expect(back.enabled).toBe(false);
+    expect(back.history.at(-1)?.status).toBe("success");
+    expect(back.retryCount).toBe(0);
+  });
+
+  test("done_when round-trips through the repo", () => {
+    const job = repo.upsert(
+      makeInput({
+        schedule: { kind: "every", intervalMs: 60_000 },
+        doneWhen: { kind: "command", value: "npm test" },
+      }),
+    );
+    expect(repo.get(job.id)!.doneWhen).toEqual({
+      kind: "command",
+      path: undefined,
+      value: "npm test",
+      timeoutMs: undefined,
+    });
   });
 });

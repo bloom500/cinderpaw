@@ -30,6 +30,11 @@ import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
 import { setCurrentTask, touchLastActive } from "./memory/resume.ts";
+import { runUnattended } from "./core/unattended.ts";
+import { createSafetyPoint, changedSince } from "./core/safety-point.ts";
+import { renderDigest } from "./core/digest.ts";
+import { verifyDoneWhen } from "./cron/done-when.ts";
+import { turnBudgetMs } from "./core/agent-loop.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { McpManager } from "./egress/mcp-manager.ts";
 import { createReadFileTool } from "./tools/builtin/read-file.ts";
@@ -926,31 +931,57 @@ export async function boot(transportOverride?: Transport) {
   // the same job. Streaming events from the run are swallowed (there is no
   // live chat to render them); only the final answer is delivered, and
   // failures surface via `onJobError` below.
+  // The scheduler's wall-clock cap must cover a full turn plus every automatic
+  // continuation, or this timer fires first and a job that was working fine is
+  // recorded as a timeout. Sized from the real budgets rather than a flat
+  // constant, so raising either one does not silently break the other.
+  const cronJobTimeoutMs = Number(
+    process.env.FERAL_CRON_JOB_TIMEOUT_MS ??
+      turnBudgetMs() * (cfgInt("FERAL_UNATTENDED_CONTINUATIONS") + 1) + 60_000,
+  );
   const cronRepo = new CronJobsRepo(db.raw);
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
     runJob: async (job) => {
       const sessionId = `cron:${job.id}`;
       try {
-        // `handle()` never throws — on failure it emits an `error` event to
+        // `handleTurn()` never throws — on failure it emits an `error` event to
         // the sink and returns the error text. Capture that event and throw
         // so the scheduler records the run as failed (and onJobError fires)
         // instead of delivering the error string as a "result".
         let runError: string | null = null;
-        const content = await agent.handle(
+        // Safety point BEFORE any tool runs, so both "what did it change while
+        // I was out" and "put it back" are answerable afterwards.
+        const safety = await createSafetyPoint(
+          `cron/${job.name}`,
+          log,
+          config.workspaceRoots[0],
+        );
+        // runUnattended, not handle(): a scheduled task that hits the turn
+        // budget half-way gets continued rather than reported as finished.
+        const run = await runUnattended(
+          agent,
           sessionId,
           "You are running as a scheduled background task. Complete the task " +
             "without asking for clarification; produce the final answer.\n\n" +
             `Task: ${job.task}`,
           `cron-${job.id}-${Date.now()}`,
-          (event) => {
+          (event: import("./types.ts").OutboundEvent) => {
             // No live chat is attached to a cron run — chunk/tool events
             // have nowhere to render; only failures matter here.
             if (event.type === "error") runError = event.message;
           },
+          { deadlineMs: cronJobTimeoutMs },
         );
         if (runError) throw new Error(runError);
-        return content.trim();
+        const changed = await changedSince(safety);
+        const check = await verifyDoneWhen(job.doneWhen, safety?.root ?? null);
+        return {
+          text: renderDigest(run, changed, check, safety),
+          // The agent's own claim is not the authority. When a job declares a
+          // done_when, that assertion decides whether the run finished.
+          finished: run.finished && check.passed,
+        };
       } finally {
         // N2 fix: the synthetic `cron:${job.id}` sessionId would otherwise
         // grow the router's per-conversation-token map forever (one entry

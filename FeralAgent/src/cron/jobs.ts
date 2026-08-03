@@ -20,11 +20,22 @@ import type {
   DeliveryTarget,
   Schedule,
 } from "../types.ts";
+import { parseDoneWhen } from "./done-when.ts";
 
 const HISTORY_CAP = 50;
+
+/** Tolerate a corrupt done_when payload — an unparseable one becomes "unchecked". */
+function safeParse(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 const DEFAULT_MAX_RETRIES = 3;
 
 interface CronRow {
+  done_when_json: string | null;
   id: string;
   name: string;
   task: string;
@@ -53,11 +64,11 @@ export class CronJobsRepo {
       INSERT INTO cron_jobs (
         id, name, task, schedule_json, delivery_json,
         enabled, last_run_ms, next_run_ms, history_json,
-        max_retries, retry_count, created_at, updated_at
+        done_when_json, max_retries, retry_count, created_at, updated_at
       ) VALUES (
         $id, $name, $task, $scheduleJson, $deliveryJson,
         $enabled, $lastRunMs, $nextRunMs, $historyJson,
-        $maxRetries, 0, $createdAt, $updatedAt
+        $doneWhenJson, $maxRetries, 0, $createdAt, $updatedAt
       )
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
@@ -65,20 +76,21 @@ export class CronJobsRepo {
         schedule_json = excluded.schedule_json,
         delivery_json = excluded.delivery_json,
         enabled = excluded.enabled,
+        done_when_json = excluded.done_when_json,
         max_retries = excluded.max_retries,
         updated_at = excluded.updated_at
     `);
     this.#list = db.query(`
       SELECT id, name, task, schedule_json, delivery_json,
              enabled, last_run_ms, next_run_ms, history_json,
-             max_retries, retry_count, created_at, updated_at
+             done_when_json, max_retries, retry_count, created_at, updated_at
       FROM cron_jobs
       ORDER BY created_at ASC
     `);
     this.#get = db.query(`
       SELECT id, name, task, schedule_json, delivery_json,
              enabled, last_run_ms, next_run_ms, history_json,
-             max_retries, retry_count, created_at, updated_at
+             done_when_json, max_retries, retry_count, created_at, updated_at
       FROM cron_jobs
       WHERE id = ?
     `);
@@ -135,6 +147,13 @@ export class CronJobsRepo {
       $lastRunMs: existing?.lastRunMs ?? null,
       $nextRunMs: existing?.nextRunMs ?? null,
       $historyJson: JSON.stringify(existing?.history ?? []),
+      // A malformed done_when is stored as null rather than rejected: a check
+      // that can never run would fail the job forever, which is worse than the
+      // pre-existing "unverified" state.
+      $doneWhenJson: (() => {
+        const spec = parseDoneWhen(input.doneWhen ?? existing?.doneWhen ?? null);
+        return spec ? JSON.stringify(spec) : null;
+      })(),
       $maxRetries: input.maxRetries ?? DEFAULT_MAX_RETRIES,
       $createdAt: existing?.createdAt ?? now,
       $updatedAt: now,
@@ -196,6 +215,7 @@ function fromRow(r: CronRow): CronJob {
     lastRunMs: r.last_run_ms ?? undefined,
     nextRunMs: r.next_run_ms ?? undefined,
     history: JSON.parse(r.history_json) as CronRunRecord[],
+    doneWhen: parseDoneWhen(r.done_when_json ? safeParse(r.done_when_json) : null),
     maxRetries: r.max_retries,
     retryCount: r.retry_count,
     createdAt: r.created_at,

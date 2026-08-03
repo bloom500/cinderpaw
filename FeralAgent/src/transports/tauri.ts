@@ -195,6 +195,7 @@ const INBOUND_TYPES = [
   // /compact (OpenClaw slash parity) — summarize the older portion of one
   // session's transcript now; replies with one `compact_result` paired by `id`.
   "compact_session",
+  "provider_conformance",
   "rsi_response",
   // AI-Guided Onboarding (Etapa 1, ADR-0013). `start_onboarding` prepares the
   // onboarding profile + session; `tool_confirmation_response` carries the

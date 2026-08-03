@@ -23,7 +23,7 @@ import {
 } from "../egress/inference-router.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
 import { cfgInt } from "../config.ts";
-import type { EpisodicMemory } from "../memory/episodic.ts";
+import { SESSION_RESET_MARK, type EpisodicMemory } from "../memory/episodic.ts";
 import type { RecallResult } from "../memory/recall.ts";
 
 /**
@@ -198,6 +198,54 @@ interface CompiledProfile {
   /** Tools the model is allowed to call — enforced in the exec loop.
    *  `null` = unrestricted (persona-only profile: owner toolset, new voice). */
   allowed: Set<string> | null;
+}
+
+/**
+ * How a turn ended.
+ *
+ * This distinction existed inside `#run` all along and was thrown away at the
+ * boundary: every exit path flattened to a string, so a caller could not tell
+ * "here is your answer" from "I got halfway and the clock ran out". A cron job
+ * therefore recorded a half-finished task as a success, reset its retry streak,
+ * and delivered the partial result — with the only offered remedy being a
+ * sentence asking a human who was not there to type "continue".
+ */
+export type TurnOutcome =
+  /** The model produced a final answer. */
+  | "completed"
+  /** The wall-clock turn budget expired with work still in progress. */
+  | "out_of_time"
+  /** A proven no-progress loop was cut short (C-02). */
+  | "stuck"
+  /** The absolute iteration backstop fired. */
+  | "ceiling"
+  /** The user pressed stop. */
+  | "stopped"
+  /** The model returned nothing usable. */
+  | "no_answer";
+
+/**
+ * Outcomes worth re-invoking the session for.
+ *
+ * `stuck` is excluded on purpose: it means the same call returned the same
+ * result repeatedly, so another turn buys nothing but tokens. `stopped` is a
+ * human decision. `no_answer` already exhausted `MAX_CONTINUATIONS` inside the
+ * turn — a second outer attempt would just repeat that.
+ */
+const CONTINUABLE: ReadonlySet<TurnOutcome> = new Set<TurnOutcome>(["out_of_time", "ceiling"]);
+
+/** A turn's full result. `handle()` returns only `.text`; see `handleTurn`. */
+export interface TurnResult {
+  text: string;
+  outcome: TurnOutcome;
+  toolCallCount: number;
+  /** True when work remains and continuing the session is meaningful. */
+  incomplete: boolean;
+}
+
+/** Whether an outcome should be re-invoked rather than reported as done. */
+export function isContinuable(outcome: TurnOutcome): boolean {
+  return CONTINUABLE.has(outcome);
 }
 
 /** Options for {@link AgentLoop.registerProfile}. */
@@ -533,6 +581,19 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * Tell a session what surface it is answering on (see `chatStyleBrief`).
+   *
+   * Safe to call on every inbound message — it overwrites a string. Unlike
+   * `setSessionProfile` this does NOT have to precede the first `handle()`,
+   * because the brief is a per-turn drawer rather than part of the frozen
+   * system prompt, and unlike a profile it leaves the owner's full prompt and
+   * toolset intact.
+   */
+  setSessionSurface(sessionId: string, brief: string): void {
+    this.#memoryFor(sessionId).setSurfaceBrief(brief);
+  }
+
   /** Clear a session's profile binding (reverts to the owner profile). */
   clearSessionProfile(sessionId: string): void {
     this.#sessionProfile.delete(sessionId);
@@ -608,6 +669,30 @@ export class AgentLoop {
     images?: string[],
     inferParams?: { temperature?: number; max_tokens?: number },
   ): Promise<string> {
+    const result = await this.handleTurn(
+      sessionId, userText, messageId, emit, skillsContext, images, inferParams,
+    );
+    return result.text;
+  }
+
+  /**
+   * One turn, with how it ended.
+   *
+   * Identical to `handle()` except that the caller learns whether the task is
+   * actually finished. Anything unattended — a cron job, a connector, the
+   * walk-away digest — must use this: `handle()` alone cannot distinguish a
+   * completed task from one the clock cut in half, and treating the second as
+   * the first is how a scheduled job reports success on work it never did.
+   */
+  async handleTurn(
+    sessionId: string,
+    userText: string,
+    messageId: string,
+    emit: EventSink,
+    skillsContext?: SkillMeta[],
+    images?: string[],
+    inferParams?: { temperature?: number; max_tokens?: number },
+  ): Promise<TurnResult> {
     // Per-session inference overrides from the host UI's Controls panel.
     // Refreshed on every message so a Controls change applies from the very
     // next turn; cleared when the host stops sending them.
@@ -632,6 +717,15 @@ export class AgentLoop {
       this.#sessionToolSignals.set(sessionId, abortController);
       this.#sessionContexts.set(sessionId, ctx);
       return await this.#handle(sessionId, userText, messageId, ctx, skillsContext, images);
+    } catch (err) {
+      // `#handle` is documented as never throwing, but a throw here must not
+      // look like a completed turn to an unattended caller.
+      return {
+        text: `(turn failed: ${String(err)})`,
+        outcome: "no_answer",
+        toolCallCount: 0,
+        incomplete: false,
+      };
     } finally {
       release();
       this.#activeSessions.delete(sessionId);
@@ -693,6 +787,37 @@ export class AgentLoop {
   }
 
   /**
+   * `/new` — start this session over from nothing.
+   *
+   * The escape hatch for a conversation that has drifted past the point
+   * compaction can save. Three things have to happen together or the reset
+   * does not stick:
+   *
+   *   1. the live WorkingMemory goes,
+   *   2. any `running` crash checkpoint is marked done — otherwise the next
+   *      message rehydrates the exact transcript we just dropped
+   *      (`#memoryFor` prefers a checkpoint over episodic replay), and
+   *   3. an episodic barrier is written, so the 40-turn replay in `#memoryFor`
+   *      starts after this point instead of restoring the conversation.
+   *
+   * Nothing is deleted. Past turns stay in episodic and stay searchable by
+   * recall — this cuts the thread, it does not burn the history.
+   *
+   * The session's connector profile is deliberately left alone: resetting a
+   * conversation must not change which persona is answering it.
+   *
+   * ponytail: no interlock with an in-flight turn. `/new` sent while the agent
+   * is mid-answer lets that turn finish against the old transcript and the
+   * reply still lands; the next message starts clean. Add a session-lock wait
+   * if that ordering ever actually confuses someone.
+   */
+  resetSession(sessionId: string): void {
+    this.#sessions.delete(sessionId);
+    this.#checkpoints?.markDone(sessionId);
+    this.#episodic.record(sessionId, "system", SESSION_RESET_MARK);
+  }
+
+  /**
    * Manual `/compact` (OpenClaw slash parity): summarize the older portion
    * of one session's transcript NOW, not just when over budget. Targets
    * half the current estimate (capped at the normal transcript budget) so
@@ -750,7 +875,7 @@ export class AgentLoop {
     ctx: SessionRunContext,
     skillsContext?: SkillMeta[],
     images?: string[],
-  ): Promise<string> {
+  ): Promise<TurnResult> {
     // P0-4: agent_start hook. Informational — fires once at the top
     // of every turn. Errors are swallowed inside the hook registry.
     if (this.#hooks) {
@@ -834,7 +959,7 @@ export class AgentLoop {
       // Self-terminating loop: no limit computation needed. #run() returns
       // naturally when the model produces a text-only turn (no tool calls).
       // The 500-ceiling inside #run() is an emergency backstop only.
-      const { text: runText, toolCallCount: runToolCount } = await this.#run(
+      const { text: runText, toolCallCount: runToolCount, outcome } = await this.#run(
         sessionId,
         memory,
         messageId,
@@ -909,7 +1034,7 @@ export class AgentLoop {
         }
       }
 
-      return final;
+      return { text: final, outcome, toolCallCount, incomplete: isContinuable(outcome) };
     } catch (err) {
       // Checkpoint policy on a handled failure (crash is handled elsewhere — a
       // dead process leaves the row `running` on its own):
@@ -934,7 +1059,7 @@ export class AgentLoop {
           "request was cancelled. The model or provider may be overloaded — try " +
           "again, or switch to a smaller/faster model.";
         ctx.emit({ type: "error", id: messageId, message, traceId });
-        return message;
+        return { text: message, outcome: "out_of_time", toolCallCount, incomplete: true };
       }
       if (isAbortError(err)) {
         // A user stop is a deliberate end — retire the checkpoint.
@@ -960,7 +1085,7 @@ export class AgentLoop {
             );
           }
         }
-        return content;
+        return { text: content, outcome: "stopped", toolCallCount, incomplete: false };
       }
       const message = errorMessage(err);
       ctx.emit({ type: "error", id: messageId, message, traceId });
@@ -980,7 +1105,7 @@ export class AgentLoop {
           );
         }
       }
-      return message;
+      return { text: message, outcome: "no_answer", toolCallCount, incomplete: false };
     }
   }
 
@@ -997,7 +1122,7 @@ export class AgentLoop {
      * unchanged for callers that don't opt into Brain.
      */
     routeTargets: { primary: ModelTarget; fallback?: ModelTarget } | null = null,
-  ): Promise<{ text: string; toolCallCount: number }> {
+  ): Promise<{ text: string; toolCallCount: number; outcome: TurnOutcome }> {
     // Reset stop flag at the start of every run (ctx is per-handle, so this
     // only affects this session — the P3 fix for shared #lastStopped).
     ctx.stopped = false;
@@ -1231,22 +1356,23 @@ export class AgentLoop {
             // If earlier length-cutoff fragments exist, they ARE the answer
             // the user watched stream in — return them rather than an apology.
             if (answerParts.length > 0) {
-              return { text: answerParts.join(""), toolCallCount };
+              return { text: answerParts.join(""), toolCallCount, outcome: "completed" };
             }
             return {
               text: "(The model used all available tokens on reasoning and produced no answer, even after several automatic continuations. Try a shorter prompt or a larger model.)",
               toolCallCount,
+              outcome: "no_answer",
             };
           }
           if (answerParts.length > 0) {
-            return { text: answerParts.join(""), toolCallCount };
+            return { text: answerParts.join(""), toolCallCount, outcome: "completed" };
           }
-          return { text: "(The model returned an empty response.)", toolCallCount };
+          return { text: "(The model returned an empty response.)", toolCallCount, outcome: "no_answer" };
         }
         // Natural termination — model chose to answer rather than call a tool.
         // Prepend any length-cutoff fragments so the persisted answer matches
         // the full text the user watched stream into the bubble.
-        return { text: [...answerParts, answer].join(""), toolCallCount };
+        return { text: [...answerParts, answer].join(""), toolCallCount, outcome: "completed" };
       }
 
       // Model called tools → process them, then loop for the next turn.
@@ -1434,6 +1560,7 @@ export class AgentLoop {
           `like to approach it differently, or narrow the task.` +
           (answerParts.length > 0 ? `\n\n${answerParts.join("")}` : ""),
         toolCallCount,
+        outcome: "stuck",
       };
     }
 
@@ -1444,6 +1571,7 @@ export class AgentLoop {
       return {
         text: "(stopped by user)",
         toolCallCount,
+        outcome: "stopped",
       };
     }
 
@@ -1454,10 +1582,11 @@ export class AgentLoop {
       return {
         text:
           `I ran out of time for this turn after ${toolCallCount} actions ` +
-          `(limit ${Math.round(turnBudgetMs() / 60_000)} min). Here is where I got to — ` +
-          `send "continue" and I'll pick up from here, or narrow the task.` +
+          `(limit ${Math.round(turnBudgetMs() / 60_000)} min). The task is NOT finished — ` +
+          `here is where I got to.` +
           (answerParts.length > 0 ? `\n\n${answerParts.join("")}` : ""),
         toolCallCount,
+        outcome: "out_of_time",
       };
     }
 
@@ -1466,6 +1595,7 @@ export class AgentLoop {
     return {
       text: `I completed ${toolCallCount} actions but haven't been able to produce a final answer. The task may be too open-ended — try narrowing the scope or asking for a specific output format.`,
       toolCallCount,
+      outcome: "ceiling",
     };
   }
 

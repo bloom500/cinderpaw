@@ -8,7 +8,7 @@
 
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { discordSessionId, parseDiscordSession } from "../src/transports/connectors.ts";
+import { discordSessionId, parseDiscordSession, runChatCommand } from "../src/transports/connectors.ts";
 import { SemanticMemory, memoryScope } from "../src/memory/semantic.ts";
 
 describe("discord session ids", () => {
@@ -150,5 +150,51 @@ describe("semantic facts do not leak between Discord users", () => {
     semantic.upsert("global_fact", "g");
     semantic.upsert("name", "Alex", scopeA);
     expect(semantic.all()).toHaveLength(2);
+  });
+});
+
+describe("connector chat commands", () => {
+  const fakeAgent = () => {
+    const reset: string[] = [];
+    const compacted: string[] = [];
+    return {
+      reset,
+      compacted,
+      agent: {
+        handle: async () => "should not be reached",
+        resetSession(id: string) {
+          reset.push(id);
+        },
+        async compactSession(id: string) {
+          compacted.push(id);
+          return "compacted" as const;
+        },
+      },
+    };
+  };
+
+  test("/new resets the session and never reaches the agent", async () => {
+    const { agent, reset } = fakeAgent();
+    for (const cmd of ["/new", "/reset", "/clear", " /NEW "]) {
+      const reply = await runChatCommand(agent, "discord:dm:u1", cmd);
+      expect(reply).toContain("Fresh start");
+    }
+    expect(reset).toEqual(Array(4).fill("discord:dm:u1"));
+  });
+
+  test("/compact folds without resetting", async () => {
+    const { agent, reset, compacted } = fakeAgent();
+    const reply = await runChatCommand(agent, "slack:c1:u1", "/compact");
+    expect(reply).toContain("Compacted");
+    expect(compacted).toEqual(["slack:c1:u1"]);
+    expect(reset).toEqual([]);
+  });
+
+  test("ordinary text is not a command", async () => {
+    const { agent, reset } = fakeAgent();
+    for (const text of ["what is new?", "/newsletter", "tell me about /new"]) {
+      expect(await runChatCommand(agent, "whatsapp:x", text)).toBeNull();
+    }
+    expect(reset).toEqual([]);
   });
 });
