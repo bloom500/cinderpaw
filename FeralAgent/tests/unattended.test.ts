@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runUnattended, type TurnRunner } from "../src/core/unattended.ts";
+import { runUnattended, type RunTurn } from "../src/core/unattended.ts";
 import { createSafetyPoint, changedSince } from "../src/core/safety-point.ts";
 import { parseDoneWhen, verifyDoneWhen } from "../src/cron/done-when.ts";
 import { renderDigest } from "../src/core/digest.ts";
@@ -19,22 +19,22 @@ import type { TurnOutcome, TurnResult } from "../src/core/agent-loop.ts";
 
 const noop = () => {};
 
-/** An agent whose turns end with a scripted sequence of outcomes. */
-function scriptedAgent(outcomes: TurnOutcome[]): TurnRunner & { prompts: string[] } {
+/** A turn function that ends with a scripted sequence of outcomes. */
+function scripted(outcomes: TurnOutcome[]): { run: RunTurn; prompts: string[]; ids: string[] } {
   const prompts: string[] = [];
-  return {
-    prompts,
-    async handleTurn(_s, text): Promise<TurnResult> {
-      prompts.push(text);
-      const outcome = outcomes[prompts.length - 1] ?? "completed";
-      return {
-        text: `turn ${prompts.length} (${outcome})`,
-        outcome,
-        toolCallCount: 3,
-        incomplete: outcome === "out_of_time" || outcome === "ceiling",
-      };
-    },
+  const ids: string[] = [];
+  const run: RunTurn = async (text, messageId): Promise<TurnResult> => {
+    prompts.push(text);
+    ids.push(messageId);
+    const outcome = outcomes[prompts.length - 1] ?? "completed";
+    return {
+      text: `turn ${prompts.length} (${outcome})`,
+      outcome,
+      toolCallCount: 3,
+      incomplete: outcome === "out_of_time" || outcome === "ceiling",
+    };
   };
+  return { run, prompts, ids };
 }
 
 describe("runUnattended", () => {
@@ -48,8 +48,8 @@ describe("runUnattended", () => {
   });
 
   test("a task that completes first time runs exactly one turn", async () => {
-    const agent = scriptedAgent(["completed"]);
-    const run = await runUnattended(agent, "s1", "do the thing", "m", noop);
+    const agent = scripted(["completed"]);
+    const run = await runUnattended(agent.run, "do the thing", "m");
 
     expect(agent.prompts).toHaveLength(1);
     expect(run.finished).toBe(true);
@@ -59,8 +59,8 @@ describe("runUnattended", () => {
   });
 
   test("out of time is continued, not reported as done", async () => {
-    const agent = scriptedAgent(["out_of_time", "out_of_time", "completed"]);
-    const run = await runUnattended(agent, "s1", "do the thing", "m", noop);
+    const agent = scripted(["out_of_time", "out_of_time", "completed"]);
+    const run = await runUnattended(agent.run, "do the thing", "m");
 
     expect(agent.prompts).toHaveLength(3);
     expect(run.finished).toBe(true);
@@ -72,8 +72,8 @@ describe("runUnattended", () => {
   });
 
   test("exhausting the continuation budget reports UNFINISHED", async () => {
-    const agent = scriptedAgent(["out_of_time", "out_of_time", "out_of_time", "out_of_time"]);
-    const run = await runUnattended(agent, "s1", "big task", "m", noop);
+    const agent = scripted(["out_of_time", "out_of_time", "out_of_time", "out_of_time"]);
+    const run = await runUnattended(agent.run, "big task", "m");
 
     // 1 initial + 3 continuations, then it stops.
     expect(agent.prompts).toHaveLength(4);
@@ -84,8 +84,8 @@ describe("runUnattended", () => {
   });
 
   test("a stuck run is NOT continued — repeating it cannot help", async () => {
-    const agent = scriptedAgent(["stuck"]);
-    const run = await runUnattended(agent, "s1", "task", "m", noop);
+    const agent = scripted(["stuck"]);
+    const run = await runUnattended(agent.run, "task", "m");
 
     expect(agent.prompts).toHaveLength(1);
     expect(run.finished).toBe(false);
@@ -94,16 +94,16 @@ describe("runUnattended", () => {
 
   test("continuations can be disabled entirely", async () => {
     process.env.FERAL_UNATTENDED_CONTINUATIONS = "0";
-    const agent = scriptedAgent(["out_of_time", "completed"]);
-    const run = await runUnattended(agent, "s1", "task", "m", noop);
+    const agent = scripted(["out_of_time", "completed"]);
+    const run = await runUnattended(agent.run, "task", "m");
 
     expect(agent.prompts).toHaveLength(1);
     expect(run.finished).toBe(false);
   });
 
   test("the deadline stops a run before it starts a turn it cannot finish", async () => {
-    const agent = scriptedAgent(["out_of_time", "out_of_time", "out_of_time", "completed"]);
-    const run = await runUnattended(agent, "s1", "task", "m", noop, { deadlineMs: 0 });
+    const agent = scripted(["out_of_time", "out_of_time", "out_of_time", "completed"]);
+    const run = await runUnattended(agent.run, "task", "m", { deadlineMs: 0 });
 
     expect(agent.prompts).toHaveLength(1);
     expect(run.stoppedBecause).toBe("deadline");

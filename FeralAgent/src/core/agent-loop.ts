@@ -989,7 +989,15 @@ export class AgentLoop {
       if (asstLeafId !== null) {
         this.#recall?.noteWrite?.({ id: asstLeafId, sessionId, ts: asstWriteTs });
       }
-      ctx.emit({ type: "done", id: messageId, content: final, stopped: ctx.stopped, traceId });
+      ctx.emit({
+        type: "done",
+        id: messageId,
+        content: final,
+        stopped: ctx.stopped,
+        traceId,
+        outcome,
+        incomplete: isContinuable(outcome),
+      });
 
       // Fire-and-forget: extract durable user facts from the turn just
       // completed — but only when the speaker IS the user.
@@ -1068,7 +1076,7 @@ export class AgentLoop {
         const partial = memory.render();
         const lastAssistant = [...partial].reverse().find((m) => m.role === "assistant");
         const content = lastAssistant?.content?.trim() || "(stopped by user)";
-        ctx.emit({ type: "done", id: messageId, content, stopped: true, traceId });
+        ctx.emit({ type: "done", id: messageId, content, stopped: true, traceId, outcome: "stopped", incomplete: false });
         if (this.#hooks) {
           try {
             await this.#hooks.fire("agent_end", {

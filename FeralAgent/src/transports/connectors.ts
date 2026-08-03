@@ -38,6 +38,8 @@ import type { LeadDesk } from "../core/lead-desk.ts";
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 import { readAttachments } from "./attachments.ts";
 import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
+import { runUnattended } from "../core/unattended.ts";
+import type { TurnResult } from "../core/agent-loop.ts";
 
 /** The slice of `AgentLoop` a connector needs. */
 export interface AgentLike {
@@ -61,6 +63,19 @@ export interface AgentLike {
   setSessionProfile?(sessionId: string, profileId: string): void;
   /** Tell the session it is answering in a chat app. See `chatStyleBrief`. */
   setSessionSurface?(sessionId: string, brief: string): void;
+  /**
+   * One turn, with how it ended. Optional so test fakes need not implement it;
+   * when present, `runAgent` continues a turn the clock cut short instead of
+   * sending a half-finished answer to someone who is not at their desk.
+   */
+  handleTurn?(
+    sessionId: string,
+    userText: string,
+    messageId: string,
+    emit: (event: OutboundEvent) => void,
+    skillsContext?: SkillMeta[],
+    images?: string[],
+  ): Promise<TurnResult>;
   /** Start this session over. Backs `/new` — see `runChatCommand`. */
   resetSession?(sessionId: string): void;
   /** Fold the older half of this session's transcript. Backs `/compact`. */
@@ -289,8 +304,9 @@ async function runAgent(
   text: string,
   messageId: string,
   onActivity?: (status: string) => void,
+  images?: string[],
 ): Promise<string> {
-  return agent.handle(sessionId, text, messageId, (event) => {
+  const emit = (event: OutboundEvent) => {
     if (!onActivity) return;
     if (event.type === "tool_start") {
       const a = activityFor(event.tool);
@@ -299,7 +315,23 @@ async function runAgent(
       const a = activityFor(event.tool);
       onActivity(`${a.emoji} ${event.message}`);
     }
-  });
+  };
+  // A chat surface has no Stop button and, usually, nobody watching: the person
+  // messaged from their phone and put it away. A turn the wall clock cut in
+  // half used to be sent as the answer, with its own text asking them to reply
+  // "continue" — which is a fine plan for someone at a keyboard and useless
+  // here. Continuation only triggers on an outcome that was actually cut off,
+  // so an ordinary message still costs exactly one turn.
+  if (agent.handleTurn) {
+    const run = await runUnattended(
+      (turnText, turnId) =>
+        agent.handleTurn!(sessionId, turnText, turnId, emit, undefined, images),
+      text,
+      messageId,
+    );
+    return run.text;
+  }
+  return agent.handle(sessionId, text, messageId, emit, undefined, images);
 }
 
 /** Digits only — used to compare phone numbers across formats. */
@@ -614,20 +646,12 @@ export class DiscordConnector {
       // what isolates them — it is what lets the agent address them by name
       // and reason about "who asked" in a shared channel.
       const authored = `[user:${message.author.username}] ${prompt}`;
-      const reply = await this.#agent.handle(
+      const reply = await runAgent(
+        this.#agent,
         sessionId,
         authored,
         `discord-${message.id}`,
-        (event) => {
-          if (event.type === "tool_start") {
-            const a = activityFor(event.tool);
-            setStatus(`${a.emoji} ${a.label}`);
-          } else if (event.type === "tool_progress" && event.message) {
-            const a = activityFor(event.tool);
-            setStatus(`${a.emoji} ${event.message}`);
-          }
-        },
-        undefined,
+        setStatus,
         images,
       );
 

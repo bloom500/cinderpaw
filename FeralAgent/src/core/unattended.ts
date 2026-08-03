@@ -22,22 +22,15 @@
  */
 
 import { cfgInt } from "../config.ts";
-import {
-  isContinuable,
-  type EventSink,
-  type TurnOutcome,
-  type TurnResult,
-} from "./agent-loop.ts";
+import { isContinuable, type TurnOutcome, type TurnResult } from "./agent-loop.ts";
 
-/** The slice of `AgentLoop` an unattended run needs. */
-export interface TurnRunner {
-  handleTurn(
-    sessionId: string,
-    userText: string,
-    messageId: string,
-    emit: EventSink,
-  ): Promise<TurnResult>;
-}
+/**
+ * Runs one turn. A function rather than an agent object so each caller can
+ * close over whatever else its surface needs — a connector passes images and
+ * an event sink, dispatch passes the skill roster and Controls overrides, cron
+ * passes neither — without this module knowing about any of them.
+ */
+export type RunTurn = (userText: string, messageId: string) => Promise<TurnResult>;
 
 /** One turn inside an unattended run. */
 export interface TurnRecord {
@@ -96,11 +89,9 @@ function maxContinuations(): number {
  * report, not a result to deliver quietly.
  */
 export async function runUnattended(
-  agent: TurnRunner,
-  sessionId: string,
+  runTurn: RunTurn,
   task: string,
   messageIdPrefix: string,
-  emit: EventSink,
   opts: { deadlineMs?: number } = {},
 ): Promise<UnattendedResult> {
   const budget = maxContinuations();
@@ -112,11 +103,11 @@ export async function runUnattended(
 
   for (let attempt = 0; attempt <= budget; attempt++) {
     const startedAt = Date.now();
-    result = await agent.handleTurn(
-      sessionId,
+    result = await runTurn(
       attempt === 0 ? task : CONTINUE_PROMPT,
-      `${messageIdPrefix}-${attempt}`,
-      emit,
+      // First turn keeps the caller's id verbatim so an existing UI that
+      // correlates on it is unaffected; continuations are suffixed.
+      attempt === 0 ? messageIdPrefix : `${messageIdPrefix}-cont${attempt}`,
     );
     turns.push({
       outcome: result.outcome,

@@ -960,17 +960,16 @@ export async function boot(transportOverride?: Transport) {
         // runUnattended, not handle(): a scheduled task that hits the turn
         // budget half-way gets continued rather than reported as finished.
         const run = await runUnattended(
-          agent,
-          sessionId,
+          (text, messageId) =>
+            agent.handleTurn(sessionId, text, messageId, (event) => {
+              // No live chat is attached to a cron run — chunk/tool events
+              // have nowhere to render; only failures matter here.
+              if (event.type === "error") runError = event.message;
+            }),
           "You are running as a scheduled background task. Complete the task " +
             "without asking for clarification; produce the final answer.\n\n" +
             `Task: ${job.task}`,
           `cron-${job.id}-${Date.now()}`,
-          (event: import("./types.ts").OutboundEvent) => {
-            // No live chat is attached to a cron run — chunk/tool events
-            // have nowhere to render; only failures matter here.
-            if (event.type === "error") runError = event.message;
-          },
           { deadlineMs: cronJobTimeoutMs },
         );
         if (runError) throw new Error(runError);

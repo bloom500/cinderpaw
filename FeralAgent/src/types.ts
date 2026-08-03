@@ -1201,7 +1201,27 @@ export interface AskUserAnswer {
 /** Outbound event envelope to any transport. */
 export type OutboundEvent =
   | { type: "chunk"; id: string; content: string; traceId?: string }
-  | { type: "done"; id: string; content: string; stopped: boolean; traceId: string }
+  /**
+   * One turn ended. `incomplete: true` means the turn was cut off with work
+   * outstanding and an unattended caller may continue it — so a consumer that
+   * waits for "the answer" must wait for a `done` WITHOUT it, not the first
+   * one it sees. `outcome` is the structured reason (see TurnOutcome).
+   */
+  | {
+      type: "done";
+      id: string;
+      content: string;
+      stopped: boolean;
+      traceId: string;
+      outcome?: string;
+      incomplete?: boolean;
+      /**
+       * True on the single event that closes an UNATTENDED run, as opposed to
+       * one turn inside it. Consumers counting turns must skip it; consumers
+       * waiting for the answer must accept it.
+       */
+      runSummary?: boolean;
+    }
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string }
   | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string }
   | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string }
