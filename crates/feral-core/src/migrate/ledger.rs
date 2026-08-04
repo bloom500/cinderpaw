@@ -61,8 +61,13 @@ const ROOT_SENTINEL: &str = "<root>";
 /// aimed at the false parent (`"my"`) would then swallow a key it never
 /// named. Escaping keeps every real key name's dots from ever lining up with
 /// a separator dot.
+///
+/// The backslash goes first, and it has to: escaping only dots is not
+/// injective, so `{"a.b": 1}` and `{"a\\": {"b": 1}}` both produce `a\.b` and
+/// the set keeps one of them. One line short in a report whose whole promise is
+/// that nothing disappears from it.
 fn escape_key(key: &str) -> String {
-    key.replace('.', "\\.")
+    key.replace('\\', "\\\\").replace('.', "\\.")
 }
 
 /// Leaf paths only. An array is a leaf: descending into it would turn a
@@ -203,6 +208,21 @@ mod tests {
         let mut ledger2 = KeyLedger::from_value(&v);
         ledger2.consume(&leftovers[0]);
         assert!(ledger2.leftovers().is_empty());
+    }
+
+    /// Escaping dots but not backslashes let two different keys land on one
+    /// path, and a set keeps one of them — a leftover vanishing from the report
+    /// is the one failure this module exists to make impossible.
+    #[test]
+    fn a_key_ending_in_a_backslash_does_not_collide_with_a_dotted_key() {
+        let dotted = json!({ "a.b": 1 });
+        let nested_under_backslash = json!({ "a\\": { "b": 1 } });
+        let both = json!({ "a.b": 1, "a\\": { "b": 1 } });
+
+        assert_eq!(KeyLedger::from_value(&dotted).leftovers().len(), 1);
+        assert_eq!(KeyLedger::from_value(&nested_under_backslash).leftovers().len(), 1);
+        let leftovers = KeyLedger::from_value(&both).leftovers();
+        assert_eq!(leftovers.len(), 2, "both keys must survive: {leftovers:?}");
     }
 
     #[test]
