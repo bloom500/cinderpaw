@@ -43,6 +43,33 @@ function isCurrentTask(value: unknown): value is CurrentTask {
   return true;
 }
 
+/**
+ * A task title cut down to something a heading can hold.
+ *
+ * The stored title is whatever the work was actually about, often a whole
+ * sentence lifted from what the user asked for. "Welcome back to <that>" then
+ * renders as a paragraph pretending to be a hero heading, which wrecks the
+ * layout in the desktop banner and overflows the TUI row.
+ *
+ * Cuts on a word boundary — never mid-word — and only appends the ellipsis when
+ * something was actually removed. Trailing punctuation goes too: "Welcome back
+ * to fix the login bug," reads like the sentence got interrupted.
+ *
+ * Applied on the way OUT to the display surfaces, never on the way in. The full
+ * title stays in the database, because the agent's own "you were working on…"
+ * context wants the whole thing.
+ */
+export function bannerTitle(title: string, maxChars = 42): string {
+  const clean = title.replace(/\s+/g, " ").trim();
+  if (clean.length <= maxChars) return clean.replace(/[,;:.\s]+$/, "");
+  const cut = clean.slice(0, maxChars);
+  const lastSpace = cut.lastIndexOf(" ");
+  // A single word longer than the budget has no boundary to cut on; hard-cut it
+  // rather than return the whole thing and blow the layout anyway.
+  const head = lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+  return `${head.replace(/[,;:.\s]+$/, "")}…`;
+}
+
 /** Read the persisted current task, or null if none / corrupt. */
 export function getCurrentTask(db: Database): CurrentTask | null {
   const row = db

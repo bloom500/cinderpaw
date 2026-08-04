@@ -20,7 +20,7 @@ import { runUnattended } from "./core/unattended.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
 import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
 import { liveModuleRegistry } from "./rsi/l4-modules/seam-runtime.ts";
-import { getCurrentTask, getLastActive } from "./memory/resume.ts";
+import { bannerTitle, getCurrentTask, getLastActive } from "./memory/resume.ts";
 import { getActiveWorkspaceId, getWorkspace } from "./memory/workspaces.ts";
 import { governanceCheck } from "./rsi/l5-gov/governance.ts";
 import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
@@ -546,7 +546,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           id: msg.id ?? "",
           task: task
             ? {
-                title: task.title,
+                // Both consumers of this reply are headings — the desktop
+                // WelcomeBack banner and the TUI last-task row — so the title is
+                // shortened here, at the one place they share, rather than in
+                // each UI. The stored value stays whole.
+                title: bannerTitle(task.title),
                 ts: task.ts,
                 workspace_id: task.workspaceId ?? null,
               }

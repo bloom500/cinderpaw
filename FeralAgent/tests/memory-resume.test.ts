@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { getCurrentTask, setCurrentTask } from "../src/memory/resume.ts";
+import { bannerTitle, getCurrentTask, setCurrentTask } from "../src/memory/resume.ts";
 
 describe("memory/resume", () => {
   test("absent meta → getCurrentTask returns null", () => {
@@ -80,5 +80,49 @@ describe("memory/resume", () => {
     expect(getCurrentTask(db)?.title).toBe("second");
     expect(getCurrentTask(db)?.ts).toBe(2);
     close();
+  });
+});
+
+/**
+ * The banner and the TUI row are headings, and stored titles are whole
+ * sentences taken from what the user asked for. "Welcome back to <sentence>"
+ * rendered as a paragraph in a hero slot.
+ */
+describe("bannerTitle", () => {
+  test("a short title is passed through untouched", () => {
+    expect(bannerTitle("fix the login bug")).toBe("fix the login bug");
+  });
+
+  test("a whole sentence is cut to a few words, on a word boundary", () => {
+    const long =
+      "add persistent run state so an unattended run survives a sidecar restart";
+    const out = bannerTitle(long);
+    expect(out.length).toBeLessThanOrEqual(43); // budget + the ellipsis
+    expect(out.endsWith("…")).toBe(true);
+    // Never mid-word: it's a prefix of the original AND the original continues
+    // with a space, which is what "cut on a word boundary" actually means.
+    const head = out.slice(0, -1);
+    expect(long.startsWith(head)).toBe(true);
+    expect(long.charAt(head.length)).toBe(" ");
+  });
+
+  test("trailing punctuation is dropped — a heading is not an interrupted sentence", () => {
+    expect(bannerTitle("fix the login bug,")).toBe("fix the login bug");
+    expect(bannerTitle("ship the release.")).toBe("ship the release");
+  });
+
+  test("newlines and runs of whitespace collapse", () => {
+    expect(bannerTitle("fix   the\nlogin\t bug")).toBe("fix the login bug");
+  });
+
+  test("one absurdly long word is hard-cut rather than left to overflow", () => {
+    const out = bannerTitle("a".repeat(90));
+    expect(out.length).toBeLessThanOrEqual(43);
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  test("an exactly-at-budget title keeps every word and gains no ellipsis", () => {
+    const exact = "x".repeat(42);
+    expect(bannerTitle(exact)).toBe(exact);
   });
 });
