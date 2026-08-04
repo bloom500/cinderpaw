@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runUnattended, type RunTurn } from "../src/core/unattended.ts";
 import { createSafetyPoint, changedSince } from "../src/core/safety-point.ts";
-import { parseDoneWhen, verifyDoneWhen } from "../src/cron/done-when.ts";
+import { CHEAP_CHECKS, parseDoneWhen, verifyDoneWhen } from "../src/cron/done-when.ts";
 import { renderDigest } from "../src/core/digest.ts";
 import type { TurnOutcome, TurnResult } from "../src/core/agent-loop.ts";
 
@@ -192,6 +192,117 @@ describe("runUnattended", () => {
     expect(agent.prompts).toHaveLength(1);
     expect(run.stoppedBecause).toBe("deadline");
     expect(run.finished).toBe(false);
+  });
+
+  // ── Turn recording ────────────────────────────────────────────────────────
+  // The loop's own `turns` array dies with the process. A recorder is how a run
+  // stays auditable after the thing that ran it is gone.
+
+  test("every turn is handed to the recorder, in order, with its outcome", async () => {
+    const seen: Array<{ outcome: TurnOutcome; continuation: boolean; startedAt: number }> = [];
+    const agent = scripted(["out_of_time", "out_of_time", "completed"]);
+    const run = await runUnattended(agent.run, "task", "m", {
+      recorder: {
+        record: (t) => {
+          seen.push({ outcome: t.outcome, continuation: t.continuation, startedAt: t.startedAt });
+        },
+      },
+    });
+
+    expect(run.turns).toHaveLength(3);
+    expect(seen.map((s) => s.outcome)).toEqual(["out_of_time", "out_of_time", "completed"]);
+    expect(seen.map((s) => s.continuation)).toEqual([false, true, true]);
+    // A startedAt of 0 would make every duration in the report a lie.
+    expect(seen.every((s) => s.startedAt > 0)).toBe(true);
+  });
+
+  test("the recorder is told which turn was the replan", async () => {
+    // `replan` latches `replan_used` on the row, which is what stops the single
+    // retry being spent again after a restart. If it never reaches the recorder,
+    // a resumed run gets a fresh replan every time it comes back.
+    const seen: Array<{ outcome: TurnOutcome; replan?: boolean }> = [];
+    const agent = scripted(["stuck", "completed"]);
+    await runUnattended(agent.run, "task", "m", {
+      recorder: { record: (t) => { seen.push({ outcome: t.outcome, replan: t.replan }); } },
+    });
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]!.replan).toBeUndefined();
+    expect(seen[1]!.replan).toBe(true);
+  });
+
+  test("a recorder that throws does not kill the run", async () => {
+    // Telemetry is never allowed to be the reason unattended work stops.
+    const agent = scripted(["completed"]);
+    const run = await runUnattended(agent.run, "task", "m", {
+      recorder: { record: () => { throw new Error("disk full"); } },
+    });
+    expect(run.finished).toBe(true);
+  });
+
+  test("a recorder whose promise rejects does not kill the run either", async () => {
+    // The sync throw and the async rejection are different code paths, and the
+    // real recorder writes to SQLite behind an await.
+    const agent = scripted(["completed"]);
+    const run = await runUnattended(agent.run, "task", "m", {
+      recorder: { record: () => Promise.reject(new Error("db locked")) },
+    });
+    expect(run.finished).toBe(true);
+  });
+
+  test("no recorder means no behaviour change at all", async () => {
+    const agent = scripted(["completed"]);
+    const run = await runUnattended(agent.run, "task", "m");
+    expect(run.finished).toBe(true);
+    expect(run.turns).toHaveLength(1);
+  });
+});
+
+describe("verifyDoneWhen kinds filter", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "feral-kinds-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("a command check is skipped when only cheap kinds are asked for", async () => {
+    // Not "failed" — not evaluated. Reporting a skipped check as a failure would
+    // mark every mid-run turn as broken.
+    const filtered = await verifyDoneWhen({ kind: "command", value: "exit 1" }, null, CHEAP_CHECKS);
+    expect(filtered.checked).toBe(false);
+    expect(filtered.passed).toBe(true);
+    // And it must not claim nothing was declared — an assertion exists, it just
+    // has not run yet. Those two read very differently in a report.
+    expect(filtered.detail).toContain("not evaluated this turn");
+    expect(filtered.detail).not.toContain("no done_when declared");
+  });
+
+  test("a cheap check still runs under the same filter, and can fail", async () => {
+    await writeFile(join(dir, "out.txt"), "hello");
+
+    const pass = await verifyDoneWhen({ kind: "file_exists", path: "out.txt" }, dir, CHEAP_CHECKS);
+    expect(pass.checked).toBe(true);
+    expect(pass.passed).toBe(true);
+
+    const fail = await verifyDoneWhen({ kind: "file_exists", path: "nope.txt" }, dir, CHEAP_CHECKS);
+    expect(fail.checked).toBe(true);
+    expect(fail.passed).toBe(false);
+  });
+
+  test("with no filter, a command check runs as it always did", async () => {
+    const ok = await verifyDoneWhen({ kind: "command", value: "exit 0" }, null);
+    expect(ok.checked).toBe(true);
+    expect(ok.passed).toBe(true);
+  });
+
+  test("an empty filter evaluates nothing — it is not read as 'no filter'", async () => {
+    // `kinds && !kinds.includes(...)` must treat [] as "allow none". An empty
+    // array is falsy nowhere in JS, so this is a real distinction, not a
+    // theoretical one.
+    const none = await verifyDoneWhen({ kind: "file_exists", path: "nope.txt" }, dir, []);
+    expect(none.checked).toBe(false);
   });
 });
 

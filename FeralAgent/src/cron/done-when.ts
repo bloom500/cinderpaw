@@ -99,17 +99,43 @@ function runCommand(command: string, cwd: string, timeoutMs: number): Promise<nu
 }
 
 /**
+ * The checks cheap enough to run on every turn of a long run, so a report can
+ * say "verified four minutes ago" rather than only at the very end.
+ *
+ * `command` is excluded because it runs a whole test suite: doing that per turn
+ * turns an 8-hour run into a 20-hour one. It is evaluated once, at the end.
+ */
+export const CHEAP_CHECKS: ReadonlyArray<DoneWhen["kind"]> = ["file_exists", "file_contains"];
+
+/**
  * Evaluate a job's `done_when`.
  *
  * Never throws — a broken assertion reports as a failed check, because an
  * exception here would be indistinguishable from the job itself failing and
  * would send the operator looking in the wrong place.
+ *
+ * `kinds` restricts which check kinds are evaluated at all (see `CHEAP_CHECKS`).
+ * Omit it to evaluate whatever the spec declares, which is what every existing
+ * caller does.
  */
 export async function verifyDoneWhen(
   spec: DoneWhen | null | undefined,
   workspaceRoot: string | null,
+  kinds?: ReadonlyArray<DoneWhen["kind"]>,
 ): Promise<DoneCheck> {
   if (!spec) return UNCHECKED;
+  // Filtered out is NOT failed. A skipped check reported as a failure would mark
+  // every mid-run turn as broken, which is the opposite of informative. It is
+  // also not UNCHECKED's "nothing was declared": an assertion exists here and
+  // simply has not run yet, and saying the wrong one of those in a report is how
+  // an unverified run gets read as an unverifiable one.
+  if (kinds && !kinds.includes(spec.kind)) {
+    return {
+      passed: true,
+      checked: false,
+      detail: `not evaluated this turn — a \`${spec.kind}\` check runs once, at the end`,
+    };
+  }
 
   try {
     switch (spec.kind) {

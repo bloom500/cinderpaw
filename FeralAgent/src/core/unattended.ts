@@ -110,6 +110,22 @@ function maxContinuations(): number {
 }
 
 /**
+ * Somewhere to put a turn as it finishes, so a run stays auditable after the
+ * process that ran it is gone. The `turns` array below dies with the process;
+ * this is how the same information reaches disk.
+ *
+ * Deliberately fire-and-forget: a recorder that fails is never allowed to be the
+ * reason unattended work stops. Telemetry is not the work.
+ *
+ * `tokens` is passed through as 0 here — the loop has no access to a token
+ * counter and must not invent one. The caller's recorder owns the router and
+ * fills it in.
+ */
+export interface TurnRecorder {
+  record(turn: TurnRecord & { startedAt: number; tokens: number }): Promise<void> | void;
+}
+
+/**
  * Run a task to completion, continuing it across turn-budget expiries.
  *
  * Returns as soon as the task reaches a natural end, the continuation budget is
@@ -121,7 +137,7 @@ export async function runUnattended(
   runTurn: RunTurn,
   task: string,
   messageIdPrefix: string,
-  opts: { deadlineMs?: number } = {},
+  opts: { deadlineMs?: number; recorder?: TurnRecorder } = {},
 ): Promise<UnattendedResult> {
   const budget = maxContinuations();
   // The caller's deadline wins (cron sizes one from the job timeout); otherwise
@@ -155,13 +171,26 @@ export async function runUnattended(
       // correlates on it is unaffected; continuations are suffixed.
       attempt === 0 ? messageIdPrefix : `${messageIdPrefix}-cont${attempt}`,
     );
-    turns.push({
+    const record: TurnRecord = {
       outcome: result.outcome,
       toolCalls: result.toolCallCount,
       durationMs: Date.now() - startedAt,
       continuation: attempt > 0,
       ...(isReplan ? { replan: true } : {}),
-    });
+    };
+    turns.push(record);
+    if (opts.recorder) {
+      try {
+        // Awaited so a recorder writing to SQLite finishes before the next turn
+        // starts — a half-written turn row is worse than a late one.
+        await opts.recorder.record({ ...record, startedAt, tokens: 0 });
+      } catch {
+        // Silent here on purpose: the caller's recorder owns its own logging,
+        // and this catch exists only so the work continues. A recorder that
+        // cannot write is a reporting problem, not a reason to abandon a task
+        // nobody is watching.
+      }
+    }
     nextPrompt = CONTINUE_PROMPT;
 
     if (!result.incomplete) {
