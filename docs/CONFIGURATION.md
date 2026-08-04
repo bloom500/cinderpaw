@@ -175,6 +175,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_TURN_BUDGET_MS` | int | `1_200_000` |  | Wall-clock budget for ONE agent turn (clamped to 60s..6h). The iteration ceiling bounds tool-call count, not time; this bounds time. Only stops NEW iterations, so an in-flight tool is never cut off. Matters most on connectors, which have no Stop button. |
 | `FERAL_SUMMARY_EXCERPT_CHARS` | int | `24_000` |  | Characters of the compacted transcript fed to the working-memory summarizer (head+tail sampled). Raise on big-context models so long tool-heavy tasks keep more detail in the summary note. |
 | `FERAL_UNATTENDED_CONTINUATIONS` | int | `3` |  | Automatic continuations allowed after a turn hits the wall-clock budget during an UNATTENDED run (cron job, or a connector message answered while nobody is watching). 0 disables continuation and restores the old behaviour, where a long task simply stopped half-done and was reported as finished. Total wall clock is roughly (this + 1) x FERAL_TURN_BUDGET_MS, and is additionally capped by FERAL_CRON_JOB_TIMEOUT_MS for cron. |
+| `FERAL_MISSION_DEADLINE_MS` | int | `0` |  | Wall-clock deadline for a whole UNATTENDED run, across all its continuations. 0 (default) means no deadline, and the run is bounded only by FERAL_UNATTENDED_CONTINUATIONS x FERAL_TURN_BUDGET_MS. Set this for long autonomous missions: the continuation count is a counter, not a term, and sizing an 8-hour mission by raising the counter also raises the ceiling on how long a WEDGED run keeps burning tokens. Checked between turns, so an in-flight turn is never cut off — the real stop time can overrun by up to one turn budget. |
 | `FERAL_ATTACHMENT_MAX_CHARS` | int | `12_000` |  | Characters kept from ONE inbound attachment (a .txt/.md/code file, or the text extracted from a PDF) before it is truncated into the prompt. The default is sized for an 8k local context; raise it on a big-context cloud model so a whole document arrives in one message instead of a head slice. |
 | `FERAL_TOOL_GRAMMAR` | string | `null` |  | Optional GBNF grammar to constrain tool-call output. Presence alone also toggles useToolGrammar (default on; set to literal "false" to disable — inverse-toggle var, not migrated). |
 | `FERAL_VERSION` | string | `null` |  | Reported in startup logs; set by installer. |
@@ -374,6 +375,7 @@ FERAL_TREE_ITEM_MAX_CHARS
 FERAL_TOOL_ALLOWED_DOMAINS
 FERAL_TRUSTED_LOCAL_ORIGINS
 FERAL_TRUSTED_BASE_URLS
+FERAL_MISSION_DEADLINE_MS
 FERAL_TURN_BUDGET_MS
 FERAL_UNATTENDED_CONTINUATIONS
 FERAL_TTFT_DEADLINE_MS

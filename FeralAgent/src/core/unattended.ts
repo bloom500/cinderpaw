@@ -39,6 +39,8 @@ export interface TurnRecord {
   durationMs: number;
   /** True for every turn after the first — i.e. an automatic continuation. */
   continuation: boolean;
+  /** True for the one turn spent looking for a different approach after a stuck one. */
+  replan?: boolean;
 }
 
 export interface UnattendedResult {
@@ -75,6 +77,33 @@ const CONTINUE_PROMPT =
   "first, and verify current state before any write that might already have happened.\n" +
   "If the task is in fact complete, say so plainly and stop.)";
 
+/**
+ * What a replan turn says to the model, after the loop detector proved the
+ * current approach returns the same result no matter how often it is retried.
+ *
+ * A continuation prompt is wrong here and would make things worse: it says
+ * "pick up where you stopped", and where it stopped is precisely the thing that
+ * does not work. The stuck outcome is not "ran out of time", it is "this
+ * approach is refuted" — so the prompt asks for the refutation to be stated
+ * first. Naming what was tried and why it failed is what stops the model
+ * rediscovering the same dead end with slightly different arguments, which is
+ * the failure mode of a bare "try something else".
+ *
+ * Permission to give up is deliberate. An agent that cannot say "there is no
+ * other way in" will invent one, and an invented approach run unattended for
+ * another hour is worse than an honest stop.
+ */
+const REPLAN_PROMPT =
+  "(system: you stopped because the same action kept returning the same result. That " +
+  "approach is refuted — retrying it in any form will not work. This is an automatic " +
+  "replan; no human is watching, so do not ask questions and do not wait for approval.\n" +
+  "First, state in one or two lines: what you were trying to achieve, what you tried, and " +
+  "why it could not have worked. Then choose a DIFFERENT approach — a different tool, a " +
+  "different entry point, or a smaller sub-goal whose result you can actually verify. Do " +
+  "not repeat the action that got you stuck.\n" +
+  "If there is genuinely no other approach available to you, say so plainly, say what you " +
+  "would need, and stop. That is a valid answer and a better one than a guess.)";
+
 /** Continuations allowed after the first turn. */
 function maxContinuations(): number {
   return Math.max(0, cfgInt("FERAL_UNATTENDED_CONTINUATIONS"));
@@ -95,16 +124,33 @@ export async function runUnattended(
   opts: { deadlineMs?: number } = {},
 ): Promise<UnattendedResult> {
   const budget = maxContinuations();
-  const deadline = opts.deadlineMs !== undefined ? Date.now() + opts.deadlineMs : Infinity;
+  // The caller's deadline wins (cron sizes one from the job timeout); otherwise
+  // fall back to the configured mission deadline. Defaulted HERE rather than at
+  // the three call sites because two of them — dispatch and the connectors —
+  // passed nothing, so an autonomous run reached over a connector had no
+  // wall-clock bound at all, only a continuation count. A counter cannot
+  // express "stop at 6am", which is the thing a walk-away run actually needs.
+  const configured = cfgInt("FERAL_MISSION_DEADLINE_MS");
+  const deadlineMs = opts.deadlineMs ?? (configured > 0 ? configured : undefined);
+  const deadline = deadlineMs !== undefined ? Date.now() + deadlineMs : Infinity;
   const turns: TurnRecord[] = [];
 
   let result: TurnResult | null = null;
   let stoppedBecause: UnattendedResult["stoppedBecause"] = "completed";
+  // The prompt for the NEXT turn. A variable rather than a ternary on `attempt`
+  // because a replan turn is neither the first turn nor an ordinary continuation.
+  let nextPrompt = task;
+  // A replan is allowed once per run. Twice would mean the second replan is
+  // reacting to the first one's failure with no more information than it had,
+  // and unattended runs are exactly where an unbounded "try again differently"
+  // burns a night's budget.
+  let replanned = false;
 
   for (let attempt = 0; attempt <= budget; attempt++) {
     const startedAt = Date.now();
+    const isReplan = nextPrompt === REPLAN_PROMPT;
     result = await runTurn(
-      attempt === 0 ? task : CONTINUE_PROMPT,
+      nextPrompt,
       // First turn keeps the caller's id verbatim so an existing UI that
       // correlates on it is unaffected; continuations are suffixed.
       attempt === 0 ? messageIdPrefix : `${messageIdPrefix}-cont${attempt}`,
@@ -114,9 +160,21 @@ export async function runUnattended(
       toolCalls: result.toolCallCount,
       durationMs: Date.now() - startedAt,
       continuation: attempt > 0,
+      ...(isReplan ? { replan: true } : {}),
     });
+    nextPrompt = CONTINUE_PROMPT;
 
     if (!result.incomplete) {
+      // A stuck turn is not "out of time" — the approach was refuted, and the
+      // run still has budget. Spend one turn looking for a different way in
+      // before declaring the whole task dead. This is the only outcome worth
+      // re-invoking for that `isContinuable` deliberately excludes: continuing
+      // a stuck turn is pointless, but REPLANNING one is not the same thing.
+      if (result.outcome === "stuck" && !replanned && attempt < budget && Date.now() < deadline) {
+        replanned = true;
+        nextPrompt = REPLAN_PROMPT;
+        continue;
+      }
       stoppedBecause = isContinuable(result.outcome) ? "continuation_budget" : "not_continuable";
       // A terminal outcome that is not continuable (stuck, stopped, no_answer)
       // is still "why we stopped"; a completed one is the happy path.
@@ -140,7 +198,9 @@ export async function runUnattended(
   const finished = last.outcome === "completed";
 
   return {
-    text: finished ? last.text : `${unfinishedBanner(last.outcome, turns.length)}\n\n${last.text}`,
+    text: finished
+      ? last.text
+      : `${unfinishedBanner(last.outcome, turns.length, replanned)}\n\n${last.text}`,
     outcome: last.outcome,
     finished,
     turns,
@@ -155,14 +215,19 @@ export async function runUnattended(
  * phone sees the first line and nothing else, and "this is not done" is the
  * part they must not miss.
  */
-function unfinishedBanner(outcome: TurnOutcome, turnCount: number): string {
+function unfinishedBanner(outcome: TurnOutcome, turnCount: number, replanned = false): string {
   const turnsRun = `${turnCount} turn${turnCount === 1 ? "" : "s"}`;
   switch (outcome) {
     case "out_of_time":
     case "ceiling":
       return `⚠️ **Not finished.** I worked through ${turnsRun} and ran out of budget before completing the task.`;
     case "stuck":
-      return `⚠️ **Not finished.** I stopped after ${turnsRun}: repeating the same action stopped making progress.`;
+      // Whether a different approach was already tried is the first thing the
+      // reader needs: it decides whether their next move is "try again" or
+      // "this needs me".
+      return replanned
+        ? `⚠️ **Not finished.** I stopped after ${turnsRun}: the first approach stopped making progress, and the alternative I tried did not work either.`
+        : `⚠️ **Not finished.** I stopped after ${turnsRun}: repeating the same action stopped making progress.`;
     case "stopped":
       return `⏹️ **Stopped.** The run was cancelled after ${turnsRun}.`;
     case "no_answer":

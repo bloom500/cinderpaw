@@ -71,6 +71,86 @@ describe("runUnattended", () => {
     expect(agent.prompts[1]).toContain("no human is watching");
   });
 
+  test("a stuck turn gets one turn to find another way in", async () => {
+    const agent = scripted(["stuck", "completed"]);
+    const run = await runUnattended(agent.run, "do the thing", "m");
+
+    expect(agent.prompts).toHaveLength(2);
+    expect(run.finished).toBe(true);
+    expect(run.turns[1]?.replan).toBe(true);
+    // The replan prompt must not read like a continuation: "pick up where you
+    // stopped" points at the approach that was just refuted.
+    expect(agent.prompts[1]).not.toContain("Pick up exactly where you stopped");
+    expect(agent.prompts[1]).toContain("refuted");
+    expect(agent.prompts[1]).toContain("DIFFERENT approach");
+    // Giving up must stay available, or the model invents an approach and runs
+    // it unattended for another hour.
+    expect(agent.prompts[1]).toContain("stop");
+  });
+
+  test("the replan happens once, not once per stuck turn", async () => {
+    const agent = scripted(["stuck", "stuck", "stuck", "stuck"]);
+    const run = await runUnattended(agent.run, "do the thing", "m");
+
+    expect(agent.prompts).toHaveLength(2);
+    expect(run.finished).toBe(false);
+    expect(run.outcome).toBe("stuck");
+    expect(run.turns.filter((t) => t.replan)).toHaveLength(1);
+    // The banner has to say the alternative was already tried — that decides
+    // whether the reader's next move is "retry" or "this needs me".
+    expect(run.text).toContain("did not work either");
+  });
+
+  test("a stuck turn with no budget left is not replanned", async () => {
+    process.env.FERAL_UNATTENDED_CONTINUATIONS = "0";
+    const agent = scripted(["stuck"]);
+    const run = await runUnattended(agent.run, "do the thing", "m");
+
+    expect(agent.prompts).toHaveLength(1);
+    expect(run.finished).toBe(false);
+    expect(run.text).not.toContain("did not work either");
+  });
+
+  test("the configured mission deadline bounds a run nobody passed one for", async () => {
+    process.env.FERAL_UNATTENDED_CONTINUATIONS = "10";
+    process.env.FERAL_MISSION_DEADLINE_MS = "1";
+    try {
+      // The turn has to consume real wall clock: the deadline is checked
+      // between turns, and a scripted turn that returns in under a millisecond
+      // never advances Date.now() past it.
+      const agent = scripted(["out_of_time", "out_of_time", "out_of_time"]);
+      const slow: RunTurn = async (text, id) => {
+        await new Promise((r) => setTimeout(r, 5));
+        return agent.run(text, id);
+      };
+      const run = await runUnattended(slow, "do the thing", "m");
+
+      // Dispatch and the connectors pass no deadline; before the config default
+      // they were bounded only by the continuation counter, which cannot
+      // express "stop at 6am".
+      expect(agent.prompts).toHaveLength(1);
+      expect(run.stoppedBecause).toBe("deadline");
+      expect(run.finished).toBe(false);
+    } finally {
+      delete process.env.FERAL_MISSION_DEADLINE_MS;
+    }
+  });
+
+  test("an explicit deadline still wins over the configured one", async () => {
+    process.env.FERAL_MISSION_DEADLINE_MS = "1";
+    try {
+      const agent = scripted(["out_of_time", "completed"]);
+      const run = await runUnattended(agent.run, "do the thing", "m", {
+        deadlineMs: 60_000,
+      });
+
+      expect(agent.prompts).toHaveLength(2);
+      expect(run.finished).toBe(true);
+    } finally {
+      delete process.env.FERAL_MISSION_DEADLINE_MS;
+    }
+  });
+
   test("exhausting the continuation budget reports UNFINISHED", async () => {
     const agent = scripted(["out_of_time", "out_of_time", "out_of_time", "out_of_time"]);
     const run = await runUnattended(agent.run, "big task", "m");
@@ -83,11 +163,15 @@ describe("runUnattended", () => {
     expect(run.text.split("\n")[0]).toContain("Not finished");
   });
 
-  test("a stuck run is NOT continued — repeating it cannot help", async () => {
-    const agent = scripted(["stuck"]);
+  test("a stuck run is replanned once and then NOT continued", async () => {
+    const agent = scripted(["stuck", "stuck"]);
     const run = await runUnattended(agent.run, "task", "m");
 
-    expect(agent.prompts).toHaveLength(1);
+    // This test used to assert one turn: a stuck outcome ended the run outright,
+    // because continuing it buys nothing but tokens. That is still true of a
+    // CONTINUATION — and it is why the replan is a different prompt rather than
+    // a higher continuation budget. One alternative, then stop.
+    expect(agent.prompts).toHaveLength(2);
     expect(run.finished).toBe(false);
     expect(run.stoppedBecause).toBe("not_continuable");
   });

@@ -182,6 +182,16 @@ interface SessionRunContext {
 interface SessionEntry {
   memory: WorkingMemory;
   lastAccess: number;
+  /**
+   * C-02 no-progress counts, keyed by call+result digest. Lives on the session
+   * rather than the turn because an unattended run is many turns: a per-turn
+   * map reset on every continuation, so an agent stuck in a loop looked fresh
+   * at the top of each one and could burn its whole budget while every
+   * individual turn read as reasonable. Cleared whenever a turn ends
+   * `completed` — reaching a real answer proves the repeats before it were not
+   * a stuck loop, which keeps ordinary chat behaving exactly as before.
+   */
+  noProgress: Map<string, number>;
 }
 
 /**
@@ -977,6 +987,13 @@ export class AgentLoop {
       // append an audit block so they can review every autonomous choice when
       // they return. Free — no extra completion, just the decisions collected
       // in #run. The model's own text is already its "what I did" narrative.
+      // The session-scoped no-progress counters (see `SessionEntry.noProgress`)
+      // only accumulate while a task is unfinished. A turn that reached a real
+      // answer is proof the repeats leading up to it were productive, so the
+      // slate is wiped — that is what keeps normal chat, where every turn ends
+      // here, on exactly the pre-session-scope behaviour.
+      if (outcome === "completed") this.#sessions.get(sessionId)?.noProgress.clear();
+
       const decisions = ctx.autoDecisions ?? [];
       const final = decisions.length > 0
         ? `${runText}\n\n---\n**Decisions I made on your behalf** (you weren't asked — review these):\n` +
@@ -1182,8 +1199,15 @@ export class AgentLoop {
     // arguments alone, so it can only warn — it cannot tell a productive repeat
     // (a poll whose output advances) from a stuck one. Keying on args AND the
     // rendered result makes "no progress" a fact rather than a guess, which is
-    // what licenses a hard stop. Counts are per turn and reset with the loop.
-    const noProgressCounts = new Map<string, number>();
+    // what licenses a hard stop.
+    //
+    // Counts live on the SESSION, not this turn. The nudge counters above stay
+    // per-turn on purpose — a nudge is advice and should arrive fresh — but the
+    // hard stop has to see across continuations, because that is the only place
+    // an 8-hour run can go wrong without any single turn looking wrong.
+    // The `?? new Map()` is unreachable (`#memoryFor` ran in `#handle`) and
+    // degrades to the old per-turn behaviour rather than throwing.
+    const noProgressCounts = this.#sessions.get(sessionId)?.noProgress ?? new Map<string, number>();
     /** Set when a proven no-progress loop trips the hard stop; ends the turn. */
     let stuckOn: { tool: string; count: number } | null = null;
 
@@ -1982,7 +2006,7 @@ export class AgentLoop {
           else memory.addAssistant(ev.content);
         }
       }
-      entry = { memory, lastAccess: Date.now() };
+      entry = { memory, lastAccess: Date.now(), noProgress: new Map() };
       this.#sessions.set(sessionId, entry);
     } else {
       // Touch: delete + re-insert moves the entry to the tail of the
