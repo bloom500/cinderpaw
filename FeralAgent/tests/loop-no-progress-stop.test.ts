@@ -49,6 +49,29 @@ function installLoopingModel(toolName: string, args: Record<string, unknown> = {
   return { modelCalls: () => calls };
 }
 
+/**
+ * Model whose behaviour can be swapped between turns: either it keeps asking
+ * for one tool call, or it answers in plain prose. Needed to exercise the
+ * SESSION-scoped counter, whose whole contract is about what survives across
+ * `handle()` calls and what does not.
+ */
+function installSwitchableModel(toolName: string) {
+  const original = globalThis.fetch;
+  let mode: "loop" | "answer" = "loop";
+  globalThis.fetch = (async () => {
+    const body =
+      mode === "loop"
+        ? `<tool_call>${JSON.stringify({ name: toolName, args: {} })}</tool_call>`
+        : "All done.";
+    return new Response(
+      JSON.stringify({ message: { content: body }, prompt_eval_count: 1, eval_count: 1 }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+  restoreFetch = () => (globalThis.fetch = original);
+  return { loop: () => (mode = "loop"), answer: () => (mode = "answer") };
+}
+
 function buildAgent(db: ReturnType<typeof openDatabase>, registry: ToolRegistry): AgentLoop {
   const audit = new AuditLog(db.raw);
   const router = new InferenceRouter(
@@ -138,6 +161,60 @@ describe("C-02 — a proven no-progress loop is stopped", () => {
     expect(finalText).toContain("same result");
     // Must not blame task scope — that is the ABSOLUTE_CEILING message.
     expect(finalText).not.toContain("too open-ended");
+    db.close();
+  });
+});
+
+/**
+ * The gap that mattered at 8-hour scale. The counters used to be a `const Map`
+ * inside the turn loop, so every automatic continuation started the detector
+ * from zero: an agent wedged on one call could be handed 23 continuations and
+ * spend all of them re-proving the same dead end, with each individual turn
+ * stopping "correctly" at the threshold and therefore looking reasonable.
+ * Nothing in the system was watching the run.
+ */
+describe("C-02 — the counter spans turns, not just one turn", () => {
+  test("a second turn on the same session does not get a fresh budget", async () => {
+    installLoopingModel("frozen");
+    const db = openDatabase(":memory:");
+    const registry = newRegistry(db);
+    const calls = { n: 0 };
+    registry.register(frozenTool("frozen", calls));
+    const agent = buildAgent(db, registry);
+
+    await agent.handle("s-cross", "do the thing", "m1", () => {});
+    expect(calls.n).toBe(NO_PROGRESS_STOP);
+
+    // The continuation re-issues the same refuted call. Per-turn counters would
+    // have let it run another full NO_PROGRESS_STOP; the session-scoped ones
+    // trip on the first repeat.
+    await agent.handle("s-cross", "keep going", "m2", () => {});
+    expect(calls.n).toBe(NO_PROGRESS_STOP + 1);
+
+    db.close();
+  });
+
+  test("a turn that reaches a real answer wipes the slate", async () => {
+    const model = installSwitchableModel("frozen");
+    const db = openDatabase(":memory:");
+    const registry = newRegistry(db);
+    const calls = { n: 0 };
+    registry.register(frozenTool("frozen", calls));
+    const agent = buildAgent(db, registry);
+
+    await agent.handle("s-clear", "do the thing", "m1", () => {});
+    expect(calls.n).toBe(NO_PROGRESS_STOP);
+
+    model.answer();
+    await agent.handle("s-clear", "never mind, just answer", "m2", () => {});
+
+    // Fresh budget, not an instant trip: reaching an answer proved the earlier
+    // repeats were not a stuck loop. Without this, one stuck turn would poison
+    // an ordinary chat session for as long as it stayed in the LRU.
+    model.loop();
+    await agent.handle("s-clear", "now do this other thing", "m3", () => {});
+    expect(calls.n).toBe(NO_PROGRESS_STOP * 2);
+
     db.close();
   });
 });

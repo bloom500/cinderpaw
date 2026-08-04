@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
 import { AuditLog } from "../src/egress/audit-log.ts";
-import { EpisodicMemory } from "../src/memory/episodic.ts";
+import { EpisodicMemory, SESSION_RESET_MARK } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { RecallEngine } from "../src/memory/recall.ts";
 import { WorkingMemory } from "../src/memory/working.ts";
@@ -313,5 +313,127 @@ describe("WorkingMemory.maybeCompress — context-window safety", () => {
     expect(changed).toBe(true);
     expect(mem.estimatedTokens()).toBeLessThanOrEqual(700);
     expect(mem.turns[0]?.content).toContain("earlier turns omitted");
+  });
+
+  test("an existing summary is carried forward, never re-summarized", async () => {
+    // The long-session hallucination cliff: the summary note sits at index 0,
+    // so every later compaction fed it back through the summarizer — a summary
+    // of a summary of a summary, lossy and free to invent at each hop. The
+    // summarizer here fails loudly if it is ever handed the boundary note.
+    const seen: string[][] = [];
+    const spy = async (msgs: { role: string; content: string }[]) => {
+      seen.push(msgs.map((m) => m.content));
+      return `FACT-${seen.length}`;
+    };
+    const mem = new WorkingMemory("sys");
+    const fill = () => {
+      for (let i = 0; i < 12; i++) {
+        mem.addUser("q " + "w".repeat(200));
+        mem.addAssistant("a " + "a".repeat(200));
+      }
+    };
+    fill();
+    await mem.maybeCompress(spy, 900);
+    fill();
+    await mem.maybeCompress(spy, 900);
+    fill();
+    await mem.maybeCompress(spy, 900);
+
+    expect(seen).toHaveLength(3);
+    // No pass was ever given the boundary note as input.
+    for (const batch of seen) {
+      for (const content of batch) {
+        expect(content).not.toContain("Summary of earlier conversation");
+      }
+    }
+    // Every summary written so far is still present, verbatim and in order.
+    const note = mem.turns[0]?.content ?? "";
+    expect(note).toContain("FACT-1");
+    expect(note).toContain("FACT-2");
+    expect(note).toContain("FACT-3");
+    expect(note.indexOf("FACT-1")).toBeLessThan(note.indexOf("FACT-3"));
+  });
+
+  test("the original request survives compaction as a pinned drawer", async () => {
+    const mem = new WorkingMemory("sys");
+    mem.addUser("migrate the billing service to Postgres");
+    for (let i = 0; i < 20; i++) {
+      mem.addUser("q " + "w".repeat(200));
+      mem.addAssistant("a " + "a".repeat(200));
+    }
+    await mem.maybeCompress(summarize, 900);
+    // Gone from the transcript, still in the rendered prompt.
+    expect(mem.turns.some((m) => m.content.includes("migrate the billing service"))).toBe(false);
+    const rendered = mem.render().map((m) => m.content).join("\n");
+    expect(rendered).toContain("migrate the billing service to Postgres");
+  });
+
+  test("stale tool results are trimmed; recent ones stay verbatim", async () => {
+    const mem = new WorkingMemory("sys");
+    for (let i = 0; i < 8; i++) {
+      mem.addUser(`step ${i}`);
+      mem.addToolResult("read_file", `PAYLOAD-${i} ` + "x".repeat(8_000));
+    }
+    const before = mem.estimatedTokens();
+    // Well under budget: no summarization runs, so anything saved here is the
+    // tool-result layer alone.
+    const changed = await mem.maybeCompress(summarize, 1_000_000);
+    expect(changed).toBe(false);
+    expect(mem.estimatedTokens()).toBeLessThan(before);
+
+    const tools = mem.turns.filter((m) => m.role === "tool");
+    // The last four are untouched; the older ones are cut to a fraction and
+    // carry the recovery note.
+    for (const m of tools.slice(-4)) {
+      expect(m.content).not.toContain("re-run the tool");
+      expect(m.content.length).toBeGreaterThan(8_000);
+    }
+    for (const m of tools.slice(0, -4)) {
+      expect(m.content).toContain("re-run the tool");
+      // Generous: the payload is a run of one repeated char, which packs ~8
+      // chars per token, so the 400-token ceiling buys more characters here
+      // than it would on real file content.
+      expect(m.content.length).toBeLessThan(4_000);
+    }
+    // Identifying head survives the cut — the model can still tell them apart.
+    expect(tools[0]?.content).toContain("PAYLOAD-0");
+
+    // Idempotent: a second pass must not keep eating the trimmed messages.
+    const after = mem.estimatedTokens();
+    await mem.maybeCompress(summarize, 1_000_000);
+    expect(mem.estimatedTokens()).toBe(after);
+  });
+});
+
+describe("EpisodicMemory.conversation — the /new barrier", () => {
+  test("replay starts after the most recent session-reset marker", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const ep = new EpisodicMemory(db.raw, audit.logger);
+
+    ep.record("s1", "user", "first topic");
+    ep.record("s1", "assistant", "answer about the first topic");
+    ep.record("s1", "system", SESSION_RESET_MARK);
+    ep.record("s1", "user", "second topic");
+    ep.record("s1", "assistant", "answer about the second topic");
+
+    // Without the barrier this replays all four turns, and `/new` lasts
+    // exactly one message before the old conversation walks back in.
+    expect(ep.conversation("s1", 40).map((e) => e.content)).toEqual([
+      "second topic",
+      "answer about the second topic",
+    ]);
+
+    // A second reset moves the barrier forward, not back.
+    ep.record("s1", "system", SESSION_RESET_MARK);
+    expect(ep.conversation("s1", 40)).toHaveLength(0);
+
+    // Nothing was deleted — recall can still surface the old turns.
+    expect(ep.recent("s1", 40).some((e) => e.content === "first topic")).toBe(true);
+
+    // A session that never reset is unaffected.
+    ep.record("s2", "user", "untouched");
+    expect(ep.conversation("s2", 40).map((e) => e.content)).toEqual(["untouched"]);
+    db.close();
   });
 });

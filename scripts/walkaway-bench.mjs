@@ -532,6 +532,12 @@ function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = f
   seedProviderConfig(benchHome);
   return new Promise((done) => {
     const events = [];
+    /**
+     * Per-turn outcomes, in order. Turns "it failed" into "it failed because it
+     * ran out of time on turn 3", which is the difference between a number and
+     * a diagnosis.
+     */
+    const outcomes = [];
     let lastError = null;
     const child = spawn(BUN, [SIDECAR_ENTRY], {
       cwd: workspace,
@@ -547,6 +553,14 @@ function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = f
         ...routeEnv,
         FERAL_WORKSPACE: workspace,
         FERAL_ENABLE_SHELL_EXEC: "true",
+        // Endurance is the thing being measured, so the per-TURN budget has to
+        // be smaller than the per-TASK budget — otherwise the task timeout
+        // always fires first, no turn is ever cut short, and the continuation
+        // path is never exercised at all. A third of the task window gives each
+        // task room for the initial turn plus continuations inside its own
+        // deadline. Override with FERAL_BENCH_TURN_BUDGET_MS.
+        FERAL_TURN_BUDGET_MS:
+          process.env.FERAL_BENCH_TURN_BUDGET_MS ?? String(Math.round(timeoutMs / 3)),
         // The mock ads API is on loopback, which the SSRF guard blocks by
         // default and should. The operator (this script) declares it — exact
         // origin, nothing else on 127.0.0.1 becomes reachable.
@@ -575,7 +589,7 @@ function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = f
       clearTimeout(timer);
       try { child.kill("SIGKILL"); } catch { /* already dead */ }
       writeFileSync(logPath, events.map((e) => JSON.stringify(e)).join("\n"), "utf8");
-      done({ outcome, detail, events, lastError });
+      done({ outcome, detail, events, lastError, turnOutcomes: outcomes });
     };
 
     const timer = setTimeout(() => finish("timeout", `still running after ${Math.round(timeoutMs / 60000)} min`), timeoutMs);
@@ -590,7 +604,21 @@ function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = f
         let ev;
         try { ev = JSON.parse(line); } catch { continue; }
         events.push(ev);
-        if (ev.type === "done") finish("done", ev.stopped ? "stopped early" : "completed");
+        if (ev.type === "done") {
+          // A `done` carrying `incomplete: true` is a turn the wall clock cut
+          // short, which an unattended run then continues — so it is NOT the
+          // end of the task. Treating the first `done` as terminal killed the
+          // sidecar mid-run and scored continuation as though it did not exist.
+          if (ev.incomplete) {
+            outcomes.push(ev.outcome ?? "out_of_time");
+            continue;
+          }
+          // `runSummary` closes an unattended run that ended unfinished. It
+          // restates the last turn's outcome rather than describing a new one,
+          // so counting it as a turn double-counts the turn it summarises.
+          if (!ev.runSummary) outcomes.push(ev.outcome ?? "completed");
+          finish("done", ev.stopped ? "stopped early" : "completed");
+        }
         if (ev.type === "error") {
           // Terminal. The first version let the run idle out the full timeout
           // after inference died, turning a 5-second diagnosis into a 25-minute
@@ -660,7 +688,7 @@ async function runAll(routeEnv) {
       const started = Date.now();
       process.stdout.write(`  ${label.padEnd(28)} `);
 
-      const { outcome, detail, lastError } = await runTask(task, ws, join(ws, "events.jsonl"), timeoutMs, routeEnv, task.needsMockAds);
+      const { outcome, detail, lastError, turnOutcomes } = await runTask(task, ws, join(ws, "events.jsonl"), timeoutMs, routeEnv, task.needsMockAds);
       const elapsedMin = ((Date.now() - started) / 60_000).toFixed(1);
       if (mockAds) {
         try { mockAds.kill("SIGKILL"); } catch { /* already gone */ }
@@ -688,8 +716,24 @@ async function runAll(routeEnv) {
       }
 
       const passed = failure === null;
-      console.log(`${passed ? "PASS" : "FAIL"}  ${elapsedMin}min  ${failure ?? ""}`);
-      results.push({ task: task.id, run, passed, elapsedMin: Number(elapsedMin), outcome, detail, failure });
+      // How many turns it took, and how each ended. A task that passes on its
+      // third turn and one that passes on its first are both "PASS" but they
+      // are not the same agent, and the difference is exactly what the
+      // continuation work was supposed to move.
+      const turns = turnOutcomes ?? [];
+      const shape = turns.length > 1 ? `  [${turns.join(" → ")}]` : "";
+      console.log(`${passed ? "PASS" : "FAIL"}  ${elapsedMin}min  ${failure ?? ""}${shape}`);
+      results.push({
+        task: task.id,
+        run,
+        passed,
+        elapsedMin: Number(elapsedMin),
+        outcome,
+        detail,
+        failure,
+        turnOutcomes: turns,
+        continuations: Math.max(0, turns.length - 1),
+      });
     }
   }
 
@@ -713,6 +757,16 @@ async function runAll(routeEnv) {
   );
 
   console.log(`\n${passed}/${results.length} passed (${rate}%)`);
+  // Continuation is the headline change this bench exists to evaluate, so
+  // report what it actually did rather than leaving it inside the pass rate.
+  const continued = results.filter((r) => r.continuations > 0);
+  if (continued.length > 0) {
+    const rescued = continued.filter((r) => r.passed).length;
+    console.log(
+      `  ${continued.length} run(s) needed an automatic continuation; ${rescued} of those passed ` +
+        `(without continuation they would have been delivered half-finished)`,
+    );
+  }
   if (infra.length > 0) {
     const agentRate = scored ? Math.round((passed / scored) * 100) : 0;
     console.log(

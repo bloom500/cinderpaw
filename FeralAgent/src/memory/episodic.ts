@@ -10,6 +10,18 @@
 import type { Database } from "bun:sqlite";
 import type { AuditLogger, ChatMessage, EpisodicEvent } from "../types.ts";
 
+/**
+ * Marker row written by `AgentLoop.resetSession` (`/new`). Everything a session
+ * recorded before its most recent marker is excluded from `conversation()`.
+ *
+ * A reset cannot just drop the in-RAM WorkingMemory: the next message rebuilds
+ * it, and rebuilding replays the last 40 turns straight back out of this table
+ * (AgentLoop.#memoryFor) — the "fresh start" lasted exactly one message. The
+ * barrier is what makes the reset stick. Nothing is deleted: the rows stay
+ * searchable by recall, they just stop being replayed as live conversation.
+ */
+export const SESSION_RESET_MARK = "[session-reset]";
+
 export class EpisodicMemory {
   readonly #db: Database;
   readonly #audit: AuditLogger;
@@ -117,22 +129,29 @@ export class EpisodicMemory {
    *     role `assistant` under the live sessionId (extractor.ts), so replaying
    *     them would feed the model its own internal `[obs:…]` notes as things
    *     it said out loud.
-   * Both are filtered in SQL, not after the fact, so `limit` counts real turns
-   * — a session whose last 40 rows are all tool calls still rehydrates 40
+   *   - Anything older than the session's most recent `[session-reset]` marker
+   *     is excluded. That is what makes `/new` survive the rehydration path —
+   *     see SESSION_RESET_MARK.
+   * All three are filtered in SQL, not after the fact, so `limit` counts real
+   * turns — a session whose last 40 rows are all tool calls still rehydrates 40
    * turns of conversation.
    */
   conversation(sessionId: string, limit = 20): EpisodicEvent[] {
     const rows = this.#db
-      .query<EpisodicRow, [string, number]>(
+      .query<EpisodicRow, [string, string, string, number]>(
         `SELECT id, session_id, timestamp, role, content
          FROM episodic
          WHERE session_id = ?
            AND role IN ('user', 'assistant')
            AND content NOT LIKE '[obs:%'
+           AND id > COALESCE(
+             (SELECT MAX(id) FROM episodic
+               WHERE session_id = ? AND role = 'system' AND content = ?),
+             0)
          ORDER BY timestamp DESC, id DESC
          LIMIT ?`,
       )
-      .all(sessionId, limit);
+      .all(sessionId, sessionId, SESSION_RESET_MARK, limit);
     return rows.map(fromRow).reverse();
   }
 

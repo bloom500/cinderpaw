@@ -15,7 +15,8 @@
 import { join } from "node:path";
 import type { InboundMessage, ModelTarget, Schedule, DeliveryTarget } from "./types.ts";
 import type { BootContext } from "./boot.ts";
-import { cfgPath } from "./config.ts";
+import { cfgBool, cfgPath } from "./config.ts";
+import { runUnattended } from "./core/unattended.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
 import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
 import { liveModuleRegistry } from "./rsi/l4-modules/seam-runtime.ts";
@@ -25,6 +26,7 @@ import { governanceCheck } from "./rsi/l5-gov/governance.ts";
 import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
+import { parseResponse } from "./core/agent-loop.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -560,6 +562,41 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // session's transcript now. Replies with one `compact_result` paired by
       // `id`. The summarizer is a full LLM completion, so this can take a
       // while on CPU — the caller owns its own timeout.
+      // Provider conformance (see egress/conformance.ts): three short probes
+      // that establish whether the configured model can actually drive the
+      // agent, as opposed to merely answering chat. Run on demand from setup.
+      case "provider_conformance": {
+        void (async () => {
+          try {
+            const { probeProvider } = await import("./egress/conformance.ts");
+            const report = await probeProvider(
+              (req) => router.complete(req),
+              (raw) => ({
+                calls: parseResponse(raw).toolCalls.map((c) => ({ name: c.name, args: c.args })),
+              }),
+            );
+            transport.send({
+              type: "provider_conformance_result",
+              id: msg.id ?? "",
+              ok: true,
+              ready: report.ready,
+              summary: report.summary,
+              probes: report.probes,
+            });
+          } catch (err) {
+            transport.send({
+              type: "provider_conformance_result",
+              id: msg.id ?? "",
+              ok: false,
+              ready: false,
+              summary: `conformance probe failed: ${String(err)}`,
+              probes: [],
+            });
+          }
+        })();
+        break;
+      }
+
       case "compact_session": {
         const sessionId = msg.sessionId ?? "default";
         try {
@@ -1076,7 +1113,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // could see connected. Bounded wait; a slow server still lands on the
         // next turn via #syncTools(). No-op once the reconcile has settled.
         await mcpManager.ready();
-        await agent.handle(sessionId, content, id, (event) => {
+        const relay = (event: import("./types.ts").OutboundEvent) => {
           transport.send(event);
           // X1 fix: same gating as the message-received update above.
           if (event.type === "done")       mood?.applyEvent("message_answered");
@@ -1092,7 +1129,42 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             // is actually going wrong).
             activityMonitor.recordError(Date.now());
           }
-        }, skillsContext, images, inferParams);
+        };
+        // Unattended: FERAL_AUTONOMOUS already means "nobody is at the machine
+        // to answer ask_user". The same fact means nobody is here to type
+        // "continue" either, so a turn cut short by the wall-clock budget must
+        // be resumed rather than delivered as the answer. Continuation only
+        // fires on an outcome that was actually cut off, so an ordinary message
+        // costs exactly one turn as before.
+        if (cfgBool("FERAL_AUTONOMOUS")) {
+          const run = await runUnattended(
+            (text, messageId) =>
+              agent.handleTurn(sessionId, text, messageId, relay, skillsContext, images, inferParams),
+            content,
+            id,
+          );
+          // Each turn emits its own `done`, and a turn that was cut short is
+          // flagged `incomplete` so a consumer knows not to treat it as the
+          // answer. But only THIS loop knows whether another turn is actually
+          // coming: with continuations exhausted or disabled, the last event a
+          // consumer saw was an incomplete `done` followed by silence, and
+          // anything waiting for the real answer waited forever. Close the run
+          // explicitly when it ends without finishing.
+          if (!run.finished) {
+            transport.send({
+              type: "done",
+              id,
+              content: run.text,
+              stopped: false,
+              traceId: id,
+              outcome: run.outcome,
+              incomplete: false,
+              runSummary: true,
+            });
+          }
+        } else {
+          await agent.handle(sessionId, content, id, relay, skillsContext, images, inferParams);
+        }
         break;
       }
 

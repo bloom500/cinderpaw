@@ -879,9 +879,17 @@ export type DeliveryTarget =
   | { kind: "tool"; toolName: string; args: Record<string, unknown> };
 
 /** One row in a job's run history. Capped to the most recent 50 entries. */
+import type { DoneWhen } from "./cron/done-when.ts";
+
 export interface CronRunRecord {
   runAt: number;
-  status: "success" | "failed" | "timeout" | "budget_exceeded" | "skipped";
+  /**
+   * `incomplete` = the agent ran but stopped with work outstanding (the turn
+   * budget expired, or continuations were exhausted). Distinct from `failed`:
+   * there IS usable partial output, and it is delivered — but the run must not
+   * count as a success or a job could report finished work it never did.
+   */
+  status: "success" | "incomplete" | "failed" | "timeout" | "budget_exceeded" | "skipped";
   durationMs: number;
   result?: string;
   error?: string;
@@ -899,6 +907,11 @@ export interface CronJob {
   nextRunMs?: number;
   /** Last 50 runs, newest at the end. */
   history: CronRunRecord[];
+  /**
+   * Optional mechanical proof that the task is done — see cron/done-when.ts.
+   * When present it OVERRIDES the agent's own claim of completion.
+   */
+  doneWhen?: DoneWhen | null;
   /** Max retries per failure before being marked as stuck. */
   maxRetries: number;
   /** Current consecutive failure count; reset to 0 on success. */
@@ -916,6 +929,7 @@ export interface CronJobInput {
   schedule: Schedule;
   delivery: DeliveryTarget;
   enabled?: boolean;
+  doneWhen?: DoneWhen | null;
   maxRetries?: number;
 }
 
@@ -1018,6 +1032,7 @@ export interface InboundMessage {
     // the older portion of one session's transcript NOW (not only when over
     // budget); the sidecar replies with one `compact_result` paired by `id`.
     | "compact_session"
+    | "provider_conformance"
     // R5 — MCP over stdin. The host manages `~/.feral/mcp.json` and pokes
     // `mcp_reload` after every change; `mcp_status` / `mcp_list_tools` /
     // `mcp_call_tool` serve the Extensions page's live queries. All four
@@ -1186,7 +1201,27 @@ export interface AskUserAnswer {
 /** Outbound event envelope to any transport. */
 export type OutboundEvent =
   | { type: "chunk"; id: string; content: string; traceId?: string }
-  | { type: "done"; id: string; content: string; stopped: boolean; traceId: string }
+  /**
+   * One turn ended. `incomplete: true` means the turn was cut off with work
+   * outstanding and an unattended caller may continue it — so a consumer that
+   * waits for "the answer" must wait for a `done` WITHOUT it, not the first
+   * one it sees. `outcome` is the structured reason (see TurnOutcome).
+   */
+  | {
+      type: "done";
+      id: string;
+      content: string;
+      stopped: boolean;
+      traceId: string;
+      outcome?: string;
+      incomplete?: boolean;
+      /**
+       * True on the single event that closes an UNATTENDED run, as opposed to
+       * one turn inside it. Consumers counting turns must skip it; consumers
+       * waiting for the answer must accept it.
+       */
+      runSummary?: boolean;
+    }
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string }
   | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string }
   | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string }
@@ -1244,6 +1279,20 @@ export type OutboundEvent =
   // /compact reply — `result` is "compacted" or "not needed"; `error` set
   // when the summarizer itself failed (ok=false).
   | { type: "compact_result"; id: string; ok: boolean; result?: string; error?: string }
+  /**
+   * Result of the provider conformance probe (egress/conformance.ts).
+   * `ready: false` means the configured model cannot emit a tool call the agent
+   * can parse — it will answer chat and silently narrate actions instead of
+   * taking them, so setup must not present it as working.
+   */
+  | {
+      type: "provider_conformance_result";
+      id: string;
+      ok: boolean;
+      ready: boolean;
+      summary: string;
+      probes: Array<{ id: string; title: string; passed: boolean; detail: string }>;
+    }
   // Slice A5 (L5 Governance) reply — payload shape depends on `op`
   // (status/propose/approve/reject/rollback/freeze/unfreeze/verify/history);
   // always `ok:boolean` so the gateway + CLI can route without knowing the

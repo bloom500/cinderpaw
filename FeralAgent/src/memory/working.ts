@@ -38,6 +38,36 @@ const DEFAULT_CONFIG: WorkingMemoryConfig = {
  *  than the budget it was called with and the next turn compacted again. */
 const SUMMARY_RESERVE_TOKENS = 1_200;
 
+/**
+ * Opening of the compaction-boundary note. Everything before this message in
+ * the transcript is already summarized; the prefix is how `maybeCompress`
+ * recognizes its own artifact so it never summarizes it a second time. Also
+ * asserted on by tests — do not reword without updating memory.test.ts.
+ */
+const SUMMARY_PREFIX = "Summary of earlier conversation:";
+
+/** Tokens the objective drawer may occupy. One request, not an essay. */
+const OBJECTIVE_MAX_TOKENS = 200;
+
+/**
+ * How many of the most recent tool results survive at full size. Everything
+ * the model is actively reasoning over is in the last couple of steps; older
+ * tool output is bulk it has already extracted what it needed from.
+ */
+const TOOL_RESULT_KEEP_RECENT = 4;
+
+/** Token ceiling for a tool result past the keep-recent window. */
+const TOOL_RESULT_MAX_TOKENS = 400;
+
+/**
+ * Sentinel appended to a trimmed tool result. Two jobs: it tells the model the
+ * output is recoverable (re-run the tool) rather than simply gone, and it makes
+ * `#budgetToolResults` idempotent — without it, re-trimming an already-trimmed
+ * message every turn would shrink it toward nothing.
+ */
+const TRIMMED_MARK =
+  "…[older tool output trimmed to fit the context window — re-run the tool if you need the rest]";
+
 /** Last-resort truncation of a single message larger than the whole recent
  *  budget (e.g. one giant tool output). Keeps head + tail (where the useful
  *  bits usually are) with a marker. Approximate char↔token ratio — fine
@@ -84,6 +114,37 @@ export class WorkingMemory {
    */
   #todoList = "";
 
+  /**
+   * The original request, captured the first time this session is compacted
+   * and re-projected every turn thereafter (same trick as `#todoList`: durable
+   * state re-rendered, not transcript that can be eaten).
+   *
+   * The first user turn is what the whole session is *for*, and it is the first
+   * thing a summarizer flattens into a clause. Losing it is what turns a long
+   * task into an agent that is busy but no longer working on the thing it was
+   * asked to do. Empty until the first compaction — before that the real
+   * message is still right there in the transcript.
+   */
+  #objective = "";
+
+  /**
+   * Where this session's answers are being rendered — a chat app, with a narrow
+   * column and no table support, versus the desktop app's full markdown view.
+   *
+   * Set once per session by the connector. Rendered as a drawer rather than
+   * folded into the system prompt because owner sessions must keep the full
+   * owner prompt: a connector profile would replace it wholesale, which is the
+   * wrong trade for "please use shorter paragraphs".
+   */
+  #surfaceBrief = "";
+
+  /**
+   * True once this session has been compacted at least once. Gates the
+   * post-compaction reminder in `render()`; also a free "this transcript is
+   * long" signal that costs no extra tokenization.
+   */
+  #compacted = false;
+
   constructor(systemPrompt: string, config: Partial<WorkingMemoryConfig> = {}) {
     this.#system = systemPrompt;
     this.#config = { ...DEFAULT_CONFIG, ...config };
@@ -100,9 +161,17 @@ export class WorkingMemory {
    * which the episodic replay path deliberately omits. System messages are
    * dropped: the system prompt is this WorkingMemory's own, injected at
    * render(), not part of the stored turns.
+   *
+   * The one system message that IS kept is the compaction boundary note. It is
+   * not a prompt, it is the only surviving record of everything compacted away
+   * before the crash — dropping it resumed the session missing precisely the
+   * history it could no longer reconstruct.
    */
   restore(messages: ChatMessage[]): void {
-    this.#messages = messages.filter((m) => m.role !== "system");
+    this.#messages = messages.filter(
+      (m) => m.role !== "system" || m.content.startsWith(SUMMARY_PREFIX),
+    );
+    this.#compacted = this.#messages.some((m) => m.role === "system");
   }
 
   addUser(content: string, images?: string[]): void {
@@ -135,6 +204,8 @@ export class WorkingMemory {
     total += countTokens(this.#system);
     total += countTokens(this.#skillMenu);
     total += countTokens(this.#todoList);
+    total += countTokens(this.#objective);
+    total += countTokens(this.#surfaceBrief);
     total += countTokens(this.#memoryContext);
     for (const m of this.#messages) {
       total += countTokens(m.content);
@@ -180,6 +251,14 @@ export class WorkingMemory {
    * ponytail: capped at 20 items, no pagination. A task list longer than that
    * is a planning problem, not a rendering one.
    */
+  /**
+   * Describe the surface this session's answers are rendered on. Idempotent —
+   * connectors call it on every inbound message. Empty string clears it.
+   */
+  setSurfaceBrief(brief: string): void {
+    this.#surfaceBrief = brief;
+  }
+
   setTodoList(items: Array<{ id: string; content: string; status: string }>): void {
     const open = items.filter((t) => t.status !== "done").slice(0, 20);
     if (open.length === 0) {
@@ -225,8 +304,28 @@ export class WorkingMemory {
    */
   render(): ChatMessage[] {
     const dynamicBlocks: string[] = [];
+    if (this.#objective) dynamicBlocks.push(this.#objective);
     if (this.#skillMenu) dynamicBlocks.push(this.#skillMenu);
     if (this.#todoList) dynamicBlocks.push(this.#todoList);
+    if (this.#surfaceBrief) dynamicBlocks.push(this.#surfaceBrief);
+    // Post-compaction reminder. Both halves address a real late-session failure:
+    // the model treats the summary note as verbatim history and re-does or
+    // invents work, and it drifts off the tool-call syntax it has not emitted
+    // for a while and starts DESCRIBING calls in prose instead of making them.
+    // Only rendered once a session has actually compacted — a short chat pays
+    // nothing, and the system prompt (which teaches both) is by then thousands
+    // of tokens away from where generation happens.
+    if (this.#compacted) {
+      dynamicBlocks.push(
+        "## Reminder\n" +
+          "- Earlier turns in this conversation were compacted into the summary note above. " +
+          "It is a lossy summary, not a transcript — if you need an exact detail from before it, " +
+          "re-read the file or re-run the tool rather than recalling it.\n" +
+          "- To use a tool, emit the call itself inside `<tool_call>` … `</tool_call>` tags, one " +
+          'JSON object per block: `{"name": "tool_name", "args": {…}}`. Describing a tool call in ' +
+          "prose does not run it. Answer in plain text if you no longer need a tool.",
+      );
+    }
     if (this.#memoryContext) dynamicBlocks.push(this.#memoryContext);
 
     if (dynamicBlocks.length === 0) {
@@ -284,8 +383,43 @@ export class WorkingMemory {
     summarize: (messages: ChatMessage[]) => Promise<string>,
     targetTokens: number = this.#config.maxTokens,
   ): Promise<boolean> {
+    // Cheapest shaper first. It costs no model call and no allocation on the
+    // common path, and it is what keeps most turns from ever reaching the
+    // summarizer below — stale tool output is the bulk of a long transcript
+    // and the part with the least value per token.
+    this.#budgetToolResults();
+
     if (this.estimatedTokens() <= targetTokens) return false;
     if (this.#messages.length === 0) return false;
+
+    // The compaction boundary — a note THIS method wrote on an earlier pass.
+    // It is held out of the region handed to the summarizer.
+    //
+    // It used to sit at index 0 of the transcript with nothing marking it as
+    // special, so every later compaction summarized it along with the real
+    // turns: a summary of a summary of a summary. Each pass is lossy and each
+    // pass is free to invent, which is exactly the "it was fine and then it
+    // started making things up" cliff on a long session. Summaries are carried
+    // forward verbatim from here on, never re-compressed.
+    const head = this.#messages[0];
+    const boundary =
+      head && head.role === "system" && head.content.startsWith(SUMMARY_PREFIX) ? head : null;
+    const body = boundary ? this.#messages.slice(1) : this.#messages;
+    if (body.length === 0) return false;
+
+    // Pin the objective before the turn carrying it is folded away. See the
+    // field docstring — this is the one thing summarization must not blur.
+    if (!this.#objective) {
+      const firstUser = body.find((m) => m.role === "user");
+      if (firstUser?.content) {
+        // Stored WITH its header, like #todoList and #skillMenu, so the header
+        // is inside what estimatedTokens() and fixedOverhead already count.
+        this.#objective =
+          "## What this conversation is for (the original request)\n" +
+          "Compaction has folded away the turn this came from. It is still the job.\n\n" +
+          truncateToBudget(firstUser.content, OBJECTIVE_MAX_TOKENS);
+      }
+    }
 
     // Overhead that SURVIVES compaction and still counts against the model's
     // context: the static system prompt, the per-turn drawers, and the summary
@@ -304,6 +438,8 @@ export class WorkingMemory {
       countTokens(this.#system) +
       countTokens(this.#skillMenu) +
       countTokens(this.#todoList) +
+      countTokens(this.#objective) +
+      countTokens(this.#surfaceBrief) +
       countTokens(this.#memoryContext) +
       summaryReserve;
     const recentBudget = Math.max(0, targetTokens - fixedOverhead);
@@ -315,8 +451,8 @@ export class WorkingMemory {
     // Always keep at least the most recent message (the live turn).
     const kept: ChatMessage[] = [];
     let keptTokens = 0;
-    for (let i = this.#messages.length - 1; i >= 0; i--) {
-      const msg = this.#messages[i]!;
+    for (let i = body.length - 1; i >= 0; i--) {
+      const msg = body[i]!;
       const t = countTokens(msg.content);
       if (kept.length > 0 && keptTokens + t > recentBudget) break;
       kept.unshift(msg);
@@ -329,14 +465,14 @@ export class WorkingMemory {
       kept[0] = { ...kept[0]!, content: truncateToBudget(kept[0]!.content, recentBudget) };
     }
 
-    const cut = this.#messages.length - kept.length;
+    const cut = body.length - kept.length;
     if (cut <= 0) {
       // Nothing older to summarize, but we were over budget — the lone-huge
       // message was truncated above. Persist that and stop.
-      this.#messages = kept;
+      this.#messages = boundary ? [boundary, ...kept] : kept;
       return true;
     }
-    const older = this.#messages.slice(0, cut);
+    const older = body.slice(0, cut);
 
     let summary: string;
     try {
@@ -347,15 +483,62 @@ export class WorkingMemory {
       summary = `[${older.length} earlier turns omitted due to size]`;
     }
 
-    this.#messages = [
-      { role: "system", content: `Summary of earlier conversation: ${summary}` },
-      ...kept,
-    ];
+    // Append-only: what was already summarized stays byte-identical and the new
+    // summary lands after it. When the accumulated block outgrows its reserve it
+    // is cut head+tail (oldest facts and newest both survive) instead of being
+    // handed back to the model. A one-shot truncation loses detail; a
+    // re-summarization loses detail AND is free to invent replacements for it.
+    // Given the failure being fixed is invention, truncation is the right trade.
+    const carried = boundary ? boundary.content.slice(SUMMARY_PREFIX.length).trim() : "";
+    const block = truncateToBudget(carried ? `${carried}\n\n${summary}` : summary, summaryReserve);
+
+    this.#messages = [{ role: "system", content: `${SUMMARY_PREFIX} ${block}` }, ...kept];
+    this.#compacted = true;
     return true;
+  }
+
+  /**
+   * Layer 0 of compaction — cap tool results the model has moved past.
+   *
+   * A single `read_file` can return 64 KB (~16k tokens), which on the local
+   * 8k transcript budget is the entire allowance spent on one message the model
+   * already extracted what it needed from three steps ago. Left verbatim, stale
+   * tool output is what drives a session into the summarizer over and over, and
+   * every one of those passes costs history. Trimming it here is the cheapest
+   * thing in the pipeline and buys the most turns.
+   *
+   * Idempotent (see TRIMMED_MARK) — this runs on every turn.
+   *
+   * ponytail: head+tail cut with a "re-run the tool" note, no content-addressed
+   * store. If the model starts needing the dropped middles back, spill them to
+   * disk and put a real reference in the note.
+   */
+  #budgetToolResults(): void {
+    let seen = 0;
+    for (let i = this.#messages.length - 1; i >= 0; i--) {
+      const msg = this.#messages[i]!;
+      if (msg.role !== "tool") continue;
+      // The freshest results are what the current reasoning step is built on.
+      if (++seen <= TOOL_RESULT_KEEP_RECENT) continue;
+      // Cheap guards before paying for real BPE tokenization on every turn:
+      // one token is at least one character, so anything under the ceiling in
+      // CHARS is certainly under it in tokens.
+      if (msg.content.length <= TOOL_RESULT_MAX_TOKENS) continue;
+      if (msg.content.endsWith(TRIMMED_MARK)) continue;
+      if (countTokens(msg.content) <= TOOL_RESULT_MAX_TOKENS) continue;
+      this.#messages[i] = {
+        ...msg,
+        content: `${truncateToBudget(msg.content, TOOL_RESULT_MAX_TOKENS)}\n${TRIMMED_MARK}`,
+      };
+    }
   }
 
   /** Drop all turns (keeps the system prompt). */
   clear(): void {
     this.#messages = [];
+    this.#objective = "";
+    this.#compacted = false;
+    // #surfaceBrief deliberately survives: /new restarts the conversation, it
+    // does not move it to a different app.
   }
 }
