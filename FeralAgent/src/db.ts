@@ -398,6 +398,67 @@ function migrate(db: Database): void {
       updated_at INTEGER NOT NULL
     );
 
+    -- An unattended RUN and its per-turn record. The checkpoint below does this
+    -- for one turn; these two tables do it for a whole run, which is the part
+    -- that was missing: runUnattended held the mission, deadline and budgets in
+    -- a local variable, so a sidecar restart at hour 4 left nothing to resume
+    -- from and nothing to explain the silence.
+    --
+    -- Same signal as the checkpoint: a row still marked 'running' after a
+    -- restart IS the crash. A killed process writes nothing, which is the one
+    -- thing it does reliably, so no crash handler is needed to produce it.
+    --
+    -- The transcript is deliberately NOT duplicated here — it lives in the
+    -- session tables, and two copies is how they come to disagree.
+    CREATE TABLE IF NOT EXISTS runs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      mission TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      -- ABSOLUTE epoch ms. A relative deadline would restart on every resume
+      -- and make an 8h run immortal.
+      deadline_at INTEGER,
+      continuations_used INTEGER NOT NULL DEFAULT 0,
+      -- Snapshotted at start, so changing the env var mid-run cannot move the
+      -- goalposts of a run already in flight.
+      continuation_budget INTEGER NOT NULL,
+      replan_used INTEGER NOT NULL DEFAULT 0,
+      -- These three rebuild a SafetyPoint after a restart: changedSince() takes
+      -- the object, not a ref, so the fields have to survive on their own.
+      safety_root TEXT,
+      safety_before TEXT,
+      safety_git_dir TEXT,
+      done_when TEXT,
+      delivery TEXT,
+      status TEXT NOT NULL,
+      stopped_because TEXT,
+      resumes INTEGER NOT NULL DEFAULT 0,
+      last_resume_seq INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS runs_status ON runs(status);
+
+    CREATE TABLE IF NOT EXISTS run_turns (
+      run_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      started_at INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      outcome TEXT NOT NULL,
+      tool_calls INTEGER NOT NULL,
+      continuation INTEGER NOT NULL,
+      replan INTEGER NOT NULL,
+      -- One total, not prompt/completion: the only seam available is the
+      -- router's per-conversation counter, whose delta cannot be split.
+      tokens INTEGER NOT NULL,
+      -- Artifact evidence. A turn with zeroes in both made no progress,
+      -- whatever its outcome claims.
+      files_changed INTEGER NOT NULL,
+      todos_closed INTEGER NOT NULL,
+      -- NULL = not evaluated this turn. 0 would read as "the check failed".
+      done_when_pass INTEGER,
+      PRIMARY KEY (run_id, seq)
+    );
+
     -- Mid-turn checkpoint (CheckpointStore). One row per session holds the
     -- full working-memory transcript so a crash at iteration 7 of 15 resumes
     -- with every completed step intact, instead of replaying the lossy
