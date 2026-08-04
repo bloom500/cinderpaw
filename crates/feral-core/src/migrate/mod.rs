@@ -7,8 +7,10 @@
 
 pub mod detect;
 pub mod ledger;
+pub mod persona;
 pub mod source;
 
 pub use detect::{detect, Found, Source};
 pub use ledger::KeyLedger;
+pub use persona::{apply_persona, plan_persona, Plan, PlanItem};
 pub use source::{read_source, SourceData};
