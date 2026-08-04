@@ -2236,7 +2236,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "inference"))]
 mod auto_context_tests {
     use super::backend::{context_for_budget, kv_bytes_per_token};
 
