@@ -23,6 +23,7 @@ mod chat;
 mod common;
 mod guided;
 mod install;
+mod migrate;
 
 /// Feral — your local AI runtime, headless. One brain, many faces: the same
 /// memory, LoRA, dreams and tools as the desktop app, reachable over a small
@@ -77,6 +78,24 @@ enum Command {
         /// Skip the confirmation prompt (for scripts)
         #[arg(long, short = 'y')]
         yes: bool,
+    },
+    /// Bring an existing OpenClaw or Hermes Agent setup into Feral
+    Migrate {
+        /// Only consider this tool ("openclaw" or "hermes")
+        #[arg(long)]
+        from: Option<String>,
+        /// Look here instead of the usual install locations
+        #[arg(long)]
+        source: Option<std::path::PathBuf>,
+        /// Print the plan and exit without writing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Replace files that already exist in ~/.feral
+        #[arg(long)]
+        overwrite: bool,
     },
     /// Diagnose the install (port, token, model, sidecar, GPU, connectors)
     Doctor,
@@ -249,6 +268,9 @@ fn main() {
         // reaches this binary; every other install lands here.
         Some(Command::Update) => install::update(),
         Some(Command::Uninstall { purge, yes }) => install::uninstall(purge, yes),
+        Some(Command::Migrate { from, source, dry_run, yes, overwrite }) => {
+            migrate::run(from, source, dry_run, yes, overwrite)
+        }
         Some(Command::Doctor) => admin::doctor(),
         Some(Command::Logs { follow }) => admin::logs(follow),
         Some(Command::Model) => admin::model_list(),

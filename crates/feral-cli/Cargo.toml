@@ -22,6 +22,10 @@ futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 
+[dev-dependencies]
+# `feral migrate` tests build fake OpenClaw/Hermes installs on disk.
+tempfile = "3"
+
 [features]
 default = ["inference"]
 inference        = ["feral-core/inference"]

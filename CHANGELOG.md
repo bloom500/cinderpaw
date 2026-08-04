@@ -9,6 +9,18 @@
 
 ### Added
 
+- **`feral migrate`** — brings an existing OpenClaw or Hermes Agent setup across.
+  It finds the install itself (`--source` for unusual locations), then prints
+  three sections before writing anything: what it will import, **what it could
+  not** — every key in their config that no importer claimed, listed by name —
+  and what it refused to overwrite. `--dry-run` stops after the report and
+  `--json` gives the whole plan to a script. This release imports the persona
+  markdown you wrote by hand (`SOUL.md`, `AGENTS.md`, `IDENTITY.md`); anything it
+  replaces is copied into `~/.feral/migration/` first, so undo is one `cp`.
+  Providers, connectors, secrets and cron jobs still show up in the "not
+  imported" list — they arrive in later releases, and until then the report says
+  so instead of leaving you to discover it. Your OpenClaw/Hermes install is only
+  ever read, never written to.
 - **`feral uninstall`** — removes Feral and **keeps `~/.feral`**: settings,
   memory, API keys and downloaded models survive, so changing your mind costs a
   reinstall rather than a fresh start. It prints exactly what it will delete

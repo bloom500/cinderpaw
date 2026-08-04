@@ -372,7 +372,7 @@ fn paste_key_flow(token: &str) -> Option<(Value, Value)> {
 
 // ── Tiny prompt helpers ──────────────────────────────────────────────────────
 
-fn ask(prompt: &str) -> String {
+pub(crate) fn ask(prompt: &str) -> String {
     // A crashed/killed TUI can leave the console raw (no echo, no line
     // input) — reset before every read so the prompt is never "dead".
     crate::common::reset_console_mode();
@@ -384,7 +384,7 @@ fn ask(prompt: &str) -> String {
     line.trim().to_string()
 }
 
-fn confirm(prompt: &str, default_yes: bool) -> bool {
+pub(crate) fn confirm(prompt: &str, default_yes: bool) -> bool {
     let hint = if default_yes { "[Y/n]" } else { "[y/N]" };
     let answer = ask(&format!("{prompt} {hint}"));
     match answer.to_lowercase().as_str() {
