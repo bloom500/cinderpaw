@@ -6,5 +6,7 @@
 //! cannot keep.
 
 pub mod detect;
+pub mod source;
 
 pub use detect::{detect, Found, Source};
+pub use source::{read_source, SourceData};
