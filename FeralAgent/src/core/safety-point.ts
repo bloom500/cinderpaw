@@ -355,3 +355,40 @@ export async function changedSince(
         : null,
   };
 }
+
+/**
+ * Rebuild a `SafetyPoint` from the columns a run row persists.
+ *
+ * `changedSince` takes the object, not a ref, so after a sidecar restart the
+ * original is gone — but its three fields are on the row. This is what lets a
+ * resumed run diff against where the WHOLE run started rather than against
+ * where the restart happened, which is the difference between "here is
+ * everything that changed while you were out" and "here is the last ten
+ * minutes of it".
+ *
+ * `gitDir` matters as much as the other two: a workspace that is not a git
+ * repository is tracked through a shadow git dir under `~/.feral/safety/`, and
+ * a point rebuilt without it would look for a git dir inside the project that
+ * was deliberately never created there.
+ *
+ * Returns null when there is no usable snapshot — including a half-written row
+ * with a root but no commit. Null is not "nothing changed": `changedSince(null)`
+ * already answers `available: false` with a reason, and that distinction is the
+ * whole point of the `available` flag.
+ */
+export function safetyPointFrom(run: {
+  id: string;
+  createdAt: number;
+  safetyRoot: string | null;
+  safetyBefore: string | null;
+  safetyGitDir: string | null;
+}): SafetyPoint | null {
+  if (!run.safetyRoot || !run.safetyBefore) return null;
+  return {
+    root: run.safetyRoot,
+    before: run.safetyBefore,
+    gitDir: run.safetyGitDir,
+    label: `run/${run.id}`,
+    createdAt: run.createdAt,
+  };
+}
