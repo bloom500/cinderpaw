@@ -31,6 +31,22 @@
 
 ### Fixed
 
+- **The live status message no longer eats the start of the answer** (Discord and
+  Slack). While the agent worked, one message was edited to show what it was
+  doing ("🔎 searching…"), then became the answer. Those status edits were sent
+  without waiting and both platforms queue them behind a rate limiter, so one
+  issued a moment before the answer could be applied a moment *after* it —
+  overwriting the first 2000 characters. A long reply appeared to start
+  mid-sentence, and nothing was logged. The more tools a turn used the likelier
+  it got, so it hit exactly the long answers that could least afford it.
+- **Research reports say what they could not confirm.** `deep_research` was told
+  only "do not invent facts", which nothing checks. Now: specific values (file
+  paths, config keys, version numbers, prices, benchmark figures) may only appear
+  if a source actually contained them; a vendor's own repository outranks a blog
+  or an AI-generated wiki, and a claim resting only on the latter says so where
+  it is stated; and every report ends with **Not confirmed** — what the question
+  asked that the sources do not answer. A report that reconstructs a
+  plausible-looking config path reads exactly like one that researched it.
 - **`feral update` works on a from-source install.** On a headless server the
   command did not merely fail, it pointed the wrong way: `update` lives in the
   npm launcher, so a server that built from source either had no such subcommand
