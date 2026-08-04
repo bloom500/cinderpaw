@@ -207,6 +207,70 @@ function chunk(text: string): string[] {
   return out;
 }
 
+/**
+ * One Discord message that shows live status while the agent works and then
+ * becomes the answer.
+ *
+ * The ordering is the whole point. Status edits are throttled and fired without
+ * awaiting (a slow edit must never stall the agent loop), and discord.js queues
+ * them behind its own rate limiter — so an edit issued a moment before the
+ * answer can still be in flight when the answer lands, and overwrite it. That
+ * cost the first 2000 characters of a long reply: the user saw a status line
+ * where the beginning of the answer should have been, with no error anywhere.
+ *
+ * `settle` therefore waits for whatever is in flight and closes the channel, so
+ * no status text can land after the answer. `edit` is injected so this is
+ * testable without a Discord connection.
+ */
+export function statusMessage(
+  edit: (text: string) => Promise<unknown>,
+  opts: { throttleMs?: number; onError?: (e: unknown) => void } = {},
+) {
+  const throttleMs = opts.throttleMs ?? 1100;
+  let lastEdit = 0;
+  let pending: string | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight: Promise<unknown> = Promise.resolve();
+  let settled = false;
+
+  const swallow = (e: unknown) => opts.onError?.(e);
+
+  const flush = () => {
+    timer = null;
+    if (settled || pending == null) return;
+    const next = pending;
+    pending = null;
+    lastEdit = Date.now();
+    inFlight = edit(next).catch(swallow);
+  };
+
+  return {
+    /** Show what the agent is doing right now. Ignored once settled. */
+    set(text: string): void {
+      if (settled) return;
+      pending = text;
+      const since = Date.now() - lastEdit;
+      if (since >= throttleMs) {
+        if (timer) clearTimeout(timer);
+        flush();
+      } else if (!timer) {
+        timer = setTimeout(flush, throttleMs - since);
+      }
+    },
+    /** The answer claims the message. Nothing may edit it afterwards. */
+    async settle(text: string): Promise<void> {
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pending = null;
+      await inFlight; // a queued status edit must not land on top of the answer
+      await edit(text).catch(swallow);
+    },
+  };
+}
+
 /** Strip MCP prefixes / separators so a tool id reads like a phrase. */
 function prettyTool(tool: string): string {
   return tool.replace(/^mcp__/, "").replace(/__/g, " · ").replace(/[_-]+/g, " ").trim();
@@ -503,28 +567,12 @@ export class DiscordConnector {
     // there's no extra message spam. Edits are throttled to stay clear of
     // Discord's ~5-edits/5s rate limit.
     const statusMsg = await message.reply(thinkingOpener()).catch(() => null);
-    let lastEdit = 0;
-    let pendingStatus: string | null = null;
-    let editTimer: ReturnType<typeof setTimeout> | null = null;
-    const flushStatus = () => {
-      editTimer = null;
-      if (pendingStatus == null || !statusMsg) return;
-      const next = pendingStatus;
-      pendingStatus = null;
-      lastEdit = Date.now();
-      void statusMsg.edit(next).catch(() => {});
-    };
-    const setStatus = (s: string) => {
-      if (!statusMsg) return;
-      pendingStatus = s;
-      const since = Date.now() - lastEdit;
-      if (since >= 1100) {
-        if (editTimer) clearTimeout(editTimer);
-        flushStatus();
-      } else if (!editTimer) {
-        editTimer = setTimeout(flushStatus, 1100 - since);
-      }
-    };
+    const status = statusMsg
+      ? statusMessage((t) => statusMsg.edit(t), {
+          onError: (e) => this.#log(`discord: status edit failed: ${String(e)}`),
+        })
+      : null;
+    const setStatus = (s: string) => status?.set(s);
 
     try {
       // The shared agent answers with the same model + tools as the app. We
@@ -543,13 +591,11 @@ export class DiscordConnector {
         }
       });
 
-      // Done working: stop status churn and turn the status message into the
-      // answer (or post a fresh reply if the status message never landed).
-      if (editTimer) clearTimeout(editTimer);
-      pendingStatus = null;
+      // Done working: the status message becomes the answer (or a fresh reply
+      // if the status message never landed).
       const parts = chunk(reply);
-      if (statusMsg) {
-        await statusMsg.edit(parts[0] ?? "(no response)");
+      if (status) {
+        await status.settle(parts[0] ?? "(no response)");
       } else {
         await message.reply(parts[0] ?? "(no response)");
       }
@@ -562,9 +608,10 @@ export class DiscordConnector {
     } catch (e) {
       this.#log(`discord: agent error: ${String(e)}`);
       react("⚠️");
-      if (editTimer) clearTimeout(editTimer);
       try {
-        if (statusMsg) await statusMsg.edit(connectorErrorMessage(e));
+        // Same ordering guarantee as the success path: an in-flight status edit
+        // must not bury the error message either.
+        if (status) await status.settle(connectorErrorMessage(e));
         else await message.reply(connectorErrorMessage(e));
       } catch {
         // channel may be gone
