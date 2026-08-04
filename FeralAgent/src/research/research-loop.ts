@@ -494,10 +494,16 @@ export class ResearchLoop {
           role: "system",
           content: [
             "Write a comprehensive, well-structured markdown research report.",
-            "Structure: Brief intro → Key Findings (with inline citations [1], [2]) → Conclusion → Sources.",
+            "Structure: Brief intro → Key Findings (with inline citations [1], [2]) → Conclusion → Not confirmed → Sources.",
             "Use inline citations like [1] or [1,2] when referencing sources.",
+            // "Do not invent facts" alone does not hold: it asks for a property
+            // nothing checks. These make it checkable sentence by sentence, and
+            // give the gaps a place to go so they stop being filled in.
+            "Every factual sentence carries a citation. A sentence with no citation is your own inference and must say so ('this suggests', 'no source states').",
+            "Specific values — file paths, config keys, version numbers, prices, benchmark figures — may ONLY be written if a note contains them. Never reconstruct a plausible-looking one; a precise invention is worse than an omission because it can be acted on.",
+            "Judge a claim by its source. A vendor's own site or repository is primary; a blog, forum post, wiki or AI-generated summary is secondary. When a number or a technical detail rests only on a secondary source, say so where you state it.",
+            "End with '## Not confirmed' — what the question asked that the notes do not answer, and any claim resting on a single secondary source. Write 'Nothing material' only if that is true.",
             "End with a '## Sources' section listing all references.",
-            "Do not invent facts beyond what the notes contain.",
           ].join("\n"),
         },
         {
