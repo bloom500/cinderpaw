@@ -166,8 +166,19 @@ jobs:
 
       # Rust deps — fails on RustSec vulnerability advisories. Uses the
       # committed Cargo.lock at the workspace root.
+      #
+      # Waivers live in `.cargo/audit.toml`, each with the reason it is
+      # unreachable in this app and the upstream event that makes it removable —
+      # same standard as the npm gate below. cargo audit has no --show-ignored
+      # and drops waived advisories from its output entirely, so they are echoed
+      # back here: a waiver nobody sees again is how an allowlist rots into a
+      # severity threshold.
       - name: cargo audit
-        run: cargo audit
+        run: |
+          cargo audit
+          echo "::notice::Waived Rust advisories — reason and deletion trigger in .cargo/audit.toml"
+          sed -n '/^\[advisories\]/,$p' .cargo/audit.toml \
+            | grep -o 'RUSTSEC-[0-9][0-9-]*' | sort -u | sed 's/^/  waived: /'
 
       # Frontend (npm) — gate on high+ severity only to avoid dev-only noise.
       # Wrapped so an advisory whose only npm remediation is a DOWNGRADE into

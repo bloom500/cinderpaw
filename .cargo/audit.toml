@@ -1,0 +1,45 @@
+#  cargo-audit configuration — the Rust half of the dependency audit gate.
+#
+#  Mirrors the discipline in `frontend-react/scripts/audit-gate.mjs`, which is
+#  the house standard for a waived advisory:
+#
+#    - it must be UNREACHABLE in this application, with the reason written in
+#      terms of what Feral actually does — never "low risk", never "transitive";
+#    - it carries a deletion trigger: the concrete upstream event that makes the
+#      entry removable, so the waiver expires on a fact rather than on goodwill;
+#    - anything not listed here still fails the build. This is an allowlist, and
+#      it must never become a severity threshold.
+#
+#  ponytail: the npm gate is a script because it also detects a STALE entry —
+#  one that no longer matches any reported advisory — and says so, which is how
+#  an allowlist is kept from rotting. cargo-audit has no equivalent, and writing
+#  a second gate script for a single entry is not worth it. If this list ever
+#  reaches three entries, write the Rust gate and port the staleness check.
+#
+#  ── RUSTSEC-2026-0235 — rkyv 0.7.46 ─────────────────────────────────────────
+#
+#  Advisory: insufficient archive validation causes out-of-bounds READS when
+#  DESERIALIZING an rkyv archive that contains Rc/Arc. Fixed in rkyv >= 0.8.17.
+#
+#  Why it cannot be reached here: Feral never reads an rkyv archive, from any
+#  source. rkyv arrives four levels down as an optional serialization backend
+#  for `rust_decimal`, which is used by `byte-unit` to format byte sizes, which
+#  is used by `tauri-plugin-log` to cap log-file size:
+#
+#      tauri-plugin-log -> byte-unit -> rust_decimal (rkyv feature) -> rkyv
+#
+#  No Feral code constructs, writes, or parses an rkyv archive; no untrusted
+#  input reaches rkyv, because nothing reaches rkyv at all. The vulnerable path
+#  is archive deserialization, and that code is linked but never called.
+#
+#  Why not simply upgrade: `rust_decimal` requires rkyv 0.7. Verified on
+#  2026-08-05 — `cargo update -p rkyv` moves zero packages, and the available
+#  patch bump (rust_decimal 1.42.0 -> 1.42.1) keeps rkyv at 0.7.46. There is no
+#  remediation available to us; the fix has to happen in rust_decimal.
+#
+#  Delete this entry when: `rust_decimal` ships a release depending on
+#  rkyv >= 0.8.17 (then `cargo update -p rust_decimal` closes it), or
+#  `tauri-plugin-log` drops `byte-unit`. Recheck by 2026-10-01.
+
+[advisories]
+ignore = ["RUSTSEC-2026-0235"]
