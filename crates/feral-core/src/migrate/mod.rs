@@ -6,7 +6,9 @@
 //! cannot keep.
 
 pub mod detect;
+pub mod ledger;
 pub mod source;
 
 pub use detect::{detect, Found, Source};
+pub use ledger::KeyLedger;
 pub use source::{read_source, SourceData};
