@@ -485,6 +485,13 @@ pub async fn spawn(
     }
 
     for key in [
+        // Walk-away mode. The sidecar owns the behaviour (ask_user takes the
+        // recommended option and logs it instead of blocking for a human), and
+        // it reads this var — so leaving it off this list made the whole mode
+        // unreachable through the gateway, which is every real install. The
+        // agent then stopped mid-task to ask a question nobody was there to
+        // answer, and looked like it had wedged.
+        "FERAL_AUTONOMOUS",
         "FERAL_ENABLE_DESKTOP_CONTROL",
         "FERAL_DESKTOP_CONTROL_CONFIRM",
         "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
