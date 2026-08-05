@@ -44,6 +44,7 @@ export interface Recaller {
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { countTokens } from "./tokenizer.ts";
+import { withOpenFirst } from "./unsourced.ts";
 import { stripPrivate } from "../memory/privacy.ts";
 import { isRestrictedSession, markSessionRestricted } from "./session-visibility.ts";
 import type { BrainStack } from "../brain/brain-stack.ts";
@@ -937,7 +938,12 @@ export class AgentLoop {
       }
     }
 
-    memory.addUser(userText, images);
+    // When the message names a file, the transcript carries the one instruction
+    // this model obeys. Only the transcript: `userTextClean` above already went
+    // to episodic memory unchanged, so what the person actually wrote is what
+    // gets remembered. See withOpenFirst for why a rule in SOUL.md does not
+    // substitute for this.
+    memory.addUser(withOpenFirst(userText), images);
     // Memory Resume: this user turn IS the current task. Fired here, at the one
     // seam every surface goes through (desktop/TUI dispatch, WhatsApp, Discord),
     // rather than in dispatch.ts — a connector conversation is still the user

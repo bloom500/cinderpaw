@@ -7,7 +7,35 @@
  * turn that opened nothing at all.
  */
 import { describe, expect, test } from "bun:test";
-import { claimedPath, unsourcedWarning } from "../src/core/unsourced.ts";
+import { claimedPath, unsourcedWarning, withOpenFirst } from "../src/core/unsourced.ts";
+import { replayedToolNote } from "../src/core/agent-loop.ts";
+
+describe("saying the words the person did not know to say", () => {
+  test("a message naming a file carries the instruction", () => {
+    // The exact prompt that produced three paragraphs about a module that does
+    // not exist, four times running, in a fresh session.
+    const asked = withOpenFirst("Read D:\\proj\\src\\core\\quantum-scheduler.ts and summarise it.");
+    expect(asked).toContain("quantum-scheduler.ts");
+    expect(asked).toContain("Do not answer from memory");
+    // The person's own words survive intact — this adds, never rewrites.
+    expect(asked.startsWith("Read D:\\proj\\src\\core\\quantum-scheduler.ts and summarise it.")).toBe(
+      true,
+    );
+  });
+
+  test("ordinary conversation is untouched, byte for byte", () => {
+    // The failure mode that would matter more than the one being fixed: every
+    // turn dragging a nag about files into a chat that is not about files.
+    for (const msg of [
+      "What's the difference between a mutex and a semaphore?",
+      "hey, how's it going?",
+      "Version 2026.8.1 is the current release, right?",
+      "Check https://example.com/docs/setup.md when you get a chance.",
+    ]) {
+      expect(withOpenFirst(msg)).toBe(msg);
+    }
+  });
+});
 
 describe("an answer about a file nothing opened", () => {
   test("the answer that never names the file is still flagged", () => {

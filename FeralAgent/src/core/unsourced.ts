@@ -68,6 +68,39 @@ export function claimedPath(answer: string): string | null {
 }
 
 /**
+ * The user's message, with the one instruction the model actually obeys added
+ * when the message names a file.
+ *
+ * The warning below is a footnote on damage already done. This is the same
+ * detector pointed the other way — before the turn instead of after it.
+ *
+ * It exists because of a measurement, not a theory: this model reaches for a
+ * tool when it is told to in those words ("read it with a tool, do not answer
+ * from memory") and invents fluently when it is not. Same prompt, same model,
+ * one sentence apart. An A/B against a build from before any of today's changes
+ * produced the identical fabricated answer word for word, so the gap is not
+ * something more prompt engineering in SOUL.md closes — a general rule there was
+ * tried, verified present in the running binary, and ignored completely. A rule
+ * attached to the specific message, naming the specific file, is not.
+ *
+ * So the person no longer has to know the magic words. If their message names a
+ * file, we say them.
+ *
+ * The trigger is `claimedPath`, deliberately: the layer that prevents and the
+ * layer that warns then agree by construction on what counts as a claim about a
+ * file. Cost when it does not fire: one regex over the message.
+ */
+export function withOpenFirst(userText: string): string {
+  const path = claimedPath(userText);
+  if (!path) return userText;
+  return (
+    `${userText}\n\n` +
+    `[Open \`${path}\` with a tool and read it before you describe it. ` +
+    `Do not answer from memory.]`
+  );
+}
+
+/**
  * The line to append to an answer that describes a file the turn never opened,
  * or null when there is nothing to say.
  *
