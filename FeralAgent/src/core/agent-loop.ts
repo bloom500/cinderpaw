@@ -15,6 +15,7 @@
 
 import { createHash } from "node:crypto";
 import type { InferenceRouter } from "../egress/inference-router.ts";
+import { stripToolsFromSystemPrompt } from "../egress/inference-providers.ts";
 import { isBackgroundSession } from "../egress/inference-router.ts";
 import { log } from "../runtime-meta.ts";
 import {
@@ -638,6 +639,25 @@ export class AgentLoop {
     this.#nativeTools = buildNativeTools(this.#registry);
     this.#openAITools = buildOpenAITools(this.#registry);
     this.#toolsVersion = this.#registry.version;
+    // What the fixed part of every completion actually costs. Both halves are
+    // re-sent on every iteration of every turn, so this number is multiplied by
+    // the number of tool calls a task makes — the difference between a cheap
+    // agent and a surprise invoice is decided here, not in the answer. Logged
+    // at sync time (boot, and whenever a tool registers) rather than per turn:
+    // it only changes when the tool set does, and a per-turn line would be
+    // noise that hides the one thing worth reading.
+    const advertised = this.#openAITools.filter((t) => isCoreTool(t.function.name));
+    // The system prompt is measured AFTER the strip a native-tool provider
+    // applies, because that is what leaves the machine. Reporting the unstripped
+    // one overstates the bill by more than half — an instrument that is wrong in
+    // the expensive direction is worse than no instrument.
+    const schema = countTokens(JSON.stringify(advertised));
+    const prompt = countTokens(stripToolsFromSystemPrompt(this.#systemPrompt));
+    log(
+      `tools: ${advertised.length} of ${this.#openAITools.length} advertised by default — ` +
+        `${schema} tokens of schema + ${prompt} tokens of system prompt = ` +
+        `${schema + prompt} re-sent on every completion`,
+    );
   }
 
   /**
