@@ -669,6 +669,28 @@ export interface InferenceResponse {
    */
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /**
+   * Prompt tokens that were NOT served from cache — the ones processed, and
+   * billed, at full price.
+   *
+   * Normalized HERE, by each adapter in its own dialect, because the two
+   * conventions are opposites and nothing downstream can tell them apart:
+   *
+   *   OpenAI-compatible — `prompt_tokens` INCLUDES
+   *     `prompt_tokens_details.cached_tokens`, so fresh = prompt − cached.
+   *   Anthropic — `input_tokens` EXCLUDES both `cache_read_input_tokens` and
+   *     `cache_creation_input_tokens`, so fresh = input_tokens, and the total
+   *     input actually processed is input + read + creation.
+   *
+   * A consumer that computes `promptTokens - cacheReadTokens` is therefore
+   * right on one provider and wrong on the other, with no way to know which —
+   * which is precisely how a cost table ends up ranking the wrong category
+   * first. Do not derive this by subtraction anywhere. Read it.
+   *
+   * Undefined on providers that report no cache information at all: unknown is
+   * not zero, and a fresh count of zero would read as "everything was cached".
+   */
+  freshPromptTokens?: number;
 }
 
 export type BudgetExhaustedReason = "conversation" | "day";

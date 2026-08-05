@@ -553,6 +553,12 @@ export class InferenceRouter {
       }
 
       this.#recordUsage(req.sessionId, response.totalTokens);
+      this.#recordCompletionCost(
+        req.sessionId,
+        response,
+        (response.usedFallback ? fallback?.baseUrl : primary.baseUrl) ?? primary.baseUrl,
+        Date.now() - start,
+      );
 
       this.#audit({
         timestamp: Date.now(),
@@ -641,6 +647,51 @@ export class InferenceRouter {
         "day",
         `daily budget of ${perDay} tokens exhausted`,
       );
+    }
+  }
+
+  /**
+   * One row per completion — the raw material for "where do the tokens go".
+   *
+   * Every completion in the product passes through here, primary or fallback,
+   * streaming or not, which is what makes this the honest place to measure. The
+   * numbers are the provider's own; nothing is estimated and nothing is derived
+   * from the difference between two other measurements.
+   *
+   * Never throws. Accounting that can cost a user their turn is worse than no
+   * accounting: telemetry is not the work.
+   */
+  #recordCompletionCost(
+    sessionId: string,
+    response: InferenceResponse,
+    baseUrl: string,
+    latencyMs: number,
+  ): void {
+    try {
+      this.#db
+        .query(
+          `INSERT INTO completion_cost
+             (ts, session_id, model, base_url, prompt_tokens, completion_tokens,
+              fresh_tokens, cache_read_tokens, cache_write_tokens, latency_ms, used_fallback)
+           VALUES ($ts, $s, $m, $u, $p, $c, $fresh, $read, $write, $lat, $fb)`,
+        )
+        .run({
+          $ts: Date.now(),
+          $s: sessionId,
+          $m: response.model,
+          $u: baseUrl,
+          $p: response.promptTokens,
+          $c: response.completionTokens,
+          // `?? null`, never `?? 0`: a provider that reports nothing about cache
+          // must not be recorded as one that cached nothing.
+          $fresh: response.freshPromptTokens ?? null,
+          $read: response.cacheReadTokens ?? null,
+          $write: response.cacheWriteTokens ?? null,
+          $lat: latencyMs,
+          $fb: response.usedFallback ? 1 : 0,
+        });
+    } catch {
+      // journal discipline — a write failure is not worth a thrown turn.
     }
   }
 

@@ -260,6 +260,38 @@ export function isContinuable(outcome: TurnOutcome): boolean {
   return CONTINUABLE.has(outcome);
 }
 
+/** What one completion cost and how it ended. */
+export interface CompletionOutcome {
+  content: string;
+  finishReason?: string;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  freshPromptTokens?: number;
+}
+
+/**
+ * Narrow a provider response to what the loop needs, in ONE place.
+ *
+ * There are two return paths out of `#complete` — the ordinary one and the
+ * compress-and-retry one — and they used to build this object by hand, twice.
+ * That is how the cache counters came to be read by every provider and then
+ * dropped at this seam: they were added to the response type and to neither
+ * projection. A copy that has to be kept in sync is a copy that will not be.
+ */
+function projectCompletion(res: InferenceResponse): CompletionOutcome {
+  return {
+    content: res.content,
+    promptTokens: res.promptTokens,
+    completionTokens: res.completionTokens,
+    ...(res.finishReason ? { finishReason: res.finishReason } : {}),
+    ...(res.cacheReadTokens !== undefined ? { cacheReadTokens: res.cacheReadTokens } : {}),
+    ...(res.cacheWriteTokens !== undefined ? { cacheWriteTokens: res.cacheWriteTokens } : {}),
+    ...(res.freshPromptTokens !== undefined ? { freshPromptTokens: res.freshPromptTokens } : {}),
+  };
+}
+
 /** Options for {@link AgentLoop.registerProfile}. */
 export interface ProfileOptions {
   /** Full system prompt for this profile's sessions (persona + any KB). */
@@ -1756,7 +1788,7 @@ export class AgentLoop {
     ctx?: SessionRunContext,
     messageId?: string,
     traceId?: string,
-  ): Promise<{ content: string; finishReason?: string; promptTokens: number; completionTokens: number }> {
+  ): Promise<CompletionOutcome> {
     // Pick up any tools registered since the last turn (MCP servers finish
     // connecting after boot) before deriving this turn's schemas from them.
     this.#syncTools();
@@ -1901,12 +1933,7 @@ export class AgentLoop {
         overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens,
         overrides?.temperature ?? this.#championParams.temperature,
       );
-      return {
-        content: res.content,
-        promptTokens: res.promptTokens,
-        completionTokens: res.completionTokens,
-        ...(res.finishReason ? { finishReason: res.finishReason } : {}),
-      };
+      return projectCompletion(res);
     } catch (err) {
       if (
         err instanceof BudgetExhaustedError &&
@@ -1919,12 +1946,7 @@ export class AgentLoop {
             overrides?.maxTokens ?? (this.#router.isPrimaryLocal ? this.#config.maxTokensPerCall : undefined),
             overrides?.temperature,
           );
-          return {
-            content: res.content,
-            promptTokens: res.promptTokens,
-            completionTokens: res.completionTokens,
-            ...(res.finishReason ? { finishReason: res.finishReason } : {}),
-          };
+          return projectCompletion(res);
         }
       }
       throw err;

@@ -428,7 +428,11 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         };
         finish_reason?: string;
       }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
     };
     let content = raw.choices?.[0]?.message?.content ?? "";
     // Reasoning models on OpenAI-compatible servers (NVIDIA NIM, DeepSeek,
@@ -454,6 +458,12 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     }
     const promptTokens = raw.usage?.prompt_tokens ?? estimateTokens(req.messages);
     const completionTokens = raw.usage?.completion_tokens ?? estimateText(content);
+    // Cache accounting was wired into the streaming branch only, so every
+    // non-streamed completion — the summarizer, the memory extractor, any
+    // caller without an `onToken` — reported nothing about caching and was
+    // indistinguishable from a provider that does not cache at all. Same
+    // dialect as `#stream`: `prompt_tokens` INCLUDES the cached ones.
+    const cachedTokens = raw.usage?.prompt_tokens_details?.cached_tokens;
     return {
       content,
       promptTokens,
@@ -463,6 +473,12 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       usedFallback: isFallback,
       ...(raw.choices?.[0]?.finish_reason
         ? { finishReason: raw.choices[0].finish_reason }
+        : {}),
+      ...(cachedTokens !== undefined
+        ? {
+            cacheReadTokens: cachedTokens,
+            freshPromptTokens: Math.max(0, promptTokens - cachedTokens),
+          }
         : {}),
     };
   }
@@ -715,6 +731,12 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       usedFallback: isFallback,
       ...(finishReason ? { finishReason } : {}),
       ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+      // OpenAI dialect: `prompt_tokens` already counts the cached ones, so the
+      // fresh half is the difference. Clamped at 0 — a provider reporting more
+      // cached than prompt is lying, and a negative cost is worse than a zero.
+      ...(cacheReadTokens !== undefined
+        ? { freshPromptTokens: Math.max(0, promptTokens - cacheReadTokens) }
+        : {}),
     };
   }
 }
@@ -797,6 +819,14 @@ export class AnthropicProvider implements InferenceProvider {
         : {}),
       ...(raw.usage?.cache_creation_input_tokens !== undefined
         ? { cacheWriteTokens: raw.usage.cache_creation_input_tokens }
+        : {}),
+      // Anthropic dialect: `input_tokens` already EXCLUDES the cached ones, so
+      // the fresh half is exactly it — no subtraction. Reported only when the
+      // provider said something about cache at all, so "unknown" stays
+      // distinguishable from "nothing was cached".
+      ...(raw.usage?.cache_read_input_tokens !== undefined ||
+      raw.usage?.cache_creation_input_tokens !== undefined
+        ? { freshPromptTokens: promptTokens }
         : {}),
     };
   }
@@ -958,6 +988,11 @@ export class AnthropicProvider implements InferenceProvider {
         : {}),
       ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
       ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+      // Same Anthropic dialect as the non-streaming path above: `input_tokens`
+      // is already the uncached half.
+      ...(cacheReadTokens !== undefined || cacheWriteTokens !== undefined
+        ? { freshPromptTokens: promptTokens }
+        : {}),
     };
   }
 }

@@ -378,6 +378,40 @@ function migrate(db: Database): void {
     );
   `);
 
+  // One row per completion, written at the router's single choke point.
+  //
+  // `token_usage` above answers "how much today", which is a budget question.
+  // This answers "where does it go", which is a design question, and no
+  // aggregate can be disaggregated back into it. Instrumented at the source for
+  // the reason the last cost estimate got it wrong: a number deduced from the
+  // difference between two measurements is a number about something else.
+  //
+  // The three cache columns are NULL — not 0 — when the provider says nothing.
+  // Zero means "nothing was cached", which is a finding; NULL means "we do not
+  // know", which is a different one, and collapsing them would make a cache
+  // that silently stopped working look like a cache that is working and empty.
+  //
+  // `fresh_tokens` is stored rather than derived because the two provider
+  // dialects disagree about whether `prompt_tokens` includes the cached ones.
+  // See `InferenceResponse.freshPromptTokens`.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS completion_cost (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      base_url TEXT NOT NULL,
+      prompt_tokens INTEGER NOT NULL,
+      completion_tokens INTEGER NOT NULL,
+      fresh_tokens INTEGER,
+      cache_read_tokens INTEGER,
+      cache_write_tokens INTEGER,
+      latency_ms INTEGER NOT NULL,
+      used_fallback INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS completion_cost_session ON completion_cost(session_id, ts);
+  `);
+
   // Semantic memory: persistent key-value facts about the user, updated by the
   // agent as it learns preferences, context, and long-term patterns.
   db.exec(`
