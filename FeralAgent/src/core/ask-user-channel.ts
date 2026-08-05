@@ -148,19 +148,32 @@ export class ChannelAskRouter {
    * so there is no reply to attach the report to — but they are owed one, and a
    * run that ends in silence is the whole failure being fixed.
    *
-   * Returns false instead of throwing when it could not be said: a connector
-   * that is disabled, not yet connected, or answering 401 must not take down a
-   * boot-time pass that still has other runs to deal with. The caller logs it.
+   * Reports instead of throwing when it could not be said: a connector that is
+   * disabled, not yet connected, or answering 401 must not take down a boot-time
+   * pass that still has other runs to deal with. The caller logs it.
+   *
+   * The two ways of failing are told apart because they mean opposite things to
+   * anyone deciding whether to try again:
+   *
+   *   `no_channel` — nothing was asked of anyone. The connector is not up (yet).
+   *                  Retrying later is the whole point; this is not evidence
+   *                  about the target at all.
+   *   `refused`    — the connector was there and the send failed. THAT is
+   *                  evidence: the channel may be deleted, the bot kicked, the
+   *                  permission revoked.
+   *
+   * Collapsing both into `false` is what forces a caller to invent a time-based
+   * guess about which one it was.
    */
-  async notify(sessionId: string, text: string): Promise<boolean> {
+  async notify(sessionId: string, text: string): Promise<"sent" | "no_channel" | "refused"> {
     const prefix = sessionId.split(":", 1)[0] ?? "";
     const sender = this.#senders.get(prefix);
-    if (!sender) return false;
+    if (!sender) return "no_channel";
     try {
       await sender(sessionId, text);
-      return true;
+      return "sent";
     } catch {
-      return false;
+      return "refused";
     }
   }
 

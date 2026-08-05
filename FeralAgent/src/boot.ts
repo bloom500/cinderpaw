@@ -44,7 +44,8 @@ import type { TurnRecord, UnattendedResult } from "./core/unattended.ts";
 import type { RunSurface } from "./transports/connectors.ts";
 import { renderDigest } from "./core/digest.ts";
 import { CHEAP_CHECKS, verifyDoneWhen } from "./cron/done-when.ts";
-import { RunStore, type RunRow } from "./core/run-store.ts";
+import { RunStore, type RunRow, type RunStatus, type RunStopReason } from "./core/run-store.ts";
+import { deliverAndMark, drainUndelivered, type DeliveryOutcome } from "./core/run-delivery.ts";
 import { intentSummary, clearIntents } from "./core/command-intent.ts";
 import { installUserHooks, userHooksPath } from "./core/user-hooks.ts";
 import { resumeInterruptedRuns } from "./core/run-resume.ts";
@@ -1035,13 +1036,32 @@ export async function boot(transportOverride?: Transport) {
    * rather than thrown — the run is already concluded either way, and losing the
    * other interrupted runs to one dead channel would be a worse outcome.
    */
-  async function deliverRunReport(row: RunRow, text: string): Promise<void> {
+  async function deliverRunReport(row: RunRow, text: string): Promise<DeliveryOutcome> {
+    // cron and tui have no channel to speak into: the log IS the delivery.
+    let outcome: DeliveryOutcome = "sent";
     if (row.delivery && row.delivery.kind !== "cron" && row.delivery.kind !== "tui") {
-      const sent = await connectors.askRouter.notify(row.delivery.sessionId, text);
-      if (sent) return;
-      log(`run ${row.id}: could not reach ${row.delivery.kind}, report only in the log`);
+      outcome = await connectors.askRouter.notify(row.delivery.sessionId, text);
+      if (outcome === "sent") return outcome;
+      log(`run ${row.id}: ${row.delivery.kind} ${outcome} — report only in the log for now`);
     }
     log(`run ${row.id} report:\n${text}`);
+    return outcome;
+  }
+
+  /**
+   * Conclude a run: write the terminal status WITH the text it owes, then hand
+   * it over. Every site that ends a run goes through here, so the ordering
+   * (see `run-delivery.ts`) is stated once rather than re-derived correctly
+   * three times.
+   */
+  async function concludeRun(
+    row: RunRow,
+    status: RunStatus,
+    reason: RunStopReason,
+    text: string,
+  ): Promise<void> {
+    runStore.finish(row.id, status, reason, text);
+    await deliverAndMark(runStore, row, text, deliverRunReport);
   }
 
   /**
@@ -1053,6 +1073,9 @@ export async function boot(transportOverride?: Transport) {
    * began, not where the restart happened.
    */
   async function resumeInterrupted(): Promise<void> {
+    // Debts first, then work. These are runs that finished — the process just
+    // never got the message out.
+    await drainUndelivered(runStore, deliverRunReport, { log });
     await resumeInterruptedRuns(
       runStore,
       Date.now(),
@@ -1077,9 +1100,12 @@ export async function boot(transportOverride?: Transport) {
         const changed = await changedSince(safety);
         const check = await verifyDoneWhen(row.doneWhen, safety[0]?.root ?? null);
         const finished = run.finished && check.passed;
-        runStore.finish(row.id, finished ? "finished" : "unfinished", run.stoppedBecause);
-        await deliverRunReport(
+        // Rendered BEFORE the row is concluded, so the status and the text it
+        // owes are written together. See `concludeRun`.
+        await concludeRun(
           row,
+          finished ? "finished" : "unfinished",
+          run.stoppedBecause,
           renderDigest(run, changed, check, safety, `it was interrupted and picked back up at startup${runError ? `, and hit an error: ${runError}` : ""}`, intentSummary(row.sessionId)),
         );
       },
@@ -1097,8 +1123,10 @@ export async function boot(transportOverride?: Transport) {
           continuation: t.continuation,
           ...(t.replan ? { replan: true } : {}),
         }));
-        await deliverRunReport(
+        await concludeRun(
           row,
+          decision.status,
+          decision.reason,
           renderDigest(
             {
               text: "",
@@ -1173,15 +1201,20 @@ export async function boot(transportOverride?: Transport) {
         if (runError) throw new Error(runError);
         const changed = await changedSince(safety);
         const check = await verifyDoneWhen(job.doneWhen, safety[0]?.root ?? null);
+        const digest = renderDigest(run, changed, check, safety, undefined, intentSummary(sessionId));
         if (runRow) {
-          runStore.finish(
-            runRow.id,
+          // A cron run's delivery IS the log (it has no channel), so concluding
+          // it here both records the report and discharges it. The scheduler's
+          // own run history is a separate, already-durable record.
+          await concludeRun(
+            runRow,
             run.finished && check.passed ? "finished" : "unfinished",
             run.stoppedBecause,
+            digest,
           );
         }
         return {
-          text: renderDigest(run, changed, check, safety, undefined, intentSummary(sessionId)),
+          text: digest,
           // The agent's own claim is not the authority. When a job declares a
           // done_when, that assertion decides whether the run finished.
           finished: run.finished && check.passed,
@@ -1576,6 +1609,11 @@ export async function boot(transportOverride?: Transport) {
         log(`${surface}: ${sessionId} already has a run in flight — not starting a second`);
         return null;
       }
+      // Carried from `done` to `conclude`: the verdict is known before the full
+      // reply is composed, but the row must not be concluded until the text it
+      // owes exists. See `concludeRun` for why those cannot be the same moment.
+      let verdictStatus: RunStatus = "unfinished";
+      let verdictReason: RunStopReason = "not_continuable";
       return {
         recorder: turnRecorder(row, safety, doneWhen),
         done: async (run: UnattendedResult): Promise<string | null> => {
@@ -1585,14 +1623,25 @@ export async function boot(transportOverride?: Transport) {
           // verdict only the database knows about is the silence this exists
           // to end.
           const check = await verifyDoneWhen(doneWhen, safety[0]?.root ?? null);
-          const finished = run.finished && check.passed;
-          runStore.finish(row.id, finished ? "finished" : "unfinished", run.stoppedBecause);
+          verdictStatus = run.finished && check.passed ? "finished" : "unfinished";
+          verdictReason = run.stoppedBecause;
           clearIntents(sessionId);
           if (!check.checked) return null;
           return check.passed
             ? `✅ _Checked: ${check.detail}_`
             : `❌ **The check you declared did not pass.** ${check.detail}\n` +
               "_Treat the answer above as unverified._";
+        },
+        // The row leaves `running` HERE, holding the exact text the connector is
+        // about to send. Until the connector reports back, this run counts as
+        // owed, and a boot that finds it will send it.
+        conclude: (reply: string) => {
+          runStore.finish(row.id, verdictStatus, verdictReason, reply);
+        },
+        // The connector says this once the message is actually out. Until then
+        // the run is owed, and a boot will re-send it.
+        delivered: () => {
+          runStore.markDelivered(row.id);
         },
       };
     },

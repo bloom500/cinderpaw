@@ -61,6 +61,16 @@ export interface RunRow {
   stoppedBecause: RunStopReason | null;
   resumes: number;
   lastResumeSeq: number | null;
+  /**
+   * What this run concluded, written at the same instant as its terminal
+   * status. Null while the run is still going — and null on a concluded run
+   * only for rows written by a version that predates the column.
+   */
+  report: string | null;
+  /** When the report reached its person. Null = still owed. */
+  deliveredAt: number | null;
+  /** How many times the target itself refused the report. See `notify`. */
+  deliveryAttempts: number;
 }
 
 export interface TurnRow {
@@ -234,10 +244,61 @@ export class RunStore {
     }));
   }
 
-  finish(id: string, status: RunStatus, reason: RunStopReason): void {
+  /**
+   * Conclude a run.
+   *
+   * `report` is the text its person is owed, and it is written in the SAME
+   * statement as the terminal status on purpose: the status is what removes the
+   * row from `runningRuns()`, i.e. from the reach of crash recovery. Two
+   * statements would leave a window — the exact window this parameter exists to
+   * close — in which the row is beyond recovery and the report exists only in
+   * the memory of a process that may be about to die.
+   *
+   * Null report is legitimate: a run concluded by a caller with nothing to hand
+   * over (a TUI turn the user is watching) is finished, not owed.
+   */
+  finish(id: string, status: RunStatus, reason: RunStopReason, report: string | null = null): void {
     this.#db
-      .query("UPDATE runs SET status = ?, stopped_because = ?, updated_at = ? WHERE id = ?")
-      .run(status, reason, Date.now(), id);
+      .query(
+        "UPDATE runs SET status = ?, stopped_because = ?, report = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(status, reason, report, Date.now(), id);
+  }
+
+  /**
+   * Runs holding a report nobody has received yet. Oldest first, same reason as
+   * `runningRuns()`.
+   *
+   * Deliberately not filtered by status: a run is owed its report whether it
+   * finished, gave up, or was abandoned. The only question this asks is whether
+   * the text made it out of the process.
+   */
+  undelivered(): RunRow[] {
+    const rows = this.#db
+      .query(
+        `SELECT * FROM runs WHERE report IS NOT NULL AND delivered_at IS NULL
+         ORDER BY created_at ASC, rowid ASC`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((r) => this.#toRun(r));
+  }
+
+  /** Record that the report reached its person. Idempotent. */
+  markDelivered(id: string): void {
+    this.#db
+      .query("UPDATE runs SET delivered_at = ? WHERE id = ?")
+      .run(Date.now(), id);
+  }
+
+  /**
+   * Count one refusal by the target — a send that was actually attempted and
+   * failed. Not incremented when there was no channel to attempt it on: see
+   * `ChannelAskRouter.notify`.
+   */
+  recordDeliveryRefusal(id: string): void {
+    this.#db
+      .query("UPDATE runs SET delivery_attempts = delivery_attempts + 1 WHERE id = ?")
+      .run(id);
   }
 
   /** Record that a boot picked this run up, and at which turn seq it resumed. */
@@ -270,6 +331,13 @@ export class RunStore {
         r.stopped_because === null ? null : (String(r.stopped_because) as RunStopReason),
       resumes: Number(r.resumes),
       lastResumeSeq: r.last_resume_seq === null ? null : Number(r.last_resume_seq),
+      // `?? null` rather than a null check: rows written before the column
+      // existed come back `undefined`, and an undefined report must read as
+      // "nothing owed", not as a report of the string "undefined".
+      report: r.report === null || r.report === undefined ? null : String(r.report),
+      deliveredAt:
+        r.delivered_at === null || r.delivered_at === undefined ? null : Number(r.delivered_at),
+      deliveryAttempts: Number(r.delivery_attempts ?? 0),
     };
   }
 }

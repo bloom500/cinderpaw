@@ -108,20 +108,34 @@ export async function resumeInterruptedRuns(
   const log = opts.log ?? (() => {});
   for (const run of store.runningRuns()) {
     const decision = decideResume(run, store.turnsOf(run.id), now, maxResumes);
-    try {
-      if (decision.action === "give_up") {
-        // Marked first: if delivery throws, the run must not stay `running` and
-        // get picked up again on the next boot for the same doomed reason.
-        store.finish(run.id, decision.status, decision.reason);
+    if (decision.action === "give_up") {
+      // `giveUp` owns the conclusion now, because the row has to carry its
+      // report and only the caller can render one. It used to be concluded
+      // here, before the callback ran — which did keep a doomed run from being
+      // retried forever, but also meant any report was written to a row already
+      // out of reach of the next boot. `finish(…, report)` gets both: out of
+      // `running`, and still findable by `undelivered()`.
+      try {
         await giveUp(run, decision);
-        continue;
+      } catch (err) {
+        log(`run ${run.id}: give_up failed: ${String(err)}`);
       }
+      // The property the old ordering guaranteed, kept as a net instead of as an
+      // ordering: a callback that threw — or one that forgot — must not leave a
+      // doomed run to be picked up again next boot for the same dead reason.
+      if (store.get(run.id)?.status === "running") {
+        store.finish(run.id, decision.status, decision.reason);
+        log(`run ${run.id}: give_up left it running — concluded without a report`);
+      }
+      continue;
+    }
+    try {
       // Recorded BEFORE running it: if this attempt also dies, the next boot has
       // to be able to see that it was tried.
       store.markResumed(run.id, store.turnsOf(run.id).length + 1);
       await resume(run);
     } catch (err) {
-      log(`run ${run.id}: ${decision.action} failed: ${String(err)}`);
+      log(`run ${run.id}: resume failed: ${String(err)}`);
     }
   }
 }

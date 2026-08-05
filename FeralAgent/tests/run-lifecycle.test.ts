@@ -174,26 +174,34 @@ describe("a connector turn becomes a durable run", () => {
     const began: Array<{ sessionId: string; mission: string; surface: string; target: string }> = [];
     const finished: UnattendedResult[] = [];
     const recorded: number[] = [];
+    /** The text each run was concluded with, i.e. what a crash would leave behind. */
+    const concluded: string[] = [];
+    const delivered: string[] = [];
     const hooks: ConnectorRunHooks = {
       begin: async (sessionId, mission, surface, target) => {
         began.push({ sessionId, mission, surface, target });
         return {
           recorder: { record: (t) => { recorded.push(t.durationMs); } },
           done: (run) => { finished.push(run); },
+          conclude: (reply) => { concluded.push(reply); },
+          delivered: () => { delivered.push(sessionId); },
         };
       },
     };
-    return { hooks, began, finished, recorded };
+    return { hooks, began, finished, recorded, concluded, delivered };
   }
 
   test("the run is begun with the surface and channel it came from, and closed out", async () => {
-    const { hooks, began, finished, recorded } = fakeHooks();
-    const reply = await runAgent(
+    const { hooks, began, finished, recorded, concluded } = fakeHooks();
+    const { reply } = await runAgent(
       fakeAgent("completed"), "discord:c1:u1", "add a --json flag", "discord-42",
       undefined, undefined, { hooks, surface: "discord", target: "c1" },
     );
 
     expect(reply).toBe("done");
+    // The run was concluded holding the exact text the caller is about to send —
+    // that identity is what makes a crash between here and the send recoverable.
+    expect(concluded).toEqual([reply]);
     expect(began).toEqual([
       { sessionId: "discord:c1:u1", mission: "add a --json flag", surface: "discord", target: "c1" },
     ]);
@@ -216,7 +224,7 @@ describe("a connector turn becomes a durable run", () => {
   test("begin returning null (a run already in flight) still answers the message", async () => {
     // Refusing the second RUN must not refuse the reply — the person is waiting.
     const hooks: ConnectorRunHooks = { begin: async () => null };
-    const reply = await runAgent(
+    const { reply } = await runAgent(
       fakeAgent("completed"), "discord:c1:u1", "task", "discord-42",
       undefined, undefined, { hooks, surface: "discord", target: "c1" },
     );
@@ -224,7 +232,7 @@ describe("a connector turn becomes a durable run", () => {
   });
 
   test("no hooks at all behaves exactly as before", async () => {
-    const reply = await runAgent(fakeAgent("completed"), "discord:c1:u1", "task", "discord-42");
+    const { reply } = await runAgent(fakeAgent("completed"), "discord:c1:u1", "task", "discord-42");
     expect(reply).toBe("done");
   });
 });
@@ -237,21 +245,21 @@ describe("ChannelAskRouter.notify", () => {
     const sent: Array<{ sessionId: string; text: string }> = [];
     router.registerSender("discord", async (sessionId, text) => { sent.push({ sessionId, text }); });
 
-    expect(await router.notify("discord:c1:u1", "✅ Done — and verified.")).toBe(true);
+    expect(await router.notify("discord:c1:u1", "✅ Done — and verified.")).toBe("sent");
     expect(sent).toEqual([{ sessionId: "discord:c1:u1", text: "✅ Done — and verified." }]);
   });
 
-  test("no sender for that surface reports false rather than throwing", async () => {
+  test("no sender for that surface is `no_channel` — nothing was asked of anyone", async () => {
     // A connector that is disabled or not yet connected must not take down the
-    // boot resume pass.
+    // boot resume pass, and must not count against the report either.
     const router = new ChannelAskRouter();
-    expect(await router.notify("discord:c1:u1", "hi")).toBe(false);
+    expect(await router.notify("discord:c1:u1", "hi")).toBe("no_channel");
   });
 
-  test("a sender that throws reports false, and the failure does not escape", async () => {
+  test("a sender that throws is `refused` — the target said no, and the failure does not escape", async () => {
     const router = new ChannelAskRouter();
     router.registerSender("discord", async () => { throw new Error("401"); });
-    expect(await router.notify("discord:c1:u1", "hi")).toBe(false);
+    expect(await router.notify("discord:c1:u1", "hi")).toBe("refused");
   });
 });
 
@@ -286,6 +294,8 @@ describe("a chat task that declares what done means", () => {
         return {
           recorder: { record: () => {} },
           done: () => verdict,
+          conclude: () => {},
+          delivered: () => {},
         };
       },
     };
@@ -308,7 +318,7 @@ describe("a chat task that declares what done means", () => {
 
   test("a failed check reaches the PERSON, appended to the agent's own answer", async () => {
     const { hooks } = hooksCapturing("❌ **The check you declared did not pass.** FAILED: out/REPORT.md does not exist");
-    const reply = await runAgent(
+    const { reply } = await runAgent(
       fakeAgent(),
       "discord:c1:u1",
       "write it\ndone_when: exists out/REPORT.md",
@@ -325,7 +335,7 @@ describe("a chat task that declares what done means", () => {
 
   test("no assertion, no footnote — silence stays silence", async () => {
     const { hooks, seen } = hooksCapturing(null);
-    const reply = await runAgent(
+    const { reply } = await runAgent(
       fakeAgent(), "discord:c1:u1", "just have a look around", "discord-42",
       undefined, undefined, { hooks, surface: "discord", target: "c1" },
     );
@@ -357,7 +367,7 @@ describe("an answer with nothing behind it", () => {
   }
 
   test("a file summary produced without opening anything is marked", async () => {
-    const reply = await runAgent(
+    const { reply } = await runAgent(
       agentSaying("QuantumScheduler in D:\proj\src\core\quantum-scheduler.ts is the tick loop.", 0),
       "discord:c1:u1", "summarise it", "discord-42",
     );
@@ -368,7 +378,7 @@ describe("an answer with nothing behind it", () => {
   });
 
   test("the same answer with a tool call behind it is left alone", async () => {
-    const reply = await runAgent(
+    const { reply } = await runAgent(
       agentSaying("QuantumScheduler in D:\proj\src\core\quantum-scheduler.ts is the tick loop.", 3),
       "discord:c1:u1", "summarise it", "discord-42",
     );
@@ -376,7 +386,7 @@ describe("an answer with nothing behind it", () => {
   });
 
   test("ordinary chat is never marked", async () => {
-    const reply = await runAgent(
+    const { reply } = await runAgent(
       agentSaying("Sure — what would you like me to look at?", 0),
       "discord:c1:u1", "hi", "discord-42",
     );
@@ -402,7 +412,7 @@ describe("asked about a file, opened nothing", () => {
         incomplete: false,
       }),
     };
-    const reply = await runAgent(
+    const { reply } = await runAgent(
       agent,
       "discord:c1:u1",
       "Read D:\proj\src\core\quantum-scheduler.ts and summarise what it does.",

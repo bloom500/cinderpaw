@@ -395,11 +395,29 @@ export interface ConnectorRunHooks {
   ): Promise<{
     recorder: TurnRecorder;
     /**
-     * Close the run. Returns one line for the person when there is something
+     * Judge the run. Returns one line for the person when there is something
      * the agent's own summary does not already say — a failed assertion, above
      * all. Null when the run needs no footnote.
+     *
+     * Judging only: this does NOT conclude the run, because the verdict is known
+     * one step before the text the run owes exists.
      */
     done(run: UnattendedResult): Promise<string | null> | string | null;
+    /**
+     * Conclude the run, carrying the exact reply the connector is about to send.
+     *
+     * Called after the reply is composed and BEFORE it is sent. That order is the
+     * whole point: a process that dies between here and the send leaves a row
+     * that knows both that it ended and what it owes, which is what lets a later
+     * boot deliver it. Concluding after the send would leave the report existing
+     * only in the memory of a process that is no longer running.
+     */
+    conclude(reply: string): Promise<void> | void;
+    /**
+     * Report that the reply actually reached the person. Until this is called
+     * the run stays owed, and a boot will re-send it.
+     */
+    delivered(): void;
   } | null>;
 }
 
@@ -411,6 +429,12 @@ export type RunSurface = "discord" | "slack" | "whatsapp";
  * Exported for tests: every connector funnels through here, so this is the one
  * place where "a chat message becomes a durable run" can be checked without a
  * Discord token.
+ *
+ * Returns the reply AND the acknowledgement its caller owes once the reply is
+ * actually out. Two values rather than one because sending is the caller's job:
+ * it owns the formatting, the splitting and the retry, so it is the only code
+ * that knows when the person really has the message. `markDelivered` is a no-op
+ * when there is no durable run behind the turn.
  */
 export async function runAgent(
   agent: AgentLike,
@@ -420,7 +444,7 @@ export async function runAgent(
   onActivity?: (status: string) => void,
   images?: string[],
   runs?: { hooks: ConnectorRunHooks; surface: RunSurface; target: string },
-): Promise<string> {
+): Promise<{ reply: string; markDelivered: () => void }> {
   const emit = (event: OutboundEvent) => {
     if (!onActivity) return;
     if (event.type === "tool_start") {
@@ -463,9 +487,17 @@ export async function runAgent(
     const unsourced = unsourcedWarning(run.text, toolCalls, text);
     // The verdict goes to the PERSON, not just into the row. A failed check
     // that only a database knows about is the same silence we started with.
-    return [run.text, verdict, unsourced].filter(Boolean).join("\n\n");
+    const reply = [run.text, verdict, unsourced].filter(Boolean).join("\n\n");
+    // Durable before it is spoken. Anything that goes wrong between here and
+    // the caller's `markDelivered()` leaves the report on disk for the next
+    // boot, rather than only in the memory of a process that may be dying.
+    await record?.conclude(reply);
+    return { reply, markDelivered: () => record?.delivered() };
   }
-  return agent.handle(sessionId, text, messageId, emit, undefined, images);
+  return {
+    reply: await agent.handle(sessionId, text, messageId, emit, undefined, images),
+    markDelivered: () => {},
+  };
 }
 
 /** Digits only — used to compare phone numbers across formats. */
@@ -766,7 +798,7 @@ export class DiscordConnector {
       // what isolates them — it is what lets the agent address them by name
       // and reason about "who asked" in a shared channel.
       const authored = `[user:${message.author.username}] ${prompt}`;
-      const reply = await runAgent(
+      const { reply, markDelivered } = await runAgent(
         this.#agent,
         sessionId,
         authored,
@@ -791,6 +823,11 @@ export class DiscordConnector {
           await channel.send(part);
         }
       }
+      // It landed. Said only now, and only once every part is out: until this
+      // line runs the run counts as owed, and a boot after a crash re-sends it.
+      // A crash between the send above and here costs a duplicate message — the
+      // deliberate side of at-least-once, and the cheap direction to be wrong in.
+      markDelivered();
       react("✅");
     } catch (e) {
       this.#log(`discord: agent error: ${String(e)}`);
@@ -931,7 +968,7 @@ export class SlackConnector {
     const setStatus = (s: string) => statusMsg?.set(s);
 
     try {
-      const reply = await runAgent(this.#agent, sessionId, `[user:${user}] ${text}`, `slack-${event.ts}`, setStatus);
+      const { reply } = await runAgent(this.#agent, sessionId, `[user:${user}] ${text}`, `slack-${event.ts}`, setStatus);
       const parts = formatForChat(reply, SLACK_MAX);
       if (statusMsg) await statusMsg.settle(parts[0] ?? "(no response)");
       else await web.chat.postMessage({ channel, text: parts[0] ?? "(no response)", thread_ts: threadTs });
@@ -1179,7 +1216,7 @@ export class WhatsAppConnector {
     }, 8000);
 
     try {
-      const reply = await runAgent(this.#agent, sessionId, text, `wa-${msg.key.id}`);
+      const { reply } = await runAgent(this.#agent, sessionId, text, `wa-${msg.key.id}`);
       const parts = formatForChat(reply, WHATSAPP_MAX);
       for (const part of parts) {
         await sock.sendMessage(jid, { text: part });

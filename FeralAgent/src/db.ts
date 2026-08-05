@@ -474,6 +474,25 @@ function migrate(db: Database): void {
     );
   `);
 
+  // The report a finished run owes its person, and whether it was handed over.
+  //
+  // Without these, a run that finished and died before the message left the
+  // process was unrecoverable BY CONSTRUCTION: the crash signal is
+  // `status = 'running'` (see run-resume.ts), so the moment `finish()` ran the
+  // row stopped being something any later boot would look at — and the report
+  // itself only ever existed in RAM. Written in the SAME statement as the
+  // terminal status, so there is no instant where a row claims to be done and
+  // cannot say what it concluded.
+  //
+  // `delivered_at IS NULL` with a report present is the one state that means
+  // "somebody is still owed this".
+  addColumnIfMissing(db, "runs", "report", "TEXT");
+  addColumnIfMissing(db, "runs", "delivered_at", "INTEGER");
+  // Refusals BY THE TARGET, not failed attempts: a boot where the connector was
+  // not up yet never asked anyone anything and must not count against the
+  // report. See `ChannelAskRouter.notify` and `run-delivery.ts`.
+  addColumnIfMissing(db, "runs", "delivery_attempts", "INTEGER NOT NULL DEFAULT 0");
+
   // Sprint 1.4 — same workspace scoping as episodic. `semantic` rows MAY be
   // global (`workspace_id IS NULL`) — user identity, language, communication
   // style — to survive workspace switches.
