@@ -162,3 +162,50 @@ describe("parity: resilience", () => {
     expect(out.answer).toContain("does not exist");
   });
 });
+
+describe("parity: work that must not be thrown away", () => {
+  test("empty_after_work — silence after tool calls is not a finished turn", async () => {
+    // Live, on Discord: 28 tool calls, 88 seconds, and the person got "(The
+    // model returned an empty response.)" while every result sat unread in the
+    // transcript. An empty completion used to end the turn on the spot, and the
+    // one recovery nudge in the code deliberately excluded exactly this case.
+    const out = await runScenario({
+      name: "empty_after_work",
+      category: "recovery",
+      proves: "a model that stops talking has not undone the work it already did",
+      prompt: "write the file and tell me what you did",
+      script: [
+        { content: toolCall("write_file", { path: "{{ws}}/r.txt", content: "done" }) },
+        { content: "" },
+        { content: "Wrote r.txt containing 'done'." },
+      ],
+    });
+    expect(out.answer).toContain("r.txt");
+    // 3 completions = the empty one was followed by a nudge, not a verdict.
+    expect(out.completions).toBe(3);
+    expect(await readFile(join(out.workspace, "r.txt"), "utf8")).toBe("done");
+  });
+
+  test("empty_after_work_exhausted — the report names the work instead of denying it", async () => {
+    // Even when the nudges run out, "nothing came back" and "nothing happened"
+    // are different facts. Saying the first when the second is false is how
+    // work goes missing quietly.
+    const out = await runScenario({
+      name: "empty_exhausted",
+      category: "recovery",
+      proves: "a silent turn still tells the person there are files to go and look at",
+      prompt: "write the file and tell me what you did",
+      script: [
+        { content: toolCall("write_file", { path: "{{ws}}/r.txt", content: "done" }) },
+        { content: "" },
+        { content: "" },
+        { content: "" },
+        { content: "" },
+        { content: "" },
+      ],
+    });
+    expect(out.answer).toContain("1 tool call");
+    expect(out.answer).not.toContain("returned an empty response");
+    expect(await readFile(join(out.workspace, "r.txt"), "utf8")).toBe("done");
+  });
+});

@@ -1380,7 +1380,16 @@ export class AgentLoop {
           // mid-work; one nudge is far cheaper than a half-done refactor the
           // user has to discover themselves.
           const degenerate = rawAnswer !== "" && answer === "";
-          if (hadThinking || degenerate) {
+          // A completion that is empty end to end used to finish the turn on
+          // the spot. After a turn that has already run tools that throws the
+          // work away: 28 tool calls and 88 seconds of real work came back to
+          // the person as "(The model returned an empty response.)" while every
+          // result sat in the transcript, unread. Silence is not a verdict, it
+          // is a model that stopped talking — and the single nudge the stray-tag
+          // case already gets costs one call against work that is otherwise
+          // lost. Bounded by MAX_CONTINUATIONS like the others.
+          const workToReport = toolCallCount > 0;
+          if (hadThinking || degenerate || workToReport) {
             if (continuations < MAX_CONTINUATIONS) {
               continuations++;
               // Store the turn WITHOUT its <think> reasoning. The chain-of-thought was
@@ -1391,7 +1400,12 @@ export class AgentLoop {
       // visible answer + any <tool_call> tags belong in re-sent history.
       memory.addAssistant(stripThinking(completion));
               memory.addUser(
-                degenerate
+                workToReport && !degenerate
+                  ? "(system: your previous reply was empty. The tool results above are " +
+                      "work you have already done and nobody has seen it. If the task is " +
+                      "not finished, call the next tool. If it is finished, state plainly " +
+                      "what you did and what you verified.)"
+                  : degenerate
                   ? "(system: your previous reply contained no answer — only a stray tag. " +
                       "If the task is not finished, continue working: call the next tool. " +
                       "If it is finished, state plainly what you did and what you verified.)"
@@ -1407,8 +1421,16 @@ export class AgentLoop {
             if (answerParts.length > 0) {
               return { text: answerParts.join(""), toolCallCount, outcome: "completed" };
             }
+            // Same distinction as below: when tools ran, blaming the token
+            // budget for reasoning is both wrong and, worse, it tells the
+            // person nothing happened when files may have changed.
             return {
-              text: "(The model used all available tokens on reasoning and produced no answer, even after several automatic continuations. Try a shorter prompt or a larger model.)",
+              text:
+                toolCallCount > 0
+                  ? `(The model went silent after ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} ` +
+                    `and never wrote an answer, even after several automatic retries. The work itself ran — ` +
+                    `check the files it touched before re-running this.)`
+                  : "(The model used all available tokens on reasoning and produced no answer, even after several automatic continuations. Try a shorter prompt or a larger model.)",
               toolCallCount,
               outcome: "no_answer",
             };
@@ -1416,7 +1438,20 @@ export class AgentLoop {
           if (answerParts.length > 0) {
             return { text: answerParts.join(""), toolCallCount, outcome: "completed" };
           }
-          return { text: "(The model returned an empty response.)", toolCallCount, outcome: "no_answer" };
+          // "Nothing came back" and "nothing happened" are different facts, and
+          // saying the first when the second is false is how work goes missing
+          // quietly: the files are on disk, the row says no_answer, and the
+          // person is told the model said nothing. Name the work so they know
+          // there is something to go and look at.
+          return {
+            text:
+              toolCallCount > 0
+                ? `(The model went silent after ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} ` +
+                  `and never wrote an answer. The work itself ran — check the files it touched before re-running this.)`
+                : "(The model returned an empty response.)",
+            toolCallCount,
+            outcome: "no_answer",
+          };
         }
         // Natural termination — model chose to answer rather than call a tool.
         // Prepend any length-cutoff fragments so the persisted answer matches
