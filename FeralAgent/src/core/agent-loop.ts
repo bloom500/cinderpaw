@@ -2012,9 +2012,24 @@ export class AgentLoop {
         memory.restore(resume.messages);
         log(`checkpoint: resumed session ${sessionId} from iteration ${resume.iteration} (${resume.messages.length} messages)`);
       } else if (isReplayableSession(sessionId)) {
+        // Tool rows are collapsed into a one-line note on the answer they
+        // produced. Replaying them as real tool messages is not possible (no
+        // call ids, output truncated to 400 chars), but dropping them — which
+        // is what this did — left a transcript in which the agent had never
+        // once opened a file, and the model copied that. The note costs a few
+        // tokens per turn and restores the only thing that mattered: evidence
+        // that looking things up is what happens here.
+        let used: string[] = [];
         for (const ev of this.#episodic.conversation(sessionId, REHYDRATE_TURNS)) {
-          if (ev.role === "user") memory.addUser(ev.content);
-          else memory.addAssistant(ev.content);
+          if (ev.role === "tool") {
+            used.push(ev.content.slice(0, ev.content.indexOf(":") + 1 || 40).replace(/:$/, ""));
+          } else if (ev.role === "user") {
+            memory.addUser(ev.content);
+            used = [];
+          } else {
+            memory.addAssistant(replayedToolNote(used) + ev.content);
+            used = [];
+          }
         }
       }
       entry = { memory, lastAccess: Date.now(), noProgress: new Map() };
@@ -2193,6 +2208,21 @@ export function buildCapabilityIndex(registry: ToolRegistry): string {
  *
  * Only `AnthropicProvider` reads this field; all other providers ignore it.
  */
+/**
+ * The one line that puts the work back into a replayed answer.
+ *
+ * `["read_file", "read_file", "shell_exec"]` → `[used read_file ×2, shell_exec]`
+ * Empty in, empty out — a turn that genuinely used no tool must not be dressed
+ * up as one that did, or the note becomes noise and stops meaning anything.
+ */
+export function replayedToolNote(names: string[]): string {
+  if (names.length === 0) return "";
+  const counts = new Map<string, number>();
+  for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+  const parts = [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n));
+  return `[used ${parts.join(", ")}]\n`;
+}
+
 export function buildNativeTools(registry: ToolRegistry): AnthropicToolDef[] {
   return registry.list().map((tool) => {
     const properties: Record<string, Record<string, unknown>> = {};

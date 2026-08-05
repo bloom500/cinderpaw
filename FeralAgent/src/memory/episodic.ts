@@ -122,9 +122,18 @@ export class EpisodicMemory {
    * cold WorkingMemory rehydrates from (see AgentLoop.#memoryFor).
    *
    * Not the same query as `recent()`, deliberately:
-   *   - `tool` rows are excluded. They carry no tool-call `name` and their
-   *     content is truncated to 400 chars, so replaying them yields a
-   *     malformed, lossy tool history.
+   *   - `tool` rows are included, but ONLY as evidence that work happened —
+   *     the caller collapses them to a one-line note. Their content is
+   *     truncated to 400 chars and carries no call id, so replaying them as
+   *     real tool messages would be a malformed, lossy tool history. Excluding
+   *     them outright, which is what this did before, was worse: the replayed
+   *     transcript then showed forty turns of the agent answering questions
+   *     about files with no sign of ever having opened one — including for
+   *     turns that had opened plenty. Measured consequence, not theory: the
+   *     same model, same prompt, same tools called `read_file` with no history
+   *     and refused to call anything with those forty turns in front of it,
+   *     while forty turns of unrelated chat left it calling the tool. It was
+   *     copying the only pattern its own transcript showed it.
    *   - MemoryExtractor's observation notes are excluded. It records them with
    *     role `assistant` under the live sessionId (extractor.ts), so replaying
    *     them would feed the model its own internal `[obs:…]` notes as things
@@ -152,7 +161,20 @@ export class EpisodicMemory {
          LIMIT ?`,
       )
       .all(sessionId, sessionId, SESSION_RESET_MARK, limit);
-    return rows.map(fromRow).reverse();
+    if (rows.length === 0) return [];
+    // Tool rows are fetched in a second pass rather than by widening the query
+    // above, so `limit` keeps counting real conversation turns: a session whose
+    // last 40 rows are all tool calls still rehydrates 40 turns of talk. The
+    // window is the id range the conversation rows already span.
+    const oldest = rows.reduce((min, r) => (r.id < min ? r.id : min), rows[0]!.id);
+    const tools = this.#db
+      .query<EpisodicRow, [string, number]>(
+        `SELECT id, session_id, timestamp, role, content
+         FROM episodic
+         WHERE session_id = ? AND role = 'tool' AND id >= ?`,
+      )
+      .all(sessionId, oldest);
+    return [...rows, ...tools].map(fromRow).sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
   }
 
   /**

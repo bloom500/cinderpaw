@@ -184,7 +184,17 @@ describe("F8 — sessions survive a restart", () => {
 
     const replayed = episodic.conversation("s-tools", 40);
     expect(replayed.some((e) => e.content.includes("ZIMBRU-77"))).toBe(true);
-    expect(replayed.every((e) => e.role !== "tool")).toBe(true);
+    // The conversation turns are what `limit` counts — 60 tool rows must not
+    // push the two real turns out of the window. That is this test's point and
+    // it still holds.
+    expect(replayed.filter((e) => e.role !== "tool")).toHaveLength(2);
+    // Tool rows now come back too, and that is a deliberate reversal. Dropping
+    // them produced a replayed transcript in which the agent had never opened a
+    // file in its life; the model read that as the house style and stopped
+    // opening files. Measured: same prompt, same tools, 1 tool call with no
+    // history, 0 with these forty turns. The caller collapses them to a
+    // one-line note — see replayedToolNote.
+    expect(replayed.some((e) => e.role === "tool")).toBe(true);
     db.close();
   });
 

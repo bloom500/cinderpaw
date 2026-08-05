@@ -99,3 +99,18 @@ describe("what counts as a path", () => {
     expect(claimedPath("version 2026.8.1")).toBeNull();
   });
 });
+
+describe("a replayed answer carries the work that produced it", () => {
+  test("tools are named and counted, once", () => {
+    expect(replayedToolNote(["read_file", "read_file", "shell_exec"])).toBe(
+      "[used read_file ×2, shell_exec]\n",
+    );
+    expect(replayedToolNote(["list_dir"])).toBe("[used list_dir]\n");
+  });
+
+  test("a turn that used nothing is left alone", () => {
+    // The whole value of the note is that its absence means something. Stamping
+    // every turn with it would make it invisible again.
+    expect(replayedToolNote([])).toBe("");
+  });
+});
