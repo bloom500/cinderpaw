@@ -28,7 +28,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, basename } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { feralHome } from "../config.ts";
 import { resolveExecutables } from "./executables.ts";
 
@@ -189,7 +189,15 @@ async function snapshot(
   label: string,
   log: Log,
 ): Promise<string | null> {
-  const indexFile = join(feralHome(), "safety", `index-${process.pid}-${Date.now()}`);
+  // Unique per call, not per millisecond: two snapshots that start in the same
+  // tick would otherwise stage into the SAME scratch index and hand each other
+  // the wrong tree — silently, as a plausible-looking file list. Two roots of
+  // one run, or a cron job firing while a chat message is answered, are enough.
+  const indexFile = join(
+    feralHome(),
+    "safety",
+    `index-${process.pid}-${Date.now()}-${randomUUID()}`,
+  );
   const env: Record<string, string> = { GIT_INDEX_FILE: indexFile };
   if (gitDir) {
     env.GIT_DIR = gitDir;
@@ -294,10 +302,11 @@ function parseNumstat(out: string): { files: string[]; insertions: number; delet
  * were newly created, and a run that creates files is the common case.
  */
 export async function changedSince(
-  point: SafetyPoint | null,
+  point: SafetyPoint | SafetyPoint[] | null,
   log: Log = () => {},
 ): Promise<ChangeSummary> {
-  if (!point) {
+  const points = point === null ? [] : Array.isArray(point) ? point : [point];
+  if (points.length === 0) {
     return {
       available: false,
       files: [],
@@ -307,7 +316,51 @@ export async function changedSince(
       reason: "no safety point was taken (workspace is not snapshottable, or git is unavailable)",
     };
   }
+  if (points.length === 1) return changedSinceOne(points[0]!, log);
 
+  // ponytail: sequential. Two or three roots of small diffs, and a parallel git
+  // storm on a large repo buys nothing. Parallelise if root counts ever grow.
+  const parts: ChangeSummary[] = [];
+  for (const p of points) parts.push(await changedSinceOne(p, log));
+  const tracked = parts.filter((p) => p.available);
+  if (tracked.length === 0) {
+    return {
+      available: false,
+      files: [],
+      insertions: 0,
+      deletions: 0,
+      restoreHint: null,
+      reason: parts[0]?.reason ?? "no workspace root could be tracked",
+    };
+  }
+  // Paths are root-relative, and two roots can hold the same relative path. Once
+  // there is more than one, only the absolute path identifies a file — and the
+  // fingerprint that drives the no-progress guard is built from these strings,
+  // so an ambiguous one would make edits in different roots cancel out.
+  const files = points.flatMap((p, i) =>
+    (parts[i]!.available ? parts[i]!.files : []).map((f) => ({
+      status: f.status,
+      path: join(p.root, f.path),
+    })),
+  );
+  const untracked = points.filter((_, i) => !parts[i]!.available).map((p) => p.root);
+  return {
+    available: true,
+    files,
+    insertions: tracked.reduce((n, p) => n + p.insertions, 0),
+    deletions: tracked.reduce((n, p) => n + p.deletions, 0),
+    restoreHint: tracked.map((p) => p.restoreHint).filter(Boolean).join("\n") || null,
+    // Partial coverage is stated, not implied: "available" means what follows is
+    // real, never that it is the whole story.
+    reason:
+      untracked.length > 0 ? `not tracked: ${untracked.join(", ")}` : undefined,
+  };
+}
+
+async function changedSinceOne(
+  point: SafetyPoint,
+  log: Log = () => {},
+): Promise<ChangeSummary> {
   const after = await snapshot(point.root, point.gitDir, `${point.label} (after)`, log);
   if (!after) {
     return {
@@ -399,6 +452,88 @@ export function changeFingerprint(summary: ChangeSummary): string {
  * already answers `available: false` with a reason, and that distinction is the
  * whole point of the `available` flag.
  */
+/**
+ * A safety point for every workspace root that can take one.
+ *
+ * The agent writes wherever the workspace roots let it, so a snapshot of only
+ * the first root answers "what changed while I was out" with a confident,
+ * wrong zero — and feeds that same zero to the no-progress guard, which reads
+ * it as a run that achieved nothing. Roots that cannot be snapshotted (the home
+ * directory, a filesystem root) are skipped exactly as before; they simply do
+ * not contribute a point.
+ */
+export async function createSafetyPoints(
+  label: string,
+  log: Log = () => {},
+  roots: string[] = [],
+): Promise<SafetyPoint[]> {
+  const points: SafetyPoint[] = [];
+  for (const root of roots) {
+    const point = await createSafetyPoint(label, log, root);
+    if (point) points.push(point);
+  }
+  return points;
+}
+
+/** The three run columns, holding a whole list of points instead of one. */
+export function safetyColumns(points: SafetyPoint[]): {
+  root: string | null;
+  before: string | null;
+  gitDir: string | null;
+} {
+  if (points.length === 0) return { root: null, before: null, gitDir: null };
+  return {
+    root: JSON.stringify(points.map((p) => p.root)),
+    before: JSON.stringify(points.map((p) => p.before)),
+    gitDir: JSON.stringify(points.map((p) => p.gitDir)),
+  };
+}
+
+/** A JSON list of values, or a single legacy value written before the list. */
+function parseColumn(value: string | null): Array<string | null> {
+  if (value === null) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed as Array<string | null>;
+  } catch {
+    // A row written when the column held one bare path.
+  }
+  return [value];
+}
+
+/**
+ * Every point on a persisted row — the list form of {@link safetyPointFrom}.
+ *
+ * Rows written before the columns held lists carry a bare path, which parses
+ * back to a single point, so a run interrupted across the upgrade still
+ * resumes against its original snapshot instead of silently losing it.
+ */
+export function safetyPointsFrom(run: {
+  id: string;
+  createdAt: number;
+  safetyRoot: string | null;
+  safetyBefore: string | null;
+  safetyGitDir: string | null;
+}): SafetyPoint[] {
+  const roots = parseColumn(run.safetyRoot);
+  const befores = parseColumn(run.safetyBefore);
+  const gitDirs = parseColumn(run.safetyGitDir);
+  const points: SafetyPoint[] = [];
+  for (let i = 0; i < roots.length; i++) {
+    const root = roots[i];
+    const before = befores[i];
+    if (!root || !before) continue; // half-written: unavailable beats unreadable
+    points.push({
+      root,
+      before,
+      gitDir: gitDirs[i] ?? null,
+      label: `run/${run.id}`,
+      createdAt: run.createdAt,
+    });
+  }
+  return points;
+}
+
 export function safetyPointFrom(run: {
   id: string;
   createdAt: number;

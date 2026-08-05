@@ -58,7 +58,7 @@ export function renderDigest(
   run: UnattendedResult,
   changes: ChangeSummary,
   check: DoneCheck,
-  safety: SafetyPoint | null,
+  safety: SafetyPoint[] | null,
   /**
    * Why the RUN ended, when that differs from why the LOOP ended — a run picked
    * up by a later boot, or given up on there.
@@ -124,10 +124,11 @@ export function renderDigest(
       out.push("```");
     }
   }
-  if (safety && changes.available && changes.files.length === 0) {
+  if (safety && safety.length > 0 && changes.available && changes.files.length === 0) {
     // Nothing changed, but a snapshot exists — worth saying, since "no diff"
     // and "we didn't look" must never read the same.
-    out.push(`_(snapshot \`${safety.before.slice(0, 8)}\` taken before the run)_`);
+    const taken = safety.map((s) => s.before.slice(0, 8)).join(", ");
+    out.push(`_(snapshot \`${taken}\` taken before the run)_`);
   }
 
   // 4. The agent's own account, last.

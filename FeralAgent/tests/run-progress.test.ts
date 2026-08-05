@@ -18,6 +18,9 @@ import {
   changedSince,
   changeFingerprint,
   safetyPointFrom,
+  safetyPointsFrom,
+  createSafetyPoints,
+  safetyColumns,
   type SafetyPoint,
 } from "../src/core/safety-point.ts";
 
@@ -190,5 +193,61 @@ describe("safetyPointFrom edge cases", () => {
         safetyGitDir: null,
       }),
     ).toBeNull();
+  });
+});
+
+/**
+ * Every workspace root, not just the first.
+ *
+ * Found live: the agent was told "the workspace", picked the third configured
+ * root (`~/.feral/workspace`) and wrote three files there, while the safety
+ * point covered only the first (the repo). The digest reported zero files, and
+ * — worse — `filesChanged: 0` on every turn is exactly the signal
+ * `decideResume` reads as "the last attempt achieved nothing", so a healthy
+ * resumed run would have been abandoned as `no_progress` while it was working.
+ *
+ * The snapshot has to cover everywhere the agent may write, because
+ * "unmeasured" and "unmoved" are recorded in the same column.
+ */
+describe("safety points across every workspace root", () => {
+  test("a file written in a root other than the first is still seen", async () => {
+    const first = await repo();
+    const second = await plainDir();
+
+    const points = await createSafetyPoints("test/run", () => {}, [first, second]);
+    expect(points).toHaveLength(2);
+
+    await writeFile(join(second, "only-here.md"), "written in the second root\n");
+
+    const summary = await changedSince(points);
+    expect(summary.available).toBe(true);
+    expect(summary.files.map((f) => f.path).join(" ")).toContain("only-here.md");
+  });
+
+  test("the roots survive a restart through the persisted columns", async () => {
+    const first = await repo();
+    const second = await plainDir();
+    const points = await createSafetyPoints("test/run", () => {}, [first, second]);
+    const cols = safetyColumns(points);
+
+    await writeFile(join(second, "after-restart.md"), "still visible\n");
+
+    const rebuilt = safetyPointsFrom({
+      id: "run-1",
+      createdAt: points[0]!.createdAt,
+      safetyRoot: cols.root,
+      safetyBefore: cols.before,
+      safetyGitDir: cols.gitDir,
+    });
+    expect(rebuilt).toHaveLength(2);
+    const summary = await changedSince(rebuilt);
+    expect(summary.files.map((f) => f.path).join(" ")).toContain("after-restart.md");
+  });
+
+  test("no snapshot anywhere is still 'unavailable', never a silent zero", async () => {
+    const summary = await changedSince([]);
+    expect(summary.available).toBe(false);
+    expect(summary.reason).toBeTruthy();
+    expect(summary.files).toHaveLength(0);
   });
 });

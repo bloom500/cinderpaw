@@ -32,10 +32,11 @@ import { getActiveWorkspaceId } from "./memory/workspaces.ts";
 import { setCurrentTask, touchLastActive } from "./memory/resume.ts";
 import { maxContinuations, resumePrompt, runUnattended } from "./core/unattended.ts";
 import {
-  createSafetyPoint,
+  createSafetyPoints,
+  safetyColumns,
   changedSince,
   changeFingerprint,
-  safetyPointFrom,
+  safetyPointsFrom,
   type SafetyPoint,
 } from "./core/safety-point.ts";
 import type { DoneWhen } from "./cron/done-when.ts";
@@ -960,7 +961,7 @@ export async function boot(transportOverride?: Transport) {
    * success and wrote nothing looks identical from the inside; it does not look
    * identical to git.
    */
-  function turnRecorder(row: RunRow, safety: SafetyPoint | null, doneWhen: DoneWhen | null) {
+  function turnRecorder(row: RunRow, safety: SafetyPoint[], doneWhen: DoneWhen | null) {
     // Both are cumulative-since-run-start, so both are kept as "what it was
     // after the previous turn" and compared.
     let lastPrint: string | null = null;
@@ -976,7 +977,10 @@ export async function boot(transportOverride?: Transport) {
         const firstTurn = lastPrint === null;
         lastPrint = print;
 
-        const cheap = await verifyDoneWhen(doneWhen, safety?.root ?? null, CHEAP_CHECKS);
+        // ponytail: assertions resolve against the primary root, as they always
+        // have. A done_when naming a file in a secondary root would miss — give
+        // the assertion an explicit root if that ever comes up.
+        const cheap = await verifyDoneWhen(doneWhen, safety[0]?.root ?? null, CHEAP_CHECKS);
         // The router counts tokens per conversation, cumulatively; a turn's cost
         // is the delta. It cannot be split into prompt/completion at this seam,
         // which is why the column is a single total.
@@ -1043,7 +1047,7 @@ export async function boot(transportOverride?: Transport) {
       Date.now(),
       async (row) => {
         log(`resuming interrupted run ${row.id} (attempt ${row.resumes}): ${row.mission}`);
-        const safety = safetyPointFrom(row);
+        const safety = safetyPointsFrom(row);
         let runError: string | null = null;
         const run = await runUnattended(
           (text, messageId) =>
@@ -1060,7 +1064,7 @@ export async function boot(transportOverride?: Transport) {
           },
         );
         const changed = await changedSince(safety);
-        const check = await verifyDoneWhen(row.doneWhen, safety?.root ?? null);
+        const check = await verifyDoneWhen(row.doneWhen, safety[0]?.root ?? null);
         const finished = run.finished && check.passed;
         runStore.finish(row.id, finished ? "finished" : "unfinished", run.stoppedBecause);
         await deliverRunReport(
@@ -1070,9 +1074,9 @@ export async function boot(transportOverride?: Transport) {
       },
       async (row, decision) => {
         log(`giving up on run ${row.id}: ${decision.reason}`);
-        const safety = safetyPointFrom(row);
+        const safety = safetyPointsFrom(row);
         const changed = await changedSince(safety);
-        const check = await verifyDoneWhen(row.doneWhen, safety?.root ?? null);
+        const check = await verifyDoneWhen(row.doneWhen, safety[0]?.root ?? null);
         // Rendered from the persisted turns: the loop that produced them is gone,
         // so this is the only account of the run that still exists.
         const turns = runStore.turnsOf(row.id).map((t) => ({
@@ -1116,11 +1120,12 @@ export async function boot(transportOverride?: Transport) {
         let runError: string | null = null;
         // Safety point BEFORE any tool runs, so both "what did it change while
         // I was out" and "put it back" are answerable afterwards.
-        const safety = await createSafetyPoint(
+        const safety = await createSafetyPoints(
           `cron/${job.name}`,
           log,
-          config.workspaceRoots[0],
+          config.workspaceRoots,
         );
+        const safetyCols = safetyColumns(safety);
         // The durable half: if this process dies mid-run, this row is the only
         // thing that says the run existed. Absent (null) when the session
         // already has one in flight, which for a cron job means the previous
@@ -1130,9 +1135,9 @@ export async function boot(transportOverride?: Transport) {
           mission: job.task,
           deadlineAt: Date.now() + cronJobTimeoutMs,
           continuationBudget: maxContinuations(),
-          safetyRoot: safety?.root ?? null,
-          safetyBefore: safety?.before ?? null,
-          safetyGitDir: safety?.gitDir ?? null,
+          safetyRoot: safetyCols.root,
+          safetyBefore: safetyCols.before,
+          safetyGitDir: safetyCols.gitDir,
           doneWhen: job.doneWhen ?? null,
           delivery: { kind: "cron", target: job.id, sessionId },
         });
@@ -1156,7 +1161,7 @@ export async function boot(transportOverride?: Transport) {
         );
         if (runError) throw new Error(runError);
         const changed = await changedSince(safety);
-        const check = await verifyDoneWhen(job.doneWhen, safety?.root ?? null);
+        const check = await verifyDoneWhen(job.doneWhen, safety[0]?.root ?? null);
         if (runRow) {
           runStore.finish(
             runRow.id,
@@ -1527,11 +1532,12 @@ export async function boot(transportOverride?: Transport) {
    */
   const connectorRunHooks = {
     async begin(sessionId: string, mission: string, surface: RunSurface, target: string) {
-      const safety = await createSafetyPoint(
+      const safety = await createSafetyPoints(
         `${surface}/${target}`,
         log,
-        config.workspaceRoots[0],
+        config.workspaceRoots,
       );
+      const safetyCols = safetyColumns(safety);
       const row = runStore.startRun({
         sessionId,
         mission,
@@ -1540,9 +1546,9 @@ export async function boot(transportOverride?: Transport) {
         // override it.
         deadlineAt: null,
         continuationBudget: maxContinuations(),
-        safetyRoot: safety?.root ?? null,
-        safetyBefore: safety?.before ?? null,
-        safetyGitDir: safety?.gitDir ?? null,
+        safetyRoot: safetyCols.root,
+        safetyBefore: safetyCols.before,
+        safetyGitDir: safetyCols.gitDir,
         // Assertions on the chat path arrive with the task in a later increment;
         // until then this run is honestly recorded as unverified.
         doneWhen: null,
