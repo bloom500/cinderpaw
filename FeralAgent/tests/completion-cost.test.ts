@@ -20,6 +20,9 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { AuditLog } from "../src/egress/audit-log.ts";
 import { InferenceRouter } from "../src/egress/inference-router.ts";
 import type { InferenceConfig } from "../src/types.ts";
@@ -235,6 +238,49 @@ async function streamOnce(lines: string[]) {
 }
 
 const CHUNK = JSON.stringify({ choices: [{ delta: { content: "hi" } }] });
+
+describe("the table survives an upgrade", () => {
+  test("a database created before tokens_estimated existed gets the column on the next boot", () => {
+    // A FILE, not `:memory:` — the whole point is that the second open sees
+    // what the first one left behind. On `:memory:` each open is a fresh
+    // database and this test would pass without the migration existing at all.
+    const path = join(tmpdir(), `feral-cost-migration-${crypto.randomUUID()}.db`);
+    try {
+      const before = openDatabase(path);
+      before.raw.exec("DROP TABLE completion_cost");
+      before.raw.exec(`CREATE TABLE completion_cost (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, session_id TEXT NOT NULL,
+        model TEXT NOT NULL, base_url TEXT NOT NULL, prompt_tokens INTEGER NOT NULL,
+        completion_tokens INTEGER NOT NULL, fresh_tokens INTEGER, cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER, latency_ms INTEGER NOT NULL, used_fallback INTEGER NOT NULL,
+        breakdown_json TEXT, local_prompt_tokens INTEGER)`);
+      before.close();
+
+      // `CREATE TABLE IF NOT EXISTS` will not touch a table that already
+      // exists, so a column added later has to arrive by ALTER — or every
+      // INSERT naming it fails. Which it did, on a live database, silently,
+      // because the writer swallows its own errors by design.
+      const after = openDatabase(path);
+      const cols = (
+        after.raw.query("PRAGMA table_info(completion_cost)").all() as Array<{ name: string }>
+      ).map((c) => c.name);
+      expect(cols).toContain("tokens_estimated");
+      // And it must be writable, not merely present.
+      after.raw
+        .query(
+          `INSERT INTO completion_cost (ts, session_id, model, base_url, prompt_tokens,
+             completion_tokens, latency_ms, used_fallback, tokens_estimated)
+           VALUES (1,'s','m','u',1,1,1,0,1)`,
+        )
+        .run();
+      after.close();
+    } finally {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try { rmSync(path + suffix); } catch { /* never created */ }
+      }
+    }
+  });
+});
 
 describe("a streamed completion must be able to report usage at all", () => {
   test("the request asks for it — without stream_options no usage is ever sent", async () => {

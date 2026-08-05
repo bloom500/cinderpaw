@@ -425,6 +425,11 @@ function migrate(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS completion_cost_session ON completion_cost(session_id, ts);
   `);
+  // The column above only lands on a database that has never seen this table:
+  // `CREATE TABLE IF NOT EXISTS` is a no-op once it exists, so a field added
+  // later needs the ALTER path or every INSERT naming it fails — silently, in
+  // this case, because the writer swallows its own errors by design.
+  addColumnIfMissing(db, "completion_cost", "tokens_estimated", "INTEGER NOT NULL DEFAULT 0");
 
   // Semantic memory: persistent key-value facts about the user, updated by the
   // agent as it learns preferences, context, and long-term patterns.

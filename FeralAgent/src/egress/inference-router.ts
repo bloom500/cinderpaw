@@ -697,10 +697,21 @@ export class InferenceRouter {
           $lat: latencyMs,
           $fb: response.usedFallback ? 1 : 0,
         });
-    } catch {
-      // journal discipline — a write failure is not worth a thrown turn.
+    } catch (err) {
+      // Journal discipline: a write failure is not worth a thrown turn. But a
+      // silent one is how a whole feature disappears — a schema that had not
+      // been migrated dropped every row here and looked exactly like a quiet
+      // afternoon. Said once per process, so a broken table is visible without
+      // a line per completion.
+      if (!this.#costWriteFailed) {
+        this.#costWriteFailed = true;
+        console.warn(`[feral] completion_cost write failed, cost accounting is blind: ${String(err)}`);
+      }
     }
   }
+
+  /** Latched so the warning above is said once, not once per completion. */
+  #costWriteFailed = false;
 
   #recordUsage(sessionId: string, tokens: number): void {
     // N2 fix: bounded LRU — delete + re-insert moves the entry to the
