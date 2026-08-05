@@ -44,6 +44,15 @@ describe("an answer about a file nothing opened", () => {
     expect(unsourcedWarning("See https://example.com/docs/setup.md for details.", 0)).toBeNull();
   });
 
+  test("a path in backticks is still a claim — models write them that way", () => {
+    // The reason the detector stayed silent through a whole round of fabricated
+    // answers: paths arrive as `src/core/x.ts` far more often than bare.
+    expect(
+      unsourcedWarning("2026.8.1 written to `D:\proj\walkaway-demo6\VERSION.md`.", 0),
+    ).toBeTruthy();
+    expect(unsourcedWarning("I checked `src/core/loop.ts` and it looks fine.", 0)).toBeTruthy();
+  });
+
   test("code the agent is proposing is not a claim about having read it", () => {
     // Writing an example that mentions a filename must not read as evidence of
     // having opened one.

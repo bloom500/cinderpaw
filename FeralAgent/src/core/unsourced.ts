@@ -46,9 +46,14 @@ const PATH_SHAPES = [
  */
 export function claimedPath(answer: string): string | null {
   const prose = answer
-    // Fenced and inline code is quoted material, not a claim about having read.
+    // Fenced blocks are quoted material — code the agent is proposing, not a
+    // claim about having read something.
     .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`[^`]*`/g, " ")
+    // Inline code is NOT stripped, and that is the whole difference between a
+    // detector that works and one that never fires. Models write paths in
+    // backticks by habit — `src/core/loop.ts` — so removing inline code removes
+    // exactly the claims this is here to catch. Found live: the warning stayed
+    // silent through a full round of fabricated answers for this one reason.
     // URLs go before path matching, not after: `https://example.com/docs/x.md`
     // contains a perfectly good POSIX path shape, and trying to exclude it by
     // looking at the characters before the match is how you get a rule that
