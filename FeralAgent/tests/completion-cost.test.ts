@@ -194,6 +194,89 @@ describe("unknown is not zero", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Streaming: where an estimate spent months impersonating the provider.
+// ---------------------------------------------------------------------------
+
+/** Serve an SSE stream and capture the request body that asked for it. */
+function installStreamMock(lines: string[]) {
+  const original = globalThis.fetch;
+  const bodies: unknown[] = [];
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    bodies.push(JSON.parse(String(init?.body ?? "{}")));
+    return new Response(lines.map((l) => `data: ${l}\n\n`).join("") + "data: [DONE]\n\n", {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+  return { restore: () => (globalThis.fetch = original), bodies };
+}
+
+async function streamOnce(lines: string[]) {
+  const db = openDatabase(":memory:");
+  const audit = new AuditLog(db.raw);
+  const mock = installStreamMock(lines);
+  restoreFetch = mock.restore;
+  const config: InferenceConfig = {
+    primary: { provider: "openai", model: "m", baseUrl: "https://api.example.com", apiKey: "k" },
+    trustedBaseUrls: ["https://api.example.com"],
+    tokenBudget: BUDGET,
+  };
+  const router = new InferenceRouter(config, audit.logger, db.raw);
+  const res = await router.complete({
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }],
+    onToken: () => {},
+  });
+  const rows = db.raw.query<CostRow & { tokens_estimated: number }, []>(
+    "SELECT * FROM completion_cost",
+  ).all();
+  return { res, rows, bodies: mock.bodies, close: () => db.close() };
+}
+
+const CHUNK = JSON.stringify({ choices: [{ delta: { content: "hi" } }] });
+
+describe("a streamed completion must be able to report usage at all", () => {
+  test("the request asks for it — without stream_options no usage is ever sent", async () => {
+    const { bodies, close } = await streamOnce([CHUNK]);
+    // The whole failure was upstream of parsing: a server only emits the usage
+    // block when asked, so every streamed completion silently fell through to
+    // our own estimate and recorded it as the provider's number.
+    expect(bodies[0]).toMatchObject({ stream: true, stream_options: { include_usage: true } });
+    close();
+  });
+
+  test("usage in the stream is used, and the row is NOT marked estimated", async () => {
+    const { res, rows, close } = await streamOnce([
+      CHUNK,
+      JSON.stringify({
+        choices: [],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 5,
+          prompt_tokens_details: { cached_tokens: 800 },
+        },
+      }),
+    ]);
+    expect(res.promptTokens).toBe(1000);
+    expect(res.cacheReadTokens).toBe(800);
+    expect(res.freshPromptTokens).toBe(200);
+    expect(res.tokensEstimated).toBeUndefined();
+    expect(rows[0]!.tokens_estimated).toBe(0);
+    close();
+  });
+
+  test("no usage in the stream is recorded as OUR estimate, not as theirs", async () => {
+    const { res, rows, close } = await streamOnce([CHUNK]);
+    // The counts still exist — a turn must not fail because a server was quiet
+    // about accounting — but they are labelled for what they are.
+    expect(res.promptTokens).toBeGreaterThan(0);
+    expect(res.tokensEstimated).toBe(true);
+    expect(rows[0]!.tokens_estimated).toBe(1);
+    close();
+  });
+});
+
 describe("one row per completion, at the seam every completion passes", () => {
   test("the row carries what it cost and how long it took", async () => {
     const { rows, close } = await completeOnce(

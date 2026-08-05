@@ -415,7 +415,13 @@ function migrate(db: Database): void {
       -- theirs and authoritative. The gap between them is a fact to look at,
       -- not one to normalize away.
       breakdown_json TEXT,
-      local_prompt_tokens INTEGER
+      local_prompt_tokens INTEGER,
+      -- 1 when the provider reported no usage and the token columns above are
+      -- OUR estimate of our own messages. Without it an estimate is
+      -- indistinguishable from an authority, which is exactly how one came to
+      -- be recorded as "what the provider charged" on every streamed
+      -- completion.
+      tokens_estimated INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS completion_cost_session ON completion_cost(session_id, ts);
   `);

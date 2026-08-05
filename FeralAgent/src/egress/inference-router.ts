@@ -676,10 +676,11 @@ export class InferenceRouter {
           `INSERT INTO completion_cost
              (ts, session_id, model, base_url, prompt_tokens, completion_tokens,
               fresh_tokens, cache_read_tokens, cache_write_tokens, latency_ms, used_fallback,
-              breakdown_json, local_prompt_tokens)
-           VALUES ($ts, $s, $m, $u, $p, $c, $fresh, $read, $write, $lat, $fb, $bd, $local)`,
+              breakdown_json, local_prompt_tokens, tokens_estimated)
+           VALUES ($ts, $s, $m, $u, $p, $c, $fresh, $read, $write, $lat, $fb, $bd, $local, $est)`,
         )
         .run({
+          $est: response.tokensEstimated ? 1 : 0,
           $bd: breakdown ? JSON.stringify(breakdown.parts) : null,
           $local: breakdown ? breakdown.localTotal : null,
           $ts: Date.now(),

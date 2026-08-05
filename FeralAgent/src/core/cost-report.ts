@@ -52,6 +52,13 @@ export interface ProviderTotals {
   cacheWriteTokens: number | null;
   completionsReportingCache: number;
   medianLatencyMs: number;
+  /**
+   * Completions whose token counts are OUR estimate because the provider
+   * reported no usage. They are counted, never silently folded into the
+   * provider's totals: an estimate presented as an authority is the failure
+   * this column exists to make impossible.
+   */
+  completionsEstimated: number;
 }
 
 export interface CostReport {
@@ -77,6 +84,7 @@ interface Row {
   latency_ms: number;
   breakdown_json: string | null;
   local_prompt_tokens: number | null;
+  tokens_estimated: number;
 }
 
 function median(values: number[]): number {
@@ -112,6 +120,21 @@ export function costReport(
   ) as Row[];
 
   const lanes = new Map<string, CategoryTotal>();
+  const addLanes = (r: Row): void => {
+    if (!r.breakdown_json) return;
+    let parts: PromptPart[];
+    try {
+      parts = JSON.parse(r.breakdown_json) as PromptPart[];
+    } catch {
+      return;
+    }
+    for (const p of parts) {
+      const key = `${p.category} ${p.detail}`;
+      const existing = lanes.get(key);
+      if (existing) existing.tokens += p.tokens;
+      else lanes.set(key, { category: p.category, detail: p.detail, tokens: p.tokens, shareOfSent: 0 });
+    }
+  };
   let localPromptTokens = 0;
   let promptTokens = 0;
   let completionTokens = 0;
@@ -119,9 +142,20 @@ export function costReport(
   let read = 0;
   let write = 0;
   let reportingCache = 0;
+  let estimated = 0;
   const latencies: number[] = [];
 
   for (const r of rows) {
+    // An estimated row contributes to the category table (those lanes are ours
+    // either way) but NOT to the provider account, which is only meaningful
+    // when a provider actually said something.
+    if (r.tokens_estimated) {
+      estimated++;
+      localPromptTokens += r.local_prompt_tokens ?? 0;
+      addLanes(r);
+      latencies.push(r.latency_ms);
+      continue;
+    }
     promptTokens += r.prompt_tokens;
     completionTokens += r.completion_tokens;
     latencies.push(r.latency_ms);
@@ -135,19 +169,7 @@ export function costReport(
       write += r.cache_write_tokens ?? 0;
     }
     localPromptTokens += r.local_prompt_tokens ?? 0;
-    if (!r.breakdown_json) continue;
-    let parts: PromptPart[];
-    try {
-      parts = JSON.parse(r.breakdown_json) as PromptPart[];
-    } catch {
-      continue;
-    }
-    for (const p of parts) {
-      const key = `${p.category} ${p.detail}`;
-      const existing = lanes.get(key);
-      if (existing) existing.tokens += p.tokens;
-      else lanes.set(key, { category: p.category, detail: p.detail, tokens: p.tokens, shareOfSent: 0 });
-    }
+    addLanes(r);
   }
 
   const sent = [...lanes.values()].sort((a, b) => b.tokens - a.tokens);
@@ -159,7 +181,7 @@ export function costReport(
     sent,
     localPromptTokens,
     provider: {
-      completions: rows.length,
+      completions: rows.length - estimated,
       promptTokens,
       completionTokens,
       // Null, not 0: nobody told us. The distinction survives all the way to
@@ -168,6 +190,7 @@ export function costReport(
       cacheReadTokens: reportingCache > 0 ? read : null,
       cacheWriteTokens: reportingCache > 0 ? write : null,
       completionsReportingCache: reportingCache,
+      completionsEstimated: estimated,
       medianLatencyMs: median(latencies),
     },
     tokenizerRatio: promptTokens > 0 ? localPromptTokens / promptTokens : null,
@@ -198,7 +221,23 @@ export function renderCostReport(report: CostReport): string {
   out.push("");
   out.push("## What the provider reported, per request");
   out.push("");
+  if (p.completions === 0) {
+    out.push(
+      `**No completion here carried provider numbers.** ${p.completionsEstimated} of them fell back to our own ` +
+        "estimate because the provider reported no usage — those tokens are ours, measured twice, and say nothing " +
+        "about what was charged.",
+    );
+    out.push("");
+    out.push(`_median latency: ${p.medianLatencyMs} ms_`);
+    return out.join("\n");
+  }
   out.push(`**Completions:** ${p.completions} · **median latency:** ${p.medianLatencyMs} ms`);
+  if (p.completionsEstimated > 0) {
+    out.push(
+      `_${p.completionsEstimated} further completion(s) reported no usage at all; their tokens are our estimate ` +
+        "and are excluded from every figure in this section._",
+    );
+  }
   out.push(`**Prompt tokens (theirs):** ${p.promptTokens.toLocaleString()} · **completion:** ${p.completionTokens.toLocaleString()}`);
   if (p.cacheReadTokens === null) {
     out.push("**Cache:** no completion in this window reported any cache information — unknown, not zero.");

@@ -714,6 +714,17 @@ export interface InferenceResponse {
    * not zero, and a fresh count of zero would read as "everything was cached".
    */
   freshPromptTokens?: number;
+  /**
+   * True when the provider reported no usage and these token counts are OUR
+   * estimate of our own messages.
+   *
+   * The fallback has always existed — a turn must not fail because a server was
+   * quiet about accounting — but it was indistinguishable from a real answer,
+   * and that is how an estimate came to be recorded as "what the provider
+   * charged" on every streamed completion for months. Same rule as the cache
+   * columns: unknown is not zero, and ours is not theirs.
+   */
+  tokensEstimated?: boolean;
 }
 
 export type BudgetExhaustedReason = "conversation" | "day";

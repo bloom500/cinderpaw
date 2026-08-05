@@ -153,9 +153,8 @@ export class OllamaProvider implements InferenceProvider {
       }
     }
 
-    const promptTokens =
-      (raw as { prompt_eval_count?: number }).prompt_eval_count ??
-      estimateTokens(req.messages);
+    const reportedPrompt = (raw as { prompt_eval_count?: number }).prompt_eval_count;
+    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
     const completionTokens =
       (raw as { eval_count?: number }).eval_count ?? estimateText(content);
     const doneReason = (raw as { done_reason?: string }).done_reason;
@@ -167,6 +166,8 @@ export class OllamaProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
+      // Ours, not theirs — see InferenceResponse.tokensEstimated.
+      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
       ...(doneReason ? { finishReason: doneReason } : {}),
     };
   }
@@ -347,6 +348,7 @@ export class OllamaProvider implements InferenceProvider {
       dc.cleanup();
     }
 
+    const reportedPrompt = promptTokens || undefined;
     if (!promptTokens) promptTokens = estimateTokens(req.messages);
     if (!completionTokens) completionTokens = estimateText(content);
     return {
@@ -356,6 +358,8 @@ export class OllamaProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
+      // Ours, not theirs — see InferenceResponse.tokensEstimated.
+      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
       ...(ollamaFinishReason ? { finishReason: ollamaFinishReason } : {}),
     };
   }
@@ -456,7 +460,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         content += encodeToolCall(fn.name, fn.arguments);
       }
     }
-    const promptTokens = raw.usage?.prompt_tokens ?? estimateTokens(req.messages);
+    const reportedPrompt = raw.usage?.prompt_tokens;
+    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
     const completionTokens = raw.usage?.completion_tokens ?? estimateText(content);
     // Cache accounting was wired into the streaming branch only, so every
     // non-streamed completion — the summarizer, the memory extractor, any
@@ -471,6 +476,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
+      // Ours, not theirs — see InferenceResponse.tokensEstimated.
+      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
       ...(raw.choices?.[0]?.finish_reason
         ? { finishReason: raw.choices[0].finish_reason }
         : {}),
@@ -504,6 +511,17 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...feralExtensionBody(target, req),
       stream: true,
+      // Without this, an OpenAI-compatible server sends NO usage block in a
+      // stream — that is what the field is for. Every streamed completion then
+      // fell through to `estimateTokens(req.messages)` below, and the number we
+      // recorded as "what the provider charged" was our own count of our own
+      // messages. It matched our breakdown to the exact token, which is the
+      // giveaway: no provider's tokenizer agrees with ours that precisely.
+      //
+      // It also silently made prompt caching unobservable. `cached_tokens`
+      // rides in the same usage block, so a provider that caches perfectly
+      // looked identical to one that does not cache at all.
+      stream_options: { include_usage: true },
     };
     if (useNativeTools) {
       body.tools = req.openAITools;
@@ -720,6 +738,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       dc.cleanup();
     }
 
+    const reportedPrompt = promptTokens || undefined;
     if (!promptTokens) promptTokens = estimateTokens(req.messages);
     if (!completionTokens) completionTokens = estimateText(content);
     return {
@@ -729,6 +748,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
+      // Ours, not theirs — see InferenceResponse.tokensEstimated.
+      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
       ...(finishReason ? { finishReason } : {}),
       ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
       // OpenAI dialect: `prompt_tokens` already counts the cached ones, so the
@@ -802,7 +823,8 @@ export class AnthropicProvider implements InferenceProvider {
         content += encodeToolCall(block.name, block.input ?? {});
       }
     }
-    const promptTokens = raw.usage?.input_tokens ?? estimateTokens(req.messages);
+    const reportedPrompt = raw.usage?.input_tokens;
+    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
     const completionTokens = raw.usage?.output_tokens ?? estimateText(content);
     return {
       content,
@@ -811,6 +833,8 @@ export class AnthropicProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
+      // Ours, not theirs — see InferenceResponse.tokensEstimated.
+      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
       ...(raw.stop_reason
         ? { finishReason: mapAnthropicStopReason(raw.stop_reason) }
         : {}),
@@ -974,7 +998,8 @@ export class AnthropicProvider implements InferenceProvider {
       dc.cleanup();
     }
 
-    const promptTokens = inputTokens || estimateTokens(req.messages);
+    const reportedPrompt = inputTokens || undefined;
+    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
     const completionTokens = outputTokens || estimateText(content);
     return {
       content,
@@ -983,6 +1008,8 @@ export class AnthropicProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
+      // Ours, not theirs — see InferenceResponse.tokensEstimated.
+      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
       ...(anthropicStopReason
         ? { finishReason: mapAnthropicStopReason(anthropicStopReason) }
         : {}),

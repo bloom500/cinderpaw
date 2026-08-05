@@ -204,6 +204,55 @@ describe("the two accounts stay separate", () => {
     db.close();
   });
 
+  test("an estimated row never enters the provider account", () => {
+    const db = openDatabase(":memory:");
+    insert(db, { prompt: 1000, read: 800, fresh: 200 });
+    // Same shape, but the provider said nothing and these numbers are ours.
+    db.raw
+      .query(
+        `INSERT INTO completion_cost
+           (ts, session_id, model, base_url, prompt_tokens, completion_tokens,
+            fresh_tokens, cache_read_tokens, cache_write_tokens, latency_ms,
+            used_fallback, breakdown_json, local_prompt_tokens, tokens_estimated)
+         VALUES (2,'s1','m','u',9999,50,NULL,NULL,NULL,100,0,$bd,1000,1)`,
+      )
+      .run({
+        $bd: JSON.stringify([
+          { category: "system_prompt", detail: "system_prompt", tokens: 1000 },
+        ]),
+      });
+
+    const report = costReport(db.raw);
+
+    // The 9,999 is ours. Letting it into the provider's total would be the
+    // original failure in miniature: our estimate wearing their authority.
+    expect(report.provider.promptTokens).toBe(1000);
+    expect(report.provider.completions).toBe(1);
+    expect(report.provider.completionsEstimated).toBe(1);
+    // Its lanes still count — those were always ours.
+    expect(report.localPromptTokens).toBe(2000);
+    expect(renderCostReport(report)).toContain("1 further completion(s) reported no usage");
+    db.close();
+  });
+
+  test("a window with nothing but estimates says so instead of inventing a provider account", () => {
+    const db = openDatabase(":memory:");
+    db.raw
+      .query(
+        `INSERT INTO completion_cost
+           (ts, session_id, model, base_url, prompt_tokens, completion_tokens,
+            fresh_tokens, cache_read_tokens, cache_write_tokens, latency_ms,
+            used_fallback, breakdown_json, local_prompt_tokens, tokens_estimated)
+         VALUES (1,'s1','m','u',15132,50,NULL,NULL,NULL,100,0,NULL,11791,1)`,
+      )
+      .run();
+
+    const report = costReport(db.raw);
+    expect(report.provider.completions).toBe(0);
+    expect(renderCostReport(report)).toContain("No completion here carried provider numbers");
+    db.close();
+  });
+
   test("a row written before the breakdown existed counts as provider-only", () => {
     const db = openDatabase(":memory:");
     insert(db, { parts: null, local: null });
