@@ -1897,7 +1897,13 @@ export class AgentLoop {
     // WorkingMemory because the advertised tool schemas are a per-session fact
     // (profile allow-list + whatever the drawer has pulled in) that the memory
     // has never seen — and on a short turn they are the largest single lane.
-    const breakdown = memory.breakdown();
+    // Stripped exactly when the providers strip it: native tool definitions are
+    // being sent, so the prose copy of the tool list is removed from the system
+    // prompt on its way out.
+    const sendsNativeTools = openAITools.length > 0 || nativeTools.length > 0;
+    const breakdown = memory.breakdown(
+      sendsNativeTools ? stripToolsFromSystemPrompt : undefined,
+    );
     const schemaTokens = countTokens(
       JSON.stringify(openAITools.length > 0 ? openAITools : nativeTools),
     );

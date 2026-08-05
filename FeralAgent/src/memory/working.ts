@@ -278,7 +278,7 @@ export class WorkingMemory {
    * Tool schemas are NOT here. They are built per session from the registry and
    * the drawer, and this class has never seen them; the caller adds that lane.
    */
-  breakdown(): PromptBreakdown {
+  breakdown(systemAsSent?: (system: string) => string): PromptBreakdown {
     const parts: PromptPart[] = [];
     const push = (category: PromptPart["category"], detail: string, text: string): void => {
       if (!text) return;
@@ -287,7 +287,15 @@ export class WorkingMemory {
       parts.push({ category, detail, tokens });
     };
 
-    push("system_prompt", "system_prompt", this.#system);
+    // What the PROVIDER receives, which is not what we store. The system prompt
+    // carries a `## Available tools` block, and every provider strips it before
+    // sending whenever native tool definitions are in play — the same tools then
+    // travel as a separate `tools` field, counted in its own lane. Measuring the
+    // unstripped prompt therefore counted those tools twice AND counted bytes
+    // that were never sent: on the first real completion it inflated our total
+    // by 31% against the provider's, entirely in the largest lane. A cost table
+    // has to measure the wire, not the intent.
+    push("system_prompt", "system_prompt", systemAsSent ? systemAsSent(this.#system) : this.#system);
     // The per-turn drawers, named individually: "drawers are 12%" is not
     // actionable, "the todo list is 9% of every completion" is.
     push("drawer", "objective", this.#objective);

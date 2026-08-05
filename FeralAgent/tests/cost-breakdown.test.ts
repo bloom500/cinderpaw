@@ -14,6 +14,8 @@ import { openDatabase } from "../src/db.ts";
 import { WorkingMemory } from "../src/memory/working.ts";
 import { costReport, renderCostReport } from "../src/core/cost-report.ts";
 import type { PromptPart } from "../src/memory/working.ts";
+import { countTokens } from "../src/core/tokenizer.ts";
+import { stripToolsFromSystemPrompt } from "../src/egress/inference-providers.ts";
 
 function lane(parts: PromptPart[], category: string, detail?: string): number {
   return parts
@@ -72,6 +74,30 @@ describe("the breakdown partitions the prompt", () => {
       expect(lane(parts, "tool_output", "read_file (trimmed)")).toBeGreaterThan(0);
       expect(lane(parts, "tool_output", "read_file (full)")).toBeGreaterThan(0);
     });
+  });
+
+  test("the system lane measures the wire, not what we store", () => {
+    // The stored system prompt carries a prose tool list that every provider
+    // strips before sending, while the same tools travel separately and are
+    // counted in `tool_schemas`. Counting the unstripped text put those tokens
+    // in two lanes at once and charged us for bytes that never left — 31% of
+    // the total on the first real completion, all of it in the biggest lane.
+    const withTools =
+      "You are Feral.\n\n## Available tools\n" +
+      "read_file: reads a file. ".repeat(200) +
+      "\n\n## Rules\nBe brief.";
+    const mem = new WorkingMemory(withTools);
+    mem.addUser("hi");
+
+    const unstripped = lane(mem.breakdown().parts, "system_prompt");
+    const asSent = lane(
+      mem.breakdown(stripToolsFromSystemPrompt).parts,
+      "system_prompt",
+    );
+
+    expect(asSent).toBeLessThan(unstripped);
+    // The part that survives is the part that is actually sent.
+    expect(countTokens(stripToolsFromSystemPrompt(withTools))).toBe(asSent);
   });
 
   test("empty drawers are omitted, not reported as zero rows", () => {
