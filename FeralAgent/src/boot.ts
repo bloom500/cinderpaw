@@ -45,6 +45,7 @@ import type { RunSurface } from "./transports/connectors.ts";
 import { renderDigest } from "./core/digest.ts";
 import { CHEAP_CHECKS, verifyDoneWhen } from "./cron/done-when.ts";
 import { RunStore, type RunRow } from "./core/run-store.ts";
+import { intentSummary, clearIntents } from "./core/command-intent.ts";
 import { resumeInterruptedRuns } from "./core/run-resume.ts";
 import { turnBudgetMs } from "./core/agent-loop.ts";
 import { ToolRegistry } from "./tools/registry.ts";
@@ -1069,7 +1070,7 @@ export async function boot(transportOverride?: Transport) {
         runStore.finish(row.id, finished ? "finished" : "unfinished", run.stoppedBecause);
         await deliverRunReport(
           row,
-          renderDigest(run, changed, check, safety, `it was interrupted and picked back up at startup${runError ? `, and hit an error: ${runError}` : ""}`),
+          renderDigest(run, changed, check, safety, `it was interrupted and picked back up at startup${runError ? `, and hit an error: ${runError}` : ""}`, intentSummary(row.sessionId)),
         );
       },
       async (row, decision) => {
@@ -1170,7 +1171,7 @@ export async function boot(transportOverride?: Transport) {
           );
         }
         return {
-          text: renderDigest(run, changed, check, safety),
+          text: renderDigest(run, changed, check, safety, undefined, intentSummary(sessionId)),
           // The agent's own claim is not the authority. When a job declares a
           // done_when, that assertion decides whether the run finished.
           finished: run.finished && check.passed,
@@ -1182,6 +1183,7 @@ export async function boot(transportOverride?: Transport) {
         // each run so a long-running Tauri session doesn't accumulate
         // thousands of stale cron entries.
         router.evictSession(sessionId);
+        clearIntents(sessionId);
       }
     },
     // X3: failed/timed-out runs become a visible `cron_error` event in the

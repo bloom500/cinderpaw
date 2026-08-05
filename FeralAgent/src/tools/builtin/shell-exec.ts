@@ -49,6 +49,13 @@ import { resolve, join, sep } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
 import { feralHome } from "../../config.ts";
+import { classifyCommand, recordIntent } from "../../core/command-intent.ts";
+import {
+  canAskAHuman,
+  decideIntent,
+  decideOutsideWorkspace,
+  permissionMode,
+} from "../../core/permission-mode.ts";
 
 /**
  * Env-controlled whitelist of programs `shell_exec` may invoke.
@@ -357,6 +364,18 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
         };
       }
 
+      // What this command is FOR, decided once and used for both the mode gate
+      // and the report. A shell payload is classified by what it runs, not by
+      // the fact that it is a shell.
+      const mode = permissionMode();
+      const intent = classifyCommand(argv);
+      recordIntent(ctx.sessionId, intent);
+
+      const byIntent = decideIntent(intent, mode);
+      if (byIntent.kind === "block") {
+        return { ok: false, content: `shell_exec: ${byIntent.reason}`, error: "permission_mode" };
+      }
+
       // Blast-radius gate: destruction aimed outside every workspace root. The
       // denylist above covers what wrecks the machine; this covers what wrecks
       // the person — their Documents folder, another project, a sibling repo.
@@ -364,15 +383,44 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       // point snapshots it and can put it back.
       const outside = destructiveOutsideRoots(argv, allowedPaths);
       if (outside) {
-        return {
-          ok: false,
-          content:
-            `shell_exec: refused — this would destroy "${outside}", which is outside ` +
-            `the workspace (${allowedPaths.join(", ")}). Work inside the workspace, ` +
-            `where changes are snapshotted and can be undone. If the path is genuinely ` +
-            `the target, the user has to add it to the workspace roots.`,
-          error: "destructive_outside_workspace",
-        };
+        const call = decideOutsideWorkspace(outside, mode);
+        if (call.kind === "warn") {
+          // A human decides. With nobody there this refuses rather than
+          // auto-approving — an agent that can approve its own irreversible
+          // act outside the workspace is not gated at all.
+          if (!canAskAHuman(Boolean(ctx.askUser))) {
+            return {
+              ok: false,
+              content:
+                `shell_exec: refused — ${call.detail}. Nobody is available to approve it ` +
+                `(walk-away mode). Work inside the workspace (${allowedPaths.join(", ")}), ` +
+                `or leave this for the user.`,
+              error: "destructive_outside_workspace",
+            };
+          }
+          const [answer] = await ctx.askUser!.ask(
+            [{
+              question: call.question,
+              header: "Outside WS",
+              multiSelect: false,
+              // Irreversible and outside the snapshot: never auto-answered.
+              forceEscalate: true,
+              options: [
+                { label: "No, skip it", description: `Refuse: ${call.detail}.` },
+                { label: "Yes, delete it", description: "Allow this one command to run." },
+              ],
+            }],
+            ctx.sessionId,
+          );
+          const approved = answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false;
+          if (!approved) {
+            return {
+              ok: false,
+              content: `shell_exec: the user declined — ${call.detail}.`,
+              error: "destructive_outside_workspace",
+            };
+          }
+        }
       }
 
       // Whitelist gate BEFORE the sandbox call so it is testable without a

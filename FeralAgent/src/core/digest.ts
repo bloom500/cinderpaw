@@ -68,6 +68,15 @@ export function renderDigest(
    * that type would break the exhaustive `Record` over it above.
    */
   runReason?: string,
+  /**
+   * What the shell commands added up to — `[["read-only", 22], ["wrote files", 4]]`.
+   *
+   * A tool-call count answers "how busy was it", which nobody actually wants to
+   * know. This answers "what did it DO while I was out" — the question somebody
+   * who walked away is really asking, and the line that separates an agent
+   * which read the codebase from one that rewrote it.
+   */
+  commands?: Array<[string, number]>,
 ): string {
   const out: string[] = [];
 
@@ -103,6 +112,9 @@ export function renderDigest(
 
   // 3. What it did to the disk.
   out.push("");
+  if (commands && commands.length > 0) {
+    out.push(`**Commands run:** ${commands.map(([label, n]) => `${n} ${label}`).join(", ")}`);
+  }
   if (!changes.available) {
     out.push(`**Files changed:** not tracked — ${changes.reason ?? "no safety point"}.`);
   } else if (changes.files.length === 0) {

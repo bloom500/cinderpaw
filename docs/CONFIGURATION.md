@@ -142,6 +142,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_DESKTOP_CONTROL_CONFIRM` | bool | `true` | yes | Per-action confirmation dialog for control_app writes. On by default; set to "false" to disable (inverse-toggle var — see report for why this call site is not migrated to cfgBool). |
 | `FERAL_DESKTOP_CONTROL_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, a transport with no askUser bridge may proceed without confirmation instead of failing closed. |
 | `FERAL_FORGE_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, tool_forge may create/update a tool on a transport with no askUser bridge instead of failing closed. This approves running agent-written code unattended — headless deployments only. |
+| `FERAL_PERMISSION_MODE` | string | `null` | yes | What the agent is allowed to change: "read_only" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), "workspace_write" (default: writes inside the workspace roots, where the safety point can undo them), or "full_access" (guards that prevent mistakes step aside; the catastrophic denylist still applies). Unset falls back to the historical knobs, so FERAL_SHELL_WHITELIST="*" still means full access. |
 | `FERAL_AUTONOMOUS` | bool | `false` | yes | Walk-away mode: ask_user does not block for a human. It takes the recommended option (or the first) immediately and logs the decision, so a long task runs unattended. The end-of-turn summary reports every auto-decision. Off by default. |
 | `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` | list | `null` | yes | Comma-separated allowlist of app names control_app may target. Empty = fail closed. (Read by the Rust host, not FeralAgent/src.) |
 | `FERAL_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
@@ -284,12 +285,13 @@ FERAL_CRON_JOB_TIMEOUT_MS
 FERAL_CRON_TICK_MS
 FERAL_DB
 FERAL_DB_KEY
+FERAL_DDG_MIN_INTERVAL_MS
 FERAL_DESKTOP_CONTROL_ALLOWED_APPS
 FERAL_DESKTOP_CONTROL_CONFIRM
 FERAL_DESKTOP_CONTROL_NO_PROMPT_OK
 FERAL_DISCORD_CLIENT_ID
-FERAL_EMBED_CHUNK
 FERAL_DRY_RUN
+FERAL_EMBED_CHUNK
 FERAL_EMBED_GPU_LAYERS
 FERAL_EMBED_MODEL
 FERAL_ENABLE_CODE_EXEC
@@ -320,16 +322,18 @@ FERAL_JINA_API_KEY
 FERAL_LOCAL_API_KEY
 FERAL_LOCAL_BASE_URL
 FERAL_LOCAL_MODEL
-FERAL_LORA_TRAIN_TIMEOUT_MS
 FERAL_LORA_TRAINER_BIN
+FERAL_LORA_TRAIN_TIMEOUT_MS
 FERAL_MAX_CONTEXT
 FERAL_MAX_LOCAL_CONTEXTS
 FERAL_MERGE_THRESHOLD
+FERAL_MISSION_DEADLINE_MS
 FERAL_MODEL
 FERAL_MODEL_WAIT_MS
 FERAL_MODULE_SEED
 FERAL_NO_COLOR
 FERAL_OLLAMA_NUM_CTX
+FERAL_PERMISSION_MODE
 FERAL_PII_REDACTION
 FERAL_PROACTIVE_ENABLED
 FERAL_PROVIDER
@@ -354,32 +358,30 @@ FERAL_RSI_STOP_ON_ACTIVITY
 FERAL_RSI_TELEMETRY
 FERAL_RUN_FRACTAL_BENCH
 FERAL_SEARXNG_URL
-FERAL_DDG_MIN_INTERVAL_MS
 FERAL_SHELL_DENYLIST
 FERAL_SHELL_MAX_TIMEOUT_MS
 FERAL_SHELL_WHITELIST
 FERAL_SMOKE_GGUF
-FERAL_SUMMARY_EXCERPT_CHARS
 FERAL_STALL_MS
 FERAL_SUBAGENT_MAX_SUMMARY_CHARS
+FERAL_SUMMARY_EXCERPT_CHARS
 FERAL_THOUGHTS_COOLDOWN_MS
 FERAL_THOUGHTS_DAILY_CAP
 FERAL_THOUGHTS_INTERVAL_MS
 FERAL_THOUGHTS_MIN_IDLE_MS
 FERAL_THOUGHTS_MOOD_THRESHOLD
+FERAL_TOOL_ALLOWED_DOMAINS
 FERAL_TOOL_GRAMMAR
 FERAL_TOTAL_DEADLINE_MS
 FERAL_TREE_BRANCH
 FERAL_TREE_CLUSTER_MAX_CHARS
 FERAL_TREE_ITEM_MAX_CHARS
-FERAL_TOOL_ALLOWED_DOMAINS
-FERAL_TRUSTED_LOCAL_ORIGINS
 FERAL_TRUSTED_BASE_URLS
-FERAL_MISSION_DEADLINE_MS
+FERAL_TRUSTED_LOCAL_ORIGINS
+FERAL_TTFT_DEADLINE_MS
 FERAL_TURN_BUDGET_MS
 FERAL_UNATTENDED_CONTINUATIONS
-FERAL_TTFT_DEADLINE_MS
 FERAL_VERSION
-FERAL_WRITE_CONFIRM_HOSTS
 FERAL_WORKSPACE
+FERAL_WRITE_CONFIRM_HOSTS
 ```

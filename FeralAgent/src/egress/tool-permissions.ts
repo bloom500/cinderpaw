@@ -19,6 +19,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { cfgList, feralHome } from "../config.ts";
+import { permissionMode } from "../core/permission-mode.ts";
 
 /**
  * Canonicalize a path even when it does not exist yet: realpath the deepest
@@ -250,6 +251,17 @@ export function resolveAllowedPath(
   if (!hasPermission(manifest, permission)) {
     throw new PermissionDeniedError(
       `tool "${manifest.name}" lacks ${permission}`,
+    );
+  }
+
+  // Read-only mode, enforced at the one place every file-writing tool routes
+  // through. Blocking it per tool would be a promise with as many holes as
+  // there are write tools, and the next one added would be a hole nobody
+  // noticed.
+  if (permission === "fs:write" && permissionMode() === "read_only") {
+    throw new PermissionDeniedError(
+      `read-only mode: "${manifest.name}" may not write "${requestedPath}". ` +
+        "Report what you found instead of changing it.",
     );
   }
 
