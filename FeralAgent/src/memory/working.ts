@@ -82,6 +82,46 @@ function truncateToBudget(text: string, budgetTokens: number): string {
   return text.slice(0, head) + "\n…[truncated for context]…\n" + text.slice(text.length - tail);
 }
 
+/**
+ * One measured slice of what we are about to send.
+ *
+ * `category` is the lane; `detail` is the sub-split within it (which tool, which
+ * drawer, which role). Both are stable strings — the report groups on them, so
+ * renaming one renames a row in every historical comparison.
+ */
+export interface PromptPart {
+  category:
+    | "system_prompt"
+    | "tool_schemas"
+    | "drawer"
+    | "compaction_summary"
+    | "conversation"
+    | "episodic_replay"
+    | "tool_output";
+  detail: string;
+  tokens: number;
+}
+
+/**
+ * What WE sent, measured by OUR tokenizer, split into lanes that partition the
+ * prompt exactly once.
+ *
+ * Deliberately NOT reconciled against the provider's `prompt_tokens`. Ours is an
+ * approximate BPE count and theirs is authoritative; scaling these to match
+ * their total would be inventing precision, and the two are recorded side by
+ * side so the gap stays visible instead of being absorbed.
+ *
+ * Equally deliberately, this carries no cache attribution. Providers report
+ * cache hits per REQUEST, never per message, so "how much of the tool output was
+ * cached" is not a number anyone has — and multiplying a per-request ratio
+ * across these lanes would manufacture one.
+ */
+export interface PromptBreakdown {
+  parts: PromptPart[];
+  /** Sum of `parts`. Our count of the whole prompt, not the provider's. */
+  localTotal: number;
+}
+
 export class WorkingMemory {
   readonly #system: string;
   readonly #config: WorkingMemoryConfig;
@@ -182,6 +222,20 @@ export class WorkingMemory {
     this.add({ role: "assistant", content });
   }
 
+  /**
+   * Append a turn replayed from episodic memory rather than lived in this
+   * session.
+   *
+   * Flagged on the message, not by index, because compaction reorders and drops
+   * — a boundary index would start pointing at the wrong turn the first time a
+   * session compacted. What the flag buys is one honest lane in the breakdown:
+   * replayed history is a cost you pay for continuity, and it is worth knowing
+   * separately from the conversation actually happening now.
+   */
+  addReplayed(role: "user" | "assistant", content: string): void {
+    this.add({ role, content, replayed: true });
+  }
+
   addToolResult(toolName: string, content: string): void {
     this.add({ role: "tool", name: toolName, content });
   }
@@ -211,6 +265,79 @@ export class WorkingMemory {
       total += countTokens(m.content);
     }
     return total;
+  }
+
+  /**
+   * Where the tokens go, for the prompt this memory would render right now.
+   *
+   * Same accounting as `estimatedTokens()` — every field it sums appears here,
+   * exactly once — so the two can never disagree about the total. Empty lanes
+   * are omitted rather than reported as zero: a table full of zero rows hides
+   * the rows that matter.
+   *
+   * Tool schemas are NOT here. They are built per session from the registry and
+   * the drawer, and this class has never seen them; the caller adds that lane.
+   */
+  breakdown(): PromptBreakdown {
+    const parts: PromptPart[] = [];
+    const push = (category: PromptPart["category"], detail: string, text: string): void => {
+      if (!text) return;
+      const tokens = countTokens(text);
+      if (tokens === 0) return;
+      parts.push({ category, detail, tokens });
+    };
+
+    push("system_prompt", "system_prompt", this.#system);
+    // The per-turn drawers, named individually: "drawers are 12%" is not
+    // actionable, "the todo list is 9% of every completion" is.
+    push("drawer", "objective", this.#objective);
+    push("drawer", "skill_menu", this.#skillMenu);
+    push("drawer", "todo_list", this.#todoList);
+    push("drawer", "surface_brief", this.#surfaceBrief);
+    push("drawer", "memory_recall", this.#memoryContext);
+
+    // Tool outputs are grouped by tool AND by whether #budgetToolResults has
+    // already cut them. That second split is the one that answers whether
+    // trimming is paying for itself.
+    const toolTotals = new Map<string, number>();
+    let conversationUser = 0;
+    let conversationAssistant = 0;
+    let replayUser = 0;
+    let replayAssistant = 0;
+    let summary = 0;
+
+    for (const m of this.#messages) {
+      const tokens = countTokens(m.content);
+      if (tokens === 0) continue;
+      if (m.role === "tool") {
+        const trimmed = m.content.endsWith(TRIMMED_MARK) ? "trimmed" : "full";
+        const key = `${m.name ?? "unknown"} (${trimmed})`;
+        toolTotals.set(key, (toolTotals.get(key) ?? 0) + tokens);
+      } else if (m.role === "system") {
+        // The only system message inside the transcript is the compaction
+        // boundary note; `restore()` drops every other one.
+        summary += tokens;
+      } else if (m.replayed) {
+        if (m.role === "user") replayUser += tokens;
+        else replayAssistant += tokens;
+      } else if (m.role === "user") {
+        conversationUser += tokens;
+      } else {
+        conversationAssistant += tokens;
+      }
+    }
+
+    if (summary > 0) parts.push({ category: "compaction_summary", detail: "summary", tokens: summary });
+    if (conversationUser > 0) parts.push({ category: "conversation", detail: "user", tokens: conversationUser });
+    if (conversationAssistant > 0) parts.push({ category: "conversation", detail: "assistant", tokens: conversationAssistant });
+    if (replayUser > 0) parts.push({ category: "episodic_replay", detail: "user", tokens: replayUser });
+    if (replayAssistant > 0) parts.push({ category: "episodic_replay", detail: "assistant", tokens: replayAssistant });
+    // Biggest first: the table is read to find what to attack.
+    for (const [detail, tokens] of [...toolTotals].sort((a, b) => b[1] - a[1])) {
+      parts.push({ category: "tool_output", detail, tokens });
+    }
+
+    return { parts, localTotal: parts.reduce((n, p) => n + p.tokens, 0) };
   }
 
   /**

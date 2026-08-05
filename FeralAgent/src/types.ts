@@ -488,6 +488,15 @@ export interface ChatMessage {
    * "[Image attached: name]" note in `content` still describes them).
    */
   images?: string[];
+  /**
+   * True when this turn was replayed from episodic memory at session start
+   * rather than lived in this session.
+   *
+   * Local bookkeeping only — no provider ever sees it. It exists so the cost
+   * breakdown can tell "what this conversation is doing" apart from "what it
+   * costs to remember the last one", which are separate decisions.
+   */
+  replayed?: boolean;
 }
 
 /**
@@ -623,6 +632,20 @@ export interface InferenceRequest {
    * pure cost.
    */
   cachePrefix?: "none" | "short" | "long";
+  /**
+   * What the caller believes it is sending, split into categories, measured
+   * with our own tokenizer.
+   *
+   * Telemetry, never behaviour: no provider sees it and no decision is made
+   * from it inside the router. It rides along on the request for one reason —
+   * so the two accounts of the same completion land in the SAME row. Written
+   * separately and joined on a timestamp, they would be correlated by guess,
+   * and a cost table built on a guessed join is worse than none.
+   *
+   * The two accounts are never mixed. This one is ours and approximate; the
+   * provider's `prompt_tokens` is theirs and authoritative.
+   */
+  promptBreakdown?: import("./memory/working.ts").PromptBreakdown;
   /**
    * A3: Native tool definitions for the Anthropic provider.
    * When present, `AnthropicProvider` uses the API-level `tools` field instead

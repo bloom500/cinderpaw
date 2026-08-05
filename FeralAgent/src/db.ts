@@ -407,7 +407,15 @@ function migrate(db: Database): void {
       cache_read_tokens INTEGER,
       cache_write_tokens INTEGER,
       latency_ms INTEGER NOT NULL,
-      used_fallback INTEGER NOT NULL
+      used_fallback INTEGER NOT NULL,
+      -- The other account of the same completion: what WE sent, by category,
+      -- measured with our own tokenizer. Same row as the provider's numbers so
+      -- the two are never joined by guessing at a timestamp — and never mixed:
+      -- local_prompt_tokens is ours and approximate, prompt_tokens above is
+      -- theirs and authoritative. The gap between them is a fact to look at,
+      -- not one to normalize away.
+      breakdown_json TEXT,
+      local_prompt_tokens INTEGER
     );
     CREATE INDEX IF NOT EXISTS completion_cost_session ON completion_cost(session_id, ts);
   `);

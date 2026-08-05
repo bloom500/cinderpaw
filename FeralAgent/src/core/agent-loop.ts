@@ -1893,6 +1893,23 @@ export class AgentLoop {
       ? this.#config.maxTokensPerCall
       : undefined;
 
+    // What we are about to send, by category. Built here rather than in
+    // WorkingMemory because the advertised tool schemas are a per-session fact
+    // (profile allow-list + whatever the drawer has pulled in) that the memory
+    // has never seen — and on a short turn they are the largest single lane.
+    const breakdown = memory.breakdown();
+    const schemaTokens = countTokens(
+      JSON.stringify(openAITools.length > 0 ? openAITools : nativeTools),
+    );
+    if (schemaTokens > 0) {
+      breakdown.parts.push({
+        category: "tool_schemas",
+        detail: `${(openAITools.length > 0 ? openAITools : nativeTools).length} advertised`,
+        tokens: schemaTokens,
+      });
+      breakdown.localTotal += schemaTokens;
+    }
+
     const dispatch = (
       maxTokens: number | undefined,
       temperature: number | undefined,
@@ -1900,6 +1917,7 @@ export class AgentLoop {
       const req = {
         sessionId,
         messages: memory.render(),
+        promptBreakdown: breakdown,
         maxTokens,
         temperature,
         onToken,
@@ -2124,10 +2142,10 @@ export class AgentLoop {
           if (ev.role === "tool") {
             used.push(ev.content.slice(0, ev.content.indexOf(":") + 1 || 40).replace(/:$/, ""));
           } else if (ev.role === "user") {
-            memory.addUser(ev.content);
+            memory.addReplayed("user", ev.content);
             used = [];
           } else {
-            memory.addAssistant(replayedToolNote(used) + ev.content);
+            memory.addReplayed("assistant", replayedToolNote(used) + ev.content);
             used = [];
           }
         }
