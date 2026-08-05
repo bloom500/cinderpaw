@@ -1872,6 +1872,13 @@ export class AgentLoop {
         temperature,
         onToken,
         cachePrompt: true,
+        // The main loop is the one place in the product where this is
+        // unambiguously true: system prompt and tool schemas are rebuilt only
+        // when the registry changes, and everything that varies per turn is
+        // appended to the last user message rather than spliced into the
+        // prefix. That layout was built for the local KV cache; declaring it
+        // here is what lets a cloud provider bill it the same way.
+        cachePrefix: "short" as const,
         // A3: native tool definitions for Anthropic.
         nativeTools,
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.

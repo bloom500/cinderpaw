@@ -603,6 +603,27 @@ export interface InferenceRequest {
    */
   cachePrompt?: boolean;
   /**
+   * "The part of this request in front of the conversation does not change —
+   * bill it as such."
+   *
+   * One concept, expressed by each provider in its own dialect: Anthropic gets
+   * a `cache_control` breakpoint, a local llama.cpp engine gets `cache_prompt`,
+   * OpenAI-compatible endpoints that cache a stable prefix automatically need
+   * nothing at all. A provider with no caching ignores it, which is the point —
+   * the caller states a fact about the request, not a vendor feature.
+   *
+   * This is the largest single lever on what an agent costs, because the prefix
+   * is not sent once. A turn that makes 28 tool calls is 29 completions, and on
+   * a real install the fixed part measured 9,875 tokens — 317,000 of that turn's
+   * 337,000 tokens were the same bytes, re-sent and re-billed 29 times.
+   *
+   * "short" is the ordinary setting. "long" buys a longer retention window at a
+   * higher write price and only pays off when a session has gaps between turns.
+   * "none" is for one-shot calls with no reusable prefix, where a cache write is
+   * pure cost.
+   */
+  cachePrefix?: "none" | "short" | "long";
+  /**
    * A3: Native tool definitions for the Anthropic provider.
    * When present, `AnthropicProvider` uses the API-level `tools` field instead
    * of relying on schema injected into the system prompt. Responses containing
@@ -636,6 +657,18 @@ export interface InferenceResponse {
    * of silently presenting the truncated text as the final answer.
    */
   finishReason?: "stop" | "length" | "tool_calls" | string;
+  /**
+   * Prompt tokens served from the provider's cache, and tokens written to it.
+   *
+   * Reported because a caching feature you cannot see is a caching feature you
+   * cannot trust: the failure mode is silent — one byte moves in the prefix,
+   * every request pays full price, and nothing anywhere says so. A read count
+   * that stays at zero across turns with an unchanged prefix is the symptom.
+   *
+   * Undefined on providers that report neither.
+   */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 export type BudgetExhaustedReason = "conversation" | "day";

@@ -511,6 +511,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       sessionId: req.sessionId,
     });
     let content = "";
+    let cacheReadTokens: number | undefined;
     let promptTokens = 0;
     let completionTokens = 0;
 
@@ -647,10 +648,24 @@ export class OpenAICompatibleProvider implements InferenceProvider {
           }
         }
 
-        const usage = (chunk as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage;
+        // `prompt_tokens_details.cached_tokens` is the OpenAI-compatible spelling
+        // of "this much of the prefix was served from cache". These endpoints
+        // cache a stable prefix on their own with no request field to set, so
+        // there is nothing to send here — only something to read, and reading it
+        // is the whole point: it is the difference between believing caching
+        // works and knowing it does.
+        const usage = (chunk as {
+          usage?: {
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            prompt_tokens_details?: { cached_tokens?: number };
+          };
+        }).usage;
         if (usage) {
           if (usage.prompt_tokens) promptTokens = usage.prompt_tokens;
           if (usage.completion_tokens) completionTokens = usage.completion_tokens;
+          const cached = usage.prompt_tokens_details?.cached_tokens;
+          if (cached !== undefined) cacheReadTokens = cached;
         }
       };
 
@@ -699,6 +714,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       model: target.model,
       usedFallback: isFallback,
       ...(finishReason ? { finishReason } : {}),
+      ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
     };
   }
 }
@@ -740,13 +756,19 @@ export class AnthropicProvider implements InferenceProvider {
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
     if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
+    Object.assign(body, anthropicCacheControl(req));
 
     const authHeaders: Record<string, string> = { "anthropic-version": "2023-06-01" };
     if (target.apiKey) authHeaders["x-api-key"] = target.apiKey;
 
     const raw = (await postJson(url, body, authHeaders, req.signal, CLOUD_IDLE_MS)) as {
       content?: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
-      usage?: { input_tokens?: number; output_tokens?: number };
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
       stop_reason?: string;
     };
 
@@ -770,6 +792,12 @@ export class AnthropicProvider implements InferenceProvider {
       ...(raw.stop_reason
         ? { finishReason: mapAnthropicStopReason(raw.stop_reason) }
         : {}),
+      ...(raw.usage?.cache_read_input_tokens !== undefined
+        ? { cacheReadTokens: raw.usage.cache_read_input_tokens }
+        : {}),
+      ...(raw.usage?.cache_creation_input_tokens !== undefined
+        ? { cacheWriteTokens: raw.usage.cache_creation_input_tokens }
+        : {}),
     };
   }
 
@@ -790,6 +818,7 @@ export class AnthropicProvider implements InferenceProvider {
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
     if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
+    Object.assign(body, anthropicCacheControl(req));
 
     const headers: Record<string, string> = {
       "anthropic-version": "2023-06-01",
@@ -810,6 +839,11 @@ export class AnthropicProvider implements InferenceProvider {
     let content = "";
     let inputTokens = 0;
     let outputTokens = 0;
+    // Reported on message_start alongside input_tokens. Left undefined when the
+    // provider says nothing, so "no caching here" and "cache read nothing" stay
+    // distinguishable — the second is a bug, the first is not.
+    let cacheReadTokens: number | undefined;
+    let cacheWriteTokens: number | undefined;
     let anthropicStopReason: string | undefined;
 
     // A3: per-block accumulator for tool_use streaming.
@@ -873,7 +907,22 @@ export class AnthropicProvider implements InferenceProvider {
           activeBlockIndex = -1;
           activeBlockType = "";
         } else if (type === "message_start") {
-          inputTokens = (chunk as { message?: { usage?: { input_tokens?: number } } }).message?.usage?.input_tokens ?? 0;
+          const startUsage = (chunk as {
+            message?: {
+              usage?: {
+                input_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              };
+            };
+          }).message?.usage;
+          inputTokens = startUsage?.input_tokens ?? 0;
+          if (startUsage?.cache_read_input_tokens !== undefined) {
+            cacheReadTokens = startUsage.cache_read_input_tokens;
+          }
+          if (startUsage?.cache_creation_input_tokens !== undefined) {
+            cacheWriteTokens = startUsage.cache_creation_input_tokens;
+          }
         } else if (type === "message_delta") {
           outputTokens = (chunk as { usage?: { output_tokens?: number } }).usage?.output_tokens ?? 0;
           const stopReason = (chunk as { delta?: { stop_reason?: string } }).delta?.stop_reason;
@@ -907,6 +956,8 @@ export class AnthropicProvider implements InferenceProvider {
       ...(anthropicStopReason
         ? { finishReason: mapAnthropicStopReason(anthropicStopReason) }
         : {}),
+      ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+      ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
     };
   }
 }
@@ -1405,11 +1456,38 @@ function isLoopbackTarget(target: ModelTarget): boolean {
  * NVIDIA NIM, …) reject unknown body parameters with a 400, which would
  * fail every agent request against them.
  */
+/**
+ * `cachePrefix` in Anthropic's dialect.
+ *
+ * Top-level `cache_control` rather than a breakpoint placed by hand: the API
+ * puts it on the last cacheable block itself, which is exactly what we want and
+ * cannot get wrong. Render order is tools → system → messages, so one
+ * breakpoint after the system block covers both halves of the fixed cost — the
+ * tool schemas and the system prompt — in a single marker.
+ *
+ * The long window costs about twice as much to write, so it is not the default;
+ * it earns that back only when turns are far enough apart that a short-lived
+ * entry would have expired between them.
+ */
+function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
+  if (!req.cachePrefix || req.cachePrefix === "none") return {};
+  return {
+    cache_control:
+      req.cachePrefix === "long" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" },
+  };
+}
+
 function feralExtensionBody(
   target: ModelTarget,
   req: InferenceRequest,
 ): Record<string, unknown> {
   if (!isLoopbackTarget(target)) return {};
+  // A local llama.cpp engine spells the same idea `cache_prompt`, and takes no
+  // retention argument — it holds one KV cache for as long as the context
+  // lives, so "short" and "long" are the same thing here. `cachePrompt` is the
+  // older boolean form of the field and still wins when a caller sets it, so
+  // nothing that predates the contract changes behaviour.
+  const prefix = req.cachePrompt ?? (req.cachePrefix ? req.cachePrefix !== "none" : undefined);
   return {
     ...(req.grammar
       ? {
@@ -1419,6 +1497,6 @@ function feralExtensionBody(
             : {}),
         }
       : {}),
-    ...(req.cachePrompt !== undefined ? { cache_prompt: req.cachePrompt } : {}),
+    ...(prefix !== undefined ? { cache_prompt: prefix } : {}),
   };
 }
