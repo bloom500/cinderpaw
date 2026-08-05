@@ -30,10 +30,21 @@ import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
 import { setCurrentTask, touchLastActive } from "./memory/resume.ts";
-import { runUnattended } from "./core/unattended.ts";
-import { createSafetyPoint, changedSince } from "./core/safety-point.ts";
+import { maxContinuations, resumePrompt, runUnattended } from "./core/unattended.ts";
+import {
+  createSafetyPoint,
+  changedSince,
+  changeFingerprint,
+  safetyPointFrom,
+  type SafetyPoint,
+} from "./core/safety-point.ts";
+import type { DoneWhen } from "./cron/done-when.ts";
+import type { TurnRecord, UnattendedResult } from "./core/unattended.ts";
+import type { RunSurface } from "./transports/connectors.ts";
 import { renderDigest } from "./core/digest.ts";
-import { verifyDoneWhen } from "./cron/done-when.ts";
+import { CHEAP_CHECKS, verifyDoneWhen } from "./cron/done-when.ts";
+import { RunStore, type RunRow } from "./core/run-store.ts";
+import { resumeInterruptedRuns } from "./core/run-resume.ts";
 import { turnBudgetMs } from "./core/agent-loop.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { McpManager } from "./egress/mcp-manager.ts";
@@ -330,6 +341,10 @@ function buildTransport(kind: AppConfig["transport"]): Transport {
 export async function boot(transportOverride?: Transport) {
   const config = loadConfig();
   const db = openDatabase(config.dbPath);
+  // Durable state for unattended runs. Created here, next to the database,
+  // because the boot-time resume pass below needs it before anything else can
+  // start a new run.
+  const runStore = new RunStore(db.raw);
 
   // --- RSI bootstrap (Faza 0 — Keystone) ---
   // Boot the Bounded-RSI substrate. Two slices, two owners:
@@ -939,6 +954,155 @@ export async function boot(transportOverride?: Transport) {
     process.env.FERAL_CRON_JOB_TIMEOUT_MS ??
       turnBudgetMs() * (cfgInt("FERAL_UNATTENDED_CONTINUATIONS") + 1) + 60_000,
   );
+  /**
+   * Turn each finished turn into a row, with progress read off the disk rather
+   * than taken from the turn's own account of itself. An agent that reports
+   * success and wrote nothing looks identical from the inside; it does not look
+   * identical to git.
+   */
+  function turnRecorder(row: RunRow, safety: SafetyPoint | null, doneWhen: DoneWhen | null) {
+    // Both are cumulative-since-run-start, so both are kept as "what it was
+    // after the previous turn" and compared.
+    let lastPrint: string | null = null;
+    let lastTokens = router.conversationTokens(row.sessionId);
+    return {
+      record: async (t: TurnRecord & { startedAt: number; tokens: number }) => {
+        const changed = await changedSince(safety);
+        const print = changeFingerprint(changed);
+        // Identical stamp = the workspace is in the same state it was in after
+        // the previous turn, i.e. this turn produced nothing. That is the
+        // question `decideResume`'s crash-loop guard asks.
+        const advanced = lastPrint !== null && print !== lastPrint;
+        const firstTurn = lastPrint === null;
+        lastPrint = print;
+
+        const cheap = await verifyDoneWhen(doneWhen, safety?.root ?? null, CHEAP_CHECKS);
+        // The router counts tokens per conversation, cumulatively; a turn's cost
+        // is the delta. It cannot be split into prompt/completion at this seam,
+        // which is why the column is a single total.
+        const total = router.conversationTokens(row.sessionId);
+        const spent = Math.max(0, total - lastTokens);
+        lastTokens = total;
+
+        runStore.appendTurn({
+          runId: row.id,
+          startedAt: t.startedAt,
+          durationMs: t.durationMs,
+          outcome: t.outcome,
+          toolCalls: t.toolCalls,
+          continuation: t.continuation,
+          replan: t.replan ?? false,
+          tokens: spent,
+          // The count is the cumulative one, which is what a report wants
+          // ("14 files touched"); zero means this turn moved nothing, which is
+          // what the guard wants. On the very first turn any change at all is
+          // this turn's work.
+          filesChanged:
+            firstTurn || advanced ? (changed.available ? changed.files.length : 0) : 0,
+          // ponytail: the (id, status) diff the spec asks for needs a TodoStore
+          // handle no call site has yet. filesChanged alone drives every decision
+          // in decideResume, so nothing depends on this being filled. Wire a
+          // TodoStore in — do NOT match on a status string, they are free-form
+          // by design.
+          todosClosed: 0,
+          doneWhenPass: cheap.checked ? cheap.passed : null,
+        });
+      },
+    };
+  }
+
+  /**
+   * Deliver a report for a run nobody is waiting on a reply for.
+   *
+   * A cron run has no chat to speak into, so it logs; a connector run goes back
+   * to the channel it came from through the ask router, which already owns
+   * "reach the chat behind this session". A delivery that cannot land is logged
+   * rather than thrown — the run is already concluded either way, and losing the
+   * other interrupted runs to one dead channel would be a worse outcome.
+   */
+  async function deliverRunReport(row: RunRow, text: string): Promise<void> {
+    if (row.delivery && row.delivery.kind !== "cron" && row.delivery.kind !== "tui") {
+      const sent = await connectors.askRouter.notify(row.delivery.sessionId, text);
+      if (sent) return;
+      log(`run ${row.id}: could not reach ${row.delivery.kind}, report only in the log`);
+    }
+    log(`run ${row.id} report:\n${text}`);
+  }
+
+  /**
+   * The boot pass over runs whose process never came back.
+   *
+   * Resuming re-enters the ordinary loop on the run's own session, so the
+   * durable task list, the transcript and the original safety point are all the
+   * ones the run started with — a resumed run diffs against where the WHOLE run
+   * began, not where the restart happened.
+   */
+  async function resumeInterrupted(): Promise<void> {
+    await resumeInterruptedRuns(
+      runStore,
+      Date.now(),
+      async (row) => {
+        log(`resuming interrupted run ${row.id} (attempt ${row.resumes}): ${row.mission}`);
+        const safety = safetyPointFrom(row);
+        let runError: string | null = null;
+        const run = await runUnattended(
+          (text, messageId) =>
+            agent.handleTurn(row.sessionId, text, messageId, (event) => {
+              if (event.type === "error") runError = event.message;
+            }),
+          resumePrompt(row.mission),
+          `resume-${row.id}-${Date.now()}`,
+          {
+            // The deadline is absolute, so what is left is what is left. A run
+            // already past it never reaches this callback.
+            deadlineMs: row.deadlineAt === null ? undefined : Math.max(1, row.deadlineAt - Date.now()),
+            recorder: turnRecorder(row, safety, row.doneWhen),
+          },
+        );
+        const changed = await changedSince(safety);
+        const check = await verifyDoneWhen(row.doneWhen, safety?.root ?? null);
+        const finished = run.finished && check.passed;
+        runStore.finish(row.id, finished ? "finished" : "unfinished", run.stoppedBecause);
+        await deliverRunReport(
+          row,
+          renderDigest(run, changed, check, safety, `it was interrupted and picked back up at startup${runError ? `, and hit an error: ${runError}` : ""}`),
+        );
+      },
+      async (row, decision) => {
+        log(`giving up on run ${row.id}: ${decision.reason}`);
+        const safety = safetyPointFrom(row);
+        const changed = await changedSince(safety);
+        const check = await verifyDoneWhen(row.doneWhen, safety?.root ?? null);
+        // Rendered from the persisted turns: the loop that produced them is gone,
+        // so this is the only account of the run that still exists.
+        const turns = runStore.turnsOf(row.id).map((t) => ({
+          outcome: t.outcome,
+          toolCalls: t.toolCalls,
+          durationMs: t.durationMs,
+          continuation: t.continuation,
+          ...(t.replan ? { replan: true } : {}),
+        }));
+        await deliverRunReport(
+          row,
+          renderDigest(
+            {
+              text: "",
+              outcome: turns.at(-1)?.outcome ?? "no_answer",
+              finished: false,
+              turns,
+              stoppedBecause: "not_continuable",
+            },
+            changed,
+            check,
+            safety,
+            decision.why,
+          ),
+        );
+      },
+      { log },
+    );
+  }
+
   const cronRepo = new CronJobsRepo(db.raw);
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
@@ -957,6 +1121,21 @@ export async function boot(transportOverride?: Transport) {
           log,
           config.workspaceRoots[0],
         );
+        // The durable half: if this process dies mid-run, this row is the only
+        // thing that says the run existed. Absent (null) when the session
+        // already has one in flight, which for a cron job means the previous
+        // firing is still going — let it finish rather than double it.
+        const runRow = runStore.startRun({
+          sessionId,
+          mission: job.task,
+          deadlineAt: Date.now() + cronJobTimeoutMs,
+          continuationBudget: maxContinuations(),
+          safetyRoot: safety?.root ?? null,
+          safetyBefore: safety?.before ?? null,
+          safetyGitDir: safety?.gitDir ?? null,
+          doneWhen: job.doneWhen ?? null,
+          delivery: { kind: "cron", target: job.id, sessionId },
+        });
         // runUnattended, not handle(): a scheduled task that hits the turn
         // budget half-way gets continued rather than reported as finished.
         const run = await runUnattended(
@@ -970,11 +1149,21 @@ export async function boot(transportOverride?: Transport) {
             "without asking for clarification; produce the final answer.\n\n" +
             `Task: ${job.task}`,
           `cron-${job.id}-${Date.now()}`,
-          { deadlineMs: cronJobTimeoutMs },
+          {
+            deadlineMs: cronJobTimeoutMs,
+            recorder: runRow ? turnRecorder(runRow, safety, job.doneWhen ?? null) : undefined,
+          },
         );
         if (runError) throw new Error(runError);
         const changed = await changedSince(safety);
         const check = await verifyDoneWhen(job.doneWhen, safety?.root ?? null);
+        if (runRow) {
+          runStore.finish(
+            runRow.id,
+            run.finished && check.passed ? "finished" : "unfinished",
+            run.stoppedBecause,
+          );
+        }
         return {
           text: renderDigest(run, changed, check, safety),
           // The agent's own claim is not the authority. When a job declares a
@@ -1322,7 +1511,57 @@ export async function boot(transportOverride?: Transport) {
   // The host writes ~/.feral/connectors.json and pokes us with
   // `connectors_reload`; reconcile here. Started in onReady once the agent and
   // tools are fully wired.
-  const connectors = new ConnectorManager(agent, log, leadDesk);
+  /**
+   * The host half of a connector's durable run: everything that knows about
+   * SQLite, git and token counters lives here, and the connector only learns
+   * "begin, record, done".
+   *
+   * A safety point is taken per run, not per message, and only when a workspace
+   * root is configured — so "what did it change while I was out" is answerable
+   * for a walk-away task, which is the whole promise.
+   *
+   * ponytail: that is one git snapshot per answered message, including "what's
+   * the weather". Cheap next to an LLM turn, but if it ever shows up in the
+   * latency of a chat reply, the fix is to snapshot lazily on the first write
+   * tool rather than to drop the snapshot.
+   */
+  const connectorRunHooks = {
+    async begin(sessionId: string, mission: string, surface: RunSurface, target: string) {
+      const safety = await createSafetyPoint(
+        `${surface}/${target}`,
+        log,
+        config.workspaceRoots[0],
+      );
+      const row = runStore.startRun({
+        sessionId,
+        mission,
+        // No wall-clock cap from a chat surface: runUnattended falls back to the
+        // configured mission deadline, and forcing one here would silently
+        // override it.
+        deadlineAt: null,
+        continuationBudget: maxContinuations(),
+        safetyRoot: safety?.root ?? null,
+        safetyBefore: safety?.before ?? null,
+        safetyGitDir: safety?.gitDir ?? null,
+        // Assertions on the chat path arrive with the task in a later increment;
+        // until then this run is honestly recorded as unverified.
+        doneWhen: null,
+        delivery: { kind: surface, target, sessionId },
+      });
+      if (!row) {
+        log(`${surface}: ${sessionId} already has a run in flight — not starting a second`);
+        return null;
+      }
+      return {
+        recorder: turnRecorder(row, safety, null),
+        done: (run: UnattendedResult) => {
+          runStore.finish(row.id, run.finished ? "finished" : "unfinished", run.stoppedBecause);
+        },
+      };
+    },
+  };
+
+  const connectors = new ConnectorManager(agent, log, leadDesk, connectorRunHooks);
   // ask_user for connector sessions is asked IN the channel (Discord/Slack/
   // WhatsApp text message; the next reply answers it) instead of emitting a
   // desktop card the chat user can never see.
@@ -1523,7 +1762,13 @@ export async function boot(transportOverride?: Transport) {
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
     // Start any enabled inbound connectors (Discord, …) now that the agent and
     // its tools are live. Best-effort: failures log to stderr, never crash.
-    void connectors.reload();
+    //
+    // The interrupted-run pass is chained onto it rather than run alongside:
+    // a run resumed here reports back over the same connector it came in on, and
+    // that connector's sender is only registered once the client has logged in.
+    // Chaining on the reload promise waits for the real signal instead of
+    // guessing with a timer.
+    void connectors.reload().then(() => resumeInterrupted());
 
     // Dream Cycle: arm the event-driven scheduler when a real model is
     // configured. Off when FERAL_RSI_PASSIVE=false or only a placeholder

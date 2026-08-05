@@ -16,6 +16,7 @@ import { join } from "node:path";
 import {
   createSafetyPoint,
   changedSince,
+  changeFingerprint,
   safetyPointFrom,
   type SafetyPoint,
 } from "../src/core/safety-point.ts";
@@ -118,8 +119,8 @@ describe("safetyPointFrom", () => {
   });
 
   test("a half-written row (root but no commit) also rebuilds to null", async () => {
-    // Fail toward "unavailable, and here is why" rather than toward a point
-    // that git will reject at diff time with something unreadable.
+    // Fail toward "unavailable, and here is why" rather than toward a point that
+    // git will reject at diff time with something unreadable.
     const rebuilt = safetyPointFrom({
       id: "run-1",
       createdAt: 1,
@@ -128,5 +129,66 @@ describe("safetyPointFrom", () => {
       safetyGitDir: null,
     });
     expect(rebuilt).toBeNull();
+  });
+});
+
+describe("changeFingerprint", () => {
+  test("a turn that changed nothing stamps identically to the turn before it", async () => {
+    // This is what makes "did THIS turn do anything" answerable at all:
+    // changedSince is cumulative, so comparing its file COUNT against zero would
+    // never fire once a run had changed anything at all.
+    const dir = await repo();
+    const point = await createSafetyPoint("test/run", () => {}, dir);
+    await writeFile(join(dir, "src", "b.ts"), "export const b = 2;\n");
+
+    const afterWork = changeFingerprint(await changedSince(point));
+    const afterIdleTurn = changeFingerprint(await changedSince(point));
+    expect(afterIdleTurn).toBe(afterWork);
+  });
+
+  test("editing the same file again moves the stamp, even though the count does not", async () => {
+    const dir = await repo();
+    const point = await createSafetyPoint("test/run", () => {}, dir);
+
+    await writeFile(join(dir, "src", "a.ts"), "export const a = 2;\n");
+    const one = await changedSince(point);
+    const first = changeFingerprint(one);
+
+    await writeFile(join(dir, "src", "a.ts"), "export const a = 2;\nexport const c = 3;\n");
+    const two = await changedSince(point);
+
+    expect(two.files).toHaveLength(one.files.length); // same count…
+    expect(changeFingerprint(two)).not.toBe(first); // …different stamp
+  });
+
+  test("a new file moves the stamp", async () => {
+    const dir = await repo();
+    const point = await createSafetyPoint("test/run", () => {}, dir);
+    const before = changeFingerprint(await changedSince(point));
+    await writeFile(join(dir, "src", "c.ts"), "export const c = 3;\n");
+    expect(changeFingerprint(await changedSince(point))).not.toBe(before);
+  });
+
+  test("an unmeasurable workspace never stamps as unchanged", async () => {
+    // "We could not look" must not be recorded as "nothing happened" — that is
+    // the same lie changedSince's `available` flag exists to prevent.
+    const unavailable = await changedSince(null);
+    expect(unavailable.available).toBe(false);
+    expect(changeFingerprint(unavailable)).not.toBe(changeFingerprint(unavailable));
+  });
+});
+
+describe("safetyPointFrom edge cases", () => {
+  test("a row with a commit but no root also rebuilds to null", () => {
+    // Both halves are required; either one alone is a half-written row.
+    expect(
+      safetyPointFrom({
+        id: "run-1",
+        createdAt: 1,
+        safetyRoot: null,
+        safetyBefore: "abc123",
+        safetyGitDir: null,
+      }),
+    ).toBeNull();
   });
 });

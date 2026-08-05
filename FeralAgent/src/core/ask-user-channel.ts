@@ -140,6 +140,31 @@ export class ChannelAskRouter {
   }
 
   /**
+   * Say something in-channel without asking anything, and without a turn to ride
+   * along with.
+   *
+   * What needs it: a run whose process died is picked back up at boot, or given
+   * up on there. Either way the person who started it is not mid-conversation,
+   * so there is no reply to attach the report to — but they are owed one, and a
+   * run that ends in silence is the whole failure being fixed.
+   *
+   * Returns false instead of throwing when it could not be said: a connector
+   * that is disabled, not yet connected, or answering 401 must not take down a
+   * boot-time pass that still has other runs to deal with. The caller logs it.
+   */
+  async notify(sessionId: string, text: string): Promise<boolean> {
+    const prefix = sessionId.split(":", 1)[0] ?? "";
+    const sender = this.#senders.get(prefix);
+    if (!sender) return false;
+    try {
+      await sender(sessionId, text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Ask in-channel. Sends the formatted questions, then waits for
    * `handleInbound` (or times out with AskUserTimeoutError, matching the
    * bridge so the tool's auto-resolve kicks in identically).

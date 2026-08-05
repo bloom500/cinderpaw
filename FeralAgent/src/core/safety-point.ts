@@ -357,6 +357,29 @@ export async function changedSince(
 }
 
 /**
+ * A comparable stamp of "how the workspace differs from the snapshot".
+ *
+ * `changedSince` answers cumulatively — everything since the run began — which
+ * is the right answer for a report and the wrong one for "did THIS turn do
+ * anything". A run that changed three files in its first hour reports three
+ * files on every turn afterwards, so a per-turn check against zero would never
+ * fire, and the crash-loop guard that depends on it would never fire either.
+ *
+ * Comparing two stamps answers the per-turn question: identical means the
+ * workspace is in the same state it was in after the previous turn. Insertions
+ * and deletions are in it because re-editing one file leaves the file COUNT
+ * unchanged while the content moves.
+ *
+ * An unavailable summary stamps as "unknown", which never equals itself — a
+ * workspace we cannot measure must not be reported as one that did not change.
+ */
+export function changeFingerprint(summary: ChangeSummary): string {
+  if (!summary.available) return `unknown:${Math.random()}`;
+  const paths = summary.files.map((f) => `${f.status}${f.path}`).sort().join(",");
+  return `${summary.insertions}+${summary.deletions}/${paths}`;
+}
+
+/**
  * Rebuild a `SafetyPoint` from the columns a run row persists.
  *
  * `changedSince` takes the object, not a ref, so after a sidecar restart the

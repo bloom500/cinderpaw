@@ -104,8 +104,42 @@ const REPLAN_PROMPT =
   "If there is genuinely no other approach available to you, say so plainly, say what you " +
   "would need, and stop. That is a valid answer and a better one than a guess.)";
 
-/** Continuations allowed after the first turn. */
-function maxContinuations(): number {
+/**
+ * What the first turn after a RESTART says to the model.
+ *
+ * Different situation from an ordinary continuation, and the difference matters:
+ * a continuation follows a turn this same process just ran, so the transcript is
+ * warm and "pick up where you stopped" is enough. Here the process died — the
+ * transcript may have been summarised or reloaded, and the only thing certain to
+ * have survived intact is the durable task list. So it names the mission again,
+ * says plainly that time has passed, and points at the two sources of truth
+ * (the task list, and the files themselves) rather than at "where you stopped",
+ * which nothing can now guarantee it knows.
+ *
+ * Naming the mission is what stops the model treating the restart as a brand new
+ * request and redoing side effects it already performed.
+ */
+export function resumePrompt(mission: string): string {
+  return (
+    "(system: this task was interrupted — the process running it stopped and has just " +
+    "been restarted. Time has passed. No human is watching, so do not ask questions and " +
+    "do not wait for approval.\n" +
+    `The task is: ${mission}\n` +
+    "Your durable task list survived the restart; the work already written to disk did " +
+    "too. Read both BEFORE doing anything, and verify current state before any write that " +
+    "might already have happened — you may have completed steps you no longer remember.\n" +
+    "Do NOT start the task over. If it is in fact already complete, say so plainly and stop.)"
+  );
+}
+
+/**
+ * Continuations allowed after the first turn.
+ *
+ * Exported so a caller can snapshot it onto a run row at start: read again later
+ * it could have changed, and a run already in flight must not have its budget
+ * moved underneath it.
+ */
+export function maxContinuations(): number {
   return Math.max(0, cfgInt("FERAL_UNATTENDED_CONTINUATIONS"));
 }
 

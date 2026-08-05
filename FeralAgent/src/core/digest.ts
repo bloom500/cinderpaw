@@ -59,6 +59,15 @@ export function renderDigest(
   changes: ChangeSummary,
   check: DoneCheck,
   safety: SafetyPoint | null,
+  /**
+   * Why the RUN ended, when that differs from why the LOOP ended — a run picked
+   * up by a later boot, or given up on there.
+   *
+   * Deliberately a plain string rather than a typed reason: the run-level
+   * reasons are a superset of `UnattendedResult["stoppedBecause"]`, and widening
+   * that type would break the exhaustive `Record` over it above.
+   */
+  runReason?: string,
 ): string {
   const out: string[] = [];
 
@@ -85,6 +94,11 @@ export function renderDigest(
     };
     out.push(`**Stopped because:** ${why[run.stoppedBecause]}`);
   }
+  // Why the RUN ended, when that is not the same as why the last LOOP ended —
+  // the process died and a later boot concluded it. Placed right after the
+  // loop-level reason so the two read as one story rather than contradicting
+  // each other from opposite ends of the message.
+  if (runReason) out.push(`**Run ended because:** ${runReason}`);
   out.push(`**Completion check:** ${check.detail}`);
 
   // 3. What it did to the disk.

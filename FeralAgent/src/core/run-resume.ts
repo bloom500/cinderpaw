@@ -35,6 +35,12 @@ function lastResumeAchievedNothing(run: RunRow, turns: TurnRow[]): boolean {
   // Nothing has been retried yet, so there is no loop to break. A first crash is
   // not evidence of anything except a crash.
   if (run.resumes === 0) return false;
+  // No snapshot was taken, so `filesChanged` is structurally 0 on every turn and
+  // says nothing about whether work happened. Declaring such a run stalled would
+  // be the same mistake `changedSince` refuses to make when it reports
+  // `available: false` instead of zero: unmeasured is not unmoved. The resume cap
+  // still bounds it.
+  if (run.safetyBefore === null) return false;
   const from = run.lastResumeSeq ?? 1;
   const since = turns.filter((t) => t.seq >= from);
   // A resume that died before producing a single turn never got a chance to fail

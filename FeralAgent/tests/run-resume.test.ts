@@ -116,6 +116,29 @@ describe("decideResume", () => {
     expect(d).toMatchObject({ reason: "no_progress" });
   });
 
+  test("a run with no snapshot is never declared stalled — unmeasured is not unmoved", () => {
+    // Without a safety point, filesChanged is structurally 0 on every turn and
+    // says nothing about whether work happened. Judging it would abandon every
+    // resumable chat-surface run after one restart. The resume cap still bounds
+    // it, so this is not an escape hatch.
+    const turns = [turn(1), turn(2), turn(3)];
+    const d = decideResume(
+      run({ resumes: 1, lastResumeSeq: 2, safetyBefore: null, safetyRoot: null }),
+      turns,
+      NOW,
+    );
+    expect(d.action).toBe("resume");
+  });
+
+  test("…but the cap still stops an unmeasurable run from looping forever", () => {
+    const d = decideResume(
+      run({ resumes: DEFAULT_MAX_RESUMES, safetyBefore: null, safetyRoot: null }),
+      [turn(1)],
+      NOW,
+    );
+    expect(d).toMatchObject({ action: "give_up", reason: "resume_cap" });
+  });
+
   test("a first crash is not evidence of a loop, even with zero progress", () => {
     // resumes === 0: nothing has been retried yet, so there is no loop to break.
     const d = decideResume(run({ resumes: 0, lastResumeSeq: null }), [turn(1)], NOW);

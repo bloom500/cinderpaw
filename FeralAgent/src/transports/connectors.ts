@@ -38,7 +38,11 @@ import type { LeadDesk } from "../core/lead-desk.ts";
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 import { readAttachments } from "./attachments.ts";
 import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
-import { runUnattended } from "../core/unattended.ts";
+import {
+  runUnattended,
+  type TurnRecorder,
+  type UnattendedResult,
+} from "../core/unattended.ts";
 import type { TurnResult } from "../core/agent-loop.ts";
 
 /** The slice of `AgentLoop` a connector needs. */
@@ -361,14 +365,46 @@ function activityFor(tool: string): { emoji: string; label: string } {
   return { emoji: "🔧", label: `Working — ${prettyTool(tool)}…` };
 }
 
-/** Run one agent turn, mapping its tool events to a friendly status string. */
-async function runAgent(
+/**
+ * How a connector turn gets recorded as a durable run.
+ *
+ * Deliberately this small: everything that knows about SQLite, git snapshots and
+ * token counters stays on the boot side, and this file learns only "begin a run,
+ * hand each turn somewhere, say how it ended". A connector has no business
+ * holding a database handle.
+ *
+ * `begin` returns null when the session already has a run in flight — two loops
+ * on one transcript is how side effects get performed twice.
+ */
+export interface ConnectorRunHooks {
+  begin(
+    sessionId: string,
+    mission: string,
+    surface: RunSurface,
+    target: string,
+  ): Promise<{
+    recorder: TurnRecorder;
+    done(run: UnattendedResult): Promise<void> | void;
+  } | null>;
+}
+
+export type RunSurface = "discord" | "slack" | "whatsapp";
+
+/**
+ * Run one agent turn, mapping its tool events to a friendly status string.
+ *
+ * Exported for tests: every connector funnels through here, so this is the one
+ * place where "a chat message becomes a durable run" can be checked without a
+ * Discord token.
+ */
+export async function runAgent(
   agent: AgentLike,
   sessionId: string,
   text: string,
   messageId: string,
   onActivity?: (status: string) => void,
   images?: string[],
+  runs?: { hooks: ConnectorRunHooks; surface: RunSurface; target: string },
 ): Promise<string> {
   const emit = (event: OutboundEvent) => {
     if (!onActivity) return;
@@ -387,12 +423,20 @@ async function runAgent(
   // here. Continuation only triggers on an outcome that was actually cut off,
   // so an ordinary message still costs exactly one turn.
   if (agent.handleTurn) {
+    // Durable record, when the host supplied one. A run that outlives this
+    // process is how "close the laptop, get told on Discord" survives the laptop
+    // actually closing.
+    const record = runs
+      ? await runs.hooks.begin(sessionId, text, runs.surface, runs.target)
+      : null;
     const run = await runUnattended(
       (turnText, turnId) =>
         agent.handleTurn!(sessionId, turnText, turnId, emit, undefined, images),
       text,
       messageId,
+      record ? { recorder: record.recorder } : {},
     );
+    await record?.done(run);
     return run.text;
   }
   return agent.handle(sessionId, text, messageId, emit, undefined, images);
@@ -463,9 +507,10 @@ export class DiscordConnector {
   readonly #log: Log;
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
+  readonly #runs: ConnectorRunHooks | null;
   #client: Client | null = null;
 
-  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string }) {
+  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string; runs?: ConnectorRunHooks }) {
     this.#token = opts.token;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -473,6 +518,7 @@ export class DiscordConnector {
     this.#log = opts.log;
     this.#ask = opts.ask ?? null;
     this.#profileId = opts.profileId ?? null;
+    this.#runs = opts.runs ?? null;
   }
 
   async start(): Promise<void> {
@@ -701,6 +747,9 @@ export class DiscordConnector {
         `discord-${message.id}`,
         setStatus,
         images,
+        this.#runs
+          ? { hooks: this.#runs, surface: "discord", target: message.channelId }
+          : undefined,
       );
 
       // Done working: the status message becomes the answer (or a fresh reply
@@ -1198,10 +1247,18 @@ export class ConnectorManager {
    */
   readonly #health = new Map<string, ConnectorHealth>();
 
-  constructor(agent: AgentLike, log: Log, leadDesk?: LeadDesk) {
+  /**
+   * Supplied by the host when durable runs are wired. Optional so the connector
+   * tests can construct a manager without a database, and so a host that has not
+   * wired it keeps exactly the old behaviour.
+   */
+  readonly #runs: ConnectorRunHooks | null;
+
+  constructor(agent: AgentLike, log: Log, leadDesk?: LeadDesk, runs?: ConnectorRunHooks) {
     this.#agent = agent;
     this.#log = log;
     this.#leadDesk = leadDesk ?? null;
+    this.#runs = runs ?? null;
   }
 
   /**
@@ -1300,7 +1357,7 @@ export class ConnectorManager {
     if (this.#discord) await this.#discord.stop();
     this.#discord = null;
     const profileId = this.#personaProfile("discord", row);
-    const conn = new DiscordConnector({ token, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, ask: this.askRouter, ...(profileId ? { profileId } : {}) });
+    const conn = new DiscordConnector({ token, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, ask: this.askRouter, ...(profileId ? { profileId } : {}), ...(this.#runs ? { runs: this.#runs } : {}) });
     try {
       await conn.start();
       this.#discord = conn;
