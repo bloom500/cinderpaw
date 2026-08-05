@@ -333,3 +333,53 @@ describe("a chat task that declares what done means", () => {
     expect(reply).toBe("All done — I wrote the report.");
   });
 });
+
+/**
+ * The answer that describes a file nothing opened.
+ *
+ * Three tasks in a row came back like this — a summary of a module that does
+ * not exist, a directory listing containing it, and "written to VERSION.md"
+ * for a folder that was never created — every one with zero tool calls behind
+ * it. `done_when` catches the ones that were supposed to leave an artifact;
+ * this catches the rest, which is most of them.
+ */
+describe("an answer with nothing behind it", () => {
+  function agentSaying(text: string, toolCallCount: number) {
+    return {
+      handle: async () => "unused",
+      handleTurn: async (): Promise<TurnResult> => ({
+        text,
+        outcome: "completed" as TurnOutcome,
+        toolCallCount,
+        incomplete: false,
+      }),
+    };
+  }
+
+  test("a file summary produced without opening anything is marked", async () => {
+    const reply = await runAgent(
+      agentSaying("QuantumScheduler in D:\proj\src\core\quantum-scheduler.ts is the tick loop.", 0),
+      "discord:c1:u1", "summarise it", "discord-42",
+    );
+    expect(reply).toContain("no file was opened");
+    // The answer itself is still delivered — the reader decides; we only state
+    // what did not happen.
+    expect(reply).toContain("QuantumScheduler");
+  });
+
+  test("the same answer with a tool call behind it is left alone", async () => {
+    const reply = await runAgent(
+      agentSaying("QuantumScheduler in D:\proj\src\core\quantum-scheduler.ts is the tick loop.", 3),
+      "discord:c1:u1", "summarise it", "discord-42",
+    );
+    expect(reply).not.toContain("no file was opened");
+  });
+
+  test("ordinary chat is never marked", async () => {
+    const reply = await runAgent(
+      agentSaying("Sure — what would you like me to look at?", 0),
+      "discord:c1:u1", "hi", "discord-42",
+    );
+    expect(reply).toBe("Sure — what would you like me to look at?");
+  });
+});
