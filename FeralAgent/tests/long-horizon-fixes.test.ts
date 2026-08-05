@@ -133,3 +133,42 @@ describe("parseResponse — the {\"tool_name\"} call shape", () => {
     expect(parsed.toolCalls).toHaveLength(0);
   });
 });
+
+/**
+ * A <tool_call> block is never prose, whatever is inside it.
+ *
+ * Observed live on Discord (2026-08-05, MiniMax): the model emitted
+ * `{"name="read_file",...}` — an `=` where the colon belongs. The block was
+ * correctly recognised as a malformed call and retried, but only the TAGS were
+ * stripped from the visible text, and the body did not match the bare-call
+ * scanner's `{"name":` signature. So once the retries ran out, the user's
+ * answer was the raw JSON. The walk-away demo run produced exactly this and
+ * nothing else.
+ */
+describe("a malformed tool call never reaches the user as prose", () => {
+  test("the block body is stripped, not just its tags", () => {
+    const parsed = parseResponse(
+      'Let me look at that file.\n<tool_call>\n{"name="read_file","args":{"path":"a.ts"}}\n</tool_call>',
+    );
+    expect(parsed.malformedToolCall).toBe(true);
+    expect(parsed.toolCalls).toHaveLength(0);
+    expect(parsed.text).not.toContain("read_file");
+    expect(parsed.text).not.toContain("{");
+    // The prose the model wrote around the call is still the user's to read.
+    expect(parsed.text).toContain("Let me look at that file.");
+  });
+
+  test("an unterminated block is stripped to the end of the message", () => {
+    const parsed = parseResponse('Working on it.\n<tool_call>\n{"name="read_file","args":{');
+    expect(parsed.malformedToolCall).toBe(true);
+    expect(parsed.text).toBe("Working on it.");
+  });
+
+  test("a well-formed call still parses — the fix must not eat real calls", () => {
+    const parsed = parseResponse(
+      '<tool_call>\n{"name": "read_file", "args": {"path": "a.ts"}}\n</tool_call>',
+    );
+    expect(parsed.toolCalls).toHaveLength(1);
+    expect(parsed.toolCalls[0]!.name).toBe("read_file");
+  });
+});

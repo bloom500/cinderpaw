@@ -1323,7 +1323,18 @@ export class AgentLoop {
         // read, nothing edited). Anything with no letters or digits once tags
         // are stripped is degenerate output; fall through to the empty-answer
         // path, which already knows how to ask for a real continuation.
-        const rawAnswer = stripThinking(parsed.text) || stripThinking(streamedSoFar);
+        // The fallback to the raw stream exists for the case where parsing lost
+        // an answer the user already watched arrive. It must not resurrect what
+        // parsing removed ON PURPOSE: a tool-call block is machine syntax, and
+        // when the model will not emit valid JSON (three retries, then here)
+        // this line used to deliver the broken call as the reply. Observed live
+        // on Discord — the whole answer was a `<tool_call>` block. Prose the
+        // model wrote around the call is still the user's, so scrub the blocks
+        // rather than discarding the stream.
+        const streamedFallback = stripThinking(streamedSoFar)
+          .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/g, "")
+          .trim();
+        const rawAnswer = stripThinking(parsed.text) || streamedFallback;
         const answer = /[\p{L}\p{N}]/u.test(rawAnswer.replace(/<[^>]*>/g, "")) ? rawAnswer : "";
 
         // Mid-answer token cutoff: the model was still WRITING when it ran
