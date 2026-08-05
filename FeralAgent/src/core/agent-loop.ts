@@ -1737,6 +1737,16 @@ export class AgentLoop {
       profile?.allowed ? profile.allowed.has(name) : isCoreTool(name) || !!loaded?.has(name);
     const nativeTools = this.#nativeTools.filter((t) => advertise(t.name));
     const openAITools = this.#openAITools.filter((t) => advertise(t.function.name));
+    // A turn that advertises nothing is indistinguishable, from the outside,
+    // from a model that chose not to call anything: same empty tool_calls, same
+    // confident answer built on nothing. We spent a day reading the second story
+    // out of evidence that fit both. Zero is the one count worth a line — a
+    // healthy turn stays silent, so this only ever appears when something is
+    // actually wrong upstream (empty registry, a profile allow-list that matches
+    // no tool name, a sync that never ran).
+    if (openAITools.length === 0 && nativeTools.length === 0) {
+      log(`tools: 0 advertised for ${sessionId} — the model cannot call anything this turn`);
+    }
 
     // Surfaces compaction as a visible synthetic tool call (tool_start/
     // tool_done on the existing event stream) instead of silent dead air —
