@@ -108,7 +108,13 @@ export async function runChatCommand(
   sessionId: string,
   text: string,
 ): Promise<string | null> {
-  switch (text.trim().toLowerCase()) {
+  // Discord and Slack both capture a leading "/" into their own application
+  // command picker, so the message never arrives as text and the command was
+  // unreachable on exactly the two surfaces it was written for — typing "/new"
+  // on Discord offers you a music bot that isn't even in the server. "!" is the
+  // same command with a prefix those clients pass through untouched. WhatsApp,
+  // which has no picker, keeps working either way.
+  switch (text.trim().toLowerCase().replace(/^!/, "/")) {
     case "/new":
     case "/reset":
     case "/clear":

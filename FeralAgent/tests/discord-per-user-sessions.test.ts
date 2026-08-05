@@ -175,11 +175,21 @@ describe("connector chat commands", () => {
 
   test("/new resets the session and never reaches the agent", async () => {
     const { agent, reset } = fakeAgent();
-    for (const cmd of ["/new", "/reset", "/clear", " /NEW "]) {
+    // "!" forms are not a convenience: on Discord and Slack the "/" never
+    // reaches us at all — the client turns it into its own command picker, so
+    // the reset was unreachable on both. Found the only way it could be, by a
+    // person trying to type it.
+    for (const cmd of ["/new", "/reset", "/clear", " /NEW ", "!new", "!reset", " !CLEAR "]) {
       const reply = await runChatCommand(agent, "discord:dm:u1", cmd);
       expect(reply).toContain("Fresh start");
     }
-    expect(reset).toEqual(Array(4).fill("discord:dm:u1"));
+    expect(reset).toEqual(Array(7).fill("discord:dm:u1"));
+  });
+
+  test("!compact folds too", async () => {
+    const { agent, compacted } = fakeAgent();
+    expect(await runChatCommand(agent, "slack:c1:u1", "!compact")).toContain("Compacted");
+    expect(compacted).toEqual(["slack:c1:u1"]);
   });
 
   test("/compact folds without resetting", async () => {
