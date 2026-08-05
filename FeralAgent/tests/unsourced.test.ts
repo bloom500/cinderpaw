@@ -10,6 +10,31 @@ import { describe, expect, test } from "bun:test";
 import { claimedPath, unsourcedWarning } from "../src/core/unsourced.ts";
 
 describe("an answer about a file nothing opened", () => {
+  test("the answer that never names the file is still flagged", () => {
+    // The case that slipped through twice: asked to summarise a named file, the
+    // model described it at length and never repeated the path, so an
+    // answer-only check found nothing to object to while the whole reply was
+    // invented. What the person named is the claim.
+    const answer =
+      "QuantumScheduler is the central dispatcher for microtasks — it picks when " +
+      "a task runs and which worker thread it lands on.";
+    const prompt = "Read D:\proj\src\core\quantum-scheduler.ts and summarise it.";
+    expect(unsourcedWarning(answer, 0)).toBeNull(); // answer alone says nothing
+    expect(unsourcedWarning(answer, 0, prompt)).toContain("quantum-scheduler.ts");
+    // Evidence exists → still silent, whatever was asked.
+    expect(unsourcedWarning(answer, 2, prompt)).toBeNull();
+  });
+
+  test("a question with no file in it is never flagged", () => {
+    expect(
+      unsourcedWarning(
+        "A mutex is one key, one door; a semaphore is a counter on a door.",
+        0,
+        "What's the difference between a mutex and a semaphore?",
+      ),
+    ).toBeNull();
+  });
+
   test("the fabricated module summary is flagged", () => {
     const answer =
       "QuantumScheduler, in plain terms: it decides when and on which thread a " +

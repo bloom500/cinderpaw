@@ -75,12 +75,23 @@ export function claimedPath(answer: string): string | null {
  * something in its third turn and summarised it in its fifth is doing exactly
  * what it should.
  */
-export function unsourcedWarning(answer: string, toolCalls: number): string | null {
+export function unsourcedWarning(
+  answer: string,
+  toolCalls: number,
+  /**
+   * What was asked. Checked as well as the answer, because the strongest case
+   * is the one the answer hides: asked to summarise a named file, the model
+   * described it at length WITHOUT ever naming it again — so an answer-only
+   * check found nothing to object to while the whole reply was invented. What
+   * the person named is the claim; whether the agent repeats it is style.
+   */
+  prompt = "",
+): string | null {
   if (toolCalls > 0) return null;
-  const path = claimedPath(answer);
+  const path = claimedPath(answer) ?? claimedPath(prompt);
   if (!path) return null;
   return (
-    `⚠️ _This answer mentions \`${path}\`, but no file was opened and no command ` +
-    `was run while producing it — nothing here was checked against your machine._`
+    `⚠️ _This is about \`${path}\`, but no file was opened and no command was run ` +
+    `while producing this answer — nothing here was checked against your machine._`
   );
 }

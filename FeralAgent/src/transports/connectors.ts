@@ -454,7 +454,7 @@ export async function runAgent(
     // leave an artifact; most tasks leave only an answer, and that is where the
     // confident invention lives.
     const toolCalls = run.turns.reduce((n, t) => n + t.toolCalls, 0);
-    const unsourced = unsourcedWarning(run.text, toolCalls);
+    const unsourced = unsourcedWarning(run.text, toolCalls, text);
     // The verdict goes to the PERSON, not just into the row. A failed check
     // that only a database knows about is the same silence we started with.
     return [run.text, verdict, unsourced].filter(Boolean).join("\n\n");

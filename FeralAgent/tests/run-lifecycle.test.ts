@@ -383,3 +383,32 @@ describe("an answer with nothing behind it", () => {
     expect(reply).toBe("Sure — what would you like me to look at?");
   });
 });
+
+/**
+ * The reply that describes a named file without ever naming it back.
+ *
+ * This shape slipped past the warning twice: the person names the file, the
+ * agent answers at length about it and never repeats the path, so an
+ * answer-only check sees nothing. What the person asked about is the claim.
+ */
+describe("asked about a file, opened nothing", () => {
+  test("the warning comes from the question when the answer stays vague", async () => {
+    const agent = {
+      handle: async () => "unused",
+      handleTurn: async (): Promise<TurnResult> => ({
+        text: "It is the central dispatcher for microtasks, non-preemptive, with backoff.",
+        outcome: "completed" as TurnOutcome,
+        toolCallCount: 0,
+        incomplete: false,
+      }),
+    };
+    const reply = await runAgent(
+      agent,
+      "discord:c1:u1",
+      "Read D:\proj\src\core\quantum-scheduler.ts and summarise what it does.",
+      "discord-42",
+    );
+    expect(reply).toContain("no file was opened");
+    expect(reply).toContain("quantum-scheduler.ts");
+  });
+});
