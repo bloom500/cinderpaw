@@ -45,7 +45,10 @@
  */
 
 import type { Tool, ToolManifest } from "../../types.ts";
+import { resolve, join, sep } from "node:path";
+import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
+import { feralHome } from "../../config.ts";
 
 /**
  * Env-controlled whitelist of programs `shell_exec` may invoke.
@@ -117,6 +120,73 @@ const DENYLIST = loadDenylist();
 /** True if the joined command matches a catastrophic pattern. */
 export function isDestructive(commandLine: string): boolean {
   return DENYLIST.some((re) => re.test(commandLine));
+}
+
+/**
+ * Verbs that remove or overwrite what they are pointed at. Deliberately only
+ * the ones whose whole purpose is destruction — `git reset --hard` and friends
+ * are missing because they can only act inside a repository, which is inside a
+ * workspace root, which the safety point already snapshots and can undo.
+ */
+const DESTRUCTIVE_VERBS =
+  /(^|[\s;&|(])(rm|rmdir|rd|del|erase|unlink|shred|srm|truncate|mkfs|format|rimraf|remove-item|ri|clear-content)([\s]|$)/i;
+
+/**
+ * Absolute paths in any spelling a shell payload might carry.
+ *
+ * The POSIX branch deliberately will not match `/c`, `/q`, `/s` — those are
+ * Windows command switches (`cmd /c del …`), and treating a switch as the
+ * target would make the guard fire on the wrong token and report nonsense.
+ * A real path either has a first segment of three characters or a second
+ * slash; a bare `/` is the catastrophic case the denylist above already owns.
+ */
+const ABSOLUTE_PATH =
+  /(?:[A-Za-z]:[\\/][^\s"';|&)]*|~[\\/][^\s"';|&)]*|(?<![\w:])\/(?:[^\s"';|&)\\/]{3,}[^\s"';|&)]*|[^\s"';|&)]*\/[^\s"';|&)]*))/g;
+
+/** Case-insensitive path comparison on Windows, exact everywhere else. */
+function samePathSpace(p: string): string {
+  const normal = resolve(p).replace(/[\\/]+$/, "");
+  return process.platform === "win32" ? normal.toLowerCase() : normal;
+}
+
+function isInside(path: string, root: string): boolean {
+  const p = samePathSpace(path);
+  const r = samePathSpace(root);
+  return p === r || p.startsWith(r + sep) || p.startsWith(r + "/");
+}
+
+/**
+ * The path a destructive command would hit outside every workspace root, or
+ * null when there is nothing to object to.
+ *
+ * This is a footgun guard for a cooperating agent that made a mistake, exactly
+ * like the catastrophic denylist above — NOT a security boundary. Anything
+ * that wants to evade it can (`python -c`, base64, a path assembled at
+ * runtime), and that is a different threat model needing OS-level isolation.
+ *
+ * Two deliberate refusals to overreach:
+ *   - a command with no destructive verb is never blocked, however far it reads
+ *   - with no roots configured, nothing is blocked: unknown is not unsafe, and
+ *     a headless install that never set a root must not become unusable
+ */
+export function destructiveOutsideRoots(argv: string[], roots: string[]): string | null {
+  if (roots.length === 0) return null;
+  const line = argv.join(" ");
+  if (!DESTRUCTIVE_VERBS.test(line)) return null;
+
+  // Scratch space the agent is expected to churn through. Its own temp files
+  // are not the user's work, and refusing to clean them up teaches the agent
+  // to leave litter.
+  const allowed = [...roots, tmpdir(), feralHome()];
+  for (const match of line.match(ABSOLUTE_PATH) ?? []) {
+    // "/" and "C:\" alone are the catastrophic case the denylist already owns;
+    // leaving them here too costs nothing and closes the ordering question.
+    const target = match.startsWith("~")
+      ? join(homedir(), match.slice(1))
+      : match;
+    if (!allowed.some((root) => isInside(target, root))) return match;
+  }
+  return null;
 }
 
 /**
@@ -284,6 +354,24 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
             "denylist (e.g. rm -rf /, mkfs, disk overwrite, fork bomb). " +
             "Override with FERAL_SHELL_DENYLIST if this is intentional.",
           error: "destructive_command",
+        };
+      }
+
+      // Blast-radius gate: destruction aimed outside every workspace root. The
+      // denylist above covers what wrecks the machine; this covers what wrecks
+      // the person — their Documents folder, another project, a sibling repo.
+      // Inside the workspace the same command is allowed, because the safety
+      // point snapshots it and can put it back.
+      const outside = destructiveOutsideRoots(argv, allowedPaths);
+      if (outside) {
+        return {
+          ok: false,
+          content:
+            `shell_exec: refused — this would destroy "${outside}", which is outside ` +
+            `the workspace (${allowedPaths.join(", ")}). Work inside the workspace, ` +
+            `where changes are snapshotted and can be undone. If the path is genuinely ` +
+            `the target, the user has to add it to the workspace roots.`,
+          error: "destructive_outside_workspace",
         };
       }
 
