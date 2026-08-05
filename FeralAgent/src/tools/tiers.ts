@@ -23,10 +23,45 @@
  * `#openAITools`/`#nativeTools` for `registerProfile`).
  */
 
+/**
+ * Which side of the drawer a tool belongs on, decided by measurement.
+ *
+ * Every advertised schema is re-sent on EVERY completion, and a turn that makes
+ * 28 tool calls is 29 completions. Measured on a real install: 4,901 tokens of
+ * schema across 26 advertised tools, on top of 6,032 tokens of system prompt —
+ * so a single "how many files are there" task spent 317,000 of its 337,000
+ * tokens re-sending a prefix that never changed.
+ *
+ * The rule this file now follows: advertise the tools that move a task
+ * FORWARD, drawer the tools you only need to know EXIST. Both halves of that
+ * cut the same bill — a drawered tool costs nothing per completion, and an
+ * advertised search tool costs one round trip instead of twenty.
+ *
+ * The split was backwards in exactly the way that costs most. `file_search` and
+ * `scan_workspace` — the two tools that answer "how many files / where is X" in
+ * a single call — were in the drawer, so the model walked the tree directory by
+ * directory: 28 calls for a question worth two. Meanwhile `tool_forge` (583
+ * tokens, the single most expensive schema in the set, used about once a month),
+ * both PDF tools, and all five git tools rode along on every completion of every
+ * conversation, including "what is a deadlock".
+ *
+ * `git_status` and `git_diff` stay advertised on purpose: read-only, cheap, and
+ * reached for constantly in code work, where a drawer round trip would cost
+ * more than the schema saves. The three that write or page through history do
+ * not need to be in front of the model until it wants them.
+ */
+
 /** Loaded only via the on-demand drawer (`list_tools` → `load_tool`). */
 export const EXTENDED_TOOLS = new Set<string>([
-  "file_search",
-  "scan_workspace",
+  // `tool_forge`, both PDF tools and the three write/history git tools were
+  // advertised on every completion. Together they are ~1,600 tokens per call
+  // for capabilities a task asks for by name when it wants them.
+  "tool_forge",
+  "pdf_generator",
+  "pdf_report",
+  "git_branch",
+  "git_commit",
+  "git_log",
   "fetch_url",
   "calculator",
   "time_date",

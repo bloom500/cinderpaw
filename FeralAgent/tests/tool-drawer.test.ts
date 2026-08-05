@@ -71,3 +71,37 @@ test("list_tools honours the query filter", async () => {
   expect(r.content).toContain("control_app");
   expect(r.content).not.toContain("deep_research");
 });
+
+test("the drawer is sorted by what a task needs to move forward, not by what is nice to have", () => {
+  // Every advertised schema is re-sent on every completion, and a 28-tool turn
+  // is 29 completions. This split used to be backwards in the way that costs
+  // most: the two tools that answer "how many files / where is X" in ONE call
+  // sat in the drawer, so the model walked the tree directory by directory —
+  // 28 calls for a question worth two — while the most expensive schema in the
+  // whole set rode along on "what is a deadlock".
+
+  // Finding things must never cost a drawer round trip. This is the half that
+  // reduces the NUMBER of completions, which multiplies with everything else.
+  for (const search of ["file_search", "scan_workspace", "grep", "list_directory"]) {
+    expect(isCoreTool(search)).toBe(true);
+  }
+
+  // 583 tokens on every call, reached for about once a month. The single
+  // clearest example of the rule.
+  expect(isExtendedTool("tool_forge")).toBe(true);
+  for (const rare of ["pdf_generator", "pdf_report", "git_branch", "git_commit", "git_log"]) {
+    expect(isExtendedTool(rare)).toBe(true);
+  }
+
+  // Read-only git stays advertised on purpose: cheap, constant in code work,
+  // and a drawer round trip would cost more than the schema saves.
+  expect(isCoreTool("git_status")).toBe(true);
+  expect(isCoreTool("git_diff")).toBe(true);
+
+  // The instruction in the system prompt names these directly ("call
+  // list_skills", "call product_info FIRST"). Drawering a tool the prompt tells
+  // the model to call by name breaks the instruction instead of saving tokens.
+  for (const named of ["list_skills", "read_skill", "product_info", "delegate_task"]) {
+    expect(isCoreTool(named)).toBe(true);
+  }
+});
