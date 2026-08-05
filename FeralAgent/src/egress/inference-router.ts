@@ -703,15 +703,19 @@ export class InferenceRouter {
       // been migrated dropped every row here and looked exactly like a quiet
       // afternoon. Said once per process, so a broken table is visible without
       // a line per completion.
-      if (!this.#costWriteFailed) {
-        this.#costWriteFailed = true;
+      if (!InferenceRouter.#costWriteFailed) {
+        InferenceRouter.#costWriteFailed = true;
         console.warn(`[feral] completion_cost write failed, cost accounting is blind: ${String(err)}`);
       }
     }
   }
 
-  /** Latched so the warning above is said once, not once per completion. */
-  #costWriteFailed = false;
+  /**
+   * Latched so the warning above is said once, not once per completion — and
+   * STATIC, because the claim is "once per process". A per-instance field says
+   * once per router, which is a different promise than the comment makes.
+   */
+  static #costWriteFailed = false;
 
   #recordUsage(sessionId: string, tokens: number): void {
     // N2 fix: bounded LRU — delete + re-insert moves the entry to the

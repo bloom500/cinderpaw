@@ -270,10 +270,18 @@ export class WorkingMemory {
   /**
    * Where the tokens go, for the prompt this memory would render right now.
    *
-   * Same accounting as `estimatedTokens()` — every field it sums appears here,
-   * exactly once — so the two can never disagree about the total. Empty lanes
-   * are omitted rather than reported as zero: a table full of zero rows hides
-   * the rows that matter.
+   * Every field `estimatedTokens()` sums appears here exactly once, so with no
+   * `systemAsSent` the two totals agree — that is what keeps the compaction
+   * budget and the cost table from describing different prompts.
+   *
+   * WITH `systemAsSent` they deliberately differ, and the difference is the
+   * point: `estimatedTokens()` measures what we hold, because that is what the
+   * compaction budget must bound, while this measures what leaves, because
+   * that is what gets billed. Do not "fix" the divergence by making one call
+   * the other.
+   *
+   * Empty lanes are omitted rather than reported as zero: a table full of zero
+   * rows hides the rows that matter.
    *
    * Tool schemas are NOT here. They are built per session from the registry and
    * the drawer, and this class has never seen them; the caller adds that lane.

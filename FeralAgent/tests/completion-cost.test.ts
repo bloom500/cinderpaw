@@ -323,6 +323,40 @@ describe("a streamed completion must be able to report usage at all", () => {
   });
 });
 
+describe("half a measurement is still an estimate", () => {
+  test("usage that reports the prompt but not the completion marks the row estimated", async () => {
+    const { res, rows, close } = await completeOnce(
+      {
+        choices: [{ message: { content: "hi" } }],
+        // A real shape: the prompt half is there, the completion half is not.
+        usage: { prompt_tokens: 1000 },
+      },
+      "openai",
+    );
+    // The prompt count is theirs, the completion count is ours, and the row
+    // must not present the pair as if a provider produced both.
+    expect(res.promptTokens).toBe(1000);
+    expect(res.tokensEstimated).toBe(true);
+    expect(rows[0]!.tokens_estimated).toBe(1);
+    close();
+  });
+
+  test("a genuine zero is a report, not a silence", async () => {
+    const { res, close } = await completeOnce(
+      {
+        choices: [{ message: { content: "" } }],
+        // An empty answer legitimately costs 0 output tokens. Truthiness would
+        // read that as "nothing reported" and estimate over it.
+        usage: { prompt_tokens: 1000, completion_tokens: 0 },
+      },
+      "openai",
+    );
+    expect(res.completionTokens).toBe(0);
+    expect(res.tokensEstimated).toBeUndefined();
+    close();
+  });
+});
+
 describe("one row per completion, at the seam every completion passes", () => {
   test("the row carries what it cost and how long it took", async () => {
     const { rows, close } = await completeOnce(

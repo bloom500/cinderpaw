@@ -68,9 +68,13 @@ export interface CostReport {
   /** Account 2: theirs, authoritative, not attributable. */
   provider: ProviderTotals;
   /**
-   * localPromptTokens / provider.promptTokens. Reported so the disagreement
-   * between two tokenizers is visible rather than hidden inside a correction.
-   * Null when the provider reported no prompt tokens at all.
+   * Our count divided by theirs, over the completions BOTH counted. Estimated
+   * rows are excluded from both sides — including one would be comparing our
+   * number against a provider total that never contained it.
+   *
+   * Reported so the disagreement between two tokenizers is visible rather than
+   * hidden inside a correction. Null when the provider reported no prompt
+   * tokens at all.
    */
   tokenizerRatio: number | null;
 }
@@ -136,6 +140,12 @@ export function costReport(
     }
   };
   let localPromptTokens = 0;
+  // Our count of ONLY the completions the provider also counted. The ratio
+  // compares two measurements of the same requests; feeding it a numerator that
+  // includes rows the denominator never saw produced 200% for a window that was
+  // half estimated — the same two-accounts-mixed error this file exists to
+  // prevent, in miniature.
+  let reportedLocalPromptTokens = 0;
   let promptTokens = 0;
   let completionTokens = 0;
   let fresh = 0;
@@ -169,6 +179,7 @@ export function costReport(
       write += r.cache_write_tokens ?? 0;
     }
     localPromptTokens += r.local_prompt_tokens ?? 0;
+    reportedLocalPromptTokens += r.local_prompt_tokens ?? 0;
     addLanes(r);
   }
 
@@ -193,7 +204,7 @@ export function costReport(
       completionsEstimated: estimated,
       medianLatencyMs: median(latencies),
     },
-    tokenizerRatio: promptTokens > 0 ? localPromptTokens / promptTokens : null,
+    tokenizerRatio: promptTokens > 0 ? reportedLocalPromptTokens / promptTokens : null,
   };
 }
 

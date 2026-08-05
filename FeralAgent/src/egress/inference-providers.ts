@@ -154,9 +154,9 @@ export class OllamaProvider implements InferenceProvider {
     }
 
     const reportedPrompt = (raw as { prompt_eval_count?: number }).prompt_eval_count;
+    const reportedCompletion = (raw as { eval_count?: number }).eval_count;
     const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
-    const completionTokens =
-      (raw as { eval_count?: number }).eval_count ?? estimateText(content);
+    const completionTokens = reportedCompletion ?? estimateText(content);
     const doneReason = (raw as { done_reason?: string }).done_reason;
 
     return {
@@ -166,8 +166,13 @@ export class OllamaProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
-      // Ours, not theirs — see InferenceResponse.tokensEstimated.
-      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
+      // Ours, not theirs — see InferenceResponse.tokensEstimated. EITHER half
+      // being locally derived taints the row: a provider that reports its
+      // prompt but not its output still leaves a number here that it never
+      // said, and an unflagged estimate is exactly what this is for.
+      ...(reportedPrompt === undefined || reportedCompletion === undefined
+        ? { tokensEstimated: true }
+        : {}),
       ...(doneReason ? { finishReason: doneReason } : {}),
     };
   }
@@ -219,6 +224,11 @@ export class OllamaProvider implements InferenceProvider {
     let content = "";
     let promptTokens = 0;
     let completionTokens = 0;
+    // Explicit presence, not truthiness: a provider that legitimately reports 0
+    // completion tokens (an empty answer) must not be recorded as one that
+    // reported nothing.
+    let reportedPrompt: number | undefined;
+    let reportedCompletion: number | undefined;
 
     const ollamaToolCallsAccumulator: {
       name?: string;
@@ -306,8 +316,10 @@ export class OllamaProvider implements InferenceProvider {
         }
 
         if ((chunk as { done?: boolean }).done === true) {
-          promptTokens = (chunk as { prompt_eval_count?: number }).prompt_eval_count ?? estimateTokens(req.messages);
-          completionTokens = (chunk as { eval_count?: number }).eval_count ?? estimateText(content);
+          reportedPrompt = (chunk as { prompt_eval_count?: number }).prompt_eval_count;
+          reportedCompletion = (chunk as { eval_count?: number }).eval_count;
+          promptTokens = reportedPrompt ?? estimateTokens(req.messages);
+          completionTokens = reportedCompletion ?? estimateText(content);
           const doneReason = (chunk as { done_reason?: string }).done_reason;
           if (doneReason) ollamaFinishReason = doneReason;
         }
@@ -348,9 +360,8 @@ export class OllamaProvider implements InferenceProvider {
       dc.cleanup();
     }
 
-    const reportedPrompt = promptTokens || undefined;
-    if (!promptTokens) promptTokens = estimateTokens(req.messages);
-    if (!completionTokens) completionTokens = estimateText(content);
+    if (reportedPrompt === undefined) promptTokens = estimateTokens(req.messages);
+    if (reportedCompletion === undefined) completionTokens = estimateText(content);
     return {
       content,
       promptTokens,
@@ -358,8 +369,13 @@ export class OllamaProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
-      // Ours, not theirs — see InferenceResponse.tokensEstimated.
-      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
+      // Ours, not theirs — see InferenceResponse.tokensEstimated. EITHER half
+      // being locally derived taints the row: a provider that reports its
+      // prompt but not its output still leaves a number here that it never
+      // said, and an unflagged estimate is exactly what this is for.
+      ...(reportedPrompt === undefined || reportedCompletion === undefined
+        ? { tokensEstimated: true }
+        : {}),
       ...(ollamaFinishReason ? { finishReason: ollamaFinishReason } : {}),
     };
   }
@@ -461,8 +477,9 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       }
     }
     const reportedPrompt = raw.usage?.prompt_tokens;
+    const reportedCompletion = raw.usage?.completion_tokens;
     const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
-    const completionTokens = raw.usage?.completion_tokens ?? estimateText(content);
+    const completionTokens = reportedCompletion ?? estimateText(content);
     // Cache accounting was wired into the streaming branch only, so every
     // non-streamed completion — the summarizer, the memory extractor, any
     // caller without an `onToken` — reported nothing about caching and was
@@ -476,8 +493,13 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
-      // Ours, not theirs — see InferenceResponse.tokensEstimated.
-      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
+      // Ours, not theirs — see InferenceResponse.tokensEstimated. EITHER half
+      // being locally derived taints the row: a provider that reports its
+      // prompt but not its output still leaves a number here that it never
+      // said, and an unflagged estimate is exactly what this is for.
+      ...(reportedPrompt === undefined || reportedCompletion === undefined
+        ? { tokensEstimated: true }
+        : {}),
       ...(raw.choices?.[0]?.finish_reason
         ? { finishReason: raw.choices[0].finish_reason }
         : {}),
@@ -548,6 +570,11 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     let cacheReadTokens: number | undefined;
     let promptTokens = 0;
     let completionTokens = 0;
+    // Explicit presence, not truthiness: a provider that legitimately reports 0
+    // completion tokens (an empty answer) must not be recorded as one that
+    // reported nothing.
+    let reportedPrompt: number | undefined;
+    let reportedCompletion: number | undefined;
 
     const toolCallsAccumulator: {
       id?: string;
@@ -696,8 +723,14 @@ export class OpenAICompatibleProvider implements InferenceProvider {
           };
         }).usage;
         if (usage) {
-          if (usage.prompt_tokens) promptTokens = usage.prompt_tokens;
-          if (usage.completion_tokens) completionTokens = usage.completion_tokens;
+          if (usage.prompt_tokens !== undefined) {
+            reportedPrompt = usage.prompt_tokens;
+            promptTokens = usage.prompt_tokens;
+          }
+          if (usage.completion_tokens !== undefined) {
+            reportedCompletion = usage.completion_tokens;
+            completionTokens = usage.completion_tokens;
+          }
           const cached = usage.prompt_tokens_details?.cached_tokens;
           if (cached !== undefined) cacheReadTokens = cached;
         }
@@ -738,9 +771,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       dc.cleanup();
     }
 
-    const reportedPrompt = promptTokens || undefined;
-    if (!promptTokens) promptTokens = estimateTokens(req.messages);
-    if (!completionTokens) completionTokens = estimateText(content);
+    if (reportedPrompt === undefined) promptTokens = estimateTokens(req.messages);
+    if (reportedCompletion === undefined) completionTokens = estimateText(content);
     return {
       content,
       promptTokens,
@@ -748,8 +780,13 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
-      // Ours, not theirs — see InferenceResponse.tokensEstimated.
-      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
+      // Ours, not theirs — see InferenceResponse.tokensEstimated. EITHER half
+      // being locally derived taints the row: a provider that reports its
+      // prompt but not its output still leaves a number here that it never
+      // said, and an unflagged estimate is exactly what this is for.
+      ...(reportedPrompt === undefined || reportedCompletion === undefined
+        ? { tokensEstimated: true }
+        : {}),
       ...(finishReason ? { finishReason } : {}),
       ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
       // OpenAI dialect: `prompt_tokens` already counts the cached ones, so the
@@ -824,8 +861,9 @@ export class AnthropicProvider implements InferenceProvider {
       }
     }
     const reportedPrompt = raw.usage?.input_tokens;
+    const reportedCompletion = raw.usage?.output_tokens;
     const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
-    const completionTokens = raw.usage?.output_tokens ?? estimateText(content);
+    const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
       promptTokens,
@@ -833,8 +871,13 @@ export class AnthropicProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
-      // Ours, not theirs — see InferenceResponse.tokensEstimated.
-      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
+      // Ours, not theirs — see InferenceResponse.tokensEstimated. EITHER half
+      // being locally derived taints the row: a provider that reports its
+      // prompt but not its output still leaves a number here that it never
+      // said, and an unflagged estimate is exactly what this is for.
+      ...(reportedPrompt === undefined || reportedCompletion === undefined
+        ? { tokensEstimated: true }
+        : {}),
       ...(raw.stop_reason
         ? { finishReason: mapAnthropicStopReason(raw.stop_reason) }
         : {}),
@@ -891,8 +934,9 @@ export class AnthropicProvider implements InferenceProvider {
       sessionId: req.sessionId,
     });
     let content = "";
-    let inputTokens = 0;
-    let outputTokens = 0;
+    // Explicit presence, not truthiness — see the note in the OpenAI stream.
+    let reportedPrompt: number | undefined;
+    let reportedCompletion: number | undefined;
     // Reported on message_start alongside input_tokens. Left undefined when the
     // provider says nothing, so "no caching here" and "cache read nothing" stay
     // distinguishable — the second is a bug, the first is not.
@@ -970,7 +1014,7 @@ export class AnthropicProvider implements InferenceProvider {
               };
             };
           }).message?.usage;
-          inputTokens = startUsage?.input_tokens ?? 0;
+          reportedPrompt = startUsage?.input_tokens;
           if (startUsage?.cache_read_input_tokens !== undefined) {
             cacheReadTokens = startUsage.cache_read_input_tokens;
           }
@@ -978,7 +1022,7 @@ export class AnthropicProvider implements InferenceProvider {
             cacheWriteTokens = startUsage.cache_creation_input_tokens;
           }
         } else if (type === "message_delta") {
-          outputTokens = (chunk as { usage?: { output_tokens?: number } }).usage?.output_tokens ?? 0;
+          reportedCompletion = (chunk as { usage?: { output_tokens?: number } }).usage?.output_tokens;
           const stopReason = (chunk as { delta?: { stop_reason?: string } }).delta?.stop_reason;
           if (stopReason) anthropicStopReason = stopReason;
         }
@@ -998,9 +1042,8 @@ export class AnthropicProvider implements InferenceProvider {
       dc.cleanup();
     }
 
-    const reportedPrompt = inputTokens || undefined;
     const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
-    const completionTokens = outputTokens || estimateText(content);
+    const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
       promptTokens,
@@ -1008,8 +1051,13 @@ export class AnthropicProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
-      // Ours, not theirs — see InferenceResponse.tokensEstimated.
-      ...(reportedPrompt === undefined ? { tokensEstimated: true } : {}),
+      // Ours, not theirs — see InferenceResponse.tokensEstimated. EITHER half
+      // being locally derived taints the row: a provider that reports its
+      // prompt but not its output still leaves a number here that it never
+      // said, and an unflagged estimate is exactly what this is for.
+      ...(reportedPrompt === undefined || reportedCompletion === undefined
+        ? { tokensEstimated: true }
+        : {}),
       ...(anthropicStopReason
         ? { finishReason: mapAnthropicStopReason(anthropicStopReason) }
         : {}),

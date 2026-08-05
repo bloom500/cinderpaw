@@ -253,6 +253,29 @@ describe("the two accounts stay separate", () => {
     db.close();
   });
 
+  test("an estimated row does not move the tokenizer ratio", () => {
+    const db = openDatabase(":memory:");
+    // One row both sides counted: ours 1,000, theirs 1,000 ⇒ ratio 1.0.
+    insert(db, { prompt: 1000, local: 1000 });
+    const before = costReport(db.raw).tokenizerRatio;
+    expect(before).toBeCloseTo(1, 5);
+
+    // One row only WE counted. The ratio compares two measurements of the same
+    // requests; letting this into the numerator alone reported 200%.
+    db.raw
+      .query(
+        `INSERT INTO completion_cost
+           (ts, session_id, model, base_url, prompt_tokens, completion_tokens,
+            fresh_tokens, cache_read_tokens, cache_write_tokens, latency_ms,
+            used_fallback, breakdown_json, local_prompt_tokens, tokens_estimated)
+         VALUES (2,'s1','m','u',1000,50,NULL,NULL,NULL,100,0,NULL,1000,1)`,
+      )
+      .run();
+
+    expect(costReport(db.raw).tokenizerRatio).toBeCloseTo(1, 5);
+    db.close();
+  });
+
   test("a row written before the breakdown existed counts as provider-only", () => {
     const db = openDatabase(":memory:");
     insert(db, { parts: null, local: null });
