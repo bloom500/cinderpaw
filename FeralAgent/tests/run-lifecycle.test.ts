@@ -254,3 +254,82 @@ describe("ChannelAskRouter.notify", () => {
     expect(await router.notify("discord:c1:u1", "hi")).toBe(false);
   });
 });
+
+/**
+ * `done_when:` on a chat message — the person's own definition of done.
+ *
+ * Written because of a real Discord run: the agent reported 563 files counted,
+ * a table of the ten largest, and a cross-check of three methods, on a turn
+ * with zero tool calls and no file on disk. Nothing downstream could
+ * contradict it, because nothing had been declared. The point of this feature
+ * is not to make the model honest — it is to make its dishonesty harmless.
+ */
+describe("a chat task that declares what done means", () => {
+  function fakeAgent() {
+    return {
+      handle: async () => "unused",
+      handleTurn: async (): Promise<TurnResult> => ({
+        text: "All done — I wrote the report.",
+        outcome: "completed" as TurnOutcome,
+        toolCallCount: 0,
+        incomplete: false,
+      }),
+    };
+  }
+
+  /** Hooks that verify nothing, but record what they were handed. */
+  function hooksCapturing(verdict: string | null) {
+    const seen: Array<unknown> = [];
+    const hooks: ConnectorRunHooks = {
+      begin: async (_s, _m, _surface, _t, doneWhen) => {
+        seen.push(doneWhen);
+        return {
+          recorder: { record: () => {} },
+          done: () => verdict,
+        };
+      },
+    };
+    return { hooks, seen };
+  }
+
+  test("the assertion is parsed off the message and handed to the run", async () => {
+    const { hooks, seen } = hooksCapturing(null);
+    await runAgent(
+      fakeAgent(),
+      "discord:c1:u1",
+      "count the files and write REPORT.md\ndone_when: exists out/REPORT.md",
+      "discord-42",
+      undefined,
+      undefined,
+      { hooks, surface: "discord", target: "c1" },
+    );
+    expect(seen[0]).toEqual({ kind: "file_exists", path: "out/REPORT.md" });
+  });
+
+  test("a failed check reaches the PERSON, appended to the agent's own answer", async () => {
+    const { hooks } = hooksCapturing("❌ **The check you declared did not pass.** FAILED: out/REPORT.md does not exist");
+    const reply = await runAgent(
+      fakeAgent(),
+      "discord:c1:u1",
+      "write it\ndone_when: exists out/REPORT.md",
+      "discord-42",
+      undefined,
+      undefined,
+      { hooks, surface: "discord", target: "c1" },
+    );
+    // The agent's confident claim is still there — and so is the contradiction.
+    expect(reply).toContain("All done");
+    expect(reply).toContain("did not pass");
+    expect(reply).toContain("does not exist");
+  });
+
+  test("no assertion, no footnote — silence stays silence", async () => {
+    const { hooks, seen } = hooksCapturing(null);
+    const reply = await runAgent(
+      fakeAgent(), "discord:c1:u1", "just have a look around", "discord-42",
+      undefined, undefined, { hooks, surface: "discord", target: "c1" },
+    );
+    expect(seen[0]).toBeNull();
+    expect(reply).toBe("All done — I wrote the report.");
+  });
+});

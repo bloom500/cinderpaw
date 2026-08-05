@@ -1543,7 +1543,13 @@ export async function boot(transportOverride?: Transport) {
    * tool rather than to drop the snapshot.
    */
   const connectorRunHooks = {
-    async begin(sessionId: string, mission: string, surface: RunSurface, target: string) {
+    async begin(
+      sessionId: string,
+      mission: string,
+      surface: RunSurface,
+      target: string,
+      doneWhen: DoneWhen | null,
+    ) {
       const safety = await createSafetyPoints(
         `${surface}/${target}`,
         log,
@@ -1561,9 +1567,9 @@ export async function boot(transportOverride?: Transport) {
         safetyRoot: safetyCols.root,
         safetyBefore: safetyCols.before,
         safetyGitDir: safetyCols.gitDir,
-        // Assertions on the chat path arrive with the task in a later increment;
-        // until then this run is honestly recorded as unverified.
-        doneWhen: null,
+        // Declared with `done_when:` on the message itself. Absent, the run is
+        // honestly recorded as unverified rather than quietly as passing.
+        doneWhen,
         delivery: { kind: surface, target, sessionId },
       });
       if (!row) {
@@ -1571,9 +1577,22 @@ export async function boot(transportOverride?: Transport) {
         return null;
       }
       return {
-        recorder: turnRecorder(row, safety, null),
-        done: (run: UnattendedResult) => {
-          runStore.finish(row.id, run.finished ? "finished" : "unfinished", run.stoppedBecause);
+        recorder: turnRecorder(row, safety, doneWhen),
+        done: async (run: UnattendedResult): Promise<string | null> => {
+          // The assertion is the authority, not the agent's closing paragraph.
+          // A run that claimed success and cannot show it is recorded
+          // `unfinished`, and the person is told in the same message — a
+          // verdict only the database knows about is the silence this exists
+          // to end.
+          const check = await verifyDoneWhen(doneWhen, safety[0]?.root ?? null);
+          const finished = run.finished && check.passed;
+          runStore.finish(row.id, finished ? "finished" : "unfinished", run.stoppedBecause);
+          clearIntents(sessionId);
+          if (!check.checked) return null;
+          return check.passed
+            ? `✅ _Checked: ${check.detail}_`
+            : `❌ **The check you declared did not pass.** ${check.detail}\n` +
+              "_Treat the answer above as unverified._";
         },
       };
     },

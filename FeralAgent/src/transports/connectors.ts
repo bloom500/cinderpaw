@@ -44,6 +44,7 @@ import {
   type UnattendedResult,
 } from "../core/unattended.ts";
 import type { TurnResult } from "../core/agent-loop.ts";
+import { parseDoneWhenFromMessage, type DoneWhen } from "../cron/done-when.ts";
 
 /** The slice of `AgentLoop` a connector needs. */
 export interface AgentLike {
@@ -382,9 +383,16 @@ export interface ConnectorRunHooks {
     mission: string,
     surface: RunSurface,
     target: string,
+    /** Assertion the person declared with `done_when:`, if any. */
+    doneWhen: DoneWhen | null,
   ): Promise<{
     recorder: TurnRecorder;
-    done(run: UnattendedResult): Promise<void> | void;
+    /**
+     * Close the run. Returns one line for the person when there is something
+     * the agent's own summary does not already say — a failed assertion, above
+     * all. Null when the run needs no footnote.
+     */
+    done(run: UnattendedResult): Promise<string | null> | string | null;
   } | null>;
 }
 
@@ -426,8 +434,12 @@ export async function runAgent(
     // Durable record, when the host supplied one. A run that outlives this
     // process is how "close the laptop, get told on Discord" survives the laptop
     // actually closing.
+    // `done_when:` on a chat message is what turns "the agent says it is done"
+    // into something the world can contradict. Parsed here, before the run, so
+    // it is on the row from the first turn and survives a restart with it.
+    const doneWhen = parseDoneWhenFromMessage(text);
     const record = runs
-      ? await runs.hooks.begin(sessionId, text, runs.surface, runs.target)
+      ? await runs.hooks.begin(sessionId, text, runs.surface, runs.target, doneWhen)
       : null;
     const run = await runUnattended(
       (turnText, turnId) =>
@@ -436,8 +448,10 @@ export async function runAgent(
       messageId,
       record ? { recorder: record.recorder } : {},
     );
-    await record?.done(run);
-    return run.text;
+    const verdict = await record?.done(run);
+    // The verdict goes to the PERSON, not just into the row. A failed check
+    // that only a database knows about is the same silence we started with.
+    return verdict ? `${run.text}\n\n${verdict}` : run.text;
   }
   return agent.handle(sessionId, text, messageId, emit, undefined, images);
 }

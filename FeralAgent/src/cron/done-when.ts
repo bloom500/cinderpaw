@@ -180,3 +180,51 @@ export async function verifyDoneWhen(
     return { passed: false, checked: true, detail: `FAILED: check errored — ${String(err)}` };
   }
 }
+
+/**
+ * Read a `done_when:` line off a chat message.
+ *
+ * A scheduled job declares its assertion in config, where there is room for
+ * JSON. Someone messaging from a phone has no such room, and today they have
+ * no way to say "this is what done means" at all — which is exactly how a run
+ * came back with a confident report of work it never did, and nothing in the
+ * system could contradict it.
+ *
+ * Three forms, one line, matching the three kinds:
+ *
+ *     done_when: exists reports/summary.md
+ *     done_when: contains reports/summary.md "total: "
+ *     done_when: run bun test
+ *
+ * The line is NOT stripped from the mission. The agent should know what it is
+ * going to be judged on — the same reason a developer sees the test before
+ * writing the code. It can be gamed (an empty file passes `exists`), and that
+ * is an acceptable trade: an assertion the agent can see and aim at beats no
+ * assertion, and `contains`/`run` are there for when aiming is not enough.
+ */
+export function parseDoneWhenFromMessage(text: string): DoneWhen | null {
+  // Last one wins: a person correcting themselves writes the line again rather
+  // than editing the first.
+  const matches = [...text.matchAll(/^\s*done_when:\s*(.+)$/gim)];
+  const raw = matches.at(-1)?.[1]?.trim();
+  if (!raw) return null;
+
+  const [verb, ...rest] = raw.split(/\s+/);
+  const remainder = rest.join(" ").trim();
+  switch ((verb ?? "").toLowerCase()) {
+    case "exists":
+      return remainder ? { kind: "file_exists", path: remainder } : null;
+    case "contains": {
+      // `contains <path> "<substring>"` — the quotes matter, because the
+      // substring is the part most likely to have spaces in it.
+      const m = /^(\S+)\s+["“](.+)["”]\s*$/.exec(remainder) ?? /^(\S+)\s+(.+)$/.exec(remainder);
+      return m ? { kind: "file_contains", path: m[1]!, value: m[2]! } : null;
+    }
+    case "run":
+      return remainder ? { kind: "command", value: remainder } : null;
+    default:
+      // Unrecognised verb: no assertion rather than a wrong one. A check that
+      // silently means something else is worse than none.
+      return null;
+  }
+}
