@@ -46,6 +46,7 @@ import { renderDigest } from "./core/digest.ts";
 import { CHEAP_CHECKS, verifyDoneWhen } from "./cron/done-when.ts";
 import { RunStore, type RunRow } from "./core/run-store.ts";
 import { intentSummary, clearIntents } from "./core/command-intent.ts";
+import { installUserHooks, userHooksPath } from "./core/user-hooks.ts";
 import { resumeInterruptedRuns } from "./core/run-resume.ts";
 import { turnBudgetMs } from "./core/agent-loop.ts";
 import { ToolRegistry } from "./tools/registry.ts";
@@ -625,6 +626,15 @@ export async function boot(transportOverride?: Transport) {
   // tool registry receives it next so before_tool_call handlers can
   // block tool invocations.
   const hooks = new HookRegistry();
+
+  // The user's own commands on the same events. Installed here, before any
+  // tool can run, so a `before_tool_call` freeze check cannot be raced by the
+  // first turn. Says how many it found: a hook system that gives no sign of
+  // having read your file is one you debug by guessing.
+  const userHookCount = installUserHooks(hooks, log);
+  if (userHookCount > 0) {
+    log(`hooks: ${userHookCount} user hook(s) installed from ${userHooksPath()}`);
+  }
 
   // --- Reconciler (Pathway 3 step 2 Task 2 + Task 3) ---
   // Single subscriber to `after_memory_write`. Task 3 wires
