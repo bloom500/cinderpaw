@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createEditFileTool } from "../src/tools/builtin/edit-file.ts";
+import { createReadFileTool } from "../src/tools/builtin/read-file.ts";
 import { noteRead } from "../src/tools/read-ledger.ts";
 import { createFileSearchTool } from "../src/tools/builtin/file-search.ts";
 import { createGrepTool } from "../src/tools/builtin/grep.ts";
@@ -85,6 +86,54 @@ describe("resolveAllowedPath", () => {
     };
     expect(() => resolveAllowedPath(m, "fs:read", join(tmp, "..", "etc", "passwd")))
       .toThrow();
+  });
+});
+
+describe("read_file states the line count instead of leaving it to be guessed", () => {
+  let tmp: string;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "feral-read-")); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it("numbers the lines and puts the exact total in the header", async () => {
+    // Three clean live runs, asked how many lines two files they had just read
+    // in full: 194 / 227 / 213 for a file with 227. Right once. The summaries
+    // were accurate every time — it read them. It cannot COUNT them, and
+    // nothing in the output said so. With numbers: 3 of 3.
+    const f = join(tmp, "seven.txt");
+    writeFileSync(f, Array.from({ length: 7 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r.ok).toBe(true);
+      // The number a question about length can be answered from directly.
+      expect(r.content).toContain("7 lines");
+      expect((r.data as { lines: number }).lines).toBe(7);
+      // …and the trailing newline did not become an eighth line.
+      expect(r.content).toContain("7\tline 7");
+      expect(r.content).not.toContain("8\t");
+      expect(r.content).toContain("1\tline 1");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("a truncated read says how many lines it is NOT showing", async () => {
+    // The last number is only the total when nothing was cut. A read that
+    // stops at 64 KB and says just "truncated" invites exactly the guess this
+    // whole change removes.
+    const f = join(tmp, "big.txt");
+    const line = "x".repeat(99); // 100 bytes per line
+    writeFileSync(f, Array.from({ length: 1000 }, () => line).join("\n") + "\n");
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r.ok).toBe(true);
+      expect((r.data as { truncated: boolean }).truncated).toBe(true);
+      expect(r.content).toContain("1000 lines");
+      expect(r.content).toMatch(/\d+ lines not shown/);
+    } finally {
+      cleanup();
+    }
   });
 });
 

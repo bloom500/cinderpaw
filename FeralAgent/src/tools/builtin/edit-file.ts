@@ -46,7 +46,8 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
       old_string: {
         type: "string",
         description:
-          "The exact text to find in the file. Whitespace and newlines must match exactly.",
+          "The exact text to find in the file. Whitespace and newlines must match exactly. " +
+          "Strip read_file's `N<tab>` line-number prefixes — they are not in the file.",
         required: true,
       },
       new_string: {
@@ -134,11 +135,20 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
       }
 
       if (occurrences === 0) {
+        // `read_file` prefixes every line with `N<tab>` for reference, and the
+        // most likely way to arrive here is by copying a block straight out of
+        // that output. Naming the cause turns a dead end into a retry: without
+        // this the model sees only "not found" and reaches for whitespace,
+        // which is not the problem.
+        const looksNumbered = /^[ ]*\d+\t/m.test(oldStr);
         return {
           ok: false,
           content:
             `old_string not found in ${safePath}. ` +
-            `Check whitespace, newlines, and indentation.`,
+            (looksNumbered
+              ? `It carries read_file's \`N<tab>\` line-number prefixes — those are not in the file. ` +
+                `Strip them and try again.`
+              : `Check whitespace, newlines, and indentation.`),
           error: "not_found",
         };
       }
