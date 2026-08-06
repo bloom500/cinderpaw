@@ -120,6 +120,28 @@ describe("shell_exec (argv-only)", () => {
     } finally { cleanup(); }
   });
 
+  it("a missing binary is reported as missing, not as forbidden", async () => {
+    // The message the agent reasons from. `bash`, `sh` and `python3` were ON
+    // the allowlist and still failed as "not in allowedExecutables", because a
+    // PATH miss and a permission refusal shared one error. The agent believed
+    // it, reported that it lacked permission, and offered to work around a
+    // boundary that was not there — which is how a PATH problem got diagnosed
+    // as a permissions problem and cost the allowlist its life.
+    const tool = createShellExecTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { argv: ["definitely-not-a-real-binary-xyz", "--version"] },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.content).toContain("not found on PATH");
+      expect(result.content).toContain("NOT a permission problem");
+      // The old wording must not come back for this cause.
+      expect(result.content).not.toContain("not in allowedExecutables");
+    } finally { cleanup(); }
+  });
+
   it("refuses destruction aimed outside every workspace root", async () => {
     // This used to assert `rm` was "not whitelisted". It is now callable like
     // any other binary — the old list had the OS shells on it, so `sh -c "rm

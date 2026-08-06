@@ -129,9 +129,7 @@ export class RealProcessSandbox implements ProcessSandbox {
     //    absolute path, then ensure the manifest explicitly lists it.
     const resolved = this.#resolveExecutable(manifest, options.executable);
     if (resolved === null) {
-      block(
-        `executable "${options.executable}" is not in allowedExecutables for "${manifest.name}"`,
-      );
+      block(this.#refusalReason(manifest, options.executable));
     }
     // After `block` (which is `never`), `resolved` is provably `string`.
     // The explicit non-null assertion silences TS in case the narrowing
@@ -257,6 +255,53 @@ export class RealProcessSandbox implements ProcessSandbox {
     }
 
     return result;
+  }
+
+  /**
+   * Why the spawn was refused, in words that match the actual cause.
+   *
+   * One message used to cover both causes — "is not in allowedExecutables" —
+   * and it was the wrong one most of the time. `bash`, `sh` and `python3` were
+   * all ON the default allowlist and still failed with it, because the list
+   * held bare names that no longer resolved on the sidecar's PATH, and a PATH
+   * miss and a permission refusal came out of the same `null`.
+   *
+   * The cost was not confusion, it was a wrong conclusion acted upon: the agent
+   * believed the message, told the user it lacked permission to run the
+   * command, and offered to work around a boundary that was never the problem.
+   * That is how "it cannot install a skill because of permissions" was
+   * diagnosed — and the allowlist got taken off for a fault it never had.
+   *
+   * An error message is the only thing the model has to reason from. This one
+   * now says which of the two happened, and says outright when it is not about
+   * permission at all.
+   */
+  #refusalReason(manifest: ToolManifest, requested: string): string {
+    const list = manifest.allowedExecutables ?? [];
+    if (isAbsolute(requested)) {
+      return existsSync(resolve(requested))
+        ? `executable "${requested}" is not in allowedExecutables for "${manifest.name}"`
+        : `executable "${requested}" does not exist. This is not a permission problem.`;
+    }
+    const parts = requested.split(/[\\/]/);
+    const bare = parts[parts.length - 1] ?? requested;
+    const pathEnv = this.#config.safeBaseEnv.PATH ?? "";
+    if (which(bare, pathEnv) === null) {
+      const dirs = pathEnv.split(process.platform === "win32" ? ";" : ":").filter(Boolean).length;
+      return (
+        `executable "${bare}" was not found on PATH (${dirs} directories searched). ` +
+        `This is NOT a permission problem and there is nothing to work around: ` +
+        `install it, or call it by absolute path. Note the agent's PATH is the one ` +
+        `the gateway process was started with, which may be shorter than a terminal's.`
+      );
+    }
+    // Findable, so the list is genuinely what stopped it. Name the alternatives:
+    // "not allowed" without "here is what is" makes the model guess.
+    const names = list.map((e) => e.split(/[\\/]/).pop() ?? e).join(", ");
+    return (
+      `executable "${bare}" is not in allowedExecutables for "${manifest.name}" ` +
+      `(allowed: ${names || "none"})`
+    );
   }
 
   /**
