@@ -214,6 +214,32 @@ describe("F8 — sessions survive a restart", () => {
     db.close();
   });
 
+  test("the replayed tool note never lands in the assistant's voice", async () => {
+    // The note that puts tool use back into a replayed transcript was first
+    // prefixed onto the assistant's answer. The model read forty turns of
+    // answers opening with `[used read_file ×3]` and produced one of its own:
+    // zero tool calls, a fabricated answer, and a receipt stapled to the front
+    // of it. Evidence in the imitated channel is a template. So this asserts
+    // the CHANNEL, not the wording.
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-voice", "user", "what does config.ts do?");
+    episodic.record("s-voice", "tool", "read_file: export const x = 1");
+    episodic.record("s-voice", "tool", "read_file: export const y = 2");
+    episodic.record("s-voice", "assistant", "it exports two constants");
+
+    await buildAgent(db).handle("s-voice", "and now?", "m2", () => {});
+
+    const messages = (prompts.at(-1) ?? []) as { role: string; content: string }[];
+    const carrying = messages.filter((m) => m.content?.includes("read_file ×2"));
+    expect(carrying).toHaveLength(1);
+    expect(carrying[0]!.role).toBe("user");
+    expect(carrying[0]!.content).toContain("[tool:earlier_tool_use]");
+    expect(messages.some((m) => m.role === "assistant" && m.content.includes("read_file"))).toBe(false);
+    db.close();
+  });
+
   test("a cron session does not inherit the previous run's transcript", async () => {
     // `cron:${jobId}` is stable across runs but each run is independent.
     const { prompts } = installPromptRecorder();

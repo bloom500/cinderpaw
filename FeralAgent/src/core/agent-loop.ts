@@ -2136,24 +2136,36 @@ export class AgentLoop {
         memory.restore(resume.messages);
         log(`checkpoint: resumed session ${sessionId} from iteration ${resume.iteration} (${resume.messages.length} messages)`);
       } else if (isReplayableSession(sessionId)) {
-        // Tool rows are collapsed into a one-line note on the answer they
-        // produced. Replaying them as real tool messages is not possible (no
-        // call ids, output truncated to 400 chars), but dropping them — which
-        // is what this did — left a transcript in which the agent had never
-        // once opened a file, and the model copied that. The note costs a few
-        // tokens per turn and restores the only thing that mattered: evidence
-        // that looking things up is what happens here.
+        // Tool rows are collapsed into a one-line note in front of the answer
+        // they produced. Replaying them as real tool messages is not possible
+        // (no call ids, output truncated to 400 chars), but dropping them —
+        // which is what this did — left a transcript in which the agent had
+        // never once opened a file, and the model copied that. The note costs a
+        // few tokens per turn and restores the only thing that mattered:
+        // evidence that looking things up is what happens here.
+        //
+        // The note is a TOOL row, never a prefix on the assistant message.
+        // Prefixed to the answer (11d067a) it sat in the assistant's own voice,
+        // and the model did the one thing that pattern teaches: it opened its
+        // next reply with `[used shell_exec, list_tools, read_file ×3, grep]`
+        // and fabricated everything after it, having called nothing. Evidence
+        // written in the voice being imitated is not evidence, it is a
+        // template — and worse than the fabrication it replaced, because the
+        // fabrication now arrives wearing a receipt. `toProviderMessage`
+        // renders a tool row as a user-role `[tool:…]` line, which is a channel
+        // the model reads and never emits.
         let used: string[] = [];
         for (const ev of this.#episodic.conversation(sessionId, REHYDRATE_TURNS)) {
           if (ev.role === "tool") {
             used.push(ev.content.slice(0, ev.content.indexOf(":") + 1 || 40).replace(/:$/, ""));
-          } else if (ev.role === "user") {
-            memory.addReplayed("user", ev.content);
-            used = [];
-          } else {
-            memory.addReplayed("assistant", replayedToolNote(used) + ev.content);
-            used = [];
+            continue;
           }
+          // Flushed before BOTH roles: tool rows trailing the last answer (a
+          // turn that crashed mid-work) belong to the transcript too.
+          const note = replayedToolNote(used);
+          if (note) memory.addToolResult("earlier_tool_use", note);
+          memory.addReplayed(ev.role === "user" ? "user" : "assistant", ev.content);
+          used = [];
         }
       }
       entry = { memory, lastAccess: Date.now(), noProgress: new Map() };
@@ -2335,16 +2347,21 @@ export function buildCapabilityIndex(registry: ToolRegistry): string {
 /**
  * The one line that puts the work back into a replayed answer.
  *
- * `["read_file", "read_file", "shell_exec"]` → `[used read_file ×2, shell_exec]`
+ * `["read_file", "read_file", "shell_exec"]` → `read_file ×2, shell_exec`
  * Empty in, empty out — a turn that genuinely used no tool must not be dressed
  * up as one that did, or the note becomes noise and stops meaning anything.
+ *
+ * Bare list, no `[used …]` wrapper: the caller emits it as a tool row, so the
+ * wire already carries `[tool:earlier_tool_use] read_file ×2`. The wrapper was
+ * there when this was prefixed onto the assistant's own text, which is exactly
+ * the shape the model learned to reproduce instead of calling anything.
  */
 export function replayedToolNote(names: string[]): string {
   if (names.length === 0) return "";
   const counts = new Map<string, number>();
   for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
   const parts = [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n));
-  return `[used ${parts.join(", ")}]\n`;
+  return parts.join(", ");
 }
 
 export function buildNativeTools(registry: ToolRegistry): AnthropicToolDef[] {

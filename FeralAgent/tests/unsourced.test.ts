@@ -131,9 +131,18 @@ describe("what counts as a path", () => {
 describe("a replayed answer carries the work that produced it", () => {
   test("tools are named and counted, once", () => {
     expect(replayedToolNote(["read_file", "read_file", "shell_exec"])).toBe(
-      "[used read_file ×2, shell_exec]\n",
+      "read_file ×2, shell_exec",
     );
-    expect(replayedToolNote(["list_dir"])).toBe("[used list_dir]\n");
+    expect(replayedToolNote(["list_dir"])).toBe("list_dir");
+  });
+
+  test("the note is not written in the assistant's voice", () => {
+    // It used to return `[used …]\n` for prefixing onto the answer. The model
+    // copied the prefix and fabricated the answer under it. Anything that looks
+    // like the opening of a reply belongs nowhere near this string — the note
+    // travels as a tool row now, see the replay loop in agent-loop.ts.
+    expect(replayedToolNote(["read_file"])).not.toContain("[");
+    expect(replayedToolNote(["read_file"])).not.toContain("\n");
   });
 
   test("a turn that used nothing is left alone", () => {
