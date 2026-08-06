@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createShellExecTool } from "../src/tools/builtin/shell-exec.ts";
@@ -120,13 +120,26 @@ describe("shell_exec (argv-only)", () => {
     } finally { cleanup(); }
   });
 
-  it("rejects a non-whitelisted binary", async () => {
+  it("refuses destruction aimed outside every workspace root", async () => {
+    // This used to assert `rm` was "not whitelisted". It is now callable like
+    // any other binary — the old list had the OS shells on it, so `sh -c "rm
+    // -rf …"` was never blocked anyway and the refusal was theatre.
+    //
+    // What holds instead is aimed at the damage rather than the program name:
+    // `rm -rf` INSIDE the workspace is allowed, because the safety point can
+    // put it back; outside, nothing can, so it needs a human — and with nobody
+    // reachable (no askUser on this ctx) it refuses rather than approving
+    // itself. That is the guard worth a test.
+    // NOT under tmpdir(): scratch space is deliberately on the allowed list, so
+    // a target there proves nothing. The home directory is the real shape of
+    // this mistake — "another project of mine", "my Documents".
+    const outside = join(homedir(), "feral-test-definitely-not-a-root");
     const tool = createShellExecTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
-      const result = await tool.execute({ argv: ["rm", "-rf", tmp] }, ctx);
+      const result = await tool.execute({ argv: ["rm", "-rf", outside] }, ctx);
       expect(result.ok).toBe(false);
-      expect(result.error).toBe("binary_not_whitelisted");
+      expect(result.error).toBe("destructive_outside_workspace");
     } finally { cleanup(); }
   });
 });

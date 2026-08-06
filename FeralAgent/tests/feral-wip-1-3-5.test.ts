@@ -156,25 +156,85 @@ describe("Feral-WIP #1: confidence threshold", () => {
 // ---------------------------------------------------------------------------
 
 describe("Feral-WIP #3: shell_exec whitelist (env-controlled)", () => {
-  it("rejects a binary not in the safe list with binary_not_whitelisted", async () => {
-    // The default whitelist is loaded at module-load from FERAL_SHELL_WHITELIST
-    // (or a default of [git, node, python, python3, cargo, npm, npx, pip, pip3, make, go]).
-    // V2: argv-only — no shells/builtins in the default list. We clear the env
-    // so the default is used, then try a binary definitely NOT in it ("malware").
-    delete process.env.FERAL_SHELL_WHITELIST;
-    const mod = await import(`../src/tools/builtin/shell-exec.ts?bust=${Date.now()}-a`);
-    const tool = mod.createShellExecTool(["/tmp"]);
-    const ctx: ToolContext = {
+  function ctxFor(tool: { manifest: ToolContext["manifest"] }): ToolContext {
+    return {
       sessionId: "s",
       manifest: tool.manifest,
       fetch: (() => Promise.reject(new Error("not used"))) as never,
       audit: () => {},
     };
-    const result = await tool.execute({ command: "malware --evil" }, ctx);
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe("binary_not_whitelisted");
+  }
+
+  it("rejects a binary outside a NAMED restriction", async () => {
+    // The knob's one surviving job: restricting to a named set. The list is read
+    // at module load, hence the cache-busted import.
+    process.env.FERAL_SHELL_WHITELIST = "git,node";
+    try {
+      const mod = await import(`../src/tools/builtin/shell-exec.ts?bust=${Date.now()}-a`);
+      const tool = mod.createShellExecTool(["/tmp"]);
+      const result = await tool.execute({ command: "malware --evil" }, ctxFor(tool));
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("binary_not_whitelisted");
+    } finally {
+      delete process.env.FERAL_SHELL_WHITELIST;
+    }
   });
 
+  it("with no restriction named, the binary gate does not fire at all", async () => {
+    // The default used to be a list with the OS shells ON it, so `sh -c "…"`
+    // ran anything anyway and the list only failed direct calls to ffmpeg,
+    // docker, rg. Now nothing is gated by name. "malware" still fails — there
+    // is no such program — but it must NOT fail as "not whitelisted", or the
+    // agent is told to work around a boundary instead of reading the real error.
+    delete process.env.FERAL_SHELL_WHITELIST;
+    const mod = await import(`../src/tools/builtin/shell-exec.ts?bust=${Date.now()}-b`);
+    const tool = mod.createShellExecTool(["/tmp"]);
+    const result = await tool.execute({ command: "malware --evil" }, ctxFor(tool));
+    expect(result.error).not.toBe("binary_not_whitelisted");
+  });
+
+  it("a knob set to punctuation states no restriction, it does not kill the tool", async () => {
+    // An empty parsed list would leave allowedExecutables empty, and
+    // tool-permissions refuses process:spawn outright for that — a stray comma
+    // in a settings file would silently disable the shell.
+    process.env.FERAL_SHELL_WHITELIST = " , ";
+    try {
+      const mod = await import(`../src/tools/builtin/shell-exec.ts?bust=${Date.now()}-c`);
+      const tool = mod.createShellExecTool(["/tmp"]);
+      expect(tool.manifest.allowedExecutables).toEqual(["*"]);
+    } finally {
+      delete process.env.FERAL_SHELL_WHITELIST;
+    }
+  });
+
+  it("running any binary and running in any directory are separate permissions", async () => {
+    // They rode one flag: dropping the binary list also unbound cwd from the
+    // workspace. Where a command may run stays the operator's explicit call.
+    delete process.env.FERAL_SHELL_WHITELIST;
+    delete process.env.FERAL_PERMISSION_MODE;
+    const mod = await import(`../src/tools/builtin/shell-exec.ts?bust=${Date.now()}-d`);
+    expect(mod.createShellExecTool(["/tmp"]).manifest.allowAnyCwd).toBe(false);
+
+    process.env.FERAL_PERMISSION_MODE = "full_access";
+    try {
+      const full = await import(`../src/tools/builtin/shell-exec.ts?bust=${Date.now()}-e`);
+      expect(full.createShellExecTool(["/tmp"]).manifest.allowAnyCwd).toBe(true);
+    } finally {
+      delete process.env.FERAL_PERMISSION_MODE;
+    }
+  });
+
+  it("the legacy wildcard still means full access, cwd included", async () => {
+    process.env.FERAL_SHELL_WHITELIST = "*";
+    try {
+      const mod = await import(`../src/tools/builtin/shell-exec.ts?bust=${Date.now()}-f`);
+      const tool = mod.createShellExecTool(["/tmp"]);
+      expect(tool.manifest.allowedExecutables).toEqual(["*"]);
+      expect(tool.manifest.allowAnyCwd).toBe(true);
+    } finally {
+      delete process.env.FERAL_SHELL_WHITELIST;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

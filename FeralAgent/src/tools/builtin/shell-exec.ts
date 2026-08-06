@@ -11,26 +11,32 @@
  *     whitelisted first binary (e.g. `node`) let an attacker chain arbitrary
  *     commands (`node && rm -rf x`): the whole string used to be passed to a
  *     real shell, so only the first token was ever checked.
- *   - The binary (argv[0]) must be on the env-controlled whitelist, resolved
- *     to an absolute path at module load so PATH-hijack is impossible.
- *   - cwd is bound to allowedPaths (via the ProcessSandbox).
+ *   - ANY binary may be invoked. There is no name allowlist, because the old
+ *     one had the OS shells on it and `sh -c "<anything>"` runs anything — it
+ *     blocked direct calls to `ffmpeg` while permitting the same work one
+ *     wrapper away. See loadShellWhitelist for the full argument.
+ *     `FERAL_SHELL_WHITELIST="git,node,…"` restricts to a named set when that
+ *     is genuinely wanted.
+ *   - Requested binaries are still resolved through the forced-safe PATH at
+ *     call time, so PATH-hijack is closed with or without a list.
+ *   - cwd is bound to allowedPaths, unless the operator chose `full_access`.
  *   - stdout/stderr are capped at the sandbox output limit (1 MB default).
  *   - timeoutMs is hard-clamped to the sandbox ceiling.
  *   - The tool is registered by DEFAULT; set FERAL_ENABLE_SHELL_EXEC=false to
  *     disable it entirely (see boot.ts).
  *
- * YOLO / full-host mode (FERAL_SHELL_WHITELIST="*"):
- *   - ANY binary may run (the whitelist gate is bypassed) and cwd may be
- *     anywhere on the host — parity with a real terminal / Claude Code.
- *   - What still holds, by design: (1) a best-effort denylist of catastrophic
- *     commands (rm -rf /, mkfs, disk overwrite, fork bomb — override via
- *     FERAL_SHELL_DENYLIST); (2) env scrubbing (parent env not inherited,
- *     preload/loader vars such as LD_ and DYLD_ plus NODE_ and PYTHONPATH are
- *     blocked, PATH is forced from the safe base so bare names still resolve
- *     through the safe PATH); (3) owner-only exposure
- *     — public connector profiles never include shell_exec, so YOLO is never
- *     reachable by a non-owner. The denylist is a footgun guard, NOT a
- *     security boundary; owner-only + env scrub are the real gates.
+ * What actually holds the line, and it is not a list of program names:
+ *   1. Owner-only exposure. `PUBLIC_ALLOWED_TOOLS` omits shell_exec, so the
+ *      public lead-mode profile cannot reach it; every other connector session
+ *      is gated by that connector's inbound allowlist of who may talk at all.
+ *      This is the real boundary — if it ever leaks, no binary list saves it.
+ *   2. Env scrubbing: the parent env is not inherited, loader vars (LD_, DYLD_,
+ *      NODE_, PYTHONPATH) are blocked, PATH is forced from the safe base.
+ *   3. `read_only` mode refuses every mutating intent, by classification, at
+ *      call time — the mode for a surface where the speaker is not the owner.
+ *   4. A best-effort denylist of catastrophic commands (rm -rf /, mkfs, disk
+ *      overwrite, fork bomb; override via FERAL_SHELL_DENYLIST). A footgun
+ *      guard, NOT a security boundary: encoding or `python -c` walks past it.
  *
  * Input shapes accepted (in priority order):
  *   1. `argv: string[]`  — the preferred, unambiguous form. The model passes
@@ -58,43 +64,44 @@ import {
 } from "../../core/permission-mode.ts";
 
 /**
- * Env-controlled whitelist of programs `shell_exec` may invoke.
+ * Which programs may `shell_exec` invoke? By default: any of them.
  *
- * Only real, spawnable binaries belong here — shell builtins (`cd`, `set`,
- * `export`, `if`, `for`, …) are intentionally gone: with no shell there is
- * nothing to interpret them, and listing them would be misleading. Bare
- * names are resolved to absolute paths at module load so the ProcessSandbox
- * matches by path and PATH-hijack is impossible.
+ * The old default named the OS shells plus a dev toolchain — and the shells
+ * were on it, so `["sh","-c","<anything>"]` already ran anything. The list
+ * therefore never gated execution. What it did was make `ffmpeg`, `docker`,
+ * `rg` and `curl` fail on a direct call while the identical command through
+ * `sh -c` succeeded, which teaches the agent to route everything through a
+ * shell and teaches the reader that a boundary exists where none does. A gate
+ * the intended user steps around by habit is friction wearing a gate's clothes;
+ * the honest move is to drop it and be plain about what actually holds.
  *
- * Default allowlist: the OS shells PLUS the common dev toolchain. The shells
- * (`cmd`, `powershell`, `pwsh`, `bash`, `sh`) are what give the agent COMPLETE
- * shell access: invoked as `["sh","-c","<cmdline>"]` / `["cmd","/c","<cmdline>"]`
- * the shell interprets the full command line (pipes, &&, redirects, globbing)
- * and can launch ANY program — so whitelisting the shells is, by design,
- * unrestricted execution. The narrower dev binaries are kept so the agent can
- * also call them directly without spinning up a shell.
+ * What actually holds, unchanged (see the module docstring): no shell is
+ * spawned unless the model asks for one; the parent env is not inherited and
+ * loader vars are scrubbed; PATH is forced to the safe base, so bare names
+ * still resolve through it and PATH-hijack stays closed; cwd is bound to
+ * allowedPaths outside `full_access`; `read_only` mode refuses any mutating
+ * intent; the catastrophic denylist runs over the whole joined argv; and no
+ * non-owner profile carries this tool (PUBLIC_ALLOWED_TOOLS omits it).
  *
- * Override the whole set with FERAL_SHELL_WHITELIST="git,node,…" to RESTRICT
- * the agent (e.g. drop the shells to go back to a locked-down toolchain).
+ * `FERAL_SHELL_WHITELIST="git,node,…"` still RESTRICTS to a named set. That is
+ * the only reason the knob survives — going the other way needs no knob now.
  */
 function loadShellWhitelist(): string[] {
-  const env = process.env.FERAL_SHELL_WHITELIST;
-  // YOLO / full-host mode: FERAL_SHELL_WHITELIST="*" allows ANY binary. The
-  // wildcard is passed through literally (NOT run through resolveExecutables,
+  const env = (process.env.FERAL_SHELL_WHITELIST ?? "").trim();
+  // The wildcard is passed through literally (NOT through resolveExecutables,
   // which would try to resolve "*" as a program). The ProcessSandbox still
-  // resolves each requested binary through the safe PATH at call time, so
-  // PATH-hijack defense and env scrubbing remain in force.
-  if (env && env.trim() === "*") return ["*"];
-  const raw = env && env.trim().length > 0
-    ? env.split(",").map((s) => s.trim()).filter(Boolean)
-    : ["cmd", "powershell", "pwsh", "bash", "sh", // full shell access
-       "git", "node", "python", "python3", "cargo", "npm", "npx",
-       "pip", "pip3", "make", "go", "bun", "deno"];
-  return resolveExecutables(raw);
+  // resolves each requested binary through the safe PATH at call time.
+  if (env === "" || env === "*") return ["*"];
+  const named = env.split(",").map((s) => s.trim()).filter(Boolean);
+  // A knob set to "," or " " states no restriction. Returning [] here would
+  // instead disable process:spawn outright (tool-permissions rejects an empty
+  // allowedExecutables), turning a typo into a silently dead tool.
+  return named.length > 0 ? resolveExecutables(named) : ["*"];
 }
 
 const SAFE_BINARIES = loadShellWhitelist();
-const YOLO = SAFE_BINARIES.includes("*");
+/** No named restriction — every binary is callable directly. */
+const ANY_BINARY = SAFE_BINARIES.includes("*");
 
 /**
  * Best-effort denylist of catastrophic, irreversible commands. This is a
@@ -259,7 +266,7 @@ export function tokenizeCommand(command: string): string[] {
  *  This is a fast, friendly pre-check — the ProcessSandbox still enforces the
  *  exact allowlisted path as the real gate (PATH-hijack defense). */
 function isWhitelisted(binary: string): boolean {
-  if (YOLO) return true; // "*" — any binary; the denylist is the only gate
+  if (ANY_BINARY) return true; // the denylist and the mode are the gates
   return SAFE_BINARY_STEMS.has(binaryStem(binary));
 }
 
@@ -288,9 +295,13 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
     networkAccess: false,
     allowedPaths,
     allowedExecutables: SAFE_BINARIES,
-    // YOLO: lift the cwd→allowedPaths bound so the agent can run anywhere on
-    // the host (parity with a real terminal). Off in the default whitelist mode.
-    allowAnyCwd: YOLO,
+    // Running any BINARY and running in any DIRECTORY are two different
+    // permissions, and they used to ride one flag: taking the binary list off
+    // silently unbound cwd from the workspace as well. Which binary may run is
+    // now the default; where it may run stays the operator's explicit call,
+    // named as such. `FERAL_SHELL_WHITELIST="*"` still resolves to full_access
+    // (see permissionMode), so an existing YOLO install is unchanged.
+    allowAnyCwd: permissionMode() === "full_access",
   };
 
   return {

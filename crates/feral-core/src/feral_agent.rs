@@ -496,7 +496,15 @@ pub async fn spawn(
         "FERAL_DESKTOP_CONTROL_CONFIRM",
         "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
         "FERAL_ENABLE_SHELL_EXEC",
-        // shell_exec permissiveness: "*" = YOLO (any binary, any cwd);
+        // read_only | workspace_write | full_access. The sidecar reads this for
+        // every shell command's intent check and for the cwd bound, and it was
+        // NOT on this list — so the whole three-mode system was unreachable
+        // through the gateway, which is every real install. Same omission as
+        // FERAL_AUTONOMOUS above, same symptom: a feature that exists, is
+        // tested, and does nothing on the only path users take.
+        "FERAL_PERMISSION_MODE",
+        // shell_exec: FERAL_SHELL_WHITELIST RESTRICTS to a named set (any
+        // binary is the default now, see the tool's loadShellWhitelist);
         // FERAL_SHELL_DENYLIST overrides the catastrophic-command guard.
         "FERAL_SHELL_WHITELIST",
         "FERAL_SHELL_DENYLIST",
