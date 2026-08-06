@@ -120,6 +120,36 @@ describe("shell_exec (argv-only)", () => {
     } finally { cleanup(); }
   });
 
+  it("the child PATH picks up well-known install dirs the launcher missed", async () => {
+    // The gateway's PATH is whatever launched it, so a tool a terminal finds can
+    // be invisible here. Tested through the knob rather than a hardcoded
+    // `C:\Program Files\Git\bin`, so it asserts the mechanism on every platform:
+    // an existing directory is added, a missing one is not.
+    const real = mkdtempSync(join(tmpdir(), "feral-path-"));
+    const fake = join(tmpdir(), "feral-path-does-not-exist");
+    process.env.FERAL_SHELL_PATH_EXTRA = `${real},${fake}`;
+    try {
+      const mod = await import(`../src/egress/process-sandbox.ts?bust=${Date.now()}`);
+      const sandbox = new mod.RealProcessSandbox(() => {});
+      // The config is private; the PATH it built is observable through a child.
+      const out = await sandbox.run(
+        {
+          name: "t", description: "t", permissions: ["process:spawn"],
+          networkAccess: false, allowedPaths: [real], allowedExecutables: ["*"],
+        },
+        "path-test",
+        process.platform === "win32"
+          ? { executable: "cmd", args: ["/c", "echo %PATH%"] }
+          : { executable: "sh", args: ["-c", "echo $PATH"] },
+      );
+      expect(out.stdout).toContain(real);
+      expect(out.stdout).not.toContain(fake);
+    } finally {
+      delete process.env.FERAL_SHELL_PATH_EXTRA;
+      rmSync(real, { recursive: true, force: true });
+    }
+  });
+
   it("a missing binary is reported as missing, not as forbidden", async () => {
     // The message the agent reasons from. `bash`, `sh` and `python3` were ON
     // the allowlist and still failed as "not in allowedExecutables", because a

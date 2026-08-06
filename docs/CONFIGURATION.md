@@ -35,7 +35,8 @@ runner, or anything that handles untrusted input.**
 | `FERAL_FETCH_DOMAINS` | empty | Comma-separated URL allowlist for the `fetch_url` tool. Empty = tool fails closed. With this set, the agent can pull arbitrary HTML from each listed origin. | Add only origins you trust to serve benign HTML. |
 | `FERAL_HTTP_DOMAINS` | empty | Same shape, for the lower-level `http_request` tool. | Same advice. |
 | `FERAL_TRUSTED_BASE_URLS` | empty | Comma-separated base URLs the inference router may call beyond the loopback default. Bypasses the egression posture in `inference-router.ts`. | List one provider base URL per entry; never `*`. |
-| `FERAL_SHELL_WHITELIST` | default set | Extends the spawn whitelist for `shell_exec`. Same threat as `FERAL_ENABLE_SHELL_EXEC`. | Audit on every change; this list can grow silently. |
+| `FERAL_SHELL_WHITELIST` | unset = any binary | RESTRICTS `shell_exec` to a named set. There is no binary allowlist by default, and there never effectively was one: the old default list carried `sh`, `bash`, `cmd` and `powershell`, so `sh -c "<anything>"` always ran anything. It only failed DIRECT calls to unlisted tools. | What actually gates this tool: owner-only exposure (`PUBLIC_ALLOWED_TOOLS` omits it), env scrubbing with a forced PATH, `FERAL_PERMISSION_MODE=read_only`, the blast-radius refusal outside workspace roots, and `FERAL_SHELL_DENYLIST`. Set a named list if you want a locked-down toolchain. |
+| `FERAL_SHELL_PATH_EXTRA` | unset | Extra directories appended to the PATH every spawned child sees. The agent inherits whatever PATH launched the gateway, which can be much shorter than a terminal's — that is what made `bash` fail with a permissions-sounding error while the same command worked in a terminal. | Appended, never prepended, so it cannot hijack which binary a working call resolves to. Missing directories are ignored. |
 | `FERAL_SHELL_DENYLIST` | default set | Overrides the built-in denylist of dangerous binaries `shell_exec` refuses even in YOLO mode. | Only ever extend it; shrinking it removes a safety net. |
 | `FERAL_PROACTIVE_ENABLED` | off | Enables the inner-thoughts / mood engines. Same prompt-injection surface as the agent loop, just on a timer. | Don't enable on shared hosts. |
 | `FERAL_INNER_THOUGHTS_ENABLED` | off | Sub-flag of proactive. Same threat. | Don't enable on shared hosts. |
@@ -153,7 +154,8 @@ they remain hand-maintained here and are still covered by
 | `FERAL_TRUSTED_LOCAL_ORIGINS` | list | `null` | yes | Comma-separated exact origins (scheme+host+port) on loopback/private addresses that the SSRF guard may reach, for services the OPERATOR runs themselves. Exact-origin match only — trusting http://127.0.0.1:8080 does not trust any other local port — and the tool's own allowedDomains still applies. Extends the single FERAL_SEARXNG_URL exemption to any self-hosted backend. |
 | `FERAL_TOOL_ALLOWED_DOMAINS` | list | `null` | yes | Set BY the sidecar ON a forged tool's child process — not something a user configures. Carries the hostnames that tool declared via tool_forge's `allowed_domains`; the runner turns it into an EgressProxy-backed globalThis.fetch, so a tool that declared nothing has no network. Setting it in the parent environment has no effect: createCustomTool always overwrites it from the tool's own record. |
 | `FERAL_TRUSTED_BASE_URLS` | list | `null` | yes | Extra base URLs the inference router may call beyond loopback. |
-| `FERAL_SHELL_WHITELIST` | list | `null` | yes | Extends the spawn whitelist for shell_exec. |
+| `FERAL_SHELL_WHITELIST` | list | `null` | yes | RESTRICTS shell_exec to a named set of binaries (e.g. "git,node"). Unset means any binary, which is the default: the old default list had the OS shells on it, so `sh -c "…"` ran anything anyway and the list only failed direct calls to unlisted tools like ffmpeg or docker. "*" is accepted as the historical spelling of "no restriction" and additionally selects full_access (see FERAL_PERMISSION_MODE). |
+| `FERAL_SHELL_PATH_EXTRA` | list | `null` | yes | Extra directories appended to the PATH every spawned child sees, on top of the well-known install locations (Git bin, nodejs, npm global on Windows; /usr/local/bin, homebrew, ~/.local/bin, ~/.bun/bin, ~/.cargo/bin elsewhere). Needed because the agent inherits whatever PATH launched the gateway, so a tool a terminal finds can be invisible here — that is what made `bash` fail with a permissions-sounding error. Appended, never prepended, so it cannot change which binary an already-working call resolves to. Directories that do not exist are ignored. |
 | `FERAL_SHELL_DENYLIST` | list | `null` | yes | Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode). |
 | `FERAL_PROACTIVE_ENABLED` | bool | `false` | yes | Master enable for the proactive/mood-engine loop. |
 | `FERAL_INNER_THOUGHTS_ENABLED` | bool | `false` | yes | Sub-flag enabling the inner-thoughts loop. |
@@ -360,6 +362,7 @@ FERAL_RUN_FRACTAL_BENCH
 FERAL_SEARXNG_URL
 FERAL_SHELL_DENYLIST
 FERAL_SHELL_MAX_TIMEOUT_MS
+FERAL_SHELL_PATH_EXTRA
 FERAL_SHELL_WHITELIST
 FERAL_SMOKE_GGUF
 FERAL_STALL_MS

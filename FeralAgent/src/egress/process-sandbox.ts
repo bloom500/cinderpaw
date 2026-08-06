@@ -28,7 +28,7 @@ import type {
   ToolManifest,
 } from "../types.ts";
 import { hasPermission, resolveAllowedPath } from "./tool-permissions.ts";
-import { cfgInt } from "../config.ts";
+import { cfgInt, cfgList } from "../config.ts";
 
 export interface ProcessSandboxConfig {
   /** Default per-process timeout in ms when the caller does not specify one. */
@@ -56,12 +56,69 @@ const DEFAULT_CONFIG: ProcessSandboxConfig = {
   maxTimeoutMs: readMaxTimeoutMs(),
   maxOutputBytes: 1_048_576, // 1 MB
     safeBaseEnv: {
-      PATH: process.env.PATH ?? "",
+      PATH: safePath(),
       HOME: process.env.HOME ?? (process.env.USERPROFILE ?? ""),
       LANG: process.env.LANG ?? "C.UTF-8",
       LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
     },
 };
+
+/**
+ * PATH for every child process.
+ *
+ * `process.env.PATH` on its own is whatever happened to launch the gateway, and
+ * a process started from a terminal, from Explorer and from a service login all
+ * see different ones. That is the whole story behind `bash` failing here while
+ * the identical command worked in a terminal two seconds later — no permission,
+ * no allowlist, no setting changed between them, and the error said permission.
+ *
+ * Feral is meant to be usable by someone who has never heard of PATH, so
+ * "install Git and then edit your environment variables" is not an answer. The
+ * well-known install locations are appended when they exist on disk.
+ *
+ * APPENDED, never prepended: whichever `node` or `python` the user's own PATH
+ * chooses keeps winning. This only adds fallbacks for tools that were otherwise
+ * invisible, so it cannot change which binary an already-working call resolves
+ * to.
+ *
+ * ponytail: a fixed list, not a filesystem crawl or a registry walk. Add a
+ * directory when a real install turns up missing, or point
+ * FERAL_SHELL_PATH_EXTRA at it — that knob is the upgrade path, and it exists
+ * because no fixed list survives contact with every machine.
+ */
+function safePath(): string {
+  const base = process.env.PATH ?? "";
+  const win = process.platform === "win32";
+  const sep = win ? ";" : ":";
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
+  const programFiles = process.env.ProgramFiles ?? "C:\\Program Files";
+  const appData = process.env.APPDATA ?? `${home}\\AppData\\Roaming`;
+  const wellKnown = win
+    ? [
+        `${programFiles}\\Git\\bin`, // bash, sh
+        `${programFiles}\\Git\\usr\\bin`, // the GNU userland that ships with it
+        `${programFiles}\\nodejs`,
+        `${appData}\\npm`, // npm -g shims: npx.cmd lives here
+      ]
+    : [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        `${home}/.local/bin`,
+        `${home}/.bun/bin`,
+        `${home}/.cargo/bin`,
+      ];
+  const known = new Set(
+    base.split(sep).filter(Boolean).map((d) => (win ? d.toLowerCase() : d).replace(/[\\/]+$/, "")),
+  );
+  const add = [...wellKnown, ...cfgList("FERAL_SHELL_PATH_EXTRA")]
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0)
+    .filter((d) => !known.has((win ? d.toLowerCase() : d).replace(/[\\/]+$/, "")))
+    // Absent directories are left out rather than added blind: a PATH full of
+    // paths that do not exist makes every miss slower and every log noisier.
+    .filter((d) => existsSync(d));
+  return add.length > 0 ? [base, ...add].filter(Boolean).join(sep) : base;
+}
 
 /**
  * Ceiling on any caller-requested `timeout_ms`. Read once at module load;
