@@ -497,11 +497,20 @@ pub async fn spawn(
         "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
         "FERAL_ENABLE_SHELL_EXEC",
         // read_only | workspace_write | full_access. The sidecar reads this for
-        // every shell command's intent check and for the cwd bound, and it was
-        // NOT on this list — so the whole three-mode system was unreachable
-        // through the gateway, which is every real install. Same omission as
-        // FERAL_AUTONOMOUS above, same symptom: a feature that exists, is
-        // tested, and does nothing on the only path users take.
+        // every shell command's intent check and for the cwd bound.
+        //
+        // Listing it here changes nothing today, and the commit that added it
+        // claimed otherwise — that the three-mode system was "unreachable
+        // through the gateway, which is every real install". That was wrong, and
+        // measuring it took two minutes: `FERAL_PERMISSION_MODE=read_only` set
+        // in the shell, gateway restarted on the July-11 host that does NOT list
+        // it, and write_file came back "read-only mode: may not write". There is
+        // no `env_clear()` on this Command, so the sidecar inherits the whole
+        // environment and every var already arrives.
+        //
+        // Kept because it is explicit and free: if anyone ever scrubs this
+        // Command's environment, the vars on this list are the ones that must
+        // survive. It is documentation, not a fix.
         "FERAL_PERMISSION_MODE",
         // shell_exec: FERAL_SHELL_WHITELIST RESTRICTS to a named set (any
         // binary is the default now, see the tool's loadShellWhitelist);
