@@ -1,5 +1,34 @@
 import { describe, it, expect } from "bun:test";
-import { stripThinking, summaryText } from "../src/core/agent-loop.ts";
+import { stripThinking, summaryExcerpt, summaryText } from "../src/core/agent-loop.ts";
+
+describe("summaryExcerpt — every tool result's header survives the sampling", () => {
+  it("keeps all 24 headers where whole bodies kept only 4", () => {
+    // Measured: 24 file reads made ~90 KB, head+tail kept 24 KB by character
+    // position, and 20 of the 24 `path — N lines` headers were in the discarded
+    // middle. The summarizer then wrote an exact facts section with 4 facts in
+    // it, and the agent re-read the other 20 after every compaction.
+    const msgs = Array.from({ length: 24 }, (_, i) => ({
+      role: "tool",
+      name: "read_file",
+      content: `C:\\ws\\file${i}.ts — ${100 + i} lines, ${4000 + i} bytes\n` +
+        Array.from({ length: 300 }, (_, l) => `${l + 1}\texport const x${l} = ${l};`).join("\n"),
+    }));
+    const out = summaryExcerpt(msgs, 24_000);
+    for (let i = 0; i < 24; i++) {
+      expect(out).toContain(`file${i}.ts — ${100 + i} lines`);
+    }
+    // The bodies are what got cut, which is the point — the fact is the header.
+    expect(out.length).toBeLessThan(24_000);
+  });
+
+  it("non-tool turns are untouched", () => {
+    const out = summaryExcerpt(
+      [{ role: "user", content: "read them all" }, { role: "assistant", content: "on it" }],
+      1000,
+    );
+    expect(out).toBe("user: read them all\nassistant: on it");
+  });
+});
 
 describe("summaryText — what gets stored as a compaction summary", () => {
   it("keeps the summary and drops the reasoning", () => {

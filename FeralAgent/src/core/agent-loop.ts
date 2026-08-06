@@ -2060,10 +2060,7 @@ export class AgentLoop {
     // already completed" report. Head+tail sampling keeps the framing AND the
     // recent work; the head is small because the tail is what the next turn
     // needs. Raise FERAL_SUMMARY_EXCERPT_CHARS on big-context models.
-    const transcript = headTail(
-      msgs.map((m) => `${m.role}: ${m.content}`).join("\n"),
-      cfgInt("FERAL_SUMMARY_EXCERPT_CHARS") || 24_000,
-    );
+    const transcript = summaryExcerpt(msgs, cfgInt("FERAL_SUMMARY_EXCERPT_CHARS") || 24_000);
     const res = await this.#router.complete({
       sessionId,
       messages: [
@@ -2494,6 +2491,53 @@ export function buildOpenAITools(registry: ToolRegistry): OpenAIToolDef[] {
  *   - dangling <think> with no close → everything after it is reasoning, dropped
  *   - orphan stray tags left behind
  */
+/**
+ * How much of a tool result's BODY the summarizer needs to see. Its first line
+ * is the fact; the body is the payload the fact came from, and the summarizer is
+ * not being asked to re-derive anything from it.
+ *
+ * ponytail: one flat cap, not per-tool tuning. Raise it if a summary starts
+ * missing something that was only inferable from a body.
+ */
+const TOOL_EXCERPT_CHARS = 400;
+
+/**
+ * The transcript excerpt handed to the summarizer.
+ *
+ * Structure BEFORE sampling. `headTail` cuts by character position, which is
+ * blind to what a tool result is: its first line is the fact (`path — 227 lines,
+ * 8618 bytes`), the rest is the payload it was extracted from. Feeding whole
+ * bodies in meant 24 file reads produced ~90 KB, head+tail kept 24 KB, and 20 of
+ * the 24 headers landed in the discarded middle.
+ *
+ * The summary said so itself, verbatim: "All other files' tool-header line counts
+ * were TRIMMED from the visible excerpt". It wrote a correct, exact facts section
+ * containing 4 of 24 facts — because 4 was all it was shown — and the agent went
+ * back for the other 20, every compaction.
+ *
+ * Every tool result now contributes its header plus a bounded body excerpt, so
+ * 24 headers cost ~1.4 KB together and cannot be sampled away.
+ */
+export function summaryExcerpt(
+  msgs: { role: string; name?: string; content: string }[],
+  budgetChars: number,
+): string {
+  const flattened = msgs
+    .map((m) => {
+      if (m.role !== "tool") return `${m.role}: ${m.content}`;
+      const newline = m.content.indexOf("\n");
+      const head = newline === -1 ? m.content : m.content.slice(0, newline);
+      const body = newline === -1 ? "" : m.content.slice(newline + 1);
+      const label = `tool(${m.name ?? "?"}): ${head}`;
+      if (body.length === 0) return label;
+      return body.length > TOOL_EXCERPT_CHARS
+        ? `${label}\n${body.slice(0, TOOL_EXCERPT_CHARS)}…`
+        : `${label}\n${body}`;
+    })
+    .join("\n");
+  return headTail(flattened, budgetChars);
+}
+
 /**
  * What actually gets stored as a compaction summary.
  *
