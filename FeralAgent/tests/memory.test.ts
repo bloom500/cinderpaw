@@ -286,6 +286,29 @@ describe("WorkingMemory.maybeCompress — context-window safety", () => {
     expect(mem.turns[0]?.content).toContain("Summary of earlier conversation");
   });
 
+  test("after compaction the model is told the facts list is exact, not to re-fetch everything", async () => {
+    // Two safeguards that multiplied into a treadmill. The summary is lossy, so
+    // the reminder said "re-read the file or re-run the tool" for any exact
+    // detail — with no exception. Measured on a 24-file inventory task under a
+    // tight budget: 117 read_file calls for 24 files, four full rounds, never
+    // finished, killed by the wall clock. Every compaction took the numbers
+    // away and the reminder forbade recalling them.
+    const mem = new WorkingMemory("sys");
+    for (let i = 0; i < 20; i++) {
+      mem.addUser(`question ${i} ` + "w".repeat(200));
+      mem.addAssistant(`answer ${i} ` + "a".repeat(200));
+    }
+    await mem.maybeCompress(async () => "### Established facts\n- cache.ts = 88 lines", 800);
+    const rendered = mem.render().map((m) => m.content).join("\n");
+    // The exception has to be there, or the instruction reads "distrust
+    // everything you learned", which on a long task means "never finish".
+    expect(rendered).toContain("Established facts");
+    expect(rendered).toContain("EXACT");
+    expect(rendered).toContain("do not re-fetch");
+    // …and the lossy half survives for everything NOT on that list.
+    expect(rendered).toContain("re-run the tool");
+  });
+
   test("a single fat tool output can't survive into an overflowing prompt", async () => {
     // The complex-task crash: one huge tool result keeps the prompt over the
     // model context even after older turns are summarized. Token-bounded

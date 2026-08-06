@@ -2071,23 +2071,41 @@ export class AgentLoop {
           role: "system",
           content:
             "Summarize the following conversation excerpt for an agent that must " +
-            "continue the task. Preserve VERBATIM every identifier the agent will " +
-            "need again: file paths it created or edited, commands it ran and " +
-            "their outcome, URLs, ids, and decisions already made. State what is " +
-            "already DONE so it is not repeated, and what is still open. Prefer a " +
-            "terse bulleted list over prose.",
+            "continue the task.\n\n" +
+            "Start with a section headed exactly `### Established facts`, one line " +
+            "per fact the agent DETERMINED and may be asked to report: a value it " +
+            "read (line count, version, id, size), a path it created or edited and " +
+            "its state, a command and its outcome, a URL, a decision already made. " +
+            "Copy values EXACTLY. This section is the only record that survives — " +
+            "a fact left out of it is a fact the agent must go and fetch again, and " +
+            "on a long task it will fetch it again after every compaction.\n\n" +
+            "Then a short narrative: what is DONE so it is not repeated, and what " +
+            "is still open. Terse bullets, not prose. Never shorten the facts " +
+            "section to make room for the narrative.",
         },
         { role: "user", content: transcript },
       ],
       // 256 could not hold a path list. The summary is written once per
       // compaction and re-sent every turn afterwards, so it is worth the tokens
       // — SUMMARY_RESERVE_TOKENS in working.ts reserves room for it.
-      maxTokens: 1024,
+      //
+      // 1024 was the whole budget INCLUDING a reasoning model's chain of
+      // thought, and the thinking ate it. Observed verbatim in a stored
+      // summary: `Summary of earlier conversation: <think>The user wants me to
+      // summarize…` — cut off mid-deliberation, so the `### Established facts`
+      // section that was supposed to follow never existed. The agent then had
+      // no record of the 24 line counts it had just read and went back for them
+      // again, every compaction.
+      //
+      // Reasoning is stripped below and never stored, so raising this ceiling
+      // does NOT grow the summary or the prompt: it buys room to think on top of
+      // a full answer, and SUMMARY_RESERVE_TOKENS keeps bounding what is kept.
+      maxTokens: 3072,
       // Bypass the budget gate: this call exists to RECOVER from budget
       // pressure, so it must run even when the conversation is over budget.
       skipBudgetCheck: true,
     });
-    return res.content.trim();
+    return summaryText(res.content);
   }
 
   /**
@@ -2476,6 +2494,27 @@ export function buildOpenAITools(registry: ToolRegistry): OpenAIToolDef[] {
  *   - dangling <think> with no close → everything after it is reasoning, dropped
  *   - orphan stray tags left behind
  */
+/**
+ * What actually gets stored as a compaction summary.
+ *
+ * The summarizer's answer was the ONE completion in the loop that never went
+ * through `stripThinking` — and it is the one that is stored and re-sent for the
+ * rest of the session. A stored summary, verbatim: `Summary of earlier
+ * conversation: <think>The user wants me to summarize…`, cut off
+ * mid-deliberation, so the facts section it was going to write never existed.
+ * The agent lost the 24 line counts it had just read and went back for them,
+ * every compaction.
+ *
+ * Falling back to tags-off raw when stripping leaves nothing is deliberate: a
+ * response truncated inside an unclosed `<think>` strips to empty, and an empty
+ * summary discards the entire compacted region. That deliberation had the facts
+ * in it — keeping it beats keeping nothing.
+ */
+export function summaryText(raw: string): string {
+  const stripped = stripThinking(raw).trim();
+  return stripped || raw.replace(/<\/?think(ing)?>/gi, "").trim();
+}
+
 export function stripThinking(raw: string): string {
   let out = raw;
 

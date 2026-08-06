@@ -1,5 +1,24 @@
 import { describe, it, expect } from "bun:test";
-import { stripThinking } from "../src/core/agent-loop.ts";
+import { stripThinking, summaryText } from "../src/core/agent-loop.ts";
+
+describe("summaryText — what gets stored as a compaction summary", () => {
+  it("keeps the summary and drops the reasoning", () => {
+    // Measured: this was the only completion in the loop never stripped, and it
+    // is the one re-sent for the rest of the session. A real stored summary
+    // began `<think>The user wants me to summarize…` and was cut off before the
+    // facts section, so the agent re-read 24 files it had already read.
+    expect(summaryText("<think>let me see</think>### Established facts\n- cache.ts = 88 lines"))
+      .toBe("### Established facts\n- cache.ts = 88 lines");
+  });
+
+  it("truncated mid-thought keeps the thinking rather than storing nothing", () => {
+    // stripThinking alone returns "" here, and an empty summary throws away the
+    // whole compacted region. The deliberation listed the facts — keep it.
+    const out = summaryText("<think>binder.ts is 189 lines, cache.ts is 88 lines");
+    expect(out).toContain("189");
+    expect(out).not.toContain("<think>");
+  });
+});
 
 describe("stripThinking", () => {
   it("plain answer is unchanged", () => {

@@ -458,12 +458,25 @@ export class WorkingMemory {
     // Only rendered once a session has actually compacted — a short chat pays
     // nothing, and the system prompt (which teaches both) is by then thousands
     // of tokens away from where generation happens.
+    //
+    // The first half used to end at "re-read the file or re-run the tool", with
+    // no exception. Measured: a 24-file inventory task under a tight budget made
+    // 117 read_file calls for 24 files and never finished. Every compaction took
+    // the numbers away, the reminder said do not recall them, so it fetched them
+    // again — four full rounds, then the wall clock. Two safeguards, each right
+    // on its own, that multiply into a treadmill.
+    //
+    // So the summary now carries an `### Established facts` section written to be
+    // exact (see AgentLoop.#summarize) and the reminder points at it. Without
+    // this exception the instruction is "distrust everything you learned", which
+    // on a long task means "never finish".
     if (this.#compacted) {
       dynamicBlocks.push(
         "## Reminder\n" +
           "- Earlier turns in this conversation were compacted into the summary note above. " +
-          "It is a lossy summary, not a transcript — if you need an exact detail from before it, " +
-          "re-read the file or re-run the tool rather than recalling it.\n" +
+          "Its `### Established facts` lines are EXACT — trust them and do not re-fetch what " +
+          "is already there. The narrative around them is lossy: for a detail that is NOT in " +
+          "that list, re-read the file or re-run the tool rather than recalling it.\n" +
           "- To use a tool, emit the call itself inside `<tool_call>` … `</tool_call>` tags, one " +
           'JSON object per block: `{"name": "tool_name", "args": {…}}`. Describing a tool call in ' +
           "prose does not run it. Answer in plain text if you no longer need a tool.",
