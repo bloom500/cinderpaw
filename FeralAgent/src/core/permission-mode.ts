@@ -25,7 +25,9 @@
  * that can approve its own destructive act has no gate at all.
  */
 
-import { cfgBool } from "../config.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { cfgBool, feralHome } from "../config.ts";
 import type { CommandIntent } from "./command-intent.ts";
 
 export type PermissionMode = "read_only" | "workspace_write" | "full_access";
@@ -37,20 +39,71 @@ export type Decision =
 
 const ALLOW: Decision = { kind: "allow" };
 
+function named(raw: string | undefined): PermissionMode | null {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "read_only" || v === "readonly") return "read_only";
+  if (v === "workspace_write") return "workspace_write";
+  if (v === "full_access" || v === "full") return "full_access";
+  return null;
+}
+
+/** Re-read settings.json at most this often. Shell commands are human-paced. */
+const SETTINGS_TTL_MS = 2_000;
+let cached: { mode: PermissionMode | null; at: number } | null = null;
+
+/**
+ * `permission_mode` from `~/.feral/settings.json`, or null.
+ *
+ * Every other setting reaches the sidecar as an env var the Rust host exports
+ * before spawning it, which means changing one needs a host rebuild AND a
+ * restart. For this setting that is the difference between a switch and a
+ * ceremony: "read-only for a public connector" was reachable only by relaunching
+ * the gateway with a variable set, so nobody would ever use it.
+ *
+ * Read here instead, by the process that enforces it. `permissionMode()` is
+ * called per command, so a change applies to the NEXT command — no restart, no
+ * host rebuild, and any UI that already writes settings.json gets the switch for
+ * free.
+ *
+ * Silent on every failure: a missing file, bad JSON, or an unknown value all
+ * mean "not configured", never "deny everything". A settings typo must not brick
+ * the agent, and the env var and the historical knobs still win over this.
+ *
+ * ponytail: 2s cache, not a file watcher. Commands come at human speed.
+ */
+function settingsMode(): PermissionMode | null {
+  const now = Date.now();
+  if (cached && now - cached.at < SETTINGS_TTL_MS) return cached.mode;
+  let mode: PermissionMode | null = null;
+  try {
+    const raw = readFileSync(join(feralHome(), "settings.json"), "utf8");
+    mode = named((JSON.parse(raw) as { permission_mode?: string }).permission_mode);
+  } catch {
+    mode = null;
+  }
+  cached = { mode, at: now };
+  return mode;
+}
+
+/** Drop the settings cache. For tests, and for a settings write that must bite now. */
+export function resetPermissionModeCache(): void {
+  cached = null;
+}
+
 /**
  * The mode this process runs in.
  *
- * `FERAL_PERMISSION_MODE` names it directly. Absent, the historical knobs still
- * decide, so an existing install keeps behaving exactly as it did: a wildcard
- * shell whitelist has always meant "the operator took the brakes off".
+ * Order: `FERAL_PERMISSION_MODE` names it directly; then the historical knobs,
+ * so an existing install keeps behaving exactly as it did (a wildcard shell
+ * whitelist has always meant "the operator took the brakes off"); then
+ * `settings.json`, which is the only one a user can change without a restart.
+ * Default `workspace_write`.
  */
 export function permissionMode(env: NodeJS.ProcessEnv = process.env): PermissionMode {
-  const named = (env.FERAL_PERMISSION_MODE ?? "").trim().toLowerCase();
-  if (named === "read_only" || named === "readonly") return "read_only";
-  if (named === "workspace_write") return "workspace_write";
-  if (named === "full_access" || named === "full") return "full_access";
+  const fromEnv = named(env.FERAL_PERMISSION_MODE);
+  if (fromEnv) return fromEnv;
   if ((env.FERAL_SHELL_WHITELIST ?? "").trim() === "*") return "full_access";
-  return "workspace_write";
+  return settingsMode() ?? "workspace_write";
 }
 
 /** Intents that change something. Everything else only observes. */

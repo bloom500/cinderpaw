@@ -214,6 +214,37 @@ describe("F8 — sessions survive a restart", () => {
     db.close();
   });
 
+  test("the connector reply carries the warning, driven by the REAL loop", async () => {
+    // The warning moved out of connectors.ts into the loop's exit. The tests
+    // that used to cover it here drove a FAKE agent whose handleTurn returned
+    // text without running the loop, which is exactly why they stayed green
+    // while three surfaces shipped unmarked inventions. So this one drives
+    // `runAgent` — the actual function Discord and WhatsApp call — over a real
+    // AgentLoop, and asserts on what the person would receive.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          message: { content: "I read src/core/quantum-scheduler.ts — it exports two constants." },
+          prompt_eval_count: 1,
+          eval_count: 1,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = original; };
+
+    const db = openDatabase(":memory:");
+    const { runAgent } = await import("../src/transports/connectors.ts");
+    const { reply } = await runAgent(buildAgent(db), "discord:c1:u1", "what does it do?", "d-1");
+    expect(reply).toContain("two constants");
+    expect(reply).toContain("no file was opened");
+    db.close();
+    // 20s, not bun's default 5s. Its first run took 5394ms and failed on the
+    // timeout alone, then passed seven times in a row at ~200ms — the cold cost
+    // (tokenizer + module init) lands on whichever test runs first, and CI is
+    // always cold. A flaky green is worse than no test.
+  }, 20_000);
+
   test("an unsourced answer is marked on every surface, not just the connectors", async () => {
     // The warning lived in connectors.ts, so Discord and Slack got it and the
     // desktop, the TUI and /runtime/chat shipped the invention bare. Measured:
