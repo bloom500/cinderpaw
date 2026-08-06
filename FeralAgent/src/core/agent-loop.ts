@@ -45,7 +45,7 @@ export interface Recaller {
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { countTokens } from "./tokenizer.ts";
-import { unsourcedWarning, withOpenFirst } from "./unsourced.ts";
+import { claimedPath, unsourcedWarning, withOpenFirst } from "./unsourced.ts";
 import { stripPrivate } from "../memory/privacy.ts";
 import { isRestrictedSession, markSessionRestricted } from "./session-visibility.ts";
 import type { BrainStack } from "../brain/brain-stack.ts";
@@ -2184,6 +2184,7 @@ export class AgentLoop {
         // renders a tool row as a user-role `[tool:…]` line, which is a channel
         // the model reads and never emits.
         let used: string[] = [];
+        let lastUser = "";
         for (const ev of this.#episodic.conversation(sessionId, REHYDRATE_TURNS)) {
           if (ev.role === "tool") {
             used.push(ev.content.slice(0, ev.content.indexOf(":") + 1 || 40).replace(/:$/, ""));
@@ -2192,8 +2193,28 @@ export class AgentLoop {
           // Flushed before BOTH roles: tool rows trailing the last answer (a
           // turn that crashed mid-work) belong to the transcript too.
           const note = replayedToolNote(used);
-          if (note) memory.addToolResult("earlier_tool_use", note);
+          if (note) {
+            memory.addToolResult("earlier_tool_use", note);
+          } else if (ev.role === "assistant" && (claimedPath(ev.content) || claimedPath(lastUser))) {
+            // An answer about a file that opened nothing. Noting the tools a
+            // turn DID use fixes the turns that used some; it cannot touch
+            // these, because there is nothing to note — and these are the
+            // majority. Measured on the real poisoned session: 8 answers about
+            // a file with no tool behind them against 5 with, including the
+            // same "read X and summarise" answered confidently three times in
+            // a row. Replay that and the transcript's own house style is
+            // answering from memory; the model followed it exactly, making
+            // ZERO tool calls in 3 of 3 runs where a clean session made 2-5.
+            //
+            // So the gap gets named instead of passing as normal. Same lane as
+            // the tool note and for the same reason: it is the environment
+            // speaking, and the model must never learn to write this line
+            // itself. Recomputed here rather than stored, because the rows
+            // that need it most were written long before the check existed.
+            memory.addToolResult("earlier_answer", "unverified — no tool was used for this answer");
+          }
           memory.addReplayed(ev.role === "user" ? "user" : "assistant", ev.content);
+          if (ev.role === "user") lastUser = ev.content;
           used = [];
         }
       }

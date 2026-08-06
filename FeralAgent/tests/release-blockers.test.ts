@@ -272,6 +272,56 @@ describe("F8 — sessions survive a restart", () => {
     db.close();
   });
 
+  test("a replayed answer that opened nothing is replayed as unverified", async () => {
+    // The turns the tool note cannot reach: there are no tool rows to name. On
+    // the real poisoned session these were the MAJORITY — 8 answers about a
+    // file with nothing behind them against 5 with — including "read X and
+    // summarise" answered at length three times in a row. Replayed unmarked,
+    // the transcript's house style is answering from memory, and the model
+    // matched it: 0 tool calls in 3 of 3 runs where a clean session made 2-5.
+    //
+    // The claim can be in the QUESTION rather than the answer, which is the
+    // shape here: asked about a named file, the model describes it and never
+    // repeats the path.
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-unver", "user", "Read D:\\proj\\src\\scheduler.ts and summarise it");
+    episodic.record("s-unver", "assistant", "It is the tick loop that walks ready state objects.");
+
+    await buildAgent(db).handle("s-unver", "and now?", "m2", () => {});
+
+    const messages = (prompts.at(-1) ?? []) as { role: string; content: string }[];
+    // Matched on the marker, not the word "unverified" — the system prompt uses
+    // that word too, and a substring assertion that broad passes for the wrong
+    // reason.
+    const marked = messages.filter((m) => m.content?.includes("[tool:earlier_answer]"));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]!.content).toContain("unverified");
+    // Environment voice, never the model's own — the lesson from the marker.
+    expect(marked[0]!.role).toBe("user");
+    expect(messages.some((m) => m.role === "assistant" && m.content.includes("[tool:earlier_answer]"))).toBe(false);
+    db.close();
+  });
+
+  test("an answer with tools behind it is not marked unverified", async () => {
+    // The false-positive guard. Marking a sourced answer would teach the
+    // opposite lesson and make the note meaningless.
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-sourced-replay", "user", "Read D:\\proj\\src\\scheduler.ts and summarise it");
+    episodic.record("s-sourced-replay", "tool", "read_file: export const x = 1");
+    episodic.record("s-sourced-replay", "assistant", "It is the tick loop.");
+
+    await buildAgent(db).handle("s-sourced-replay", "and now?", "m2", () => {});
+
+    const messages = (prompts.at(-1) ?? []) as { role: string; content: string }[];
+    expect(messages.some((m) => m.content?.includes("[tool:earlier_answer]"))).toBe(false);
+    expect(messages.some((m) => m.content?.includes("[tool:earlier_tool_use]"))).toBe(true);
+    db.close();
+  });
+
   test("the replayed tool note never lands in the assistant's voice", async () => {
     // The note that puts tool use back into a replayed transcript was first
     // prefixed onto the assistant's answer. The model read forty turns of
