@@ -45,7 +45,6 @@ import {
 } from "../core/unattended.ts";
 import type { TurnResult } from "../core/agent-loop.ts";
 import { parseDoneWhenFromMessage, type DoneWhen } from "../cron/done-when.ts";
-import { unsourcedWarning } from "../core/unsourced.ts";
 
 /** The slice of `AgentLoop` a connector needs. */
 export interface AgentLike {
@@ -480,14 +479,12 @@ export async function runAgent(
       record ? { recorder: record.recorder } : {},
     );
     const verdict = await record?.done(run);
-    // An answer about a file that nothing opened. `done_when` covers tasks that
-    // leave an artifact; most tasks leave only an answer, and that is where the
-    // confident invention lives.
-    const toolCalls = run.turns.reduce((n, t) => n + t.toolCalls, 0);
-    const unsourced = unsourcedWarning(run.text, toolCalls, text);
+    // The unsourced-answer warning used to be computed here. It is on the
+    // agent loop's own exit now, so `run.text` already carries it and every
+    // other surface gets it too — see the note beside the `done` event.
     // The verdict goes to the PERSON, not just into the row. A failed check
     // that only a database knows about is the same silence we started with.
-    const reply = [run.text, verdict, unsourced].filter(Boolean).join("\n\n");
+    const reply = [run.text, verdict].filter(Boolean).join("\n\n");
     // Durable before it is spoken. Anything that goes wrong between here and
     // the caller's `markDelivered()` leaves the report on disk for the next
     // boot, rather than only in the memory of a process that may be dying.

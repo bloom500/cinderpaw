@@ -214,6 +214,64 @@ describe("F8 — sessions survive a restart", () => {
     db.close();
   });
 
+  test("an unsourced answer is marked on every surface, not just the connectors", async () => {
+    // The warning lived in connectors.ts, so Discord and Slack got it and the
+    // desktop, the TUI and /runtime/chat shipped the invention bare. Measured:
+    // six live completions, three fabricated line counts for files that do not
+    // exist, not one of them marked. `handle()` is the shared exit — assert
+    // there and every surface is covered by construction.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          message: { content: "I read src/core/quantum-scheduler.ts — it exports two constants." },
+          prompt_eval_count: 1,
+          eval_count: 1,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = original; };
+
+    const db = openDatabase(":memory:");
+    const answer = await buildAgent(db).handle("s-bare", "what does it do?", "m1", () => {});
+    expect(answer).toContain("no file was opened");
+
+    // …and the warning is NOT in the stored turn. It is the environment
+    // talking; anything appended to the assistant's recorded text comes back
+    // as the assistant's own voice on the next replay.
+    const stored = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger).conversation("s-bare", 40);
+    const asst = stored.find((e) => e.role === "assistant");
+    expect(asst?.content).toContain("two constants");
+    expect(asst?.content).not.toContain("no file was opened");
+    db.close();
+  });
+
+  test("the same answer with a tool call behind it is left alone", async () => {
+    // The false-positive guard. `answerToolCalls` replaced the connector's
+    // whole-run sum, so if it miscounts, every sourced answer gets accused —
+    // and a warning that cries wolf is one people learn to skip.
+    const original = globalThis.fetch;
+    let nth = 0;
+    globalThis.fetch = (async () => {
+      nth += 1;
+      const content =
+        nth === 1
+          ? '{"name": "list_tools", "args": {}}'
+          : "I read src/core/quantum-scheduler.ts — it is the tick loop.";
+      return new Response(
+        JSON.stringify({ message: { content }, prompt_eval_count: 1, eval_count: 1 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = original; };
+
+    const db = openDatabase(":memory:");
+    const answer = await buildAgent(db).handle("s-sourced", "what does it do?", "m1", () => {});
+    expect(nth).toBeGreaterThan(1); // the tool round actually happened
+    expect(answer).not.toContain("no file was opened");
+    db.close();
+  });
+
   test("the replayed tool note never lands in the assistant's voice", async () => {
     // The note that puts tool use back into a replayed transcript was first
     // prefixed onto the assistant's answer. The model read forty turns of

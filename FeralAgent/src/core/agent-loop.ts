@@ -45,7 +45,7 @@ export interface Recaller {
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { countTokens } from "./tokenizer.ts";
-import { withOpenFirst } from "./unsourced.ts";
+import { unsourcedWarning, withOpenFirst } from "./unsourced.ts";
 import { stripPrivate } from "../memory/privacy.ts";
 import { isRestrictedSession, markSessionRestricted } from "./session-visibility.ts";
 import type { BrainStack } from "../brain/brain-stack.ts";
@@ -194,6 +194,13 @@ interface SessionEntry {
    * a stuck loop, which keeps ordinary chat behaving exactly as before.
    */
   noProgress: Map<string, number>;
+  /**
+   * Tool calls made so far toward the answer being written — not this turn's.
+   * Same reasoning as `noProgress` above, for the same reason: a run that reads
+   * a file in turn 3 and summarises it in turn 5 did the work, and a per-turn
+   * count would call turn 5 unsourced. Reset when a turn reaches an answer.
+   */
+  answerToolCalls: number;
 }
 
 /**
@@ -1064,10 +1071,32 @@ export class AgentLoop {
       if (asstLeafId !== null) {
         this.#recall?.noteWrite?.({ id: asstLeafId, sessionId, ts: asstWriteTs });
       }
+
+      // An answer about a file that nothing opened. This used to live in
+      // `connectors.ts`, which meant Discord and Slack got the warning and
+      // every other surface shipped the invention bare — the desktop, the TUI,
+      // and `/runtime/chat`, whose answer is this `done` event and never the
+      // string a caller returns. Six live completions producing three
+      // fabricated line counts for files that do not exist, none of them
+      // marked, is what one guard sitting in one caller costs.
+      //
+      // AFTER the recording above, deliberately. The note is the environment
+      // talking, and anything appended to the assistant's stored text comes
+      // back as the assistant's own voice on the next replay — which is the
+      // bug in the commit before this one.
+      const entry = this.#sessions.get(sessionId);
+      const answerToolCalls = (entry?.answerToolCalls ?? 0) + toolCallCount;
+      if (entry) entry.answerToolCalls = isContinuable(outcome) ? answerToolCalls : 0;
+      // Nothing to warn about mid-run: a cut-off turn is not an answer yet.
+      const unsourced = isContinuable(outcome)
+        ? null
+        : unsourcedWarning(final, answerToolCalls, userText);
+      const delivered = unsourced ? `${final}\n\n${unsourced}` : final;
+
       ctx.emit({
         type: "done",
         id: messageId,
-        content: final,
+        content: delivered,
         stopped: ctx.stopped,
         traceId,
         outcome,
@@ -1117,7 +1146,7 @@ export class AgentLoop {
         }
       }
 
-      return { text: final, outcome, toolCallCount, incomplete: isContinuable(outcome) };
+      return { text: delivered, outcome, toolCallCount, incomplete: isContinuable(outcome) };
     } catch (err) {
       // Checkpoint policy on a handled failure (crash is handled elsewhere — a
       // dead process leaves the row `running` on its own):
@@ -2168,7 +2197,7 @@ export class AgentLoop {
           used = [];
         }
       }
-      entry = { memory, lastAccess: Date.now(), noProgress: new Map() };
+      entry = { memory, lastAccess: Date.now(), noProgress: new Map(), answerToolCalls: 0 };
       this.#sessions.set(sessionId, entry);
     } else {
       // Touch: delete + re-insert moves the entry to the tail of the
