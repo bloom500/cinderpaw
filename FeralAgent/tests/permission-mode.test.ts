@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { createShellExecTool } from "../src/tools/builtin/shell-exec.ts";
 import { createWriteFileTool } from "../src/tools/builtin/write-file.ts";
-import { permissionMode } from "../src/core/permission-mode.ts";
+import { permissionMode, resetPermissionModeCache } from "../src/core/permission-mode.ts";
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -49,6 +49,37 @@ describe("resolving the mode", () => {
     // An existing install that took the brakes off keeps its behaviour.
     expect(permissionMode({ FERAL_SHELL_WHITELIST: "*" } as NodeJS.ProcessEnv)).toBe("full_access");
     expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("workspace_write");
+  });
+
+  test("settings.json can set it, so it is a switch and not a relaunch", async () => {
+    // Every other setting reaches the sidecar as an env var the host exports
+    // before spawning it, so changing one needs a host rebuild AND a restart.
+    // That made "read-only for a public connector" a per-launch ceremony nobody
+    // would perform. The process that ENFORCES the mode reads it instead.
+    const home = await mkdtemp(join(tmpdir(), "feral-mode-"));
+    process.env.FERAL_HOME = home;
+    delete process.env.FERAL_PERMISSION_MODE;
+    try {
+      await writeFile(join(home, "settings.json"), JSON.stringify({ permission_mode: "read_only" }));
+      resetPermissionModeCache();
+      expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("read_only");
+
+      // The env var still wins — an operator's launch beats a stored preference.
+      expect(permissionMode({ FERAL_PERMISSION_MODE: "full_access" } as NodeJS.ProcessEnv))
+        .toBe("full_access");
+
+      // A typo must not brick the agent: unknown value, then unparseable file,
+      // both mean "not configured" rather than "deny everything".
+      await writeFile(join(home, "settings.json"), JSON.stringify({ permission_mode: "banana" }));
+      resetPermissionModeCache();
+      expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("workspace_write");
+      await writeFile(join(home, "settings.json"), "{ not json");
+      resetPermissionModeCache();
+      expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("workspace_write");
+    } finally {
+      delete process.env.FERAL_HOME;
+      resetPermissionModeCache();
+    }
   });
 });
 

@@ -28,7 +28,7 @@ import type {
   ToolManifest,
 } from "../types.ts";
 import { hasPermission, resolveAllowedPath } from "./tool-permissions.ts";
-import { cfgInt } from "../config.ts";
+import { cfgInt, cfgList } from "../config.ts";
 
 export interface ProcessSandboxConfig {
   /** Default per-process timeout in ms when the caller does not specify one. */
@@ -56,12 +56,69 @@ const DEFAULT_CONFIG: ProcessSandboxConfig = {
   maxTimeoutMs: readMaxTimeoutMs(),
   maxOutputBytes: 1_048_576, // 1 MB
     safeBaseEnv: {
-      PATH: process.env.PATH ?? "",
+      PATH: safePath(),
       HOME: process.env.HOME ?? (process.env.USERPROFILE ?? ""),
       LANG: process.env.LANG ?? "C.UTF-8",
       LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
     },
 };
+
+/**
+ * PATH for every child process.
+ *
+ * `process.env.PATH` on its own is whatever happened to launch the gateway, and
+ * a process started from a terminal, from Explorer and from a service login all
+ * see different ones. That is the whole story behind `bash` failing here while
+ * the identical command worked in a terminal two seconds later — no permission,
+ * no allowlist, no setting changed between them, and the error said permission.
+ *
+ * Feral is meant to be usable by someone who has never heard of PATH, so
+ * "install Git and then edit your environment variables" is not an answer. The
+ * well-known install locations are appended when they exist on disk.
+ *
+ * APPENDED, never prepended: whichever `node` or `python` the user's own PATH
+ * chooses keeps winning. This only adds fallbacks for tools that were otherwise
+ * invisible, so it cannot change which binary an already-working call resolves
+ * to.
+ *
+ * ponytail: a fixed list, not a filesystem crawl or a registry walk. Add a
+ * directory when a real install turns up missing, or point
+ * FERAL_SHELL_PATH_EXTRA at it — that knob is the upgrade path, and it exists
+ * because no fixed list survives contact with every machine.
+ */
+function safePath(): string {
+  const base = process.env.PATH ?? "";
+  const win = process.platform === "win32";
+  const sep = win ? ";" : ":";
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
+  const programFiles = process.env.ProgramFiles ?? "C:\\Program Files";
+  const appData = process.env.APPDATA ?? `${home}\\AppData\\Roaming`;
+  const wellKnown = win
+    ? [
+        `${programFiles}\\Git\\bin`, // bash, sh
+        `${programFiles}\\Git\\usr\\bin`, // the GNU userland that ships with it
+        `${programFiles}\\nodejs`,
+        `${appData}\\npm`, // npm -g shims: npx.cmd lives here
+      ]
+    : [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        `${home}/.local/bin`,
+        `${home}/.bun/bin`,
+        `${home}/.cargo/bin`,
+      ];
+  const known = new Set(
+    base.split(sep).filter(Boolean).map((d) => (win ? d.toLowerCase() : d).replace(/[\\/]+$/, "")),
+  );
+  const add = [...wellKnown, ...cfgList("FERAL_SHELL_PATH_EXTRA")]
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0)
+    .filter((d) => !known.has((win ? d.toLowerCase() : d).replace(/[\\/]+$/, "")))
+    // Absent directories are left out rather than added blind: a PATH full of
+    // paths that do not exist makes every miss slower and every log noisier.
+    .filter((d) => existsSync(d));
+  return add.length > 0 ? [base, ...add].filter(Boolean).join(sep) : base;
+}
 
 /**
  * Ceiling on any caller-requested `timeout_ms`. Read once at module load;
@@ -129,9 +186,7 @@ export class RealProcessSandbox implements ProcessSandbox {
     //    absolute path, then ensure the manifest explicitly lists it.
     const resolved = this.#resolveExecutable(manifest, options.executable);
     if (resolved === null) {
-      block(
-        `executable "${options.executable}" is not in allowedExecutables for "${manifest.name}"`,
-      );
+      block(this.#refusalReason(manifest, options.executable));
     }
     // After `block` (which is `never`), `resolved` is provably `string`.
     // The explicit non-null assertion silences TS in case the narrowing
@@ -257,6 +312,53 @@ export class RealProcessSandbox implements ProcessSandbox {
     }
 
     return result;
+  }
+
+  /**
+   * Why the spawn was refused, in words that match the actual cause.
+   *
+   * One message used to cover both causes — "is not in allowedExecutables" —
+   * and it was the wrong one most of the time. `bash`, `sh` and `python3` were
+   * all ON the default allowlist and still failed with it, because the list
+   * held bare names that no longer resolved on the sidecar's PATH, and a PATH
+   * miss and a permission refusal came out of the same `null`.
+   *
+   * The cost was not confusion, it was a wrong conclusion acted upon: the agent
+   * believed the message, told the user it lacked permission to run the
+   * command, and offered to work around a boundary that was never the problem.
+   * That is how "it cannot install a skill because of permissions" was
+   * diagnosed — and the allowlist got taken off for a fault it never had.
+   *
+   * An error message is the only thing the model has to reason from. This one
+   * now says which of the two happened, and says outright when it is not about
+   * permission at all.
+   */
+  #refusalReason(manifest: ToolManifest, requested: string): string {
+    const list = manifest.allowedExecutables ?? [];
+    if (isAbsolute(requested)) {
+      return existsSync(resolve(requested))
+        ? `executable "${requested}" is not in allowedExecutables for "${manifest.name}"`
+        : `executable "${requested}" does not exist. This is not a permission problem.`;
+    }
+    const parts = requested.split(/[\\/]/);
+    const bare = parts[parts.length - 1] ?? requested;
+    const pathEnv = this.#config.safeBaseEnv.PATH ?? "";
+    if (which(bare, pathEnv) === null) {
+      const dirs = pathEnv.split(process.platform === "win32" ? ";" : ":").filter(Boolean).length;
+      return (
+        `executable "${bare}" was not found on PATH (${dirs} directories searched). ` +
+        `This is NOT a permission problem and there is nothing to work around: ` +
+        `install it, or call it by absolute path. Note the agent's PATH is the one ` +
+        `the gateway process was started with, which may be shorter than a terminal's.`
+      );
+    }
+    // Findable, so the list is genuinely what stopped it. Name the alternatives:
+    // "not allowed" without "here is what is" makes the model guess.
+    const names = list.map((e) => e.split(/[\\/]/).pop() ?? e).join(", ");
+    return (
+      `executable "${bare}" is not in allowedExecutables for "${manifest.name}" ` +
+      `(allowed: ${names || "none"})`
+    );
   }
 
   /**

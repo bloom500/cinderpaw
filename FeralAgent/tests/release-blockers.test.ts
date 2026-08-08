@@ -214,6 +214,171 @@ describe("F8 — sessions survive a restart", () => {
     db.close();
   });
 
+  test("the connector reply carries the warning, driven by the REAL loop", async () => {
+    // The warning moved out of connectors.ts into the loop's exit. The tests
+    // that used to cover it here drove a FAKE agent whose handleTurn returned
+    // text without running the loop, which is exactly why they stayed green
+    // while three surfaces shipped unmarked inventions. So this one drives
+    // `runAgent` — the actual function Discord and WhatsApp call — over a real
+    // AgentLoop, and asserts on what the person would receive.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          message: { content: "I read src/core/quantum-scheduler.ts — it exports two constants." },
+          prompt_eval_count: 1,
+          eval_count: 1,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = original; };
+
+    const db = openDatabase(":memory:");
+    const { runAgent } = await import("../src/transports/connectors.ts");
+    const { reply } = await runAgent(buildAgent(db), "discord:c1:u1", "what does it do?", "d-1");
+    expect(reply).toContain("two constants");
+    expect(reply).toContain("no file was opened");
+    db.close();
+    // 20s, not bun's default 5s. Its first run took 5394ms and failed on the
+    // timeout alone, then passed seven times in a row at ~200ms — the cold cost
+    // (tokenizer + module init) lands on whichever test runs first, and CI is
+    // always cold. A flaky green is worse than no test.
+  }, 20_000);
+
+  test("an unsourced answer is marked on every surface, not just the connectors", async () => {
+    // The warning lived in connectors.ts, so Discord and Slack got it and the
+    // desktop, the TUI and /runtime/chat shipped the invention bare. Measured:
+    // six live completions, three fabricated line counts for files that do not
+    // exist, not one of them marked. `handle()` is the shared exit — assert
+    // there and every surface is covered by construction.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          message: { content: "I read src/core/quantum-scheduler.ts — it exports two constants." },
+          prompt_eval_count: 1,
+          eval_count: 1,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = original; };
+
+    const db = openDatabase(":memory:");
+    const answer = await buildAgent(db).handle("s-bare", "what does it do?", "m1", () => {});
+    expect(answer).toContain("no file was opened");
+
+    // …and the warning is NOT in the stored turn. It is the environment
+    // talking; anything appended to the assistant's recorded text comes back
+    // as the assistant's own voice on the next replay.
+    const stored = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger).conversation("s-bare", 40);
+    const asst = stored.find((e) => e.role === "assistant");
+    expect(asst?.content).toContain("two constants");
+    expect(asst?.content).not.toContain("no file was opened");
+    db.close();
+  });
+
+  test("the same answer with a tool call behind it is left alone", async () => {
+    // The false-positive guard. `answerToolCalls` replaced the connector's
+    // whole-run sum, so if it miscounts, every sourced answer gets accused —
+    // and a warning that cries wolf is one people learn to skip.
+    const original = globalThis.fetch;
+    let nth = 0;
+    globalThis.fetch = (async () => {
+      nth += 1;
+      const content =
+        nth === 1
+          ? '{"name": "list_tools", "args": {}}'
+          : "I read src/core/quantum-scheduler.ts — it is the tick loop.";
+      return new Response(
+        JSON.stringify({ message: { content }, prompt_eval_count: 1, eval_count: 1 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = original; };
+
+    const db = openDatabase(":memory:");
+    const answer = await buildAgent(db).handle("s-sourced", "what does it do?", "m1", () => {});
+    expect(nth).toBeGreaterThan(1); // the tool round actually happened
+    expect(answer).not.toContain("no file was opened");
+    db.close();
+  });
+
+  test("a replayed answer that opened nothing is replayed as unverified", async () => {
+    // The turns the tool note cannot reach: there are no tool rows to name. On
+    // the real poisoned session these were the MAJORITY — 8 answers about a
+    // file with nothing behind them against 5 with — including "read X and
+    // summarise" answered at length three times in a row. Replayed unmarked,
+    // the transcript's house style is answering from memory, and the model
+    // matched it: 0 tool calls in 3 of 3 runs where a clean session made 2-5.
+    //
+    // The claim can be in the QUESTION rather than the answer, which is the
+    // shape here: asked about a named file, the model describes it and never
+    // repeats the path.
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-unver", "user", "Read D:\\proj\\src\\scheduler.ts and summarise it");
+    episodic.record("s-unver", "assistant", "It is the tick loop that walks ready state objects.");
+
+    await buildAgent(db).handle("s-unver", "and now?", "m2", () => {});
+
+    const messages = (prompts.at(-1) ?? []) as { role: string; content: string }[];
+    // Matched on the marker, not the word "unverified" — the system prompt uses
+    // that word too, and a substring assertion that broad passes for the wrong
+    // reason.
+    const marked = messages.filter((m) => m.content?.includes("[tool:earlier_answer]"));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]!.content).toContain("unverified");
+    // Environment voice, never the model's own — the lesson from the marker.
+    expect(marked[0]!.role).toBe("user");
+    expect(messages.some((m) => m.role === "assistant" && m.content.includes("[tool:earlier_answer]"))).toBe(false);
+    db.close();
+  });
+
+  test("an answer with tools behind it is not marked unverified", async () => {
+    // The false-positive guard. Marking a sourced answer would teach the
+    // opposite lesson and make the note meaningless.
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-sourced-replay", "user", "Read D:\\proj\\src\\scheduler.ts and summarise it");
+    episodic.record("s-sourced-replay", "tool", "read_file: export const x = 1");
+    episodic.record("s-sourced-replay", "assistant", "It is the tick loop.");
+
+    await buildAgent(db).handle("s-sourced-replay", "and now?", "m2", () => {});
+
+    const messages = (prompts.at(-1) ?? []) as { role: string; content: string }[];
+    expect(messages.some((m) => m.content?.includes("[tool:earlier_answer]"))).toBe(false);
+    expect(messages.some((m) => m.content?.includes("[tool:earlier_tool_use]"))).toBe(true);
+    db.close();
+  });
+
+  test("the replayed tool note never lands in the assistant's voice", async () => {
+    // The note that puts tool use back into a replayed transcript was first
+    // prefixed onto the assistant's answer. The model read forty turns of
+    // answers opening with `[used read_file ×3]` and produced one of its own:
+    // zero tool calls, a fabricated answer, and a receipt stapled to the front
+    // of it. Evidence in the imitated channel is a template. So this asserts
+    // the CHANNEL, not the wording.
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-voice", "user", "what does config.ts do?");
+    episodic.record("s-voice", "tool", "read_file: export const x = 1");
+    episodic.record("s-voice", "tool", "read_file: export const y = 2");
+    episodic.record("s-voice", "assistant", "it exports two constants");
+
+    await buildAgent(db).handle("s-voice", "and now?", "m2", () => {});
+
+    const messages = (prompts.at(-1) ?? []) as { role: string; content: string }[];
+    const carrying = messages.filter((m) => m.content?.includes("read_file ×2"));
+    expect(carrying).toHaveLength(1);
+    expect(carrying[0]!.role).toBe("user");
+    expect(carrying[0]!.content).toContain("[tool:earlier_tool_use]");
+    expect(messages.some((m) => m.role === "assistant" && m.content.includes("read_file"))).toBe(false);
+    db.close();
+  });
+
   test("a cron session does not inherit the previous run's transcript", async () => {
     // `cron:${jobId}` is stable across runs but each run is independent.
     const { prompts } = installPromptRecorder();

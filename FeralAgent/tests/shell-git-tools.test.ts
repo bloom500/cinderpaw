@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createShellExecTool } from "../src/tools/builtin/shell-exec.ts";
@@ -120,13 +120,78 @@ describe("shell_exec (argv-only)", () => {
     } finally { cleanup(); }
   });
 
-  it("rejects a non-whitelisted binary", async () => {
+  it("the child PATH picks up well-known install dirs the launcher missed", async () => {
+    // The gateway's PATH is whatever launched it, so a tool a terminal finds can
+    // be invisible here. Tested through the knob rather than a hardcoded
+    // `C:\Program Files\Git\bin`, so it asserts the mechanism on every platform:
+    // an existing directory is added, a missing one is not.
+    const real = mkdtempSync(join(tmpdir(), "feral-path-"));
+    const fake = join(tmpdir(), "feral-path-does-not-exist");
+    process.env.FERAL_SHELL_PATH_EXTRA = `${real},${fake}`;
+    try {
+      const mod = await import(`../src/egress/process-sandbox.ts?bust=${Date.now()}`);
+      const sandbox = new mod.RealProcessSandbox(() => {});
+      // The config is private; the PATH it built is observable through a child.
+      const out = await sandbox.run(
+        {
+          name: "t", description: "t", permissions: ["process:spawn"],
+          networkAccess: false, allowedPaths: [real], allowedExecutables: ["*"],
+        },
+        "path-test",
+        process.platform === "win32"
+          ? { executable: "cmd", args: ["/c", "echo %PATH%"] }
+          : { executable: "sh", args: ["-c", "echo $PATH"] },
+      );
+      expect(out.stdout).toContain(real);
+      expect(out.stdout).not.toContain(fake);
+    } finally {
+      delete process.env.FERAL_SHELL_PATH_EXTRA;
+      rmSync(real, { recursive: true, force: true });
+    }
+  });
+
+  it("a missing binary is reported as missing, not as forbidden", async () => {
+    // The message the agent reasons from. `bash`, `sh` and `python3` were ON
+    // the allowlist and still failed as "not in allowedExecutables", because a
+    // PATH miss and a permission refusal shared one error. The agent believed
+    // it, reported that it lacked permission, and offered to work around a
+    // boundary that was not there — which is how a PATH problem got diagnosed
+    // as a permissions problem and cost the allowlist its life.
     const tool = createShellExecTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
-      const result = await tool.execute({ argv: ["rm", "-rf", tmp] }, ctx);
+      const result = await tool.execute(
+        { argv: ["definitely-not-a-real-binary-xyz", "--version"] },
+        ctx,
+      );
       expect(result.ok).toBe(false);
-      expect(result.error).toBe("binary_not_whitelisted");
+      expect(result.content).toContain("not found on PATH");
+      expect(result.content).toContain("NOT a permission problem");
+      // The old wording must not come back for this cause.
+      expect(result.content).not.toContain("not in allowedExecutables");
+    } finally { cleanup(); }
+  });
+
+  it("refuses destruction aimed outside every workspace root", async () => {
+    // This used to assert `rm` was "not whitelisted". It is now callable like
+    // any other binary — the old list had the OS shells on it, so `sh -c "rm
+    // -rf …"` was never blocked anyway and the refusal was theatre.
+    //
+    // What holds instead is aimed at the damage rather than the program name:
+    // `rm -rf` INSIDE the workspace is allowed, because the safety point can
+    // put it back; outside, nothing can, so it needs a human — and with nobody
+    // reachable (no askUser on this ctx) it refuses rather than approving
+    // itself. That is the guard worth a test.
+    // NOT under tmpdir(): scratch space is deliberately on the allowed list, so
+    // a target there proves nothing. The home directory is the real shape of
+    // this mistake — "another project of mine", "my Documents".
+    const outside = join(homedir(), "feral-test-definitely-not-a-root");
+    const tool = createShellExecTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute({ argv: ["rm", "-rf", outside] }, ctx);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("destructive_outside_workspace");
     } finally { cleanup(); }
   });
 });

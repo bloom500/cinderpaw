@@ -45,7 +45,7 @@ export interface Recaller {
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { countTokens } from "./tokenizer.ts";
-import { withOpenFirst } from "./unsourced.ts";
+import { claimedPath, unsourcedWarning, withOpenFirst } from "./unsourced.ts";
 import { stripPrivate } from "../memory/privacy.ts";
 import { isRestrictedSession, markSessionRestricted } from "./session-visibility.ts";
 import type { BrainStack } from "../brain/brain-stack.ts";
@@ -194,6 +194,13 @@ interface SessionEntry {
    * a stuck loop, which keeps ordinary chat behaving exactly as before.
    */
   noProgress: Map<string, number>;
+  /**
+   * Tool calls made so far toward the answer being written — not this turn's.
+   * Same reasoning as `noProgress` above, for the same reason: a run that reads
+   * a file in turn 3 and summarises it in turn 5 did the work, and a per-turn
+   * count would call turn 5 unsourced. Reset when a turn reaches an answer.
+   */
+  answerToolCalls: number;
 }
 
 /**
@@ -1064,10 +1071,32 @@ export class AgentLoop {
       if (asstLeafId !== null) {
         this.#recall?.noteWrite?.({ id: asstLeafId, sessionId, ts: asstWriteTs });
       }
+
+      // An answer about a file that nothing opened. This used to live in
+      // `connectors.ts`, which meant Discord and Slack got the warning and
+      // every other surface shipped the invention bare — the desktop, the TUI,
+      // and `/runtime/chat`, whose answer is this `done` event and never the
+      // string a caller returns. Six live completions producing three
+      // fabricated line counts for files that do not exist, none of them
+      // marked, is what one guard sitting in one caller costs.
+      //
+      // AFTER the recording above, deliberately. The note is the environment
+      // talking, and anything appended to the assistant's stored text comes
+      // back as the assistant's own voice on the next replay — which is the
+      // bug in the commit before this one.
+      const entry = this.#sessions.get(sessionId);
+      const answerToolCalls = (entry?.answerToolCalls ?? 0) + toolCallCount;
+      if (entry) entry.answerToolCalls = isContinuable(outcome) ? answerToolCalls : 0;
+      // Nothing to warn about mid-run: a cut-off turn is not an answer yet.
+      const unsourced = isContinuable(outcome)
+        ? null
+        : unsourcedWarning(final, answerToolCalls, userText);
+      const delivered = unsourced ? `${final}\n\n${unsourced}` : final;
+
       ctx.emit({
         type: "done",
         id: messageId,
-        content: final,
+        content: delivered,
         stopped: ctx.stopped,
         traceId,
         outcome,
@@ -1117,7 +1146,7 @@ export class AgentLoop {
         }
       }
 
-      return { text: final, outcome, toolCallCount, incomplete: isContinuable(outcome) };
+      return { text: delivered, outcome, toolCallCount, incomplete: isContinuable(outcome) };
     } catch (err) {
       // Checkpoint policy on a handled failure (crash is handled elsewhere — a
       // dead process leaves the row `running` on its own):
@@ -2031,10 +2060,7 @@ export class AgentLoop {
     // already completed" report. Head+tail sampling keeps the framing AND the
     // recent work; the head is small because the tail is what the next turn
     // needs. Raise FERAL_SUMMARY_EXCERPT_CHARS on big-context models.
-    const transcript = headTail(
-      msgs.map((m) => `${m.role}: ${m.content}`).join("\n"),
-      cfgInt("FERAL_SUMMARY_EXCERPT_CHARS") || 24_000,
-    );
+    const transcript = summaryExcerpt(msgs, cfgInt("FERAL_SUMMARY_EXCERPT_CHARS") || 24_000);
     const res = await this.#router.complete({
       sessionId,
       messages: [
@@ -2042,23 +2068,41 @@ export class AgentLoop {
           role: "system",
           content:
             "Summarize the following conversation excerpt for an agent that must " +
-            "continue the task. Preserve VERBATIM every identifier the agent will " +
-            "need again: file paths it created or edited, commands it ran and " +
-            "their outcome, URLs, ids, and decisions already made. State what is " +
-            "already DONE so it is not repeated, and what is still open. Prefer a " +
-            "terse bulleted list over prose.",
+            "continue the task.\n\n" +
+            "Start with a section headed exactly `### Established facts`, one line " +
+            "per fact the agent DETERMINED and may be asked to report: a value it " +
+            "read (line count, version, id, size), a path it created or edited and " +
+            "its state, a command and its outcome, a URL, a decision already made. " +
+            "Copy values EXACTLY. This section is the only record that survives — " +
+            "a fact left out of it is a fact the agent must go and fetch again, and " +
+            "on a long task it will fetch it again after every compaction.\n\n" +
+            "Then a short narrative: what is DONE so it is not repeated, and what " +
+            "is still open. Terse bullets, not prose. Never shorten the facts " +
+            "section to make room for the narrative.",
         },
         { role: "user", content: transcript },
       ],
       // 256 could not hold a path list. The summary is written once per
       // compaction and re-sent every turn afterwards, so it is worth the tokens
       // — SUMMARY_RESERVE_TOKENS in working.ts reserves room for it.
-      maxTokens: 1024,
+      //
+      // 1024 was the whole budget INCLUDING a reasoning model's chain of
+      // thought, and the thinking ate it. Observed verbatim in a stored
+      // summary: `Summary of earlier conversation: <think>The user wants me to
+      // summarize…` — cut off mid-deliberation, so the `### Established facts`
+      // section that was supposed to follow never existed. The agent then had
+      // no record of the 24 line counts it had just read and went back for them
+      // again, every compaction.
+      //
+      // Reasoning is stripped below and never stored, so raising this ceiling
+      // does NOT grow the summary or the prompt: it buys room to think on top of
+      // a full answer, and SUMMARY_RESERVE_TOKENS keeps bounding what is kept.
+      maxTokens: 3072,
       // Bypass the budget gate: this call exists to RECOVER from budget
       // pressure, so it must run even when the conversation is over budget.
       skipBudgetCheck: true,
     });
-    return res.content.trim();
+    return summaryText(res.content);
   }
 
   /**
@@ -2136,27 +2180,60 @@ export class AgentLoop {
         memory.restore(resume.messages);
         log(`checkpoint: resumed session ${sessionId} from iteration ${resume.iteration} (${resume.messages.length} messages)`);
       } else if (isReplayableSession(sessionId)) {
-        // Tool rows are collapsed into a one-line note on the answer they
-        // produced. Replaying them as real tool messages is not possible (no
-        // call ids, output truncated to 400 chars), but dropping them — which
-        // is what this did — left a transcript in which the agent had never
-        // once opened a file, and the model copied that. The note costs a few
-        // tokens per turn and restores the only thing that mattered: evidence
-        // that looking things up is what happens here.
+        // Tool rows are collapsed into a one-line note in front of the answer
+        // they produced. Replaying them as real tool messages is not possible
+        // (no call ids, output truncated to 400 chars), but dropping them —
+        // which is what this did — left a transcript in which the agent had
+        // never once opened a file, and the model copied that. The note costs a
+        // few tokens per turn and restores the only thing that mattered:
+        // evidence that looking things up is what happens here.
+        //
+        // The note is a TOOL row, never a prefix on the assistant message.
+        // Prefixed to the answer (11d067a) it sat in the assistant's own voice,
+        // and the model did the one thing that pattern teaches: it opened its
+        // next reply with `[used shell_exec, list_tools, read_file ×3, grep]`
+        // and fabricated everything after it, having called nothing. Evidence
+        // written in the voice being imitated is not evidence, it is a
+        // template — and worse than the fabrication it replaced, because the
+        // fabrication now arrives wearing a receipt. `toProviderMessage`
+        // renders a tool row as a user-role `[tool:…]` line, which is a channel
+        // the model reads and never emits.
         let used: string[] = [];
+        let lastUser = "";
         for (const ev of this.#episodic.conversation(sessionId, REHYDRATE_TURNS)) {
           if (ev.role === "tool") {
             used.push(ev.content.slice(0, ev.content.indexOf(":") + 1 || 40).replace(/:$/, ""));
-          } else if (ev.role === "user") {
-            memory.addReplayed("user", ev.content);
-            used = [];
-          } else {
-            memory.addReplayed("assistant", replayedToolNote(used) + ev.content);
-            used = [];
+            continue;
           }
+          // Flushed before BOTH roles: tool rows trailing the last answer (a
+          // turn that crashed mid-work) belong to the transcript too.
+          const note = replayedToolNote(used);
+          if (note) {
+            memory.addToolResult("earlier_tool_use", note);
+          } else if (ev.role === "assistant" && (claimedPath(ev.content) || claimedPath(lastUser))) {
+            // An answer about a file that opened nothing. Noting the tools a
+            // turn DID use fixes the turns that used some; it cannot touch
+            // these, because there is nothing to note — and these are the
+            // majority. Measured on the real poisoned session: 8 answers about
+            // a file with no tool behind them against 5 with, including the
+            // same "read X and summarise" answered confidently three times in
+            // a row. Replay that and the transcript's own house style is
+            // answering from memory; the model followed it exactly, making
+            // ZERO tool calls in 3 of 3 runs where a clean session made 2-5.
+            //
+            // So the gap gets named instead of passing as normal. Same lane as
+            // the tool note and for the same reason: it is the environment
+            // speaking, and the model must never learn to write this line
+            // itself. Recomputed here rather than stored, because the rows
+            // that need it most were written long before the check existed.
+            memory.addToolResult("earlier_answer", "unverified — no tool was used for this answer");
+          }
+          memory.addReplayed(ev.role === "user" ? "user" : "assistant", ev.content);
+          if (ev.role === "user") lastUser = ev.content;
+          used = [];
         }
       }
-      entry = { memory, lastAccess: Date.now(), noProgress: new Map() };
+      entry = { memory, lastAccess: Date.now(), noProgress: new Map(), answerToolCalls: 0 };
       this.#sessions.set(sessionId, entry);
     } else {
       // Touch: delete + re-insert moves the entry to the tail of the
@@ -2335,16 +2412,21 @@ export function buildCapabilityIndex(registry: ToolRegistry): string {
 /**
  * The one line that puts the work back into a replayed answer.
  *
- * `["read_file", "read_file", "shell_exec"]` → `[used read_file ×2, shell_exec]`
+ * `["read_file", "read_file", "shell_exec"]` → `read_file ×2, shell_exec`
  * Empty in, empty out — a turn that genuinely used no tool must not be dressed
  * up as one that did, or the note becomes noise and stops meaning anything.
+ *
+ * Bare list, no `[used …]` wrapper: the caller emits it as a tool row, so the
+ * wire already carries `[tool:earlier_tool_use] read_file ×2`. The wrapper was
+ * there when this was prefixed onto the assistant's own text, which is exactly
+ * the shape the model learned to reproduce instead of calling anything.
  */
 export function replayedToolNote(names: string[]): string {
   if (names.length === 0) return "";
   const counts = new Map<string, number>();
   for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
   const parts = [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n));
-  return `[used ${parts.join(", ")}]\n`;
+  return parts.join(", ");
 }
 
 export function buildNativeTools(registry: ToolRegistry): AnthropicToolDef[] {
@@ -2409,6 +2491,74 @@ export function buildOpenAITools(registry: ToolRegistry): OpenAIToolDef[] {
  *   - dangling <think> with no close → everything after it is reasoning, dropped
  *   - orphan stray tags left behind
  */
+/**
+ * How much of a tool result's BODY the summarizer needs to see. Its first line
+ * is the fact; the body is the payload the fact came from, and the summarizer is
+ * not being asked to re-derive anything from it.
+ *
+ * ponytail: one flat cap, not per-tool tuning. Raise it if a summary starts
+ * missing something that was only inferable from a body.
+ */
+const TOOL_EXCERPT_CHARS = 400;
+
+/**
+ * The transcript excerpt handed to the summarizer.
+ *
+ * Structure BEFORE sampling. `headTail` cuts by character position, which is
+ * blind to what a tool result is: its first line is the fact (`path — 227 lines,
+ * 8618 bytes`), the rest is the payload it was extracted from. Feeding whole
+ * bodies in meant 24 file reads produced ~90 KB, head+tail kept 24 KB, and 20 of
+ * the 24 headers landed in the discarded middle.
+ *
+ * The summary said so itself, verbatim: "All other files' tool-header line counts
+ * were TRIMMED from the visible excerpt". It wrote a correct, exact facts section
+ * containing 4 of 24 facts — because 4 was all it was shown — and the agent went
+ * back for the other 20, every compaction.
+ *
+ * Every tool result now contributes its header plus a bounded body excerpt, so
+ * 24 headers cost ~1.4 KB together and cannot be sampled away.
+ */
+export function summaryExcerpt(
+  msgs: { role: string; name?: string; content: string }[],
+  budgetChars: number,
+): string {
+  const flattened = msgs
+    .map((m) => {
+      if (m.role !== "tool") return `${m.role}: ${m.content}`;
+      const newline = m.content.indexOf("\n");
+      const head = newline === -1 ? m.content : m.content.slice(0, newline);
+      const body = newline === -1 ? "" : m.content.slice(newline + 1);
+      const label = `tool(${m.name ?? "?"}): ${head}`;
+      if (body.length === 0) return label;
+      return body.length > TOOL_EXCERPT_CHARS
+        ? `${label}\n${body.slice(0, TOOL_EXCERPT_CHARS)}…`
+        : `${label}\n${body}`;
+    })
+    .join("\n");
+  return headTail(flattened, budgetChars);
+}
+
+/**
+ * What actually gets stored as a compaction summary.
+ *
+ * The summarizer's answer was the ONE completion in the loop that never went
+ * through `stripThinking` — and it is the one that is stored and re-sent for the
+ * rest of the session. A stored summary, verbatim: `Summary of earlier
+ * conversation: <think>The user wants me to summarize…`, cut off
+ * mid-deliberation, so the facts section it was going to write never existed.
+ * The agent lost the 24 line counts it had just read and went back for them,
+ * every compaction.
+ *
+ * Falling back to tags-off raw when stripping leaves nothing is deliberate: a
+ * response truncated inside an unclosed `<think>` strips to empty, and an empty
+ * summary discards the entire compacted region. That deliberation had the facts
+ * in it — keeping it beats keeping nothing.
+ */
+export function summaryText(raw: string): string {
+  const stripped = stripThinking(raw).trim();
+  return stripped || raw.replace(/<\/?think(ing)?>/gi, "").trim();
+}
+
 export function stripThinking(raw: string): string {
   let out = raw;
 
