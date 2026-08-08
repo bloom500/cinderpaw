@@ -198,14 +198,50 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
           </div>
         </div>
       )}
-      {/* Thumbs feedback — only on a finished, non-empty reply, and not while a
-          question card is pending. Feeds the acceptance adaptation signal. */}
+      {/* Footer — only on a finished, non-empty reply, and not while a question
+          card is pending. The meta is always visible; the thumbs (the
+          acceptance adaptation signal) stay hover-only as before. */}
       {!streaming && !askUser && message.content.trim().length > 0 && (
-        <FeedbackButtons messageId={message.id} />
+        <div className="flex items-center gap-2">
+          <MessageMeta message={message} />
+          <FeedbackButtons messageId={message.id} />
+        </div>
       )}
     </div>
   );
 });
+
+/**
+ * The one-line receipt under a finished reply: when it landed, how much it
+ * generated, how fast.
+ *
+ * These four fields have been recorded on every message since the store was
+ * written and displayed nowhere, so "what did that turn actually cost me"
+ * had no answer short of opening the database.
+ *
+ * A leading `~` marks a token count we guessed (chars/4) rather than one the
+ * provider reported — local models never send usage. The tilde is the whole
+ * point of showing the number at all: an estimate that looks measured is
+ * worse than no number, because it is the one people quote back at you.
+ *
+ * ponytail: no money here. Dollars need a per-model price table that goes
+ * stale silently, and a stale price is a worse lie than a missing one. Add it
+ * when someone owns keeping that table current — see docs/marketing HOOK.md's
+ * "$0 per token" claim, which is what this footer proves for local models.
+ */
+function MessageMeta({ message }: { message: ChatMessage }) {
+  const at = message.completedAt ?? message.createdAt;
+  const parts = [
+    new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+  ];
+  if (message.tokenCount) {
+    parts.push(`${message.tokensEstimated ? '~' : ''}${message.tokenCount.toLocaleString()} tok`);
+  }
+  if (message.tokensPerSec) parts.push(`${message.tokensPerSec} tok/s`);
+  return (
+    <div className="text-[11px] text-text-muted tabular-nums select-none">{parts.join(' · ')}</div>
+  );
+}
 
 /**
  * Thumbs 👍/👎 under an assistant reply. The click forwards to the sidecar's

@@ -881,6 +881,11 @@ export class AgentLoop {
    * reply still lands; the next message starts clean. Add a session-lock wait
    * if that ordering ever actually confuses someone.
    */
+  /** Where the tokens went, for `!cost`. The router owns the ledger. */
+  costReport(): string {
+    return this.#router.costReport();
+  }
+
   resetSession(sessionId: string): void {
     this.#sessions.delete(sessionId);
     this.#checkpoints?.markDone(sessionId);

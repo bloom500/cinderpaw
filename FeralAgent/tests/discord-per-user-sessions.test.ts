@@ -169,6 +169,7 @@ describe("connector chat commands", () => {
           compacted.push(id);
           return "compacted" as const;
         },
+        costReport: () => "## Where the tokens went\n\n**Completions:** 3",
       },
     };
   };
@@ -198,6 +199,21 @@ describe("connector chat commands", () => {
     expect(reply).toContain("Compacted");
     expect(compacted).toEqual(["slack:c1:u1"]);
     expect(reset).toEqual([]);
+  });
+
+  test("!cost and !tokens report on demand, under both prefixes", async () => {
+    const { agent, reset, compacted } = fakeAgent();
+    for (const cmd of ["/cost", "!cost", " !COST ", "/tokens", "!tokens"]) {
+      expect(await runChatCommand(agent, "discord:dm:u1", cmd)).toContain("Where the tokens went");
+    }
+    // Reporting must not disturb the conversation it is reporting on.
+    expect(reset).toEqual([]);
+    expect(compacted).toEqual([]);
+  });
+
+  test("a build with no accounting says so instead of throwing", async () => {
+    const bare = { handle: async () => "unused" };
+    expect(await runChatCommand(bare, "discord:dm:u1", "!cost")).toContain("No accounting yet");
   });
 
   test("ordinary text is not a command", async () => {

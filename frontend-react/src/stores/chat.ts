@@ -23,6 +23,12 @@ export interface ChatMessage {
   completedAt?: number;
   tokenCount?: number;
   tokensPerSec?: number;
+  /**
+   * True when `tokenCount` is our chars/4 guess rather than the provider's own
+   * number (local models never report usage). The footer marks it with a `~`
+   * so a number nobody can verify never looks like one somebody measured.
+   */
+  tokensEstimated?: boolean;
   /** True if the model hit max_tokens before producing a natural stop. */
   truncated?: boolean;
   /** Why the response was truncated (e.g. "length"). */

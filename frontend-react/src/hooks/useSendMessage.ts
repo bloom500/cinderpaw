@@ -14,6 +14,33 @@ import { buildMemoryContext, extractChatMemory } from '@/lib/chatMemory';
 import { decodeToPcm16k } from '@/lib/audio';
 import type { AttachedFile } from '@/components/chat/AttachedFileChip';
 
+/**
+ * The token line shown under a finished reply.
+ *
+ * `usageCompletionTokens` is the provider's own count and arrives only on cloud
+ * streams; a local model never reports one. chars/4 is the fallback, and it is
+ * a rule of thumb that is wrong by a different amount in every language and on
+ * every tokenizer.
+ *
+ * Which one produced the number has to travel with it. The same mistake in the
+ * cost ledger — our estimate stored in the column that says "the provider said
+ * so" — is what made "is the cache working" unanswerable for a week, and this
+ * number is worse to get wrong because a person reads it. So: the real one wins
+ * where it exists, and `tokensEstimated` marks the rest.
+ */
+export function finalTokenStats(
+  usageCompletionTokens: number | null,
+  charCount: number,
+  elapsedSec: number,
+): { tokenCount: number; tokensPerSec: number; tokensEstimated: boolean } {
+  const tokenCount = usageCompletionTokens ?? Math.round(charCount / 4);
+  return {
+    tokenCount,
+    tokensPerSec: elapsedSec > 0 ? Math.round(tokenCount / elapsedSec) : 0,
+    tokensEstimated: usageCompletionTokens === null,
+  };
+}
+
 export function buildUserContent(text: string, files: AttachedFile[]): string {
   const textFiles = files.filter((f) => f.content !== null);
   const imageFiles = files.filter((f) => f.kind === 'image' && f.dataUrl);
@@ -152,6 +179,11 @@ export function useSendMessage() {
       let thinkingDurationMsFixed = false;
       let streamStartAt: number | null = null;
       let charCount = 0;
+      // The provider's own completion count, when it sends one. `onUsage` fires
+      // at most once, at the end of a cloud stream; a local model never sends
+      // it. Kept here rather than read back off the live-token store because
+      // that store is per-session and a second tab would clobber it mid-turn.
+      let usageCompletionTokens: number | null = null;
 
       // RAF-based flushing: accumulate token patches between frames so React
       // re-renders once per animation frame (~60fps) instead of once per token.
@@ -234,10 +266,9 @@ export function useSendMessage() {
 
           const completedAt = Date.now();
           const elapsedSec = streamStartAt ? (completedAt - streamStartAt) / 1000 : 0;
-          const tokenCount = Math.round(charCount / 4);
-          const tokensPerSec = elapsedSec > 0 ? Math.round(tokenCount / elapsedSec) : 0;
+          const stats = finalTokenStats(usageCompletionTokens, charCount, elapsedSec);
           if (isActive()) {
-            useChat.getState().updateLastAssistantMessage({ completedAt, tokenCount, tokensPerSec });
+            useChat.getState().updateLastAssistantMessage({ completedAt, ...stats });
             useChat.getState().setStreamStatus('done');
           }
           useConversations.getState().unmarkStreaming(sessionId);
@@ -285,6 +316,7 @@ export function useSendMessage() {
           if (isActive()) useChat.getState().setLiveTokens(promptTokens);
         },
         onUsage: (promptTokens, completionTokens) => {
+          usageCompletionTokens = completionTokens;
           if (isActive()) useChat.getState().setLiveTokens(promptTokens, completionTokens);
         },
       });

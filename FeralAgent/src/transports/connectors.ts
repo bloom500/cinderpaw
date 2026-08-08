@@ -85,6 +85,8 @@ export interface AgentLike {
   resetSession?(sessionId: string): void;
   /** Fold the older half of this session's transcript. Backs `/compact`. */
   compactSession?(sessionId: string): Promise<"compacted" | "not needed">;
+  /** Where the tokens went, rendered. Backs `/cost` — see `runChatCommand`. */
+  costReport?(): string;
 }
 
 /**
@@ -127,6 +129,14 @@ export async function runChatCommand(
       return result === "compacted"
         ? "🗜️ Compacted — older turns are now a summary and we keep going from here."
         : "🗜️ Nothing worth compacting yet.";
+    }
+    // On demand, never automatic. A per-reply counter on Discord or WhatsApp is
+    // noise nobody asked for on every message; the one person who wants the
+    // number wants all of it, once, and can ask.
+    case "/cost":
+    case "/tokens": {
+      const report = agent.costReport?.();
+      return report ?? "📊 No accounting yet — this build records nothing to report.";
     }
     default:
       return null;

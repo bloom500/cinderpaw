@@ -19,6 +19,7 @@
 
 import type { Database } from "bun:sqlite";
 import { countTokens } from "../core/tokenizer.ts";
+import { costReport as buildCostReport, renderCostReport } from "../core/cost-report.ts";
 import type {
   AuditLogger,
   BudgetExhaustedReason,
@@ -663,6 +664,18 @@ export class InferenceRouter {
    * Never throws. Accounting that can cost a user their turn is worse than no
    * accounting: telemetry is not the work.
    */
+  /**
+   * The rows above, rendered for a human. Lives here because this is the only
+   * class holding the handle to the database they were written to.
+   *
+   * `renderCostReport` and its query have been written and tested since the
+   * accounting landed, and had no caller anywhere in the product — a meter
+   * wired into the wall with no glass over the dial. This is the glass.
+   */
+  costReport(): string {
+    return renderCostReport(buildCostReport(this.#db));
+  }
+
   #recordCompletionCost(
     sessionId: string,
     response: InferenceResponse,
