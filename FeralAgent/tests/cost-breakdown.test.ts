@@ -67,9 +67,11 @@ describe("the breakdown partitions the prompt", () => {
     // Five results: #budgetToolResults keeps the newest four at full size and
     // cuts the oldest, which is exactly the split worth seeing.
     for (let i = 0; i < 5; i++) mem.addToolResult("read_file", "x ".repeat(3000));
-    // maybeCompress runs the trimmer first; a huge budget keeps it from
-    // summarising, so the only change is the trim.
-    return mem.maybeCompress(async () => "unused", 1_000_000).then(() => {
+    // The trimmer only runs when the transcript is over budget (running it
+    // under budget rewrote the middle of the transcript every turn and cost far
+    // more in re-sent prefix than it saved). Just barely over, so trimming the
+    // one stale result covers it and the summariser never runs.
+    return mem.maybeCompress(async () => "unused", mem.estimatedTokens() - 1_000).then(() => {
       const { parts } = mem.breakdown();
       expect(lane(parts, "tool_output", "read_file (trimmed)")).toBeGreaterThan(0);
       expect(lane(parts, "tool_output", "read_file (full)")).toBeGreaterThan(0);

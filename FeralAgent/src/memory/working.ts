@@ -539,14 +539,32 @@ export class WorkingMemory {
     summarize: (messages: ChatMessage[]) => Promise<string>,
     targetTokens: number = this.#config.maxTokens,
   ): Promise<boolean> {
-    // Cheapest shaper first. It costs no model call and no allocation on the
-    // common path, and it is what keeps most turns from ever reaching the
-    // summarizer below — stale tool output is the bulk of a long transcript
-    // and the part with the least value per token.
-    this.#budgetToolResults();
-
     if (this.estimatedTokens() <= targetTokens) return false;
     if (this.#messages.length === 0) return false;
+
+    // Cheapest shaper first — but only now that we are over budget, because it
+    // is not free the way it looks.
+    //
+    // It used to run above the check, on every single turn. It costs no model
+    // call, so it read as free; what it actually costs is the prompt cache.
+    // Trimming rewrites a tool result in the MIDDLE of the transcript, and a
+    // prefix cache keys on bytes: the first message that differs from last turn
+    // ends the reusable prefix, and everything after it is billed and prefilled
+    // again. Measured with no memory pressure at all (17k transcript, 10M
+    // budget), from the fifth tool result onward every turn moved the divergence
+    // point back into the body and re-sent ~15,000 unchanged tokens to save the
+    // ~476 the trim recovered. Thirty times the cost of the thing it bought.
+    //
+    // Down here it fires only when the transcript is genuinely over budget —
+    // which is the one moment the cache is about to be invalidated anyway, by
+    // the summary note this method is about to prepend. One invalidation per
+    // compaction instead of one per turn, and it still runs before the
+    // summarizer, so the "trim before you pay for a completion" intent it was
+    // written for is intact.
+    this.#budgetToolResults();
+    // Trimming alone got us under. No summarizer, no history lost — but the
+    // transcript did change, so this is a compaction and says so.
+    if (this.estimatedTokens() <= targetTokens) return true;
 
     // The compaction boundary — a note THIS method wrote on an earlier pass.
     // It is held out of the region handed to the summarizer.

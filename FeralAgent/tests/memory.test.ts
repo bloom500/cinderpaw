@@ -398,10 +398,15 @@ describe("WorkingMemory.maybeCompress — context-window safety", () => {
       mem.addToolResult("read_file", `PAYLOAD-${i} ` + "x".repeat(8_000));
     }
     const before = mem.estimatedTokens();
-    // Well under budget: no summarization runs, so anything saved here is the
-    // tool-result layer alone.
-    const changed = await mem.maybeCompress(summarize, 1_000_000);
-    expect(changed).toBe(false);
+    // Over budget, but only just: the tool-result layer alone gets us back
+    // under, so the summarizer never runs and anything saved here is its work.
+    let summarizerCalls = 0;
+    const changed = await mem.maybeCompress(
+      (msgs) => { summarizerCalls++; return summarize(msgs); },
+      before - 1_000,
+    );
+    expect(changed).toBe(true);
+    expect(summarizerCalls).toBe(0);
     expect(mem.estimatedTokens()).toBeLessThan(before);
 
     const tools = mem.turns.filter((m) => m.role === "tool");
@@ -421,10 +426,48 @@ describe("WorkingMemory.maybeCompress — context-window safety", () => {
     // Identifying head survives the cut — the model can still tell them apart.
     expect(tools[0]?.content).toContain("PAYLOAD-0");
 
-    // Idempotent: a second pass must not keep eating the trimmed messages.
-    const after = mem.estimatedTokens();
-    await mem.maybeCompress(summarize, 1_000_000);
-    expect(mem.estimatedTokens()).toBe(after);
+    // Idempotent: a later pass must not keep eating what it already trimmed.
+    // Byte-identical, not merely "no smaller" — a re-cut that happened to land
+    // on the same length would still break every prefix cache downstream.
+    const trimmed = tools.slice(0, -4).map((m) => m.content);
+    mem.addUser("step 8");
+    mem.addToolResult("read_file", "PAYLOAD-8 " + "x".repeat(8_000));
+    // Shallow enough over that trimming the one newly-stale result covers it,
+    // so nothing is summarized away and every earlier message is still here to
+    // compare against.
+    await mem.maybeCompress(summarize, mem.estimatedTokens() - 300);
+    const after = mem.turns.filter((m) => m.role === "tool");
+    expect(after.slice(0, trimmed.length).map((m) => m.content)).toEqual(trimmed);
+  });
+
+  test("under budget, nothing is touched — the cacheable prefix stays byte-stable", async () => {
+    // The regression this guards is invisible in token counts and shows up only
+    // on the bill. Trimming rewrites a tool result in the MIDDLE of the
+    // transcript; a prompt cache keys on bytes, so the first message that
+    // differs from last turn ends the reusable prefix and everything after it
+    // is prefilled and billed again. Running the trimmer unconditionally spent
+    // ~15,000 re-sent tokens per turn to recover ~476 — with a budget the
+    // transcript was nowhere near.
+    const mem = new WorkingMemory("sys");
+    const big = (n: number) => `file-${n}.ts\n` + `const x${n} = 1;\n`.repeat(400);
+
+    let prev: string[] = [];
+    for (let turn = 0; turn < 10; turn++) {
+      mem.addUser(`read file ${turn}`);
+      mem.addToolResult("read_file", big(turn));
+      // Budget the transcript could not reach if it tried.
+      expect(await mem.maybeCompress(summarize, 10_000_000)).toBe(false);
+
+      const now = mem.render().map((m) => m.content);
+      // Everything before the last user message is settled history and must be
+      // untouched. The last user message carries the per-turn dynamic block, so
+      // it is expected to differ and is excluded.
+      let lastUser = -1;
+      const roles = mem.render().map((m) => m.role);
+      for (let i = roles.length - 1; i >= 0; i--) if (roles[i] === "user") { lastUser = i; break; }
+      if (turn > 0) expect(now.slice(0, lastUser)).toEqual(prev.slice(0, lastUser));
+      prev = now;
+    }
   });
 });
 
