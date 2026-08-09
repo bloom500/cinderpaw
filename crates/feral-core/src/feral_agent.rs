@@ -546,21 +546,28 @@ pub async fn spawn(
     let (tx, rx) = mpsc::channel::<String>(64);
     *runtime.feral_agent_tx.lock() = Some(tx);
 
-    // The stdout reader needs a way to write responses back to the sidecar's
-    // stdin (for the desktop-control / rsi request/response bridges), so hand
-    // it a clone of the stdin sender before `tx` is moved into the slot.
-    let response_tx = {
-        let guard = runtime.feral_agent_tx.lock();
-        guard.as_ref().expect("tx_slot was just populated").clone()
-    };
-
+    // The stdout reader borrows the sender from `runtime.feral_agent_tx` at the
+    // moment it has something to say, rather than holding a clone for its whole
+    // life. It used to hold one, and that clone is what made shutdown take the
+    // full 30-second grace period every single time:
+    //
+    //   shutdown() drops the sender in the slot, expecting `rx` to close, the
+    //   writer task to end, the child's stdin to drop and the sidecar to see
+    //   EOF. The reader's clone kept `rx` alive, so stdin never closed, the
+    //   sidecar never saw EOF, and it sat there until the hard kill — while the
+    //   reader itself only ends when the sidecar's stdout closes, which the kill
+    //   is what causes. A cycle broken only by the timeout.
+    //
+    // `gateway stop` waits 35s for the port; the drain always took ~30 plus
+    // change, so it was a coin flip whether stopping reported success or
+    // "gateway still up after 35s" for a shutdown that did work, five seconds
+    // late. `feral update` restarts through that same path.
     tokio::spawn(stdin_writer(stdin, rx));
     tokio::spawn(stdout_reader(
         runtime.clone(),
         events.clone(),
         desktop_control,
         stdout,
-        response_tx,
         runtime.rsi_request_registry.clone(),
         runtime.rsi_engine.clone(),
         runtime.feral_agent_process.clone(),
@@ -794,7 +801,6 @@ async fn stdout_reader(
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
     stdout: tokio::process::ChildStdout,
-    response_tx: mpsc::Sender<String>,
     rsi_registry: RsiRequestRegistry,
     rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
     process_slot: Arc<Mutex<Option<tokio::process::Child>>>,
@@ -832,13 +838,15 @@ async fn stdout_reader(
 
             match v.get("type").and_then(|t| t.as_str()) {
                 Some("desktop_control_request") => {
-                    let tx = response_tx.clone();
+                    // None once shutdown has taken the sender: the sidecar is on
+                    // its way out and there is nobody left to answer.
+                    let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
                     let dc = desktop_control.clone();
                     tokio::spawn(async move { handle_desktop_control_request(v, dc, tx).await });
                     continue;
                 }
                 Some("rsi_request") => {
-                    let tx = response_tx.clone();
+                    let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
                     let runtime = runtime.clone();
                     tokio::spawn(async move {
                         handle_rsi_request(runtime, v, tx).await;
