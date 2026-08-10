@@ -387,31 +387,51 @@ export class WorkingMemory {
   }
 
   /**
-   * Update the per-turn view of the durable todo list. Only OPEN items are
-   * shown — a done item is history, and re-listing it every turn would spend
-   * context re-teaching the model something it must not redo.
+   * Update the per-turn view of the durable task list.
    *
-   * ponytail: capped at 20 items, no pagination. A task list longer than that
-   * is a planning problem, not a rendering one.
+   * Two blocks, deliberately separated. OPEN items are the work; CLOSED items
+   * are the memory of work already done. The done block exists because the
+   * transcript that recorded the work is summarized away while these rows are
+   * not — without it, hour 6 of a long run has no record that hour 2 happened,
+   * and the agent redoes it.
+   *
+   * The two headings say opposite things on purpose. One list is "do this", the
+   * other is "do NOT do this". Rendered as one list they would read as a plan.
+   *
+   * ponytail: capped at 20 open / 8 closed, no pagination. A task list longer
+   * than that is a planning problem, not a rendering one.
    */
+  setTodoList(items: Array<{ id: string; content: string; status: string }>): void {
+    const open = items.filter((t) => t.status !== "done").slice(0, 20);
+    // `items` arrives newest-updated first (TodoStore.list ORDER BY updated_at
+    // DESC), so the head of this slice is the most recently finished work —
+    // which is the part most likely to be redone.
+    const done = items.filter((t) => t.status === "done").slice(0, 8);
+    const blocks: string[] = [];
+    if (open.length > 0) {
+      blocks.push(
+        "## Your task list (persists across sessions — `todo_write` to update)\n" +
+          "These are still OPEN. Do not redo anything absent from this list.\n\n" +
+          open.map((t) => `- [${t.status}] \`${t.id}\` — ${t.content}`).join("\n"),
+      );
+    }
+    if (done.length > 0) {
+      blocks.push(
+        "## Already done (most recent first)\n" +
+          "This work is FINISHED. Do not redo it. Verify current state before any " +
+          "write that one of these may already have performed.\n\n" +
+          done.map((t) => `- \`${t.id}\` — ${t.content}`).join("\n"),
+      );
+    }
+    this.#todoList = blocks.join("\n\n");
+  }
+
   /**
    * Describe the surface this session's answers are rendered on. Idempotent —
    * connectors call it on every inbound message. Empty string clears it.
    */
   setSurfaceBrief(brief: string): void {
     this.#surfaceBrief = brief;
-  }
-
-  setTodoList(items: Array<{ id: string; content: string; status: string }>): void {
-    const open = items.filter((t) => t.status !== "done").slice(0, 20);
-    if (open.length === 0) {
-      this.#todoList = "";
-      return;
-    }
-    this.#todoList =
-      "## Your task list (persists across sessions — `todo_write` to update)\n" +
-      "These are still OPEN. Do not redo anything absent from this list.\n\n" +
-      open.map((t) => `- [${t.status}] \`${t.id}\` — ${t.content}`).join("\n");
   }
 
   /**

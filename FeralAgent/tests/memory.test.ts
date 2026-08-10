@@ -253,6 +253,50 @@ describe("WorkingMemory.render — P1 prompt-cache layout", () => {
     const tokens = mem.estimatedTokens();
     expect(tokens).toBeGreaterThan(0);
   });
+
+  test("todo drawer shows recently closed items under their own do-not-redo heading", () => {
+    const mem = new WorkingMemory("sys");
+    mem.setTodoList([
+      { id: "parse", content: "write the CSV parser", status: "in_progress" },
+      { id: "fetch", content: "download the export", status: "done" },
+      { id: "auth", content: "get an API token", status: "done" },
+    ]);
+    mem.addUser("hi");
+    const last = mem.render().at(-1)!.content;
+
+    // Open work is still listed as open.
+    expect(last).toContain("write the CSV parser");
+    // Closed work is present, so the model does not redo it...
+    expect(last).toContain("download the export");
+    expect(last).toContain("get an API token");
+    // ...under a heading that cannot be mistaken for the open list.
+    expect(last).toContain("Already done");
+    expect(last).toMatch(/do not redo/i);
+  });
+
+  test("closed items are capped at 8, newest kept", () => {
+    const mem = new WorkingMemory("sys");
+    const items = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      content: `task number ${i}`,
+      status: "done",
+    }));
+    mem.setTodoList(items);
+    mem.addUser("hi");
+    const last = mem.render().at(-1)!.content;
+
+    // TodoStore.list() returns newest-updated first, so the head of the array wins.
+    expect(last).toContain("task number 0");
+    expect(last).toContain("task number 7");
+    expect(last).not.toContain("task number 8");
+  });
+
+  test("a list with no closed items renders no done block at all", () => {
+    const mem = new WorkingMemory("sys");
+    mem.setTodoList([{ id: "a", content: "open thing", status: "todo" }]);
+    mem.addUser("hi");
+    expect(mem.render().at(-1)!.content).not.toContain("Already done");
+  });
 });
 
 describe("WorkingMemory.maybeCompress — context-window safety", () => {
