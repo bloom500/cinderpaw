@@ -211,6 +211,11 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
         thinkingStartMs: 0,
         thinkingDurationRecorded: false,
         toolCallCount: 0,
+        // What the agent wrote in its own scratchpad this turn. Accumulated
+        // here rather than read off the bubble strip because that strip holds
+        // four entries and is wiped five seconds after the turn ends — it
+        // answers "what is it doing", and this has to answer "what did it do".
+        scratch: { edits: 0, added: 0, removed: 0 },
       };
 
       const persistFinal = async () => {
@@ -303,6 +308,15 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           }
         },
         onToolDone: (_callId, tool, result) => {
+          // Scratchpad telemetry. `write_file` and `edit_file` report the line
+          // delta they already had in hand, so this is a read of an existing
+          // field, not a second measurement that could disagree with the first.
+          const d = (result as { data?: Record<string, unknown> } | null | undefined)?.data;
+          if (d?.scratch === true && isOkResult(result)) {
+            state.scratch.edits += 1;
+            state.scratch.added += typeof d.linesAdded === 'number' ? d.linesAdded : 0;
+            state.scratch.removed += typeof d.linesRemoved === 'number' ? d.linesRemoved : 0;
+          }
           // Find the most recent running entry with this tool name and
           // flip it to done/error. The mirror keys by id but we pair by
           // (name, status) so out-of-order events still resolve.
@@ -362,6 +376,13 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
             }
           }
           if (isActive()) {
+            // Attached to the MESSAGE, which persistFinal() writes to disk, so
+            // it is still there tomorrow. The bubble strip below is deliberately
+            // left ephemeral — it is the "working now" indicator, and this is
+            // the record.
+            if (state.scratch.edits > 0) {
+              useChat.getState().updateLastAssistantMessage({ scratch: { ...state.scratch } });
+            }
             useChat.getState().setStreamStatus('done');
             useChat.setState({ lastCompletionStopped: stopped });
             // 5s post-done window before clearing the bubble strip.

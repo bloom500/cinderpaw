@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { cfgBool, cfgInt, cfgList, cfgPath, feralHome, searxngOrigin } from "./config.ts";
+import { cfgBool, cfgInt, cfgList, cfgPath, feralHome, scratchRoot, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -201,7 +201,9 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
     : [process.cwd(), homedir()];
   const roots = requested.map((p) => resolve(p));
 
-  const scratch = resolve(FERAL_HOME, "workspace");
+  // Same resolver the file tools use to decide whether a write is "scratchpad"
+  // or "the user's project" — they must never disagree about where it is.
+  const scratch = scratchRoot();
   try { mkdirSync(scratch, { recursive: true }); } catch { /* best effort */ }
   roots.push(scratch);
 

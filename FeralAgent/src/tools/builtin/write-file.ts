@@ -10,6 +10,7 @@ import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
+import { lineDelta, isScratchPath } from "../file-delta.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_WRITE_BYTES = 1024 * 1024; // 1 MB guard
@@ -65,17 +66,29 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
       // write. Always safe (the on-disk result is identical either way), and it
       // makes a replayed write after a crash/retry a no-op instead of a
       // redundant disk churn + mtime bump that could retrigger watchers.
+      // Kept beyond the idempotency check so the line delta below is free: this
+      // read is the only one either write path makes, and the telemetry needs
+      // exactly the "before" it already has in hand.
+      let previous = "";
       try {
-        const existing = await readFile(safePath, "utf8");
-        if (existing === content) {
+        previous = await readFile(safePath, "utf8");
+        if (previous === content) {
           return {
             ok: true,
             content: `Unchanged — ${safePath} already contains exactly this content (${Buffer.byteLength(content, "utf8")} bytes), nothing written.`,
-            data: { path: safePath, bytes: Buffer.byteLength(content, "utf8"), skipped: true },
+            data: {
+              path: safePath,
+              bytes: Buffer.byteLength(content, "utf8"),
+              skipped: true,
+              linesAdded: 0,
+              linesRemoved: 0,
+              scratch: isScratchPath(safePath),
+            },
           };
         }
       } catch {
         // Not readable (absent, or binary/permission) — fall through and write.
+        // `previous` stays "", so a brand-new file reads as all-added.
       }
 
       // Read-before-overwrite gate, deliberately AFTER the idempotency check.
@@ -100,10 +113,17 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
       // Our own write must not make a follow-up edit look stale.
       noteWrite(ctx.sessionId, safePath);
 
+      const delta = lineDelta(previous, content);
       return {
         ok: true,
         content: `Written ${Buffer.byteLength(content, "utf8")} bytes to ${safePath}`,
-        data: { path: safePath, bytes: Buffer.byteLength(content, "utf8") },
+        data: {
+          path: safePath,
+          bytes: Buffer.byteLength(content, "utf8"),
+          linesAdded: delta.added,
+          linesRemoved: delta.removed,
+          scratch: isScratchPath(safePath),
+        },
       };
     },
   };
