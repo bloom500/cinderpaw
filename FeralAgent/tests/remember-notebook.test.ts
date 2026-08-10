@@ -64,3 +64,36 @@ test("ordinary facts are unaffected by the notebook cap", async () => {
   const res = await tool.execute({ key: "home_city", value: "Sibiu" }, { sessionId: "" });
   expect(res.ok).toBe(true);
 });
+
+// The notebook is a scratchpad, not a fact about a person. `all(scope)` folds the
+// global rows in on purpose — right for "what the agent knows", wrong for "what
+// this session is in the middle of". These two tests pin the difference.
+
+test("a full owner notebook does not consume a Discord member's capacity", async () => {
+  const { tool, semantic } = newTool();
+  for (let i = 0; i < MAX_NOTES; i++) {
+    await tool.execute({ key: `note:k${i}`, value: `v${i}` }, { sessionId: "" });
+  }
+  // Same tool, a scoped speaker. Counting the owner's rows here left every guest
+  // permanently at the cap with nothing of their own to delete.
+  const res = await tool.execute(
+    { key: "note:mine", value: "my own note" },
+    { sessionId: "discord:guild1:user9" },
+  );
+  expect(res.ok).toBe(true);
+  expect(semantic.own("discord/user9").filter((f) => f.key.startsWith("note:"))).toHaveLength(1);
+});
+
+test("one member's notebook is invisible to another member and to the owner", async () => {
+  const { tool, semantic } = newTool();
+  await tool.execute({ key: "note:position", value: "user9 secret" }, { sessionId: "discord:g:user9" });
+  await tool.execute({ key: "note:position", value: "owner work" }, { sessionId: "" });
+
+  const notesOf = (scope: string) =>
+    semantic.own(scope).filter((f) => f.key.startsWith("note:")).map((f) => f.value);
+
+  expect(notesOf("discord/user9")).toEqual(["user9 secret"]);
+  // The other member sees neither. `all()` would hand them the owner's row.
+  expect(notesOf("discord/user7")).toEqual([]);
+  expect(notesOf("")).toEqual(["owner work"]);
+});

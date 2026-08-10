@@ -113,8 +113,12 @@ export function createRememberTool(semantic: SemanticMemory): Tool {
       // refusing that would leave the agent stuck with ten stale lines.
       const normalized = key.toLowerCase();
       if (normalized.startsWith(NOTE_PREFIX) && normalized !== POSITION_KEY) {
+        // `own`, not `all`: the cap must count only rows this scope can actually
+        // rewrite. Counting the global ones too meant the owner's ten notes
+        // filled every Discord member's quota, and none of them could free it —
+        // a write they cannot overwrite is not a note they can curate.
         const existing = semantic
-          .all(scope)
+          .own(scope)
           .filter((f) => f.key.startsWith(NOTE_PREFIX) && f.key !== POSITION_KEY);
         const isNew = !existing.some((f) => f.key === normalized);
         if (isNew && existing.length >= MAX_NOTES) {

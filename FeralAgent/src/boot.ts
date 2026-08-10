@@ -920,10 +920,15 @@ export async function boot(transportOverride?: Transport) {
 
   // The notebook read side. `semantic` already exists (line ~493); this only
   // gives the loop a filtered view of it.
+  //
+  // `own` rather than `all`: the notebook must show this session ONLY its own
+  // notes. `all` folds the global rows in — right for facts, wrong for a
+  // scratchpad, which would otherwise render the owner's in-flight notes into a
+  // Discord member's prompt. See SemanticMemory.own.
   agent.setNotebookStore({
     notes: (scope) =>
       semantic
-        .all(scope)
+        .own(scope)
         .filter((f) => f.key.startsWith(NOTE_PREFIX))
         .map((f) => ({ key: f.key, value: f.value })),
   });
@@ -984,6 +989,28 @@ export async function boot(transportOverride?: Transport) {
       turnBudgetMs() * (cfgInt("FERAL_UNATTENDED_CONTINUATIONS") + 1) + 60_000,
   );
   /**
+   * How many tasks are currently finished.
+   *
+   * This DOES match on a status string, which an earlier note here warned
+   * against because statuses are free-form. That warning is out of date: the
+   * per-turn todo drawer already splits on exactly `status !== "done"`
+   * (WorkingMemory.setTodoList) and `TodoStore.add` defaults to `"todo"`, so
+   * "done" is a convention the prompt side already commits to. Two places
+   * disagreeing about what closed means would be worse than either choice.
+   *
+   * An unrecognized status simply counts as open — the guard then falls back to
+   * `filesChanged`, which is where it was before this existed.
+   */
+  function countDoneTodos(): number {
+    try {
+      return todoStore.list().filter((t) => t.status.trim().toLowerCase() === "done").length;
+    } catch {
+      // Progress accounting must never be the reason a run stops.
+      return 0;
+    }
+  }
+
+  /**
    * Turn each finished turn into a row, with progress read off the disk rather
    * than taken from the turn's own account of itself. An agent that reports
    * success and wrote nothing looks identical from the inside; it does not look
@@ -994,6 +1021,7 @@ export async function boot(transportOverride?: Transport) {
     // after the previous turn" and compared.
     let lastPrint: string | null = null;
     let lastTokens = router.conversationTokens(row.sessionId);
+    let lastDone = countDoneTodos();
     return {
       record: async (t: TurnRecord & { startedAt: number; tokens: number }) => {
         const changed = await changedSince(safety);
@@ -1016,6 +1044,13 @@ export async function boot(transportOverride?: Transport) {
         const spent = Math.max(0, total - lastTokens);
         lastTokens = total;
 
+        // Cumulative, like the token counter above, so a turn's contribution is
+        // the delta. Clamped at 0: reopening a task is not negative progress,
+        // it is a turn that closed nothing.
+        const doneNow = countDoneTodos();
+        const closed = Math.max(0, doneNow - lastDone);
+        lastDone = doneNow;
+
         runStore.appendTurn({
           runId: row.id,
           startedAt: t.startedAt,
@@ -1031,12 +1066,11 @@ export async function boot(transportOverride?: Transport) {
           // this turn's work.
           filesChanged:
             firstTurn || advanced ? (changed.available ? changed.files.length : 0) : 0,
-          // ponytail: the (id, status) diff the spec asks for needs a TodoStore
-          // handle no call site has yet. filesChanged alone drives every decision
-          // in decideResume, so nothing depends on this being filled. Wire a
-          // TodoStore in — do NOT match on a status string, they are free-form
-          // by design.
-          todosClosed: 0,
+          // Hardcoded 0 while `filesChanged` alone drove every decision. It no
+          // longer does: `madeNoProgress` needs BOTH to be zero, so a permanent
+          // zero here made the second half of the guard decorative — and a turn
+          // that closed three tasks without touching a file counted as a stall.
+          todosClosed: closed,
           doneWhenPass: cheap.checked ? cheap.passed : null,
         });
       },

@@ -71,11 +71,14 @@ test("a note in the store lands in the actual prompt sent to the model", async (
   });
 
   const bodies: string[] = [];
+  // Captured BEFORE the override. `globalThis.fetch = globalThis.fetch` restores
+  // the stub to itself, leaving it installed for every later test in the file.
+  const realFetch = globalThis.fetch;
   globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
     bodies.push(String(init?.body ?? ""));
     return new Response(JSON.stringify(ollamaOk("done")), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  restoreFetch = () => { globalThis.fetch = globalThis.fetch; };
+  restoreFetch = () => { globalThis.fetch = realFetch; };
 
   await agent.handle("s1", "go", "m1", () => {});
 

@@ -2624,12 +2624,16 @@ export function summaryText(raw: string): string {
  * strictly worse than a slightly stale one.
  */
 export function extractPosition(summary: string): string | null {
-  const start = summary.indexOf("### Position");
-  if (start === -1) return null;
-  const after = summary.slice(start + "### Position".length);
+  // The whole heading LINE, not a prefix match: `indexOf("### Position")` also
+  // fires on `### Positioning`, and lifting an unrelated section into the
+  // notebook is worse than leaving the old note — the note is what the next turn
+  // navigates by.
+  const heading = /^[ \t]*###[ \t]+Position[ \t]*$/m.exec(summary);
+  if (!heading) return null;
+  const after = summary.slice(heading.index + heading[0].length);
   // Stop at the next heading — the position section is the only part of the
   // summary that gets rewritten, so it must not absorb the facts around it.
-  const end = after.indexOf("\n###");
+  const end = after.search(/\n[ \t]*#{1,6}[ \t]/);
   const body = (end === -1 ? after : after.slice(0, end)).trim();
   return body.length > 0 ? body : null;
 }

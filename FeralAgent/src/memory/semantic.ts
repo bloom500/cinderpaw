@@ -146,11 +146,7 @@ export class SemanticMemory {
    * scoped fact shadows a global one with the same key.
    */
   all(scope = ""): SemanticFact[] {
-    const rows = this.#db
-      .query<{ key: string; value: string; updated_at: number }, []>(
-        "SELECT key, value, updated_at FROM semantic ORDER BY updated_at DESC",
-      )
-      .all();
+    const rows = this.#rows();
     if (!scope) {
       return rows.map((r) => ({ key: r.key, value: decryptField(r.value), updatedAt: r.updated_at }));
     }
@@ -167,6 +163,39 @@ export class SemanticMemory {
       }
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  #rows(): Array<{ key: string; value: string; updated_at: number }> {
+    return this.#db
+      .query<{ key: string; value: string; updated_at: number }, []>(
+        "SELECT key, value, updated_at FROM semantic ORDER BY updated_at DESC",
+      )
+      .all();
+  }
+
+  /**
+   * Facts this scope OWNS — no global fallback, and for the owner (`""`) no
+   * other identity's rows either.
+   *
+   * `all()` merges the global rows in on purpose: a Discord member should see
+   * what the owner taught the agent. The notebook is the one reader that must
+   * not work that way. Its rows are not facts about a person, they are the
+   * agent's in-flight working notes for whatever run wrote them — merging would
+   * put one session's scratchpad ("next: deploy the staging key") into a
+   * different person's prompt, and would let the owner's ten notes fill every
+   * guest's `MAX_NOTES` so no guest could ever write one.
+   *
+   * Ownership, not visibility. Use `all()` for anything the agent is supposed to
+   * KNOW, and this for anything it is supposed to MAINTAIN.
+   */
+  own(scope = ""): SemanticFact[] {
+    return this.#rows()
+      .filter((r) => scopeOf(r.key) === scope)
+      .map((r) => ({
+        key: stripScope(r.key),
+        value: decryptField(r.value),
+        updatedAt: r.updated_at,
+      }));
   }
 
   /** Look up a single fact by key, or undefined when unknown. Falls back to
