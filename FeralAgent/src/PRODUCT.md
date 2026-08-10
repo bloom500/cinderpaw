@@ -86,6 +86,81 @@ business/sales use); default is "owner" mode (only the owner's numbers).
 - RSI (recursive self-improvement): config/code proposals with watchdog
   auto-revert on crash; `feral meta` inspects meta-evolution state.
 
+## Working unattended (walk-away runs)
+
+Feral is built to keep working when nobody is watching — a cron job, or a
+message answered while its author is asleep. A turn that runs out of budget is
+NOT the end of the task:
+
+- **Automatic continuations.** When a turn hits the time limit with work left,
+  the runtime starts another turn on the same session (transcript, task list and
+  checkpoint all intact) and tells it to pick up where it stopped rather than
+  start over. Budget: `FERAL_UNATTENDED_CONTINUATIONS`.
+- **A wall-clock deadline.** `FERAL_MISSION_DEADLINE_MS` stops a run at a real
+  time rather than after a number of turns.
+- **One replan.** If the same action keeps returning the same result, the run is
+  not "out of time", it is refuted — it gets exactly one turn to state what it
+  tried, why it could not work, and choose a different approach. Once, not
+  repeatedly: a second replan knows nothing the first did not.
+- **A stall guard.** Three turns in a row that change no files and close no
+  tasks stop the run instead of burning the budget. Progress is read off the
+  disk, never from the agent's own opinion of itself.
+- **Crash recovery.** A killed process leaves a run marked `running`; the next
+  boot sees that and resumes it, up to a resume cap, then asks a human.
+
+**The walk-away digest.** Every unattended run is reported with a verdict first
+(done / done-but-the-check-failed / not finished), then turns and actions, then
+what the commands actually did, then every file changed with a command to undo
+it, and the agent's own words LAST. It is assembled from what the runtime
+already recorded, so it costs no model call and cannot make things up.
+
+## Keeping its place on a long task
+
+Long runs fail by forgetting, not by being wrong. Four mechanisms, each covering
+what the others lose:
+
+- **The notebook.** `remember` with a key starting `note:` writes a durable note
+  that is shown back in FULL at the start of every turn — not searched. Search
+  only ever returns what the agent thought to look for, which late in a run is
+  exactly what it has forgotten it knows. Capped at 10 entries, so it stays
+  curated. `note:position` is the conventional "where I am, what is next, what
+  is blocked" entry.
+- **The task list.** `todo_write` stores tasks in the database, not the
+  transcript. Both the open items AND recently finished ones are shown every
+  turn — the finished half is what stops work being redone after the
+  conversation that recorded it has been compacted away.
+- **Compaction.** When the conversation outgrows its budget, older turns are
+  summarized into one note carrying an exact `### Established facts` section.
+  Summaries are carried forward verbatim, never re-summarized. `/compact`
+  triggers it manually.
+- **The scratchpad.** `~/.feral/workspace` is the agent's own directory. It
+  writes there freely with `write_file` and `edit_file` — running notes, drafts
+  of long output, intermediate results — without touching anything of the
+  user's. The desktop shows what it wrote as `1 scratchpad edit +71` under the
+  reply, and that line persists.
+
+Writing in the USER's directories is deliberately stricter: only inside the
+configured workspace roots, and `edit_file` / `write_file` both refuse to
+overwrite a file the agent has not read first — an unread overwrite destroys
+whatever it did not know was there.
+
+## Asking the agent about itself
+
+Do not answer from memory about the runtime's current state — ask it:
+
+- `self_tools` — every tool actually registered right now, with descriptions.
+  This is generated from the live registry, so it is never out of date.
+- `self_describe` — full runtime identity document, all subsystems at once.
+- `self_status` / `self_health` — per-subsystem heartbeat and availability.
+- `self_subsystem <name>` — deep dive on one subsystem.
+- `self_runtime`, `self_providers`, `self_memory`, `self_connectors`,
+  `self_genome`, `self_dreams`, `self_lora`, `self_progress` — narrower views.
+
+The rule the substrate is built on: nothing may be invisible to the agent. If a
+question is about what Feral IS, answer from this document; if it is about what
+this instance is DOING or HAS, call the matching `self_*` tool and answer from
+the result.
+
 ## Chat slash commands
 
 `/help` (all commands + keys), `/model`, `/connectors`, `/memory`, `/dream`,
@@ -115,6 +190,10 @@ token footnote), `/restart` (restart the runtime).
 - Not a cloud service: conversations, memory, and models stay on-device
   unless the user configures a cloud model provider.
 - No telemetry of chat content.
-- The agent cannot edit files under `~/.feral` itself unless the user set
-  the workspace to allow it — configuration changes go through the commands
-  and surfaces above.
+- Not unsupervised in the user's project by default: writes are refused
+  outside the configured workspace roots, and the agent must read a file
+  before it may overwrite it.
+- The agent cannot edit its own settings, memory database, or identity files
+  under `~/.feral` — configuration changes go through the commands and
+  surfaces above. The ONE exception is `~/.feral/workspace`, its scratchpad,
+  which is writable by design and holds nothing of the user's.
