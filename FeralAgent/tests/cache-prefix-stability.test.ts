@@ -68,4 +68,27 @@ describe("the cached prefix stays byte-identical", () => {
     expect(rendered[0]!.content).toBe(systemBefore);
     expect(rendered[rendered.length - 1]!.role).toBe("user");
   });
+
+  test("the notebook drawer moves with the last user message, not the frozen prefix", () => {
+    // The notebook (this plan's new drawer) has to obey the same discipline as
+    // todo/skill/memory above: it is volatile per-turn content, so it belongs at
+    // the END, never inserted ahead of settled history where it would shift
+    // every later message's position and kill the cache from that point on.
+    const mem = new WorkingMemory("SYSTEM PROMPT");
+    mem.addUser("first question");
+    mem.addAssistant("first answer");
+    mem.addUser("second question");
+    const before = frozenPart(mem.render());
+
+    // Setting the notebook between turns must not rewrite anything already frozen.
+    mem.setNotebook([{ key: "note:db-path", value: "~/.feral/agent/feral.db" }]);
+    mem.addAssistant("second answer");
+    mem.addUser("third question");
+    const after = frozenPart(mem.render());
+
+    for (let i = 0; i < before.length; i++) {
+      expect(after[i]).toBe(before[i]!);
+    }
+    expect(after.length).toBeGreaterThanOrEqual(before.length);
+  });
 });
