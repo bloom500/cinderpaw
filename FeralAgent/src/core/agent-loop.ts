@@ -25,6 +25,7 @@ import {
 import type { ToolRegistry } from "../tools/registry.ts";
 import { cfgInt } from "../config.ts";
 import { SESSION_RESET_MARK, type EpisodicMemory } from "../memory/episodic.ts";
+import { memoryScope } from "../memory/semantic.ts";
 import type { RecallResult } from "../memory/recall.ts";
 
 /**
@@ -497,6 +498,15 @@ export class AgentLoop {
     this.#todos = store;
   }
   #todos: { list(): Array<{ id: string; content: string; status: string }> } | null = null;
+
+  /**
+   * The notebook read side. Structural, like `setTodoStore`: the loop must not
+   * grow a dependency on SemanticMemory just to render a drawer.
+   */
+  setNotebookStore(store: { notes(scope: string): Array<{ key: string; value: string }> }): void {
+    this.#notebook = store;
+  }
+  #notebook: { notes(scope: string): Array<{ key: string; value: string }> } | null = null;
 
   /**
    * Attach the crash-resume checkpoint store. When present, the loop snapshots
@@ -999,6 +1009,18 @@ export class AgentLoop {
         memory.setTodoList(this.#todos.list());
       } catch {
         // A todo-store failure must never cost the user their turn.
+      }
+    }
+
+    // Refresh the notebook for this turn, for the same reason as the task list:
+    // the agent rewrites it mid-task via `remember` and has to see its own edits.
+    // Scoped like every other semantic read, so one Discord member's notes never
+    // surface in another's session.
+    if (this.#notebook) {
+      try {
+        memory.setNotebook(this.#notebook.notes(memoryScope(sessionId)));
+      } catch {
+        // A memory-store failure must never cost the user their turn.
       }
     }
 

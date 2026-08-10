@@ -79,7 +79,7 @@ import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
-import { createRememberTool } from "./tools/builtin/remember.ts";
+import { createRememberTool, NOTE_PREFIX } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
@@ -917,6 +917,16 @@ export async function boot(transportOverride?: Transport) {
   // ponytail: the message text is the title; a model-generated label would
   // cost a completion per turn.
   agent.setTodoStore(todoStore);
+
+  // The notebook read side. `semantic` already exists (line ~493); this only
+  // gives the loop a filtered view of it.
+  agent.setNotebookStore({
+    notes: (scope) =>
+      semantic
+        .all(scope)
+        .filter((f) => f.key.startsWith(NOTE_PREFIX))
+        .map((f) => ({ key: f.key, value: f.value })),
+  });
 
   // Crash-resume checkpointing: the loop snapshots the transcript after each
   // tool call and rehydrates a session that died mid-turn. On boot, log any
