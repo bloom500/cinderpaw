@@ -18,6 +18,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
+import { lineDelta, isScratchPath } from "../file-delta.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_EDIT_BYTES = 1024 * 1024; // 1 MB safety cap, same as write_file
@@ -189,6 +190,7 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
 
       // Build a tiny diff preview. We pick the first replaced region and
       // show the first 5 lines of context on each side.
+      const delta = lineDelta(original, updated);
       const previewIdx = original.indexOf(oldStr);
       const contextBefore = original
         .slice(Math.max(0, original.lastIndexOf("\n", previewIdx - 80) + 1), previewIdx)
@@ -210,6 +212,11 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
           path: safePath,
           replaced,
           bytes: Buffer.byteLength(updated, "utf8"),
+          // Same counter write_file uses, so "3 edits +40" adds up whichever
+          // tool made each one.
+          linesAdded: delta.added,
+          linesRemoved: delta.removed,
+          scratch: isScratchPath(safePath),
         },
       };
     },

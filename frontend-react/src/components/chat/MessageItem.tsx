@@ -229,6 +229,24 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
  * when someone owns keeping that table current — see docs/marketing HOOK.md's
  * "$0 per token" claim, which is what this footer proves for local models.
  */
+/**
+ * "1 scratchpad edit +71" — what the agent wrote in its OWN workspace this turn.
+ *
+ * Null when it wrote nothing there, which is most turns. A permanent "0 edits"
+ * is noise, and noise is how a status line stops being read at all.
+ *
+ * Removals are dropped when there are none: "+71" is the whole story for an
+ * append, while "+71 -0" makes the reader stop and look for a zero that means
+ * nothing. Same reason the token count omits `tok/s` when it has none.
+ */
+export function scratchLabel(
+  scratch: { edits: number; added: number; removed: number } | undefined,
+): string | null {
+  if (!scratch || scratch.edits <= 0) return null;
+  const churn = scratch.removed > 0 ? `+${scratch.added} -${scratch.removed}` : `+${scratch.added}`;
+  return `${scratch.edits} scratchpad edit${scratch.edits === 1 ? '' : 's'} ${churn}`;
+}
+
 function MessageMeta({ message }: { message: ChatMessage }) {
   const at = message.completedAt ?? message.createdAt;
   const parts = [
@@ -238,6 +256,8 @@ function MessageMeta({ message }: { message: ChatMessage }) {
     parts.push(`${message.tokensEstimated ? '~' : ''}${message.tokenCount.toLocaleString()} tok`);
   }
   if (message.tokensPerSec) parts.push(`${message.tokensPerSec} tok/s`);
+  const scratch = scratchLabel(message.scratch);
+  if (scratch) parts.push(scratch);
   return (
     <div className="text-[11px] text-text-muted tabular-nums select-none">{parts.join(' · ')}</div>
   );

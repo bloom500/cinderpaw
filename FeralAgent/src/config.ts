@@ -328,6 +328,20 @@ export function feralHome(): string {
 }
 
 /**
+ * The agent's scratchpad — where it may write freely without touching anything
+ * of the user's.
+ *
+ * It is the ONE writable path under `~/.feral`; `loadWorkspaceRoots` creates it
+ * at boot and exempts it from the wall that refuses every other root inside the
+ * agent's own home. Resolved here, next to `feralHome`, for the same reason that
+ * one exists: two callers deriving it separately is how an isolated profile ends
+ * up writing into the real one's directory.
+ */
+export function scratchRoot(): string {
+  return join(feralHome(), "workspace");
+}
+
+/**
  * The operator's SearXNG instance backing `web_search`, or null when unset.
  *
  * Returns the ORIGIN only (scheme + host + port) — never a path, query, or

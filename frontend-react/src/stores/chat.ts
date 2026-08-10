@@ -34,6 +34,17 @@ export interface ChatMessage {
   /** Why the response was truncated (e.g. "length"). */
   truncatedReason?: string;
   /**
+   * What the agent wrote in its OWN scratchpad (`~/.feral/workspace`) during
+   * this turn. Absent when it wrote nothing there — the common case, and an
+   * always-present "0 edits" row would train people to stop reading the line.
+   *
+   * Deliberately excludes writes to the user's project: those show up as file
+   * changes they can already see in their editor and in git. This answers the
+   * question those cannot — what the agent did in the scratch space nobody is
+   * watching.
+   */
+  scratch?: { edits: number; added: number; removed: number };
+  /**
    * Ask-user prompt attached to this message. Set when the Feral Agent
    * called the `ask_user` tool on this turn. `answers` is undefined while
    * the user is choosing and populated once they submit (or on cancel).
