@@ -133,6 +133,37 @@ export function resumePrompt(mission: string): string {
 }
 
 /**
+ * What a turn hears when it declared itself finished and the world disagreed.
+ *
+ * This is the gap every other prompt here misses. The rest of this module
+ * defends against a turn being CUT OFF — out of time, out of budget, stuck. It
+ * had no answer at all for a turn that ends of its own accord while the work is
+ * plainly unfinished, which is what a model does when it inventories 9 files out
+ * of 250 and politely offers to continue. To the loop that reads as `completed`,
+ * so nothing continued and a task 4% done was delivered as an answer.
+ *
+ * The assertion is quoted verbatim rather than paraphrased. "You are not done"
+ * invites an argument; "the file has 9 entries and needs 250" does not, and it
+ * tells the model what to aim at. Same reason the digest leads with the verdict
+ * instead of the agent's own account.
+ */
+function unverifiedPrompt(detail: string): string {
+  return (
+    "(system: you ended your turn as if the task were complete, but the completion " +
+    "check disagrees:\n" +
+    `  ${detail}\n` +
+    "No human is watching, so do not ask questions, do not ask for permission to " +
+    "continue, and do not wait for approval — asking is what ended the last turn " +
+    "early.\n" +
+    "Keep going from where you stopped. Do NOT start over and do NOT redo work " +
+    "that is already recorded — check your task list and the work already done " +
+    "first. Continue until the check above actually passes.\n" +
+    "If you believe the check itself is wrong or impossible to satisfy, say so " +
+    "plainly, say why, and stop. That is a valid answer; silently stopping is not.)"
+  );
+}
+
+/**
  * Continuations allowed after the first turn.
  *
  * Exported so a caller can snapshot it onto a run row at start: read again later
@@ -183,6 +214,16 @@ export async function runUnattended(
      * turn that just happened rather than judging on stale rows.
      */
     stalled?: () => boolean;
+    /**
+     * Ask the world whether the task is actually done, when the agent says it
+     * is. `null` (or absent) means no assertion was configured, in which case
+     * the agent's own word is all anyone has and is accepted as before.
+     *
+     * Supplied by the caller because resolving an assertion needs a workspace
+     * root this loop has never seen. Called ONLY on a turn that claimed
+     * completion — a check is a gate on "done", not a per-turn poll.
+     */
+    verify?: () => Promise<{ passed: boolean; detail: string } | null>;
   } = {},
 ): Promise<UnattendedResult> {
   const budget = maxContinuations();
@@ -249,6 +290,19 @@ export async function runUnattended(
         replanned = true;
         nextPrompt = REPLAN_PROMPT;
         continue;
+      }
+      // "Completed" is the agent's opinion. Where an assertion exists, it is the
+      // world's, and the world wins — a turn that stopped early with the work
+      // visibly unfinished gets sent back with the failure quoted at it rather
+      // than being delivered as an answer. Bounded by the same continuation
+      // budget and deadline as everything else here, so an assertion that can
+      // never pass costs a budget, not a night.
+      if (result.outcome === "completed" && attempt < budget && Date.now() < deadline) {
+        const check = await opts.verify?.();
+        if (check && !check.passed) {
+          nextPrompt = unverifiedPrompt(check.detail);
+          continue;
+        }
       }
       stoppedBecause = isContinuable(result.outcome) ? "continuation_budget" : "not_continuable";
       // A terminal outcome that is not continuable (stuck, stopped, no_answer)

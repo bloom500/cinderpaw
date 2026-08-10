@@ -991,6 +991,30 @@ export async function boot(transportOverride?: Transport) {
       turnBudgetMs() * (cfgInt("FERAL_UNATTENDED_CONTINUATIONS") + 1) + 60_000,
   );
   /**
+   * The world's opinion on "is it done", for a turn that claimed it was.
+   *
+   * Returns null when no assertion was given — with nothing to check, the
+   * agent's word is all anyone has, and `runUnattended` accepts it exactly as
+   * it did before. `checked: false` (an assertion that could not be evaluated)
+   * is also null: an unrunnable check must not be read as a failing one, or a
+   * bad path would trap a run in a continuation loop it can never leave.
+   */
+  async function verifyIfAsserted(
+    doneWhen: DoneWhen | null,
+    safety: SafetyPoint[],
+  ): Promise<{ passed: boolean; detail: string } | null> {
+    if (!doneWhen) return null;
+    try {
+      const check = await verifyDoneWhen(doneWhen, safety[0]?.root ?? null);
+      return check.checked ? { passed: check.passed, detail: check.detail } : null;
+    } catch {
+      // A verifier that throws must not be the reason a finished run is sent
+      // back round. Unknown is not failed.
+      return null;
+    }
+  }
+
+  /**
    * How many tasks are currently finished.
    *
    * This DOES match on a status string, which an earlier note here warned
@@ -1149,6 +1173,7 @@ export async function boot(transportOverride?: Transport) {
             recorder: turnRecorder(row, safety, row.doneWhen),
             stalled: () =>
               row.safetyBefore !== null && madeNoProgress(runStore.turnsOf(row.id), STALL_TURNS),
+            verify: () => verifyIfAsserted(row.doneWhen, safety),
           },
         );
         const changed = await changedSince(safety);
@@ -1253,6 +1278,7 @@ export async function boot(transportOverride?: Transport) {
             stalled: runRow
               ? () => runRow.safetyBefore !== null && madeNoProgress(runStore.turnsOf(runRow.id), STALL_TURNS)
               : undefined,
+            verify: () => verifyIfAsserted(job.doneWhen ?? null, safety),
           },
         );
         if (runError) throw new Error(runError);
@@ -1675,6 +1701,7 @@ export async function boot(transportOverride?: Transport) {
         recorder: turnRecorder(row, safety, doneWhen),
         stalled: () =>
           row.safetyBefore !== null && madeNoProgress(runStore.turnsOf(row.id), STALL_TURNS),
+        verify: () => verifyIfAsserted(doneWhen, safety),
         done: async (run: UnattendedResult): Promise<string | null> => {
           // The assertion is the authority, not the agent's closing paragraph.
           // A run that claimed success and cannot show it is recorded
