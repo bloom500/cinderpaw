@@ -10,7 +10,7 @@ import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
-import { lineDelta, isScratchPath } from "../file-delta.ts";
+import { lineDelta, isScratchPath, scratchpadBrief } from "../file-delta.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_WRITE_BYTES = 1024 * 1024; // 1 MB guard
@@ -22,7 +22,8 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
       "Create or overwrite a UTF-8 text file. Creates intermediate directories if needed. " +
       (allowedPaths.length > 0
         ? `Writes are allowed ONLY inside these directories: ${allowedPaths.join(", ")}. ` +
-          "A path outside them is refused — never guess a directory; use one of these roots."
+          "A path outside them is refused — never guess a directory; use one of these roots.\n" +
+          scratchpadBrief()
         : "No writable directories are configured, so every write will be refused."),
     permissions: ["fs:write"],
     networkAccess: false,

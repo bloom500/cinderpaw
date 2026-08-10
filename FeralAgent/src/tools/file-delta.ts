@@ -65,3 +65,26 @@ export function isScratchPath(absolutePath: string): boolean {
   const rel = relative(scratchRoot(), absolutePath);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
+
+/**
+ * The sentence that tells the model the scratchpad is ITS OWN.
+ *
+ * Without it the directory was listed among the writable roots like any other
+ * and read as one more place it was permitted to touch — so it never used it.
+ * A capability nothing names does not exist as far as the model is concerned;
+ * that is the same reason the tool drawer has descriptions and not just names.
+ *
+ * Shared by `write_file` and `edit_file` so the two cannot describe the same
+ * directory differently in the same prompt.
+ */
+export function scratchpadBrief(): string {
+  return (
+    `Your SCRATCHPAD is ${scratchRoot()} — it is yours, not the user's. ` +
+    "Nothing there is part of their project, so you never need permission and you " +
+    "cannot break anything. Use it constantly: keep a running notes file, draft " +
+    "long output there before delivering it, and park intermediate results you " +
+    "would otherwise have to hold in your head. Prefer editing a file you already " +
+    "started over opening another one. Anything that belongs to the user goes in " +
+    "their project directories instead — never here."
+  );
+}

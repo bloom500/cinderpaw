@@ -224,6 +224,11 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           content: m.id === asstId ? joinSegments(state.committed, state.answer) : m.content,
           thinking: m.thinking || undefined,
           voice: voiceToPersisted(m.voice),
+          // The turn being finalised has its stats in `state`; earlier messages
+          // in the snapshot carry their own from when they were live. Without
+          // the first half the line vanished on the very save meant to keep it.
+          scratch:
+            m.id === asstId && state.scratch.edits > 0 ? { ...state.scratch } : m.scratch,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);

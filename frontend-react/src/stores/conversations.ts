@@ -40,12 +40,24 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     thinking: p.thinking,
     thinkingComplete: p.thinking != null ? true : undefined,
     voice: voiceFromPersisted(p.voice),
+    // `?? undefined` because the store's field is optional while the wire type
+    // is nullable — a literal null would render as a present-but-empty stat.
+    scratch: p.scratch ?? undefined,
     createdAt: Date.now() - (1000 * (1000 - idx)),
   };
 }
 
 function toPersisted(m: ChatMessage): PersistedMessage {
-  return { role: m.role, content: m.content, thinking: m.thinking || undefined, voice: voiceToPersisted(m.voice) };
+  // Every save path must carry `scratch`, not just the one in useFeral: this one
+  // runs on rename and on delete-a-message, and dropping the field there would
+  // erase the trace on an edit that has nothing to do with it.
+  return {
+    role: m.role,
+    content: m.content,
+    thinking: m.thinking || undefined,
+    voice: voiceToPersisted(m.voice),
+    scratch: m.scratch,
+  };
 }
 
 export const useConversations = create<ConversationsStore>((set, get) => ({

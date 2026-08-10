@@ -5,8 +5,10 @@
  */
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { lineDelta, isScratchPath } from "../src/tools/file-delta.ts";
+import { lineDelta, isScratchPath, scratchpadBrief } from "../src/tools/file-delta.ts";
 import { scratchRoot } from "../src/config.ts";
+import { createWriteFileTool } from "../src/tools/builtin/write-file.ts";
+import { createEditFileTool } from "../src/tools/builtin/edit-file.ts";
 
 test("creating a file counts every line as added and nothing as removed", () => {
   // The phantom `-1`: "".split("\n") is [""], so an empty before looked like
@@ -44,6 +46,25 @@ test("a moved line counts as neither added nor removed", () => {
 test("a path inside the scratch root is scratch", () => {
   expect(isScratchPath(join(scratchRoot(), "notes.md"))).toBe(true);
   expect(isScratchPath(join(scratchRoot(), "deep", "nested", "f.txt"))).toBe(true);
+});
+
+test("both write tools tell the model the scratchpad is its own, in the same words", () => {
+  // The failure this guards is silent and total: with the directory merely
+  // listed among the writable roots, the model reads it as one more permitted
+  // path and never writes there — so the telemetry line reads "0 edits" forever
+  // and looks like a broken feature rather than an unused one.
+  const roots = [scratchRoot(), "D:/Projects/app"];
+  const write = createWriteFileTool(roots).manifest.description;
+  const edit = createEditFileTool(roots).manifest.description;
+
+  for (const description of [write, edit]) {
+    expect(description).toContain(scratchRoot());
+    expect(description).toContain("SCRATCHPAD");
+  }
+  // One source, so the two can never describe the same directory differently
+  // inside a single prompt.
+  expect(write).toContain(scratchpadBrief());
+  expect(edit).toContain(scratchpadBrief());
 });
 
 test("the user's project is not scratch, and neither is a lookalike sibling", () => {

@@ -18,7 +18,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
-import { lineDelta, isScratchPath } from "../file-delta.ts";
+import { lineDelta, isScratchPath, scratchpadBrief } from "../file-delta.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_EDIT_BYTES = 1024 * 1024; // 1 MB safety cap, same as write_file
@@ -30,7 +30,8 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
       "Apply a targeted string replacement to a UTF-8 text file inside an " +
       "allowed directory. Fails if `old_string` is not unique in the file " +
       "(unless `replace_all` is set). Returns a small diff preview showing " +
-      "what was changed.",
+      "what was changed.\n" +
+      scratchpadBrief(),
     permissions: ["fs:read", "fs:write"],
     networkAccess: false,
     allowedPaths,

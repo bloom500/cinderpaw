@@ -14,6 +14,20 @@ pub struct VoiceMeta {
     pub peaks: Vec<f32>,
 }
 
+/// What the agent wrote in its own scratchpad (`~/.feral/workspace`) during one
+/// turn.
+///
+/// Persisted rather than kept in memory because the whole point of the line is
+/// to be read AFTER the fact — by someone who walked away, and quite possibly
+/// after restarting the app. A trace that survives only until the next launch is
+/// the ephemeral tool strip again, one layer up.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct ScratchStats {
+    pub edits: u32,
+    pub added: u32,
+    pub removed: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct PersistedMessage {
     pub role: String,
@@ -26,6 +40,11 @@ pub struct PersistedMessage {
     /// `#[serde(default)]` so conversations saved before this field load cleanly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice: Option<VoiceMeta>,
+    /// Scratchpad churn for this turn. Absent on most messages and on every
+    /// conversation saved before this field existed — same `#[serde(default)]`
+    /// contract as the two above, so no migration and no unreadable history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scratch: Option<ScratchStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -220,6 +239,7 @@ mod tests {
                 content: format!("Message {}", i),
                 thinking: None,
                 voice: None,
+                scratch: None,
             })
             .collect()
     }
@@ -232,6 +252,53 @@ mod tests {
         let m: PersistedMessage = serde_json::from_str(json).unwrap();
         assert!(m.voice.is_none());
         assert_eq!(m.content, "hi");
+    }
+
+    #[test]
+    fn loads_message_written_before_the_scratch_field_existed() {
+        // Every conversation already on a user's disk looks like this. Failing to
+        // deserialize it would lose their whole history to a telemetry field.
+        let json = r#"{"role":"assistant","content":"done","thinking":"hmm"}"#;
+        let m: PersistedMessage = serde_json::from_str(json).unwrap();
+        assert!(m.scratch.is_none());
+        assert_eq!(m.thinking.as_deref(), Some("hmm"));
+    }
+
+    #[test]
+    fn scratch_stats_survive_a_restart() {
+        // The point of the whole change: the desktop used to hold this only in
+        // memory, so "1 scratchpad edit +71" vanished the next time the app
+        // launched — which is precisely when someone who walked away reads it.
+        let dir = tmp();
+        let msgs = vec![PersistedMessage {
+            role: "assistant".into(),
+            content: "wrote my notes".into(),
+            thinking: None,
+            voice: None,
+            scratch: Some(ScratchStats { edits: 1, added: 71, removed: 0 }),
+        }];
+        save_to_dir(&dir, "c1", "Title", &msgs, None).unwrap();
+
+        // Nothing in memory — read back off disk exactly as a fresh launch does.
+        let conv = load_from_dir(&dir, "c1").unwrap();
+        let s = conv.messages[0].scratch.as_ref().expect("scratch stats should survive");
+        assert_eq!((s.edits, s.added, s.removed), (1, 71, 0));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_turn_that_touched_no_scratchpad_stores_no_field_at_all() {
+        // `skip_serializing_if` — otherwise every message on disk grows a
+        // `"scratch":null` for a line that will never be rendered.
+        let m = PersistedMessage {
+            role: "user".into(),
+            content: "hi".into(),
+            thinking: None,
+            voice: None,
+            scratch: None,
+        };
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(!json.contains("scratch"), "absent stats must not be written: {json}");
     }
 
     #[test]
@@ -326,15 +393,15 @@ mod tests {
         let dir = tmp();
 
         let conv1_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, voice: None },
-            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, voice: None },
-            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, voice: None },
+            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, voice: None, scratch: None },
+            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, voice: None, scratch: None },
+            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, voice: None, scratch: None },
         ];
         let conv2_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, voice: None },
-            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, voice: None },
-            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, voice: None },
-            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, voice: None },
+            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, voice: None, scratch: None },
+            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, voice: None, scratch: None },
+            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, voice: None, scratch: None },
+            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, voice: None, scratch: None },
         ];
 
         save_to_dir(&dir, "session-1", "Hello world", &conv1_msgs, None).unwrap();

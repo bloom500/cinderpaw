@@ -224,6 +224,10 @@ export function useSendMessage() {
           content: m.id === asstId ? answer : m.content,
           thinking: m.thinking || undefined,
           voice: voiceToPersisted(m.voice),
+          // This is the plain-chat path (no Feral agent, so nothing writes to
+          // the scratchpad here) — but it re-saves the WHOLE conversation, so
+          // omitting the field would wipe the stats off every earlier agent turn.
+          scratch: m.scratch,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);

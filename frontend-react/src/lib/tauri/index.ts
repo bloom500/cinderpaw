@@ -434,7 +434,9 @@ export interface CodePatchResolvedPayload {
 
 /** Mirrors Rust `conversations::VoiceMeta` (snake_case, no rename_all). */
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
-export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null }
+/** Mirrors `conversations::ScratchStats` — churn in the agent's own workspace. */
+export interface ScratchStats        { edits: number; added: number; removed: number }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null; scratch?: ScratchStats | null }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
