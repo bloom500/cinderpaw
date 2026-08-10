@@ -21,7 +21,7 @@ import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
-import { SemanticMemory } from "./memory/semantic.ts";
+import { SemanticMemory, memoryScope } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
@@ -79,7 +79,7 @@ import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
-import { createRememberTool, NOTE_PREFIX } from "./tools/builtin/remember.ts";
+import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
@@ -926,6 +926,12 @@ export async function boot(transportOverride?: Transport) {
         .all(scope)
         .filter((f) => f.key.startsWith(NOTE_PREFIX))
         .map((f) => ({ key: f.key, value: f.value })),
+  });
+
+  // The compaction safety net (Task 5): refresh `note:position` from the
+  // summarizer's own output when the agent stopped updating it itself.
+  agent.setNotebookWriter((sessionId, position) => {
+    semantic.upsert(POSITION_KEY, position, memoryScope(sessionId));
   });
 
   // Crash-resume checkpointing: the loop snapshots the transcript after each

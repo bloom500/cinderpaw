@@ -509,6 +509,16 @@ export class AgentLoop {
   #notebook: { notes(scope: string): Array<{ key: string; value: string }> } | null = null;
 
   /**
+   * Write side of the notebook, for the compaction safety net ONLY. Deliberately
+   * narrower than the read store: it takes no key, because there is exactly one
+   * key anything other than the agent is allowed to write.
+   */
+  setNotebookWriter(write: (sessionId: string, position: string) => void): void {
+    this.#notebookWriter = write;
+  }
+  #notebookWriter: ((sessionId: string, position: string) => void) | null = null;
+
+  /**
    * Attach the crash-resume checkpoint store. When present, the loop snapshots
    * the full transcript after each tool call and rehydrates a `running`
    * checkpoint when a session's working memory is (re)built — so a sidecar
@@ -2105,7 +2115,12 @@ export class AgentLoop {
             "on a long task it will fetch it again after every compaction.\n\n" +
             "Then a short narrative: what is DONE so it is not repeated, and what " +
             "is still open. Terse bullets, not prose. Never shorten the facts " +
-            "section to make room for the narrative.",
+            "section to make room for the narrative.\n\n" +
+            "Finally, a section headed exactly `### Position`: two to four lines " +
+            "on where the work stands RIGHT NOW — the step in progress, what is " +
+            "next, and anything blocked. Write it as the note you would leave " +
+            "yourself before walking away. This section is replaced wholesale " +
+            "each time; the facts section above it is never rewritten.",
         },
         { role: "user", content: transcript },
       ],
@@ -2129,7 +2144,21 @@ export class AgentLoop {
       // pressure, so it must run even when the conversation is over budget.
       skipBudgetCheck: true,
     });
-    return summaryText(res.content);
+    const summary = summaryText(res.content);
+    // The safety net. The agent is supposed to keep `note:position` current with
+    // `remember`; this catches the run where it stopped bothering. Only ever this
+    // one key — every other notebook entry is the agent's own and is never
+    // rewritten by a model. Guarded because a failure here must not cost the
+    // compaction, which is the thing actually recovering the context budget.
+    if (this.#notebookWriter) {
+      try {
+        const position = extractPosition(summary);
+        if (position !== null) this.#notebookWriter(sessionId, position);
+      } catch {
+        /* the summary still stands */
+      }
+    }
+    return summary;
   }
 
   /**
@@ -2584,6 +2613,25 @@ export function summaryExcerpt(
 export function summaryText(raw: string): string {
   const stripped = stripThinking(raw).trim();
   return stripped || raw.replace(/<\/?think(ing)?>/gi, "").trim();
+}
+
+/**
+ * Pull the `### Position` section out of a compaction summary.
+ *
+ * Returns null when the section is absent or empty, and null MUST mean "leave
+ * the existing note alone". A summarizer that skipped the section tells us
+ * nothing about where the run is; blanking a good note on that basis would be
+ * strictly worse than a slightly stale one.
+ */
+export function extractPosition(summary: string): string | null {
+  const start = summary.indexOf("### Position");
+  if (start === -1) return null;
+  const after = summary.slice(start + "### Position".length);
+  // Stop at the next heading — the position section is the only part of the
+  // summary that gets rewritten, so it must not absorb the facts around it.
+  const end = after.indexOf("\n###");
+  const body = (end === -1 ? after : after.slice(0, end)).trim();
+  return body.length > 0 ? body : null;
 }
 
 export function stripThinking(raw: string): string {
