@@ -155,6 +155,21 @@ export class WorkingMemory {
   #todoList = "";
 
   /**
+   * The agent's notebook — durable `note:` facts from semantic memory, rendered
+   * in FULL every turn rather than searched.
+   *
+   * The search path (`recall`) only ever returns what the agent thought to look
+   * for, which on hour 6 of a long run is precisely what it has forgotten it
+   * knows. A notebook has to be open on the desk.
+   *
+   * Distinct from the compaction summary on purpose: that block is append-only
+   * and blind-truncated head+tail once it outgrows its reserve, so the MIDDLE of
+   * a long run is what falls out of it. These rows are rewritten by their owner
+   * instead of being cut by us, so they stay small without losing the middle.
+   */
+  #notebook = "";
+
+  /**
    * The original request, captured the first time this session is compacted
    * and re-projected every turn thereafter (same trick as `#todoList`: durable
    * state re-rendered, not transcript that can be eaten).
@@ -258,6 +273,7 @@ export class WorkingMemory {
     total += countTokens(this.#system);
     total += countTokens(this.#skillMenu);
     total += countTokens(this.#todoList);
+    total += countTokens(this.#notebook);
     total += countTokens(this.#objective);
     total += countTokens(this.#surfaceBrief);
     total += countTokens(this.#memoryContext);
@@ -309,6 +325,7 @@ export class WorkingMemory {
     push("drawer", "objective", this.#objective);
     push("drawer", "skill_menu", this.#skillMenu);
     push("drawer", "todo_list", this.#todoList);
+    push("drawer", "notebook", this.#notebook);
     push("drawer", "surface_brief", this.#surfaceBrief);
     push("drawer", "memory_recall", this.#memoryContext);
 
@@ -387,31 +404,76 @@ export class WorkingMemory {
   }
 
   /**
-   * Update the per-turn view of the durable todo list. Only OPEN items are
-   * shown — a done item is history, and re-listing it every turn would spend
-   * context re-teaching the model something it must not redo.
+   * Update the per-turn view of the durable task list.
    *
-   * ponytail: capped at 20 items, no pagination. A task list longer than that
-   * is a planning problem, not a rendering one.
+   * Two blocks, deliberately separated. OPEN items are the work; CLOSED items
+   * are the memory of work already done. The done block exists because the
+   * transcript that recorded the work is summarized away while these rows are
+   * not — without it, hour 6 of a long run has no record that hour 2 happened,
+   * and the agent redoes it.
+   *
+   * The two headings say opposite things on purpose. One list is "do this", the
+   * other is "do NOT do this". Rendered as one list they would read as a plan.
+   *
+   * ponytail: capped at 20 open / 8 closed, no pagination. A task list longer
+   * than that is a planning problem, not a rendering one.
    */
+  setTodoList(items: Array<{ id: string; content: string; status: string }>): void {
+    const open = items.filter((t) => t.status !== "done").slice(0, 20);
+    // `items` arrives newest-updated first (TodoStore.list ORDER BY updated_at
+    // DESC), so the head of this slice is the most recently finished work —
+    // which is the part most likely to be redone.
+    const done = items.filter((t) => t.status === "done").slice(0, 8);
+    const blocks: string[] = [];
+    if (open.length > 0) {
+      blocks.push(
+        "## Your task list (persists across sessions — `todo_write` to update)\n" +
+          "These are still OPEN. Do not redo anything absent from this list.\n\n" +
+          open.map((t) => `- [${t.status}] \`${t.id}\` — ${t.content}`).join("\n"),
+      );
+    }
+    if (done.length > 0) {
+      blocks.push(
+        "## Already done (most recent first)\n" +
+          "This work is FINISHED. Do not redo it. Verify current state before any " +
+          "write that one of these may already have performed.\n\n" +
+          done.map((t) => `- \`${t.id}\` — ${t.content}`).join("\n"),
+      );
+    }
+    this.#todoList = blocks.join("\n\n");
+  }
+
+  /**
+   * Update the per-turn view of the notebook. Keys arrive with their `note:`
+   * storage prefix and are rendered without it — the prefix is how the rows are
+   * partitioned in the `semantic` table (see memory/semantic.ts), not something
+   * the model needs to read.
+   *
+   * No cap here. The cap is enforced at the WRITE side (the `remember` tool), so
+   * a full notebook is curated by its owner rather than silently truncated by
+   * us. Truncating here would reintroduce exactly the failure this drawer exists
+   * to escape.
+   */
+  setNotebook(notes: Array<{ key: string; value: string }>): void {
+    if (notes.length === 0) {
+      this.#notebook = "";
+      return;
+    }
+    this.#notebook =
+      "## Your notebook (durable — `remember` with a `note:` key to write)\n" +
+      "You wrote these. They survive compaction. Trust them, keep them current, " +
+      "and rewrite an entry the moment it stops being true.\n\n" +
+      notes
+        .map((n) => `- **${n.key.replace(/^note:/, "")}** — ${n.value}`)
+        .join("\n");
+  }
+
   /**
    * Describe the surface this session's answers are rendered on. Idempotent —
    * connectors call it on every inbound message. Empty string clears it.
    */
   setSurfaceBrief(brief: string): void {
     this.#surfaceBrief = brief;
-  }
-
-  setTodoList(items: Array<{ id: string; content: string; status: string }>): void {
-    const open = items.filter((t) => t.status !== "done").slice(0, 20);
-    if (open.length === 0) {
-      this.#todoList = "";
-      return;
-    }
-    this.#todoList =
-      "## Your task list (persists across sessions — `todo_write` to update)\n" +
-      "These are still OPEN. Do not redo anything absent from this list.\n\n" +
-      open.map((t) => `- [${t.status}] \`${t.id}\` — ${t.content}`).join("\n");
   }
 
   /**
@@ -450,6 +512,7 @@ export class WorkingMemory {
     if (this.#objective) dynamicBlocks.push(this.#objective);
     if (this.#skillMenu) dynamicBlocks.push(this.#skillMenu);
     if (this.#todoList) dynamicBlocks.push(this.#todoList);
+    if (this.#notebook) dynamicBlocks.push(this.#notebook);
     if (this.#surfaceBrief) dynamicBlocks.push(this.#surfaceBrief);
     // Post-compaction reminder. Both halves address a real late-session failure:
     // the model treats the summary note as verbatim history and re-does or
@@ -612,6 +675,7 @@ export class WorkingMemory {
       countTokens(this.#system) +
       countTokens(this.#skillMenu) +
       countTokens(this.#todoList) +
+      countTokens(this.#notebook) +
       countTokens(this.#objective) +
       countTokens(this.#surfaceBrief) +
       countTokens(this.#memoryContext) +

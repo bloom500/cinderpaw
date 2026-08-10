@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { decideResume, DEFAULT_MAX_RESUMES } from "../src/core/run-resume.ts";
+import { decideResume, DEFAULT_MAX_RESUMES, madeNoProgress, STALL_TURNS } from "../src/core/run-resume.ts";
 import type { RunRow, TurnRow } from "../src/core/run-store.ts";
 
 const NOW = 1_800_000_000_000;
@@ -179,5 +179,40 @@ describe("decideResume", () => {
       expect(d.action).toBe("give_up");
       expect((d as { why: string }).why.length).toBeGreaterThan(20);
     }
+  });
+});
+
+describe("madeNoProgress", () => {
+  function turn(seq: number, filesChanged: number, todosClosed: number): TurnRow {
+    return {
+      runId: "r", seq, startedAt: 0, durationMs: 1, outcome: "completed",
+      toolCalls: 1, continuation: seq > 1, replan: false, tokens: 0,
+      filesChanged, todosClosed, doneWhenPass: null,
+    };
+  }
+
+  test("three turns that changed nothing is a stall", () => {
+    expect(madeNoProgress([turn(1, 0, 0), turn(2, 0, 0), turn(3, 0, 0)], 3)).toBe(true);
+  });
+
+  test("one changed file anywhere in the window clears it", () => {
+    expect(madeNoProgress([turn(1, 0, 0), turn(2, 1, 0), turn(3, 0, 0)], 3)).toBe(false);
+  });
+
+  test("a closed todo counts as progress even with no file written", () => {
+    expect(madeNoProgress([turn(1, 0, 0), turn(2, 0, 1), turn(3, 0, 0)], 3)).toBe(false);
+  });
+
+  test("fewer turns than the window is never a stall — there is not enough evidence yet", () => {
+    expect(madeNoProgress([turn(1, 0, 0), turn(2, 0, 0)], 3)).toBe(false);
+  });
+
+  test("only the last `count` turns are judged, not the whole run", () => {
+    // Real work early, then three dead turns. Still a stall.
+    expect(madeNoProgress([turn(1, 5, 2), turn(2, 0, 0), turn(3, 0, 0), turn(4, 0, 0)], 3)).toBe(true);
+  });
+
+  test("STALL_TURNS is 3 — one quiet turn is normal work, ten is most of an hour", () => {
+    expect(STALL_TURNS).toBe(3);
   });
 });

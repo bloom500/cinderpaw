@@ -18,11 +18,19 @@ import type { UnattendedResult } from "./unattended.ts";
 export type RunStatus = "running" | "finished" | "unfinished" | "needs_attention";
 
 /**
- * Why a RUN ended. A superset of why a LOOP ended: the extra three can only
- * happen across a process boundary, which `UnattendedResult` knows nothing
- * about. Kept separate on purpose — `digest.ts` builds an exhaustive `Record`
- * over `UnattendedResult["stoppedBecause"]`, and widening that type would
- * (rightly) break the build.
+ * Why a RUN ended. A superset of why a LOOP ended: `process_died` and
+ * `resume_cap` can only happen across a process boundary, at boot, which
+ * `UnattendedResult` knows nothing about. `no_progress` is NOT one of those —
+ * `madeNoProgress` (run-resume.ts) is the same predicate read by a live loop at
+ * the turn boundary and by `decideResume` at boot, so this reason can be
+ * produced by either. Listed explicitly below (even though it is already part
+ * of `UnattendedResult["stoppedBecause"]` and TS would dedupe it silently) as a
+ * standing statement that it is a run-level reason on its own merits, not one
+ * merely inherited — so if `stoppedBecause` ever drops it, this type still
+ * carries it and rows already written keep a name. Kept as its own type on
+ * purpose otherwise — `digest.ts` builds an exhaustive `Record` over
+ * `UnattendedResult["stoppedBecause"]`, and widening that type would (rightly)
+ * break the build.
  */
 export type RunStopReason =
   | UnattendedResult["stoppedBecause"]

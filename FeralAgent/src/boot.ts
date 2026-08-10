@@ -21,7 +21,7 @@ import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
-import { SemanticMemory } from "./memory/semantic.ts";
+import { SemanticMemory, memoryScope } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
@@ -48,7 +48,7 @@ import { RunStore, type RunRow, type RunStatus, type RunStopReason } from "./cor
 import { deliverAndMark, drainUndelivered, type DeliveryOutcome } from "./core/run-delivery.ts";
 import { intentSummary, clearIntents } from "./core/command-intent.ts";
 import { installUserHooks, userHooksPath } from "./core/user-hooks.ts";
-import { resumeInterruptedRuns } from "./core/run-resume.ts";
+import { resumeInterruptedRuns, madeNoProgress, STALL_TURNS } from "./core/run-resume.ts";
 import { turnBudgetMs } from "./core/agent-loop.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { McpManager } from "./egress/mcp-manager.ts";
@@ -79,7 +79,7 @@ import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
-import { createRememberTool } from "./tools/builtin/remember.ts";
+import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
@@ -918,6 +918,27 @@ export async function boot(transportOverride?: Transport) {
   // cost a completion per turn.
   agent.setTodoStore(todoStore);
 
+  // The notebook read side. `semantic` already exists (line ~493); this only
+  // gives the loop a filtered view of it.
+  //
+  // `own` rather than `all`: the notebook must show this session ONLY its own
+  // notes. `all` folds the global rows in — right for facts, wrong for a
+  // scratchpad, which would otherwise render the owner's in-flight notes into a
+  // Discord member's prompt. See SemanticMemory.own.
+  agent.setNotebookStore({
+    notes: (scope) =>
+      semantic
+        .own(scope)
+        .filter((f) => f.key.startsWith(NOTE_PREFIX))
+        .map((f) => ({ key: f.key, value: f.value })),
+  });
+
+  // The compaction safety net (Task 5): refresh `note:position` from the
+  // summarizer's own output when the agent stopped updating it itself.
+  agent.setNotebookWriter((sessionId, position) => {
+    semantic.upsert(POSITION_KEY, position, memoryScope(sessionId));
+  });
+
   // Crash-resume checkpointing: the loop snapshots the transcript after each
   // tool call and rehydrates a session that died mid-turn. On boot, log any
   // in-flight turns left by a previous process so the crash is visible.
@@ -968,6 +989,28 @@ export async function boot(transportOverride?: Transport) {
       turnBudgetMs() * (cfgInt("FERAL_UNATTENDED_CONTINUATIONS") + 1) + 60_000,
   );
   /**
+   * How many tasks are currently finished.
+   *
+   * This DOES match on a status string, which an earlier note here warned
+   * against because statuses are free-form. That warning is out of date: the
+   * per-turn todo drawer already splits on exactly `status !== "done"`
+   * (WorkingMemory.setTodoList) and `TodoStore.add` defaults to `"todo"`, so
+   * "done" is a convention the prompt side already commits to. Two places
+   * disagreeing about what closed means would be worse than either choice.
+   *
+   * An unrecognized status simply counts as open — the guard then falls back to
+   * `filesChanged`, which is where it was before this existed.
+   */
+  function countDoneTodos(): number {
+    try {
+      return todoStore.list().filter((t) => t.status.trim().toLowerCase() === "done").length;
+    } catch {
+      // Progress accounting must never be the reason a run stops.
+      return 0;
+    }
+  }
+
+  /**
    * Turn each finished turn into a row, with progress read off the disk rather
    * than taken from the turn's own account of itself. An agent that reports
    * success and wrote nothing looks identical from the inside; it does not look
@@ -978,6 +1021,7 @@ export async function boot(transportOverride?: Transport) {
     // after the previous turn" and compared.
     let lastPrint: string | null = null;
     let lastTokens = router.conversationTokens(row.sessionId);
+    let lastDone = countDoneTodos();
     return {
       record: async (t: TurnRecord & { startedAt: number; tokens: number }) => {
         const changed = await changedSince(safety);
@@ -1000,6 +1044,13 @@ export async function boot(transportOverride?: Transport) {
         const spent = Math.max(0, total - lastTokens);
         lastTokens = total;
 
+        // Cumulative, like the token counter above, so a turn's contribution is
+        // the delta. Clamped at 0: reopening a task is not negative progress,
+        // it is a turn that closed nothing.
+        const doneNow = countDoneTodos();
+        const closed = Math.max(0, doneNow - lastDone);
+        lastDone = doneNow;
+
         runStore.appendTurn({
           runId: row.id,
           startedAt: t.startedAt,
@@ -1015,12 +1066,11 @@ export async function boot(transportOverride?: Transport) {
           // this turn's work.
           filesChanged:
             firstTurn || advanced ? (changed.available ? changed.files.length : 0) : 0,
-          // ponytail: the (id, status) diff the spec asks for needs a TodoStore
-          // handle no call site has yet. filesChanged alone drives every decision
-          // in decideResume, so nothing depends on this being filled. Wire a
-          // TodoStore in — do NOT match on a status string, they are free-form
-          // by design.
-          todosClosed: 0,
+          // Hardcoded 0 while `filesChanged` alone drove every decision. It no
+          // longer does: `madeNoProgress` needs BOTH to be zero, so a permanent
+          // zero here made the second half of the guard decorative — and a turn
+          // that closed three tasks without touching a file counted as a stall.
+          todosClosed: closed,
           doneWhenPass: cheap.checked ? cheap.passed : null,
         });
       },
@@ -1095,6 +1145,8 @@ export async function boot(transportOverride?: Transport) {
             // already past it never reaches this callback.
             deadlineMs: row.deadlineAt === null ? undefined : Math.max(1, row.deadlineAt - Date.now()),
             recorder: turnRecorder(row, safety, row.doneWhen),
+            stalled: () =>
+              row.safetyBefore !== null && madeNoProgress(runStore.turnsOf(row.id), STALL_TURNS),
           },
         );
         const changed = await changedSince(safety);
@@ -1196,6 +1248,9 @@ export async function boot(transportOverride?: Transport) {
           {
             deadlineMs: cronJobTimeoutMs,
             recorder: runRow ? turnRecorder(runRow, safety, job.doneWhen ?? null) : undefined,
+            stalled: runRow
+              ? () => runRow.safetyBefore !== null && madeNoProgress(runStore.turnsOf(runRow.id), STALL_TURNS)
+              : undefined,
           },
         );
         if (runError) throw new Error(runError);
@@ -1616,6 +1671,8 @@ export async function boot(transportOverride?: Transport) {
       let verdictReason: RunStopReason = "not_continuable";
       return {
         recorder: turnRecorder(row, safety, doneWhen),
+        stalled: () =>
+          row.safetyBefore !== null && madeNoProgress(runStore.turnsOf(row.id), STALL_TURNS),
         done: async (run: UnattendedResult): Promise<string | null> => {
           // The assertion is the authority, not the agent's closing paragraph.
           // A run that claimed success and cannot show it is recorded

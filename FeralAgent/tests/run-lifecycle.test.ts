@@ -182,6 +182,7 @@ describe("a connector turn becomes a durable run", () => {
         began.push({ sessionId, mission, surface, target });
         return {
           recorder: { record: (t) => { recorded.push(t.durationMs); } },
+          stalled: () => false,
           done: (run) => { finished.push(run); },
           conclude: (reply) => { concluded.push(reply); },
           delivered: () => { delivered.push(sessionId); },
@@ -293,6 +294,7 @@ describe("a chat task that declares what done means", () => {
         seen.push(doneWhen);
         return {
           recorder: { record: () => {} },
+          stalled: () => false,
           done: () => verdict,
           conclude: () => {},
           delivered: () => {},

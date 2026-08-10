@@ -100,6 +100,7 @@ export function renderDigest(
       continuation_budget: "the continuation budget ran out — raise FERAL_UNATTENDED_CONTINUATIONS to allow more",
       deadline: "the job's wall-clock limit was reached",
       not_continuable: `it ended as \`${run.outcome}\`, which continuing cannot fix`,
+      no_progress: "three turns in a row changed no files and closed no tasks, so it stopped rather than burn the budget",
     };
     out.push(`**Stopped because:** ${why[run.stoppedBecause]}`);
   }

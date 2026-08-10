@@ -25,6 +25,32 @@ export type ResumeDecision =
   | { action: "give_up"; status: RunStatus; reason: RunStopReason; why: string };
 
 /**
+ * How many consecutive turns must move nothing before a live run is called
+ * stalled.
+ *
+ * Not 1: a turn spent reading before writing is ordinary work, and stopping on
+ * it would kill healthy runs. Not 10: at a turn every few minutes that is most
+ * of an hour spent proving what three turns already showed.
+ */
+export const STALL_TURNS = 3;
+
+/**
+ * Did the last `count` turns produce any artifact at all?
+ *
+ * The only honest evidence a turn advanced is something on disk or a task
+ * closed — an outcome string is the model's own opinion of itself. Fewer turns
+ * than the window is deliberately NOT a stall: absence of evidence this early is
+ * absence of evidence.
+ *
+ * Callers own the `safetyBefore` question. Without a snapshot `filesChanged` is
+ * structurally 0 and this predicate would read a blind run as a dead one.
+ */
+export function madeNoProgress(turns: TurnRow[], count: number): boolean {
+  if (count <= 0 || turns.length < count) return false;
+  return turns.slice(-count).every((t) => t.filesChanged === 0 && t.todosClosed === 0);
+}
+
+/**
  * Did anything land on disk during the turns that followed the last resume?
  *
  * Only those turns count. Work done before the last resume must not vouch for
@@ -46,7 +72,7 @@ function lastResumeAchievedNothing(run: RunRow, turns: TurnRow[]): boolean {
   // A resume that died before producing a single turn never got a chance to fail
   // on its own terms. Retry it rather than judge it.
   if (since.length === 0) return false;
-  return since.every((t) => t.filesChanged === 0 && t.todosClosed === 0);
+  return madeNoProgress(since, since.length);
 }
 
 export function decideResume(

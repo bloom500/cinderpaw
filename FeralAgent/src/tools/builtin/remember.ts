@@ -15,16 +15,51 @@ import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_VALUE_CHARS = 2_000;
 
+/**
+ * Keys under this prefix are the agent's notebook: rendered in full every turn
+ * by WorkingMemory.setNotebook rather than reached through search.
+ *
+ * A prefix rather than a column because that is how this store already
+ * partitions rows — see the `ponytail:` note on SCOPE_SEP in memory/semantic.ts.
+ * No migration, no table rebuild.
+ */
+export const NOTE_PREFIX = "note:";
+
+/**
+ * The one notebook key a model other than the agent itself may write: the
+ * compaction safety net refreshes it when the agent has not. Exempt from the cap
+ * below, because a full notebook must never be able to block the net.
+ */
+export const POSITION_KEY = "note:position";
+
+/**
+ * How many notebook entries may exist at once.
+ *
+ * The cap is the point, not a limitation. Every drawer is re-sent on every turn,
+ * so an unbounded notebook is an unbounded per-turn cost — and a notebook nobody
+ * prunes stops being a notebook. We refuse the write instead of evicting a row:
+ * blind truncation is the failure this whole feature exists to escape, and the
+ * owner is the only one who knows which entry stopped mattering.
+ */
+export const MAX_NOTES = 10;
+
 export function createRememberTool(semantic: SemanticMemory): Tool {
   const manifest: ToolManifest = {
     name: "remember",
     description:
-      "Store a durable fact about the user or their world, so you still know it " +
-      "in future sessions. Use it whenever the user says remember / note this / " +
-      "don't forget, or states a stable preference worth keeping. `key` is a " +
-      "short stable slug (e.g. 'codename', 'home_city', 'preferred_editor'); " +
-      "writing the same key again overwrites it. Set `forget: true` to delete a " +
-      "fact the user asks you to forget. Read facts back with the `recall` tool.",
+      "Store a durable fact so you still know it in future sessions. Use it " +
+      "whenever the user says remember / note this / don't forget, or states a " +
+      "stable preference worth keeping. `key` is a short stable slug (e.g. " +
+      "'codename', 'home_city'); writing the same key again overwrites it. Set " +
+      "`forget: true` to delete a fact. Read facts back with the `recall` tool.\n" +
+      "A key beginning `note:` is your NOTEBOOK: unlike ordinary facts, notebook " +
+      "entries are shown back to you in full at the start of every turn, so they " +
+      "survive compaction and long unattended runs. On a long task, keep " +
+      "`note:position` current — one or two lines on where you are, what is next, " +
+      "and what is blocked — and write a `note:<slug>` for any hard-won fact " +
+      "(a path you created, a value you measured, an approach you ruled out). " +
+      `At most ${MAX_NOTES} notebook entries; rewrite a stale one rather than ` +
+      "hoarding.",
     permissions: [],
     networkAccess: false,
   };
@@ -73,6 +108,31 @@ export function createRememberTool(semantic: SemanticMemory): Tool {
           error: "bad_args",
         };
       }
+      // Notebook cap. Only counts entries that would be ADDED: rewriting an
+      // existing note is how a full notebook is supposed to be maintained, and
+      // refusing that would leave the agent stuck with ten stale lines.
+      const normalized = key.toLowerCase();
+      if (normalized.startsWith(NOTE_PREFIX) && normalized !== POSITION_KEY) {
+        // `own`, not `all`: the cap must count only rows this scope can actually
+        // rewrite. Counting the global ones too meant the owner's ten notes
+        // filled every Discord member's quota, and none of them could free it —
+        // a write they cannot overwrite is not a note they can curate.
+        const existing = semantic
+          .own(scope)
+          .filter((f) => f.key.startsWith(NOTE_PREFIX) && f.key !== POSITION_KEY);
+        const isNew = !existing.some((f) => f.key === normalized);
+        if (isNew && existing.length >= MAX_NOTES) {
+          return {
+            ok: false,
+            content:
+              `remember: your notebook already holds ${MAX_NOTES} entries. Rewrite one that ` +
+              `is out of date, or delete one with forget: true, then write this again. ` +
+              `Current keys: ${existing.map((f) => f.key).join(", ")}`,
+            error: "notebook_full",
+          };
+        }
+      }
+
       const stored = value.slice(0, MAX_VALUE_CHARS);
       semantic.upsert(key, stored, scope);
       return {

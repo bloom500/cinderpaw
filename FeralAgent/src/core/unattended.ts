@@ -56,7 +56,7 @@ export interface UnattendedResult {
   /** Every turn, in order. */
   turns: TurnRecord[];
   /** Why the run stopped continuing, when it did not finish. */
-  stoppedBecause: "completed" | "continuation_budget" | "deadline" | "not_continuable";
+  stoppedBecause: "completed" | "continuation_budget" | "deadline" | "not_continuable" | "no_progress";
 }
 
 /**
@@ -171,7 +171,19 @@ export async function runUnattended(
   runTurn: RunTurn,
   task: string,
   messageIdPrefix: string,
-  opts: { deadlineMs?: number; recorder?: TurnRecorder } = {},
+  opts: {
+    deadlineMs?: number;
+    recorder?: TurnRecorder;
+    /**
+     * Is the run producing nothing? Supplied by the caller because the evidence
+     * lives in the run store, which this loop deliberately knows nothing about:
+     * `filesChanged` / `todosClosed` are filled in by the caller's recorder.
+     *
+     * Checked AFTER the recorder has written the turn, so the callback sees the
+     * turn that just happened rather than judging on stale rows.
+     */
+    stalled?: () => boolean;
+  } = {},
 ): Promise<UnattendedResult> {
   const budget = maxContinuations();
   // The caller's deadline wins (cron sizes one from the job timeout); otherwise
@@ -242,6 +254,25 @@ export async function runUnattended(
       // A terminal outcome that is not continuable (stuck, stopped, no_answer)
       // is still "why we stopped"; a completed one is the happy path.
       if (result.outcome === "completed") stoppedBecause = "completed";
+      break;
+    }
+
+    // A run that is moving nothing gets one shot at a different approach, then
+    // stops. Same replan budget as a stuck turn and the same reasoning: a second
+    // replan has no more information than the first one did, and an unbounded
+    // "try again differently" is how a night's budget disappears.
+    //
+    // Reached only when `result.incomplete` — the block above already returned
+    // on every terminal outcome, `completed` included. A turn that legitimately
+    // finishes with nothing on disk (an analysis, a question answered) is not a
+    // stall; `stoppedBecause` must never read "no_progress" on a finished run.
+    if (opts.stalled?.() === true) {
+      if (!replanned && attempt < budget && Date.now() < deadline) {
+        replanned = true;
+        nextPrompt = REPLAN_PROMPT;
+        continue;
+      }
+      stoppedBecause = "no_progress";
       break;
     }
     // Out of wall clock for the whole run: stop before starting a turn we
