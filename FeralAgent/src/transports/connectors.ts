@@ -15,6 +15,9 @@
 
 import { join } from "node:path";
 import { readFile, writeFile, unlink } from "node:fs/promises";
+// Sync twins, deliberately: `isLinked` is called from `start()` before anything
+// is awaited, and from a static context that has no async seam to hide a read in.
+import { existsSync, readFileSync } from "node:fs";
 import { feralHome } from "../config.ts";
 import {
   Client,
@@ -1075,8 +1078,48 @@ export class WhatsAppConnector {
     }
   }
 
-  async start(): Promise<void> {
+  /**
+   * Is there a phone already linked to this install?
+   *
+   * Baileys writes `creds.json` as soon as a socket opens, so its mere presence
+   * proves nothing — `registered` is the flag that flips only once a phone has
+   * actually scanned the code. Treating file-exists as linked would put a
+   * half-finished pairing straight back into the loop this guard exists to stop.
+   */
+  static isLinked(): boolean {
+    try {
+      const creds = join(feralHome(), "whatsapp-auth", "creds.json");
+      if (!existsSync(creds)) return false;
+      return JSON.parse(readFileSync(creds, "utf8")).registered === true;
+    } catch {
+      // Unreadable or malformed credentials are not a link.
+      return false;
+    }
+  }
+
+  /**
+   * Bring the connector up.
+   *
+   * An UNLINKED connector does not connect. Opening a socket with no
+   * credentials makes Baileys start pairing immediately, which — with no phone
+   * on the other end — is a QR nobody asked for, regenerated every few seconds,
+   * forever: 47 reconnect cycles in the first 90 seconds of a boot, each one
+   * writing several lines to the gateway log. Overnight that is a log nobody
+   * can read and a core spinning for nothing.
+   *
+   * Pairing is a thing the USER starts, when they decide to connect WhatsApp.
+   * Until then an enabled-but-unlinked connector sits quiet and says how to
+   * link it. `pair()` is that explicit request.
+   */
+  async start(opts: { pair?: boolean } = {}): Promise<void> {
     this.#stopped = false;
+    if (!opts.pair && !WhatsAppConnector.isLinked()) {
+      this.#log(
+        "whatsapp: enabled but no phone is linked — staying idle. " +
+          "Run `/connectors qr` (or open the Connectors page) to scan a code and link one.",
+      );
+      return;
+    }
     await this.#connect();
     // ask_user over WhatsApp: message the question into the session's chat.
     // Reads #sock at call time so reconnects don't hold a stale socket.
@@ -1084,6 +1127,14 @@ export class WhatsAppConnector {
       const jid = sessionId.slice("whatsapp:".length);
       await this.#sock?.sendMessage(jid, { text });
     });
+  }
+
+  /**
+   * Start pairing on purpose — the user asked to link a phone. This is the one
+   * path allowed to open a socket without credentials.
+   */
+  async pair(): Promise<void> {
+    await this.start({ pair: true });
   }
 
   async #connect(): Promise<void> {
@@ -1509,12 +1560,32 @@ export class ConnectorManager {
       await conn.start();
       this.#whatsapp = conn;
       this.#whatsappKey = key;
-      this.#mark("whatsapp", true);
+      // "Live" must mean a phone is on the other end. It used to be set here
+      // unconditionally, so an unlinked connector spinning through pairing
+      // retries reported itself healthy — the one state where the health file
+      // most needed to say otherwise. Not linked is not broken either; it is
+      // simply not up, which is what `false` without an error says.
+      this.#mark("whatsapp", WhatsAppConnector.isLinked());
     } catch (e) {
       this.#log(`whatsapp connector failed to start: ${String(e)}`);
       this.#mark("whatsapp", false, e);
       await conn.stop();
     }
+  }
+
+  /**
+   * Link a phone, because the user asked to. The only path that may open a
+   * WhatsApp socket without credentials — see `WhatsAppConnector.start`.
+   *
+   * Returns false when the connector is not configured at all, so the caller
+   * can say "enable WhatsApp first" instead of leaving the user waiting for a
+   * QR that is never coming.
+   */
+  async pairWhatsApp(): Promise<boolean> {
+    if (!this.#whatsapp) return false;
+    await this.#whatsapp.pair();
+    this.#mark("whatsapp", WhatsAppConnector.isLinked());
+    return true;
   }
 
   async stopAll(): Promise<void> {
