@@ -43,7 +43,7 @@ describe("todo list survives compaction", () => {
     db.close();
   });
 
-  test("open items are rendered into every turn; done items are not", () => {
+  test("open and closed items are rendered in separate blocks with opposite imperatives", () => {
     const memory = new WorkingMemory("SYSTEM");
     memory.addUser("keep going");
     memory.setTodoList([
@@ -54,20 +54,39 @@ describe("todo list survives compaction", () => {
 
     const rendered = memory.render();
     const lastUser = rendered[rendered.length - 1]!.content;
-    expect(lastUser).toContain("fix-auth");
-    expect(lastUser).toContain("add-tests");
-    // The whole point: a finished item must not be re-advertised as work.
-    expect(lastUser).not.toContain("bump-dep");
+    // Open work is under the open list with status tags.
+    expect(lastUser).toContain("[in_progress] `fix-auth`");
+    expect(lastUser).toContain("[todo] `add-tests`");
+    expect(lastUser).toContain("Your task list");
+    expect(lastUser).toContain("These are still OPEN");
+    // The whole point: finished work IS recorded, but under a do-not-redo heading.
+    expect(lastUser).toContain("`bump-dep` — already handled");
+    expect(lastUser).toContain("Already done");
+    expect(lastUser).toContain("Do not redo it");
+    // The done item is NOT tagged as open work.
+    expect(lastUser).not.toContain("[in_progress] `bump-dep`");
+    expect(lastUser).not.toContain("[todo] `bump-dep`");
     // The static system prompt stays byte-stable (prompt-cache discipline).
     expect(rendered[0]!.content).toBe("SYSTEM");
   });
 
-  test("an empty or all-done list adds nothing to the prompt", () => {
+  test("an empty list adds nothing to the prompt", () => {
     const memory = new WorkingMemory("SYSTEM");
     memory.addUser("hi");
     const before = memory.render()[1]!.content;
-    memory.setTodoList([{ id: "x", content: "done thing", status: "done" }]);
+    memory.setTodoList([]);
     expect(memory.render()[1]!.content).toBe(before);
+  });
+
+  test("an all-done list shows the done block without an open block", () => {
+    const memory = new WorkingMemory("SYSTEM");
+    memory.addUser("hi");
+    memory.setTodoList([{ id: "x", content: "done thing", status: "done" }]);
+    const rendered = memory.render()[1]!.content;
+    expect(rendered).toContain("Already done");
+    expect(rendered).toContain("`x` — done thing");
+    // No open list should appear.
+    expect(rendered).not.toContain("Your task list");
   });
 });
 
