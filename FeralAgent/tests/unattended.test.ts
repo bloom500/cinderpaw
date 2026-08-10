@@ -300,6 +300,22 @@ describe("runUnattended", () => {
     expect(result.stoppedBecause).toBe("completed");
   });
 
+  test("a turn that completes cleanly is never called a stall, even if stalled() says yes", async () => {
+    // An analysis/question-answering task legitimately writes nothing and closes
+    // no todos. `stalled()` reading the same evidence `decideResume` reads at
+    // boot would call that a stall on file/todo counts alone — but the turn
+    // ENDED, and `stoppedBecause === "no_progress"` must be unreachable on a
+    // finished run.
+    const agent = scripted(["completed"]);
+    const result = await runUnattended(agent.run, "answer the question", "m", {
+      stalled: () => true,
+    });
+    expect(result.finished).toBe(true);
+    expect(result.stoppedBecause).toBe("completed");
+    // No extra replan turn spent on a task that was already done.
+    expect(agent.prompts).toHaveLength(1);
+  });
+
   test("with no stalled callback the loop behaves exactly as before", async () => {
     const result = await runUnattended(
       async () => ({ text: "ok", outcome: "completed" as TurnOutcome, incomplete: false, toolCallCount: 0 }),

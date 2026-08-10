@@ -322,6 +322,7 @@ describe("the connector seam", () => {
         const row = seed(s, { sessionId, mission, doneWhen });
         return {
           recorder: { record: () => {} },
+          stalled: () => false,
           done: (_run: UnattendedResult) => null,
           conclude: (reply: string) => {
             events.push("conclude");

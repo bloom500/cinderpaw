@@ -239,20 +239,6 @@ export async function runUnattended(
     }
     nextPrompt = CONTINUE_PROMPT;
 
-    // A run that is moving nothing gets one shot at a different approach, then
-    // stops. Same replan budget as a stuck turn and the same reasoning: a second
-    // replan has no more information than the first one did, and an unbounded
-    // "try again differently" is how a night's budget disappears.
-    if (opts.stalled?.() === true) {
-      if (!replanned && attempt < budget && Date.now() < deadline) {
-        replanned = true;
-        nextPrompt = REPLAN_PROMPT;
-        continue;
-      }
-      stoppedBecause = "no_progress";
-      break;
-    }
-
     if (!result.incomplete) {
       // A stuck turn is not "out of time" — the approach was refuted, and the
       // run still has budget. Spend one turn looking for a different way in
@@ -268,6 +254,25 @@ export async function runUnattended(
       // A terminal outcome that is not continuable (stuck, stopped, no_answer)
       // is still "why we stopped"; a completed one is the happy path.
       if (result.outcome === "completed") stoppedBecause = "completed";
+      break;
+    }
+
+    // A run that is moving nothing gets one shot at a different approach, then
+    // stops. Same replan budget as a stuck turn and the same reasoning: a second
+    // replan has no more information than the first one did, and an unbounded
+    // "try again differently" is how a night's budget disappears.
+    //
+    // Reached only when `result.incomplete` — the block above already returned
+    // on every terminal outcome, `completed` included. A turn that legitimately
+    // finishes with nothing on disk (an analysis, a question answered) is not a
+    // stall; `stoppedBecause` must never read "no_progress" on a finished run.
+    if (opts.stalled?.() === true) {
+      if (!replanned && attempt < budget && Date.now() < deadline) {
+        replanned = true;
+        nextPrompt = REPLAN_PROMPT;
+        continue;
+      }
+      stoppedBecause = "no_progress";
       break;
     }
     // Out of wall clock for the whole run: stop before starting a turn we

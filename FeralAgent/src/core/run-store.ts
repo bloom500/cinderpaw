@@ -23,14 +23,20 @@ export type RunStatus = "running" | "finished" | "unfinished" | "needs_attention
  * `UnattendedResult` knows nothing about. `no_progress` is NOT one of those —
  * `madeNoProgress` (run-resume.ts) is the same predicate read by a live loop at
  * the turn boundary and by `decideResume` at boot, so this reason can be
- * produced by either. Kept as its own type on purpose — `digest.ts` builds an
- * exhaustive `Record` over `UnattendedResult["stoppedBecause"]`, and widening
- * that type would (rightly) break the build.
+ * produced by either. Listed explicitly below (even though it is already part
+ * of `UnattendedResult["stoppedBecause"]` and TS would dedupe it silently) as a
+ * standing statement that it is a run-level reason on its own merits, not one
+ * merely inherited — so if `stoppedBecause` ever drops it, this type still
+ * carries it and rows already written keep a name. Kept as its own type on
+ * purpose otherwise — `digest.ts` builds an exhaustive `Record` over
+ * `UnattendedResult["stoppedBecause"]`, and widening that type would (rightly)
+ * break the build.
  */
 export type RunStopReason =
   | UnattendedResult["stoppedBecause"]
   | "process_died"
-  | "resume_cap";
+  | "resume_cap"
+  | "no_progress";
 
 /**
  * Where a finished run reports to. Without it, a run resumed at boot has
