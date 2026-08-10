@@ -256,6 +256,59 @@ describe("runUnattended", () => {
     expect(run.finished).toBe(true);
     expect(run.turns).toHaveLength(1);
   });
+
+  // ── Stall guard ──────────────────────────────────────────────────────────
+  // The same "changed nothing, closed nothing" evidence `decideResume` reads at
+  // boot, now reachable at the turn boundary too — a live run can be stopped
+  // instead of spinning on a refuted attempt until the deadline.
+
+  test("a stalled run replans once before giving up", async () => {
+    const prompts: string[] = [];
+    let stalled = false;
+    const result = await runUnattended(
+      async (prompt) => {
+        prompts.push(prompt);
+        stalled = true; // every turn from here on looks dead
+        return { text: "still going", outcome: "out_of_time" as TurnOutcome, incomplete: true, toolCallCount: 1 };
+      },
+      "do the thing",
+      "msg1",
+      { stalled: () => stalled },
+    );
+    // One replan attempt, then a stop — not an endless retry.
+    expect(prompts.filter((p) => p.includes("DIFFERENT approach"))).toHaveLength(1);
+    expect(result.stoppedBecause).toBe("no_progress");
+    expect(result.finished).toBe(false);
+  });
+
+  test("a run that is making progress is never stopped by the guard", async () => {
+    let calls = 0;
+    const result = await runUnattended(
+      async () => {
+        calls++;
+        return {
+          text: "done",
+          outcome: (calls >= 2 ? "completed" : "out_of_time") as TurnOutcome,
+          incomplete: calls < 2,
+          toolCallCount: 1,
+        };
+      },
+      "do the thing",
+      "msg1",
+      { stalled: () => false },
+    );
+    expect(result.stoppedBecause).toBe("completed");
+  });
+
+  test("with no stalled callback the loop behaves exactly as before", async () => {
+    const result = await runUnattended(
+      async () => ({ text: "ok", outcome: "completed" as TurnOutcome, incomplete: false, toolCallCount: 0 }),
+      "task",
+      "msg1",
+      {},
+    );
+    expect(result.stoppedBecause).toBe("completed");
+  });
 });
 
 describe("verifyDoneWhen kinds filter", () => {

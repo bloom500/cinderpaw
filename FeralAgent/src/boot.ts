@@ -48,7 +48,7 @@ import { RunStore, type RunRow, type RunStatus, type RunStopReason } from "./cor
 import { deliverAndMark, drainUndelivered, type DeliveryOutcome } from "./core/run-delivery.ts";
 import { intentSummary, clearIntents } from "./core/command-intent.ts";
 import { installUserHooks, userHooksPath } from "./core/user-hooks.ts";
-import { resumeInterruptedRuns } from "./core/run-resume.ts";
+import { resumeInterruptedRuns, madeNoProgress, STALL_TURNS } from "./core/run-resume.ts";
 import { turnBudgetMs } from "./core/agent-loop.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { McpManager } from "./egress/mcp-manager.ts";
@@ -1111,6 +1111,8 @@ export async function boot(transportOverride?: Transport) {
             // already past it never reaches this callback.
             deadlineMs: row.deadlineAt === null ? undefined : Math.max(1, row.deadlineAt - Date.now()),
             recorder: turnRecorder(row, safety, row.doneWhen),
+            stalled: () =>
+              row.safetyBefore !== null && madeNoProgress(runStore.turnsOf(row.id), STALL_TURNS),
           },
         );
         const changed = await changedSince(safety);
@@ -1212,6 +1214,9 @@ export async function boot(transportOverride?: Transport) {
           {
             deadlineMs: cronJobTimeoutMs,
             recorder: runRow ? turnRecorder(runRow, safety, job.doneWhen ?? null) : undefined,
+            stalled: runRow
+              ? () => runRow.safetyBefore !== null && madeNoProgress(runStore.turnsOf(runRow.id), STALL_TURNS)
+              : undefined,
           },
         );
         if (runError) throw new Error(runError);
@@ -1632,6 +1637,8 @@ export async function boot(transportOverride?: Transport) {
       let verdictReason: RunStopReason = "not_continuable";
       return {
         recorder: turnRecorder(row, safety, doneWhen),
+        stalled: () =>
+          row.safetyBefore !== null && madeNoProgress(runStore.turnsOf(row.id), STALL_TURNS),
         done: async (run: UnattendedResult): Promise<string | null> => {
           // The assertion is the authority, not the agent's closing paragraph.
           // A run that claimed success and cannot show it is recorded

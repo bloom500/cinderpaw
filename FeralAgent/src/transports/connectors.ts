@@ -404,6 +404,12 @@ export interface ConnectorRunHooks {
   ): Promise<{
     recorder: TurnRecorder;
     /**
+     * Is the run producing nothing? Same evidence `decideResume` reads at boot —
+     * see `madeNoProgress` — surfaced here so a live connector run can stop
+     * itself instead of spinning on a refuted approach until the deadline.
+     */
+    stalled: () => boolean;
+    /**
      * Judge the run. Returns one line for the person when there is something
      * the agent's own summary does not already say — a failed assertion, above
      * all. Null when the run needs no footnote.
@@ -486,7 +492,7 @@ export async function runAgent(
         agent.handleTurn!(sessionId, turnText, turnId, emit, undefined, images),
       text,
       messageId,
-      record ? { recorder: record.recorder } : {},
+      record ? { recorder: record.recorder, stalled: record.stalled } : {},
     );
     const verdict = await record?.done(run);
     // The unsourced-answer warning used to be computed here. It is on the
