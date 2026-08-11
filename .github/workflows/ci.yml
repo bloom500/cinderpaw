@@ -47,9 +47,48 @@ jobs:
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.typecheck }}
 
+      # FERAL_E2E turns on the fail-closed safety suites — journal tampering,
+      # the watchdog, module quarantine, governance. They are the tests that
+      # demonstrate the rails hold, and they were gated behind a variable no
+      # workflow set, so they had never run here once. They pass; nothing would
+      # have said so on the day they stopped.
+      #
+      # Set for both matrix legs rather than only the agent: an env var that
+      # applies to a step the other leg does not have is free, and a condition
+      # here is one more thing to get wrong later.
       - name: Test
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.test }}
+        env:
+          FERAL_E2E: "1"
+
+  # The Go TUI (`feral chat`, the guided setup, the connector wizard) — 16k
+  # lines with its own suite, built by install.sh and bundled with the desktop
+  # app, and until now compiled by nothing in CI. A break shipped silently.
+  #
+  # Ubuntu only: the code is plain Go with no cgo and no platform branches, so a
+  # second OS would buy a longer queue rather than more coverage. Revisit the
+  # day something here starts calling into the OS.
+  tui:
+    name: tui (go)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tui/go.mod
+          cache-dependency-path: tui/go.sum
+
+      - name: Build
+        working-directory: tui
+        run: go build ./...
+
+      - name: Test
+        working-directory: tui
+        run: go test ./...
 
   # The Rust half (src-tauri + crates/*) used to be compiled for the first time
   # by the tagged release build itself — a compile error there meant deleting
