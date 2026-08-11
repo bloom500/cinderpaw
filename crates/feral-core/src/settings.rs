@@ -77,12 +77,33 @@ impl Default for Settings {
 
 pub fn load() -> Settings {
     let path = paths::settings_path();
-    if let Ok(bytes) = std::fs::read(&path) {
-        if let Ok(s) = serde_json::from_slice::<Settings>(&bytes) {
-            return s;
-        }
+    match std::fs::read(&path) {
+        Ok(bytes) => match serde_json::from_slice::<Settings>(&bytes) {
+            Ok(s) => s,
+            // A file that exists and does not parse used to fall through to the
+            // defaults without a word. Every field here is required, so one
+            // hand-written `{"api_port": 11466}` — a reasonable thing to write —
+            // is discarded whole, and the process comes up on 11435 insisting
+            // nothing is wrong. That cost an afternoon: two Feral instances
+            // fought over one port and one database lock, and the desktop app
+            // reported "feral-agent not running", which is true and useless.
+            //
+            // Loud, and still non-fatal: refusing to boot over a bad settings
+            // file would be worse. But the person gets to know their file was
+            // ignored, and why.
+            Err(e) => {
+                eprintln!(
+                    "[feral] WARNING: {} exists but could not be parsed ({e}) — \
+                     IGNORING IT and using defaults. Every field is required; \
+                     a partial file is not merged with the defaults.",
+                    path.display()
+                );
+                Settings::default()
+            }
+        },
+        // No file at all is the ordinary first-run case, not a problem.
+        Err(_) => Settings::default(),
     }
-    Settings::default()
 }
 
 pub fn save(s: &Settings) -> anyhow::Result<()> {

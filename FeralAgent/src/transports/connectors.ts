@@ -1475,7 +1475,20 @@ export class ConnectorManager {
    */
   #personaProfile(id: string, row?: ConnectorRow): string | undefined {
     const persona = (row?.persona ?? "").trim();
-    if (!persona) return undefined;
+    if (!persona) {
+      // `personaTools` restricts the toolset, and it does nothing at all without
+      // a persona to attach it to. Someone tightening a public-facing bot down
+      // to three tools would have got the full toolset and no indication that
+      // their restriction was inert — the failure mode of a security control
+      // that is quietly off.
+      if ((row?.personaTools ?? []).length > 0) {
+        this.#log(
+          `${id}: personaTools is set (${row?.personaTools?.length} tools) but persona is empty — ` +
+            "the restriction is NOT applied. Set persona to restrict the toolset.",
+        );
+      }
+      return undefined;
+    }
     const pid = `${id}-persona`;
     const tools = (row?.personaTools ?? []).map((t) => t.trim()).filter(Boolean);
     this.#agent.registerProfile?.(pid, {
@@ -1549,6 +1562,18 @@ export class ConnectorManager {
     // Fall back to the legacy single `token` field for configs written before
     // the multi-secret migration (until the next save rewrites the file).
     const token = row?.secrets?.DISCORD_TOKEN?.trim() || row?.token?.trim();
+    // A secret filed under the wrong key looks exactly like no secret at all,
+    // and the connector then stops without a word — enabled in the file, absent
+    // in the world. Writing `TOKEN` instead of `DISCORD_TOKEN` cost twenty
+    // minutes of reading logs that had nothing in them to read.
+    if (row?.enabled && !token) {
+      const present = Object.keys(row.secrets ?? {}).filter((k) => (row.secrets?.[k] ?? "").trim());
+      this.#log(
+        present.length > 0
+          ? `discord: enabled but no usable token — secrets has ${present.join(", ")}, expected DISCORD_TOKEN`
+          : "discord: enabled but no token configured (expected secrets.DISCORD_TOKEN)",
+      );
+    }
     if (!row?.enabled || !token) {
       if (this.#discord) {
         await this.#discord.stop();
