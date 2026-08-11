@@ -108,6 +108,19 @@ NOT the end of the task:
 - **Crash recovery.** A killed process leaves a run marked `running`; the next
   boot sees that and resumes it, up to a resume cap, then asks a human.
 
+**Declaring what "done" means (`done_when:`).** Put a `done_when:` line anywhere
+in the message and the run is judged by that check instead of by the agent's own
+closing paragraph:
+
+- `done_when: exists report.md` — the file is there.
+- `done_when: contains report.md "Q3"` — the file is there and contains that text.
+- `done_when: run npm test` — the command exits 0.
+
+A run that claims success and fails its check is recorded as unfinished, told so
+with the failure quoted at it, and sent back to work. Without a `done_when:` the
+run is recorded as *unverified* rather than quietly as finished — "I'm done" is
+the agent's opinion, and the check is the world's.
+
 **The walk-away digest.** Every unattended run is reported with a verdict first
 (done / done-but-the-check-failed / not finished), then turns and actions, then
 what the commands actually did, then every file changed with a command to undo
