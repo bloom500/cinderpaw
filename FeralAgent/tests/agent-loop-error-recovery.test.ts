@@ -100,6 +100,92 @@ describe("no-progress detection", () => {
     }
   });
 
+  it("stops a tool that is failing for its OWN reasons, however the arguments change", async () => {
+    // The live report: Feral stalls on harder web-search tasks. DuckDuckGo Lite
+    // paces at one query per 5s and, once tripped, refuses everything for two
+    // minutes — instantly. So the model searches, gets `rate_limited`,
+    // rephrases (the sensible move), and is refused again in microseconds.
+    //
+    // Every guard in this loop keys on tool + ARGUMENTS. A rephrased query is a
+    // different key, so each counter restarts at one: the "failed twice with
+    // these exact arguments" nudge never fires, the loop window never fills,
+    // and the no-progress stop at 20 is never approached. The turn burns its
+    // iteration ceiling against a tool that is answering in microseconds.
+    //
+    // The failure belongs to the tool, not to the arguments. Counted that way,
+    // three identical refusals are enough to say so.
+    const originalFetch = globalThis.fetch;
+    try {
+      const throttled: Tool = {
+        manifest: {
+          name: "web_search",
+          description: "Search.",
+          permissions: [],
+          networkAccess: false,
+        } as ToolManifest,
+        parameters: { query: { type: "string", description: "q" } },
+        async execute(): Promise<ToolResult> {
+          return {
+            ok: false,
+            content: "DuckDuckGo is rate-limiting this machine. Try again in a couple of minutes.",
+            error: "rate_limited",
+          };
+        },
+      };
+
+      // Every query is different — exactly what a model does when a search
+      // comes back empty-handed.
+      const script = [
+        toolBlock("web_search", { query: "feral agent docs" }),
+        toolBlock("web_search", { query: "feral local agent documentation" }),
+        toolBlock("web_search", { query: "feral ai agent getting started" }),
+        toolBlock("web_search", { query: "feral runtime setup guide" }),
+        "Here is what I could gather.",
+      ];
+      let callIdx = 0;
+      const sentBodies: string[] = [];
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        sentBodies.push(String(init?.body ?? ""));
+        const content = script[callIdx] ?? "done.";
+        callIdx++;
+        return new Response(
+          JSON.stringify({ message: { content }, prompt_eval_count: 10, eval_count: 5 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+
+      const db = openDatabase(":memory:");
+      const audit = new AuditLog(db.raw);
+      const egress = new EgressProxy(audit.logger);
+      const router = new InferenceRouter(
+        { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+        audit.logger,
+        db.raw,
+      );
+      const episodic = new EpisodicMemory(db.raw, audit.logger);
+      const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+      const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));
+      registry.register(throttled);
+
+      const agent = new AgentLoop(router, registry, episodic, {}, recall);
+      await agent.handle("s1", "research this for me", "m1", () => {});
+
+      const all = sentBodies.join("\n");
+      // Named as the tool's problem, not the query's — the opposite advice from
+      // the exact-arguments nudge, which would send it rephrasing forever.
+      expect(all).toContain("web_search");
+      expect(all).toMatch(/not the arguments|regardless of/i);
+      // And the real error is quoted, so the model can tell the person WHY.
+      expect(all).toContain("rate-limiting");
+      // The wrong advice must NOT appear: changing the query is not the fix.
+      expect(all).not.toContain("has now failed twice with these exact arguments");
+
+      db.close();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("does not nudge when calls differ and succeed", async () => {
     const originalFetch = globalThis.fetch;
     try {

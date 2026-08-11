@@ -1319,6 +1319,21 @@ export class AgentLoop {
     // than after a third identical attempt.
     const recentToolKeys: string[] = [];
     const toolFailureCounts = new Map<string, number>();
+    // Every counter above keys on the ARGUMENTS, and some failures have nothing
+    // to do with them. The live case: DuckDuckGo Lite paces at one query per
+    // five seconds and, once tripped, refuses everything for two minutes —
+    // instantly. The model searches, is refused, rephrases (the sensible move),
+    // and is refused again in microseconds. A rephrased query is a different
+    // key, so every counter restarts at one: the exact-arguments nudge never
+    // fires, the loop window never fills, the hard stop at 20 is never
+    // approached, and the turn spends its whole iteration ceiling in a few
+    // seconds against a tool that is not even reaching the network.
+    //
+    // Keyed on tool + the failure text instead, so the same refusal counts as
+    // the same refusal however the query is worded. Failures only: a tool
+    // legitimately returning identical SUCCESS for different arguments is
+    // somebody's cache, not a stall.
+    const toolWideFailures = new Map<string, number>();
     // C-02: outcome-aware no-progress counter. `recentToolKeys` above keys on
     // arguments alone, so it can only warn — it cannot tell a productive repeat
     // (a poll whose output advances) from a stuck one. Keying on args AND the
@@ -1692,6 +1707,21 @@ export class AgentLoop {
               `(system: "${call.name}" has now failed twice with these exact arguments. ` +
               `The error was: ${result.content.slice(0, 300)} — do NOT call it with these arguments again. ` +
               "Change the arguments, use a different tool, or tell the user plainly what is blocking you.)",
+            );
+          }
+          // The same refusal, whatever was asked. Deliberately the opposite
+          // advice from the nudge above: telling a rate-limited search to
+          // change its arguments is what keeps it rephrasing forever.
+          const wideKey = `${call.name}:${resultDigest(result.content)}`;
+          const wide = (toolWideFailures.get(wideKey) ?? 0) + 1;
+          toolWideFailures.set(wideKey, wide);
+          if (wide === TOOL_WIDE_FAILURE_STOP) {
+            memory.addUser(
+              `(system: "${call.name}" has now failed ${wide} times with the SAME error across ` +
+              "different arguments, so the problem is the tool itself and not the arguments — " +
+              `rephrasing will not help. The error was: ${result.content.slice(0, 300)}\n` +
+              `Stop calling "${call.name}" for now. Continue with what you already have, use a ` +
+              "different tool, or tell the user plainly that this is what is blocking you.)",
             );
           }
         }
@@ -3345,6 +3375,18 @@ export const LOOP_WINDOW = 6;
  * genuinely waiting on something.
  */
 export const NO_PROGRESS_STOP = 20;
+
+/**
+ * The same tool, the same failure text, this many times — however the arguments
+ * differed.
+ *
+ * Three, where the argument-keyed stop is twenty, because the evidence is much
+ * stronger: twenty is the bar for "this repeat is unproductive", and a tool
+ * returning byte-identical failure text to three genuinely different inputs has
+ * already said the input is not what it is reacting to. Two would be too eager —
+ * a search engine can plausibly fail twice on unrelated queries.
+ */
+export const TOOL_WIDE_FAILURE_STOP = 3;
 
 /**
  * Stable digest of a rendered tool result, for no-progress detection.
