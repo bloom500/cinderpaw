@@ -200,7 +200,23 @@ export async function readAttachments(
       if (kind === "image") {
         const mime = (a.contentType ?? "").split(";")[0]!.trim() || `image/${extensionOf(a.name)}`;
         images.push(`data:${mime};base64,${Buffer.from(bytes).toString("base64")}`);
-        blocks.push(`[Image attached: "${a.name}" — it is in this message, look at it.]`);
+        // The second sentence is the whole quiet half of "can this model see?".
+        //
+        // Nothing on this side can answer that question. The capability
+        // registry that knows about vision is hand-written in brain.json and
+        // the Brain is off by default, so for the ordinary install the image is
+        // shipped to whatever model is selected and hope is the strategy. A
+        // model without vision does not error — it answers from the filename
+        // and the words around it, confidently, which is the same shape as
+        // every other failure this codebase spent today on: a reply about
+        // something the turn never actually looked at.
+        //
+        // We cannot make it see. We can refuse to let it pretend.
+        blocks.push(
+          `[Image attached: "${a.name}" — it is in this message, look at it. ` +
+            "If you cannot see it, say so plainly and stop: do not describe or guess " +
+            "its contents from the filename or from the rest of the message.]",
+        );
         continue;
       }
 

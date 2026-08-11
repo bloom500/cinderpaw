@@ -236,6 +236,21 @@ export function connectorErrorMessage(err: unknown): string {
   if (/\b429\b|rate.?limit|too many requests/i.test(raw)) {
     return say("I'm being rate-limited by my AI provider. Give me a minute and ask again.");
   }
+  // A photo sent to a text-only model. Checked before the generic 400 fallback
+  // and worded as an action, because "something went wrong" about a picture the
+  // person is looking at is the least useful thing we could say. The match
+  // needs image/vision AND a rejection word: plenty of unrelated failures
+  // mention an image in passing, and sending the owner off to change models
+  // over a malformed request is worse than saying nothing specific.
+  if (
+    /\b(image|image_url|vision|multimodal)\b/i.test(raw) &&
+    /not support|unsupported|not enabled|invalid content|cannot process/i.test(raw)
+  ) {
+    return say(
+      "That model is text-only — it can't see images. The owner needs to switch to a " +
+        "vision model, or you can describe the picture in words and I'll work from that.",
+    );
+  }
   if (/\b402\b|quota|billing|credit|insufficient/i.test(raw)) {
     return say("My AI provider reports a billing/quota problem. The owner needs to top up.");
   }

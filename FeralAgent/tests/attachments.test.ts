@@ -65,6 +65,14 @@ describe("readAttachments", () => {
     expect(Buffer.from(out.images[0]!.split(",")[1]!, "base64")).toEqual(Buffer.from(png));
     // The model is also told in words that an image is present.
     expect(out.text).toContain("shot.png");
+    // …and what to do when it turns out to be blind. Nothing on our side can
+    // know whether the selected model has vision: the capability registry is
+    // hand-written in brain.json and the Brain is off by default. So the
+    // quiet half of the failure — a text-only model ignoring the image and
+    // answering from the filename and the words around it — is headed off the
+    // only way it can be, by telling the model to admit it instead.
+    expect(out.text).toMatch(/cannot see|can't see/i);
+    expect(out.text).toMatch(/do not (describe|guess)/i);
   });
 
   test("a text file is inlined, not just named", async () => {

@@ -104,6 +104,29 @@ describe("connectorErrorMessage — the channel is the only place they can read"
     expect(connectorErrorMessage(new Error("HTTP 429 rate limit"))).toMatch(/rate-limited/i);
   });
 
+  test("a model that cannot see says so, instead of a generic shrug", () => {
+    // Sending a photo to a text-only model is the loud half of a real gap: the
+    // three provider shapes all ship images correctly, so nothing on our side
+    // drops them, and the person is left reading "something went wrong" about
+    // a picture they can see perfectly well. The provider already said why.
+    for (const raw of [
+      "inference endpoint … returned 400: this model does not support image input",
+      "returned 422: messages: image_url is not supported by this model",
+      "400 Invalid content type: vision is not enabled for meta/some-model",
+      "multimodal input is not supported",
+    ]) {
+      expect(connectorErrorMessage(new Error(raw))).toMatch(/can'?t see images|text-only/i);
+    }
+  });
+
+  test("an ordinary 400 is not mistaken for a blind model", () => {
+    // The word "image" must not be enough on its own — plenty of failures
+    // mention it in passing, and a wrong diagnosis sends the owner to change
+    // models over something else entirely.
+    expect(connectorErrorMessage(new Error("400: could not parse request body")))
+      .not.toMatch(/can'?t see images/i);
+  });
+
   test("names a context overflow with an action", () => {
     expect(connectorErrorMessage(new Error("context length exceeded"))).toMatch(/too long|fresh thread/i);
   });
