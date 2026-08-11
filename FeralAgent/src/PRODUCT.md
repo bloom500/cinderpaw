@@ -197,6 +197,18 @@ token footnote), `/restart` (restart the runtime).
   the gateway log; `feral gateway restart` restarts the runtime.
 - The gateway listens only on 127.0.0.1:11435 with a bearer token — nothing
   is exposed to the network.
+- **"feral-agent not running" in the desktop app, and reinstalling changes
+  nothing.** The usual cause is a SECOND Feral already running on this machine —
+  typically a CLI `feral gateway` started in a terminal. One profile holds one
+  exclusive lock on the memory database (`~/.feral/agent/.writer.lock`, stamped
+  with the owning process id), so the app's own sidecar cannot open it and dies
+  at startup. Fix: `feral gateway stop`, or close the other Feral, then restart
+  the app. Two instances that genuinely need to coexist need separate profiles —
+  a different `FERAL_HOME` and a different `api_port` each.
+- **The banner does not clear by itself.** After the runtime comes back, the
+  "went offline" message can stay on screen until the app is restarted — and
+  closing the window is not enough, since it keeps running in the system tray.
+  Quit from the tray icon, then reopen.
 
 ## What Feral is NOT
 
