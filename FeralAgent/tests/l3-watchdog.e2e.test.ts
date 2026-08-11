@@ -34,24 +34,24 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Cargo has to exist for this to mean anything, and in CI it deliberately does
- * not: the `feral-agent` job installs Node and Bun, nothing else. Turning
- * FERAL_E2E on in that job made this the one e2e test that failed there —
- * `spawnSync("cargo")` cannot find a toolchain the job was never meant to have.
+ * Off unless asked for by name, because this one test needs a whole Rust BUILD
+ * environment and the `feral-agent` CI job is not one.
  *
- * Skipping is right here, and it is not the usual "skip when the tool is
- * missing" rot, because the coverage is not lost: `cargo test --workspace` in
- * the `rust` job runs these same 23 watchdog tests on BOTH ubuntu and windows.
- * That is strictly more than this wrapper ever gave. What this file adds is the
- * convenience of one command locally, so it stays — guarded, rather than
- * dragging a Rust toolchain into a JavaScript job to re-prove something already
- * proven twice.
+ * Worth stating precisely, because the first guess here was wrong and cost a
+ * red build: cargo is NOT missing on the runner — ubuntu-latest ships it. What
+ * is missing is `libdbus-1-dev`, which `feral-core` links through
+ * `libdbus-sys`, and which only the `rust` job installs. A probe for `cargo
+ * --version` therefore passed and the build failed thirty-six seconds later.
+ * The dependency is the environment, not the binary, so the gate is an explicit
+ * opt-in rather than a sniff.
+ *
+ * No coverage is lost by it being off. `cargo test --workspace` in the `rust`
+ * job runs these same 23 watchdog tests on both ubuntu and windows — strictly
+ * more than this wrapper ever gave. What the file adds is one command locally:
+ *
+ *   FERAL_E2E=1 FERAL_E2E_RUST=1 bun test tests/l3-watchdog.e2e.test.ts
  */
-const HAS_CARGO = spawnSync(process.platform === "win32" ? "cargo.exe" : "cargo", ["--version"], {
-  encoding: "utf8",
-}).status === 0;
-
-const ENABLED = process.env.FERAL_E2E === "1" && HAS_CARGO;
+const ENABLED = process.env.FERAL_E2E === "1" && process.env.FERAL_E2E_RUST === "1";
 
 function findRepoRoot(): string {
   let cur = dirname(fileURLToPath(import.meta.url));
