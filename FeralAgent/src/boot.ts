@@ -1675,10 +1675,19 @@ export async function boot(transportOverride?: Transport) {
       const row = runStore.startRun({
         sessionId,
         mission,
-        // No wall-clock cap from a chat surface: runUnattended falls back to the
-        // configured mission deadline, and forcing one here would silently
-        // override it.
-        deadlineAt: null,
+        // The configured mission deadline, made ABSOLUTE here rather than left
+        // for runUnattended to derive per invocation.
+        //
+        // It used to be null, on the reasoning that runUnattended falls back to
+        // the same config anyway. True for this process — but a run that dies
+        // and is picked up by `resumeInterruptedRuns` derives it again from the
+        // moment of the RESUME, so each restart handed the run another full
+        // term. The check that is supposed to stop a run for being out of time
+        // reads this column, and a null cannot be out of time.
+        deadlineAt: (() => {
+          const ms = cfgInt("FERAL_MISSION_DEADLINE_MS");
+          return ms > 0 ? Date.now() + ms : null;
+        })(),
         continuationBudget: maxContinuations(),
         safetyRoot: safetyCols.root,
         safetyBefore: safetyCols.before,

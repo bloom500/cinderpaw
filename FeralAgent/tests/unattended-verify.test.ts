@@ -11,7 +11,7 @@
  * ran after everything had stopped, to write a verdict nobody could act on.
  */
 import { expect, test } from "bun:test";
-import { runUnattended } from "../src/core/unattended.ts";
+import { maxContinuations, runUnattended } from "../src/core/unattended.ts";
 import type { TurnResult } from "../src/core/agent-loop.ts";
 
 const done = (text: string): TurnResult => ({
@@ -96,8 +96,11 @@ test("an assertion that can never pass costs a budget, not a night", async () =>
     { verify: async () => ({ passed: false, detail: "never satisfiable" }) },
   );
   // Bounded by the same continuation budget as everything else in this module.
+  // Asserted against the budget itself, not a number: this used to say `< 20`,
+  // which was a stand-in for a default of 3 and quietly became a claim about
+  // the default the day it was raised. The property is "bounded", not "twenty".
   expect(turns).toBeGreaterThan(1);
-  expect(turns).toBeLessThan(20);
+  expect(turns).toBeLessThanOrEqual(maxContinuations() + 1);
   expect(run.stoppedBecause).toBe("completed");
 });
 
