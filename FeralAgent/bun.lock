@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "feral-agent",
-      "dependencies": {
-        "undici": "^8.10.0",
-      },
       "devDependencies": {
         "@slack/socket-mode": "^2.0.7",
         "@slack/web-api": "^7.17.0",

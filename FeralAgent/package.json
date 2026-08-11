@@ -66,8 +66,5 @@
   },
   "overrides": {
     "undici": ">=8.9.0"
-  },
-  "dependencies": {
-    "undici": "^8.10.0"
   }
 }
