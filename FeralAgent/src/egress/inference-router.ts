@@ -48,14 +48,15 @@ import {
 } from "./rate-limiter.ts";
 
 /**
- * How many times a 429 is retried before it surfaces as a failure.
+ * How many times a transient failure is retried before it surfaces.
  *
  * The gate makes a 429 unlikely; this catches the cases it cannot see — a key
  * used from outside Feral, or a provider whose window does not line up with
- * ours. Three attempts covers a transient collision without turning a genuine
- * "you are out of quota" into a minutes-long silent stall.
+ * ours — and, since `isTransientProviderFailure`, the provider's own bad
+ * seconds. Three attempts covers a blip without turning a genuine "you are out
+ * of quota" or "this endpoint is down" into a minutes-long silent stall.
  */
-const MAX_RATE_LIMIT_RETRIES = 3;
+const MAX_TRANSIENT_RETRIES = 3;
 
 export class BudgetExhaustedError extends Error {
   readonly reason: BudgetExhaustedReason;
@@ -108,6 +109,41 @@ export function isNoModelReady(err: unknown): boolean {
   return (
     /model_not_ready|no model (selected|loaded)/i.test(msg) ||
     (status === 503 && /\bmodel\b/i.test(msg))
+  );
+}
+
+/**
+ * True when a failure is the provider or the network having a bad moment,
+ * rather than the request being wrong.
+ *
+ * This is the difference between an 80-minute ceiling and an overnight run. Only
+ * a 429 was ever retried; everything else threw on the first failure, the turn
+ * came back from the agent loop as `no_answer`, and `no_answer` is not in the
+ * continuable set — so one bad gateway response at hour three ended the whole
+ * unattended run and delivered the error text as the answer. Over eight hours
+ * against any cloud provider, a 502 or a dropped socket is not a possibility,
+ * it is a certainty.
+ *
+ * What is deliberately NOT transient:
+ *   - 4xx. A 400 is a bug in our request; retrying buys the same answer.
+ *   - `model_not_ready`. The desktop unloads the GGUF on every switch to a
+ *     cloud route, so this 503 means "wrong target", not "try again".
+ *   - the timeout trips (`TtftTimeoutError`, `TotalTimeoutError`). Those are our
+ *     own deadline policy firing, and a retry pays the full deadline again to
+ *     reach the same wall.
+ *   - an aborted request. A user pressing stop is not congestion.
+ */
+export function isTransientProviderFailure(err: unknown): boolean {
+  if (isNoModelReady(err)) return false;
+  const name = String((err as { name?: string } | null)?.name ?? "");
+  if (name === "AbortError" || name.endsWith("TimeoutError")) return false;
+  const status = (err as { status?: number } | null)?.status;
+  if (typeof status === "number") return status >= 500 && status <= 599;
+  // No status at all: the request never reached a responding endpoint. Matched
+  // on the message because this is where undici, Node and Bun each name the
+  // same broken socket differently.
+  return /fetch failed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|network|terminated/i.test(
+    String((err as { message?: string } | null)?.message ?? err),
   );
 }
 
@@ -516,7 +552,11 @@ export class InferenceRouter {
     try {
       let response: InferenceResponse;
       try {
-        response = await this.#callTarget(primary, reqWithSignal, false);
+        // Retry the primary's transient failures only when there is nothing to
+        // fail over TO. A configured fallback is a healthy second endpoint, and
+        // spending three backoffs on a dead primary before trying it is slower
+        // and less reliable than switching now.
+        response = await this.#callTarget(primary, reqWithSignal, false, fallback === undefined);
       } catch (primaryErr) {
         if (!fallback) {
           this.#auditFailure(req.sessionId, start, String(primaryErr));
@@ -527,7 +567,8 @@ export class InferenceRouter {
           );
         }
         try {
-          response = await this.#callTarget(fallback, reqWithSignal, true);
+          // The fallback IS the last resort — past here the turn fails.
+          response = await this.#callTarget(fallback, reqWithSignal, true, true);
         } catch (fallbackErr) {
           this.#auditFailure(
             req.sessionId,
@@ -851,6 +892,12 @@ export class InferenceRouter {
     target: ModelTarget,
     req: InferenceRequest,
     isFallback: boolean,
+    /**
+     * Whether a provider blip on THIS target is worth waiting out. False when a
+     * fallback is configured — see the call site. A 429 is retried either way:
+     * that is the quota gate correcting itself, not an endpoint being unwell.
+     */
+    retryTransient: boolean,
   ): Promise<InferenceResponse> {
     if (!this.#trusted.has(normalizeBaseUrl(target.baseUrl))) {
       this.#auditBlocked(
@@ -894,13 +941,21 @@ export class InferenceRouter {
         // showing up, not a bug: respect the provider's Retry-After and go
         // again rather than failing the user's task on a transient collision.
         const status = (err as { status?: number }).status;
-        if (status !== 429 || attempt >= MAX_RATE_LIMIT_RETRIES) throw err;
+        const rateLimited = status === 429;
+        if (!rateLimited && !(retryTransient && isTransientProviderFailure(err))) throw err;
+        if (attempt >= MAX_TRANSIENT_RETRIES) throw err;
+        // A stop that landed while the provider was failing is still a stop.
+        // Without this the user waits out three backoffs they already cancelled.
+        if (req.signal?.aborted) throw err;
 
         // The provider counted the attempt it rejected, so our window must too
         // — otherwise it drifts optimistic exactly when we are already over.
-        this.#rateLimiter.note(target.baseUrl);
+        // Only for a 429: a 502 never reached the quota.
+        if (rateLimited) this.#rateLimiter.note(target.baseUrl);
 
-        const retryAfter = parseRetryAfter((err as { retryAfter?: string | null }).retryAfter);
+        const retryAfter = rateLimited
+          ? parseRetryAfter((err as { retryAfter?: string | null }).retryAfter)
+          : null;
         const waitMs = retryAfter ?? backoffMs(attempt);
 
         // A provider asking us to come back in ten minutes is not asking us to

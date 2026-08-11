@@ -109,6 +109,92 @@ describe("InferenceRouter rate limiting", () => {
     }
   });
 
+  test("a 502 is retried — a provider having a bad second must not end a night's work", async () => {
+    // The gap this closes: only a 429 was ever retried, so any other transient
+    // failure threw, the turn came back as `no_answer`, and `no_answer` is not
+    // continuable. One gateway blip at hour three ended the whole unattended
+    // run and delivered the error text as the answer.
+    const originalFetch = globalThis.fetch;
+    const db = openDatabase(":memory:");
+    try {
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        return calls === 1 ? new Response("bad gateway", { status: 502 }) : okResponse(completion);
+      }) as typeof fetch;
+
+      const router = nimRouter(db);
+      const res = await router.complete(req());
+      expect(res.content).toBe("ok");
+      expect(calls).toBe(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+      db.close();
+    }
+  }, 10_000);
+
+  test("a dropped connection is retried", async () => {
+    const originalFetch = globalThis.fetch;
+    const db = openDatabase(":memory:");
+    try {
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        if (calls === 1) throw new TypeError("fetch failed");
+        return okResponse(completion);
+      }) as typeof fetch;
+
+      const router = nimRouter(db);
+      expect((await router.complete(req())).content).toBe("ok");
+      expect(calls).toBe(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+      db.close();
+    }
+  }, 10_000);
+
+  test("a provider that is down surfaces instead of retrying forever", async () => {
+    const originalFetch = globalThis.fetch;
+    const db = openDatabase(":memory:");
+    try {
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        return new Response("down", { status: 503 });
+      }) as typeof fetch;
+
+      await expect(nimRouter(db).complete(req())).rejects.toThrow();
+      // Bounded: the attempt plus MAX_TRANSIENT_RETRIES, not an infinite loop.
+      expect(calls).toBe(4);
+    } finally {
+      globalThis.fetch = originalFetch;
+      db.close();
+    }
+  }, 20_000);
+
+  test("a user stop during a retry wait is not overridden", async () => {
+    const originalFetch = globalThis.fetch;
+    const db = openDatabase(":memory:");
+    try {
+      const ac = new AbortController();
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        ac.abort();
+        return new Response("bad gateway", { status: 502 });
+      }) as typeof fetch;
+
+      await expect(
+        nimRouter(db).complete({ ...req(), signal: ac.signal }),
+      ).rejects.toThrow();
+      // Stopped means stopped — no second attempt on the user's behalf.
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      db.close();
+    }
+  }, 10_000);
+
   test("an unreasonable Retry-After surfaces instead of freezing the agent", async () => {
     const originalFetch = globalThis.fetch;
     const db = openDatabase(":memory:");
