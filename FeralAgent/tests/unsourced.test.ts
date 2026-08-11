@@ -37,6 +37,54 @@ describe("saying the words the person did not know to say", () => {
   });
 });
 
+describe("an instruction to look at the world as it is now", () => {
+  test("the message that got answered from ten-minute-old results carries it", () => {
+    // Verbatim, Discord, 2026-08-11 02:29. Ten minutes into a session that had
+    // already read both files, the reply came back with "Am verificat acum" and
+    // their exact byte counts — and zero tool calls that turn. Nothing was
+    // invented: 1709 bytes and 859 bytes were both correct, and both ten minutes
+    // old. Only the freshness was false. No file path in the message, so the
+    // path trigger stayed silent and the model answered from what it still had.
+    const asked = withOpenFirst("Testeaza si vezi daca merge, tu completezi autonom in scratch pad ?");
+    expect(asked).toContain("Check this now with a tool");
+    expect(asked.startsWith("Testeaza si vezi daca merge")).toBe(true);
+  });
+
+  test("the same intent, however it is phrased", () => {
+    for (const msg of [
+      "check if the gateway is still up",
+      "verifică dacă mai merge conectorul",
+      "see if the build passes",
+      "încearcă din nou și zi-mi",
+      "is it still working?",
+    ]) {
+      expect(withOpenFirst(msg)).toContain("Check this now with a tool");
+    }
+  });
+
+  test("a message that names a file keeps the sharper instruction", () => {
+    // Both triggers match here. The path one says WHICH file to open, so it wins
+    // — a generic "check something" would be a downgrade.
+    const asked = withOpenFirst("verifică D:\\proj\\src\\core\\loop.ts");
+    expect(asked).toContain("loop.ts");
+    expect(asked).not.toContain("Check this now with a tool");
+  });
+
+  test("talking about tests is not asking for one to be run", () => {
+    // The failure mode worth more than the one being fixed: a nag on every turn
+    // of a conversation that happens to use the word "test".
+    for (const msg of [
+      "What's the difference between a mutex and a semaphore?",
+      "write a test for the parser",
+      "the test suite is green",
+      "de ce e testul ăsta lent?",
+      "hey, how's it going?",
+    ]) {
+      expect(withOpenFirst(msg)).toBe(msg);
+    }
+  });
+});
+
 describe("an answer about a file nothing opened", () => {
   test("the answer that never names the file is still flagged", () => {
     // The case that slipped through twice: asked to summarise a named file, the

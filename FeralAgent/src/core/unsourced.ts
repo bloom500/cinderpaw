@@ -68,6 +68,59 @@ export function claimedPath(answer: string): string | null {
 }
 
 /**
+ * "Check it", "does it still work", "testează și vezi dacă merge" — a message
+ * asking about the state of the world right now, rather than about what was
+ * found earlier.
+ *
+ * The second trigger for `withOpenFirst`, and it exists because of a transcript.
+ * Ten minutes into a Discord session that had already read both files, the agent
+ * was told "Testeaza si vezi daca merge" and replied "Am verificat acum" with
+ * their exact sizes — 1709 bytes, 859 bytes — having made zero tool calls that
+ * turn. Both numbers were CORRECT. It invented nothing; it recited results it
+ * genuinely had, ten minutes old, and called that a check. A fresh session given
+ * the same question a few minutes later used the tools immediately, which is what
+ * made this look like the model degrading over a session. It was not. The
+ * difference was that the fresh session had nothing in context to answer from.
+ *
+ * That is the whole failure: the better the memory, the more confidently a
+ * question about NOW gets answered from THEN. A path in the message was the only
+ * thing that ever triggered the instruction, and "is it still working?" has no
+ * path in it.
+ *
+ * Narrow on purpose, and the exclusions carry as much weight as the matches:
+ * talking about tests ("write a test", "the test suite is green") is not asking
+ * for one to be run, so `test` only counts when it takes an object. Romanian
+ * appears with and without diacritics because the owner types both.
+ */
+const CHECK_NOW = new RegExp(
+  [
+    // English — verbs that are almost always an instruction to act.
+    String.raw`\b(?:verify|confirm|re-?run)\b`,
+    // `check` and `test` only when they take an object: "check if", "test the
+    // gateway". Bare, they are the vocabulary of every conversation about a test
+    // suite, and "Check https://… when you get a chance" is not a request to go
+    // and look at this machine.
+    String.raw`\b(?:check|test)\s+(?:it|this|that|if\b|whether|the\s)`,
+    String.raw`\b(?:see|find out) if\b`,
+    String.raw`\bmake sure\b`,
+    String.raw`\bstill\s+(?:work|working|running|there|up|alive)\b`,
+    // Romanian. No `\b` before a diacritic: JS word boundaries are ASCII, so
+    // `\bî` never matches at the start of "încearcă".
+    String.raw`\btesteaz`,
+    String.raw`\bverific`,
+    String.raw`\bvezi dac`,
+    String.raw`[iî]ncearc`,
+    String.raw`\bmai (?:merge|func[tț]ioneaz)`,
+  ].join("|"),
+  "i",
+);
+
+/** Whether a message asks for the current state to be checked. Exported for tests. */
+export function asksForCheck(userText: string): boolean {
+  return CHECK_NOW.test(userText);
+}
+
+/**
  * The user's message, with the one instruction the model actually obeys added
  * when the message names a file.
  *
@@ -92,12 +145,24 @@ export function claimedPath(answer: string): string | null {
  */
 export function withOpenFirst(userText: string): string {
   const path = claimedPath(userText);
-  if (!path) return userText;
-  return (
-    `${userText}\n\n` +
-    `[Open \`${path}\` with a tool and read it before you describe it. ` +
-    `Do not answer from memory.]`
-  );
+  // The path form names WHICH file to open, so it wins when both match — a
+  // generic "check something" would be a downgrade.
+  if (path) {
+    return (
+      `${userText}\n\n` +
+      `[Open \`${path}\` with a tool and read it before you describe it. ` +
+      `Do not answer from memory.]`
+    );
+  }
+  if (asksForCheck(userText)) {
+    return (
+      `${userText}\n\n` +
+      `[Check this now with a tool before you answer. Results from earlier in this ` +
+      `conversation are what things WERE, not what they are — do not answer from them, ` +
+      `and do not say you checked unless you did.]`
+    );
+  }
+  return userText;
 }
 
 /**
