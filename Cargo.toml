@@ -12,7 +12,7 @@ members = ["src-tauri", "crates/feral-core", "crates/feral-cli"]
 resolver = "2"
 
 [workspace.package]
-version = "2026.8.1"
+version = "2026.8.11"
 edition = "2021"
 license = "BUSL-1.1"
 authors = ["Feral Contributors"]

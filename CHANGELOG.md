@@ -5,10 +5,38 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## Unreleased
+## 2026.08.11
 
 ### Added
 
+- **A task can now say what "done" means, and the world checks it.** Put a
+  `done_when:` line on any message — `done_when: exists report.md`,
+  `done_when: contains report.md "Q3"`, `done_when: run npm test` — and the run
+  is a success only if that assertion passes, whatever the agent says about
+  itself. Without one, the run is recorded as *unverified* rather than quietly
+  as finished, because "I'm done" is the weakest evidence in the system: an
+  agent that inventoried 9 files out of 250 and politely offered to continue
+  used to have that accepted as an answer. Now it is sent back to work with the
+  failure quoted at it.
+- **Unattended work survives the process that started it.** A long task now
+  keeps a durable record: every turn, what changed on disk, and what it still
+  owes you. Kill the machine mid-task and the next boot picks the task back up
+  where it was — or, if it cannot, tells you that instead of going silent. When
+  it finishes, the report is delivered even if the process that produced it is
+  long gone.
+- **The agent keeps a notebook.** `remember` with a `note:` key writes something
+  it will still have on hour six, rendered in full every turn rather than
+  searched for. Search does not fix hour six: what it has forgotten it knows is
+  exactly what it will not think to look for. The notebook is capped, so keeping
+  it current is curation rather than hoarding.
+- **A permanent scratchpad.** Its own workspace that survives restarts, and the
+  desktop shows what it wrote there while it worked.
+- **Every completion says what it cost.** A per-turn breakdown of where the
+  tokens went — system prompt, tool schemas, the drawers, the conversation, tool
+  output — in two accounts that are never mixed: what we measure and what the
+  provider billed. `/tokens` on a chat surface prints the same thing.
+- **Your own commands can run on the agent's events.** Hooks fire when a turn
+  starts, when a tool runs, when a turn ends.
 - **`feral migrate`** — brings an existing OpenClaw or Hermes Agent setup across.
   It finds the install itself (`--source` for unusual locations), then prints
   three sections before writing anything: what it will import, **what it could
@@ -29,8 +57,60 @@
   you the package manager's own command instead of racing it, and it refuses
   outright to touch a git checkout you build from.
 
+### Changed
+
+- **Walk-away runs are sized for a working day, not eighty minutes.** The
+  ceiling used to be 3 continuations of 20 minutes, and 80 minutes was recorded
+  for weeks as an observed limit before anyone read the arithmetic. An unattended
+  run now has an 8-hour deadline and a continuation budget sized to reach it; a
+  scheduled job gets an hour instead of five minutes, which predated the agent
+  doing multi-step work at all. The deadline is the term and the counter is the
+  safety net — a wedged run stops on the clock rather than spending its whole
+  budget.
+- **A stuck run tries a different way in.** Proven no-progress — the same call
+  returning the same result — no longer burns the rest of the budget. It gets one
+  replan, is told plainly that the approach is refuted, and is allowed to answer
+  "there is no other way in" and stop. An invented approach run for another hour
+  is worse than an honest stop.
+
 ### Fixed
 
+- **A provider's bad second no longer ends a night's work.** Only rate limits
+  were retried; a 502, a dropped socket or a gateway restart threw on the first
+  failure, and from there the turn was not continuable and the whole unattended
+  run stopped with the error text delivered as the answer. Over eight hours
+  against any cloud provider that is not a possibility, it is a certainty.
+- **Answers about files nothing opened are marked as such.** A turn that
+  describes a file, having made no tool calls at all, now carries one line
+  saying so — and if it claims it went and looked ("I checked", "just now") when
+  nothing ran, that is flagged too, because with zero tool calls that is not a
+  doubtful claim but a false one. The same detector, pointed the other way, adds
+  the one instruction the model actually obeys when your message names a file or
+  asks for something to be checked.
+- **A model that cannot see images says so.** Sending a photo to a text-only
+  model produced either a shrug ("something went wrong") or, worse, a confident
+  description assembled from the filename. The rejection is now named as an
+  action, and the image itself carries an instruction to admit blindness rather
+  than guess.
+- **Tool calls in an unfamiliar dialect are read, not thrown away as prose.**
+  Models fall back to other function-call formats mid-task; one namespaced
+  variant slipped past the parser entirely and reached the user as raw markup
+  with the task abandoned. Asking a model to switch syntax does not work —
+  reading the format it actually speaks does.
+- **Long conversations stop losing what they established.** Compaction used to
+  summarize its own summaries, so a long session drifted into invention; the
+  summary now carries exact facts forward verbatim and is never re-compressed.
+  A separate treadmill — re-fetching the same numbers after every compaction —
+  cost one task 117 file reads for 24 files without finishing.
+- **`/new` works on Discord and Slack.** The escape hatch for a conversation that
+  has gone wrong was unreachable on the two surfaces most likely to need it.
+- **WhatsApp stops trying to pair by itself.** An unlinked connector spun through
+  reconnect attempts — 47 in 90 seconds — and reported itself healthy while doing
+  it. Pairing is something you start.
+- **Shutdown takes a second, not thirty.** A reader's copy of the sender kept the
+  channel open long after everything else had stopped.
+- **Destructive commands aimed outside the workspace are refused**, and the agent
+  can see the work it did in any configured root rather than only the first.
 - **The live status message no longer eats the start of the answer** (Discord and
   Slack). While the agent worked, one message was edited to show what it was
   doing ("🔎 searching…"), then became the answer. Those status edits were sent
