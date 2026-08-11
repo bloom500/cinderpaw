@@ -45,10 +45,22 @@ const PATH_SHAPES = [
  * file" without re-deriving the shapes.
  */
 export function claimedPath(answer: string): string | null {
-  const prose = answer
-    // Fenced blocks are quoted material — code the agent is proposing, not a
-    // claim about having read something.
-    .replace(/```[\s\S]*?```/g, " ")
+  const prose = withoutQuotedMaterial(answer);
+  for (const shape of PATH_SHAPES) {
+    shape.lastIndex = 0;
+    const match = prose.match(shape);
+    if (match?.[0]) return match[0];
+  }
+  return null;
+}
+
+/** Shared by both detectors, so they never disagree about what the agent said. */
+function withoutQuotedMaterial(answer: string): string {
+  return (
+    answer
+      // Fenced blocks are quoted material — code the agent is proposing, not a
+      // claim about having read something.
+      .replace(/```[\s\S]*?```/g, " ")
     // Inline code is NOT stripped, and that is the whole difference between a
     // detector that works and one that never fires. Models write paths in
     // backticks by habit — `src/core/loop.ts` — so removing inline code removes
@@ -57,14 +69,50 @@ export function claimedPath(answer: string): string | null {
     // URLs go before path matching, not after: `https://example.com/docs/x.md`
     // contains a perfectly good POSIX path shape, and trying to exclude it by
     // looking at the characters before the match is how you get a rule that
-    // works until somebody writes a URL slightly differently.
-    .replace(/\bhttps?:\/\/\S+/gi, " ");
-  for (const shape of PATH_SHAPES) {
-    shape.lastIndex = 0;
-    const match = prose.match(shape);
-    if (match?.[0]) return match[0];
-  }
-  return null;
+      // works until somebody writes a URL slightly differently.
+      .replace(/\bhttps?:\/\/\S+/gi, " ")
+  );
+}
+
+/**
+ * "Am verificat acum", "I checked", "pe care am citit-o în acest turn" — the
+ * answer asserting it went and looked.
+ *
+ * This is the detector the path one could not be. The A/B on 2026-08-11 put the
+ * exact live sequence through six runs, and the turn that failed was triggered
+ * by "scratch padul functioenaza?" — misspelt, with no keyword in it. Nothing
+ * keyed on the QUESTION was ever going to catch that. The answer, though, said
+ * it had read the file "în acest turn", and whether a tool ran is not a matter
+ * of opinion.
+ *
+ * The precondition does the narrowing here, not the word list. This only ever
+ * runs when ZERO tools executed while the answer was produced, and in that turn
+ * "I checked" is false by construction — no judgement about whether the content
+ * looks invented, which is the thing this whole file exists to stop trusting.
+ *
+ * Two things must NOT fire, and they are the reason for the shape of it:
+ * offering to check ("pot verifica", "I'll check") is not claiming to have, and
+ * saying you did not check is the honest answer we are trying to encourage.
+ * English negation breaks the pattern on its own ("I have not checked" does not
+ * contain "I have checked"); Romanian keeps the same participle, so `nu` is
+ * excluded explicitly.
+ */
+const FRESH_CHECK = new RegExp(
+  [
+    // Romanian: the perfect tense, with the clitic that often splits it
+    // ("l-am citit", "am citit-o"). `nu`/`n-` in front means the opposite.
+    String.raw`(?<!\bnu\s)(?<!\bn-)(?:\b|-)am\s+(?:verificat|citit|rulat|deschis|executat|testat|inspectat)`,
+    String.raw`\b(?:verificat|citit|rulat|deschis|executat|testat)-(?:o|le|i)\b`,
+    // English.
+    String.raw`\bI(?:'ve| have)? (?:checked|read|ran|run|opened|verified|tested|executed|inspected)\b`,
+    String.raw`\bjust (?:checked|read|ran|verified|tested)\b`,
+  ].join("|"),
+  "i",
+);
+
+/** Whether the answer asserts it went and looked. Exported for tests. */
+export function claimsFreshCheck(answer: string): boolean {
+  return FRESH_CHECK.test(withoutQuotedMaterial(answer));
 }
 
 /**
@@ -166,12 +214,14 @@ export function withOpenFirst(userText: string): string {
 }
 
 /**
- * The line to append to an answer that describes a file the turn never opened,
- * or null when there is nothing to say.
+ * The line to append to an answer that describes a file the turn never opened —
+ * or that says it went and looked when nothing did — or null when there is
+ * nothing to say.
  *
  * `toolCalls` is the whole run's count, not one turn's: a run that read
  * something in its third turn and summarised it in its fifth is doing exactly
- * what it should.
+ * what it should. Which is also why the freshness claim is worth catching: with
+ * this count at zero, "I checked" is not a doubtful claim, it is a false one.
  */
 export function unsourcedWarning(
   answer: string,
@@ -186,10 +236,17 @@ export function unsourcedWarning(
   prompt = "",
 ): string | null {
   if (toolCalls > 0) return null;
+  // Two ways in, one warning out. The path is the sharper subject when there is
+  // one — it names what the answer is about — so it is tried first.
   const path = claimedPath(answer) ?? claimedPath(prompt);
-  if (!path) return null;
+  const subject = path
+    ? `This is about \`${path}\``
+    : claimsFreshCheck(answer)
+      ? "This says it went and looked"
+      : null;
+  if (!subject) return null;
   return (
-    `⚠️ _This is about \`${path}\`, but no file was opened and no command was run ` +
+    `⚠️ _${subject}, but no file was opened and no command was run ` +
     `while producing this answer — nothing here was checked against your machine._`
   );
 }

@@ -162,6 +162,41 @@ describe("an answer about a file nothing opened", () => {
   });
 });
 
+describe("an answer that says it checked, in a turn that ran nothing", () => {
+  test("the two live answers that claimed a check they had not made", () => {
+    // Both verbatim. The first is the 02:29 Discord reply; the second came out
+    // of the A/B rerun on 2026-08-11 and is the one no wording rule on the
+    // QUESTION could ever have caught — the question was "scratch padul
+    // functioenaza?", typo and all, with no keyword in it.
+    expect(unsourcedWarning("Da, scratchpadul merge. Am verificat acum: totul e la locul lui.", 0))
+      .toContain("no file was opened");
+    expect(
+      unsourcedWarning("Starea curentă e cea de root-only pe care am citit-o în acest turn.", 0),
+    ).toContain("no file was opened");
+    expect(unsourcedWarning("I checked and the gateway is still up.", 0)).toContain("no file was opened");
+  });
+
+  test("evidence exists, so the claim is not a claim", () => {
+    expect(unsourcedWarning("Am verificat acum: totul e la locul lui.", 1)).toBeNull();
+  });
+
+  test("saying you did NOT check is the honest answer, not a false claim", () => {
+    // Warning on this would punish exactly the behaviour we want.
+    expect(unsourcedWarning("Nu am verificat încă — vrei să mă uit acum?", 0)).toBeNull();
+    expect(unsourcedWarning("I have not checked that yet.", 0)).toBeNull();
+  });
+
+  test("offering to check is not claiming to have checked", () => {
+    expect(unsourcedWarning("Pot verifica dacă vrei.", 0)).toBeNull();
+    expect(unsourcedWarning("I'll check that for you now.", 0)).toBeNull();
+    expect(unsourcedWarning("Vrei să rulez testele?", 0)).toBeNull();
+  });
+
+  test("a claim inside quoted code is not the agent's claim", () => {
+    expect(unsourcedWarning('Aș scrie:\n```sh\n# am rulat asta deja\necho hi\n```', 0)).toBeNull();
+  });
+});
+
 describe("what counts as a path", () => {
   test("the shapes that matter", () => {
     expect(claimedPath("look at D:\\proj\\a.ts")).toBe("D:\\proj\\a.ts");
