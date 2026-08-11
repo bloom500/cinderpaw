@@ -170,7 +170,7 @@ describe("a connector turn becomes a durable run", () => {
     };
   }
 
-  function fakeHooks() {
+  function fakeHooks(extra?: { verify?: () => Promise<{ passed: boolean; detail: string } | null> }) {
     const began: Array<{ sessionId: string; mission: string; surface: string; target: string }> = [];
     const finished: UnattendedResult[] = [];
     const recorded: number[] = [];
@@ -183,6 +183,7 @@ describe("a connector turn becomes a durable run", () => {
         return {
           recorder: { record: (t) => { recorded.push(t.durationMs); } },
           stalled: () => false,
+          ...(extra ?? {}),
           done: (run) => { finished.push(run); },
           conclude: (reply) => { concluded.push(reply); },
           delivered: () => { delivered.push(sessionId); },
@@ -220,6 +221,24 @@ describe("a connector turn becomes a durable run", () => {
       undefined, undefined, { hooks, surface: "discord", target: "c1" },
     );
     expect(finished[0]!.finished).toBe(false);
+  });
+
+  test("the declared check is handed to the run loop, not just to the verdict", async () => {
+    // The bug this exists for: `begin` returned a `verify` callback, the hooks
+    // interface never declared one, and the call site forwarded `recorder` and
+    // `stalled` and dropped it. So the whole "you said done, the world says
+    // otherwise, go back to work" mechanism was live on cron and on crash-resume
+    // and dead on Discord — which is the only surface it was ever tested on.
+    //
+    // Asserted by behaviour rather than by spying on the options object: a turn
+    // that claims completion against a check that never passes must be sent
+    // back, so more than one turn is the proof the callback arrived.
+    const { hooks, recorded } = fakeHooks({ verify: async () => ({ passed: false, detail: "0 of 250 files" }) });
+    await runAgent(
+      fakeAgent("completed"), "discord:c1:u1", "inventory every file", "discord-42",
+      undefined, undefined, { hooks, surface: "discord", target: "c1" },
+    );
+    expect(recorded.length).toBeGreaterThan(1);
   });
 
   test("begin returning null (a run already in flight) still answers the message", async () => {

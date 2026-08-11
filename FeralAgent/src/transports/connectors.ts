@@ -413,6 +413,21 @@ export interface ConnectorRunHooks {
      */
     stalled: () => boolean;
     /**
+     * Ask the world whether the task is actually done, on a turn that claimed
+     * it was. Null when nothing was declared, in which case the agent's own
+     * word is all anyone has.
+     *
+     * This was missing from the interface while `begin` was already returning
+     * it, so the call site below forwarded `recorder` and `stalled` and dropped
+     * this one silently — no type error, because an extra property on a
+     * returned object literal is not an error. The effect: "you said done and
+     * the check disagrees, go back to work" was live on cron and on
+     * crash-resume, and dead on every chat surface. Which is the only place it
+     * was ever tested. Declared here so the omission is now a compile error
+     * rather than a behaviour nobody can see.
+     */
+    verify: () => Promise<{ passed: boolean; detail: string } | null>;
+    /**
      * Judge the run. Returns one line for the person when there is something
      * the agent's own summary does not already say — a failed assertion, above
      * all. Null when the run needs no footnote.
@@ -439,7 +454,17 @@ export interface ConnectorRunHooks {
   } | null>;
 }
 
-export type RunSurface = "discord" | "slack" | "whatsapp";
+/**
+ * Where a durable run came from.
+ *
+ * `desktop` covers everything that arrives over the sidecar transport — the
+ * desktop app, the TUI, and `/runtime/chat`. It has no push channel to report
+ * back into later, which is why `deliverRunReport` treats it like cron: the row
+ * and the log ARE the record. That is not a reason to leave those runs without
+ * a row, which is what they had — and therefore without the stall guard and the
+ * completion check that a row is what pays for.
+ */
+export type RunSurface = "discord" | "slack" | "whatsapp" | "desktop";
 
 /**
  * Run one agent turn, mapping its tool events to a friendly status string.
@@ -495,7 +520,9 @@ export async function runAgent(
         agent.handleTurn!(sessionId, turnText, turnId, emit, undefined, images),
       text,
       messageId,
-      record ? { recorder: record.recorder, stalled: record.stalled } : {},
+      record
+        ? { recorder: record.recorder, stalled: record.stalled, verify: record.verify }
+        : {},
     );
     const verdict = await record?.done(run);
     // The unsourced-answer warning used to be computed here. It is on the

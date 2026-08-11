@@ -43,7 +43,7 @@ export type RunStopReason =
  * finished work and nobody to tell.
  */
 export interface RunDelivery {
-  kind: "discord" | "slack" | "whatsapp" | "cron" | "tui";
+  kind: "discord" | "slack" | "whatsapp" | "cron" | "tui" | "desktop";
   /** Channel / chat id for a connector, job id for cron. */
   target: string;
   /** Agent session the run belongs to. */

@@ -17,6 +17,7 @@ import type { InboundMessage, ModelTarget, Schedule, DeliveryTarget } from "./ty
 import type { BootContext } from "./boot.ts";
 import { cfgBool, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
+import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
 import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
 import { liveModuleRegistry } from "./rsi/l4-modules/seam-runtime.ts";
@@ -63,6 +64,7 @@ function isLoopbackUrl(url: string): boolean {
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    runHooks,
   } = ctx;
 
   switch (msg.type) {
@@ -1141,12 +1143,34 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // fires on an outcome that was actually cut off, so an ordinary message
         // costs exactly one turn as before.
         if (cfgBool("FERAL_AUTONOMOUS")) {
+          // A durable row, exactly as a connector message gets one. This path
+          // used to call runUnattended with NO options at all: no recorder, so
+          // nothing survived the process; no stall guard, so a run producing
+          // nothing kept its whole continuation budget; and no completion
+          // check, so `done_when:` was inert here. With continuations sized at
+          // an eight-hour deadline that stopped being a small omission.
+          const record = await runHooks.begin(
+            sessionId,
+            content,
+            "desktop",
+            sessionId,
+            parseDoneWhenFromMessage(content),
+          );
           const run = await runUnattended(
             (text, messageId) =>
               agent.handleTurn(sessionId, text, messageId, relay, skillsContext, images, inferParams),
             content,
             id,
+            record
+              ? { recorder: record.recorder, stalled: record.stalled, verify: record.verify }
+              : {},
           );
+          const verdict = await record?.done(run);
+          const summary = verdict ? `${run.text}\n\n${verdict}` : run.text;
+          // Concluded BEFORE the event goes out, for the reason the connectors
+          // conclude before sending: a process that dies in between leaves a row
+          // that knows both that it ended and what it owed.
+          record?.conclude(summary);
           // Each turn emits its own `done`, and a turn that was cut short is
           // flagged `incomplete` so a consumer knows not to treat it as the
           // answer. But only THIS loop knows whether another turn is actually
@@ -1158,7 +1182,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             transport.send({
               type: "done",
               id,
-              content: run.text,
+              content: summary,
               stopped: false,
               traceId: id,
               outcome: run.outcome,
@@ -1166,6 +1190,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               runSummary: true,
             });
           }
+          record?.delivered();
         } else {
           await agent.handle(sessionId, content, id, relay, skillsContext, images, inferParams);
         }

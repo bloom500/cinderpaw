@@ -1113,9 +1113,12 @@ export async function boot(transportOverride?: Transport) {
    * other interrupted runs to one dead channel would be a worse outcome.
    */
   async function deliverRunReport(row: RunRow, text: string): Promise<DeliveryOutcome> {
-    // cron and tui have no channel to speak into: the log IS the delivery.
+    // cron, tui and desktop have no channel to speak into: the log IS the
+    // delivery. They still get a row — a run without one has no stall guard and
+    // no completion check, which is what the row actually pays for.
+    const CHANNELLESS = new Set(["cron", "tui", "desktop"]);
     let outcome: DeliveryOutcome = "sent";
-    if (row.delivery && row.delivery.kind !== "cron" && row.delivery.kind !== "tui") {
+    if (row.delivery && !CHANNELLESS.has(row.delivery.kind)) {
       outcome = await connectors.askRouter.notify(row.delivery.sessionId, text);
       if (outcome === "sent") return outcome;
       log(`run ${row.id}: ${row.delivery.kind} ${outcome} — report only in the log for now`);
@@ -1658,7 +1661,7 @@ export async function boot(transportOverride?: Transport) {
    * latency of a chat reply, the fix is to snapshot lazily on the first write
    * tool rather than to drop the snapshot.
    */
-  const connectorRunHooks = {
+  const runHooks = {
     async begin(
       sessionId: string,
       mission: string,
@@ -1742,7 +1745,7 @@ export async function boot(transportOverride?: Transport) {
     },
   };
 
-  const connectors = new ConnectorManager(agent, log, leadDesk, connectorRunHooks);
+  const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
   // ask_user for connector sessions is asked IN the channel (Discord/Slack/
   // WhatsApp text message; the next reply answers it) instead of emitting a
   // desktop card the chat user can never see.
@@ -1904,6 +1907,11 @@ export async function boot(transportOverride?: Transport) {
   // value on the other side.
   const ctx = {
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    // Not connector-only, despite where they are built: an autonomous turn over
+    // the sidecar transport is the same kind of unattended work and needs the
+    // same guards. Passed through so `dispatch` stops being the one live path
+    // running without a stall guard or a completion check.
+    runHooks,
     moduleEvalBusy, loraTrainBusy,
   };
   transport.onMessage((msg) => {
