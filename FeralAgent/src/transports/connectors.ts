@@ -479,6 +479,41 @@ export interface ConnectorRunHooks {
  * a row, which is what they had — and therefore without the stall guard and the
  * completion check that a row is what pays for.
  */
+/**
+ * Whether a message's channel is one the bot answers in without an @mention.
+ *
+ * Matched against the channel AND the two containers above it, because on
+ * Discord "the channel" is not one id:
+ *
+ *   - a message in `#bot-lab` carries the channel id, and its parent is the
+ *     CATEGORY (`STAFF`);
+ *   - a message in a thread carries the THREAD's id, its parent is `#bot-lab`,
+ *     and its grandparent is the category.
+ *
+ * Matching the channel id alone therefore left every thread out. A thread is
+ * where a real conversation goes, so listing `#bot-lab` and then being ignored
+ * inside it reads as the bot being broken. The connector Cubby wrote for Paw
+ * checks the parent; ours did not.
+ *
+ * Covering the category is the same fix seen from the other end, and it is what
+ * people actually reach for: asked which channels his staff bot should answer
+ * in, the owner handed over the STAFF category id — the thing Discord shows him
+ * when he right-clicks — which would have matched nothing whatsoever.
+ *
+ * An empty list still means everywhere, unchanged. Exported for tests: this is
+ * the one rule deciding whether the bot speaks unprompted, and it deserves to
+ * be checkable without standing up a Discord client.
+ */
+export function isDedicatedChannel(
+  allowed: ReadonlySet<string>,
+  channelId: string,
+  parentId?: string | null,
+  grandparentId?: string | null,
+): boolean {
+  if (allowed.size === 0) return true;
+  return [channelId, parentId, grandparentId].some((id) => !!id && allowed.has(id));
+}
+
 export type RunSurface = "discord" | "slack" | "whatsapp" | "desktop";
 
 /**
@@ -724,7 +759,10 @@ export class DiscordConnector {
     // still the gate that matters: only people the owner listed are ever
     // answered, so "answers everywhere" means "answers you everywhere", not
     // "joins every conversation in the server".
-    const dedicated = this.#channels.size === 0 || this.#channels.has(message.channelId);
+    const parent = (message.channel as { parentId?: string | null }).parentId ?? null;
+    const grandparent =
+      (message.channel as { parent?: { parentId?: string | null } | null }).parent?.parentId ?? null;
+    const dedicated = isDedicatedChannel(this.#channels, message.channelId, parent, grandparent);
 
     // Reply-to-continue: once a thread is going, replying to one of the bot's
     // own messages keeps the conversation alive without re-@mentioning it.

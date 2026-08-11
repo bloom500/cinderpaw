@@ -8,8 +8,55 @@
 
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { discordSessionId, parseDiscordSession, runChatCommand } from "../src/transports/connectors.ts";
+import {
+  discordSessionId,
+  isDedicatedChannel,
+  parseDiscordSession,
+  runChatCommand,
+} from "../src/transports/connectors.ts";
 import { SemanticMemory, memoryScope } from "../src/memory/semantic.ts";
+
+describe("which channels answer without an @mention", () => {
+  const STAFF_CATEGORY = "cat-staff";
+  const BOT_LAB = "chan-bot-lab";
+  const THREAD = "thread-in-bot-lab";
+  const SUPPORT = "chan-support";
+
+  test("an empty list still means everywhere", () => {
+    expect(isDedicatedChannel(new Set(), SUPPORT, null, null)).toBe(true);
+  });
+
+  test("the channel itself, as before", () => {
+    const allowed = new Set([BOT_LAB]);
+    expect(isDedicatedChannel(allowed, BOT_LAB, STAFF_CATEGORY, null)).toBe(true);
+    expect(isDedicatedChannel(allowed, SUPPORT, STAFF_CATEGORY, null)).toBe(false);
+  });
+
+  test("a thread inherits the channel it was opened in", () => {
+    // The gap this closes. A thread has its own id, so listing #bot-lab left
+    // every thread inside it needing an @mention — and a thread is where a
+    // real conversation goes.
+    expect(isDedicatedChannel(new Set([BOT_LAB]), THREAD, BOT_LAB, STAFF_CATEGORY)).toBe(true);
+  });
+
+  test("a category covers the channels under it", () => {
+    // Free, and it is what people reach for: asked which channels his staff bot
+    // should answer in, the owner handed over the STAFF category id — the thing
+    // Discord shows him — and it would have matched nothing at all.
+    expect(isDedicatedChannel(new Set([STAFF_CATEGORY]), BOT_LAB, STAFF_CATEGORY, null)).toBe(true);
+  });
+
+  test("a category covers threads two levels down", () => {
+    expect(isDedicatedChannel(new Set([STAFF_CATEGORY]), THREAD, BOT_LAB, STAFF_CATEGORY)).toBe(true);
+  });
+
+  test("a thread somewhere else is still not covered", () => {
+    // The whole point of naming channels: #support belongs to another bot, and
+    // a thread inside it must not become the staff bot's business.
+    expect(isDedicatedChannel(new Set([STAFF_CATEGORY]), "thread-in-support", SUPPORT, "cat-support"))
+      .toBe(false);
+  });
+});
 
 describe("discord session ids", () => {
   test("two users in the same channel get different sessions", () => {
