@@ -559,6 +559,42 @@ describe("parseResponse malformed tool-call detection", () => {
     expect(parsed.text).toContain("Să vedem ce spațiu am la dispoziție.");
   });
 
+  it("reads a namespaced invoke with parameter tags — the real Anthropic shape", () => {
+    // Verbatim from the 8h endurance run's first turn, 2026-08-11. Thirty-one
+    // tool calls in our own syntax, then the last message came out in this one
+    // and was delivered to the user as the answer: raw markup, task abandoned.
+    //
+    // Two things defeated the parser at once. The tag carries a namespace
+    // prefix (`atem:`, the model imitating `antml:`) and the matcher anchored
+    // on a bare `<invoke`. And the arguments arrive as `<parameter name="x">`,
+    // which is what Anthropic's format actually looks like — the parser only
+    // ever handled the simplified `<x>value</x>` variant while its docstring
+    // claimed the format by name.
+    const raw =
+      "<atem:function_calls>\n" +
+      '<atem:invoke name="shell_exec">\n' +
+      '<atem:parameter name="argv">["cmd","/c","node check.mjs"]</atem:parameter>\n' +
+      "</atem:invoke>\n" +
+      "</atem:function_calls>";
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls).toHaveLength(1);
+    expect(parsed.toolCalls[0]!.name).toBe("shell_exec");
+    expect(parsed.toolCalls[0]!.args).toEqual({ argv: ["cmd", "/c", "node check.mjs"] });
+    // And none of the markup survives into what the person reads.
+    expect(parsed.text).not.toContain("invoke");
+  });
+
+  it("reads the same shape without a namespace", () => {
+    const raw =
+      '<invoke name="write_file">\n' +
+      '<parameter name="path">notes.md</parameter>\n' +
+      '<parameter name="content">hello</parameter>\n' +
+      "</invoke>";
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls).toHaveLength(1);
+    expect(parsed.toolCalls[0]!.args).toEqual({ path: "notes.md", content: "hello" });
+  });
+
   it('flags XML-style <invoke name="tool"> and scrubs it', () => {
     const parsed = parseResponse('Trying another way.\n<invoke name="write_file">');
     expect(parsed.toolCalls).toHaveLength(0);

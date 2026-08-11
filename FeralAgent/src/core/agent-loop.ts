@@ -2858,25 +2858,47 @@ export function parseInvokeXml(input: string): ParsedToolCall[] {
   };
 
   const calls: ParsedToolCall[] = [];
-  const invokeRe = /<invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)(?:<\/invoke>|$)/g;
+  // The namespace prefix is optional and it is not cosmetic. A model imitating
+  // Anthropic's own wire format writes `<invoke>`; the 8h run's first
+  // turn produced `<atem:invoke>`, close enough to be obviously the same
+  // intent and far enough to miss a matcher anchored on a bare tag. Thirty-one
+  // good calls in our syntax, then one in this one, delivered to the person as
+  // raw markup.
+  const invokeRe = /<(?:[A-Za-z_][\w.-]*:)?invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)(?:<\/(?:[A-Za-z_][\w.-]*:)?invoke>|$)/g;
   let m: RegExpExecArray | null;
   while ((m = invokeRe.exec(input)) !== null) {
     const name = m[1];
     if (!name) continue;
     const args: Record<string, unknown> = {};
+    const body = m[2] ?? "";
+    // Shape 1, and the one this function was named after: `<parameter
+    // name="path">value</parameter>`. It is what Anthropic's format actually
+    // looks like, and it was the one shape the parser could not read — the
+    // docstring claimed the format by name while only the simplified variant
+    // below was implemented.
+    const namedRe = /<(?:[A-Za-z_][\w.-]*:)?parameter\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?parameter>/g;
+    let np: RegExpExecArray | null;
+    while ((np = namedRe.exec(body)) !== null) {
+      args[np[1] as string] = coerce(np[2] ?? "");
+    }
+    // Shape 2: the argument name IS the tag (`<argv><item>cmd</item></argv>`).
     // Backreferenced closer, so a parameter's body is consumed whole — nested
     // <item> tags belong to their parent and must not be read as parameters.
-    const paramRe = /<([A-Za-z_][\w.-]*)>([\s\S]*?)<\/\1>/g;
-    let p: RegExpExecArray | null;
-    while ((p = paramRe.exec(m[2] ?? "")) !== null) {
-      if (p[1] === "item") continue;
-      args[p[1] as string] = coerce(p[2] ?? "");
+    // Skipped entirely once shape 1 matched, so a `<parameter>` tag is never
+    // also read as an argument literally called "parameter".
+    if (Object.keys(args).length === 0) {
+      const paramRe = /<([A-Za-z_][\w.-]*)>([\s\S]*?)<\/\1>/g;
+      let p: RegExpExecArray | null;
+      while ((p = paramRe.exec(body)) !== null) {
+        if (p[1] === "item") continue;
+        args[p[1] as string] = coerce(p[2] ?? "");
+      }
     }
     // A bare opener with no arguments and no closer is an ANNOUNCEMENT, not a
     // call — the model wrote "<invoke name="write_file">" and stopped. Running
     // it would mean write_file with no path. A closed invoke with no args is
     // different and legitimate: the zero-arg tools (time_date, self_health).
-    if (!m[0].endsWith("</invoke>") && Object.keys(args).length === 0) continue;
+    if (!/<\/(?:[A-Za-z_][\w.-]*:)?invoke>$/.test(m[0]) && Object.keys(args).length === 0) continue;
     calls.push({ name, args });
   }
   return calls;
@@ -2979,19 +3001,27 @@ export function parseResponse(raw: string, allowedToolNames?: Iterable<string>):
     preScrubbed = preScrubbed.split(MINIMAX_DEBRIS).join("");
   }
 
-  const hadInvokeXml = /<\/?invoke\b/.test(preScrubbed);
+  // Namespace-tolerant everywhere `invoke` is looked for. The gate used to be
+  // `/<\/?invoke\b/`, which a prefixed tag slips straight past — so the parser
+  // below was never even asked about the shape it was written to read.
+  // The wrapper (`<…function_calls>`) goes too; left behind it is markup the
+  // person reads as the answer.
+  const hadInvokeXml = /<\/?(?:[A-Za-z_][\w.-]*:)?invoke\b/.test(preScrubbed);
   if (hadInvokeXml) {
     // Read it rather than reject it — see parseInvokeXml.
     const xmlCalls = parseInvokeXml(preScrubbed);
     if (xmlCalls.length > 0) {
       return {
-        text: preScrubbed.replace(/<invoke[\s\S]*?(?:<\/invoke>|$)/g, "").trim(),
+        text: preScrubbed
+          .replace(/<(?:[A-Za-z_][\w.-]*:)?invoke[\s\S]*?(?:<\/(?:[A-Za-z_][\w.-]*:)?invoke>|$)/g, "")
+          .replace(/<\/?(?:[A-Za-z_][\w.-]*:)?function_calls>/g, "")
+          .trim(),
         toolCalls: xmlCalls,
         malformedToolCall: false,
         droppedToolCalls: 0,
       };
     }
-    preScrubbed = preScrubbed.replace(/<\/?invoke\b[^>\n]*>?/g, "");
+    preScrubbed = preScrubbed.replace(/<\/?(?:[A-Za-z_][\w.-]*:)?invoke\b[^>\n]*>?/g, "");
   }
 
   // Debris with no recoverable <invoke> structure around it (a lone sentinel,
