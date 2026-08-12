@@ -58,7 +58,7 @@ layers**.
 | **L3 — code-RSI** | Patches over existing FeralAgent source | Compose unified diffs; live-apply through worktree | Skip the worktree; touch host or TUI; promote without human approval (first N) | `rsi/l3-code/code-*`, `rsi/l3-code/pending-patches.ts`, `rsi/l3-code/code-sandbox.ts` (the contract FSM itself — `rsi/infra/contract*.ts` — lives in `infra/`; it's shared with L1/L4) | `src-tauri/src/rsi/` (full file set; `code_patch.rs` in `feral-core`), `crates/feral-core/src/rsi/repo.rs::watchdog_branch` |
 | **L4 — architecture evolution** | Subsystem hot-plug via `seam_runtime` against two v1 seams (`retrieval_strategy`, `planner`) | Promote new modules via `seam-adapter`/`module-host`; registry re-point on strike | Write into `FeralAgent/src/`; ship a third seam in v1 | `rsi/l4-modules/module-*`, `rsi/l4-modules/seam-*` | `crates/feral-core/src/rsi/` (instrumentation) |
 | **L5 — governance evolution** | Tunes parameters inside `SandboxBounds`; reversible | Update `policy.json`; emit audit events | Bypass tier-0; ignore an `EvalHalted` | `rsi/l5-gov/governance*` | `crates/feral-core/src/rsi/sandbox_bounds.rs`, `crates/feral-core/src/rsi/audit.rs` |
-| **L6 — meta evolution** | Tunes the algorithm that produces parameters | Modify selection pressure, score weights, mutation distributions | Skip human gate; never reversible on its own | `rsi/l6-meta/meta-evolution.ts` | (rust half not implemented) |
+| **L6 — meta evolution** | Tunes the algorithm that produces parameters | Modify selection pressure, score weights, mutation distributions | Skip human gate; never reversible on its own | `rsi/l6-meta/meta-evolution.ts` (694 lines: `MetaEvolution`, `mutateMetaGenome`, `metaFitness`) | (rust half not implemented — the TS half is what runs) |
 | **infra (cross-layer)** | State + transport primitives used by every layer above | Bus events, envelopes, budget, paths, the contract FSM, confidence gate, eval-spec loading | Couple to a specific L-layer's evolution contracts | `rsi/infra/event-bus.ts`, `rsi/infra/hash-chain.ts`, `rsi/infra/instance-paths.ts`, `rsi/infra/provenance.ts`, `rsi/infra/envelope-store.ts`, `rsi/infra/budget.ts`, `rsi/infra/rsi-cost.ts`, `rsi/infra/resource-monitor.ts`, `rsi/infra/adapters.ts`, `rsi/infra/bridge.ts`, `rsi/infra/contract*.ts`, `rsi/infra/confidence.ts`, `rsi/infra/eval-spec.ts` | (paths only — `crates/feral-core/src/rsi/paths.rs`) |
 
 The orchestrators live at the root of `rsi/`: `rsi/sidecar.ts`,
@@ -85,8 +85,8 @@ each other directly. Full per-file layer map: `FeralAgent/src/rsi/README.md`.
 | Faza 4 | L2 | LoRA loop (eval runner + LoRA substrate) | `docs/brsi-spec.md` §4.7 + per-slice docs | `rsi/l2-adapt/lora-*`, `rsi/l2-adapt/dataset-builder.ts`, `rsi/l2-adapt/personal-fitness.ts` |
 | Faza 4.5 | (infra) | Host-agnostic runtime | `docs/2026-07-03-faza4-5-headless-design.md` | `crates/feral-core/src/boot.rs`, `feral-cli` |
 | Faza 4.6 | (infra) | Brain Stack (capability routing) | `docs/2026-07-03-brain-stack-minimax-brief.md` | `FeralAgent/src/brain/`, `src-tauri/src/brain*` |
-| Faza 5 (spec only) | L5 governance | Policy lifecycle | `docs/2026-07-04-l5-governance-evolution-spec.md` | `rsi/l5-gov/governance*`, `crates/feral-core/src/rsi/sandbox_bounds.rs` |
-| Faza 6 (spec only) | L6 meta | Tunes the tuner | `docs/2026-07-04-l6-meta-evolution-audit.md` | `rsi/l6-meta/meta-evolution.ts` (scaffold) |
+| Faza 5 (shipped) | L5 governance | Policy lifecycle | `docs/2026-07-04-l5-governance-evolution-spec.md` | `rsi/l5-gov/governance*`, `crates/feral-core/src/rsi/sandbox_bounds.rs` |
+| Faza 6 (shipped) | L6 meta | Tunes the tuner | `docs/2026-07-04-l6-meta-evolution-audit.md` | `rsi/l6-meta/meta-evolution.ts`, instantiated in `boot.ts` and live via `metaParams` |
 
 **Things that are NOT in the BRSI layer model** (deliberately
 out-of-scope per spec §Out-of-scope):

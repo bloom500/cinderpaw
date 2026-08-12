@@ -88,8 +88,29 @@ export async function runChat(): Promise<void> {
     }
   });
 
+  // Everything below prints only after boot returns, so a boot that stalls
+  // (unreachable model host, a 401 from a token-gated loopback engine, a
+  // provider that never answers) used to leave the terminal entirely blank for
+  // as long as the user was willing to wait. A blank terminal reads as a broken
+  // product; a stalled one reads as a configuration problem, which is what it
+  // usually is. Say we started, and say it out loud if we fail.
+  console.log();
+  console.log(muted("  starting Feral...", useColor));
+
   const { main } = await import("../index.ts");
-  await main(transport);
+  try {
+    await main(transport);
+  } catch (err) {
+    console.error();
+    console.error(`  could not start: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      muted(
+        "  check the route with `feral providers`, and that the model host is reachable.",
+        useColor,
+      ),
+    );
+    process.exit(1);
+  }
 
   const model = cfgPath("FERAL_MODEL")!;
   console.log();
