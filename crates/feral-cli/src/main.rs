@@ -19,6 +19,7 @@ use std::sync::Arc;
 use clap::{CommandFactory, Parser, Subcommand};
 
 mod admin;
+mod providers_ui;
 mod chat;
 mod common;
 mod guided;
@@ -281,7 +282,8 @@ fn main() {
         Some(Command::Logs { follow }) => admin::logs(follow),
         Some(Command::Model) => admin::model_list(),
         Some(Command::Providers { action }) => match action {
-            None | Some(admin::ProvidersAction::List) => admin::providers_list(),
+            None => providers_ui::providers_pick(),
+            Some(admin::ProvidersAction::List) => admin::providers_list(),
             Some(admin::ProvidersAction::Use { id, model }) => admin::providers_use(&id, model),
             Some(admin::ProvidersAction::SetKey { id, model, no_verify, activate }) => {
                 admin::providers_set_key(&id, model, no_verify, activate)

@@ -1982,7 +1982,7 @@ pub enum ProvidersAction {
 
 /// Split `provider:model` into its two halves. A route with no colon is
 /// provider-only, which is how a local-model route reads.
-fn split_route(route: &str) -> (String, String) {
+pub fn split_route(route: &str) -> (String, String) {
     match route.split_once(':') {
         Some((p, m)) => (p.to_string(), m.to_string()),
         None => (route.to_string(), String::new()),
