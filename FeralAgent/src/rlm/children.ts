@@ -35,6 +35,8 @@ export interface ChildEntry {
   toolCalls?: number;
   durationMs?: number;
   error?: string;
+  /** Bounded tail of what the child has been doing, newest last. */
+  trail?: TrailEntry[];
 }
 
 /** What `rlm()` hands back the instant a child is admitted. */
@@ -44,10 +46,26 @@ export interface ChildHandle {
   status: "running";
 }
 
+/**
+ * How many trail entries a child keeps. Upstream's `agent_observe` inspects a
+ * child's rollout; we cannot stream one into a notebook cell, so each child
+ * keeps a bounded tail of what it did. Bounded because a runaway child would
+ * otherwise grow this without limit inside a long-lived gateway.
+ */
+const TRAIL_MAX = 40;
+
+/** One line of a child's rollout, as the parent sees it. */
+export interface TrailEntry {
+  at: number;
+  kind: string;
+  detail: string;
+}
+
 /** The work a child actually does. Supplied by the host. */
 export type RunChild = (
   task: string,
   allowedTools: string[] | undefined,
+  onEvent: (kind: string, detail: string) => void,
 ) => Promise<{
   status: "completed" | "failed" | "timeout" | "budget_exceeded";
   answer: string;
@@ -122,11 +140,17 @@ export class ChildRegistry {
     // Upstream requires names unique among siblings.
     if (this.#byName.has(name)) throw new Error(`rlm.run name "${name}" is already used by a sibling`);
 
-    const entry: ChildEntry = { rlm_child_id: id, name, status: "running" };
+    const entry: ChildEntry = { rlm_child_id: id, name, status: "running", trail: [] };
     this.#entries.set(id, entry);
     this.#byName.set(name, id);
 
-    const p = this.run(task, opts.allowedTools)
+    const push = (kind: string, detail: string) => {
+      const t = entry.trail!;
+      t.push({ at: Date.now(), kind, detail: detail.slice(0, 200) });
+      if (t.length > TRAIL_MAX) t.splice(0, t.length - TRAIL_MAX);
+    };
+
+    const p = this.run(task, opts.allowedTools, push)
       .then((r) => {
         entry.status = r.status === "completed" ? "completed" : "error";
         entry.answer = r.answer;
@@ -148,6 +172,19 @@ export class ChildRegistry {
 
   list(): ChildEntry[] {
     return [...this.#entries.values()].map((e) => ({ ...e }));
+  }
+
+  /**
+   * Upstream's `agent_observe`, in the shape a notebook can use. A child runs
+   * in the background, so a parent that only sees `running` is blind for
+   * however long the work takes — this returns what the child has been doing
+   * so far, which is the point of observing rather than waiting.
+   */
+  observe(target: string): ChildEntry {
+    const id = this.#entries.has(target) ? target : this.#byName.get(target);
+    const entry = id ? this.#entries.get(id) : undefined;
+    if (!entry) throw new Error(`rlm.observe: no child matches "${target}"`);
+    return { ...entry, trail: [...(entry.trail ?? [])] };
   }
 
   /** Accepts either an id or a name, as upstream's `delete_subagent` does. */

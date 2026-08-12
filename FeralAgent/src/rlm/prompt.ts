@@ -13,8 +13,7 @@
  * and pre-imported skill modules describe IPython, and our notebook is a
  * `node:vm` JavaScript context. Their subshell warning has no analogue here —
  * we have no shell magic, and shell work goes through the `shell_exec` tool
- * like any other capability. Their recursion clause is dropped for now: it is
- * `rlm()` spawning child sessions, which we do not have yet.
+ * like any other capability.
  */
 
 export interface NotebookPromptOptions {
@@ -29,12 +28,11 @@ export interface NotebookPromptOptions {
 }
 
 /**
- * The recursion clause. Prime Agent's equivalent tells the model that `rlm()`
- * admits a child and returns a handle, with results arriving over messaging.
- * Ours awaits the child and returns its answer, because Feral has no
- * parent/child mailbox — so the instruction has to say the opposite about
- * where the result appears, or the model would sit waiting for a message that
- * never comes.
+ * The recursion clause. Admission semantics match upstream: `rlm()` returns a
+ * handle, never the answer. The one divergence is collection — upstream's
+ * answers arrive over agent messaging, and Feral has no mailbox, so they are
+ * read back from `list_subagents()`. The wording has to be explicit about that
+ * or the model would sit waiting for a message that never comes.
  */
 const RECURSION = [
   "`rlm` is already in your namespace. `await rlm('sub-task')` spawns a worker and returns as soon as it is admitted, with `{ rlm_child_id, name, status }` — it does NOT wait for the worker and never returns its answer.",
@@ -42,6 +40,8 @@ const RECURSION = [
   "Choose a stable name with `await rlm('sub-task', { name: 'api-reviewer' })`; names must be unique among siblings. If you omit it, a readable one is generated.",
   "",
   "Because admission is instant, spawn independent workers in separate calls and get on with your own work rather than idling. Collect them later with `await rlm.list_subagents()`, which returns every direct child with its `status` — `running`, `completed` or `error` — and, once settled, its `answer`. Poll it in a later cell or a later turn; a child that is still `running` simply has no answer yet.",
+  "",
+  "While a worker runs you are not blind: `await rlm.observe(nameOrId)` returns its current status plus a `trail` of what it has been doing — tool calls, errors, progress. Use it when a worker is taking long enough that you want to know whether it is stuck or just slow.",
   "",
   "Drop a child you no longer need with `await rlm.delete_subagent(nameOrId)`. A child that is still running is kept, not killed, and comes back with `outcome: 'skipped_running'`.",
   "",

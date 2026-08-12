@@ -76,7 +76,12 @@ export interface NotebookToolDeps {
    * is what gives `rlm()` its instant admission — this function is allowed to
    * take minutes; nobody awaits it inline.
    */
-  runChild?: (task: string, allowedTools: string[] | undefined, sessionId: string) => ReturnType<RunChild>;
+  runChild?: (
+    task: string,
+    allowedTools: string[] | undefined,
+    sessionId: string,
+    onEvent: (kind: string, detail: string) => void,
+  ) => ReturnType<RunChild>;
   maxDepth?: number;
   /** Where per-session snapshots live. Omit to keep notebooks in memory only. */
   stateDir?: string;
@@ -148,7 +153,8 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           // One registry per session, so `list_subagents()` only ever shows a
           // parent its own direct children — upstream's rule.
           children: deps.runChild
-            ? new ChildRegistry((task, allowedTools) => deps.runChild!(task, allowedTools, sessionId))
+            ? new ChildRegistry((task, allowedTools, onEvent) =>
+                deps.runChild!(task, allowedTools, sessionId, onEvent))
             : undefined,
           // A notebook running inside a subagent is already one level down, so
           // its `rlm()` must be gone — otherwise the depth cap counts from zero

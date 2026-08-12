@@ -855,7 +855,7 @@ export async function boot(transportOverride?: Transport) {
       // gateway restart — upstream persists its kernel namespace for the same
       // reason. Only JSON-round-trippable variables come back; see repl.ts.
       stateDir: join(feralHome(), "notebooks"),
-      runChild: (task, allowedTools, sessionId) =>
+      runChild: (task, allowedTools, sessionId, onEvent) =>
         notebookSubagent.run({
           task,
           allowedTools: allowedTools ?? NOTEBOOK_CHILD_TOOLS,
@@ -863,6 +863,12 @@ export async function boot(transportOverride?: Transport) {
           parentSessionId: sessionId.startsWith("subagent:")
             ? sessionId.split(":")[1] ?? sessionId
             : sessionId,
+          // Feeds `rlm.observe()`. Only the shape the parent can act on: what
+          // kind of thing happened and a short detail, never the raw event.
+          onEvent: (e) => {
+            const ev = e as { type?: string; tool?: string; message?: string };
+            onEvent(ev.type ?? "event", ev.tool ?? ev.message ?? "");
+          },
         }),
     }));
     log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true), rlm() wired");

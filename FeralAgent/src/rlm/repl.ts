@@ -209,6 +209,13 @@ export class Notebook {
       }) as ((task: unknown, options?: unknown) => Promise<unknown>) & Record<string, unknown>;
 
       rlm.list_subagents = severed(async () => severed({ subagents: kids.list().map((e) => severed({ ...e })) }));
+      rlm.observe = severed(async (target: unknown) => {
+        if (typeof target !== "string" || !target.trim()) {
+          throw new Error("rlm.observe target must be a non-empty string");
+        }
+        const e = kids.observe(target.trim());
+        return severed({ ...e, trail: (e.trail ?? []).map((t) => severed({ ...t })) });
+      });
       rlm.delete_subagent = severed(async (target: unknown) => {
         if (typeof target !== "string" || !target.trim()) {
           throw new Error("rlm.delete_subagent target must be a non-empty string");

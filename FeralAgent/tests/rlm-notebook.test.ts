@@ -399,3 +399,54 @@ describe("snapshot", () => {
     expect(nb.restore({})).toEqual([]);
   });
 });
+
+describe("observe — watching a worker that is still going", () => {
+  it("reports the trail while the child is running", async () => {
+    let emit!: (k: string, d: string) => void;
+    const children = new ChildRegistry(async (_t, _a, onEvent) => {
+      emit = onEvent;
+      await new Promise((r) => setTimeout(r, 120));
+      return { status: "completed" as const, answer: "ok", toolCalls: 2, durationMs: 9, subagentId: "x" };
+    });
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+
+    await nb.run(`await rlm("dig", { name: "digger" })`);
+    emit("tool_start", "read_file");
+    emit("tool_done", "read_file");
+
+    const r = await nb.run(`
+      const o = await rlm.observe("digger");
+      o.status + ":" + o.trail.map((t) => t.kind + "/" + t.detail).join(",")
+    `);
+    expect(r.value).toBe("running:tool_start/read_file,tool_done/read_file");
+    await children.drain();
+  });
+
+  it("keeps the trail bounded so a runaway child cannot grow it forever", async () => {
+    let emit!: (k: string, d: string) => void;
+    const children = new ChildRegistry(async (_t, _a, onEvent) => {
+      emit = onEvent;
+      await new Promise((r) => setTimeout(r, 80));
+      return { status: "completed" as const, answer: "ok", toolCalls: 0, durationMs: 1, subagentId: "x" };
+    });
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+    await nb.run(`await rlm("noisy", { name: "noisy" })`);
+    for (let i = 0; i < 100; i++) emit("tool_done", `call-${i}`);
+
+    const r = await nb.run(`(await rlm.observe("noisy")).trail.length`);
+    expect(Number(r.value)).toBeLessThanOrEqual(40);
+    const last = await nb.run(`(await rlm.observe("noisy")).trail.at(-1).detail`);
+    expect(last.value).toBe("call-99"); // newest kept, oldest dropped
+    await children.drain();
+  });
+
+  it("errors on an unknown child rather than returning an empty shell", async () => {
+    const children = new ChildRegistry(async () => ({
+      status: "completed" as const, answer: "", toolCalls: 0, durationMs: 0, subagentId: "x",
+    }));
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+    const r = await nb.run(`await rlm.observe("ghost")`);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("no child matches");
+  });
+});
