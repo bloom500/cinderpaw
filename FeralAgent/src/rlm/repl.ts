@@ -67,12 +67,37 @@ export interface CellResult {
   toolCalls: string[];
 }
 
+/** What `rlm()` hands back once a child has finished. */
+export interface ChildResult {
+  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  answer: string;
+  toolCalls: number;
+  durationMs: number;
+  childId: string;
+}
+
+/** Spawns one child agent. Supplied by the caller; the notebook owns no deps. */
+export type SpawnChild = (task: string, allowedTools?: string[]) => Promise<ChildResult>;
+
+/**
+ * Prime Agent defaults `RLM_MAX_DEPTH` to 1 and errors at the limit; we keep
+ * both. Depth 1 means the root may spawn children and those children may not
+ * spawn further — recursion deep enough to fan out, shallow enough that a
+ * confused model cannot open a fork bomb of paid model calls.
+ */
+export const DEFAULT_MAX_DEPTH = 1;
+
 export interface ReplOptions {
   registry: ToolRegistry;
   sessionId: string;
   /** Session-level abort, so `stop()` reaches a running cell's tool calls. */
   signal?: AbortSignal;
   cellTimeoutMs?: number;
+  /** Omit to leave `rlm()` out of the notebook entirely. */
+  spawn?: SpawnChild;
+  /** This notebook's depth. 0 is the root agent. */
+  depth?: number;
+  maxDepth?: number;
 }
 
 /**
@@ -112,6 +137,7 @@ export class Notebook {
   readonly #timeoutMs: number;
   #log: string[] = [];
   #calls: string[] = [];
+  #children: string[] = [];
 
   constructor(opts: ReplOptions) {
     this.#timeoutMs = opts.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS;
@@ -146,6 +172,38 @@ export class Notebook {
       });
     }
 
+    // ── the "R" in RLM ───────────────────────────────────────────────────
+    // Recursion is what separates a notebook from a Recursive Language Model:
+    // the model spawns workers *from code*, so it can fan out inside one cell
+    // instead of one-per-turn. Feral already has bounded child agents
+    // (core/subagent.ts) with their own filtered tool set and budget, so this
+    // is a binding, not a new execution path.
+    //
+    // Divergence from Prime Agent, deliberate: their `rlm()` admits the child
+    // and returns a handle immediately, with results arriving later over a
+    // messaging capability. Feral has no parent/child mailbox, so a handle
+    // would be a promise of a result nobody can collect. Ours awaits the child
+    // and returns its answer. Revisit if a mailbox ever lands.
+    const depth = opts.depth ?? 0;
+    const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
+    if (opts.spawn) {
+      const spawn = opts.spawn;
+      sandbox.rlm = severed(async (task: unknown, allowedTools?: unknown) => {
+        if (typeof task !== "string" || !task.trim()) {
+          throw new Error("rlm(task) requires a non-empty string");
+        }
+        if (depth >= maxDepth) {
+          throw new Error(`RLM recursion depth limit reached (depth=${depth}, maxDepth=${maxDepth})`);
+        }
+        const tools = Array.isArray(allowedTools)
+          ? allowedTools.filter((t): t is string => typeof t === "string")
+          : undefined;
+        const r = await spawn(task.trim(), tools);
+        this.#children.push(r.childId);
+        return severed({ ...r });
+      });
+    }
+
     // The contextified global IS this host object, so top-level `this` in a
     // cell would otherwise expose host `Object.prototype` — the last escape
     // route, and the one a model hits by writing plain `this`.
@@ -157,6 +215,11 @@ export class Notebook {
   /** Tool names invoked since construction, in order. */
   get toolCalls(): readonly string[] {
     return this.#calls;
+  }
+
+  /** Ids of child agents this notebook spawned, in order. */
+  get children(): readonly string[] {
+    return this.#children;
   }
 
   /**

@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { Notebook, toIdentifier } from "../src/rlm/repl.ts";
+import { buildNotebookPrompt } from "../src/rlm/prompt.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool, ToolResult } from "../src/types.ts";
 
@@ -113,6 +114,65 @@ describe("tools", () => {
   });
 });
 
+describe("recursion — the R in RLM", () => {
+  const child = async (task: string, allowedTools?: string[]) => ({
+    status: "completed" as const,
+    answer: `did: ${task}${allowedTools ? ` [${allowedTools.join(",")}]` : ""}`,
+    toolCalls: 1,
+    durationMs: 5,
+    childId: `sa-${task.length}`,
+  });
+
+  it("spawns a worker from code and returns its answer", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+    const r = await nb.run(`const w = await rlm("count the files"); w.answer`);
+    expect(r.value).toBe("did: count the files");
+    expect(nb.children).toEqual(["sa-15"]);
+  });
+
+  it("fans out several workers from a single cell", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+    const r = await nb.run(`
+      const parts = ["a", "bb", "ccc"];
+      const done = await Promise.all(parts.map((p) => rlm(p)));
+      done.map((d) => d.answer).join(" | ")
+    `);
+    expect(r.value).toBe("did: a | did: bb | did: ccc");
+    expect(nb.children.length).toBe(3);
+  });
+
+  it("passes a narrowed tool set through", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+    const r = await nb.run(`(await rlm("read it", ["read_file"])).answer`);
+    expect(r.value).toBe("did: read it [read_file]");
+  });
+
+  it("refuses to recurse past the depth limit", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child, depth: 1 });
+    const r = await nb.run(`await rlm("go deeper")`);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("depth limit reached");
+  });
+
+  it("omits rlm entirely when no spawner is wired", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
+    expect((await nb.run("typeof rlm")).value).toBe("undefined");
+  });
+
+  it("rejects an empty task instead of spawning", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+    const r = await nb.run(`await rlm("   ")`);
+    expect(r.ok).toBe(false);
+    expect(nb.children).toEqual([]);
+  });
+
+  it("does not let a child result leak the host realm", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+    const r = await nb.run(`(await rlm("x")).constructor.constructor("return typeof process")()`);
+    expect(r.ok === false || r.value === "undefined").toBe(true);
+  });
+});
+
 describe("failure handling", () => {
   it("returns the error instead of throwing", async () => {
     const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
@@ -126,5 +186,59 @@ describe("failure handling", () => {
     const r = await nb.run("await new Promise(() => {})");
     expect(r.ok).toBe(false);
     expect(r.error).toContain("timed out");
+  });
+});
+
+/**
+ * Audit against Prime Agent's `core/prompts/rlm.ts` at commit 965941c. Each
+ * case pins one instruction that survived the port because it changes model
+ * behaviour. If someone trims the prompt, these say which of their findings is
+ * being thrown away.
+ */
+describe("prompt — parity with the audited source", () => {
+  const base = { toolIdentifiers: ["read_file", "shell_exec"] };
+
+  it("states the role, the iterate loop and the stop condition", () => {
+    const p = buildNotebookPrompt(base);
+    expect(p).toContain("solves tasks by writing code");
+    expect(p).toContain("iterate one step at a time");
+    expect(p).toContain("stop running cells and state your final answer");
+  });
+
+  it("keeps the instructions that make the notebook worth having", () => {
+    const p = buildNotebookPrompt(base);
+    expect(p).toContain("persist across cells");
+    expect(p).toContain("bind results to named variables");
+    expect(p).toContain("Do not assume the notebook is the native environment");
+    expect(p).toContain("its failure is the answer");
+  });
+
+  it("guards against invented APIs", () => {
+    expect(buildNotebookPrompt(base)).toContain("Do not invent wrappers");
+  });
+
+  it("lists tools deterministically", () => {
+    const a = buildNotebookPrompt({ toolIdentifiers: ["b", "a"] });
+    const b = buildNotebookPrompt({ toolIdentifiers: ["a", "b"] });
+    expect(a).toBe(b);
+    expect(a).toContain("a, b");
+  });
+
+  it("tells a worker it is one, and the root that it is not", () => {
+    const child = buildNotebookPrompt({ ...base, depth: 1 });
+    expect(child).toContain("You are a worker spawned by another agent");
+    expect(child).toContain("Recursion depth: 1");
+    expect(buildNotebookPrompt({ ...base, depth: 0 })).not.toContain("You are a worker");
+  });
+
+  it("describes rlm only when recursion is actually available", () => {
+    const on = buildNotebookPrompt({ ...base, allowRecursion: true });
+    expect(on).toContain("await rlm(");
+    // The divergence from Prime Agent: our rlm returns the answer.
+    expect(on).toContain("returns `{ status, answer");
+
+    const off = buildNotebookPrompt({ ...base, allowRecursion: false, depth: 1 });
+    expect(off).toContain("`rlm` is not available at this depth");
+    expect(off).not.toContain("await rlm(");
   });
 });
