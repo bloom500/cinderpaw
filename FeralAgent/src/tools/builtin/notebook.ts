@@ -81,14 +81,26 @@ export interface NotebookToolDeps {
     allowedTools: string[] | undefined,
     sessionId: string,
     onEvent: (kind: string, detail: string) => void,
+    childId: string,
   ) => ReturnType<RunChild>;
   maxDepth?: number;
   /** Where per-session snapshots live. Omit to keep notebooks in memory only. */
   stateDir?: string;
+  /** Shared with createNotifyParentTool so a child can reach its parent. */
+  registries?: ChildRegistries;
 }
+
+/**
+ * Parent session id -> that parent's children. Shared with `notify_parent`,
+ * which is called by a CHILD and has to find the registry that admitted it.
+ * Keyed by the parent's session because that is what a child's session id
+ * carries: `subagent:<parentSessionId>:<childId>`.
+ */
+export type ChildRegistries = Map<string, ChildRegistry>;
 
 export function createNotebookTool(deps: NotebookToolDeps): Tool {
   const books = new Map<string, Notebook>();
+  const registries: ChildRegistries = deps.registries ?? new Map();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const file = (sessionId: string) =>
@@ -113,6 +125,17 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
     }, PERSIST_DEBOUNCE_MS);
     t.unref?.(); // never hold the process open for a pending snapshot
     timers.set(sessionId, t);
+  }
+
+  /** One registry per parent session, created once and shared with the tool. */
+  function childrenFor(sessionId: string): ChildRegistry {
+    let reg = registries.get(sessionId);
+    if (!reg) {
+      reg = new ChildRegistry((task, allowedTools, onEvent, childId) =>
+        deps.runChild!(task, allowedTools, sessionId, onEvent, childId));
+      registries.set(sessionId, reg);
+    }
+    return reg;
   }
 
   function loadInto(sessionId: string, book: Notebook) {
@@ -152,10 +175,7 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           exclude: [NOTEBOOK_TOOL_NAME],
           // One registry per session, so `list_subagents()` only ever shows a
           // parent its own direct children — upstream's rule.
-          children: deps.runChild
-            ? new ChildRegistry((task, allowedTools, onEvent) =>
-                deps.runChild!(task, allowedTools, sessionId, onEvent))
-            : undefined,
+          children: deps.runChild ? childrenFor(sessionId) : undefined,
           // A notebook running inside a subagent is already one level down, so
           // its `rlm()` must be gone — otherwise the depth cap counts from zero
           // again and recursion is unbounded in practice.
@@ -183,6 +203,62 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
         data: { value: r.value, output: r.output, toolCalls: r.toolCalls },
         ...(r.ok ? {} : { error: "notebook_error" }),
       };
+    },
+  };
+}
+
+/** Name the child sees. Kept short — it goes in a filtered tool list. */
+export const NOTIFY_PARENT_TOOL_NAME = "notify_parent";
+
+/**
+ * `notify_parent` — the child half of the mailbox.
+ *
+ * A worker runs the ordinary agent loop, not a notebook, so it needs a real
+ * tool to report something before it finishes. Routing works because the
+ * child's session id is `subagent:<parentSessionId>:<childId>` and the child id
+ * is the one its parent's ChildRegistry admitted it under — that is the whole
+ * reason SubagentConfig now takes a caller-supplied id.
+ *
+ * A child that is not in its claimed parent's registry is refused rather than
+ * silently dropped: posting to a stranger's inbox is exactly the failure worth
+ * making loud.
+ */
+export function createNotifyParentTool(registries: ChildRegistries): Tool {
+  return {
+    manifest: {
+      name: NOTIFY_PARENT_TOOL_NAME,
+      description:
+        "Send a short message to the agent that spawned you, without waiting to finish. " +
+        "Use it when you find something worth acting on early, or when you are blocked " +
+        "and the answer changes what you should do next. Your final answer is still " +
+        "reported separately when you are done.",
+      permissions: [],
+      networkAccess: false,
+    },
+    parameters: {
+      message: { type: "string", description: "What to tell the parent.", required: true },
+    },
+    async execute(args, ctx) {
+      const message = args.message;
+      if (typeof message !== "string" || !message.trim()) {
+        return { ok: false, content: "", error: "bad_args: `message` must be a non-empty string" };
+      }
+      const parts = ctx.sessionId.split(":");
+      if (parts[0] !== "subagent" || parts.length < 3) {
+        return { ok: false, content: "", error: "notify_parent is only callable by a spawned worker" };
+      }
+      const parentSessionId = parts.slice(1, -1).join(":");
+      const childId = parts.at(-1)!;
+      const reg = registries.get(parentSessionId);
+      if (!reg) {
+        return { ok: false, content: "", error: "no parent inbox for this session" };
+      }
+      try {
+        reg.post(childId, message);
+      } catch (e) {
+        return { ok: false, content: "", error: e instanceof Error ? e.message : String(e) };
+      }
+      return { ok: true, content: "delivered" };
     },
   };
 }

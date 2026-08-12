@@ -58,7 +58,13 @@ import { createListDirectoryTool } from "./tools/builtin/list-directory.ts";
 import { createEditFileTool } from "./tools/builtin/edit-file.ts";
 import { createFileSearchTool } from "./tools/builtin/file-search.ts";
 import { createGrepTool } from "./tools/builtin/grep.ts";
-import { createNotebookTool, NOTEBOOK_CHILD_TOOLS } from "./tools/builtin/notebook.ts";
+import {
+  createNotebookTool,
+  createNotifyParentTool,
+  NOTEBOOK_CHILD_TOOLS,
+  NOTIFY_PARENT_TOOL_NAME,
+  type ChildRegistries,
+} from "./tools/builtin/notebook.ts";
 import { Subagent } from "./core/subagent.ts";
 import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
 import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
@@ -849,16 +855,26 @@ export async function boot(transportOverride?: Transport) {
       episodic,
       hooks,
     });
+    // Shared so a child can find the parent that admitted it.
+    const childRegistries: ChildRegistries = new Map();
+    registry.register(createNotifyParentTool(childRegistries));
     registry.register(createNotebookTool({
       registry: () => registry,
+      registries: childRegistries,
       // Snapshots live beside the agent's other state so a notebook survives a
       // gateway restart — upstream persists its kernel namespace for the same
       // reason. Only JSON-round-trippable variables come back; see repl.ts.
       stateDir: join(feralHome(), "notebooks"),
-      runChild: (task, allowedTools, sessionId, onEvent) =>
+      runChild: (task, allowedTools, sessionId, onEvent, childId) =>
         notebookSubagent.run({
           task,
-          allowedTools: allowedTools ?? NOTEBOOK_CHILD_TOOLS,
+          // The registry's id becomes the subagent id, so the child's session
+          // carries it and notify_parent can route back to this entry.
+          subagentId: childId,
+          // notify_parent is always granted: a worker that cannot report is
+          // the thing the mailbox exists to fix, and it reaches only the
+          // parent that spawned it.
+          allowedTools: [...(allowedTools ?? NOTEBOOK_CHILD_TOOLS), NOTIFY_PARENT_TOOL_NAME],
           budget: { maxTokens: 4096, maxIterations: 8 },
           parentSessionId: sessionId.startsWith("subagent:")
             ? sessionId.split(":")[1] ?? sessionId

@@ -806,6 +806,13 @@ export interface SubagentConfig {
   /** The session id of the parent that spawned this subagent. */
   parentSessionId: string;
   /**
+   * Caller-supplied id for this run. Lets a caller that already tracks the
+   * child (the notebook's ChildRegistry) use the same id the child's session
+   * is built from, so a tool called BY the child can be traced back to the
+   * caller's record of it. Omit and one is generated as before.
+   */
+  subagentId?: string;
+  /**
    * Observer for the child loop's events (tool_start/tool_done/error…).
    * The delegate tool forwards these as tool_progress on the PARENT's
    * stream so every surface (desktop, TUI, Discord status line) shows

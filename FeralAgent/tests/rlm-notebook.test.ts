@@ -9,6 +9,7 @@ import { describe, expect, it } from "bun:test";
 import { Notebook, toIdentifier } from "../src/rlm/repl.ts";
 import { buildNotebookPrompt } from "../src/rlm/prompt.ts";
 import { ChildRegistry, defaultChildName, normalizeRequestedName } from "../src/rlm/children.ts";
+import { createNotifyParentTool, type ChildRegistries } from "../src/tools/builtin/notebook.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool, ToolResult } from "../src/types.ts";
 
@@ -503,5 +504,86 @@ describe("mailbox — a worker reporting before it finishes", () => {
     children.post(h.rlm_child_id, "y".repeat(9000));
     expect(children.drainInbox()[0]!.text.length).toBe(4000);
     await children.drain();
+  });
+});
+
+describe("notify_parent — the child half of the mailbox", () => {
+  const setup = () => {
+    const registries: ChildRegistries = new Map();
+    let seenChildId = "";
+    const reg = new ChildRegistry(async (_t, _a, _e, childId) => {
+      seenChildId = childId;
+      await new Promise((r) => setTimeout(r, 100));
+      return { status: "completed" as const, answer: "ok", toolCalls: 0, durationMs: 1, subagentId: childId };
+    });
+    registries.set("parent-1", reg);
+    return { registries, reg, tool: createNotifyParentTool(registries), childId: () => seenChildId };
+  };
+
+  it("routes a child's message to the parent that admitted it", async () => {
+    const { reg, tool } = setup();
+    const h = reg.admit("scan the logs", { name: "scout" });
+    const r = await tool.execute(
+      { message: "found a bad row early" },
+      { sessionId: `subagent:parent-1:${h.rlm_child_id}` } as never,
+    );
+    expect(r.ok).toBe(true);
+    const inbox = reg.drainInbox();
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]!.from).toBe("scout");
+    expect(inbox[0]!.text).toBe("found a bad row early");
+    await reg.drain();
+  });
+
+  it("refuses a caller that is not a spawned worker", async () => {
+    const { tool } = setup();
+    const r = await tool.execute({ message: "hi" }, { sessionId: "parent-1" } as never);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("only callable by a spawned worker");
+  });
+
+  it("refuses a child that its claimed parent never admitted", async () => {
+    const { tool } = setup();
+    const r = await tool.execute(
+      { message: "hi" },
+      { sessionId: "subagent:parent-1:sa-forged" } as never,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("unknown child");
+  });
+
+  it("refuses a parent session with no inbox", async () => {
+    const { tool } = setup();
+    const r = await tool.execute(
+      { message: "hi" },
+      { sessionId: "subagent:someone-else:sa-1" } as never,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("no parent inbox");
+  });
+
+  it("rejects an empty message", async () => {
+    const { reg, tool } = setup();
+    const h = reg.admit("x");
+    const r = await tool.execute({ message: "  " }, { sessionId: `subagent:parent-1:${h.rlm_child_id}` } as never);
+    expect(r.ok).toBe(false);
+    await reg.drain();
+  });
+
+  it("keeps a parent session id that itself contains colons intact", async () => {
+    const registries: ChildRegistries = new Map();
+    const reg = new ChildRegistry(async () => ({
+      status: "completed" as const, answer: "", toolCalls: 0, durationMs: 0, subagentId: "x",
+    }));
+    registries.set("chan:discord:42", reg);
+    const tool = createNotifyParentTool(registries);
+    const h = reg.admit("t", { name: "w" });
+    const r = await tool.execute(
+      { message: "hello" },
+      { sessionId: `subagent:chan:discord:42:${h.rlm_child_id}` } as never,
+    );
+    expect(r.ok).toBe(true);
+    expect(reg.drainInbox()[0]!.text).toBe("hello");
+    await reg.drain();
   });
 });

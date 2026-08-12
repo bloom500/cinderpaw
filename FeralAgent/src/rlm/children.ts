@@ -66,6 +66,9 @@ export type RunChild = (
   task: string,
   allowedTools: string[] | undefined,
   onEvent: (kind: string, detail: string) => void,
+  /** The registry's id for this child. The host must use it as the subagent
+   *  id, so a tool the child calls can be traced back to this entry. */
+  childId: string,
 ) => Promise<{
   status: "completed" | "failed" | "timeout" | "budget_exceeded";
   answer: string;
@@ -161,7 +164,7 @@ export class ChildRegistry {
       if (t.length > TRAIL_MAX) t.splice(0, t.length - TRAIL_MAX);
     };
 
-    const p = this.run(task, opts.allowedTools, push)
+    const p = this.run(task, opts.allowedTools, push, id)
       .then((r) => {
         entry.status = r.status === "completed" ? "completed" : "error";
         entry.answer = r.answer;

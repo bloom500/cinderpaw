@@ -112,7 +112,7 @@ export class Subagent {
    * never throws.
    */
   async run(config: SubagentConfig): Promise<SubagentResult> {
-    const subagentId = `sa-${randomUUID().slice(0, 8)}`;
+    const subagentId = config.subagentId ?? `sa-${randomUUID().slice(0, 8)}`;
     const childSessionId = `subagent:${config.parentSessionId}:${subagentId}`;
     const startedAt = Date.now();
     let toolCallCount = 0;
