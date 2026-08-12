@@ -58,7 +58,8 @@ import { createListDirectoryTool } from "./tools/builtin/list-directory.ts";
 import { createEditFileTool } from "./tools/builtin/edit-file.ts";
 import { createFileSearchTool } from "./tools/builtin/file-search.ts";
 import { createGrepTool } from "./tools/builtin/grep.ts";
-import { createNotebookTool } from "./tools/builtin/notebook.ts";
+import { createNotebookTool, NOTEBOOK_CHILD_TOOLS } from "./tools/builtin/notebook.ts";
+import { Subagent } from "./core/subagent.ts";
 import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
 import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
@@ -701,20 +702,6 @@ export async function boot(transportOverride?: Transport) {
     if (restored.length > 0) log(`tool_forge: restored ${restored.length} custom tool(s): ${restored.join(", ")}`);
     registry.register(createToolForgeTool(forgeDeps));
   }
-  // notebook: the RLM design — a persistent JS interpreter with every other
-  // tool bound as an async function, so the agent can compose calls in code
-  // instead of one per turn. Off by default while it earns its keep; set
-  // FERAL_ENABLE_NOTEBOOK=true to switch it on. Registered last-ish so the
-  // registry it reads is already populated — though the getter makes order
-  // irrelevant, this keeps the intent obvious.
-  //
-  // `spawn` is left unwired for now, so `rlm()` is absent: binding it needs a
-  // Subagent built from these same deps, and that belongs in one deliberate
-  // change rather than tacked onto tool registration.
-  if (cfgBool("FERAL_ENABLE_NOTEBOOK")) {
-    registry.register(createNotebookTool({ registry: () => registry }));
-    log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true)");
-  }
   // git_*: process-spawn tools for the workspace
   registry.register(createGitStatusTool(config.workspaceRoots));
   registry.register(createGitDiffTool(config.workspaceRoots));
@@ -840,6 +827,50 @@ export async function boot(transportOverride?: Transport) {
         ? ctxSessionId.split(":")[1] ?? ctxSessionId
         : ctxSessionId,
   }));
+
+  // notebook: the RLM design — a persistent JS interpreter with every other
+  // tool bound as an async function, so the agent composes tool calls in code
+  // instead of one per turn. Off by default; FERAL_ENABLE_NOTEBOOK=true.
+  //
+  // Registered after delegate_task so `registry.list()` is complete and the
+  // notebook's children can reach the same tools a delegated subagent can.
+  // `rlm()` is the recursion: it runs the same Subagent delegate_task uses, so
+  // a child still gets its own working memory, filtered registry and budget —
+  // read-only by default, exactly like delegate_task, so code that spawns
+  // workers cannot quietly acquire write access the parent never granted.
+  if (cfgBool("FERAL_ENABLE_NOTEBOOK")) {
+    const notebookSubagent = new Subagent({
+      router,
+      allTools: registry.list(),
+      audit,
+      egress,
+      process: processSandbox,
+      observations,
+      episodic,
+      hooks,
+    });
+    registry.register(createNotebookTool({
+      registry: () => registry,
+      spawn: async (task, allowedTools, sessionId) => {
+        const r = await notebookSubagent.run({
+          task,
+          allowedTools: allowedTools ?? NOTEBOOK_CHILD_TOOLS,
+          budget: { maxTokens: 4096, maxIterations: 8 },
+          parentSessionId: sessionId.startsWith("subagent:")
+            ? sessionId.split(":")[1] ?? sessionId
+            : sessionId,
+        });
+        return {
+          status: r.status,
+          answer: r.answer,
+          toolCalls: r.toolCalls,
+          durationMs: r.durationMs,
+          childId: r.subagentId,
+        };
+      },
+    }));
+    log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true), rlm() wired");
+  }
 
   // Lead-handling tools for the public connector mode (WhatsApp "business"
   // persona). They are registered globally but only EXPOSED to the public

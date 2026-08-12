@@ -25,6 +25,26 @@ import type { Tool, ToolManifest } from "../../types.ts";
 
 export const NOTEBOOK_TOOL_NAME = "notebook";
 
+/**
+ * What a worker spawned by `rlm()` may touch when the caller does not say.
+ * Deliberately identical to delegate_task's default — read-only. Code that
+ * spawns workers must not be a side door to write access the parent never
+ * granted; a caller that needs more passes it explicitly.
+ */
+export const NOTEBOOK_CHILD_TOOLS: string[] = [
+  "read_file",
+  "list_directory",
+  "grep",
+  "file_search",
+  "web_search",
+  "read_webpage",
+  "fetch_url",
+  "time_date",
+  "calculator",
+  "recall",
+  "read_skill",
+];
+
 /** Beyond this many live sessions, the least recently used notebook is dropped. */
 const MAX_SESSIONS = 32;
 
@@ -45,8 +65,12 @@ const MANIFEST: ToolManifest = {
 export interface NotebookToolDeps {
   /** Resolved lazily — this tool lives inside the registry it reads. */
   registry: () => ToolRegistry;
-  /** Enables `rlm()` inside the notebook. Omit to leave recursion unavailable. */
-  spawn?: SpawnChild;
+  /**
+   * Enables `rlm()` inside the notebook. Omit to leave recursion unavailable.
+   * Takes the calling session so the child can be parented correctly; the
+   * notebook itself only knows how to ask.
+   */
+  spawn?: (task: string, allowedTools: string[] | undefined, sessionId: string) => ReturnType<SpawnChild>;
   maxDepth?: number;
 }
 
@@ -79,7 +103,13 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           sessionId,
           signal: ctx.signal,
           exclude: [NOTEBOOK_TOOL_NAME],
-          spawn: deps.spawn,
+          spawn: deps.spawn
+            ? (task, allowedTools) => deps.spawn!(task, allowedTools, sessionId)
+            : undefined,
+          // A notebook running inside a subagent is already one level down, so
+          // its `rlm()` must be gone — otherwise the depth cap counts from zero
+          // again and recursion is unbounded in practice.
+          depth: sessionId.startsWith("subagent:") ? 1 : 0,
           maxDepth: deps.maxDepth,
         });
         books.set(sessionId, book);
