@@ -121,6 +121,27 @@ pub struct TtsChunkEvent {
     pub sample_rate: u32,
 }
 
+/// Everything a live (speech-to-speech) call reports that is not audio.
+///
+/// One event with a `kind` rather than five typed ones, matching how the sidecar
+/// bridge already does it: the set grows with a Preview API, and each new member
+/// would otherwise be a new event, a new listener and a new registration before
+/// the UI could even ignore it.
+///
+/// `kind` is one of `interrupted`, `turnComplete`, `inputTranscript`,
+/// `outputTranscript`, `closed`. `text` carries the transcript or the reason for
+/// closing, and is empty for the rest.
+///
+/// `interrupted` is the one the player must act on: the user spoke over the
+/// answer, and whatever is queued should be dropped rather than played out.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveStatusEvent {
+    pub session_id: String,
+    pub kind: String,
+    pub text: String,
+}
+
 /// One raw JSON line emitted by the feral-agent sidecar on stdout.
 /// The React frontend parses `data` to get the typed event
 /// (`chunk`, `done`, `tool_start`, `tool_done`, `proactive`, `pong`, `error`).

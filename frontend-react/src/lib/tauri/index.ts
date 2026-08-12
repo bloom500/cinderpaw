@@ -790,6 +790,28 @@ const raw = {
     invoke<number>('speak_text', { sessionId, text, provider: provider ?? null, voice: voice ?? null }),
   stopSpeaking:             (sessionId: string) =>
     invoke<void>('stop_speaking', { sessionId }),
+  // Speech to speech. One session replaces STT + the model + TTS, so these three
+  // are a whole call: start it, feed it, hang up.
+  //
+  // Resolves once the model has ACCEPTED the session, so the microphone can open
+  // the moment this returns. Rejects with `live-no-key` when no Google key is
+  // stored — the same AI Studio key the chat side already uses.
+  //
+  // Audio comes back on `feral://tts-chunk` like every other engine's, at the
+  // rate carried in the event; everything else arrives on `feral://live-status`.
+  startLiveCall:            (sessionId: string, brief?: { model?: string; currentTask?: string; workspace?: string; context?: string }) =>
+    invoke<void>('start_live_call', {
+      sessionId,
+      model: brief?.model ?? null,
+      currentTask: brief?.currentTask ?? null,
+      workspace: brief?.workspace ?? null,
+      context: brief?.context ?? null,
+    }),
+  // Base64 of 16 kHz mono 16-bit LE PCM. Base64 and not a byte array because
+  // Tauri's IPC serialises `Vec<u8>` as a JSON array of numbers.
+  sendLiveAudio:            (pcm: string) => invoke<void>('send_live_audio', { pcm }),
+  // Idempotent: hanging up twice is not an error.
+  endLiveCall:              () => invoke<void>('end_live_call'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `feral://embedding-download-*`.

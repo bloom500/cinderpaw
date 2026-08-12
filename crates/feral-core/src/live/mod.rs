@@ -22,6 +22,12 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod bridge;
+pub mod briefing;
+pub mod session;
+pub use briefing::{system_instruction, Briefing};
+pub use session::{connect, LiveCommand, LiveEvent, LiveHandle, SessionConfig};
+
 /// Live sessions are a WebSocket, not REST — a different host and path from the
 /// usual `generativelanguage` REST calls, so it is spelled out here in full.
 pub const LIVE_WS_URL: &str =
@@ -78,6 +84,7 @@ pub enum ClientMessage {
 pub struct Setup {
     /// Fully qualified — `models/{id}`, not the bare id.
     pub model: String,
+    pub generation_config: GenerationConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_instruction: Option<Content>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -89,6 +96,60 @@ pub struct Setup {
     pub input_audio_transcription: Option<AudioTranscriptionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_audio_transcription: Option<AudioTranscriptionConfig>,
+}
+
+impl Setup {
+    /// A spoken call: audio out, both transcripts on, tools declared.
+    ///
+    /// A constructor rather than `Default` + field assignment, because the two
+    /// fields a caller is most likely to forget — `responseModalities` and the
+    /// transcripts — are the two whose absence is silent rather than loud.
+    pub fn spoken(model: &str, tools: Vec<FunctionDeclaration>) -> Self {
+        Setup {
+            model: if model.starts_with("models/") {
+                model.to_string()
+            } else {
+                format!("models/{model}")
+            },
+            generation_config: GenerationConfig {
+                response_modalities: vec!["AUDIO".to_string()],
+                speech_config: None,
+            },
+            system_instruction: None,
+            tools: if tools.is_empty() {
+                Vec::new()
+            } else {
+                vec![Tool { function_declarations: tools }]
+            },
+            input_audio_transcription: Some(AudioTranscriptionConfig {}),
+            output_audio_transcription: Some(AudioTranscriptionConfig {}),
+        }
+    }
+
+    /// What the model should know before it says a word. This is where the
+    /// pre-call memory lookup lands.
+    pub fn with_system_instruction(mut self, text: impl Into<String>) -> Self {
+        self.system_instruction = Some(Content::text(text));
+        self
+    }
+}
+
+/// Generation settings. Only the parts a voice call needs are modelled.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationConfig {
+    /// `["AUDIO"]`. Without it the model answers in text and the call is silent.
+    ///
+    /// It belongs **here**, inside `generationConfig`, not at the top of `setup`
+    /// — the WebSocket quickstart shows it flattened one level up, which is the
+    /// kind of example that works for its author and produces a mute call for
+    /// everyone who copies it. The type reference is the authority.
+    pub response_modalities: Vec<String>,
+    /// Voice and language selection. Passed through as JSON: its shape is
+    /// documented outside the Live reference, and inventing it here would put a
+    /// guess on the wire.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speech_config: Option<serde_json::Value>,
 }
 
 /// No fields today; present because the server distinguishes "absent" from
@@ -270,35 +331,41 @@ mod tests {
     fn a_client_message_is_one_camel_case_key() {
         // The server rejects a message carrying two of these, and reads none of
         // them if the key is snake_case.
-        let v = serde_json::to_value(ClientMessage::Setup(Setup {
-            model: "models/x".into(),
-            system_instruction: None,
-            tools: vec![],
-            input_audio_transcription: None,
-            output_audio_transcription: None,
-        }))
-        .unwrap();
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
         assert_eq!(v.as_object().unwrap().len(), 1);
         assert!(v.get("setup").is_some());
+        // A bare id is qualified for us; an already-qualified one is left alone.
         assert_eq!(v["setup"]["model"], "models/x");
-        // Empty tools and absent transcription must not be sent as nulls.
+        assert_eq!(
+            serde_json::to_value(ClientMessage::Setup(Setup::spoken("models/y", vec![]))).unwrap()
+                ["setup"]["model"],
+            "models/y"
+        );
+        // Empty tools and an absent instruction must not go out as nulls.
         assert!(v["setup"].get("tools").is_none());
         assert!(v["setup"].get("systemInstruction").is_none());
     }
 
     #[test]
-    fn setup_serialises_tools_and_transcription_in_camel_case() {
-        let v = serde_json::to_value(ClientMessage::Setup(Setup {
-            model: "models/x".into(),
-            system_instruction: Some(Content::text("be brief")),
-            tools: vec![Tool { function_declarations: vec![decl("web_search")] }],
-            input_audio_transcription: Some(AudioTranscriptionConfig {}),
-            output_audio_transcription: Some(AudioTranscriptionConfig {}),
-        }))
+    fn a_spoken_setup_asks_for_audio_inside_generation_config() {
+        // The failure this guards is silent: ask in the wrong place and the model
+        // replies in text, so the call connects, works, and says nothing.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        assert_eq!(v["setup"]["generationConfig"]["responseModalities"][0], "AUDIO");
+        assert!(v["setup"].get("responseModalities").is_none());
+        // Both transcripts, or a spoken call leaves no text behind.
+        assert!(v["setup"]["inputAudioTranscription"].is_object());
+        assert!(v["setup"]["outputAudioTranscription"].is_object());
+    }
+
+    #[test]
+    fn setup_serialises_tools_and_instruction_in_camel_case() {
+        let v = serde_json::to_value(ClientMessage::Setup(
+            Setup::spoken("x", vec![decl("web_search")]).with_system_instruction("be brief"),
+        ))
         .unwrap();
         assert_eq!(v["setup"]["tools"][0]["functionDeclarations"][0]["name"], "web_search");
         assert_eq!(v["setup"]["systemInstruction"]["parts"][0]["text"], "be brief");
-        assert!(v["setup"]["inputAudioTranscription"].is_object());
         // Unverified field stays out of the wire until someone confirms it.
         assert!(v["setup"]["tools"][0]["functionDeclarations"][0].get("behavior").is_none());
     }

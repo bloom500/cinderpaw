@@ -44,8 +44,27 @@ impl ToolType {
         }
     }
 
-    #[allow(clippy::wrong_self_convention)] // reads `&self`; renaming would ripple to all callers
-    pub fn to_openai_definition(&self) -> serde_json::Value {
+    /// Every tool there is. Used by anything that has to advertise the whole set
+    /// rather than answer about one — a vendor's tool list, a UI, a test that
+    /// must fail when a tool is added and forgotten.
+    pub const ALL: &'static [ToolType] = &[
+        Self::WebSearch,
+        Self::FileRead,
+        Self::FileWrite,
+        Self::CodeExecute,
+        Self::HttpRequest,
+    ];
+
+    /// The JSON Schema for this tool's arguments, in one place.
+    ///
+    /// Every vendor wants the same schema in a different envelope: OpenAI nests
+    /// it under `function.parameters`, Anthropic calls it `input_schema`, Gemini
+    /// takes it bare. What none of them change is the schema itself, so it is
+    /// written once here and wrapped below. It used to be copied per renderer,
+    /// which meant a tool gaining an argument had to be edited in as many places
+    /// as there were providers, and a missed one does not fail — it silently
+    /// tells that provider the argument does not exist.
+    pub fn parameters(&self) -> serde_json::Value {
         let (properties, required) = match self {
             Self::WebSearch => (
                 serde_json::json!({ "query": { "type": "string", "description": "The search query" } }),
@@ -79,15 +98,20 @@ impl ToolType {
             ),
         };
         serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required
+        })
+    }
+
+    #[allow(clippy::wrong_self_convention)] // reads `&self`; renaming would ripple to all callers
+    pub fn to_openai_definition(&self) -> serde_json::Value {
+        serde_json::json!({
             "type": "function",
             "function": {
                 "name": self.name(),
                 "description": self.description(),
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required
-                }
+                "parameters": self.parameters()
             }
         })
     }
@@ -98,47 +122,24 @@ impl ToolType {
     /// `input_schema`. Same field semantics, different shape.
     #[allow(clippy::wrong_self_convention)] // reads `&self`; mirrors to_openai_definition
     pub fn to_anthropic_definition(&self) -> serde_json::Value {
-        let (properties, required) = match self {
-            Self::WebSearch => (
-                serde_json::json!({ "query": { "type": "string", "description": "The search query" } }),
-                serde_json::json!(["query"]),
-            ),
-            Self::FileRead => (
-                serde_json::json!({ "path": { "type": "string", "description": "Absolute or relative file path" } }),
-                serde_json::json!(["path"]),
-            ),
-            Self::FileWrite => (
-                serde_json::json!({
-                    "path":    { "type": "string", "description": "File path to write" },
-                    "content": { "type": "string", "description": "Text content to write" }
-                }),
-                serde_json::json!(["path", "content"]),
-            ),
-            Self::CodeExecute => (
-                serde_json::json!({
-                    "lang": { "type": "string", "enum": ["python"], "description": "Language (only python supported)" },
-                    "code": { "type": "string", "description": "Code to execute" }
-                }),
-                serde_json::json!(["lang", "code"]),
-            ),
-            Self::HttpRequest => (
-                serde_json::json!({
-                    "method": { "type": "string", "enum": ["GET", "POST"], "description": "HTTP method" },
-                    "url":    { "type": "string", "description": "Full URL" },
-                    "body":   { "type": "string", "description": "Request body for POST" }
-                }),
-                serde_json::json!(["method", "url"]),
-            ),
-        };
         serde_json::json!({
             "name": self.name(),
             "description": self.description(),
-            "input_schema": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            }
+            "input_schema": self.parameters()
         })
+    }
+
+    /// Gemini's shape: name, description, and the schema bare under
+    /// `parameters`. Typed rather than JSON because the Live setup message is
+    /// typed, and this is the one renderer whose output goes into a struct.
+    #[allow(clippy::wrong_self_convention)] // mirrors the two above
+    pub fn to_gemini_declaration(&self) -> crate::live::FunctionDeclaration {
+        crate::live::FunctionDeclaration {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters(),
+            behavior: None,
+        }
     }
 }
 

@@ -10,6 +10,7 @@ pub mod chat;
 pub mod conversations;
 pub mod feral;
 pub mod files;
+pub mod live;
 pub mod models;
 pub mod projects;
 pub mod settings;
@@ -23,6 +24,7 @@ pub(crate) use chat::*;
 pub(crate) use conversations::*;
 pub(crate) use feral::*;
 pub(crate) use files::*;
+pub(crate) use live::*;
 pub(crate) use models::*;
 pub(crate) use projects::*;
 pub(crate) use settings::*;
@@ -58,7 +60,10 @@ mod command_count_test {
     // the voice loop had no way to report its own decisions).
     // 141 = + tts_voices (the vendor's voice catalogue — account state, so it is
     // asked for rather than hardcoded).
-    const EXPECTED_COMMAND_COUNT: usize = 141;
+    // 144 = + start_live_call + send_live_audio + end_live_call (the Gemini Live
+    // speech-to-speech engine — one session replacing the STT→LLM→TTS chain,
+    // so these three are a call's whole surface: start, feed, hang up).
+    const EXPECTED_COMMAND_COUNT: usize = 144;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

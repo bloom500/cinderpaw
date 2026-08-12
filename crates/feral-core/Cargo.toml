@@ -86,6 +86,7 @@ getrandom = "0.2"
 # Chat attachment text extraction (PDF + OOXML/ODF containers)
 pdf-extract = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
 # File-backed fallback for the Linux-headless keychain gap: when the OS
 # Secret Service is unreachable (NoStorageAccess / PlatformFailure — common on

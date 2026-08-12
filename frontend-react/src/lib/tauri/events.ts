@@ -32,6 +32,11 @@ export interface AgentStreamEvent { sessionId: string; data: string }
  * over playback.
  */
 export interface TtsChunkEvent { sessionId: string; pcm: string; sampleRate: number }
+/**
+ * A speech-to-speech call's non-audio reports. `kind` is an open set — treat
+ * anything unrecognised as ignorable rather than as an error.
+ */
+export interface LiveStatusEvent { sessionId: string; kind: string; text: string }
 /** Emitted right before generation starts with the real prompt token count (local models only). */
 export interface StreamStartEvent  { sessionId: string; promptTokens: number }
 /** Emitted at the end of a cloud stream when the provider returns usage stats. */
@@ -353,6 +358,19 @@ export const events = {
   onEmbeddingDownloadComplete: wrap<DownloadCompleteEvent>('feral://embedding-download-complete'),
   onEmbeddingDownloadError:    wrap<DownloadErrorEvent>('feral://embedding-download-error'),
   ttsChunkEvent:          wrap<TtsChunkEvent>('feral://tts-chunk'),
+  /**
+   * Everything a speech-to-speech call reports that is not audio — the audio
+   * itself rides `ttsChunkEvent` so the existing player needs no changes.
+   *
+   * `kind` is `interrupted` | `turnComplete` | `inputTranscript` |
+   * `outputTranscript` | `closed`; `text` carries the transcript or the reason
+   * for closing and is empty otherwise. Treat an unknown `kind` as ignorable:
+   * the set grows with a Preview API.
+   *
+   * `interrupted` is the one that must be acted on — the user spoke over the
+   * answer, and whatever is queued should be dropped rather than played out.
+   */
+  liveStatusEvent:        wrap<LiveStatusEvent>('feral://live-status'),
   agentStreamEvent:       wrap<AgentStreamEvent>('feral://agent-event'),
   /**
    * The Feral Agent sidecar's raw stdout forwarded by Rust. The

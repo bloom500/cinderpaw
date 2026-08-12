@@ -87,6 +87,11 @@ pub struct AppState {
     /// Cached display-safe view of the model the sidecar is currently using.
     /// Updated optimistically by feral_set_model; None until first set_model call.
     pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
+    /// The speech-to-speech call in progress, if any. Holding the command
+    /// sender IS the call: dropping it closes the socket, which is what hanging
+    /// up means and why there is no separate "is a call running" flag to get out
+    /// of step with reality.
+    pub live_call: crate::commands::live::LiveCallSlot,
 }
 
 /// One stop flag per streaming session.
@@ -278,6 +283,7 @@ pub fn run() {
         stop_signals: Arc::new(StopRegistry::default()),
         system_info_cache,
         feral_model_config: Arc::new(Mutex::new(None)),
+        live_call: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -320,6 +326,9 @@ pub fn run() {
             download_piper_voice,
             speak_text,
             stop_speaking,
+            start_live_call,
+            send_live_audio,
+            end_live_call,
             load_projects,
             save_project,
             delete_project,
@@ -437,6 +446,7 @@ pub fn run() {
             crate::events::AgentStreamEvent,
             crate::events::FeralAgentOutputEvent,
             crate::events::TtsChunkEvent,
+            crate::events::LiveStatusEvent,
         ]);
 
     // TODO: re-enable once all u64 fields have #[specta(type = Number)] annotations.
