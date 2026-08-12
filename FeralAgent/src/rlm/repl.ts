@@ -93,6 +93,11 @@ export interface ReplOptions {
   /** Session-level abort, so `stop()` reaches a running cell's tool calls. */
   signal?: AbortSignal;
   cellTimeoutMs?: number;
+  /**
+   * Tool names to leave out. The notebook tool itself must be excluded, or the
+   * model can call the notebook from inside the notebook.
+   */
+  exclude?: readonly string[];
   /** Omit to leave `rlm()` out of the notebook entirely. */
   spawn?: SpawnChild;
   /** This notebook's depth. 0 is the root agent. */
@@ -158,8 +163,10 @@ export class Notebook {
     // One async function per tool. `registry.call` never throws, so a bad tool
     // surfaces as a returned ToolResult the model can branch on rather than an
     // exception that kills the cell.
+    const excluded = new Set(opts.exclude ?? []);
     for (const tool of opts.registry.list()) {
       const name = tool.manifest.name;
+      if (excluded.has(name)) continue;
       sandbox[toIdentifier(name)] = severed(async (args: Record<string, unknown> = {}) => {
         this.#calls.push(name);
         const res: ToolResult = await opts.registry.call(name, args ?? {}, opts.sessionId, {

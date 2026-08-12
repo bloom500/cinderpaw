@@ -25,6 +25,7 @@ runner, or anything that handles untrusted input.**
 |---|---|---|---|
 | `FERAL_ENABLE_SHELL_EXEC` | off | Spawns `cmd` / `pwsh` / `sh` from the `shell_exec` tool, with a whitelist of programs (`process-sandbox.ts`). Any listed binary inherits the agent's prompt — prompt-injection = full process creation. | Keep the whitelist tight; deny `pwsh -Command "iex …"` patterns. |
 | `FERAL_ENABLE_CODE_EXEC` | off | Runs Python in a subprocess with a sanitized env. The process can read files the agent has access to and emit subprocesses of its own. | Restricted env, no network by default. |
+| `FERAL_ENABLE_NOTEBOOK` | off | Registers `notebook`, a persistent JS interpreter. Cells run in a `node:vm` context with no ambient `fetch`/`process`/`require`, and every capability still goes through the tool registry — so it grants no permission `shell_exec` did not already reach. The residual risk is that `vm` is a hardened context, not an isolate: it is proof against a careless model, not against hostile source. | Leave off unless you want it. Never enable it on a session that executes source from an untrusted third party. |
 | `FERAL_ENABLE_DESKTOP_CONTROL` | off | `control_app` tool can move the mouse, click, type, and drive any focused OS app. There is no per-window permission — "the desktop" is one privilege. | Keep the per-action confirmation ON (`FERAL_DESKTOP_CONTROL_CONFIRM` not set to `false`). |
 | `FERAL_DESKTOP_CONTROL_CONFIRM=false` | off (i.e. confirmation is on) | Disables the per-action confirmation dialog. Same privilege as above, but silently — the user no longer sees what's about to happen. | Don't set this on shared machines; document who is YOLO. |
 | `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` | empty | Comma-separated allowlist of app names the `control_app` tool will target. Empty = no targets accepted (tool fails closed). | Use this even if the tool itself is enabled; deny untrusted app names. |
@@ -139,6 +140,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.feral, ~/.ssh and FERAL_FS_DENY regardless of roots. |
 | `FERAL_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.feral + ~/.ssh deny wall. |
 | `FERAL_ENABLE_SHELL_EXEC` | bool | `true` | yes | Registers shell_exec (argv-only, whitelisted). On by default; set to "false" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON. |
+| `FERAL_ENABLE_NOTEBOOK` | bool | `false` | yes | Registers `notebook`, a persistent JavaScript interpreter with every other tool bound as an async function, so the agent can compose tool calls in code instead of one per turn. Off by default; set to "true" to enable. Cells run in an isolated vm context with no ambient fetch/process/require, and every capability still goes through the tool registry and its permission checks — but it is a hardened context, not a jail against hostile input. |
 | `FERAL_ENABLE_DESKTOP_CONTROL` | bool | `false` | yes | Registers control_app (OS accessibility-tree control). Off by default; set to "true" to enable. |
 | `FERAL_DESKTOP_CONTROL_CONFIRM` | bool | `true` | yes | Per-action confirmation dialog for control_app writes. On by default; set to "false" to disable (inverse-toggle var — see report for why this call site is not migrated to cfgBool). |
 | `FERAL_DESKTOP_CONTROL_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, a transport with no askUser bridge may proceed without confirmation instead of failing closed. |
@@ -314,6 +316,7 @@ FERAL_EMBED_GPU_LAYERS
 FERAL_EMBED_MODEL
 FERAL_ENABLE_CODE_EXEC
 FERAL_ENABLE_DESKTOP_CONTROL
+FERAL_ENABLE_NOTEBOOK
 FERAL_ENABLE_SHELL_EXEC
 FERAL_EXTERNAL_WRITE_BUDGET
 FERAL_FALLBACK_API_KEY

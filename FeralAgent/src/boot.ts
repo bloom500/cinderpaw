@@ -58,6 +58,7 @@ import { createListDirectoryTool } from "./tools/builtin/list-directory.ts";
 import { createEditFileTool } from "./tools/builtin/edit-file.ts";
 import { createFileSearchTool } from "./tools/builtin/file-search.ts";
 import { createGrepTool } from "./tools/builtin/grep.ts";
+import { createNotebookTool } from "./tools/builtin/notebook.ts";
 import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
 import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
@@ -699,6 +700,20 @@ export async function boot(transportOverride?: Transport) {
     const restored = registerPersistedCustomTools(forgeDeps);
     if (restored.length > 0) log(`tool_forge: restored ${restored.length} custom tool(s): ${restored.join(", ")}`);
     registry.register(createToolForgeTool(forgeDeps));
+  }
+  // notebook: the RLM design — a persistent JS interpreter with every other
+  // tool bound as an async function, so the agent can compose calls in code
+  // instead of one per turn. Off by default while it earns its keep; set
+  // FERAL_ENABLE_NOTEBOOK=true to switch it on. Registered last-ish so the
+  // registry it reads is already populated — though the getter makes order
+  // irrelevant, this keeps the intent obvious.
+  //
+  // `spawn` is left unwired for now, so `rlm()` is absent: binding it needs a
+  // Subagent built from these same deps, and that belongs in one deliberate
+  // change rather than tacked onto tool registration.
+  if (cfgBool("FERAL_ENABLE_NOTEBOOK")) {
+    registry.register(createNotebookTool({ registry: () => registry }));
+    log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true)");
   }
   // git_*: process-spawn tools for the workspace
   registry.register(createGitStatusTool(config.workspaceRoots));

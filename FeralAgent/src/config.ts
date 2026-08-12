@@ -38,6 +38,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.feral + ~/.ssh deny wall.", security: true },
   { name: "FERAL_ENABLE_SHELL_EXEC", type: "bool", default: true,
     description: "Registers shell_exec (argv-only, whitelisted). On by default; set to \"false\" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON.", security: true },
+  { name: "FERAL_ENABLE_NOTEBOOK", type: "bool", default: false,
+    description: "Registers `notebook`, a persistent JavaScript interpreter with every other tool bound as an async function, so the agent can compose tool calls in code instead of one per turn. Off by default; set to \"true\" to enable. Cells run in an isolated vm context with no ambient fetch/process/require, and every capability still goes through the tool registry and its permission checks — but it is a hardened context, not a jail against hostile input.", security: true },
   { name: "FERAL_ENABLE_DESKTOP_CONTROL", type: "bool", default: false,
     description: "Registers control_app (OS accessibility-tree control). Off by default; set to \"true\" to enable.", security: true },
   { name: "FERAL_DESKTOP_CONTROL_CONFIRM", type: "bool", default: true,
