@@ -26,6 +26,8 @@ use futures::StreamExt;
 use serde::Serialize;
 use tokio::sync::mpsc::Sender;
 
+use super::{SpeechRequest, TtsProvider, SAMPLE_RATE};
+
 /// Where synthesis happens. Overridable for tests and for a self-hosted proxy.
 pub const DEFAULT_BASE_URL: &str = "https://api.fish.audio";
 
@@ -34,10 +36,8 @@ pub const DEFAULT_BASE_URL: &str = "https://api.fish.audio";
 /// deliberately pays for the other.
 pub const DEFAULT_MODEL: &str = "s2.1-pro-free";
 
-/// 24 kHz mono 16-bit LE. The frontend needs both numbers to build an
-/// AudioBuffer, so they live here rather than being duplicated in TypeScript.
-pub const SAMPLE_RATE: u32 = 24_000;
-pub const CHANNELS: u16 = 1;
+/// Stable id for settings and `from_id`.
+pub const ID: &str = "fish";
 
 #[derive(Debug, Clone)]
 pub struct TtsOptions {
@@ -173,12 +173,47 @@ mod tests {
         assert!(err.contains("no Fish Audio API key"), "unexpected: {err}");
     }
 
-    #[test]
-    fn audio_constants_match_what_the_frontend_builds() {
-        // These are duplicated into the AudioBuffer on the TS side; if one
-        // moves without the other, playback is pitched wrong rather than
-        // broken, which is much harder to notice.
-        assert_eq!(SAMPLE_RATE, 24_000);
-        assert_eq!(CHANNELS, 1);
+}
+
+/// The trait face of the module. Holds the key so the voice loop never has to.
+pub struct FishTts {
+    api_key: String,
+    opts: TtsOptions,
+}
+
+impl FishTts {
+    pub fn new(api_key: String) -> Self {
+        Self { api_key, opts: TtsOptions::default() }
+    }
+
+    /// Override model, base URL or temperature (settings, or a self-hosted proxy).
+    pub fn with_options(mut self, opts: TtsOptions) -> Self {
+        self.opts = opts;
+        self
+    }
+}
+
+#[async_trait::async_trait]
+impl TtsProvider for FishTts {
+    fn id(&self) -> &'static str {
+        ID
+    }
+
+    fn label(&self) -> &'static str {
+        "Fish Audio S2.1 Pro"
+    }
+
+    /// Hosted. Their terms state requests may be used to improve their models,
+    /// so voice mode has to be able to say so before it records anyone.
+    fn is_local(&self) -> bool {
+        false
+    }
+
+    async fn speak(&self, req: &SpeechRequest, audio: Sender<Vec<u8>>) -> anyhow::Result<usize> {
+        let opts = TtsOptions {
+            reference_id: req.voice.clone().or_else(|| self.opts.reference_id.clone()),
+            ..self.opts.clone()
+        };
+        synthesize(&self.api_key, &req.text, &opts, audio).await
     }
 }
