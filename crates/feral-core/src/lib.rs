@@ -24,6 +24,7 @@ pub mod perf_policy;
 pub mod rsi;
 pub mod runtime;
 pub mod settings;
+pub mod tts;
 pub mod setup;
 pub mod sidecar_protocol;
 pub mod sysinfo_mod;
