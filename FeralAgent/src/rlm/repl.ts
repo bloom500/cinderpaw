@@ -209,6 +209,12 @@ export class Notebook {
       }) as ((task: unknown, options?: unknown) => Promise<unknown>) & Record<string, unknown>;
 
       rlm.list_subagents = severed(async () => severed({ subagents: kids.list().map((e) => severed({ ...e })) }));
+      // The mailbox. `messages()` drains; `pending` peeks — a parent that is
+      // mid-thought should be able to check without consuming.
+      rlm.messages = severed(async () =>
+        severed({ messages: kids.drainInbox().map((m) => severed({ ...m })) }));
+      rlm.pending = severed(async () => kids.pending);
+
       rlm.observe = severed(async (target: unknown) => {
         if (typeof target !== "string" || !target.trim()) {
           throw new Error("rlm.observe target must be a non-empty string");

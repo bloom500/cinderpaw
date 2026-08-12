@@ -115,6 +115,16 @@ export function defaultChildName(prompt: string, childId: string): string {
   return `subagent-${promptPart || "worker"}-${idSuffix}`;
 }
 
+/** A message from a child to the parent that spawned it. */
+export interface ChildMessage {
+  at: number;
+  from: string;
+  text: string;
+}
+
+/** How many unread messages a parent's inbox holds before the oldest drop. */
+const INBOX_MAX = 100;
+
 /**
  * One parent's direct children. Not shared between sessions: a parent may only
  * see and delete its own, which is upstream's rule too.
@@ -123,6 +133,7 @@ export class ChildRegistry {
   readonly #entries = new Map<string, ChildEntry>();
   readonly #byName = new Map<string, string>();
   readonly #inflight = new Set<Promise<void>>();
+  readonly #inbox: ChildMessage[] = [];
   #seq = 0;
 
   constructor(private readonly run: RunChild) {}
@@ -172,6 +183,42 @@ export class ChildRegistry {
 
   list(): ChildEntry[] {
     return [...this.#entries.values()].map((e) => ({ ...e }));
+  }
+
+  /**
+   * Deliver a message from a child. This is the half of upstream's agent
+   * messaging that actually changes what an agent can do: a worker can report
+   * a partial finding, or ask for a decision, without waiting to finish.
+   *
+   * Only children of THIS parent may post, checked by id — a worker cannot
+   * address a stranger's inbox, which is upstream's family rule reduced to the
+   * one relationship we have.
+   */
+  post(childId: string, text: string): void {
+    const entry = this.#entries.get(childId);
+    if (!entry) throw new Error(`unknown child ${childId}`);
+    const body = text.trim();
+    if (!body) return;
+    this.#inbox.push({ at: Date.now(), from: entry.name, text: body.slice(0, 4000) });
+    // Oldest go first: a parent reading its inbox wants the recent traffic,
+    // and an unbounded queue in a long-lived gateway is a slow leak.
+    if (this.#inbox.length > INBOX_MAX) this.#inbox.splice(0, this.#inbox.length - INBOX_MAX);
+  }
+
+  /**
+   * Read and clear the inbox. Draining on read is deliberate: the parent is a
+   * model that re-reads its own transcript, so leaving messages in place would
+   * make it act on the same report every turn.
+   */
+  drainInbox(): ChildMessage[] {
+    const out = [...this.#inbox];
+    this.#inbox.length = 0;
+    return out;
+  }
+
+  /** Non-destructive count, so a parent can check without consuming. */
+  get pending(): number {
+    return this.#inbox.length;
   }
 
   /**

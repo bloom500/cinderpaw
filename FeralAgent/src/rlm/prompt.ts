@@ -43,6 +43,8 @@ const RECURSION = [
   "",
   "While a worker runs you are not blind: `await rlm.observe(nameOrId)` returns its current status plus a `trail` of what it has been doing — tool calls, errors, progress. Use it when a worker is taking long enough that you want to know whether it is stuck or just slow.",
   "",
+  "Workers can talk back before they finish: one that finds something worth acting on early sends it with its `notify_parent` tool. Read what has arrived with `const { messages } = await rlm.messages()` — reading clears the inbox, so bind it if you need it twice. `await rlm.pending()` counts without consuming.",
+  "",
   "Drop a child you no longer need with `await rlm.delete_subagent(nameOrId)`. A child that is still running is kept, not killed, and comes back with `outcome: 'skipped_running'`.",
   "",
   "A worker starts with no memory of this conversation, so its task string must be self-contained. It gets its own budget and a read-only tool set; widen it deliberately with `{ allowedTools: ['read_file', 'write_file'] }`.",

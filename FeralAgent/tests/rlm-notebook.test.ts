@@ -450,3 +450,58 @@ describe("observe — watching a worker that is still going", () => {
     expect(r.error).toContain("no child matches");
   });
 });
+
+describe("mailbox — a worker reporting before it finishes", () => {
+  const mk = () => {
+    let childId = "";
+    const children = new ChildRegistry(async (_t, _a, onEvent) => {
+      onEvent("started", "");
+      await new Promise((r) => setTimeout(r, 120));
+      return { status: "completed" as const, answer: "done", toolCalls: 0, durationMs: 1, subagentId: "x" };
+    });
+    return { children, id: () => childId };
+  };
+
+  it("delivers a running child's message to the parent", async () => {
+    const { children } = mk();
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+    const h = JSON.parse((await nb.run(`JSON.stringify(await rlm("scan", { name: "scout" }))`)).value!);
+
+    children.post(h.rlm_child_id, "  found three candidates  ");
+    const r = await nb.run(`
+      const { messages } = await rlm.messages();
+      messages.map((m) => m.from + ": " + m.text).join("|")
+    `);
+    expect(r.value).toBe("scout: found three candidates");
+    await children.drain();
+  });
+
+  it("drains on read so the parent does not re-act on the same report", async () => {
+    const { children } = mk();
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+    const h = JSON.parse((await nb.run(`JSON.stringify(await rlm("x"))`)).value!);
+    children.post(h.rlm_child_id, "one");
+
+    expect((await nb.run(`(await rlm.pending())`)).value).toBe("1");
+    await nb.run(`await rlm.messages()`);
+    expect((await nb.run(`(await rlm.messages()).messages.length`)).value).toBe("0");
+    expect((await nb.run(`(await rlm.pending())`)).value).toBe("0");
+    await children.drain();
+  });
+
+  it("refuses a message from a child that is not ours", async () => {
+    const { children } = mk();
+    expect(() => children.post("sa-nobody", "hi")).toThrow("unknown child");
+  });
+
+  it("ignores an empty message and caps a long one", async () => {
+    const { children } = mk();
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+    const h = JSON.parse((await nb.run(`JSON.stringify(await rlm("x"))`)).value!);
+    children.post(h.rlm_child_id, "   ");
+    expect(children.pending).toBe(0);
+    children.post(h.rlm_child_id, "y".repeat(9000));
+    expect(children.drainInbox()[0]!.text.length).toBe(4000);
+    await children.drain();
+  });
+});
