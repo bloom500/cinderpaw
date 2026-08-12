@@ -851,23 +851,15 @@ export async function boot(transportOverride?: Transport) {
     });
     registry.register(createNotebookTool({
       registry: () => registry,
-      spawn: async (task, allowedTools, sessionId) => {
-        const r = await notebookSubagent.run({
+      runChild: (task, allowedTools, sessionId) =>
+        notebookSubagent.run({
           task,
           allowedTools: allowedTools ?? NOTEBOOK_CHILD_TOOLS,
           budget: { maxTokens: 4096, maxIterations: 8 },
           parentSessionId: sessionId.startsWith("subagent:")
             ? sessionId.split(":")[1] ?? sessionId
             : sessionId,
-        });
-        return {
-          status: r.status,
-          answer: r.answer,
-          toolCalls: r.toolCalls,
-          durationMs: r.durationMs,
-          childId: r.subagentId,
-        };
-      },
+        }),
     }));
     log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true), rlm() wired");
   }

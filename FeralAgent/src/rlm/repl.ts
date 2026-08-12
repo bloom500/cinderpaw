@@ -50,6 +50,7 @@
 import { createContext, runInContext } from "node:vm";
 import type { ToolRegistry } from "../tools/registry.ts";
 import type { ToolResult } from "../types.ts";
+import type { ChildRegistry } from "./children.ts";
 
 /** How long one cell may run before it is abandoned. */
 export const DEFAULT_CELL_TIMEOUT_MS = 120_000;
@@ -67,17 +68,7 @@ export interface CellResult {
   toolCalls: string[];
 }
 
-/** What `rlm()` hands back once a child has finished. */
-export interface ChildResult {
-  status: "completed" | "failed" | "timeout" | "budget_exceeded";
-  answer: string;
-  toolCalls: number;
-  durationMs: number;
-  childId: string;
-}
-
-/** Spawns one child agent. Supplied by the caller; the notebook owns no deps. */
-export type SpawnChild = (task: string, allowedTools?: string[]) => Promise<ChildResult>;
+export type { ChildEntry, ChildHandle } from "./children.ts";
 
 /**
  * Prime Agent defaults `RLM_MAX_DEPTH` to 1 and errors at the limit; we keep
@@ -98,8 +89,8 @@ export interface ReplOptions {
    * model can call the notebook from inside the notebook.
    */
   exclude?: readonly string[];
-  /** Omit to leave `rlm()` out of the notebook entirely. */
-  spawn?: SpawnChild;
+  /** This parent's child registry. Omit to leave `rlm` out of the notebook. */
+  children?: ChildRegistry;
   /** This notebook's depth. 0 is the root agent. */
   depth?: number;
   maxDepth?: number;
@@ -193,22 +184,38 @@ export class Notebook {
     // and returns its answer. Revisit if a mailbox ever lands.
     const depth = opts.depth ?? 0;
     const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
-    if (opts.spawn) {
-      const spawn = opts.spawn;
-      sandbox.rlm = severed(async (task: unknown, allowedTools?: unknown) => {
-        if (typeof task !== "string" || !task.trim()) {
-          throw new Error("rlm(task) requires a non-empty string");
-        }
+    if (opts.children) {
+      const kids = opts.children;
+      const guard = () => {
         if (depth >= maxDepth) {
           throw new Error(`RLM recursion depth limit reached (depth=${depth}, maxDepth=${maxDepth})`);
         }
-        const tools = Array.isArray(allowedTools)
-          ? allowedTools.filter((t): t is string => typeof t === "string")
+      };
+      // `rlm` is a callable with methods hung off it, exactly as upstream
+      // exposes it (`rlm(...)`, `rlm.list_subagents()`, `rlm.delete_subagent()`).
+      const rlm = severed(async (task: unknown, options?: unknown) => {
+        guard();
+        if (typeof task !== "string" || !task.trim()) {
+          throw new Error("rlm(task) requires a non-empty string");
+        }
+        const o = (options ?? {}) as { name?: unknown; allowedTools?: unknown };
+        const tools = Array.isArray(o.allowedTools)
+          ? o.allowedTools.filter((t): t is string => typeof t === "string")
           : undefined;
-        const r = await spawn(task.trim(), tools);
-        this.#children.push(r.childId);
-        return severed({ ...r });
+        const h = kids.admit(task.trim(), { name: o.name as string | undefined, allowedTools: tools });
+        this.#children.push(h.rlm_child_id);
+        return severed({ ...h });
+      }) as ((task: unknown, options?: unknown) => Promise<unknown>) & Record<string, unknown>;
+
+      rlm.list_subagents = severed(async () => severed({ subagents: kids.list().map((e) => severed({ ...e })) }));
+      rlm.delete_subagent = severed(async (target: unknown) => {
+        if (typeof target !== "string" || !target.trim()) {
+          throw new Error("rlm.delete_subagent target must be a non-empty string");
+        }
+        const r = kids.delete(target.trim());
+        return severed({ subagent: severed({ ...r.subagent }), outcome: r.outcome });
       });
+      sandbox.rlm = rlm;
     }
 
     // The contextified global IS this host object, so top-level `this` in a

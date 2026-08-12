@@ -37,11 +37,17 @@ export interface NotebookPromptOptions {
  * never comes.
  */
 const RECURSION = [
-  "You can spawn a worker from code: `const r = await rlm('do X and report back')`. It returns `{ status, answer, toolCalls, durationMs, childId }` once the worker finishes — the answer comes back to you directly, so bind it and use it.",
+  "`rlm` is already in your namespace. `await rlm('sub-task')` spawns a worker and returns as soon as it is admitted, with `{ rlm_child_id, name, status }` — it does NOT wait for the worker and never returns its answer.",
   "",
-  "A worker starts with no memory of this conversation, so its task string must be self-contained. It gets its own budget and a filtered tool set; pass a second argument to narrow it further, e.g. `await rlm('summarise this file', ['read_file'])`.",
+  "Choose a stable name with `await rlm('sub-task', { name: 'api-reviewer' })`; names must be unique among siblings. If you omit it, a readable one is generated.",
   "",
-  "Workers are for width, not for delegating everything: spawn several from one cell when parts of a job are genuinely independent, and check `status` before trusting `answer`. Doing the work yourself is usually cheaper than a worker that has to be told everything first.",
+  "Because admission is instant, spawn independent workers in separate calls and get on with your own work rather than idling. Collect them later with `await rlm.list_subagents()`, which returns every direct child with its `status` — `running`, `completed` or `error` — and, once settled, its `answer`. Poll it in a later cell or a later turn; a child that is still `running` simply has no answer yet.",
+  "",
+  "Drop a child you no longer need with `await rlm.delete_subagent(nameOrId)`. A child that is still running is kept, not killed, and comes back with `outcome: 'skipped_running'`.",
+  "",
+  "A worker starts with no memory of this conversation, so its task string must be self-contained. It gets its own budget and a read-only tool set; widen it deliberately with `{ allowedTools: ['read_file', 'write_file'] }`.",
+  "",
+  "Workers are for width, not for delegating everything. Doing the work yourself is usually cheaper than a worker that has to be told everything first.",
 ].join("\n");
 
 /**

@@ -8,6 +8,7 @@
 import { describe, expect, it } from "bun:test";
 import { Notebook, toIdentifier } from "../src/rlm/repl.ts";
 import { buildNotebookPrompt } from "../src/rlm/prompt.ts";
+import { ChildRegistry, defaultChildName, normalizeRequestedName } from "../src/rlm/children.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool, ToolResult } from "../src/types.ts";
 
@@ -115,61 +116,157 @@ describe("tools", () => {
 });
 
 describe("recursion — the R in RLM", () => {
-  const child = async (task: string, allowedTools?: string[]) => ({
-    status: "completed" as const,
-    answer: `did: ${task}${allowedTools ? ` [${allowedTools.join(",")}]` : ""}`,
-    toolCalls: 1,
-    durationMs: 5,
-    childId: `sa-${task.length}`,
+  const runner = (delayMs = 0) =>
+    async (task: string, allowedTools?: string[]) => {
+      if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+      return {
+        status: "completed" as const,
+        answer: `did: ${task}${allowedTools ? ` [${allowedTools.join(",")}]` : ""}`,
+        toolCalls: 1,
+        durationMs: 5,
+        subagentId: "ignored",
+      };
+    };
+
+  const nbWith = (run = runner(), extra: Record<string, unknown> = {}) => {
+    const children = new ChildRegistry(run);
+    return {
+      children,
+      nb: new Notebook({ registry: fakeRegistry(), sessionId: "s1", children, ...extra }),
+    };
+  };
+
+  it("returns a handle immediately, not the answer", async () => {
+    const { nb } = nbWith();
+    const r = await nb.run(`const h = await rlm("count the files"); JSON.stringify(h)`);
+    const h = JSON.parse(r.value!);
+    expect(h.status).toBe("running");
+    expect(h.name).toContain("count-the-files");
+    expect(h.answer).toBeUndefined();
   });
 
-  it("spawns a worker from code and returns its answer", async () => {
-    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
-    const r = await nb.run(`const w = await rlm("count the files"); w.answer`);
-    expect(r.value).toBe("did: count the files");
-    expect(nb.children).toEqual(["sa-15"]);
-  });
-
-  it("fans out several workers from a single cell", async () => {
-    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+  it("admits a batch without waiting for any of them", async () => {
+    const { nb, children } = nbWith(runner(40));
+    const started = Date.now();
     const r = await nb.run(`
-      const parts = ["a", "bb", "ccc"];
-      const done = await Promise.all(parts.map((p) => rlm(p)));
-      done.map((d) => d.answer).join(" | ")
+      const hs = await Promise.all(["a","bb","ccc"].map((p) => rlm(p, { name: p })));
+      hs.length
     `);
-    expect(r.value).toBe("did: a | did: bb | did: ccc");
-    expect(nb.children.length).toBe(3);
+    // Three 40ms children; admission must not have serialised them.
+    expect(Date.now() - started).toBeLessThan(60);
+    expect(r.value).toBe("3");
+    await children.drain();
+  });
+
+  it("collects settled children through list_subagents", async () => {
+    const { nb, children } = nbWith();
+    await nb.run(`await rlm("summarise", { name: "sum" })`);
+    await children.drain();
+    const r = await nb.run(`
+      const { subagents } = await rlm.list_subagents();
+      subagents.map((s) => s.name + ":" + s.status + ":" + s.answer).join("|")
+    `);
+    expect(r.value).toBe("sum:completed:did: summarise");
+  });
+
+  it("shows a child still running as running, with no answer", async () => {
+    const { nb, children } = nbWith(runner(200));
+    await nb.run(`await rlm("slow one")`);
+    const r = await nb.run(`(await rlm.list_subagents()).subagents[0].status`);
+    expect(r.value).toBe("running");
+    await children.drain();
+  });
+
+  it("rejects a duplicate sibling name", async () => {
+    const { nb, children } = nbWith();
+    await nb.run(`await rlm("one", { name: "dup" })`);
+    const r = await nb.run(`await rlm("two", { name: "dup" })`);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("already used by a sibling");
+    await children.drain();
+  });
+
+  it("deletes a settled child but keeps a running one", async () => {
+    const { nb, children } = nbWith(runner(150));
+    await nb.run(`await rlm("busy", { name: "busy" })`);
+    const kept = await nb.run(`(await rlm.delete_subagent("busy")).outcome`);
+    expect(kept.value).toBe("skipped_running");
+    await children.drain();
+    const gone = await nb.run(`(await rlm.delete_subagent("busy")).outcome`);
+    expect(gone.value).toBe("deleted");
+    expect((await nb.run(`(await rlm.list_subagents()).subagents.length`)).value).toBe("0");
   });
 
   it("passes a narrowed tool set through", async () => {
-    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
-    const r = await nb.run(`(await rlm("read it", ["read_file"])).answer`);
+    const { nb, children } = nbWith();
+    await nb.run(`await rlm("read it", { allowedTools: ["read_file"] })`);
+    await children.drain();
+    const r = await nb.run(`(await rlm.list_subagents()).subagents[0].answer`);
     expect(r.value).toBe("did: read it [read_file]");
   });
 
+  it("records a failed child as error rather than throwing", async () => {
+    const { nb, children } = nbWith(async () => {
+      throw new Error("child exploded");
+    });
+    const admitted = await nb.run(`(await rlm("doomed")).status`);
+    expect(admitted.value).toBe("running");
+    await children.drain();
+    const r = await nb.run(`
+      const s = (await rlm.list_subagents()).subagents[0];
+      s.status + ":" + s.error
+    `);
+    expect(r.value).toBe("error:child exploded");
+  });
+
   it("refuses to recurse past the depth limit", async () => {
-    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child, depth: 1 });
+    const { nb } = nbWith(runner(), { depth: 1 });
     const r = await nb.run(`await rlm("go deeper")`);
     expect(r.ok).toBe(false);
     expect(r.error).toContain("depth limit reached");
   });
 
-  it("omits rlm entirely when no spawner is wired", async () => {
+  it("omits rlm entirely when no registry is wired", async () => {
     const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
     expect((await nb.run("typeof rlm")).value).toBe("undefined");
   });
 
-  it("rejects an empty task instead of spawning", async () => {
-    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+  it("rejects an empty task instead of admitting", async () => {
+    const { nb } = nbWith();
     const r = await nb.run(`await rlm("   ")`);
     expect(r.ok).toBe(false);
-    expect(nb.children).toEqual([]);
   });
 
-  it("does not let a child result leak the host realm", async () => {
-    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", spawn: child });
+  it("does not let a handle leak the host realm", async () => {
+    const { nb, children } = nbWith();
     const r = await nb.run(`(await rlm("x")).constructor.constructor("return typeof process")()`);
     expect(r.ok === false || r.value === "undefined").toBe(true);
+    await children.drain();
+  });
+});
+
+describe("child naming — ported from prime-agent", () => {
+  it("slugs the task and keeps it selector-safe", () => {
+    expect(defaultChildName("Review the API", "sa-abcd1234")).toBe("subagent-review-the-api-abcd1234");
+  });
+
+  it("strips diacritics instead of dropping the words", () => {
+    expect(defaultChildName("Verifică rațele", "sa-9x")).toContain("verifica-ratele");
+  });
+
+  it("falls back when a task slugs to nothing", () => {
+    expect(defaultChildName("!!! ???", "sa-zz")).toContain("worker");
+  });
+
+  it("stays within the 64-char selector cap", () => {
+    expect(defaultChildName("x".repeat(300), "sa-abcdefgh").length).toBeLessThanOrEqual(64);
+  });
+
+  it("applies upstream's name validation", () => {
+    expect(() => normalizeRequestedName(42)).toThrow("must be a string");
+    expect(() => normalizeRequestedName("  ")).toThrow("must not be empty");
+    expect(() => normalizeRequestedName("y".repeat(65))).toThrow("at most 64");
+    expect(normalizeRequestedName(undefined)).toBeUndefined();
   });
 });
 
@@ -235,7 +332,7 @@ describe("prompt — parity with the audited source", () => {
     const on = buildNotebookPrompt({ ...base, allowRecursion: true });
     expect(on).toContain("await rlm(");
     // The divergence from Prime Agent: our rlm returns the answer.
-    expect(on).toContain("returns `{ status, answer");
+    expect(on).toContain("rlm_child_id");
 
     const off = buildNotebookPrompt({ ...base, allowRecursion: false, depth: 1 });
     expect(off).toContain("`rlm` is not available at this depth");

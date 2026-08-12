@@ -19,7 +19,8 @@
  * could call the notebook from inside the notebook.
  */
 
-import { Notebook, type SpawnChild } from "../../rlm/repl.ts";
+import { Notebook } from "../../rlm/repl.ts";
+import { ChildRegistry, type RunChild } from "../../rlm/children.ts";
 import type { ToolRegistry } from "../../tools/registry.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
@@ -66,11 +67,11 @@ export interface NotebookToolDeps {
   /** Resolved lazily — this tool lives inside the registry it reads. */
   registry: () => ToolRegistry;
   /**
-   * Enables `rlm()` inside the notebook. Omit to leave recursion unavailable.
-   * Takes the calling session so the child can be parented correctly; the
-   * notebook itself only knows how to ask.
+   * Runs one child to completion. Wrapped in a per-session ChildRegistry, which
+   * is what gives `rlm()` its instant admission — this function is allowed to
+   * take minutes; nobody awaits it inline.
    */
-  spawn?: (task: string, allowedTools: string[] | undefined, sessionId: string) => ReturnType<SpawnChild>;
+  runChild?: (task: string, allowedTools: string[] | undefined, sessionId: string) => ReturnType<RunChild>;
   maxDepth?: number;
 }
 
@@ -103,8 +104,10 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           sessionId,
           signal: ctx.signal,
           exclude: [NOTEBOOK_TOOL_NAME],
-          spawn: deps.spawn
-            ? (task, allowedTools) => deps.spawn!(task, allowedTools, sessionId)
+          // One registry per session, so `list_subagents()` only ever shows a
+          // parent its own direct children — upstream's rule.
+          children: deps.runChild
+            ? new ChildRegistry((task, allowedTools) => deps.runChild!(task, allowedTools, sessionId))
             : undefined,
           // A notebook running inside a subagent is already one level down, so
           // its `rlm()` must be gone — otherwise the depth cap counts from zero
