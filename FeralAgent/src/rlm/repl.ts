@@ -134,6 +134,7 @@ export class Notebook {
   #log: string[] = [];
   #calls: string[] = [];
   #children: string[] = [];
+  #injected = new Set<string>();
 
   constructor(opts: ReplOptions) {
     this.#timeoutMs = opts.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS;
@@ -218,6 +219,9 @@ export class Notebook {
       sandbox.rlm = rlm;
     }
 
+    // Everything we put in is ours, not the user's — snapshot must skip these.
+    this.#injected = new Set(Object.keys(sandbox));
+
     // The contextified global IS this host object, so top-level `this` in a
     // cell would otherwise expose host `Object.prototype` — the last escape
     // route, and the one a model hits by writing plain `this`.
@@ -234,6 +238,59 @@ export class Notebook {
   /** Ids of child agents this notebook spawned, in order. */
   get children(): readonly string[] {
     return this.#children;
+  }
+
+  /**
+   * Serialise the user's variables so a notebook survives a restart.
+   *
+   * Upstream snapshots the IPython namespace with `dill` under a size cap,
+   * skipping variables that are too large (`KernelSnapshotConfig.maxBytes`,
+   * default 256 MiB). Same contract here, different mechanism: JavaScript has
+   * no dill, so this keeps what JSON round-trips and drops the rest. A closure,
+   * a class instance or a live handle cannot be revived honestly, and silently
+   * restoring a broken shell of one is worse than admitting it is gone —
+   * `restore` reports what came back so the model can be told.
+   *
+   * Injected names (tools, `rlm`, `console`) are never captured: they are
+   * rebuilt on construction and would otherwise be resurrected as dead data.
+   */
+  snapshot(maxBytes = 8 * 1024 * 1024): { vars: Record<string, unknown>; skipped: string[] } {
+    const vars: Record<string, unknown> = {};
+    const skipped: string[] = [];
+    for (const key of Object.keys(this.#ctx)) {
+      if (this.#injected.has(key)) continue;
+      const v = this.#ctx[key];
+      if (typeof v === "function") {
+        skipped.push(key);
+        continue;
+      }
+      try {
+        const s = JSON.stringify(v);
+        if (s === undefined) {
+          skipped.push(key);
+          continue;
+        }
+        if (s.length > maxBytes) {
+          skipped.push(key);
+          continue;
+        }
+        vars[key] = JSON.parse(s);
+      } catch {
+        skipped.push(key); // cyclic, a BigInt, a live handle — not revivable
+      }
+    }
+    return { vars, skipped };
+  }
+
+  /** Put a snapshot's variables back. Never overwrites an injected name. */
+  restore(snap: { vars?: Record<string, unknown> } | null | undefined): string[] {
+    const restored: string[] = [];
+    for (const [k, v] of Object.entries(snap?.vars ?? {})) {
+      if (this.#injected.has(k)) continue;
+      this.#ctx[k] = v;
+      restored.push(k);
+    }
+    return restored;
   }
 
   /**

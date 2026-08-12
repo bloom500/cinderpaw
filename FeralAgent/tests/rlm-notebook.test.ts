@@ -339,3 +339,63 @@ describe("prompt — parity with the audited source", () => {
     expect(off).not.toContain("await rlm(");
   });
 });
+
+/**
+ * Snapshot/restore. Upstream persists its IPython namespace with dill under a
+ * size cap; JavaScript has no dill, so this keeps what JSON round-trips and is
+ * honest about the rest. The tests pin that honesty: a closure must not come
+ * back as a broken shell, and an injected name must never be overwritten.
+ */
+describe("snapshot", () => {
+  it("round-trips plain data into a fresh notebook", async () => {
+    const a = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
+    await a.run(`const findings = ["x", "y"]; const meta = { n: 2, deep: { ok: true } };`);
+
+    const b = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
+    const restored = b.restore(a.snapshot());
+    expect(restored.sort()).toEqual(["findings", "meta"]);
+    expect((await b.run(`findings.join("") + meta.deep.ok + meta.n`)).value).toBe("xytrue2");
+  });
+
+  it("skips what cannot be revived honestly, and says so", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
+    await nb.run(`
+      const helper = (x) => x * 2;
+      const cyclic = {}; cyclic.self = cyclic;
+      const fine = 42;
+    `);
+    const snap = nb.snapshot();
+    expect(Object.keys(snap.vars)).toEqual(["fine"]);
+    expect(snap.skipped.sort()).toEqual(["cyclic", "helper"]);
+  });
+
+  it("drops a variable above the size cap rather than writing it", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
+    await nb.run(`const big = "z".repeat(5000); const small = 1;`);
+    const snap = nb.snapshot(1000);
+    expect(snap.skipped).toContain("big");
+    expect(snap.vars.small).toBe(1);
+  });
+
+  it("never captures or overwrites injected names", async () => {
+    const children = new ChildRegistry(async () => ({
+      status: "completed" as const, answer: "a", toolCalls: 0, durationMs: 1, subagentId: "x",
+    }));
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+    const snap = nb.snapshot();
+    for (const name of ["read_file", "shell_exec", "rlm", "console"]) {
+      expect(Object.keys(snap.vars)).not.toContain(name);
+    }
+    // A hostile snapshot must not be able to replace a tool with data.
+    nb.restore({ vars: { read_file: "pwned", ok: 1 } });
+    expect((await nb.run("typeof read_file")).value).toBe("function");
+    expect((await nb.run("ok")).value).toBe("1");
+  });
+
+  it("survives a missing or malformed snapshot", () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
+    expect(nb.restore(null)).toEqual([]);
+    expect(nb.restore(undefined)).toEqual([]);
+    expect(nb.restore({})).toEqual([]);
+  });
+});

@@ -851,6 +851,10 @@ export async function boot(transportOverride?: Transport) {
     });
     registry.register(createNotebookTool({
       registry: () => registry,
+      // Snapshots live beside the agent's other state so a notebook survives a
+      // gateway restart — upstream persists its kernel namespace for the same
+      // reason. Only JSON-round-trippable variables come back; see repl.ts.
+      stateDir: join(feralHome(), "notebooks"),
       runChild: (task, allowedTools, sessionId) =>
         notebookSubagent.run({
           task,

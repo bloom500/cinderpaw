@@ -19,6 +19,8 @@
  * could call the notebook from inside the notebook.
  */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Notebook } from "../../rlm/repl.ts";
 import { ChildRegistry, type RunChild } from "../../rlm/children.ts";
 import type { ToolRegistry } from "../../tools/registry.ts";
@@ -49,6 +51,9 @@ export const NOTEBOOK_CHILD_TOOLS: string[] = [
 /** Beyond this many live sessions, the least recently used notebook is dropped. */
 const MAX_SESSIONS = 32;
 
+/** Upstream debounces its auto-snapshot by 1500ms; same window here. */
+const PERSIST_DEBOUNCE_MS = 1_500;
+
 const MANIFEST: ToolManifest = {
   name: NOTEBOOK_TOOL_NAME,
   description:
@@ -73,10 +78,46 @@ export interface NotebookToolDeps {
    */
   runChild?: (task: string, allowedTools: string[] | undefined, sessionId: string) => ReturnType<RunChild>;
   maxDepth?: number;
+  /** Where per-session snapshots live. Omit to keep notebooks in memory only. */
+  stateDir?: string;
 }
 
 export function createNotebookTool(deps: NotebookToolDeps): Tool {
   const books = new Map<string, Notebook>();
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const file = (sessionId: string) =>
+    join(deps.stateDir!, `${sessionId.replace(/[^A-Za-z0-9_.-]/g, "_")}.json`);
+
+  /**
+   * Debounced write, mirroring upstream's auto-snapshot (their default window
+   * is 1500ms). A cell that assigns in a loop would otherwise write the whole
+   * namespace once per assignment.
+   */
+  function schedulePersist(sessionId: string, book: Notebook) {
+    if (!deps.stateDir) return;
+    clearTimeout(timers.get(sessionId));
+    const t = setTimeout(() => {
+      try {
+        mkdirSync(deps.stateDir!, { recursive: true });
+        writeFileSync(file(sessionId), JSON.stringify(book.snapshot()), "utf8");
+      } catch {
+        // A notebook that cannot persist is still a working notebook; losing
+        // state on restart is not worth failing the user's cell over.
+      }
+    }, PERSIST_DEBOUNCE_MS);
+    t.unref?.(); // never hold the process open for a pending snapshot
+    timers.set(sessionId, t);
+  }
+
+  function loadInto(sessionId: string, book: Notebook) {
+    if (!deps.stateDir) return;
+    try {
+      book.restore(JSON.parse(readFileSync(file(sessionId), "utf8")));
+    } catch {
+      // No snapshot yet, or an unreadable one — start clean.
+    }
+  }
 
   return {
     manifest: MANIFEST,
@@ -115,10 +156,12 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           depth: sessionId.startsWith("subagent:") ? 1 : 0,
           maxDepth: deps.maxDepth,
         });
+        loadInto(sessionId, book);
         books.set(sessionId, book);
       }
 
       const r = await book.run(code);
+      schedulePersist(sessionId, book);
 
       // Report shape mirrors a REPL transcript: output first, then the value,
       // then the error. The model reads this, so keep it plain.
