@@ -368,3 +368,76 @@ describe("selectTools", () => {
     expect(openAITools).toEqual([]);
   });
 });
+
+describe("makeInvokeAgent — the grader sees the answer, not the reasoning", () => {
+  // Regression: on the VPS every candidate breached the Tier 0 sanity floor
+  // ("6 frozen sanity task(s) failed") because MiniMax-M3's chat template bakes
+  // the opening <think> into the prompt, so completions arrive as
+  // "reasoning…</think>answer" and Tier 0 graded the raw string. Nothing could
+  // ever be promoted — the gate was rejecting the grader's mistake, not the
+  // candidate. The strings below are copied from the real failing eval logs.
+  const invokeWith = (router: InvokeRouter) =>
+    makeInvokeAgent({ router, getSystemPrompt: () => "sys" });
+
+  test("strips a MiniMax orphan-close response (tier0/json_format)", async () => {
+    const router = new FakeRouter();
+    router.setNextResponse({
+      content:
+        '<think>7</think> {"answer": 7} <think>The user wants a JSON object with an "answer" key</think>',
+      totalTokens: 847,
+    });
+    const res = await invokeWith(router)("How many days in a week?", makeGenome());
+    expect(res.response).toBe('{"answer": 7}');
+  });
+
+  test("strips a leading reasoning block (tier0/constraint_count)", async () => {
+    const router = new FakeRouter();
+    router.setNextResponse({
+      content:
+        "<think>The user is asking me to reply with exactly 5 words. But I need to be careful.</think>\nOne two three four five",
+      totalTokens: 2593,
+    });
+    const res = await invokeWith(router)("Reply with EXACTLY 5 words", makeGenome());
+    expect(res.response).toBe("One two three four five");
+  });
+
+  test("token count still includes the reasoning tokens — they were spent", async () => {
+    const router = new FakeRouter();
+    router.setNextResponse({
+      content: "<think>a long deliberation</think>ok",
+      totalTokens: 4242,
+    });
+    const res = await invokeWith(router)("x", makeGenome());
+    expect(res.tokens).toBe(4242);
+  });
+
+  test("a response truncated mid-reasoning yields no answer, and fails honestly", async () => {
+    const router = new FakeRouter();
+    router.setNextResponse({
+      content: "<think>I should start by considering",
+      totalTokens: 100,
+    });
+    const res = await invokeWith(router)("x", makeGenome());
+    expect(res.response).toBe("");
+  });
+
+  test("a clean answer is passed through untouched", async () => {
+    const router = new FakeRouter();
+    router.setNextResponse({ content: '{"answer": 7}', totalTokens: 12 });
+    const res = await invokeWith(router)("x", makeGenome());
+    expect(res.response).toBe('{"answer": 7}');
+  });
+
+  test("strips each sub-response separately when decomposing", async () => {
+    // Stripping after the join would let a dangling <think> in part 1 swallow
+    // every later part's answer.
+    const router = new FakeRouter();
+    router.setNextResponses([
+      { content: "<think>hmm", totalTokens: 10 },
+      { content: "<think>ok</think>second answer", totalTokens: 20 },
+    ]);
+    const res = await invokeWith(router)("x", makeGenome({ decompositionDepth: 1 }));
+    expect(res.response).toContain("second answer");
+    expect(res.response).not.toContain("hmm");
+  });
+});

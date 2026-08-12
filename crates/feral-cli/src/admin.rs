@@ -1937,3 +1937,245 @@ async fn post(token: &str, path: &str) -> Result<(), String> {
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
+
+/* ------------------------------------------------------------ providers */
+// `feral providers` — the management surface for cloud providers.
+//
+// `feral model` only ever listed local .gguf files, and `feral setup` is a
+// wizard. On a headless box with no TTY there was no way to see which
+// providers were configured, switch between them, or add a key without
+// hand-rolling a curl against /runtime/setup/verify.
+//
+// Reads and writes byok.json + settings.json through feral-core, so it works
+// with the gateway offline — which is exactly when you need it most.
+
+/// Actions for `feral providers`.
+#[derive(Subcommand)]
+pub enum ProvidersAction {
+    /// List providers, which have a key, and which one is active (default)
+    List,
+    /// Make a provider the active route
+    Use {
+        /// Provider id, e.g. `nvidia`, `minimax`, `openai`
+        id: String,
+        /// Model to route to. Defaults to the provider's configured model.
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Store an API key for a provider. The key is read from STDIN, never
+    /// from an argument — a key in argv is visible to every process on the
+    /// box via `ps` and lands in shell history.
+    SetKey {
+        /// Provider id, e.g. `nvidia`
+        id: String,
+        /// Also set this as the provider's default model
+        #[arg(long)]
+        model: Option<String>,
+        /// Skip the live completion check and save the key unverified
+        #[arg(long)]
+        no_verify: bool,
+        /// Also make this provider the active route on success
+        #[arg(long)]
+        activate: bool,
+    },
+}
+
+/// Split `provider:model` into its two halves. A route with no colon is
+/// provider-only, which is how a local-model route reads.
+fn split_route(route: &str) -> (String, String) {
+    match route.split_once(':') {
+        Some((p, m)) => (p.to_string(), m.to_string()),
+        None => (route.to_string(), String::new()),
+    }
+}
+
+/// `feral providers` — one row per provider the user has actually touched.
+pub fn providers_list() -> i32 {
+    let Palette { accent: ACCENT, text: TEXT, meta: META, bold: BOLD, dim: DIM, reset: RESET, .. } =
+        palette();
+    let settings = feral_core::settings::load();
+    let byok = feral_core::byok::load(&settings);
+    let active = settings.active_route.clone().unwrap_or_default();
+    let (active_provider, _) = split_route(&active);
+
+    if json() {
+        let rows: Vec<serde_json::Value> = feral_core::byok::provider_catalog()
+            .into_iter()
+            .map(|entry| {
+                let cfg = byok.providers.get(&entry.id);
+                json!({
+                    "id": entry.id,
+                    "name": entry.name,
+                    "configured": cfg.is_some(),
+                    "enabled": cfg.map(|c| c.enabled).unwrap_or(false),
+                    "has_key": feral_core::byok::byok_get(&entry.id).is_some(),
+                    "model": cfg.and_then(|c| c.default_model.clone()),
+                    "base_url": cfg
+                        .and_then(|c| c.base_url.clone())
+                        .unwrap_or_else(|| entry.default_base_url.clone()),
+                    "active": entry.id == active_provider,
+                })
+            })
+            .collect();
+        println!("{}", json!({ "active_route": active, "providers": rows }));
+        return 0;
+    }
+
+    println!("{BOLD}{TEXT}providers{RESET} {DIM}{META}(~/.feral/byok.json){RESET}");
+    for entry in feral_core::byok::provider_catalog() {
+        let cfg = byok.providers.get(&entry.id);
+        let has_key = feral_core::byok::byok_get(&entry.id).is_some();
+        // Only rows the user has touched, plus anything holding a key. The
+        // catalog is long, and a wall of unconfigured providers buries the
+        // two lines that matter.
+        if cfg.is_none() && !has_key {
+            continue;
+        }
+        let is_active = entry.id == active_provider;
+        let marker = if is_active { "*" } else { " " };
+        let name_color = if is_active { ACCENT } else { TEXT };
+        let key_note = if has_key { "key stored" } else { "NO KEY" };
+        let model = cfg
+            .and_then(|c| c.default_model.clone())
+            .unwrap_or_else(|| "-".into());
+        println!(
+            "{ACCENT}{marker}{RESET} {name_color}{:<12}{RESET} {DIM}{META}{:<26}{RESET} {META}{}{RESET}",
+            entry.id, model, key_note
+        );
+    }
+    if active.is_empty() {
+        println!("\n{META}no active route set - feral providers use <id>{RESET}");
+    } else {
+        println!("\n{META}active route: {ACCENT}{active}{RESET}");
+    }
+    0
+}
+
+/// `feral providers use <id>` — repoint `active_route`.
+pub fn providers_use(id: &str, model: Option<String>) -> i32 {
+    let Palette { accent: ACCENT, meta: META, reset: RESET, fail: FAIL, .. } = palette();
+    let mut settings = feral_core::settings::load();
+    let byok = feral_core::byok::load(&settings);
+
+    let Some(cfg) = byok.providers.get(id) else {
+        eprintln!("{FAIL}provider {id} is not configured - run feral providers to see what is{RESET}");
+        return 1;
+    };
+    let Some(model) = model.or_else(|| cfg.default_model.clone()) else {
+        eprintln!("{FAIL}provider {id} has no default model - pass --model{RESET}");
+        return 1;
+    };
+    // Refuse to route at a provider that cannot answer. Without this the
+    // switch "succeeds" and every completion afterwards fails with an auth
+    // error that points nowhere near this command.
+    if feral_core::byok::byok_get(id).is_none() {
+        eprintln!("{FAIL}provider {id} has no stored key - feral providers set-key {id} first{RESET}");
+        return 1;
+    }
+
+    settings.active_route = Some(format!("{id}:{model}"));
+    if let Err(e) = feral_core::settings::save(&settings) {
+        eprintln!("{FAIL}could not write settings.json: {e}{RESET}");
+        return 1;
+    }
+    println!("{ACCENT}active route -> {id}:{model}{RESET}");
+    println!("{META}restart the gateway for it to take effect: feral gateway restart{RESET}");
+    0
+}
+
+/// `feral providers set-key <id>` — read a key from stdin, verify it with a
+/// real completion, then persist.
+///
+/// Verify-then-save is the invariant the setup wizard already holds: a key
+/// that cannot complete never reaches disk, so a typo cannot silently break
+/// the active route.
+pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activate: bool) -> i32 {
+    let Palette { accent: ACCENT, meta: META, reset: RESET, fail: FAIL, .. } = palette();
+
+    let catalog = feral_core::byok::provider_catalog();
+    let Some(entry) = catalog.iter().find(|e| e.id == id) else {
+        eprintln!("{FAIL}unknown provider {id}{RESET}");
+        eprintln!(
+            "{META}known: {}{RESET}",
+            catalog.iter().map(|e| e.id.as_str()).collect::<Vec<_>>().join(", ")
+        );
+        return 1;
+    };
+
+    // stdin, never argv. Works piped (`printf %s "$KEY" | feral providers
+    // set-key nvidia`) and typed. ponytail: plain echoed read, same as the
+    // wizard at guided.rs:353 - masked input needs a tty-secrets dependency
+    // this crate does not carry.
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!("{META}paste the {} API key, then Enter (input is visible):{RESET}", entry.name);
+    }
+    let mut key = String::new();
+    if let Err(e) = std::io::stdin().read_line(&mut key) {
+        eprintln!("{FAIL}could not read the key from stdin: {e}{RESET}");
+        return 1;
+    }
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        eprintln!("{FAIL}no key on stdin{RESET}");
+        return 1;
+    }
+
+    let settings = feral_core::settings::load();
+    let byok = feral_core::byok::load(&settings);
+    let existing = byok.providers.get(id);
+    let base_url = existing
+        .and_then(|c| c.base_url.clone())
+        .unwrap_or_else(|| entry.default_base_url.clone());
+    let model = model
+        .or_else(|| existing.and_then(|c| c.default_model.clone()))
+        // Catalog entries always carry a model, so this is the last resort
+        // rather than a fallible lookup.
+        .or_else(|| Some(entry.default_model.clone()));
+
+    if !no_verify {
+        eprintln!("{META}checking the key with a real completion...{RESET}");
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("{FAIL}could not start a runtime to verify: {e}{RESET}");
+                return 1;
+            }
+        };
+        let res = rt.block_on(feral_core::byok::test_provider(id, &key, Some(&base_url)));
+        if !res.success {
+            // Nothing is written on failure - the key never touches disk.
+            eprintln!("{FAIL}key rejected: {}{RESET}", res.message);
+            eprintln!("{META}nothing was saved. --no-verify stores it anyway.{RESET}");
+            return 1;
+        }
+        eprintln!("{ACCENT}key works{RESET}");
+    }
+
+    if let Err(e) = feral_core::byok::byok_set(id, &key) {
+        eprintln!("{FAIL}could not store the key: {e}{RESET}");
+        return 1;
+    }
+    let cfg = feral_core::byok::ProviderConfig {
+        enabled: true,
+        // Never persisted in byok.json - the keychain (or the encrypted file
+        // fallback on headless Linux) is the only place the secret lives.
+        api_key: String::new(),
+        base_url: Some(base_url),
+        default_model: model.clone(),
+    };
+    if let Err(e) = feral_core::byok::save_provider(id, cfg) {
+        eprintln!("{FAIL}could not write byok.json: {e}{RESET}");
+        return 1;
+    }
+    println!("{ACCENT}{} key stored{RESET}", entry.name);
+
+    if activate {
+        let Some(model) = model else {
+            eprintln!("{FAIL}--activate needs a model - pass --model{RESET}");
+            return 1;
+        };
+        return providers_use(id, Some(model));
+    }
+    println!("{META}make it the active route: feral providers use {id}{RESET}");
+    0
+}

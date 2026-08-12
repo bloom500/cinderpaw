@@ -56,6 +56,7 @@
  * `complete()`-and-stop cycle.
  */
 
+import { stripThinking } from "../../core/strip-thinking.ts";
 import type { InferenceRequest, InferenceResponse } from "../../types.ts";
 import type { GenomeConfig } from "../l1-config/genome.ts";
 import type { GenomeSpec } from "../l1-config/population-manager.ts";
@@ -164,6 +165,34 @@ export function makeInvokeAgent(
   };
 }
 
+/**
+ * The answer, as a grader should see it.
+ *
+ * Reasoning models emit chain-of-thought inline, and the OpenAI-compatible chat
+ * templates for MiniMax / DeepSeek-R1 bake the opening `<think>` into the
+ * prompt, so a completion arrives as `reasoning…</think>answer`. The agent loop
+ * has always stripped that before the user (or memory) sees it — the eval path
+ * was the one place that did not, so Tier 0 graded the raw string.
+ *
+ * The cost of that was total: `tier0/json_format` scored
+ * `<think>7</think> {"answer": 7}` as malformed and `tier0/constraint_count`
+ * counted the reasoning's words, so every candidate breached the Tier 0 sanity
+ * floor and was rejected by the confidence gate. Nothing could ever be promoted
+ * — not because the candidates were bad, but because the grader was reading the
+ * model's notes instead of its answer.
+ *
+ * Stripping here, at the one point every eval response passes through, keeps the
+ * grader looking at exactly what a user would get. Both return paths of
+ * `runOnce` go through it; the token count deliberately does not change, because
+ * the reasoning tokens were really spent and the cost component must reflect it.
+ *
+ * An answer that strips to empty stays empty and fails its spec. That is the
+ * honest outcome: a response truncated mid-reasoning contains no answer.
+ */
+function gradableAnswer(raw: string): string {
+  return stripThinking(raw);
+}
+
 /** Internal: run the actual completion(s) for one (prompt, config) pair. */
 async function runOnce(args: {
   router: InvokeRouter;
@@ -225,7 +254,7 @@ async function runOnce(args: {
         { role: "user", content: userContent },
       ],
     });
-    return { response: res.content, tokens: res.totalTokens };
+    return { response: gradableAnswer(res.content), tokens: res.totalTokens };
   }
 
   // L4 planner seam (§1.2): when a planner module is active it produces
@@ -270,7 +299,9 @@ async function runOnce(args: {
   );
   const responses = await Promise.all(subCalls);
   return {
-    response: responses.map((r) => r.content).join("\n\n"),
+    // Strip per sub-response, not after joining: a dangling `<think>` in the
+    // first part would otherwise swallow every later part's answer too.
+    response: responses.map((r) => gradableAnswer(r.content)).join("\n\n"),
     tokens: responses.reduce((s, r) => s + r.totalTokens, 0),
   };
 }

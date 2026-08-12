@@ -14,6 +14,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { stripThinking } from "./strip-thinking.ts";
 import type { InferenceRouter } from "../egress/inference-router.ts";
 import { stripToolsFromSystemPrompt } from "../egress/inference-providers.ts";
 import { isBackgroundSession } from "../egress/inference-router.ts";
@@ -2668,40 +2669,11 @@ export function extractPosition(summary: string): string | null {
   return body.length > 0 ? body : null;
 }
 
-export function stripThinking(raw: string): string {
-  let out = raw;
-
-  // Paired blocks first (non-greedy, across newlines, case-insensitive).
-  out = out.replace(/<think>[\s\S]*?<\/think>/gi, "");
-  out = out.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
-
-  // Gemma channel: keep only the text after a <|channel>response marker; drop
-  // the thought section entirely. Then strip any remaining channel markers.
-  const responseIdx = out.indexOf("<|channel>response");
-  if (responseIdx !== -1) {
-    out = out.slice(responseIdx + "<|channel>response".length);
-  }
-  out = out.replace(/<\|channel>thought[\s\S]*?(?=<\|channel>|$)/gi, "");
-  out = out.replace(/<\|channel>[a-z]+/gi, "");
-
-  // Orphan close tag with no open: MiniMax-M2 / DeepSeek-R1-style chat
-  // templates bake the opening <think> into the prompt, so the completion
-  // arrives as "reasoning…</think>answer". Everything before the first
-  // remaining close tag (pairs were already removed above) is reasoning.
-  const orphanClose = /<\/think(?:ing)?>/i.exec(out);
-  if (orphanClose) {
-    out = out.slice(orphanClose.index + orphanClose[0].length);
-  }
-
-  // Dangling open tag (model started reasoning and never closed / produced an
-  // answer): drop the tag and everything after it.
-  out = out.replace(/<think(?:ing)?>[\s\S]*$/gi, "");
-
-  // Orphan stray tags.
-  out = out.replace(/<\/?think(?:ing)?>/gi, "");
-
-  return out.trim();
-}
+// `stripThinking` now lives in its own module so the RSI eval path can reuse it
+// without importing the whole agent loop. It is imported at the top of this
+// file and re-exported here, so every existing caller and test that imports it
+// from `agent-loop.ts` keeps working unchanged.
+export { stripThinking };
 
 /**
  * Parse a model response into free text plus any tool calls.

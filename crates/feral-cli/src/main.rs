@@ -101,6 +101,12 @@ enum Command {
     Doctor,
     /// List installed models
     Model,
+    /// List AI providers, switch the active one, or store an API key
+    #[command(alias = "provider")]
+    Providers {
+        #[command(subcommand)]
+        action: Option<crate::admin::ProvidersAction>,
+    },
     /// Inspect or reload connectors (Discord/Slack/…)
     #[command(alias = "channels")]
     Connectors {
@@ -274,6 +280,13 @@ fn main() {
         Some(Command::Doctor) => admin::doctor(),
         Some(Command::Logs { follow }) => admin::logs(follow),
         Some(Command::Model) => admin::model_list(),
+        Some(Command::Providers { action }) => match action {
+            None | Some(admin::ProvidersAction::List) => admin::providers_list(),
+            Some(admin::ProvidersAction::Use { id, model }) => admin::providers_use(&id, model),
+            Some(admin::ProvidersAction::SetKey { id, model, no_verify, activate }) => {
+                admin::providers_set_key(&id, model, no_verify, activate)
+            }
+        },
         Some(Command::Connectors { action }) => match action {
             None | Some(ConnectorsAction::List) => admin::connectors_list(),
             Some(ConnectorsAction::Reload) => admin::connectors_reload(),

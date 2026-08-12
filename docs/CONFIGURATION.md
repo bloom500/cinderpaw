@@ -248,6 +248,22 @@ they remain hand-maintained here and are still covered by
 | `FERAL_NO_COLOR` | bool | `false` |  | Disable ANSI colour output in the TUI. |
 <!-- /TS-SCHEMA-TABLE -->
 
+## 3b. Public journal (outbound telemetry)
+
+Read by `src/public-journal/exporter.ts`, which publishes a sanitized slice of
+the Evolution Journal to a public page (see `docs/public-journal.md`). All of it
+is **opt-in**: with `FERAL_PUBLIC_JOURNAL_URL` and `FERAL_PUBLIC_JOURNAL_TOKEN`
+unset, the exporter refuses to start and nothing leaves the machine.
+
+| Var | Type | Default | Notes |
+| --- | ---- | ------- | ----- |
+| `FERAL_PUBLIC_JOURNAL_URL` | url | unset | Ingest endpoint. Must be `https:` unless the host is `localhost`/`127.0.0.1` — the exporter refuses to send its bearer token in the clear. |
+| `FERAL_PUBLIC_JOURNAL_TOKEN` | string | unset | Shared secret for that endpoint. The endpoint maps token → publisher identity; the payload cannot choose its own. |
+| `FERAL_PUBLIC_JOURNAL_PUBLISHER` | enum | `cubby` | `cubby` (this private instance) or `paw` (the community bot). Must match what the token is registered as. |
+| `FERAL_PUBLIC_JOURNAL_DIR` | path | `paths().journalDir` | Journal directory to export from. Override for testing against a fixture. |
+| `FERAL_PUBLIC_JOURNAL_LIMIT` | int | `200` | Max events per run. A backlog drains over successive runs. |
+| `FERAL_PUBLIC_JOURNAL_VERSION` | string | unset | Version string reported in the heartbeat. Dropped unless it matches `[0-9A-Za-z.\-+]{1,24}`. |
+
 ## 4. Footnotes
 
 - *"Positive integer only"* means the perf-policy reader parses a
@@ -339,6 +355,12 @@ FERAL_PERMISSION_MODE
 FERAL_PII_REDACTION
 FERAL_PROACTIVE_ENABLED
 FERAL_PROVIDER
+FERAL_PUBLIC_JOURNAL_DIR
+FERAL_PUBLIC_JOURNAL_LIMIT
+FERAL_PUBLIC_JOURNAL_PUBLISHER
+FERAL_PUBLIC_JOURNAL_TOKEN
+FERAL_PUBLIC_JOURNAL_URL
+FERAL_PUBLIC_JOURNAL_VERSION
 FERAL_RATE_LIMIT_RPM
 FERAL_RSI_ALLOW_CLOUD
 FERAL_RSI_CONCURRENCY
