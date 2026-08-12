@@ -24,6 +24,14 @@ export interface DownloadErrorEvent    { repoId: string; filename: string; error
 export interface ModelLoadProgressEvent { percentage: number; statusText: string }
 /** One streamed agent event. `data` is a JSON-serialized AgentEvent. */
 export interface AgentStreamEvent { sessionId: string; data: string }
+/**
+ * One chunk of synthesised speech: base64 of signed 16-bit little-endian mono
+ * PCM, plus the rate to build the `AudioBuffer` at. Decode with
+ * `pcm16ToFloat32` and schedule it — never collect chunks into one buffer and
+ * play at the end, which throws away the ~3x head start streaming synthesis has
+ * over playback.
+ */
+export interface TtsChunkEvent { sessionId: string; pcm: string; sampleRate: number }
 /** Emitted right before generation starts with the real prompt token count (local models only). */
 export interface StreamStartEvent  { sessionId: string; promptTokens: number }
 /** Emitted at the end of a cloud stream when the provider returns usage stats. */
@@ -332,9 +340,19 @@ export const events = {
    * before applying state, since the sidecar can emit other repo downloads on
    * the same channels in the future.
    */
+  /**
+   * On-device voice (Piper) download. Same `Download*Event` payload shape as
+   * every other download channel; `filename` carries the voice id, and the
+   * config file is fetched silently before the model so the bar does not jump to
+   * 100% for a few kilobytes and then restart.
+   */
+  onPiperDownloadProgress: wrap<DownloadProgressEvent>('feral://piper-download-progress'),
+  onPiperDownloadComplete: wrap<DownloadCompleteEvent>('feral://piper-download-complete'),
+  onPiperDownloadError:    wrap<DownloadErrorEvent>('feral://piper-download-error'),
   onEmbeddingDownloadProgress: wrap<DownloadProgressEvent>('feral://embedding-download-progress'),
   onEmbeddingDownloadComplete: wrap<DownloadCompleteEvent>('feral://embedding-download-complete'),
   onEmbeddingDownloadError:    wrap<DownloadErrorEvent>('feral://embedding-download-error'),
+  ttsChunkEvent:          wrap<TtsChunkEvent>('feral://tts-chunk'),
   agentStreamEvent:       wrap<AgentStreamEvent>('feral://agent-event'),
   /**
    * The Feral Agent sidecar's raw stdout forwarded by Rust. The

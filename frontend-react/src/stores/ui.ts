@@ -12,6 +12,16 @@ export type WhisperModel = 'small' | 'base';
 /** Speech-to-text backend for voice messages. `null` = user hasn't chosen yet
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
 export type SttProvider = 'local' | 'groq';
+/**
+ * The language the user SPEAKS, which is not the language the interface is in.
+ *
+ * Reading the spoken language off the UI locale was a bad assumption with a
+ * visible cost: an English interface forced `language=en` on Romanian speech and
+ * "Salut, Feral" came back as "Pozdvormiu Română!". `auto` lets the transcriber
+ * guess, which is right when someone switches languages mid-call and wrong when
+ * two words are all it has to go on — so it is a choice, not an inference.
+ */
+export type SpokenLang = 'auto' | 'ro' | 'en';
 
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
@@ -45,6 +55,28 @@ interface UIStore {
   /** Chosen STT backend. `null` until the user picks in the provider card. */
   sttProvider: SttProvider | null;
   setSttProvider: (p: SttProvider) => void;
+  /**
+   * Chosen voice (TTS) engine id, from the Rust catalog — a string rather than a
+   * union because the catalog is the source of truth and a TS union here would
+   * be a second list to keep in sync. `null` until the user picks on the first
+   * call, which is also what makes the picker appear.
+   */
+  ttsProvider: string | null;
+  setTtsProvider: (id: string) => void;
+  /** The language the user speaks — see `SpokenLang`. Independent of `language`. */
+  spokenLanguage: SpokenLang;
+  setSpokenLanguage: (l: SpokenLang) => void;
+  /**
+   * Chosen voice per engine id.
+   *
+   * Per engine, because a voice id is only meaningful to the vendor that issued
+   * it — switching engines must not carry a dead id across. Pinning one also
+   * fixes a real defect: a reply split into two synthesis requests with no
+   * explicit voice came back in two different voices, since "the default" is
+   * resolved per request on the vendor's side.
+   */
+  ttsVoice: Record<string, string>;
+  setTtsVoice: (engineId: string, voiceId: string) => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -101,6 +133,13 @@ export const useUI = create<UIStore>()(
       setWhisperModel: (whisperModel) => set({ whisperModel }),
       sttProvider: null,
       setSttProvider: (sttProvider) => set({ sttProvider }),
+      ttsProvider: null,
+      setTtsProvider: (ttsProvider) => set({ ttsProvider }),
+      spokenLanguage: 'auto',
+      setSpokenLanguage: (spokenLanguage) => set({ spokenLanguage }),
+      ttsVoice: {},
+      setTtsVoice: (engineId, voiceId) =>
+        set((s) => ({ ttsVoice: { ...s.ttsVoice, [engineId]: voiceId } })),
     }),
     {
       name: 'feral-ui',
@@ -114,6 +153,9 @@ export const useUI = create<UIStore>()(
         mascotEnabled: s.mascotEnabled,
         whisperModel: s.whisperModel,
         sttProvider: s.sttProvider,
+        ttsProvider: s.ttsProvider,
+        spokenLanguage: s.spokenLanguage,
+        ttsVoice: s.ttsVoice,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

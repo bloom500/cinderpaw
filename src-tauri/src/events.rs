@@ -98,6 +98,29 @@ pub struct StreamUsageEvent {
     pub completion_tokens: u32,
 }
 
+/// One chunk of synthesised speech, base64-encoded raw PCM.
+///
+/// Base64 rather than `Vec<u8>` because a byte vector crosses the Tauri IPC as
+/// a JSON array of decimal numbers — roughly 4 bytes of wire per byte of audio.
+/// Base64 costs 1.33x, and the webview decodes it with `atob` for free.
+///
+/// `sample_rate` travels with every chunk instead of being a constant the
+/// TypeScript re-declares: the frontend has to build an `AudioBuffer` at the
+/// right rate, and a provider that streams something other than
+/// `feral_core::tts::SAMPLE_RATE` must not be able to desync playback silently.
+///
+/// Chunks carry no sequence number. Emission is a single sequential loop over
+/// one IPC channel, so order is preserved by the transport; a `seq` field with
+/// no reorder buffer behind it would only look like a guarantee.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsChunkEvent {
+    pub session_id: String,
+    /// Base64 of signed 16-bit little-endian mono PCM.
+    pub pcm: String,
+    pub sample_rate: u32,
+}
+
 /// One raw JSON line emitted by the feral-agent sidecar on stdout.
 /// The React frontend parses `data` to get the typed event
 /// (`chunk`, `done`, `tool_start`, `tool_done`, `proactive`, `pong`, `error`).

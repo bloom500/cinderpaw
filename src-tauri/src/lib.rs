@@ -16,7 +16,7 @@ use commands::*;
 
 pub use feral_core::{
     api, byok, db_key, feral_agent, gpu_detect, inference, models, paths,
-    perf_policy, settings, sysinfo_mod, tools,
+    perf_policy, settings, sysinfo_mod, tools, tts,
 };
 #[cfg(feature = "whisper")]
 pub use feral_core::transcription;
@@ -310,7 +310,16 @@ pub fn run() {
             whisper_model_present,
             transcribe_audio,
             transcribe_audio_cloud,
+            ui_log,
             download_whisper_model,
+            tts_providers,
+            tts_has_key,
+            tts_ready,
+            tts_voices,
+            piper_voice_present,
+            download_piper_voice,
+            speak_text,
+            stop_speaking,
             load_projects,
             save_project,
             delete_project,
@@ -427,6 +436,7 @@ pub fn run() {
             crate::events::ModelLoadProgressEvent,
             crate::events::AgentStreamEvent,
             crate::events::FeralAgentOutputEvent,
+            crate::events::TtsChunkEvent,
         ]);
 
     // TODO: re-enable once all u64 fields have #[specta(type = Number)] annotations.

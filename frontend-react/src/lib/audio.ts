@@ -21,6 +21,39 @@ export async function decodeToPcm16k(blob: Blob): Promise<Float32Array> {
   return rendered.getChannelData(0).slice();
 }
 
+const NO_CARRY = new Uint8Array(0);
+
+/**
+ * Decode one base64 PCM chunk from `feral://tts-chunk` into Float32 samples.
+ *
+ * Signed 16-bit little-endian in, -1..1 out, which is what an `AudioBuffer`
+ * wants. No `decodeAudioData` involved: the bytes are already raw PCM, so there
+ * is nothing to decode and no per-chunk decode latency to pay.
+ *
+ * `carry` is the point of the return shape. A chunked HTTP response splits
+ * wherever the network felt like it, so a chunk can end on the low byte of a
+ * sample. Dropping that byte shifts every following sample by one byte — the
+ * high and low halves swap for the rest of the utterance, which comes out as
+ * loud static rather than as a click you might not notice. Feed the returned
+ * `carry` into the next call.
+ */
+// The return type is inferred deliberately: written out, `Uint8Array` means
+// `Uint8Array<ArrayBufferLike>` under TS 5.7's generic typed arrays, which does
+// not assign to the `ArrayBuffer`-backed arrays `copyToChannel` demands.
+export function pcm16ToFloat32(b64: string, carry: Uint8Array = NO_CARRY) {
+  const raw = atob(b64);
+  const bytes = new Uint8Array(carry.length + raw.length);
+  bytes.set(carry);
+  for (let i = 0; i < raw.length; i++) bytes[carry.length + i] = raw.charCodeAt(i);
+
+  const usable = bytes.length - (bytes.length % 2);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const samples = new Float32Array(usable / 2);
+  for (let i = 0; i < usable; i += 2) samples[i / 2] = view.getInt16(i, true) / 0x8000;
+
+  return { samples, carry: usable === bytes.length ? NO_CARRY : bytes.slice(usable) };
+}
+
 /** Normalized 0..1 peak magnitudes, `buckets` of them, for the waveform. */
 export function computePeaks(samples: Float32Array, buckets = 48): number[] {
   if (samples.length === 0) return new Array(buckets).fill(0);

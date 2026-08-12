@@ -18,14 +18,21 @@ async fn main() -> anyhow::Result<()> {
         (all, chunks)
     });
 
-    let total = feral_core::tts::synthesize(&key, text, &Default::default(), tx).await?;
+    // Was a free `tts::synthesize`; TTS is a provider trait now, so the engine is
+    // resolved by id the same way settings resolve it.
+    let engine = feral_core::tts::from_id(
+        "fish",
+        feral_core::tts::EngineConfig { api_key: &key, ..Default::default() },
+    )?;
+    let req = feral_core::tts::SpeechRequest { text: text.to_string(), voice: None };
+    let total = engine.speak(&req, tx).await?;
     let (audio, chunks) = collector.await?;
     first_chunk_at.get_or_insert(started.elapsed());
 
     println!("bytes returned : {total}");
     println!("bytes collected: {}", audio.len());
     println!("chunks         : {chunks}  (>1 means it really streamed)");
-    println!("duration       : {:.2}s audio", audio.len() as f64 / 48_000.0);
+    println!("duration       : {:.2}s audio", feral_core::tts::duration_secs(audio.len()));
     println!("wall clock     : {:.2}s", started.elapsed().as_secs_f64());
     std::fs::write("out.pcm", &audio)?;
     Ok(())

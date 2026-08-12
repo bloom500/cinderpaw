@@ -61,6 +61,31 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
+/**
+ * What a good answer is when it will be spoken out loud.
+ *
+ * Written as a description of the surface, not as a personality override: the
+ * owner's prompt, voice and tools stay exactly as they are, and only the shape of
+ * the output changes. Every line here is a failure observed in a real call —
+ * markdown read aloud as punctuation, a 95-second monologue in reply to a
+ * greeting, and notes recited at someone who just said hello.
+ */
+const VOICE_SURFACE_BRIEF = [
+  "## This turn is a VOICE CALL",
+  "Your answer will be read out loud by a speech engine, and the person is listening, not reading.",
+  "",
+  "This changes how you SPEAK, not what you DO. Search, read files, run commands —",
+  "use every tool exactly as you would in a typed conversation, and do the work before",
+  "answering. If it will take a moment, say so in one short line first ('let me look')",
+  "and then report what you found. Being brief is about the words, never about doing less.",
+  "",
+  "- Two or three sentences. If the full answer is longer, say the short version and offer the rest.",
+  "- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.",
+  "- No preamble and no summary of what you are about to say — just say it.",
+  "- Numbers, paths and identifiers: say them only when they matter, and say them the way a person would.",
+  "- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.",
+].join("\n");
+
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
@@ -1102,6 +1127,19 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // skills" menu in the system prompt; the LLM loads any skill's body
         // on demand via the `read_skill` tool. See WorkingMemory.setSkillMenu.
         const skillsContext = msg.skillsContext;
+        // A voice call is a surface, like a chat app with a narrow column — the
+        // mechanism the loop already has for "adapt the format to where this is
+        // read" (`setSessionSurface`, a per-turn drawer that leaves the owner's
+        // full prompt and toolset intact). Set per message rather than per session
+        // because the same conversation is spoken to and typed in, alternately,
+        // and the brief must follow whichever is happening now.
+        if (msg.surface === "voice") {
+          agent.setSessionSurface(sessionId, VOICE_SURFACE_BRIEF, { spoken: true });
+        } else if (msg.surface === "text") {
+          // Explicitly typed → drop the spoken brief. Only the desktop sends this
+          // field, so a connector's own brief is never touched here.
+          agent.setSessionSurface(sessionId, "");
+        }
         // Image attachments (data URLs) forwarded by the host. Passed through
         // to the agent loop so vision-capable models receive real pixels.
         const images = Array.isArray(msg.images)

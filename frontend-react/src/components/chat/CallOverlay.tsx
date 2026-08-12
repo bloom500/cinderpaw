@@ -1,0 +1,737 @@
+// Aliased: the bare name would shadow the DOM `KeyboardEvent` that the Escape
+// listener below is typed against.
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  Mic, MicOff, Phone, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
+  AudioLines, ChevronDown,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { preferredVoice, shortlistVoices } from '@/lib/voices';
+import { MessageItem } from './MessageItem';
+import { tauri, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
+import { useUI } from '@/stores/ui';
+import { useChat } from '@/stores/chat';
+import { useNotifications } from '@/stores/notifications';
+import { useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+import type { CallPhase } from '@/hooks/useCallSession';
+
+/**
+ * The in-call screen: one orb, one line of state, two buttons.
+ *
+ * A call has no scrollback and no undo, so what is happening has to be readable
+ * from across the room — hence one large indicator instead of a status line, and
+ * nothing else competing with it. The mic level drives the orb while listening,
+ * which is also the only honest way to show that it is really hearing you.
+ *
+ * **Rendered through a portal to `document.body`, and that is not cosmetic.**
+ * `ChatPage` animates the input strip with `transform: translateY(...)`, and a
+ * transformed ancestor becomes the containing block for `position: fixed`. Inside
+ * it, `fixed inset-0` resolved to the input strip rather than the viewport: the
+ * background painted a bar at the bottom while the flex children spilled out over
+ * a chat that was still fully visible. The portal escapes the transform, the
+ * z-index stack, and the gradient on that wrapper in one move.
+ */
+export function CallOverlay({
+  phase,
+  heard,
+  level,
+  notice,
+  onAnswer,
+  onHangUp,
+  onInterrupt,
+  onSay,
+  onChangeEngine,
+  onChangeStt,
+}: {
+  phase: CallPhase;
+  heard: string;
+  level: number;
+  /** Why the last turn said nothing, when it said nothing. */
+  notice: string | null;
+  onAnswer: () => void;
+  onHangUp: () => void;
+  onInterrupt: () => void;
+  onSay: (text: string) => void;
+  onChangeEngine: () => void;
+  onChangeStt: () => void;
+}) {
+  const t = useT();
+  const [chatOpen, setChatOpen] = useState(false);
+  const sttProvider = useUI((s) => s.sttProvider);
+  const ttsProvider = useUI((s) => s.ttsProvider);
+  const [voice, setVoice] = useState<TtsProviderInfo | null>(null);
+  /** Can the chosen engine actually speak? `null` until known — the Call button
+   *  must not be blocked by a check that has not answered yet, nor allowed by one
+   *  that failed. */
+  const [ready, setReady] = useState<boolean | null>(null);
+  const [key, setKey] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [mic, setMic] = useState<string | null>(null);
+
+  /**
+   * The actual input device, named.
+   *
+   * It was missing entirely, and its absence made the engine rows read as if they
+   * were the hardware — "Groq" appeared where someone reasonably expected to see
+   * their microphone. Device labels are only exposed once microphone permission
+   * has been granted at least once, so an empty label is normal on a first run and
+   * falls back to saying "system default" rather than to nothing.
+   */
+  useEffect(() => {
+    if (phase !== 'ready' || !navigator.mediaDevices?.enumerateDevices) return;
+    let current = true;
+    void navigator.mediaDevices
+      .enumerateDevices()
+      .then((devices) => {
+        if (!current) return;
+        const inputs = devices.filter((d) => d.kind === 'audioinput');
+        const preferred = inputs.find((d) => d.deviceId === 'default') ?? inputs[0];
+        setMic(preferred?.label?.trim() || null);
+      })
+      .catch(() => { if (current) setMic(null); });
+    return () => { current = false; };
+  }, [phase]);
+
+  // The engine the user picked, and whether it can actually speak. Asked of Rust
+  // rather than hardcoded here: `isLocal` is a property of the engine, and this
+  // notice is the reason the catalog carries it.
+  useEffect(() => {
+    if (phase !== 'ready') return;
+    setKey('');
+    tauri.voice
+      .ttsProviders()
+      .then(async (providers) => {
+        const chosen = providers.find((e) => e.id === ttsProvider) ?? null;
+        setVoice(chosen);
+        // "Ready", not "has a key": Piper needs no key and would pass a key check
+        // with no voice downloaded, which is a call that listens, thinks, and then
+        // cannot answer.
+        setReady(chosen ? await tauri.voice.ttsReady(chosen.id) : null);
+      })
+      .catch(() => {
+        setVoice(null);
+        setReady(null);
+      });
+  }, [phase, ttsProvider]);
+
+  const saveKey = async () => {
+    if (!voice || !key.trim()) return;
+    setSaving(true);
+    try {
+      // Straight to the OS keychain, the same path every other provider key
+      // takes. It is never written to a file and never echoed back.
+      await tauri.voice.saveTtsKey(voice.id, key.trim());
+      // ponytail: no base URL / model field here — the picker owns those. An
+      // engine that needs a region cannot be fixed from this panel; the "change
+      // voice engine" link goes where it can.
+      setKey('');
+      setReady(true);
+    } catch {
+      useNotifications.getState().push('error', t('voice.keySaveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Escape hangs up. A screen this opaque needs the standard way out — but not
+  // while a dialog is open on top of it: there, Escape belongs to the dialog, and
+  // handling it here too would close the settings AND drop the call in one press.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('[role="dialog"]')) return;
+      onHangUp();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onHangUp]);
+
+  if (phase === 'idle') return null;
+
+  const speaking = phase === 'speaking';
+  const listening = phase === 'listening';
+
+  const title =
+    listening ? t('call.listening')
+    : phase === 'thinking' ? t('call.thinking')
+    : speaking ? t('call.speaking')
+    : t('call.title');
+
+  return createPortal(
+    // `z-40`, deliberately BELOW the app's z-50 layer.
+    //
+    // At z-[100] this overlay sat above every Radix portal — dialogs, dropdowns,
+    // image zoom all render at z-50 — so anything opened from inside the call
+    // appeared behind it while Radix froze the page for modality. That produced
+    // the same bug three times: an invisible engine picker, an invisible STT
+    // card, and a voice dropdown that would not drop. Sitting under that layer
+    // fixes the whole class instead of patching each popover's z-index.
+    //
+    // Window chrome and toasts live at z-200 and stay above everything.
+    <div className="fixed inset-0 z-40 flex" style={{ backgroundColor: 'var(--bg-primary, #100E09)' }}>
+      {/* The frameless window still has to be movable while a call covers the
+          screen. This strip spans the top and does nothing else. */}
+      <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-10 h-8" />
+
+      <div className="relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6">
+        {/* A hint of warmth behind the orb, not a spotlight. The first version put
+            a 22%-brand disc 640px wide behind everything and it read as cheap
+            neon; light should suggest the object is glowing, not that the screen
+            is. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-700"
+          style={{
+            background:
+              'radial-gradient(circle, color-mix(in srgb, var(--brand) 9%, transparent) 0%, transparent 58%)',
+            opacity: phase === 'ready' ? 0.5 : 0.85,
+          }}
+        />
+
+        <Orb phase={phase} level={level} />
+
+        {/* Voice picker, live for the whole call. Deliberately not buried in the
+            pre-call panel: which voice is talking is the one setting you want to
+            change WHILE hearing it, and the next thing said picks it up. */}
+        {/* No language selector, by product decision: the transcriber is expected
+            to identify the spoken language on its own. What replaced the manual
+            escape hatch is `useCallSession`'s learned hint — the language of the
+            last confidently transcribed turn is carried into the next one, so
+            detection happens once on good evidence instead of being re-guessed on
+            every fragment. */}
+        {ttsProvider && <VoicePicker engineId={ttsProvider} />}
+
+        <div className="relative flex max-w-xl flex-col items-center gap-2 text-center">
+          <p className="text-2xl font-light tracking-tight text-text-primary">{title}</p>
+          {/* What it heard, or the invitation when it has heard nothing yet. */}
+          <p className="text-lg font-light text-text-muted">
+            {heard && phase !== 'ready' ? `“${heard}”` : t('call.prompt')}
+          </p>
+          {/* Said out loud on screen when nothing was said out loud in audio. */}
+          {notice && <p className="text-sm text-amber-400">{notice}</p>}
+        </div>
+
+        {phase === 'ready' && (
+          <div className="relative flex flex-col items-center gap-3">
+            {/* The disclosure, as two quiet lines rather than a boxed table: it has
+                to be read before the microphone opens, not filled in. */}
+            <div className="flex flex-col items-center gap-1.5 text-sm">
+              {/* The hardware first, so nothing below it can be mistaken for it. */}
+              <span className="flex items-center gap-2">
+                <span className="text-text-muted">{t('call.mic')}</span>
+                <span className="text-text-secondary">{mic ?? t('call.micDefault')}</span>
+              </span>
+              <EngineLine
+                label={t('call.stt')}
+                name={sttProvider === 'groq' ? 'Groq · whisper-large-v3' : 'Whisper'}
+                local={sttProvider !== 'groq'}
+                t={t}
+                // Both halves of the call are configurable from here. Only the
+                // speaking half had a way in, so the engine that hears you — and
+                // its key — could not be reached from the screen that names it.
+                onChange={onChangeStt}
+              />
+              <EngineLine
+                label={t('call.tts')}
+                name={voice?.label ?? '—'}
+                local={voice?.isLocal ?? false}
+                t={t}
+                onChange={onChangeEngine}
+              />
+            </div>
+
+            {ready === false && voice?.needsDownload && (
+              <p className="max-w-sm text-center text-xs text-amber-400">{t('call.voiceMissing')}</p>
+            )}
+            {ready === false && voice?.needsKey && (
+              <div className="w-full max-w-sm">
+                <p className="mb-2 text-center text-xs text-text-muted">{t('call.keyNeeded')}</p>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void saveKey(); }}
+                    placeholder={t('call.keyPlaceholder')}
+                    className="h-9 text-sm"
+                  />
+                  <Button size="sm" onClick={() => void saveKey()} disabled={!key.trim() || saving}>
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : t('call.keySave')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Controls: one pill, round buttons, nothing labelled. A call is the one
+            screen where the two things you can do are obvious from the icons. */}
+        <div className="relative flex items-center gap-2 rounded-full border border-border-subtle bg-bg-surface/70 p-2 backdrop-blur">
+          <RoundButton onClick={onHangUp} label={t('call.hangUp')} tone="danger">
+            <X size={20} />
+          </RoundButton>
+
+          {phase === 'ready' ? (
+            <RoundButton
+              onClick={onAnswer}
+              label={t('call.answer')}
+              tone="brand"
+              // Opening the microphone for a call that cannot answer wastes the
+              // words someone already said. `null` (the check failed) still allows
+              // it: refusing on an unknown is worse than letting the engine report
+              // the truth.
+              disabled={ready === false}
+            >
+              <Phone size={20} />
+            </RoundButton>
+          ) : (
+            <RoundButton
+              onClick={onInterrupt}
+              label={t('call.interrupt')}
+              // Only meaningful while it is talking; the rest of the time it is a
+              // state light, which is why it dims instead of disappearing.
+              disabled={!speaking}
+              active={listening}
+            >
+              {speaking ? <MicOff size={20} /> : <Mic size={20} />}
+            </RoundButton>
+          )}
+        </div>
+
+        {/* The way back to text, for what dictation mangles — a URL, a name, an
+            error string. Closed by default so the call stays a call. */}
+        {phase !== 'ready' && !chatOpen && (
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            aria-label={t('call.chat')}
+            title={t('call.chat')}
+            className="absolute bottom-6 right-6 rounded-full border border-border-default bg-bg-elevated p-3 text-text-secondary shadow-lg transition-colors hover:border-brand hover:text-brand"
+          >
+            <MessageSquare size={18} />
+          </button>
+        )}
+      </div>
+
+      {chatOpen && <CallChatPanel onClose={() => setChatOpen(false)} onSay={onSay} />}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * How fast the orb moves in each state. One set of motions at four tempos, so it
+ * stays recognisably the same object while telling you what it is doing.
+ *
+ * `ready` is slow enough to read as at rest without being frozen; `thinking` is
+ * the fastest, because that is the state where the user is waiting and needs to
+ * see that something is happening.
+ */
+const ORB_TEMPO: Record<CallPhase, { a: string; b: string; c: string; breathe: string }> = {
+  idle:      { a: '30s', b: '38s', c: '24s', breathe: '7s' },
+  ready:     { a: '26s', b: '34s', c: '20s', breathe: '6s' },
+  listening: { a: '13s', b: '17s', c: '10s', breathe: '5s' },
+  thinking:  { a: '6s',  b: '8s',  c: '5s',  breathe: '2.4s' },
+  speaking:  { a: '9s',  b: '12s', c: '7s',  breathe: '3.2s' },
+};
+
+/**
+ * The living part of the screen.
+ *
+ * Listening scales with the measured mic level, so it reacts to *you*. The other
+ * states animate on their own, because the reply's loudness is never measured —
+ * the audio is scheduled on the Web Audio clock, not read back, and faking a
+ * waveform from nothing would be a lie in the one place the user is looking for
+ * feedback. Tempo carries the state instead.
+ */
+function Orb({ phase, level }: { phase: CallPhase; level: number }) {
+  const tempo = ORB_TEMPO[phase];
+  // The mic only scales the sphere while listening; elsewhere the breathing
+  // keyframe owns the scale and the two would fight over the same property.
+  const listening = phase === 'listening';
+  const micScale = listening ? 1 + level * 0.14 : 1;
+
+  const blob = (color: string, size: string, offset: string, duration: string, reverse?: boolean) => (
+    <div
+      aria-hidden
+      className="absolute rounded-full"
+      style={{
+        width: size,
+        height: size,
+        left: `calc(50% - ${size} / 2)`,
+        top: `calc(50% - ${size} / 2)`,
+        background: color,
+        filter: 'blur(26px)',
+        // The offset is the orbit radius; the keyframe reads it as a custom prop
+        // so one pair of keyframes serves every blob.
+        ['--orb-offset' as string]: offset,
+        animation: `${reverse ? 'orb-orbit-reverse' : 'orb-orbit'} ${duration} linear infinite`,
+      }}
+    />
+  );
+
+  return (
+    <div className="relative flex h-60 w-60 items-center justify-center">
+      {/* Halo — tracks the sphere one step behind, so loud speech pushes light
+          outward instead of only stretching the disc. Kept faint: at 32% it was a
+          second glowing ring around a glowing ball, which is what made the screen
+          look cheap. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 rounded-full transition-transform duration-150"
+        style={{
+          transform: `scale(${1 + (micScale - 1) * 1.8})`,
+          background:
+            'radial-gradient(circle, color-mix(in srgb, var(--brand) 12%, transparent) 42%, transparent 70%)',
+        }}
+      />
+
+      <div
+        className="relative h-44 w-44 transition-transform duration-150"
+        style={{ transform: `scale(${micScale})` }}
+      >
+        <div
+          className="absolute inset-0 overflow-hidden rounded-full"
+          style={{
+            // Base tone under the blobs, so the sphere never shows a gap between
+            // them, plus the glow that makes it sit in the dark rather than on it.
+            background: 'radial-gradient(circle at 50% 55%, var(--brand-muted) 0%, #1a1206 100%)',
+            // A close, soft shadow that seats the sphere on the background —
+            // 100px at 45% was a lamp, and everything around it looked washed.
+            boxShadow: '0 0 46px color-mix(in srgb, var(--brand) 18%, transparent)',
+            // Breathing lives on the clipping layer, not on the scaled wrapper, so
+            // it composes with the mic scale instead of overwriting it.
+            animation: `orb-breathe ${tempo.breathe} ease-in-out infinite`,
+          }}
+        >
+          {blob('var(--brand-hover)', '70%', '14%', tempo.a)}
+          {blob('var(--brand)', '85%', '10%', tempo.b, true)}
+          {blob('color-mix(in srgb, var(--brand-hover) 60%, #ffd9a0)', '55%', '18%', tempo.c)}
+        </div>
+
+        {/* Highlight on top of the clip, so the disc reads as a sphere lit from
+            above rather than as a flat circle of moving colour. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background:
+              'radial-gradient(circle at 32% 22%, rgba(255,255,255,0.38) 0%, transparent 46%)',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Which voice answers, switchable mid-call.
+ *
+ * The list comes from the vendor on open, never from a constant in this file: a
+ * Fish voice can be cloned this afternoon and an Azure locale added next month.
+ * An engine that publishes no list (a self-hosted gateway) returns an empty one,
+ * and then this shows a text field instead of pretending there is no choice.
+ *
+ * Pinning a voice is also what fixed replies arriving in two different voices —
+ * see the split in `useCallSession`.
+ */
+function VoicePicker({ engineId }: { engineId: string }) {
+  const t = useT();
+  const chosen = useUI((s) => s.ttsVoice[engineId]);
+  const setTtsVoice = useUI((s) => s.setTtsVoice);
+  // Rank by the language actually being spoken. `auto` means unknown, and then
+  // multilingual voices lead — they are the ones that work either way.
+  const spoken = useUI((s) => s.spokenLanguage);
+  const spokenLocale = spoken === 'auto' ? null : spoken;
+  const [voices, setVoices] = useState<TtsVoice[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [typed, setTyped] = useState('');
+
+  useEffect(() => {
+    let current = true;
+    setVoices(null);
+    setFailed(false);
+    tauri.voice
+      .ttsVoices(engineId)
+      .then((list) => {
+        if (!current) return;
+        setVoices(list);
+        // Pin one immediately if nothing is chosen. Leaving it unset used to mean
+        // "let the vendor decide", and Fish decides PER REQUEST — so one reply came
+        // back in one voice and the next in another. A voice is always explicit
+        // from here on; the user can change it, but not to "unspecified".
+        if (!chosen && list.length > 0) {
+          const pick = preferredVoice(list, spokenLocale);
+          if (pick) setTtsVoice(engineId, pick.id);
+        }
+      })
+      .catch(() => { if (current) { setVoices([]); setFailed(true); } });
+    return () => { current = false; };
+    // `chosen` is read but deliberately not a dependency: this runs per engine, and
+    // re-running it on every voice change would fight the user's own selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineId]);
+
+  if (voices === null) {
+    return (
+      <span className="flex items-center gap-2 text-xs text-text-muted">
+        <Loader2 size={12} className="animate-spin" />
+        {t('call.voicesLoading')}
+      </span>
+    );
+  }
+
+  // No list to choose from: let the id be typed rather than hiding the control.
+  if (voices.length === 0) {
+    return (
+      <div className="flex items-center gap-2">
+        <Input
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && typed.trim()) setTtsVoice(engineId, typed.trim()); }}
+          placeholder={failed ? t('call.voicesFailed') : t('call.voiceIdPlaceholder')}
+          className="h-8 w-72 text-xs"
+        />
+        <Button size="sm" variant="outline" disabled={!typed.trim()} onClick={() => setTtsVoice(engineId, typed.trim())}>
+          {t('engine.save')}
+        </Button>
+      </div>
+    );
+  }
+
+  const shortlist = shortlistVoices(voices, spokenLocale, chosen);
+  const current = voices.find((v) => v.id === chosen);
+
+  return (
+    // A themed dropdown, not a native `<select>`: the native one draws its list
+    // with the operating system's colours, which on a dark theme came out as dark
+    // text on a dark popup — unreadable exactly where the choice is made.
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={t('call.voice')}
+          className="flex items-center gap-2 rounded-full border border-border-default bg-bg-surface/70 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+        >
+          <AudioLines size={13} className="text-brand" />
+          {current?.label ?? t('call.voicesLoading')}
+          <ChevronDown size={12} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" side="bottom" className="w-72">
+        <DropdownMenuLabel className="text-xs text-text-muted">
+          {t('call.voice')} · {voices.length} {t('call.voicesAvailable')}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup
+          value={chosen ?? ''}
+          onValueChange={(id) => setTtsVoice(engineId, id)}
+        >
+          {/* No "vendor default" row. It was the cause of a reply arriving in one
+              voice and the next in another: the vendor resolves its default per
+              request, so "unspecified" is not a stable choice, it is a lottery. */}
+          {shortlist.map((v) => (
+            <DropdownMenuRadioItem key={v.id} value={v.id} className="text-sm">
+              <span className="truncate">{v.label}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        {voices.length > shortlist.length && (
+          <>
+            <DropdownMenuSeparator />
+            {/* The shortlist is a cut, and saying so is cheaper than a hundred rows
+                — the id field below stays the way to reach any of the rest. */}
+            <div className="px-2 py-1.5">
+              <p className="mb-1.5 text-[10px] text-text-muted">{t('call.voiceMore')}</p>
+              <Input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && typed.trim()) setTtsVoice(engineId, typed.trim());
+                }}
+                placeholder={t('call.voiceIdPlaceholder')}
+                className="h-7 text-xs"
+              />
+            </div>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function RoundButton({
+  onClick,
+  label,
+  children,
+  tone = 'neutral',
+  disabled,
+  active,
+}: {
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+  tone?: 'neutral' | 'brand' | 'danger';
+  disabled?: boolean;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'flex h-14 w-14 items-center justify-center rounded-full transition-colors',
+        tone === 'danger' && 'bg-bg-elevated text-rose-400 hover:bg-rose-500/15',
+        tone === 'brand' && 'bg-brand text-bg-primary hover:bg-brand-hover',
+        tone === 'neutral' && 'bg-bg-elevated text-text-secondary hover:bg-bg-hover',
+        active && 'text-brand',
+        disabled && 'cursor-default opacity-40 hover:bg-bg-elevated',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function EngineLine({
+  label,
+  name,
+  local,
+  t,
+  onChange,
+}: {
+  label: string;
+  name: string;
+  local: boolean;
+  t: (key: 'call.onDevice' | 'call.leavesDevice' | 'engine.change') => string;
+  onChange: () => void;
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      <span className="text-text-muted">{label}</span>
+      <span className="text-text-secondary">{name}</span>
+      <span
+        className={cn(
+          'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+          local ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400',
+        )}
+      >
+        {local ? <Laptop size={10} /> : <Cloud size={10} />}
+        {local ? t('call.onDevice') : t('call.leavesDevice')}
+      </span>
+      <button
+        type="button"
+        onClick={onChange}
+        aria-label={t('engine.change')}
+        title={t('engine.change')}
+        className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-brand"
+      >
+        <Settings2 size={13} />
+      </button>
+    </span>
+  );
+}
+
+/**
+ * The conversation, beside the call rather than behind it.
+ *
+ * Typed messages do not send themselves — they are handed to the call loop
+ * (`onSay`), which is the only thing that takes turns. Sending straight from here
+ * would put a second question to the model while the first was still in flight,
+ * and the answer spoken aloud would be whichever came back first.
+ */
+function CallChatPanel({ onClose, onSay }: { onClose: () => void; onSay: (text: string) => void }) {
+  const t = useT();
+  const messages = useChat((s) => s.messages);
+  const status = useChat((s) => s.streamStatus);
+  const [text, setText] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // Follow the conversation. Without this the panel opens showing the top of a
+  // long call with the newest turn off screen.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages]);
+
+  const submit = () => {
+    if (!text.trim()) return;
+    onSay(text);
+    setText('');
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  };
+
+  const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
+
+  return (
+    // `pt-8` clears the window controls, which are fixed to the top-right corner
+    // above everything. Without it this panel's own close button sat directly
+    // under the application's close button — two X's in a column, and the wrong
+    // one is the one that quits.
+    <aside className="flex w-[22rem] shrink-0 flex-col border-l border-border-default bg-bg-surface pt-8">
+      <header className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
+        {/* Close on the LEFT, for the same reason: the top-right corner of the
+            window belongs to the window, not to a panel inside it. */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t('call.chatClose')}
+          title={t('call.chatClose')}
+          className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
+        >
+          <X size={16} />
+        </button>
+        <span className="text-sm font-medium text-text-primary">{t('call.chat')}</span>
+      </header>
+
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+        {messages.map((m) => (
+          <MessageItem
+            key={m.id}
+            message={m}
+            streaming={status === 'streaming' && m.id === lastAssistantId}
+          />
+        ))}
+        <div ref={endRef} />
+      </div>
+
+      <div className="border-t border-border-subtle p-3">
+        <div className="flex items-end gap-2">
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={t('call.chatPlaceholder')}
+            rows={1}
+            className="max-h-32 resize-none text-sm"
+          />
+          <Button size="icon" onClick={submit} disabled={!text.trim()} aria-label={t('chat.send')} className="h-8 w-8 shrink-0">
+            <ArrowUp size={13} />
+          </Button>
+        </div>
+      </div>
+    </aside>
+  );
+}

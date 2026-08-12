@@ -86,7 +86,12 @@ const joinSegments = (a: string, b: string): string => (a && b ? a + '\n\n' + b 
 
 export function useFeralStream(chatSessionId: string) {
   const send = useCallback(
-    async (content: string, callbacks: StreamCallbacks, images?: string[]) => {
+    async (
+      content: string,
+      callbacks: StreamCallbacks,
+      images?: string[],
+      surface?: 'voice' | 'text',
+    ) => {
       await ensureFeralListener();
 
       // Parity with `startChatStream`: a fresh send is an implicit interrupt
@@ -107,6 +112,10 @@ export function useFeralStream(chatSessionId: string) {
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
           inferParams: { temperature, max_tokens: max_tokens },
+          // Declared per message, not per session: the same conversation is
+          // spoken to and typed in alternately, and the format brief has to follow
+          // whichever is happening right now.
+          surface: surface ?? null,
         });
       } catch (err) {
         callbacks.onError(String(err));
@@ -144,7 +153,12 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
     async (
       content: string,
       images?: string[],
-      opts?: { voice?: ChatMessage['voice']; existingUserId?: string },
+      opts?: {
+        voice?: ChatMessage['voice'];
+        existingUserId?: string;
+        /** `'voice'` when this answer will be spoken aloud — see `feral_send_message`. */
+        surface?: 'voice' | 'text';
+      },
     ) => {
       const chat = useChat.getState();
 
@@ -424,7 +438,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
             useConversations.getState().unmarkStreaming(sessionId);
           });
         },
-      }, images);
+      }, images, opts?.surface);
     },
     [send, mascotSink],
   );

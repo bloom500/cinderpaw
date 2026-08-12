@@ -33,6 +33,8 @@ export function VoiceProviderCard({
   const t = useT();
   const sttProvider = useUI((s) => s.sttProvider);
   const setSttProvider = useUI((s) => s.setSttProvider);
+  const spokenLanguage = useUI((s) => s.spokenLanguage);
+  const setSpokenLanguage = useUI((s) => s.setSpokenLanguage);
 
   const [choice, setChoice] = useState<SttProvider>(sttProvider ?? 'local');
   const [groqKey, setGroqKey] = useState('');
@@ -71,7 +73,9 @@ export function VoiceProviderCard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-bg-surface border-border-default">
+      {/* Default z-index: the call overlay sits at z-40, below this layer, so a
+          dialog opened from inside a call is above it without a special case. */}
+      <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto bg-bg-surface border-border-default">
         <DialogHeader>
           <DialogTitle>{t('voice.provider.title')}</DialogTitle>
           <DialogDescription>{t('voice.provider.subtitle')}</DialogDescription>
@@ -111,6 +115,31 @@ export function VoiceProviderCard({
               </ExternalLink>
             </div>
           ))}
+
+        {/* The language you SPEAK. Separate from the interface language on
+            purpose: an English UI with a Romanian speaker is the normal case here,
+            and inferring one from the other made Whisper transcribe Romanian
+            through English phonetics. */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs text-text-muted">{t('voice.spoken.title')}</span>
+          <div className="flex overflow-hidden rounded-lg border border-border-default">
+            {(['auto', 'ro', 'en'] as const).map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setSpokenLanguage(code)}
+                className={cn(
+                  'flex-1 px-3 py-1.5 text-xs transition-colors',
+                  spokenLanguage === code
+                    ? 'bg-bg-hover text-text-primary'
+                    : 'text-text-muted hover:text-text-secondary',
+                )}
+              >
+                {code === 'auto' ? t('voice.spoken.auto') : code === 'ro' ? 'Română' : 'English'}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <DialogFooter>
           <Button onClick={() => void confirm()} disabled={needsKey || saving}>

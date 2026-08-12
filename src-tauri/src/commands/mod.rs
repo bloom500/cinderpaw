@@ -49,7 +49,16 @@ mod command_count_test {
     // the suite has been red since. CI still does not run it — until it does,
     // this constant only moves when someone runs `cargo test -p feral --lib`
     // by hand.
-    const EXPECTED_COMMAND_COUNT: usize = 132;
+    // 136 = + tts_providers + tts_has_key + speak_text + stop_speaking (voice
+    // mode's outbound half — the streaming TTS bridge and its key check).
+    // 138 = + piper_voice_present + download_piper_voice (on-device TTS).
+    // 139 = + tts_ready ("can this engine actually speak", which differs per
+    // engine: a key for hosted ones, a downloaded voice for Piper).
+    // 140 = + ui_log (the webview's console cannot be read from the terminal, so
+    // the voice loop had no way to report its own decisions).
+    // 141 = + tts_voices (the vendor's voice catalogue — account state, so it is
+    // asked for rather than hardcoded).
+    const EXPECTED_COMMAND_COUNT: usize = 141;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

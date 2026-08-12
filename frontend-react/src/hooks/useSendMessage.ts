@@ -41,6 +41,29 @@ export function finalTokenStats(
   };
 }
 
+/**
+ * What a good answer is when it will be spoken out loud.
+ *
+ * Mirrors the sidecar's brief in `FeralAgent/src/dispatch.ts` — the agent path
+ * receives it as a surface drawer, the plain chat path as a system-prompt suffix.
+ * Kept as two copies rather than one shared file because the two live on opposite
+ * sides of a process boundary; if they drift, the symptom is a spoken answer that
+ * reads like a document, which is exactly what this fixes.
+ */
+export const VOICE_SURFACE_BRIEF = [
+  'This turn is a VOICE CALL: your answer will be read out loud by a speech engine,',
+  'and the person is listening, not reading.',
+  '',
+  'This changes how you SPEAK, not what you DO. Search, read files, run commands — use',
+  'every tool exactly as you would in a typed conversation, and do the work before',
+  'answering. Being brief is about the words, never about doing less.',
+  '',
+  '- Two or three sentences. If the full answer is longer, say the short version and offer the rest.',
+  '- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.',
+  '- No preamble and no summary of what you are about to say — just say it.',
+  '- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.',
+].join('\n');
+
 export function buildUserContent(text: string, files: AttachedFile[]): string {
   const textFiles = files.filter((f) => f.content !== null);
   const imageFiles = files.filter((f) => f.kind === 'image' && f.dataUrl);
@@ -74,7 +97,12 @@ export function useSendMessage() {
     async (
       text: string,
       files: AttachedFile[] = [],
-      opts?: { voice?: ChatMessage['voice']; existingUserId?: string },
+      opts?: {
+        voice?: ChatMessage['voice'];
+        existingUserId?: string;
+        /** `'voice'` when this answer will be spoken aloud. */
+        surface?: 'voice' | 'text';
+      },
     ) => {
       const chat = useChat.getState();
       const { reasoningMode, enabledTools } = useUI.getState();
@@ -156,6 +184,15 @@ export function useSendMessage() {
         enabledTools: effectiveEnabledTools,
         systemPromptOverride: effectiveSystemPrompt,
       });
+
+      // A spoken answer needs a different shape than a written one. The agent path
+      // gets this as a surface brief from the sidecar; the plain chat path has no
+      // sidecar, so it goes into the system prompt here — same words, same reason.
+      if (opts?.surface === 'voice') {
+        params.system_prompt = [params.system_prompt, VOICE_SURFACE_BRIEF]
+          .filter(Boolean)
+          .join('\n\n');
+      }
 
       // Memory recall (chat mode only — agents carry their own prompt):
       // append what past conversations taught us about the user, so a fresh
@@ -358,9 +395,15 @@ export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
  * "voice-unavailable") propagate to the caller for toast handling.
  */
 export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promise<string> {
-  const { whisperModel, sttProvider } = useUI.getState();
+  const { whisperModel, sttProvider, spokenLanguage } = useUI.getState();
   if (sttProvider === 'groq') {
-    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq');
+    // The language the user SPEAKS, never the language the interface is in: an
+    // English UI forced `language=en` on Romanian speech and turned "Salut,
+    // Feral" into "Pozdvormiu Română!". `auto` sends no hint and lets Groq guess,
+    // which is the right default and the wrong answer for two quiet words — hence
+    // a setting rather than an inference.
+    const hint = spokenLanguage === 'auto' ? undefined : spokenLanguage;
+    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq', hint);
     console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
     return transcript;
   }

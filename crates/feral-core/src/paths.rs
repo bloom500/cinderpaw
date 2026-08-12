@@ -65,6 +65,86 @@ pub fn voice_dir() -> PathBuf {
     feral_dir().join("voice")
 }
 
+/// Downloaded Piper voices — one `.onnx` and one `.onnx.json` per voice.
+pub fn piper_dir() -> PathBuf {
+    feral_dir().join("piper")
+}
+
+/// HuggingFace repo hosting Piper voices (MIT).
+pub const PIPER_VOICES_REPO: &str = "rhasspy/piper-voices";
+
+/// Romanian voices the official repo does not have: `(voice id, repo, directory)`.
+///
+/// `rhasspy/piper-voices` ships exactly one Romanian voice, `ro_RO-mihai-medium`,
+/// male and medium quality. For a product whose users speak Romanian that is not
+/// a catalogue, it is a single option, so these community-trained ones are
+/// offered beside it.
+///
+/// A table and not a rule, because their layout does not follow one: `lili-high`
+/// sits under `voices/lili-high/` but `raluca-high` sits under `voices/raluca/`.
+/// Any derivation that fits four of the five 404s on the fifth, and a 404 here
+/// downloads an error page into a `.onnx` file that fails much later inside ONNX.
+///
+/// Licence: **CC BY-NC 4.0**, trained on research-only data — unlike the MIT
+/// official repo. The credit the licence requires rides along in
+/// [`PIPER_EXTRA_VOICES_CREDIT`] so it cannot drift from what it credits.
+pub const PIPER_EXTRA_VOICES: &[(&str, &str, &str)] = &[
+    ("ro_RO-raluca-high", "eduardem/piper-tts-romanian", "voices/raluca"),
+    ("ro_RO-lili-high", "eduardem/piper-tts-romanian", "voices/lili-high"),
+    ("ro_RO-lili-medium", "eduardem/piper-tts-romanian", "voices/lili"),
+    ("ro_RO-sanda-high", "eduardem/piper-tts-romanian", "voices/sanda-high"),
+    ("ro_RO-sanda-medium", "eduardem/piper-tts-romanian", "voices/sanda"),
+];
+
+/// Attribution for [`PIPER_EXTRA_VOICES`], required by their licence.
+pub const PIPER_EXTRA_VOICES_CREDIT: &str =
+    "Voices by eduardem (piper-tts-romanian), CC BY-NC 4.0";
+
+/// Where a voice's bytes come from: the repo, and the path inside it.
+///
+/// Separate from [`piper_voice_path`] on purpose — that one answers where the
+/// file goes, this one answers where it is fetched from, and for a community
+/// voice those two differ.
+pub fn piper_source(voice: &str, ext: &str) -> Option<(&'static str, String)> {
+    if let Some((_, repo, dir)) = PIPER_EXTRA_VOICES.iter().find(|(id, _, _)| *id == voice) {
+        return Some((*repo, format!("{dir}/{voice}.onnx{ext}")));
+    }
+    Some((PIPER_VOICES_REPO, piper_repo_path(voice, ext)?))
+}
+
+/// Repo-relative path of a voice file inside `rhasspy/piper-voices`.
+///
+/// The repo nests by language: `ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx`.
+/// That layout is derivable from the voice id itself, so a voice is one string
+/// everywhere — settings, download, and disk — instead of four fields that can
+/// disagree.
+///
+/// `ro_RO-mihai-medium` → `ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx`
+pub fn piper_repo_path(voice: &str, ext: &str) -> Option<String> {
+    let mut parts = voice.split('-');
+    let locale = parts.next()?; // ro_RO
+    let name = parts.next()?; // mihai
+    let quality = parts.next()?; // medium
+    let lang = locale.split('_').next()?; // ro
+    if parts.next().is_some() || lang.is_empty() {
+        return None; // not a voice id we can place in the repo
+    }
+    Some(format!("{lang}/{locale}/{name}/{quality}/{voice}.onnx{ext}"))
+}
+
+/// Absolute path of a downloaded voice's model file, mirroring the repo layout
+/// on disk so it is obvious where a file came from and a re-download lands in
+/// the same place. `None` for a voice id that cannot be placed — refused rather
+/// than turned into a plausible path that will never exist.
+pub fn piper_voice_path(voice: &str) -> Option<PathBuf> {
+    piper_repo_path(voice, "").map(|rel| piper_dir().join(rel))
+}
+
+/// The `.onnx.json` config that sits beside the model — Piper's own naming.
+pub fn piper_config_path(voice: &str) -> Option<PathBuf> {
+    piper_repo_path(voice, ".json").map(|rel| piper_dir().join(rel))
+}
+
 // ── RSI (Fractal Memory System) ────────────────────────────────────────────────
 // All RSI state lives under ~/.feral/rsi/. The git substrate at .git/ holds
 // every genome commit; the eval/ tree holds the frozen Tier 0/1/2 tasks; the
@@ -191,6 +271,61 @@ mod tests {
         assert_eq!(whisper_filename("small"), "ggml-small.bin");
         assert_eq!(whisper_filename("base"), "ggml-base.bin");
         assert_eq!(whisper_filename("garbage"), "ggml-small.bin");
+    }
+
+    #[test]
+    fn piper_repo_path_derives_the_nested_layout_from_the_voice_id() {
+        assert_eq!(
+            piper_repo_path("ro_RO-mihai-medium", "").unwrap(),
+            "ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx"
+        );
+        assert_eq!(
+            piper_repo_path("en_US-amy-low", ".json").unwrap(),
+            "en/en_US/amy/low/en_US-amy-low.onnx.json"
+        );
+    }
+
+    #[test]
+    fn a_community_voice_is_fetched_from_its_own_repo_but_stored_canonically() {
+        let (repo, rel) = piper_source("ro_RO-raluca-high", "").unwrap();
+        assert_eq!(repo, "eduardem/piper-tts-romanian");
+        assert_eq!(rel, "voices/raluca/ro_RO-raluca-high.onnx");
+        // Where it LANDS is the same layout as every other voice — the whole
+        // point of keeping source and destination apart.
+        assert!(piper_voice_path("ro_RO-raluca-high")
+            .unwrap()
+            .ends_with("ro/ro_RO/raluca/high/ro_RO-raluca-high.onnx"));
+    }
+
+    #[test]
+    fn the_community_repo_layout_is_read_from_the_table_not_guessed() {
+        // `lili-high` is under `voices/lili-high/` but `raluca-high` is under
+        // `voices/raluca/`. A rule derived from the id gets one of these wrong.
+        assert_eq!(
+            piper_source("ro_RO-lili-high", ".json").unwrap().1,
+            "voices/lili-high/ro_RO-lili-high.onnx.json"
+        );
+        assert_eq!(
+            piper_source("ro_RO-sanda-medium", "").unwrap().1,
+            "voices/sanda/ro_RO-sanda-medium.onnx"
+        );
+    }
+
+    #[test]
+    fn a_voice_not_in_the_table_still_comes_from_the_official_repo() {
+        let (repo, rel) = piper_source("ro_RO-mihai-medium", "").unwrap();
+        assert_eq!(repo, PIPER_VOICES_REPO);
+        assert_eq!(rel, "ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx");
+        assert!(piper_source("mihai", "").is_none());
+    }
+
+    #[test]
+    fn a_voice_id_that_is_not_three_parts_is_refused_not_guessed() {
+        // Building a wrong URL would download a 404 page into a .onnx file and
+        // fail much later, inside ONNX, with an error about the model.
+        assert!(piper_repo_path("mihai", "").is_none());
+        assert!(piper_repo_path("ro_RO-mihai", "").is_none());
+        assert!(piper_repo_path("ro_RO-mihai-medium-extra", "").is_none());
     }
 
     #[test]

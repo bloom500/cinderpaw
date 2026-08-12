@@ -22,6 +22,39 @@ export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent }
 export type { ModelLoadProgressEvent };
 export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine } from './events';
 
+/**
+ * One row of the voice-engine picker — mirrors `feral_core::tts::TtsEngine`.
+ *
+ * `isLocal` must be shown before recording starts, not buried in settings: with
+ * a hosted engine every spoken reply leaves the machine, and a local-first
+ * product that does not say so has lied by omission.
+ *
+ * `available: false` means the engine is catalogued but not built into this
+ * version. The row is shown (so the plan is visible) and cannot be chosen (so it
+ * cannot lie) — `from_id` refuses it in Rust regardless of what the UI does.
+ */
+export interface TtsProviderInfo {
+  id: string;
+  label: string;
+  isLocal: boolean;
+  needsKey: boolean;
+  needsBaseUrl: boolean;
+  needsModel: boolean;
+  /** Runs from a file the user must fetch first. A property rather than a list of
+   *  ids in this file, so the next local engine cannot skip the download step. */
+  needsDownload: boolean;
+  consoleUrl: string | null;
+  note: string;
+  available: boolean;
+}
+
+/**
+ * One selectable voice, listed by the vendor. `locale` is empty for a
+ * multilingual voice — which is not "English", it means the voice follows the
+ * text, and that is what a bilingual conversation needs.
+ */
+export interface TtsVoice { id: string; label: string; locale: string }
+
 export interface Message       { role: string; content: string; images?: string[] }
 export interface InferParams   {
   temperature: number;
@@ -724,10 +757,39 @@ const raw = {
     invoke<boolean>('whisper_model_present', { modelSize }),
   transcribeAudio:          (pcm: number[], modelSize: string) =>
     invoke<string>('transcribe_audio', { pcm, modelSize }),
-  transcribeAudioCloud:     (audioPath: string, provider: string) =>
-    invoke<string>('transcribe_audio_cloud', { audioPath, provider }),
+  transcribeAudioCloud:     (audioPath: string, provider: string, language?: string) =>
+    invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null }),
   downloadWhisperModel:     (modelSize: string) =>
     invoke<string>('download_whisper_model', { modelSize }),
+  // Diagnostics bridge: prints into the terminal running the app, because the
+  // webview console is invisible there and the voice loop lives in the webview.
+  uiLog:                    (scope: string, message: string) =>
+    invoke<void>('ui_log', { scope, message }),
+  ttsProviders:             () =>
+    invoke<TtsProviderInfo[]>('tts_providers'),
+  // `getByokSettings` is derived from the LLM provider catalog and so can never
+  // report a voice engine's key. This asks the keychain directly.
+  ttsHasKey:                (providerId: string) =>
+    invoke<boolean>('tts_has_key', { providerId }),
+  // "Can this engine speak right now" — a key for hosted engines, a downloaded
+  // voice for Piper. Ask this before opening the microphone; `ttsHasKey` only
+  // answers half the question and answers `true` for a voiceless Piper.
+  ttsReady:                 (providerId: string) =>
+    invoke<boolean>('tts_ready', { providerId }),
+  ttsVoices:                (providerId: string) =>
+    invoke<TtsVoice[]>('tts_voices', { providerId }),
+  piperVoicePresent:        (voice: string) =>
+    invoke<boolean>('piper_voice_present', { voice }),
+  // Idempotent — returns immediately if the voice is already on disk. Progress
+  // streams over `feral://piper-download-*`.
+  downloadPiperVoice:       (voice: string) =>
+    invoke<string>('download_piper_voice', { voice }),
+  // Resolves when SYNTHESIS ends (with the PCM byte count), not when playback
+  // does — audio arrives on `feral://tts-chunk` and the webview owns the clock.
+  speakText:                (sessionId: string, text: string, provider?: string, voice?: string) =>
+    invoke<number>('speak_text', { sessionId, text, provider: provider ?? null, voice: voice ?? null }),
+  stopSpeaking:             (sessionId: string) =>
+    invoke<void>('stop_speaking', { sessionId }),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `feral://embedding-download-*`.
@@ -801,8 +863,26 @@ export const tauri = {
     saveBlob:      async (bytes: number[], ext: string) => raw.saveVoiceBlob(bytes, ext),
     modelPresent:  async (modelSize: string) => raw.whisperModelPresent(modelSize),
     transcribe:    async (pcm: number[], modelSize: string) => raw.transcribeAudio(pcm, modelSize),
-    transcribeCloud: async (audioPath: string, provider: string) => raw.transcribeAudioCloud(audioPath, provider),
+    transcribeCloud: async (audioPath: string, provider: string, language?: string) =>
+      raw.transcribeAudioCloud(audioPath, provider, language),
     downloadModel: async (modelSize: string) => raw.downloadWhisperModel(modelSize),
+    ttsProviders:  async () => raw.ttsProviders(),
+    ttsHasKey:     async (providerId: string) => raw.ttsHasKey(providerId),
+    ttsReady:      async (providerId: string) => raw.ttsReady(providerId),
+    ttsVoices:     async (providerId: string) => raw.ttsVoices(providerId),
+    piperPresent:  async (voice: string) => raw.piperVoicePresent(voice),
+    piperDownload: async (voice: string) => raw.downloadPiperVoice(voice),
+    // An empty `apiKey` means "leave the stored key untouched" all the way down
+    // to the keychain, so re-saving only a region cannot wipe a working key.
+    saveTtsKey:    async (providerId: string, apiKey: string, baseUrl?: string, model?: string) =>
+      raw.saveByokProvider(providerId, true, apiKey, baseUrl ?? null, model ?? null),
+    // Purges the key from the OS keychain. The way out of a stored key nobody
+    // remembers saving — `saveTtsKey` with an empty string deliberately does not
+    // delete, so removal needs its own door.
+    forgetTtsKey:  async (providerId: string) => raw.removeByokProvider(providerId),
+    speak:         async (sessionId: string, text: string, provider?: string, voice?: string) =>
+      raw.speakText(sessionId, text, provider, voice),
+    stopSpeaking:  async (sessionId: string) => raw.stopSpeaking(sessionId),
   },
 
   system: {

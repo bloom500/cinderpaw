@@ -13,6 +13,34 @@
   }
 }
 
+/*
+ * Voice-call orb.
+ *
+ * Three blurred blobs orbiting inside a clipped circle, at different speeds and
+ * in opposite directions. Rotating one gradient instead looks mechanical — the
+ * eye follows the seam around; overlapping blobs never repeat the same shape, so
+ * the surface reads as fluid. The blur is what turns three discs into one
+ * gradient, so it is structural rather than decorative.
+ *
+ * Speed is set per call state from the component (`animationDuration`), not with
+ * separate keyframes: one set of motions, driven faster or slower, keeps idle,
+ * listening, thinking and speaking recognisably the same object.
+ */
+@keyframes orb-orbit {
+  from { transform: rotate(0deg) translate(var(--orb-offset, 12%), 0); }
+  to   { transform: rotate(360deg) translate(var(--orb-offset, 12%), 0); }
+}
+@keyframes orb-orbit-reverse {
+  from { transform: rotate(360deg) translate(var(--orb-offset, 12%), 0); }
+  to   { transform: rotate(0deg) translate(var(--orb-offset, 12%), 0); }
+}
+/* Breathing, so the sphere is never completely still. Idle should look alive but
+   not busy; the amplitude stays small enough to read as breath, not as a pulse. */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none;

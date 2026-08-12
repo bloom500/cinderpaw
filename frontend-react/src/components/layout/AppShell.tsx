@@ -74,8 +74,12 @@ export function AppShell() {
       >
         <Outlet />
       </motion.main>
-      {/* Window controls — fixed top-right, always on top of all pages */}
-      <div className="fixed top-0 right-0 z-40 flex items-center">
+      {/* Window controls — fixed top-right, above EVERYTHING including
+          full-screen overlays and modals. These used to share z-40 with the
+          voice-call overlay and got buried by it, leaving a frameless window with
+          no way to minimize, maximize or close it. Window chrome is the one layer
+          a page must never be able to cover. */}
+      <div className="fixed top-0 right-0 z-[200] flex items-center">
         <WinControls />
       </div>
       {searchOpen && <SearchOverlay />}
@@ -86,7 +90,10 @@ export function AppShell() {
           corner beneath it. They now stack together where the eye already goes.
           pointer-events-none so the empty column never swallows clicks meant
           for the page; each card re-enables them. */}
-      <div className="fixed top-11 right-4 z-[100] w-80 flex flex-col gap-2 pointer-events-none">
+      {/* z-[200], not z-[100]: the call overlay also sits at 100 and, being
+          portalled to <body> later in the DOM, painted over every toast — so the
+          errors that explain a failed call were invisible exactly when needed. */}
+      <div className="fixed top-11 right-4 z-[200] w-80 flex flex-col gap-2 pointer-events-none">
         <UpdateToast />
         <Toasts />
       </div>

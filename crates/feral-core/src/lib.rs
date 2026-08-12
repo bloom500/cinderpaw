@@ -17,6 +17,7 @@ pub mod feral_agent;
 pub mod gpu_detect;
 pub mod host;
 pub mod inference;
+pub mod live;
 pub mod migrate;
 pub mod models;
 pub mod paths;

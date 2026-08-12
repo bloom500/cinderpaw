@@ -42,6 +42,14 @@ llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
 # Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
 whisper-rs = { version = "0.16", default-features = false, optional = true }
 
+# Text-to-speech on device — Piper voices through ONNX Runtime. Optional and
+# feature-gated for the same reason whisper is: it pulls a native runtime and
+# compiles espeak-ng from C, so a toolchain that cannot build it must still be
+# able to build Feral. `tts::catalog()` reports Piper unavailable when this is
+# off and `from_id` refuses it, so the picker can never offer an engine that
+# this build does not contain.
+piper-rs = { version = "0.2", optional = true }
+
 # Utilities
 anyhow = "1"
 thiserror = "1"
@@ -109,6 +117,9 @@ inference-cuda   = ["dep:llama-cpp-2", "llama-cpp-2/cuda"]
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
 inference-metal  = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
 whisper = ["dep:whisper-rs"]
+# On-device TTS. Off by default so `cargo check` stays fast and a broken native
+# toolchain cannot block the whole workspace; the desktop build turns it on.
+piper = ["dep:piper-rs"]
 
 [dev-dependencies]
 tempfile = "3"

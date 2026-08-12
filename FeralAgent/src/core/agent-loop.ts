@@ -662,9 +662,28 @@ export class AgentLoop {
    * system prompt, and unlike a profile it leaves the owner's full prompt and
    * toolset intact.
    */
-  setSessionSurface(sessionId: string, brief: string): void {
+  setSessionSurface(sessionId: string, brief: string, opts?: { spoken?: boolean }): void {
     this.#memoryFor(sessionId).setSurfaceBrief(brief);
+    // `spoken` is not a synonym for "has a brief": it says the answer is going to
+    // be HEARD, which changes which drawers make sense at all. See `#spokenSurface`.
+    if (opts?.spoken) this.#spokenSurface.add(sessionId);
+    else this.#spokenSurface.delete(sessionId);
   }
+
+  /**
+   * Sessions whose answers are spoken out loud.
+   *
+   * The notebook drawer is skipped for these. Rendering it in full every turn is
+   * right for a long autonomous run — the notes are why the agent does not redo
+   * work it already did — but in a spoken conversation it hijacked the reply: it is
+   * the most concrete block in the prompt, so "hello" came back as a status report
+   * about whatever the notes were about, and a user asked twice why he was being
+   * told how many files were in an inventory he never mentioned.
+   *
+   * The notes stay reachable: `recall` fetches them on demand, so asking "what did
+   * you note?" still works. What stops is volunteering them unprompted.
+   */
+  readonly #spokenSurface = new Set<string>();
 
   /** Clear a session's profile binding (reverts to the owner profile). */
   clearSessionProfile(sessionId: string): void {
@@ -1029,7 +1048,10 @@ export class AgentLoop {
     // surface in another's session.
     if (this.#notebook) {
       try {
-        memory.setNotebook(this.#notebook.notes(memoryScope(sessionId)));
+        // Spoken turns get no notebook drawer — see `#spokenSurface` for why.
+        memory.setNotebook(
+          this.#spokenSurface.has(sessionId) ? [] : this.#notebook.notes(memoryScope(sessionId)),
+        );
       } catch {
         // A memory-store failure must never cost the user their turn.
       }

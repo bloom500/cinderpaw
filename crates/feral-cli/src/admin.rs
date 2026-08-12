@@ -2093,13 +2093,33 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     let Palette { accent: ACCENT, meta: META, reset: RESET, fail: FAIL, .. } = palette();
 
     let catalog = feral_core::byok::provider_catalog();
-    let Some(entry) = catalog.iter().find(|e| e.id == id) else {
-        eprintln!("{FAIL}unknown provider {id}{RESET}");
-        eprintln!(
-            "{META}known: {}{RESET}",
-            catalog.iter().map(|e| e.id.as_str()).collect::<Vec<_>>().join(", ")
-        );
-        return 1;
+    let llm_entry = catalog.iter().find(|e| e.id == id);
+    // A voice engine is not in the LLM catalog and correctly never will be — that
+    // catalog is the list of chat backends. Without this branch,
+    // `feral providers set-key fish` reported "unknown provider" for an engine the
+    // app ships, and there was no supported way to store a TTS key from a script.
+    let tts_entry = feral_core::tts::catalog().into_iter().find(|e| e.id == id && e.needs_key);
+    let display_name = match (llm_entry, &tts_entry) {
+        (Some(e), _) => e.name.clone(),
+        (None, Some(e)) => e.label.clone(),
+        (None, None) => {
+            eprintln!("{FAIL}unknown provider {id}{RESET}");
+            eprintln!(
+                "{META}known: {}{RESET}",
+                catalog
+                    .iter()
+                    .map(|e| e.id.clone())
+                    .chain(
+                        feral_core::tts::catalog()
+                            .into_iter()
+                            .filter(|e| e.needs_key)
+                            .map(|e| e.id)
+                    )
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            return 1;
+        }
     };
 
     // stdin, never argv. Works piped (`printf %s "$KEY" | feral providers
@@ -2107,7 +2127,7 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     // wizard at guided.rs:353 - masked input needs a tty-secrets dependency
     // this crate does not carry.
     if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        eprintln!("{META}paste the {} API key, then Enter (input is visible):{RESET}", entry.name);
+        eprintln!("{META}paste the {display_name} API key, then Enter (input is visible):{RESET}");
     }
     let mut key = String::new();
     if let Err(e) = std::io::stdin().read_line(&mut key) {
@@ -2123,15 +2143,21 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     let settings = feral_core::settings::load();
     let byok = feral_core::byok::load(&settings);
     let existing = byok.providers.get(id);
+    // A voice engine has no LLM base URL or default model to fall back on: each
+    // one carries its own defaults in `feral_core::tts`, and inventing values
+    // here would overwrite a working region with a blank.
     let base_url = existing
         .and_then(|c| c.base_url.clone())
-        .unwrap_or_else(|| entry.default_base_url.clone());
+        .or_else(|| llm_entry.map(|e| e.default_base_url.clone()));
     let model = model
         .or_else(|| existing.and_then(|c| c.default_model.clone()))
-        // Catalog entries always carry a model, so this is the last resort
-        // rather than a fallible lookup.
-        .or_else(|| Some(entry.default_model.clone()));
+        .or_else(|| llm_entry.map(|e| e.default_model.clone()));
 
+    // Verification runs a chat completion, which a speech endpoint cannot answer.
+    // Skipping it for a voice engine is not a shortcut — the alternative is
+    // refusing every correct key with a message about completions. The key is
+    // proved by the first thing spoken instead.
+    let no_verify = no_verify || tts_entry.is_some();
     if !no_verify {
         eprintln!("{META}checking the key with a real completion...{RESET}");
         let rt = match tokio::runtime::Runtime::new() {
@@ -2141,7 +2167,7 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
                 return 1;
             }
         };
-        let res = rt.block_on(feral_core::byok::test_provider(id, &key, Some(&base_url)));
+        let res = rt.block_on(feral_core::byok::test_provider(id, &key, base_url.as_deref()));
         if !res.success {
             // Nothing is written on failure - the key never touches disk.
             eprintln!("{FAIL}key rejected: {}{RESET}", res.message);
@@ -2160,14 +2186,23 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
         // Never persisted in byok.json - the keychain (or the encrypted file
         // fallback on headless Linux) is the only place the secret lives.
         api_key: String::new(),
-        base_url: Some(base_url),
+        base_url,
         default_model: model.clone(),
     };
     if let Err(e) = feral_core::byok::save_provider(id, cfg) {
         eprintln!("{FAIL}could not write byok.json: {e}{RESET}");
         return 1;
     }
-    println!("{ACCENT}{} key stored{RESET}", entry.name);
+    println!("{ACCENT}{display_name} key stored{RESET}");
+    if tts_entry.is_some() {
+        println!("{META}voice engine — pick it on the call screen to use it{RESET}");
+        // `--activate` routes chat inference; a voice engine is not a chat backend.
+        if activate {
+            eprintln!("{FAIL}--activate applies to chat providers, not voice engines{RESET}");
+            return 1;
+        }
+        return 0;
+    }
 
     if activate {
         let Some(model) = model else {

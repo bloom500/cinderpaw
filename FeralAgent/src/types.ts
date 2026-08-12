@@ -1203,6 +1203,18 @@ export interface InboundMessage {
    * on demand via the `read_skill` tool. Empty/undefined → no menu rendered.
    */
   skillsContext?: SkillMeta[];
+  /**
+   * Where this turn's answer will be consumed (type === "message").
+   *
+   * `"voice"` means it is going to be spoken aloud, which changes what a good
+   * answer looks like more than any other surface does: no headings, no lists, no
+   * code blocks, and a length someone can listen to instead of skim. Without it a
+   * voice call received the desktop's full markdown answer read out loud — 1382
+   * characters, 95 seconds of speech, in reply to "what can you do?".
+   *
+   * Absent (connectors, TUI) leaves whatever brief that surface already set.
+   */
+  surface?: "voice" | "text";
   // set_model fields (all present when type === "set_model")
   provider?: string;
   model?: string;

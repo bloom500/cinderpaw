@@ -16,6 +16,12 @@ pub struct FeralInferParams {
 
 /// Send a message to the Feral Agent sidecar. Returns the message ID that
 /// will appear in the corresponding `feral://agent-output` chunk/done events.
+///
+/// `surface` says where the answer will be consumed — `"voice"` when it is going
+/// to be spoken aloud, `"text"` for the normal composer. The sidecar turns it into
+/// a per-turn surface brief, the same mechanism connectors use for "narrow column,
+/// no tables", so a call gets an answer someone can listen to instead of the
+/// desktop's full markdown read out loud.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn feral_send_message(
@@ -24,6 +30,7 @@ pub(crate) async fn feral_send_message(
     session_id: String,
     images: Option<Vec<String>>,
     infer_params: Option<FeralInferParams>,
+    surface: Option<String>,
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -56,6 +63,11 @@ pub(crate) async fn feral_send_message(
     if !skills_context.is_empty() {
         payload["skillsContext"] = serde_json::to_value(&skills_context)
             .map_err(|e| format!("failed to serialize skills context: {e}"))?;
+    }
+    // Only forwarded when the host actually declared one: an absent field leaves
+    // whatever brief the session already had, which is what connectors rely on.
+    if let Some(s) = surface.as_deref().filter(|s| *s == "voice" || *s == "text") {
+        payload["surface"] = serde_json::json!(s);
     }
     // Controls-panel overrides (temperature / max tokens). The sidecar's
     // agent loop validates and clamps them; here they just ride along.

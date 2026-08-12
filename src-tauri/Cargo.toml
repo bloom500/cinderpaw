@@ -86,7 +86,12 @@ pdf-extract = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
-default = ["inference"]
+# `piper` is on by default because it is the voice the product should answer in:
+# on device, no key, no expiring tier. It costs a native ONNX Runtime download
+# and an espeak-ng C build at compile time (cmake, already required by
+# llama.cpp), so a platform whose toolchain cannot do that drops this one flag
+# and the picker reports Piper as unavailable instead of offering a mute engine.
+default = ["inference", "piper"]
 # CPU-only baseline (works everywhere; slow for larger models).
 inference = ["feral-core/inference"]
 # GPU backends — additive on top of `inference`. Pick at most ONE per build
@@ -101,6 +106,8 @@ inference-cuda   = ["feral-core/inference-cuda"]
 inference-vulkan = ["feral-core/inference-vulkan"]
 inference-metal  = ["feral-core/inference-metal"]
 whisper          = ["feral-core/whisper"]
+# On-device text-to-speech (Piper voices via ONNX Runtime).
+piper            = ["feral-core/piper"]
 
 # Desktop control (OS accessibility tree). Windows-only for now — UIA via the
 # `windows` crate. macOS (AX) and Linux are compiled stubs in desktop_control.

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { Brain, ArrowUp, Square, Mic } from 'lucide-react';
+import { Brain, ArrowUp, Square, Mic, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -17,6 +17,8 @@ import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
+import { VoiceEngineCard } from './VoiceEngineCard';
+import { CallOverlay } from './CallOverlay';
 import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
@@ -26,6 +28,7 @@ import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import { useCallSession } from '@/hooks/useCallSession';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureWhisperModel } from '@/lib/voiceModel';
@@ -58,7 +61,16 @@ export interface ChatInputProps {
    * Used by the Agents tab to route through the Feral Agent sidecar.
    * `images` carries attachment data URLs for vision-capable models.
    */
-  sendFn?: (text: string, images?: string[], opts?: { voice?: ChatMessage['voice']; existingUserId?: string }) => Promise<void>;
+  sendFn?: (
+    text: string,
+    images?: string[],
+    opts?: {
+      voice?: ChatMessage['voice'];
+      existingUserId?: string;
+      /** `'voice'` when the answer will be spoken aloud — see `feral_send_message`. */
+      surface?: 'voice' | 'text';
+    },
+  ) => Promise<void>;
   /**
    * When true, the input is always enabled regardless of whether a local
    * model or cloud key is active. Used by the Agents tab (Feral Agent
@@ -92,6 +104,32 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // normal tap records. `heldRef` suppresses the click that follows a long press.
   const micHoldTimer = useRef<number | null>(null);
   const micHeldRef = useRef(false);
+
+  // A call turn is routed exactly like a typed or recorded one: through the
+  // Feral Agent sidecar in agent mode, the chat pipeline otherwise. Without this
+  // the call would hit the (unloaded) local model in agent mode — the same bug
+  // the voice path already had.
+  const call = useCallSession(async (text: string) => {
+    // `surface: 'voice'` is what tells the agent this answer gets spoken. Without
+    // it a call received the desktop's full markdown answer read out loud.
+    if (sendFn) await sendFn(text, undefined, { surface: 'voice' });
+    else await send(text, [], { surface: 'voice' });
+  });
+  const ttsProvider = useUI((s) => s.ttsProvider);
+  const [engineCardOpen, setEngineCardOpen] = useState(false);
+
+  /**
+   * Two first-use choices gate a call, and both are asked before the microphone
+   * opens rather than after: which engine transcribes you (existing card), and
+   * which one answers you (the voice card). Order matters only in that neither
+   * may be skipped — a call that cannot hear or cannot speak wastes the words
+   * someone already said.
+   */
+  const onCallClick = () => {
+    if (sttProvider === null) setProviderCardOpen(true);
+    else if (ttsProvider === null) setEngineCardOpen(true);
+    else call.open();
+  };
 
   // When a recording finishes, compute peaks for the preview and warm the model.
   useEffect(() => {
@@ -412,6 +450,19 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   Chat
                 </button>
               </div>
+              {!isStreaming && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={onCallClick}
+                  disabled={disabled}
+                  aria-label={t('call.aria')}
+                  title={t('call.title')}
+                  className="h-7 w-7 text-text-muted hover:text-brand"
+                >
+                  <Phone size={13} />
+                </Button>
+              )}
               {isStreaming ? (
                 <Button
                   size="icon"
@@ -441,6 +492,24 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         )}
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />
+      {/* Picking a voice flows straight into the call it was blocking. */}
+      <VoiceEngineCard
+        open={engineCardOpen}
+        onOpenChange={setEngineCardOpen}
+        onChosen={call.open}
+      />
+      <CallOverlay
+        phase={call.phase}
+        heard={call.heard}
+        level={call.level}
+        notice={call.notice}
+        onAnswer={() => void call.begin()}
+        onHangUp={call.hangUp}
+        onInterrupt={call.interrupt}
+        onSay={call.say}
+        onChangeEngine={() => setEngineCardOpen(true)}
+        onChangeStt={() => setProviderCardOpen(true)}
+      />
     </TooltipProvider>
   );
 });

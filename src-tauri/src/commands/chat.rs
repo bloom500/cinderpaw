@@ -18,10 +18,13 @@ pub(crate) fn stop_generation(state: State<AppState>, session_id: String) {
 /// Releases a session's stop flag when its generation returns — on every exit
 /// path (clean finish, error, user stop), which is why this is a guard and not
 /// a call at the end of the happy path.
-struct StopSlot {
-    registry: Arc<StopRegistry>,
-    session_id: String,
-    flag: Arc<AtomicBool>,
+/// `pub(crate)` because `speak_text` needs the same guarantee: a TTS stream has
+/// the same set of exit paths, and a leaked flag there means the next utterance
+/// starts already stopped.
+pub(crate) struct StopSlot {
+    pub(crate) registry: Arc<StopRegistry>,
+    pub(crate) session_id: String,
+    pub(crate) flag: Arc<AtomicBool>,
 }
 
 impl Drop for StopSlot {

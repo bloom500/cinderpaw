@@ -152,9 +152,34 @@ pub async fn download_hf_model_to(
     progress: Sender<f32>,
     cancel: Arc<AtomicBool>,
 ) -> Result<PathBuf> {
-    paths::ensure_dirs()?;
     let dest = dest_dir.join(&filename);
-    let tmp = dest.with_file_name(format!("{filename}.part"));
+    download_hf_file_as(repo_id, filename, dest, progress, cancel).await
+}
+
+/// Like [`download_hf_model_to`] but the file lands at `dest`, whatever the repo
+/// happens to call it.
+///
+/// The two are not always the same. A community Piper voice lives at
+/// `voices/raluca/ro_RO-raluca-high.onnx` in its own repo, but on disk every
+/// voice sits at `<lang>/<locale>/<name>/<quality>/` regardless of where it came
+/// from — one layout the loader can rely on, instead of one per upstream.
+pub async fn download_hf_file_as(
+    repo_id: String,
+    filename: String,
+    dest: PathBuf,
+    progress: Sender<f32>,
+    cancel: Arc<AtomicBool>,
+) -> Result<PathBuf> {
+    paths::ensure_dirs()?;
+    // The final name plus `.part`, so it works for any extension — and built by
+    // appending to the whole path, not via `with_file_name`, which reads a
+    // `filename` containing slashes as a fresh relative path and buried the temp
+    // file under a duplicate of the directory tree.
+    let tmp = {
+        let mut p = dest.clone().into_os_string();
+        p.push(".part");
+        PathBuf::from(p)
+    };
 
     // Cleanup helper — runs on every exit path (cancel, error, success-on-rename-fail)
     let cleanup_tmp = |tmp: &Path| {
