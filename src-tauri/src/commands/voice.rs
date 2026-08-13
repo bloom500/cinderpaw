@@ -346,6 +346,30 @@ pub(crate) async fn transcribe_audio_cloud(
     if let Some(code) = detected {
         if text.chars().count() >= CONFIDENT_TRANSCRIPT_CHARS {
             let mut slot = detected_lang().lock();
+            if let Some(previous) = slot.as_deref() {
+                if previous != code {
+                    // Every language flip, counted.
+                    //
+                    // Two things produce this line and they are opposites: the
+                    // user genuinely switched language, or Whisper mis-detected
+                    // and TRANSLATED — measured once, fluent Romanian out of
+                    // English audio, which is indistinguishable from a switch by
+                    // reading the transcript alone.
+                    //
+                    // No fix is shipped for that, because none is known: forcing
+                    // the language brings back a latch that cannot correct
+                    // itself, and leaving it free is what allows this. What is
+                    // shipped is the count, so the next session can say how
+                    // often it happens instead of arguing about whether it does.
+                    tracing::warn!(
+                        from = previous,
+                        to = code,
+                        chars = text.chars().count(),
+                        transcript = %text,
+                        "stt: language flipped — a real switch, or a translation",
+                    );
+                }
+            }
             if slot.as_deref() != Some(code) {
                 tracing::info!(language = code, "stt: language learned from a full sentence");
             }
