@@ -1,5 +1,55 @@
 import { describe, it, expect } from 'vitest';
-import { hitsOf, subjectOf } from '../useLiveToolActivity';
+import { hitsOf, subjectOf, kindOf, filesOf, factsOf } from '../useLiveToolActivity';
+
+describe('kindOf', () => {
+  it('routes each tool to the widget for its category, not its name', () => {
+    expect(kindOf('web_search')).toBe('browser');
+    expect(kindOf('read_webpage')).toBe('browser');
+    expect(kindOf('write_file')).toBe('files');
+    expect(kindOf('shell_exec')).toBe('terminal');
+    expect(kindOf('recall')).toBe('memory');
+  });
+
+  it('matches suffixed variants, so a new tool joins its family for free', () => {
+    expect(kindOf('web_search_news')).toBe('browser');
+  });
+
+  it('falls back rather than guessing a widget for an unknown tool', () => {
+    expect(kindOf('capture_lead')).toBe('generic');
+  });
+});
+
+describe('filesOf', () => {
+  it('reads the single-file shape read_file and write_file return', () => {
+    expect(filesOf({ data: { path: 'D:/a/b.ts', lines: 42, bytes: 900 } })).toEqual([
+      { path: 'D:/a/b.ts', lines: 42, bytes: 900 },
+    ]);
+  });
+
+  it('reads the array shape list_directory returns', () => {
+    const files = filesOf({ data: [{ name: 'x.ts', size: 10 }, { path: 'y.ts' }] });
+    expect(files.map((f) => f.path)).toEqual(['x.ts', 'y.ts']);
+    expect(files[0].bytes).toBe(10);
+    expect(files[1].lines).toBeNull();
+  });
+});
+
+describe('factsOf', () => {
+  it('reads memory facts whether they are strings or objects', () => {
+    expect(factsOf({ data: { facts: ['speaks Romanian', { text: 'builds Feral' }] } })).toEqual([
+      'speaks Romanian',
+      'builds Feral',
+    ]);
+  });
+
+  it('falls back to hits when there are no facts', () => {
+    expect(factsOf({ data: { hits: [{ text: 'a note' }] } })).toEqual(['a note']);
+  });
+
+  it('is empty for a tool with no memory in it', () => {
+    expect(factsOf({ data: { path: 'x' } })).toEqual([]);
+  });
+});
 
 /**
  * These two parse another process's output, which is the only reason they are

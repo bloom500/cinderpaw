@@ -273,3 +273,69 @@ body { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .word-fade { animation: none; }
 }
+
+/* ── Call telemetry widgets ──────────────────────────────────────────────
+   The panel that shows what Feral is doing during a voice call. Motion here
+   has one job: make work legible at a glance, from across a room. So it is
+   deliberately small — one entrance, one running state, one completion —
+   rather than a set of effects. Durations sit in the 150–300 ms band that
+   reads as responsive; anything slower on a panel that updates every few
+   seconds turns into a slideshow. */
+
+/* Widgets and their rows enter from below, the direction work arrives from. */
+@keyframes tw-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tw-rise { animation: tw-rise 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* A result row lands after the ones above it. The delay is set inline per
+   index — capped in the component, because a stagger long enough to notice on
+   row eight is a stagger that arrives after the reading eye has moved on. */
+.tw-row { animation: tw-rise 0.2s ease-out both; }
+
+/* The address bar's sweep while a search is in flight. The only infinite
+   animation here, and it is a loading indicator — which is the one thing an
+   infinite animation is for. */
+@keyframes tw-scan {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(200%); }
+}
+.tw-scan::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--brand) 22%, transparent),
+    transparent
+  );
+  animation: tw-scan 1.4s ease-in-out infinite;
+}
+
+/* Completion: the tick scales in once. Overshoot is what makes it read as
+   "landed" rather than "appeared". */
+@keyframes tw-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  60%  { transform: scale(1.12); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.tw-pop { animation: tw-pop 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+/* The terminal caret, while a command is still running. */
+.tw-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  vertical-align: text-bottom;
+  background: var(--brand);
+  animation: cursor-blink 1s steps(2, start) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tw-rise, .tw-row, .tw-pop { animation: none; }
+  .tw-scan::after, .tw-caret { animation: none; }
+  .tw-scan::after { display: none; }
+}

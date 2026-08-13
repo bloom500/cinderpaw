@@ -22,10 +22,44 @@ export interface ToolHit {
   host: string;
 }
 
+/**
+ * Which widget renders this activity.
+ *
+ * A kind per *category* of work, not per tool. Forty-three tools would be
+ * forty-three widgets nobody maintains; four categories cover what the tools
+ * actually produce, and a new tool joins by being classified rather than by
+ * getting a component. `generic` is the honest fallback — a row with a name and
+ * a state, which is still better than nothing and never pretends to more.
+ */
+export type ToolKind = 'browser' | 'files' | 'terminal' | 'memory' | 'generic';
+
+/** Tool name → widget. Prefix matching, so `web_search_news` lands correctly. */
+const KINDS: Array<[ToolKind, string[]]> = [
+  ['browser', ['web_search', 'deep_research', 'read_webpage', 'fetch_url', 'http_request']],
+  ['files', ['read_file', 'write_file', 'edit_file', 'list_directory', 'file_search', 'grep', 'scan_workspace', 'notebook']],
+  ['terminal', ['shell_exec', 'code_execute', 'git', 'code_quality']],
+  ['memory', ['recall', 'remember']],
+];
+
+export function kindOf(tool: string): ToolKind {
+  for (const [kind, names] of KINDS) {
+    if (names.some((n) => tool === n || tool.startsWith(`${n}_`))) return kind;
+  }
+  return 'generic';
+}
+
+/** A file the agent touched, with the numbers its tool reported. */
+export interface FileFact {
+  path: string;
+  lines: number | null;
+  bytes: number | null;
+}
+
 export interface ToolActivity {
   id: string;
   tool: string;
-  /** The search query, path, or URL — whatever this tool is *about*. */
+  kind: ToolKind;
+  /** The search query, path, or command — whatever this tool is *about*. */
   subject: string;
   status: 'running' | 'done' | 'failed';
   startedAt: number;
@@ -33,6 +67,11 @@ export interface ToolActivity {
   /** Progress line from a tool that reports one, e.g. "fetching page 2". */
   note: string | null;
   hits: ToolHit[];
+  files: FileFact[];
+  /** Whatever the tool printed — the terminal widget's body. */
+  output: string;
+  /** Facts a memory lookup came back with. */
+  facts: string[];
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
 }
@@ -70,6 +109,51 @@ function hostOf(url: string): string {
  * another process's output, and a shape change must dim the panel, never throw
  * inside an event handler during a live call.
  */
+/**
+ * Files a tool reported touching.
+ *
+ * `read_file` and `write_file` return one object with `{ path, lines, bytes }`;
+ * `list_directory` returns an array of entries. Both shapes land here so the
+ * explorer widget can draw either without knowing which tool ran.
+ */
+export function filesOf(result: unknown): FileFact[] {
+  const data = (result as { data?: unknown } | null)?.data;
+  const rows = Array.isArray(data) ? data : data && typeof data === 'object' ? [data] : [];
+  const out: FileFact[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const path = typeof r.path === 'string' ? r.path : typeof r.name === 'string' ? r.name : '';
+    if (!path) continue;
+    out.push({
+      path,
+      lines: typeof r.lines === 'number' ? r.lines : null,
+      bytes: typeof r.bytes === 'number' ? r.bytes : typeof r.size === 'number' ? r.size : null,
+    });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+/** What a memory lookup found, as lines the card can show. */
+export function factsOf(result: unknown): string[] {
+  const data = (result as { data?: { facts?: unknown; hits?: unknown } } | null)?.data;
+  const raw = Array.isArray(data?.facts) ? data.facts : Array.isArray(data?.hits) ? data.hits : [];
+  const out: string[] = [];
+  for (const row of raw) {
+    const text =
+      typeof row === 'string'
+        ? row
+        : row && typeof row === 'object'
+          ? String((row as Record<string, unknown>).text ?? (row as Record<string, unknown>).fact ?? '')
+          : '';
+    const trimmed = text.trim();
+    if (trimmed) out.push(trimmed);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 export function hitsOf(result: unknown): ToolHit[] {
   const data = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(data)) return [];
@@ -122,12 +206,16 @@ export function useLiveToolActivity(enabled: boolean) {
               {
                 id: `${tool}-${Date.now()}`,
                 tool,
+                kind: kindOf(tool),
                 subject: subjectOf(line.args),
                 status: 'running' as const,
                 startedAt: Date.now(),
                 endedAt: null,
                 note: null,
                 hits: [],
+                files: [],
+                output: '',
+                facts: [],
                 error: null,
               },
             ].slice(-MAX),
@@ -149,6 +237,11 @@ export function useLiveToolActivity(enabled: boolean) {
                     endedAt: Date.now(),
                     note: null,
                     hits: hitsOf(line.result),
+                    files: filesOf(line.result),
+                    facts: factsOf(line.result),
+                    // The terminal widget's body. Trimmed hard: a build log is
+                    // megabytes and the panel is twenty lines tall.
+                    output: ok ? (res?.content ?? '').slice(0, 1200) : '',
                     // Shown instead of an empty result list, because a search
                     // that failed and a search that found nothing look identical
                     // otherwise — and one of them is a bug.

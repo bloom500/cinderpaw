@@ -114,6 +114,7 @@ const en = {
   'call.toolSearching': 'searching…',
   'call.toolDone': 'done',
   'call.toolFailed': 'failed',
+  'call.toolsRunning': 'tasks running',
   // Voice engine picker (first call)
   'engine.title': 'Choose the voice that answers you',
   'engine.subtitle': 'On-device engines keep every spoken reply on this machine. Hosted ones need your own key. You can change this later.',
@@ -223,6 +224,7 @@ const ro: Strings = {
   'call.toolSearching': 'caută…',
   'call.toolDone': 'gata',
   'call.toolFailed': 'a eșuat',
+  'call.toolsRunning': 'sarcini în lucru',
   'engine.title': 'Alege vocea care îți răspunde',
   'engine.subtitle': 'Motoarele locale țin fiecare replică pe mașina asta. Cele hostate cer cheia ta. Poți schimba mai târziu.',
   'engine.soon': 'încă nu e în build',
