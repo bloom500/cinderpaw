@@ -61,6 +61,17 @@ describe('callArtifacts', () => {
     expect(artifactsSnapshot()).not.toBe(before);
   });
 
+  it('writes through to storage on every change, not on unload', () => {
+    // A desktop app is closed by killing its window, and `beforeunload` is the
+    // handler that does not run when it matters.
+    recordArtifact(activity({ subject: 'persisted' }));
+    const raw = localStorage.getItem('feral-call-artifacts');
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw!)[0].subject).toBe('persisted');
+    clearArtifacts();
+    expect(JSON.parse(localStorage.getItem('feral-call-artifacts')!)).toEqual([]);
+  });
+
   it('notifies subscribers on write and on clear', () => {
     let calls = 0;
     const off = subscribeArtifacts(() => { calls += 1; });

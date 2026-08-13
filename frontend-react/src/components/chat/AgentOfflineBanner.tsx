@@ -11,6 +11,35 @@ import { useFeralStore } from '@/stores/feral';
 export function AgentOfflineBanner() {
   const offline = useFeralStore((s) => s.offline);
   const restarting = useFeralStore((s) => s.restarting);
+  const isReady = useFeralStore((s) => s.isReady);
+
+  /**
+   * The sidecar takes 40–70 seconds to announce itself, and the window is
+   * interactive long before that. Nothing covered the gap: `offline` is false
+   * because it has not exited, `isReady` is false because it has not arrived,
+   * and the banner showed neither — so anything the user tried in that window
+   * failed with "feral-agent is not running", which is true and reads as
+   * broken when the truth is "not yet".
+   *
+   * They are different states and deserve different words. This one is the
+   * only one that resolves on its own.
+   */
+  if (!offline && !isReady) {
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 border-b border-border-subtle bg-bg-elevated px-4 py-2 text-xs text-text-secondary"
+      >
+        <Loader2 size={13} className="shrink-0 animate-spin text-brand" />
+        <span>
+          Feral Agent is starting — it loads its memory first, which takes a
+          moment on a large workspace. Messages sent now will fail until it
+          is up.
+        </span>
+      </div>
+    );
+  }
+
   if (!offline) return null;
 
   return (

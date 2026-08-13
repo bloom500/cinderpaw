@@ -12,17 +12,55 @@ import type { ToolActivity } from '@/hooks/useLiveToolActivity';
  * Deliberately outside React, like `feralLiveSession`: this has to outlive the
  * overlay that produced it, and a hook's state does not survive hanging up.
  *
- * ponytail: memory only. Artefacts vanish on restart, which is the honest limit
- * of this version — surviving that needs somewhere on disk to put them, and
- * that is the same missing piece as the call's post-turn memory. Wire both at
- * once when it comes.
+ * They survive a restart too, because the point was always to come back to a
+ * page days later and an in-memory drawer cannot do that.
+ *
+ * ponytail: `localStorage`, not a file or a table. These are titles and URLs —
+ * a few kilobytes at the cap — and the app already keeps its UI state there, so
+ * this adds a key rather than a storage layer. Move it to disk when someone
+ * wants artefacts shared between machines, which is a different feature.
  */
 
 /** How many are kept. Old enough to have scrolled past, few enough to stay a
  *  drawer rather than a database. */
 const MAX = 40;
 
-let artifacts: ToolActivity[] = [];
+const KEY = 'feral-call-artifacts';
+
+/**
+ * Read what previous sessions left.
+ *
+ * Everything here is defensive on purpose: the stored shape is last week's
+ * version of a type that keeps changing, and a call overlay that throws on
+ * startup because an old record is missing a field is a far worse bug than a
+ * drawer that came back empty.
+ */
+function load(): ToolActivity[] {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((a): a is ToolActivity => !!a && typeof a === 'object' && 'tool' in a)
+      .slice(0, MAX)
+      // Fields added after something was written come back undefined, and every
+      // consumer indexes them without checking. Filled in here, once, rather
+      // than guarded at each of the six places that read them.
+      .map((a) => ({
+        ...a,
+        hits: a.hits ?? [],
+        files: a.files ?? [],
+        facts: a.facts ?? [],
+        output: a.output ?? '',
+        cwd: a.cwd ?? '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+let artifacts: ToolActivity[] = load();
 const listeners = new Set<() => void>();
 
 /**
@@ -34,6 +72,15 @@ const listeners = new Set<() => void>();
  */
 function commit(next: ToolActivity[]): void {
   artifacts = next;
+  // Written synchronously with the change rather than on unload: a desktop app
+  // is closed by killing the window, and `beforeunload` is the handler that does
+  // not run when it matters. At this size the write is cheaper than the risk.
+  try {
+    localStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    // Quota, private mode, a disabled store — the drawer still works for this
+    // session, and losing persistence must never break the call it belongs to.
+  }
   for (const fn of listeners) fn();
 }
 
