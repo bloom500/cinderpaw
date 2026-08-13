@@ -31,7 +31,15 @@ const KEY_PROVIDER: &str = "google";
 /// `NON_BLOCKING` calls are a 2.5-native-audio feature. For a call that runs
 /// tools the newer model is the weaker one, so this is the default until
 /// measured otherwise.
-const DEFAULT_MODEL: &str = "gemini-2.5-flash-live-preview";
+///
+/// **Copy this string, never compose it.** The first version here was
+/// `gemini-2.5-flash-live-preview`, assembled from the way the 3.x id is spelled,
+/// and no such model exists. A live setup naming an unknown model is not
+/// answered with an error — the server drops the socket, which surfaces as
+/// rustls reporting a TLS stream that ended without `close_notify`. So the whole
+/// failure reads as a network fault and points nowhere near the typo. The two
+/// real ids are `gemini-3.1-flash-live-preview` and this one.
+const DEFAULT_MODEL: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
 
 /// One call at a time — you cannot be in two conversations at once, and a map
 /// keyed by session would imply otherwise.
@@ -178,7 +186,12 @@ mod tests {
         // Guards a plausible "upgrade" to a newer live model, which would
         // silently downgrade function calling to sequential-only.
         assert!(DEFAULT_MODEL.contains("2.5"), "see the comment above DEFAULT_MODEL");
-        assert!(DEFAULT_MODEL.contains("live"));
+        // `native-audio`, not `live`. The earlier version of this assertion
+        // demanded the substring "live" — which the real 2.5 id does not carry —
+        // and so it PASSED for an id that does not exist while it would have
+        // failed for the correct one. A guard that only accepts a typo is worse
+        // than no guard.
+        assert!(DEFAULT_MODEL.contains("native-audio"), "see the comment above DEFAULT_MODEL");
     }
 
     #[test]

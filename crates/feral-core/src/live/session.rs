@@ -23,6 +23,14 @@ use super::{
 /// surfaces as an error instead of a call that never starts.
 const SETUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// What a session that dies during setup almost always means.
+///
+/// The model id is named first because it is the one that fails silently: a key
+/// this far along has already passed the HTTP handshake, so it is rarely the
+/// cause by the time the socket is open and the setup has gone out.
+const REJECTED: &str =
+    "live: the server rejected the session — check the model id, then the API key";
+
 /// What the runtime hears from the model.
 #[derive(Debug, Clone)]
 pub enum LiveEvent {
@@ -113,8 +121,26 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
     // id waits forever with the microphone open.
     let accepted = tokio::time::timeout(SETUP_TIMEOUT, async {
         while let Some(frame) = read.next().await {
-            let frame =
-                frame.map_err(|e| anyhow!("live: {}", redact(&e.to_string(), &key)))?;
+            // A setup the server will not accept is not answered — the socket is
+            // simply dropped, and the transport reports whatever it saw, which
+            // for TLS is a stream that ended without `close_notify`. Passed
+            // through verbatim that reads as a network fault and sends whoever
+            // is debugging it to the wrong layer entirely. The cause is on this
+            // side of the wire every time, so the message says so and keeps the
+            // transport detail after it.
+            let frame = frame.map_err(|e| anyhow!("{REJECTED}: {}", redact(&e.to_string(), &key)))?;
+            // The server says WHY here, and nowhere else. This arm was missing,
+            // and its absence cost an afternoon: a refused session was reported
+            // as a truncated TLS stream — true, useless, and pointing at the
+            // network — while the close frame sitting one match arm away read
+            // "Your prepayment credits are depleted". Never guess when the peer
+            // has already answered.
+            if let Message::Close(reason) = &frame {
+                return Err(match reason {
+                    Some(c) => anyhow!("live: {}", redact(&c.reason, &key)),
+                    None => anyhow!("{REJECTED}"),
+                });
+            }
             if let Some(msg) = parse(&frame) {
                 if msg.setup_complete.is_some() {
                     return Ok(());
@@ -128,7 +154,7 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                 }
             }
         }
-        Err(anyhow!("live: the socket closed before setup was accepted"))
+        Err(anyhow!("{REJECTED}: the socket closed before setup was accepted"))
     })
     .await;
     match accepted {
@@ -149,6 +175,15 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                 match read.next().await {
                     None => break "closed".to_string(),
                     Some(Err(e)) => break redact(&e.to_string(), &key),
+                    // Same reason as during setup: a call dropped mid-conversation
+                    // (quota spent, session length exceeded) is explained in the
+                    // close frame and nowhere else.
+                    Some(Ok(Message::Close(reason))) => {
+                        break match reason {
+                            Some(c) => redact(&c.reason, &key),
+                            None => "closed".to_string(),
+                        }
+                    }
                     Some(Ok(frame)) => {
                         let Some(msg) = parse(&frame) else { continue };
                         // A send failure means the caller stopped listening —
@@ -315,5 +350,134 @@ mod tests {
         assert!(parse(&Message::Ping(vec![].into())).is_none());
         assert!(parse(&Message::Text("not json".into())).is_none());
         assert!(parse(&Message::Text(r#"{"setupComplete":{}}"#.into())).is_some());
+    }
+
+    /// Ask the API what it will accept, instead of guessing at it.
+    ///
+    /// Two model ids read out of the documentation were both refused, and the
+    /// refusal carries no information — the server drops the socket and the
+    /// transport reports a truncated TLS stream. Guessing a third time is how an
+    /// afternoon disappears. This asks the two questions directly: which models
+    /// this key can open a bidirectional session with, and which PART of the
+    /// setup the server objects to, by sending progressively more of it.
+    ///
+    /// Reads the key from the OS keychain, so it never has to be pasted anywhere.
+    /// Ignored by default: it opens real sockets.
+    ///
+    ///     cargo test -p feral-core --lib probe_what_the_live_api_accepts \
+    ///       -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "hits the live API with the stored Google key"]
+    async fn probe_what_the_live_api_accepts() {
+        let key = crate::byok::byok_get("google").expect("no `google` key in the keychain");
+
+        // 1. Ground truth on ids. `bidiGenerateContent` is the method a live
+        //    session needs; anything without it cannot be called at all.
+        let list: serde_json::Value = reqwest::Client::new()
+            .get(format!(
+                "https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=1000"
+            ))
+            .send()
+            .await
+            .expect("models list")
+            .json()
+            .await
+            .expect("models list json");
+        let empty = Vec::new();
+        let live_models: Vec<String> = list["models"]
+            .as_array()
+            .unwrap_or(&empty)
+            .iter()
+            .filter(|m| {
+                m["supportedGenerationMethods"]
+                    .as_array()
+                    .is_some_and(|ms| ms.iter().any(|v| v == "bidiGenerateContent"))
+            })
+            .map(|m| m["name"].as_str().unwrap_or_default().to_string())
+            .collect();
+        println!("\n=== models this key can open a live session with ===");
+        for m in &live_models {
+            println!("  {m}");
+        }
+        assert!(!live_models.is_empty(), "this key sees no live-capable model at all");
+
+        // 2. Which part of the setup is refused, on the first id that works.
+        //    Sent smallest first, so the first failure names the culprit.
+        for model in &live_models {
+            println!("\n=== {model} ===");
+            let bare = Setup::spoken(model, Vec::new());
+            let mut no_transcripts = bare.clone();
+            no_transcripts.input_audio_transcription = None;
+            no_transcripts.output_audio_transcription = None;
+
+            for (label, setup) in [
+                ("audio only", no_transcripts),
+                ("+ transcripts", bare.clone()),
+                ("+ system instruction", bare.clone().with_system_instruction("Say hello.")),
+                ("+ tools (what the app sends)", Setup::spoken(model, super::super::bridge::declarations())),
+            ] {
+                match try_setup(&key, setup).await {
+                    Ok(()) => println!("  {label}: ACCEPTED"),
+                    Err(e) => {
+                        println!("  {label}: REFUSED — {e}");
+                        break; // everything after this is more of the same
+                    }
+                }
+            }
+        }
+    }
+
+    /// Open a socket, send one setup, report what came back.
+    ///
+    /// Prints every frame verbatim, including the close frame — which is the
+    /// thing production drops on the floor. If the server explains itself at all,
+    /// it does it there.
+    #[cfg(test)]
+    async fn try_setup(key: &str, setup: Setup) -> Result<(), String> {
+        let url = format!("{LIVE_WS_URL}?key={key}");
+        let (stream, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .map_err(|e| format!("handshake: {}", redact(&e.to_string(), key)))?;
+        let (mut write, mut read) = stream.split();
+        let json = serde_json::to_string(&ClientMessage::Setup(setup)).unwrap();
+        write
+            .send(Message::Text(json.into()))
+            .await
+            .map_err(|e| format!("send: {}", redact(&e.to_string(), key)))?;
+
+        let waited = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            while let Some(frame) = read.next().await {
+                match frame {
+                    Err(e) => return Err(format!("io: {}", redact(&e.to_string(), key))),
+                    Ok(Message::Close(reason)) => {
+                        return Err(match reason {
+                            Some(c) => format!("close {} {}", c.code, c.reason),
+                            None => "close, no reason given".to_string(),
+                        })
+                    }
+                    Ok(Message::Text(t)) => {
+                        println!("    frame: {t}");
+                        if parse(&Message::Text(t)).is_some_and(|m| m.setup_complete.is_some()) {
+                            return Ok(());
+                        }
+                    }
+                    Ok(Message::Binary(b)) => {
+                        // The Live API answers over binary frames as often as text.
+                        let text = String::from_utf8_lossy(&b).to_string();
+                        println!("    binary frame: {}", &text[..text.len().min(400)]);
+                        if parse(&Message::Binary(b)).is_some_and(|m| m.setup_complete.is_some()) {
+                            return Ok(());
+                        }
+                    }
+                    Ok(_) => {}
+                }
+            }
+            Err("socket ended with no setupComplete".to_string())
+        })
+        .await;
+        match waited {
+            Err(_) => Err("timed out".to_string()),
+            Ok(r) => r,
+        }
     }
 }
