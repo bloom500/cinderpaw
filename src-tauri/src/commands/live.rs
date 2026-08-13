@@ -175,13 +175,12 @@ fn emit_status(app: &AppHandle, session_id: &str, event: CoreEvent) {
     // The CADENCE of the input transcript, which is the only way to tell a
     // server that sends rare fat chunks from a UI that drops thin ones. The
     // screen shows the same words either way; the timestamps do not.
-    // `info` rather than `debug` because the default filter is `info` and a
-    // diagnostic nobody can see without restarting the app with an env var is a
-    // diagnostic that does not exist. A handful of lines per utterance, only
-    // while a call is open. Drop it to `debug` once the cadence question is
-    // settled.
+    // Answered, and so demoted: measured 13 Aug, the server sends 1–6 characters
+    // every 130–200 ms, which is exactly the cadence live typing needs. Whatever
+    // makes it look choppy is downstream of here, so this is `debug` — at `info`
+    // it is one line per two characters for the whole call.
     if let CoreEvent::InputTranscript(t) = &event {
-        tracing::info!(chars = t.len(), text = %t, "live: input transcript piece");
+        tracing::debug!(chars = t.len(), text = %t, "live: input transcript piece");
     }
     let (kind, text) = match event {
         CoreEvent::Interrupted => ("interrupted", String::new()),
