@@ -79,6 +79,14 @@ const VOICE_SURFACE_BRIEF = [
   "answering. If it will take a moment, say so in one short line first ('let me look')",
   "and then report what you found. Being brief is about the words, never about doing less.",
   "",
+  // Said out loud because the two voice surfaces disagreed without it: the Live
+  // engine's briefing carries this rule and the pipeline's did not. It is
+  // usually redundant — a model answers in the language of the text it is given
+  // — which is exactly why it was never missed: while the transcriber was
+  // latched to one language, the agent was replying correctly to what it saw.
+  // With detection free again, this is what keeps a switch mid-call from being
+  // answered in the previous language.
+  "- Answer in the language the person spoke to you in, whatever it is, and switch when they do.",
   "- Two or three sentences. If the full answer is longer, say the short version and offer the rest.",
   "- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.",
   "- No preamble and no summary of what you are about to say — just say it.",
