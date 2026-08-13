@@ -529,10 +529,13 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             filler = window.setInterval(() => {
               if (desynced || callRef.current !== call) return;
               const quietFor = Date.now() - lastOut;
-              // The opening gap is short — silence right after a question is the
-              // most alarming kind. Once something has been said, the bar rises,
-              // because chattering over a reply in progress is its own defect.
-              const allowed = spoken ? FILLER_EVERY_MS : FILLER_AFTER_MS;
+              // Short for the FIRST line only. Keying this on `spoken` instead
+              // was wrong in a way that only sounds wrong: "nothing said yet"
+              // stays true for the whole pre-answer wait, so the short gap
+              // re-applied every time and the call produced five reassurances in
+              // twelve seconds. Silence right after a question is the alarming
+              // kind and deserves a fast answer; everything after it is spacing.
+              const allowed = saidFillers === 0 ? FILLER_AFTER_MS : FILLER_EVERY_MS;
               if (quietFor < allowed) return;
               lastOut = Date.now();
               const line = fillerLine(saidFillers++);
