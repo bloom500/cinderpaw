@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { events } from '@/lib/tauri/events';
+import { recordArtifact } from '@/lib/callArtifacts';
 
 /**
  * What Feral is doing right now, as the call hears about it.
@@ -303,9 +304,9 @@ export function useLiveToolActivity(enabled: boolean) {
           const res = line.result as { ok?: boolean; content?: string } | null;
           const ok = res?.ok !== false;
           setActivity((prev) =>
-            prev.map((a) =>
-              a.tool === tool && a.status === 'running'
-                ? {
+            prev.map((a) => {
+              if (!(a.tool === tool && a.status === 'running')) return a;
+              const done: ToolActivity = {
                     ...a,
                     status: ok ? ('done' as const) : ('failed' as const),
                     endedAt: Date.now(),
@@ -320,9 +321,13 @@ export function useLiveToolActivity(enabled: boolean) {
                     // that failed and a search that found nothing look identical
                     // otherwise — and one of them is a bug.
                     error: ok ? null : (res?.content ?? 'failed').slice(0, 120),
-                  }
-                : a,
-            ),
+              };
+              // Filed here rather than in the sweep that ages rows out: this is
+              // the one moment the full result exists, and the row that leaves
+              // the screen six seconds later is a copy with nothing added.
+              recordArtifact(done);
+              return done;
+            }),
           );
         }
       })

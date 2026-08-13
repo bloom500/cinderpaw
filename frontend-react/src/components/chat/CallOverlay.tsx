@@ -1,10 +1,13 @@
 // Aliased: the bare name would shadow the DOM `KeyboardEvent` that the Escape
 // listener below is typed against.
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import {
+  useEffect, useRef, useState, useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   Mic, MicOff, Phone, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
-  AudioLines, ChevronDown,
+  AudioLines, ChevronDown, Archive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +24,9 @@ import {
 import { preferredVoice, shortlistVoices } from '@/lib/voices';
 import { MessageItem } from './MessageItem';
 import { CallToolScreen } from './CallToolScreen';
+import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
+import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
 import { tauri, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
@@ -84,6 +89,10 @@ export function CallOverlay({
 }) {
   const t = useT();
   const [chatOpen, setChatOpen] = useState(false);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  // Only offered once there is something in it. A drawer that opens on an empty
+  // list teaches the user it is empty, and they stop opening it.
+  const artifactCount = useSyncExternalStore(subscribeArtifacts, artifactsSnapshot).length;
   const sttProvider = useUI((s) => s.sttProvider);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const callEngine = useUI((s) => s.callEngine);
@@ -376,6 +385,21 @@ export function CallOverlay({
 
         {/* The way back to text, for what dictation mangles — a URL, a name, an
             error string. Closed by default so the call stays a call. */}
+        {/* The sources, kept. Sits above the chat button and appears only once
+            a lookup has produced something to return to. */}
+        {artifactCount > 0 && !artifactsOpen && (
+          <button
+            type="button"
+            onClick={() => setArtifactsOpen(true)}
+            aria-label={t('call.artifacts')}
+            title={t('call.artifacts')}
+            className="absolute bottom-24 right-6 flex items-center gap-1.5 rounded-full border border-border-default bg-bg-elevated px-3 py-2 text-xs text-text-secondary shadow-lg transition-colors hover:border-brand hover:text-brand"
+          >
+            <Archive size={15} />
+            {artifactCount}
+          </button>
+        )}
+
         {phase !== 'ready' && !chatOpen && onSay && (
           <button
             type="button"
@@ -389,6 +413,7 @@ export function CallOverlay({
         )}
       </div>
 
+      {artifactsOpen && <CallArtifacts onClose={() => setArtifactsOpen(false)} />}
       {chatOpen && onSay && <CallChatPanel onClose={() => setChatOpen(false)} onSay={onSay} />}
     </div>,
     document.body,

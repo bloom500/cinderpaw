@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { open } from '@tauri-apps/plugin-shell';
 import {
   Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
   ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus,
@@ -80,7 +81,10 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
   const running = a.status === 'running';
 
   return (
-    <div className="tw-rise overflow-hidden rounded-xl border border-border-default bg-bg-surface/95 shadow-2xl backdrop-blur">
+    // `pointer-events-auto` against the container's `none`: the panel must not
+    // swallow clicks meant for the call behind it, but a result title has to be
+    // clickable or it is a screenshot of a link.
+    <div className="tw-rise pointer-events-auto overflow-hidden rounded-xl border border-border-default bg-bg-surface/95 shadow-2xl backdrop-blur">
       {/* The browser gets a real window's head — traffic lights and a tab —
           because that is the part a viewer recognises before reading anything.
           Every other kind keeps the plain strip: a terminal draws its own tab
@@ -263,13 +267,18 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
                 </span>
               </div>
               {/* Link blue, because that is the colour a result title is in
-                  every browser anyone has used. */}
-              <p
-                className="mt-0.5 truncate text-[12px] leading-snug text-[#8ab4f8]"
-                title={h.title}
+                  every browser anyone has used — and clickable, because a
+                  result you cannot open is a screenshot. `open` hands the URL
+                  to the OS browser: the webview navigating away would take the
+                  call with it. */}
+              <button
+                type="button"
+                onClick={() => void open(h.url)}
+                title={h.url}
+                className="mt-0.5 block w-full truncate text-left text-[12px] leading-snug text-[#8ab4f8] hover:underline"
               >
                 {h.title}
-              </p>
+              </button>
               {h.snippet && (
                 <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-text-muted">
                   {h.snippet}
