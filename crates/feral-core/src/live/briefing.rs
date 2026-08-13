@@ -38,6 +38,15 @@ const SPOKEN_RULES: &[&str] = &[
     "Never use markdown, lists, headings, code blocks or emoji — every character you produce is read aloud.",
     "Speak the language the user speaks to you in.",
     "This changes how you SPEAK, not what you DO. Use your tools exactly as you otherwise would, and say what you are doing while you do it.",
+    // Measured on the first working call: `ask_feral` took 100 seconds, and the
+    // model stayed silent for all of it. It was NOT blocked — asked "are you
+    // still searching?" it answered immediately and correctly — so the session
+    // was alive the whole time and simply had nothing to say. A caller cannot
+    // tell that apart from a dead line, and a hundred seconds of it reads as
+    // broken. Speaking is therefore made an instruction rather than left to
+    // judgement: before the call, so the silence never starts, and during it,
+    // because a hundred seconds is far too long for one "one moment".
+    "Before you call ask_feral, say out loud that you are looking it up — one short sentence, then make the call. While you wait, keep the line warm: say something every ten or fifteen seconds, and answer anything the user says in the meantime. Never let the call go quiet for more than about fifteen seconds.",
 ];
 
 /// Compose the setup message's system instruction.
@@ -68,6 +77,16 @@ fn non_empty(field: &Option<String>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_call_is_told_not_to_go_quiet() {
+        // A hundred seconds of measured silence is what put this line in. The
+        // session was alive throughout — it answered when spoken to — so nothing
+        // in the protocol will bring this back if the instruction is trimmed.
+        let text = system_instruction(&Briefing::default());
+        assert!(text.contains("ask_feral"), "the model is no longer told to announce the lookup");
+        assert!(text.contains("quiet"), "the keep-talking instruction was dropped");
+    }
 
     #[test]
     fn the_tools_line_is_always_there() {
