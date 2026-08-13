@@ -854,7 +854,13 @@ function CallChatPanel({ onClose, onSay }: { onClose: () => void; onSay: (text: 
             onKeyDown={onKeyDown}
             placeholder={t('call.chatPlaceholder')}
             rows={1}
-            className="max-h-32 resize-none text-sm"
+            // Its own colour, explicitly. `Textarea` declares none and inherits,
+            // which is fine in the chat page and wrong inside this portal: the
+            // overlay's ancestry gave typed text the brand orange, so what the
+            // user was writing came out looking like a link rather than like
+            // their own words. An input that depends on where it is mounted for
+            // whether it is readable is a bug waiting for the next portal.
+            className="max-h-32 resize-none text-sm text-text-primary placeholder:text-text-muted"
           />
           <Button size="icon" onClick={submit} disabled={!text.trim()} aria-label={t('chat.send')} className="h-8 w-8 shrink-0">
             <ArrowUp size={13} />
