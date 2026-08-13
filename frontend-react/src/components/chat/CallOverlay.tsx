@@ -767,12 +767,18 @@ function EngineLine({
     <span className="flex items-center gap-2">
       <span className="text-text-muted">{label}</span>
       <span className="text-text-secondary">{name}</span>
+      {/* A border as well as a fill, and a foreground picked per theme rather
+          than shared with the base palette. This badge is the one line on the
+          pre-call screen that tells the user their voice leaves the machine, and
+          at 10px the shared `--warning` gives about 2.9:1 on cream — readable
+          only if you already know what it says. A tinted fill with no edge also
+          vanishes on a light background; the edge is what keeps it a badge. */}
       <span
         className={cn(
-          'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+          'flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium',
           local
-            ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
-            : 'bg-[color-mix(in_srgb,var(--warning)_15%,transparent)] text-[var(--warning)]',
+            ? 'border-[var(--badge-ok-br)] bg-[var(--badge-ok-bg)] text-[var(--badge-ok-fg)]'
+            : 'border-[var(--badge-warn-br)] bg-[var(--badge-warn-bg)] text-[var(--badge-warn-fg)]',
         )}
       >
         {local ? <Laptop size={10} /> : <Cloud size={10} />}

@@ -274,19 +274,33 @@ body { overflow: hidden; }
   .word-fade { animation: none; }
 }
 
-/* The colour a search result's title is in, per theme.
-   `#8ab4f8` is the dark-mode link blue and lands at roughly 2:1 on white, which
-   is below any readable threshold — the widgets were built dark-first and this
-   was the one place that broke rather than merely looked off. Declared as a
-   variable so the rule lives here with its light counterpart instead of being
-   a hex buried in a component that only one theme ever sees. */
-:root { --result-link: #1a5fd0; }
-:root:not([data-theme="light"]) { --result-link: #8ab4f8; }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) { --result-link: #1a5fd0; }
+/* Call-surface colours that the base palette has no entry for, per theme and in
+   this file's own convention — the store always stamps `data-theme`, so there is
+   no bare-root case to cover.
+
+   All of them exist because the call UI was built dark-first and these are the
+   places where that produced unreadable text rather than merely a different
+   look. The badges matter most: they are 10px, which is the size where WCAG
+   wants 4.5:1 and where `--warning` at #B8862A on cream delivers about 2.9:1 —
+   so light gets its own darker foreground rather than the shared token. */
+:root[data-theme="dark"] {
+  --result-link:    #8AB4F8;
+  --badge-warn-fg:  #E0A94A;
+  --badge-warn-bg:  rgba(212, 160, 58, 0.16);
+  --badge-warn-br:  rgba(212, 160, 58, 0.35);
+  --badge-ok-fg:    #7FBF6A;
+  --badge-ok-bg:    rgba(106, 158, 90, 0.16);
+  --badge-ok-br:    rgba(106, 158, 90, 0.35);
 }
-[data-theme="dark"]  { --result-link: #8ab4f8; }
-[data-theme="light"] { --result-link: #1a5fd0; }
+:root[data-theme="light"] {
+  --result-link:    #1A5FD0;
+  --badge-warn-fg:  #7A4E0B;
+  --badge-warn-bg:  #FBEBCF;
+  --badge-warn-br:  #E3C48A;
+  --badge-ok-fg:    #2C6234;
+  --badge-ok-bg:    #DCEEDD;
+  --badge-ok-br:    #A9CFAE;
+}
 
 /* ── Call telemetry widgets ──────────────────────────────────────────────
    The panel that shows what Feral is doing during a voice call. Motion here
