@@ -93,6 +93,9 @@ async fn pump(
     commands: mpsc::Sender<LiveCommand>,
     mut events_rx: mpsc::Receiver<CoreEvent>,
 ) {
+    // The turn being spoken, from both sides, until the model says it is done.
+    let mut heard = String::new();
+    let mut said = String::new();
     while let Some(event) = events_rx.recv().await {
         match event {
             CoreEvent::Audio(pcm) => {
@@ -198,9 +201,63 @@ async fn pump(
                 // fetches. This arm exists so a tool with side effects cannot be
                 // added later without someone reading this comment.
             }
+            // Both transcripts accumulate until the model finishes, then the
+            // pair is filed as one turn.
+            //
+            // This is the whole of a Live call's memory. Gemini conducts the
+            // conversation, so nothing here ever passes through the agent loop —
+            // and without this the call left no trace at all: ten minutes of
+            // talk, hung up, and the session had never heard of it. The next
+            // call opened blind and `recall` could not find a word of it.
+            //
+            // Filed per TURN rather than at hang-up, because a call that crashes
+            // or drops has still happened, and a record written only at the end
+            // is the one that is never written.
+            CoreEvent::InputTranscript(ref t) => {
+                heard.push_str(t);
+                emit_status(&app, &session_id, event);
+            }
+            CoreEvent::OutputTranscript(ref t) => {
+                said.push_str(t);
+                emit_status(&app, &session_id, event);
+            }
+            CoreEvent::TurnComplete => {
+                let turn = (std::mem::take(&mut heard), std::mem::take(&mut said));
+                if !turn.0.trim().is_empty() || !turn.1.trim().is_empty() {
+                    let state = app.state::<AppState>();
+                    record_turn(&state.runtime, &session_id, &turn.0, &turn.1);
+                }
+                emit_status(&app, &session_id, CoreEvent::TurnComplete);
+            }
             other => emit_status(&app, &session_id, other),
         }
     }
+}
+
+/// Hand one spoken exchange to the agent's memory, without asking for a reply.
+///
+/// Fire and forget: the sidecar either takes it or it does not, and a memory
+/// write must never be able to interrupt a call in progress. A failure here
+/// costs the record of one turn; blocking the pump on it would cost the audio.
+fn record_turn(
+    runtime: &std::sync::Arc<feral_core::runtime::RuntimeState>,
+    session_id: &str,
+    user: &str,
+    assistant: &str,
+) {
+    let Some(tx) = runtime.feral_agent_tx.lock().as_ref().cloned() else { return };
+    let line = serde_json::json!({
+        "type": "record_turn",
+        "sessionId": session_id,
+        "content": user,
+        "assistantContent": assistant,
+    })
+    .to_string();
+    tokio::spawn(async move {
+        if tx.send(line).await.is_err() {
+            tracing::warn!("live: could not file the turn — the sidecar stopped listening");
+        }
+    });
 }
 
 fn emit_status(app: &AppHandle, session_id: &str, event: CoreEvent) {

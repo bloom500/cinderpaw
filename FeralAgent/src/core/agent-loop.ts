@@ -862,6 +862,63 @@ export class AgentLoop {
    *
    * Safe to call when no generation is in flight (no-op).
    */
+  /**
+   * File an exchange that happened somewhere else, without answering it.
+   *
+   * A speech-to-speech call is conducted by Gemini, not by this loop: by the
+   * time it ends, the user has been heard and answered, and both halves exist
+   * only as the transcripts the far end produced. Sending them through
+   * `handleTurn` would make the agent reply to a question already answered —
+   * so the memory writes are separated from the thinking, and this does only
+   * the writes.
+   *
+   * It is the difference between a call that leaves a trace and one that never
+   * happened. Ten minutes of conversation, closed, and nothing in the session:
+   * the next call opens knowing nothing, and `recall` cannot find a word of it.
+   *
+   * Takes the session lock like a real turn, because the same session can be
+   * typed in while a call runs, and interleaving two writers into one
+   * WorkingMemory reorders the conversation.
+   */
+  async recordTurn(sessionId: string, userText: string, assistantText: string): Promise<void> {
+    const user = userText.trim();
+    const assistant = assistantText.trim();
+    // Nothing to file is not an error: a call can end after a greeting with no
+    // transcript worth keeping, and an empty pair would be a turn that reads as
+    // the agent having said nothing when asked nothing.
+    if (!user && !assistant) return;
+
+    const prev = this.#sessionLocks.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    this.#sessionLocks.set(sessionId, new Promise<void>((resolve) => { release = resolve; }));
+    try {
+      await prev.catch(() => undefined);
+      const memory = this.#memoryFor(sessionId);
+      if (user) {
+        memory.addUser(user);
+        // The same two side effects a lived turn has: the resume row, so
+        // "what was I doing" knows about the call, and the episodic write that
+        // `recall` and the fractal tree read from. Skipping either would leave
+        // the turn visible on screen and invisible to memory, which is the
+        // worse half of not recording it at all.
+        if (isReplayableSession(sessionId) && !this.#profileFor(sessionId)) {
+          this.#onUserTurn?.(sessionId, user);
+        }
+        const ts = Date.now();
+        const leaf = this.#episodic.record(sessionId, "user", user);
+        if (leaf !== null) this.#recall?.noteWrite?.({ id: leaf, sessionId, ts });
+      }
+      if (assistant) {
+        memory.addAssistant(assistant);
+        const ts = Date.now();
+        const leaf = this.#episodic.record(sessionId, "assistant", assistant);
+        if (leaf !== null) this.#recall?.noteWrite?.({ id: leaf, sessionId, ts });
+      }
+    } finally {
+      release();
+    }
+  }
+
   stop(sessionId: string): void {
     // Latch the stop on the session context FIRST. Aborting is edge-triggered:
     // the router deletes a session's controller once its call settles, so

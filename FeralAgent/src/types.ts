@@ -1064,7 +1064,12 @@ export interface SkillMeta {
 
 /** Inbound message envelope from any transport. */
 export interface InboundMessage {
-  type: "message" | "ping" | "shutdown" | "set_model" | "stop"
+  // `record_turn` files an exchange that happened elsewhere without answering
+  // it. A speech-to-speech call is conducted by Gemini, so by the time it ends
+  // the user has already been heard and answered; `message` would make the
+  // agent reply to a question that is already answered, which is why this is a
+  // type of its own rather than a flag on that one.
+  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
     | "desktop_control_response" | "connectors_reload"
@@ -1153,6 +1158,10 @@ export interface InboundMessage {
   id?: string;
 
   content?: string;
+  /** `record_turn` only: what the agent said back. `content` carries what the
+   *  user said, so the pair travels in one message and cannot be split by a
+   *  crash between two. */
+  assistantContent?: string;
   sessionId?: string;
   /** RSI start payload (type === "rsi_start"). */
   rsiGoal?: string;

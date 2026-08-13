@@ -126,7 +126,11 @@ Rust-side vars (`FERAL_ENABLE_CODE_EXEC`, `FERAL_AGENT_WORKSPACE`,
 `FERAL_DESKTOP_CONTROL_ALLOWED_APPS`'s host-side enforcement,
 `FERAL_MAX_LOCAL_CONTEXTS`, `FERAL_MODEL_WAIT_MS`, `FERAL_FORCE_SIDECAR_BUILD`,
 `FERAL_SKIP_SIDECAR_BUILD`, `FERAL_SMOKE_GGUF`, `FERAL_FMS_BENCH`, `FERAL_E2E`,
-`FERAL_DISCORD_CLIENT_ID`, and others in `crates/feral-core` / `src-tauri/src`)
+`FERAL_DISCORD_CLIENT_ID`, `FERAL_STT_PROBE` (a `.webm` path for the ignored
+`probe_whisper_prompt` test, which re-transcribes one stored recording with and
+without the vocabulary prompt — the open question of why English speech
+occasionally comes back as fluent Romanian), and others in `crates/feral-core` /
+`src-tauri/src`)
 are NOT read by `FeralAgent/src` and so are out of scope for `config.ts`;
 they remain hand-maintained here and are still covered by
 `scripts/check-env-docs.mjs`'s full-source drift check.
@@ -391,6 +395,7 @@ FERAL_SHELL_PATH_EXTRA
 FERAL_SHELL_WHITELIST
 FERAL_SMOKE_GGUF
 FERAL_STALL_MS
+FERAL_STT_PROBE
 FERAL_SUBAGENT_MAX_SUMMARY_CHARS
 FERAL_SUMMARY_EXCERPT_CHARS
 FERAL_THOUGHTS_COOLDOWN_MS

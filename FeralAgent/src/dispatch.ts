@@ -1100,6 +1100,18 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      // A call that Gemini conducted, filed after the fact. No reply is
+      // generated and no event is emitted beyond the ack: the user already
+      // heard the answer, live, and the only thing missing was the record.
+      case "record_turn": {
+        await agent.recordTurn(
+          msg.sessionId ?? "default",
+          msg.content ?? "",
+          msg.assistantContent ?? "",
+        );
+        break;
+      }
+
       case "message": {
         const id = msg.id ?? crypto.randomUUID();
         const sessionId = msg.sessionId ?? "default";
