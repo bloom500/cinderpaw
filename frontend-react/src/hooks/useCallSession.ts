@@ -322,6 +322,19 @@ export function useCallSession(send: (text: string) => Promise<void>) {
   const runTurns = useCallback(
     async (call: number) => {
       while (callRef.current === call) {
+        /**
+         * Where a turn's seconds actually go.
+         *
+         * The loop logged char counts and statuses and not one duration, so
+         * "it feels slow" had no answer — and the numbers on record (STT 0.4s,
+         * TTS 2s, model 25s) were measured on a different provider and are not
+         * evidence about this one. Four marks, one line at the end of the turn:
+         * anything else is guessing which third to optimise.
+         */
+        let sttStartedAt = 0;
+        let sttMs = 0;
+        let sentAt = 0;
+        let firstSpeechMs = 0;
         try {
           // Typed while the last turn was still running.
           let text = takeTyped();
@@ -335,6 +348,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             text = takeTyped();
             if (!text && blob) {
               setPhase('thinking');
+              sttStartedAt = Date.now();
               // The blob is persisted because cloud STT uploads the saved file.
               // A call turn shows up in the transcript as its text, not as a
               // voice bubble the way the mic button's does.
@@ -342,6 +356,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               // voice bubble here if someone wants to re-listen to a call.
               const audioPath = await saveVoiceBlobToDisk(blob);
               text = (await transcribeVoiceBlob(blob, audioPath)).trim();
+              sttMs = Date.now() - sttStartedAt;
               // Whisper's subtitle boilerplate is not a turn. Passing it on made the
               // agent answer "don't forget to subscribe" as if it had been asked.
               if (isLikelyHallucination(text)) {
@@ -408,6 +423,10 @@ export function useCallSession(send: (text: string) => Promise<void>) {
                 spoken ? SPEAK_CHUNK_CHARS : FIRST_PIECE_CHARS,
               );
               if (!piece) break;
+              // The number that decides whether a call feels alive: how long
+              // between the question landing and the first word going out. The
+              // rest of the reply streams behind it and is not felt.
+              if (!firstSpeechMs && sentAt) firstSpeechMs = Date.now() - sentAt;
               feedSpeech(piece.speak);
               // `spoken` grows by exactly what was fed, including the whitespace
               // `takeSpeakable` trimmed, so the prefix check keeps matching.
@@ -423,6 +442,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           const pending = replyWhenDone();
           const turn = (async () => {
             log('turn', `sending ${text.length} chars`);
+            sentAt = Date.now();
             await sendRef.current(text);
             const status = useChat.getState().streamStatus;
             log('turn', `send returned, streamStatus=${status}`);
@@ -529,6 +549,15 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           } finally {
             stopWatching();
             setLevel(0);
+            // One line, four numbers, at the only moment all of them are known.
+            // `answer` is the whole reply arriving; `firstWord` is what the user
+            // actually experiences as the wait, and the gap between the two is
+            // how much the streaming pump is already hiding.
+            log(
+              'timing',
+              `stt=${sttMs}ms firstWord=${firstSpeechMs || -1}ms ` +
+                `answer=${sentAt ? Date.now() - sentAt : -1}ms turn=${sttStartedAt ? Date.now() - sttStartedAt : -1}ms`,
+            );
           }
         } catch (err) {
           console.error('[call] turn failed', err);
