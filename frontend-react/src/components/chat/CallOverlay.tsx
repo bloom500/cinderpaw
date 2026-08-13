@@ -20,6 +20,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { preferredVoice, shortlistVoices } from '@/lib/voices';
 import { MessageItem } from './MessageItem';
+import { CallToolScreen } from './CallToolScreen';
+import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { tauri, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
@@ -86,6 +88,11 @@ export function CallOverlay({
   const ttsProvider = useUI((s) => s.ttsProvider);
   const callEngine = useUI((s) => s.callEngine);
   const live = callEngine === 'live';
+  // Both call modes end up asking the same agent, and the agent reports its
+  // tools on one channel, so one listener serves both. Only while the call is
+  // actually up — a listener attached at `idle` would collect the tool calls of
+  // whatever the user is doing in the chat behind the overlay.
+  const toolActivity = useLiveToolActivity(phase !== 'idle' && phase !== 'ready');
   const [voice, setVoice] = useState<TtsProviderInfo | null>(null);
   /** Can the chosen engine actually speak? `null` until known — the Call button
    *  must not be blocked by a check that has not answered yet, nor allowed by one
@@ -361,6 +368,11 @@ export function CallOverlay({
             </RoundButton>
           )}
         </div>
+
+        {/* What Feral is doing, while it does it. The one thing that separates a
+            call that is working from one that has hung — and, on a call that
+            runs tools, the only visible evidence the agent is real. */}
+        <CallToolScreen activity={toolActivity} />
 
         {/* The way back to text, for what dictation mangles — a URL, a name, an
             error string. Closed by default so the call stays a call. */}

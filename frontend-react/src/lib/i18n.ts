@@ -110,6 +110,10 @@ const en = {
   'call.liveNoKey': 'No Google API key stored. The same AI Studio key the chat side uses — paste it below.',
   'call.liveClosed': 'The call was dropped. Press call to reconnect.',
   'call.liveConnecting': 'Connecting…',
+  // The work panel — what Feral is doing while the call waits.
+  'call.toolSearching': 'searching…',
+  'call.toolDone': 'done',
+  'call.toolFailed': 'failed',
   // Voice engine picker (first call)
   'engine.title': 'Choose the voice that answers you',
   'engine.subtitle': 'On-device engines keep every spoken reply on this machine. Hosted ones need your own key. You can change this later.',
@@ -216,6 +220,9 @@ const ro: Strings = {
   'call.liveNoKey': 'Nu e salvată nicio cheie Google. E aceeași cheie AI Studio pe care o folosește și chatul — lipește-o mai jos.',
   'call.liveClosed': 'Apelul a căzut. Apasă pe apel ca să reconectezi.',
   'call.liveConnecting': 'Se conectează…',
+  'call.toolSearching': 'caută…',
+  'call.toolDone': 'gata',
+  'call.toolFailed': 'a eșuat',
   'engine.title': 'Alege vocea care îți răspunde',
   'engine.subtitle': 'Motoarele locale țin fiecare replică pe mașina asta. Cele hostate cer cheia ta. Poți schimba mai târziu.',
   'engine.soon': 'încă nu e în build',

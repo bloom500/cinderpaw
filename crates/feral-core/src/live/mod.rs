@@ -96,7 +96,32 @@ pub struct Setup {
     pub input_audio_transcription: Option<AudioTranscriptionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_audio_transcription: Option<AudioTranscriptionConfig>,
+    /// What keeps a call alive past ten minutes.
+    ///
+    /// An audio session is capped at fifteen minutes and the WebSocket itself is
+    /// torn down at about ten — and the server reports that as "the audio content
+    /// type (CONTENT_TYPE_AUDIO) is not supported for this model configuration",
+    /// which reads as a setup error and sends whoever is debugging it to check
+    /// the model. Measured: a call opened at 12:26 died at 12:37. The docs' own
+    /// remedy is to compress the history instead of dropping the connection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_compression: Option<ContextWindowCompression>,
 }
+
+/// Slide the oldest turns out instead of ending the call.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextWindowCompression {
+    /// Present and empty: the field's presence selects the strategy.
+    pub sliding_window: SlidingWindow,
+    /// When to start compressing. Left to the server, which knows the model's
+    /// window — a number invented here would be wrong the day the model changes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_tokens: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SlidingWindow {}
 
 impl Setup {
     /// A spoken call: audio out, both transcripts on, tools declared.
@@ -123,6 +148,13 @@ impl Setup {
             },
             input_audio_transcription: Some(AudioTranscriptionConfig {}),
             output_audio_transcription: Some(AudioTranscriptionConfig {}),
+            // On by default, not optional. A call that dies at ten minutes with
+            // a message about audio content types is the worst kind of bug —
+            // it works, then stops, and blames the wrong thing.
+            context_window_compression: Some(ContextWindowCompression {
+                sliding_window: SlidingWindow {},
+                trigger_tokens: None,
+            }),
         }
     }
 
@@ -356,6 +388,13 @@ mod tests {
         // Both transcripts, or a spoken call leaves no text behind.
         assert!(v["setup"]["inputAudioTranscription"].is_object());
         assert!(v["setup"]["outputAudioTranscription"].is_object());
+        // Without this the WebSocket is torn down at about ten minutes and the
+        // server blames the audio content type, which is not a hint anyone would
+        // follow to a duration limit. Measured: a call died at eleven minutes.
+        assert!(
+            v["setup"]["contextWindowCompression"]["slidingWindow"].is_object(),
+            "a call without compression ends mid-conversation",
+        );
     }
 
     #[test]
