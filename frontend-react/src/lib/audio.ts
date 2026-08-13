@@ -1,4 +1,7 @@
-const TARGET_RATE = 16_000;
+/** The rate every speech-recognition path here wants: Whisper's, and Gemini
+ *  Live's microphone input. Exported because `micPcm` builds its AudioContext
+ *  at it rather than resampling afterwards. */
+export const TARGET_RATE = 16_000;
 
 /** Decode a recorded blob to 16 kHz mono f32 PCM via WebAudio (offline resample). */
 export async function decodeToPcm16k(blob: Blob): Promise<Float32Array> {

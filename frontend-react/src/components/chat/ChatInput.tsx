@@ -29,6 +29,7 @@ import { useUI, type ReasoningMode } from '@/stores/ui';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
+import { useLiveCallSession } from '@/hooks/useLiveCallSession';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureWhisperModel } from '@/lib/voiceModel';
@@ -109,14 +110,44 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // Feral Agent sidecar in agent mode, the chat pipeline otherwise. Without this
   // the call would hit the (unloaded) local model in agent mode — the same bug
   // the voice path already had.
-  const call = useCallSession(async (text: string) => {
+  const pipelineCall = useCallSession(async (text: string) => {
     // `surface: 'voice'` is what tells the agent this answer gets spoken. Without
     // it a call received the desktop's full markdown answer read out loud.
     if (sendFn) await sendFn(text, undefined, { surface: 'voice' });
     else await send(text, [], { surface: 'voice' });
   });
+  // Both loops are mounted, and only one is ever running: an unopened call is a
+  // handful of refs. Choosing the hook at call time instead would mean calling a
+  // hook conditionally, which React does not allow.
+  //
+  // They each own a speech player, and both players listen to the same
+  // `feral://tts-chunk` event for the same session — but a player only schedules
+  // audio between `beginSpeech` and its stop, and only the loop taking the call
+  // ever calls that. The idle one drops every chunk, which is the same guard that
+  // already keeps a straggler from an interrupted utterance out.
+  const liveCall = useLiveCallSession();
+  const callEngine = useUI((s) => s.callEngine);
+  const setCallEngine = useUI((s) => s.setCallEngine);
+  const call = callEngine === 'live' ? liveCall : pipelineCall;
   const ttsProvider = useUI((s) => s.ttsProvider);
   const [engineCardOpen, setEngineCardOpen] = useState(false);
+
+  /**
+   * Switch modes without dropping the overlay.
+   *
+   * The two modes are two hooks, and the overlay is driven by whichever one the
+   * store selects — so flipping the store alone would hand the screen to a loop
+   * still sitting at `idle`, and the call would simply disappear. Hanging up the
+   * outgoing one and opening the incoming one keeps the pre-call screen on
+   * screen through the change.
+   */
+  const onChangeMode = (mode: 'pipeline' | 'live') => {
+    const [outgoing, incoming] = mode === 'live' ? [pipelineCall, liveCall] : [liveCall, pipelineCall];
+    const wasOpen = outgoing.phase !== 'idle';
+    outgoing.hangUp();
+    setCallEngine(mode);
+    if (wasOpen) incoming.open();
+  };
 
   /**
    * Two first-use choices gate a call, and both are asked before the microphone
@@ -126,7 +157,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
    * someone already said.
    */
   const onCallClick = () => {
-    if (sttProvider === null) setProviderCardOpen(true);
+    // Neither question applies to a speech-to-speech call: it has no transcriber
+    // and no synthesiser to choose. Asking anyway would gate it behind two
+    // settings it never reads.
+    if (callEngine === 'live') call.open();
+    else if (sttProvider === null) setProviderCardOpen(true);
     else if (ttsProvider === null) setEngineCardOpen(true);
     else call.open();
   };
@@ -506,9 +541,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         onAnswer={() => void call.begin()}
         onHangUp={call.hangUp}
         onInterrupt={call.interrupt}
-        onSay={call.say}
+        // Undefined in a Live call: the session carries audio and tool answers,
+        // and there is no channel a typed line could travel on.
+        onSay={callEngine === 'live' ? undefined : pipelineCall.say}
         onChangeEngine={() => setEngineCardOpen(true)}
         onChangeStt={() => setProviderCardOpen(true)}
+        onChangeMode={onChangeMode}
       />
     </TooltipProvider>
   );

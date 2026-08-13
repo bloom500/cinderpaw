@@ -44,6 +44,12 @@ import type { CallPhase } from '@/hooks/useCallSession';
  * a chat that was still fully visible. The portal escapes the transform, the
  * z-index stack, and the gradient on that wrapper in one move.
  */
+/**
+ * Whose key the Live engine borrows. Rust reads the same slot — there is no
+ * second key to enter and no way for the two to disagree about which is current.
+ */
+const LIVE_KEY_PROVIDER = 'google';
+
 export function CallOverlay({
   phase,
   heard,
@@ -55,6 +61,7 @@ export function CallOverlay({
   onSay,
   onChangeEngine,
   onChangeStt,
+  onChangeMode,
 }: {
   phase: CallPhase;
   heard: string;
@@ -64,14 +71,21 @@ export function CallOverlay({
   onAnswer: () => void;
   onHangUp: () => void;
   onInterrupt: () => void;
-  onSay: (text: string) => void;
+  /** Absent when the running engine has no text channel — see the Live hook. */
+  onSay?: (text: string) => void;
   onChangeEngine: () => void;
   onChangeStt: () => void;
+  /** Switching mode swaps which loop drives this screen, so the owner does it
+   *  rather than the store: the outgoing call has to be hung up and the incoming
+   *  one opened, or the overlay would vanish mid-choice. */
+  onChangeMode: (mode: 'pipeline' | 'live') => void;
 }) {
   const t = useT();
   const [chatOpen, setChatOpen] = useState(false);
   const sttProvider = useUI((s) => s.sttProvider);
   const ttsProvider = useUI((s) => s.ttsProvider);
+  const callEngine = useUI((s) => s.callEngine);
+  const live = callEngine === 'live';
   const [voice, setVoice] = useState<TtsProviderInfo | null>(null);
   /** Can the chosen engine actually speak? `null` until known — the Call button
    *  must not be blocked by a check that has not answered yet, nor allowed by one
@@ -111,6 +125,14 @@ export function CallOverlay({
   useEffect(() => {
     if (phase !== 'ready') return;
     setKey('');
+    if (live) {
+      // Speech to speech has no TTS engine to be ready — its one requirement is
+      // the Google key it borrows from the keychain, the same AI Studio key the
+      // chat side already uses.
+      setVoice(null);
+      tauri.voice.ttsHasKey(LIVE_KEY_PROVIDER).then(setReady).catch(() => setReady(null));
+      return;
+    }
     tauri.voice
       .ttsProviders()
       .then(async (providers) => {
@@ -125,15 +147,16 @@ export function CallOverlay({
         setVoice(null);
         setReady(null);
       });
-  }, [phase, ttsProvider]);
+  }, [phase, ttsProvider, live]);
 
   const saveKey = async () => {
-    if (!voice || !key.trim()) return;
+    const target = live ? LIVE_KEY_PROVIDER : voice?.id;
+    if (!target || !key.trim()) return;
     setSaving(true);
     try {
       // Straight to the OS keychain, the same path every other provider key
       // takes. It is never written to a file and never echoed back.
-      await tauri.voice.saveTtsKey(voice.id, key.trim());
+      await tauri.voice.saveTtsKey(target, key.trim());
       // ponytail: no base URL / model field here — the picker owns those. An
       // engine that needs a region cannot be fixed from this panel; the "change
       // voice engine" link goes where it can.
@@ -166,7 +189,9 @@ export function CallOverlay({
 
   const title =
     listening ? t('call.listening')
-    : phase === 'thinking' ? t('call.thinking')
+    // In a Live call nothing local ever "thinks" — the model's own thinking shows
+    // up as its answer arriving. This phase is only ever the socket opening.
+    : phase === 'thinking' ? t(live ? 'call.liveConnecting' : 'call.thinking')
     : speaking ? t('call.speaking')
     : t('call.title');
 
@@ -212,7 +237,9 @@ export function CallOverlay({
             last confidently transcribed turn is carried into the next one, so
             detection happens once on good evidence instead of being re-guessed on
             every fragment. */}
-        {ttsProvider && <VoicePicker engineId={ttsProvider} />}
+        {/* Nothing to pick in a Live call: the voice belongs to the model, not to
+            a synthesiser we choose. */}
+        {!live && ttsProvider && <VoicePicker engineId={ttsProvider} />}
 
         <div className="relative flex max-w-xl flex-col items-center gap-2 text-center">
           <p className="text-2xl font-light tracking-tight text-text-primary">{title}</p>
@@ -226,6 +253,11 @@ export function CallOverlay({
 
         {phase === 'ready' && (
           <div className="relative flex flex-col items-center gap-3">
+            {/* Which KIND of call, above the engines it selects — a pipeline of
+                three or one model doing all three. Chosen before the microphone
+                opens because it decides what the disclosure below even lists. */}
+            <ModeToggle mode={callEngine} onChange={onChangeMode} t={t} />
+
             {/* The disclosure, as two quiet lines rather than a boxed table: it has
                 to be read before the microphone opens, not filled in. */}
             <div className="flex flex-col items-center gap-1.5 text-sm">
@@ -234,31 +266,49 @@ export function CallOverlay({
                 <span className="text-text-muted">{t('call.mic')}</span>
                 <span className="text-text-secondary">{mic ?? t('call.micDefault')}</span>
               </span>
-              <EngineLine
-                label={t('call.stt')}
-                name={sttProvider === 'groq' ? 'Groq · whisper-large-v3' : 'Whisper'}
-                local={sttProvider !== 'groq'}
-                t={t}
-                // Both halves of the call are configurable from here. Only the
-                // speaking half had a way in, so the engine that hears you — and
-                // its key — could not be reached from the screen that names it.
-                onChange={onChangeStt}
-              />
-              <EngineLine
-                label={t('call.tts')}
-                name={voice?.label ?? '—'}
-                local={voice?.isLocal ?? false}
-                t={t}
-                onChange={onChangeEngine}
-              />
+              {live ? (
+                // One line, because there is one engine. Listing "speech → text"
+                // and "text → speech" here would describe steps that do not happen.
+                <EngineLine label={t('call.modeLive')} name={t('call.liveEngine')} local={false} t={t} />
+              ) : (
+                <>
+                  <EngineLine
+                    label={t('call.stt')}
+                    name={sttProvider === 'groq' ? 'Groq · whisper-large-v3' : 'Whisper'}
+                    local={sttProvider !== 'groq'}
+                    t={t}
+                    // Both halves of the call are configurable from here. Only the
+                    // speaking half had a way in, so the engine that hears you — and
+                    // its key — could not be reached from the screen that names it.
+                    onChange={onChangeStt}
+                  />
+                  <EngineLine
+                    label={t('call.tts')}
+                    name={voice?.label ?? '—'}
+                    local={voice?.isLocal ?? false}
+                    t={t}
+                    onChange={onChangeEngine}
+                  />
+                </>
+              )}
             </div>
+
+            {/* What is different about this mode, said once: it hears you
+                directly, it can be cut off mid-sentence, and nothing is written
+                to the conversation. The last part is a real limitation, so it is
+                disclosed rather than discovered. */}
+            {live && (
+              <p className="max-w-sm text-center text-xs text-text-muted">{t('call.liveNote')}</p>
+            )}
 
             {ready === false && voice?.needsDownload && (
               <p className="max-w-sm text-center text-xs text-amber-400">{t('call.voiceMissing')}</p>
             )}
-            {ready === false && voice?.needsKey && (
+            {ready === false && (live || voice?.needsKey) && (
               <div className="w-full max-w-sm">
-                <p className="mb-2 text-center text-xs text-text-muted">{t('call.keyNeeded')}</p>
+                <p className="mb-2 text-center text-xs text-text-muted">
+                  {t(live ? 'call.liveNoKey' : 'call.keyNeeded')}
+                </p>
                 <div className="flex gap-2">
                   <Input
                     type="password"
@@ -314,7 +364,7 @@ export function CallOverlay({
 
         {/* The way back to text, for what dictation mangles — a URL, a name, an
             error string. Closed by default so the call stays a call. */}
-        {phase !== 'ready' && !chatOpen && (
+        {phase !== 'ready' && !chatOpen && onSay && (
           <button
             type="button"
             onClick={() => setChatOpen(true)}
@@ -327,7 +377,7 @@ export function CallOverlay({
         )}
       </div>
 
-      {chatOpen && <CallChatPanel onClose={() => setChatOpen(false)} onSay={onSay} />}
+      {chatOpen && onSay && <CallChatPanel onClose={() => setChatOpen(false)} onSay={onSay} />}
     </div>,
     document.body,
   );
@@ -610,6 +660,45 @@ function RoundButton({
   );
 }
 
+/**
+ * Pipeline or speech to speech, before anything else on the pre-call screen.
+ *
+ * A toggle rather than a row in the voice engine picker, because it is not a
+ * voice: picking Live replaces the transcriber, the model and the synthesiser at
+ * once. The switch is handled by the owner, not written straight to the store —
+ * the two modes run on different loops, and the outgoing one has to be hung up.
+ */
+function ModeToggle({
+  mode,
+  onChange,
+  t,
+}: {
+  mode: 'pipeline' | 'live';
+  onChange: (mode: 'pipeline' | 'live') => void;
+  t: (key: 'call.modePipeline' | 'call.modeLive') => string;
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
+      {(['pipeline', 'live'] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => { if (m !== mode) onChange(m); }}
+          aria-pressed={m === mode}
+          className={cn(
+            'rounded-full px-3 py-1 text-xs transition-colors',
+            m === mode
+              ? 'bg-brand text-bg-primary'
+              : 'text-text-muted hover:text-text-primary',
+          )}
+        >
+          {t(m === 'live' ? 'call.modeLive' : 'call.modePipeline')}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function EngineLine({
   label,
   name,
@@ -621,7 +710,8 @@ function EngineLine({
   name: string;
   local: boolean;
   t: (key: 'call.onDevice' | 'call.leavesDevice' | 'engine.change') => string;
-  onChange: () => void;
+  /** Omitted for an engine with nothing to configure from here. */
+  onChange?: () => void;
 }) {
   return (
     <span className="flex items-center gap-2">
@@ -636,15 +726,17 @@ function EngineLine({
         {local ? <Laptop size={10} /> : <Cloud size={10} />}
         {local ? t('call.onDevice') : t('call.leavesDevice')}
       </span>
-      <button
-        type="button"
-        onClick={onChange}
-        aria-label={t('engine.change')}
-        title={t('engine.change')}
-        className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-brand"
-      >
-        <Settings2 size={13} />
-      </button>
+      {onChange && (
+        <button
+          type="button"
+          onClick={onChange}
+          aria-label={t('engine.change')}
+          title={t('engine.change')}
+          className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-brand"
+        >
+          <Settings2 size={13} />
+        </button>
+      )}
     </span>
   );
 }

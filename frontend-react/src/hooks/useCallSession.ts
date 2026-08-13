@@ -50,8 +50,9 @@ export type CallPhase = 'idle' | 'ready' | 'listening' | 'thinking' | 'speaking'
 const POLL_MS = 60;
 
 /** The mic level the orb treats as "full". Six times the speech threshold —
- *  normal speech then sits around half, and shouting fills it. */
-const LEVEL_CEILING = SPEECH_RMS * 6;
+ *  normal speech then sits around half, and shouting fills it. Exported so the
+ *  Live engine's orb moves at the same scale as this one's. */
+export const LEVEL_CEILING = SPEECH_RMS * 6;
 
 /**
  * How long a turn may go **without any sign of progress** before it is treated as

@@ -63,6 +63,17 @@ interface UIStore {
    */
   ttsProvider: string | null;
   setTtsProvider: (id: string) => void;
+  /**
+   * Which kind of call runs: the `STT → model → TTS` pipeline, or a
+   * speech-to-speech session where one model does all three.
+   *
+   * Not a value in `ttsProvider`, even though picking it is the same gesture:
+   * listing Gemini Live beside Piper and Fish would say it is a voice for the
+   * pipeline, and it is a replacement for the pipeline. The two run on different
+   * loops and only one of them has a text-to-speech engine at all.
+   */
+  callEngine: 'pipeline' | 'live';
+  setCallEngine: (e: 'pipeline' | 'live') => void;
   /** The language the user speaks — see `SpokenLang`. Independent of `language`. */
   spokenLanguage: SpokenLang;
   setSpokenLanguage: (l: SpokenLang) => void;
@@ -135,6 +146,8 @@ export const useUI = create<UIStore>()(
       setSttProvider: (sttProvider) => set({ sttProvider }),
       ttsProvider: null,
       setTtsProvider: (ttsProvider) => set({ ttsProvider }),
+      callEngine: 'pipeline',
+      setCallEngine: (callEngine) => set({ callEngine }),
       spokenLanguage: 'auto',
       setSpokenLanguage: (spokenLanguage) => set({ spokenLanguage }),
       ttsVoice: {},
@@ -154,6 +167,7 @@ export const useUI = create<UIStore>()(
         whisperModel: s.whisperModel,
         sttProvider: s.sttProvider,
         ttsProvider: s.ttsProvider,
+        callEngine: s.callEngine,
         spokenLanguage: s.spokenLanguage,
         ttsVoice: s.ttsVoice,
       }),
