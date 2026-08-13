@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench,
+  Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -61,6 +61,7 @@ export function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
 
 /** Chrome per kind: the icon and the label above the body. */
 const CHROME: Record<ToolKind, { icon: typeof Globe; tint: string }> = {
+  agent: { icon: Sparkles, tint: 'text-brand' },
   browser: { icon: Globe, tint: 'text-sky-400' },
   files: { icon: FileText, tint: 'text-amber-400' },
   terminal: { icon: TerminalSquare, tint: 'text-emerald-400' },
@@ -101,6 +102,8 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
           <p className="text-[11px] text-amber-400" title={a.error}>
             {a.error}
           </p>
+        ) : a.kind === 'agent' ? (
+          <AgentBody a={a} />
         ) : a.kind === 'browser' ? (
           <BrowserBody a={a} running={running} t={t} />
         ) : a.kind === 'files' ? (
@@ -119,6 +122,21 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The outer task: what the call handed to Feral, in its own words.
+ *
+ * Always present for the whole wait, which is the point — the agent often
+ * answers from what it already knows and runs no tool at all, and every one of
+ * those turns used to show an empty screen for up to a hundred seconds.
+ */
+function AgentBody({ a }: { a: ToolActivity }) {
+  return (
+    <p className="text-[11px] leading-relaxed text-text-secondary">
+      <span className="line-clamp-3">{a.subject}</span>
+    </p>
   );
 }
 

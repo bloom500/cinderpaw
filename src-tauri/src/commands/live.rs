@@ -124,6 +124,28 @@ async fn pump(
                         // user reports "it could not search" and there is no way
                         // to tell which half is broken. These two lines answer it.
                         tracing::info!(tool = %call.name, args = %call.args, "live: tool call");
+                        // Tell the screen too, not only the terminal.
+                        //
+                        // This call is resolved entirely in Rust and used to
+                        // leave no trace upstream at all — so a turn where the
+                        // agent answered from what it already knew, calling no
+                        // tool of its own, showed the user a blank panel for the
+                        // whole wait. That is the COMMON case, and it was the one
+                        // with no feedback: the widgets only ever saw the
+                        // sidecar's own tools.
+                        let _ = app.emit(
+                            "feral://live-status",
+                            events::LiveStatusEvent {
+                                session_id: session_id.clone(),
+                                kind: "toolCall".to_string(),
+                                text: call
+                                    .args
+                                    .get("request")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or(&call.name)
+                                    .to_string(),
+                            },
+                        );
                         // The runtime is what makes `ask_feral` answerable: it
                         // holds the sidecar's stdin and the event bus its reply
                         // comes back on. Fetched per call rather than captured,
@@ -149,6 +171,22 @@ async fn pump(
                             chars = preview.len(),
                             answer = %preview.chars().take(400).collect::<String>(),
                             "live: tool answered",
+                        );
+                        let ok = answer
+                            .response
+                            .get("ok")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let _ = app.emit(
+                            "feral://live-status",
+                            events::LiveStatusEvent {
+                                session_id: session_id.clone(),
+                                kind: "toolResult".to_string(),
+                                // The verdict, and the reason when there is one.
+                                // An empty string here means success, which the
+                                // panel reads as "no error to show".
+                                text: if ok { String::new() } else { preview.chars().take(160).collect() },
+                            },
                         );
                         answers.push(answer);
                     }

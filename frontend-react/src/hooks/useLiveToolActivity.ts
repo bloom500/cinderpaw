@@ -31,7 +31,18 @@ export interface ToolHit {
  * getting a component. `generic` is the honest fallback — a row with a name and
  * a state, which is still better than nothing and never pretends to more.
  */
-export type ToolKind = 'browser' | 'files' | 'terminal' | 'memory' | 'generic';
+export type ToolKind = 'agent' | 'browser' | 'files' | 'terminal' | 'memory' | 'generic';
+
+/**
+ * The name the Live call's own request travels under.
+ *
+ * `ask_feral` is answered in Rust and never reaches the sidecar's event stream,
+ * so it arrives here on the call's status channel instead. It matters because it
+ * is the OUTER task: the agent may answer from what it already knows and run no
+ * tool at all, and before this the panel was blank for that entire wait — the
+ * common case was the one with no feedback.
+ */
+export const AGENT_TOOL = 'ask_feral';
 
 /** Tool name → widget. Prefix matching, so `web_search_news` lands correctly. */
 const KINDS: Array<[ToolKind, string[]]> = [
@@ -42,6 +53,7 @@ const KINDS: Array<[ToolKind, string[]]> = [
 ];
 
 export function kindOf(tool: string): ToolKind {
+  if (tool === AGENT_TOOL) return 'agent';
   for (const [kind, names] of KINDS) {
     if (names.some((n) => tool === n || tool.startsWith(`${n}_`))) return kind;
   }
@@ -186,7 +198,56 @@ export function useLiveToolActivity(enabled: boolean) {
       return;
     }
     let unlisten: (() => void) | undefined;
+    let unlistenLive: (() => void) | undefined;
     let cancelled = false;
+
+    /** Add or replace a row, newest of that tool wins. */
+    const begin = (tool: string, subject: string) =>
+      setActivity((prev) =>
+        [
+          ...prev.filter((a) => a.tool !== tool),
+          {
+            id: `${tool}-${Date.now()}`,
+            tool,
+            kind: kindOf(tool),
+            subject,
+            status: 'running' as const,
+            startedAt: Date.now(),
+            endedAt: null,
+            note: null,
+            hits: [],
+            files: [],
+            output: '',
+            facts: [],
+            error: null,
+          },
+        ].slice(-MAX),
+      );
+
+    // The Live call's own request, which never travels on the sidecar's stream.
+    void events.liveStatusEvent
+      .listen((event) => {
+        const { kind, text } = event.payload;
+        if (kind === 'toolCall') begin(AGENT_TOOL, text);
+        else if (kind === 'toolResult') {
+          setActivity((prev) =>
+            prev.map((a) =>
+              a.tool === AGENT_TOOL && a.status === 'running'
+                ? {
+                    ...a,
+                    status: text ? ('failed' as const) : ('done' as const),
+                    endedAt: Date.now(),
+                    error: text || null,
+                  }
+                : a,
+            ),
+          );
+        }
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlistenLive = fn;
+      });
 
     void events.feralAgentOutputEvent
       .listen((event) => {
@@ -200,26 +261,7 @@ export function useLiveToolActivity(enabled: boolean) {
         if (!tool) return;
 
         if (line.type === 'tool_start') {
-          setActivity((prev) =>
-            [
-              ...prev.filter((a) => a.tool !== tool),
-              {
-                id: `${tool}-${Date.now()}`,
-                tool,
-                kind: kindOf(tool),
-                subject: subjectOf(line.args),
-                status: 'running' as const,
-                startedAt: Date.now(),
-                endedAt: null,
-                note: null,
-                hits: [],
-                files: [],
-                output: '',
-                facts: [],
-                error: null,
-              },
-            ].slice(-MAX),
-          );
+          begin(tool, subjectOf(line.args));
         } else if (line.type === 'tool_progress') {
           const note = (line.message || line.stage || '').trim() || null;
           setActivity((prev) =>
@@ -270,6 +312,7 @@ export function useLiveToolActivity(enabled: boolean) {
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenLive?.();
       if (sweepRef.current !== undefined) clearInterval(sweepRef.current);
     };
   }, [enabled]);
