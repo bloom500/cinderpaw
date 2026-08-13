@@ -187,6 +187,16 @@ static DETECTED_LANG: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 /// whole mechanism exists to route around.
 const CONFIDENT_TRANSCRIPT_CHARS: usize = 25;
 
+/// What may be put on the wire as Whisper's `language`.
+///
+/// Only an explicit request from the caller. Extracted so the rule has a name
+/// and a test, because the bug it encodes was invisible in the diff that caused
+/// it — an `.or_else(learned)` reads like a sensible fallback and is in fact an
+/// override that no later evidence can undo.
+fn request_language(asked: Option<String>) -> Option<String> {
+    asked.map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
+}
+
 fn detected_lang() -> &'static Mutex<Option<String>> {
     DETECTED_LANG.get_or_init(|| Mutex::new(None))
 }
@@ -252,19 +262,30 @@ pub(crate) async fn transcribe_audio_cloud(
         .file_name(file_name)
         .mime_str("application/octet-stream")
         .map_err(|_| "stt-cloud-failed".to_string())?;
-    // The caller's explicit hint wins; otherwise reuse what the last full sentence
-    // was identified as. Neither present → no hint, and Whisper decides alone.
+    // ONLY the caller's explicit choice. The learned language deliberately does
+    // not fill in here any more, and the reason is worth keeping:
+    //
+    // Whisper's `language` is not a hint, it is an override. Passing the learned
+    // value made the loop self-sealing — we forced `ro`, the response therefore
+    // said "romanian", and that re-learned `ro`. What the code observed was its
+    // own instruction, so a first mistake became permanent and a user switching
+    // language could never be heard again. Measured: English speech transcribed
+    // as Romanian, on a session where `asked` was `<none>` and `sending` was `ro`.
+    //
+    // Detection is now free every turn. A wrong guess costs one turn instead of
+    // all of them, and the learned value keeps being recorded below for the
+    // things a hint is actually good for — ranking voices, not commanding the
+    // transcriber.
     let asked = language.clone();
-    let language = language.filter(|l| !l.trim().is_empty()).or_else(|| {
-        detected_lang().lock().clone()
-    });
-    // Both values, because the interesting question is which one is in play: what
-    // the caller asked for, and what actually goes to the vendor after the learned
-    // language fills in.
+    let language = request_language(language);
+    // Both values still, because `asked=<none> sending=ro` is exactly the line
+    // that exposed the latch, and the next person to touch this should be able
+    // to see at a glance whether anything is being forced.
     tracing::info!(
         asked = asked.as_deref().unwrap_or("<none>"),
         sending = language.as_deref().unwrap_or("<none>"),
-        "stt: language hint"
+        learned = detected_lang().lock().as_deref().unwrap_or("<none>"),
+        "stt: language"
     );
 
     let mut form = reqwest::multipart::Form::new()
@@ -732,6 +753,20 @@ mod stt_language_tests {
         // wrong language — an unknown name must mean "no hint", never "guess".
         assert_eq!(iso_code_of("portuguese"), None);
         assert_eq!(iso_code_of(""), None);
+    }
+
+    #[test]
+    fn the_learned_language_never_becomes_an_order_to_the_transcriber() {
+        // The latch this guards, in one line: Whisper's `language` is an
+        // override, not a hint. Filling it from the learned value made the loop
+        // observe its own instruction — we sent `ro`, the response said
+        // "romanian", that re-learned `ro` — so a first mistake was permanent
+        // and English speech came back as Romanian. Only an explicit request
+        // may reach the wire.
+        assert_eq!(request_language(Some("en".into())).as_deref(), Some("en"));
+        assert_eq!(request_language(None), None);
+        // Blank is not a choice.
+        assert_eq!(request_language(Some("  ".into())), None);
     }
 }
 
