@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Globe, Loader2, Check, AlertTriangle, Search } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
@@ -59,6 +60,33 @@ export function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
   );
 }
 
+/**
+ * Seconds since a tool started, once it has run long enough to be worth counting.
+ *
+ * Under the threshold there is nothing to reassure anyone about and a number
+ * flickering on and off is noise. Past it, the count is the difference between
+ * "this is taking a while" and "this is stuck" — one `ask_feral` measured
+ * anywhere from seventeen to a hundred seconds, and with no number every one of
+ * them feels identical.
+ */
+const TIMER_AFTER_MS = 3_000;
+
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    // One second is the resolution a person reads; faster is a fidget.
+    const tick = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(tick);
+  }, []);
+  const ms = now - since;
+  if (ms < TIMER_AFTER_MS) return null;
+  return (
+    <span className="ml-auto shrink-0 tabular-nums text-[11px] text-text-muted">
+      {Math.floor(ms / 1000)}s
+    </span>
+  );
+}
+
 function Row({ activity: a, t }: { activity: ToolActivity; t: (k: 'call.toolSearching' | 'call.toolFailed' | 'call.toolDone') => string }) {
   const running = a.status === 'running';
   return (
@@ -77,6 +105,7 @@ function Row({ activity: a, t }: { activity: ToolActivity; t: (k: 'call.toolSear
             {a.subject}
           </span>
         )}
+        {running && <Elapsed since={a.startedAt} />}
       </div>
 
       {/* A progress line while it runs, so a slow tool still moves. */}
