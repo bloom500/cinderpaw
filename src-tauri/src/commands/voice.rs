@@ -771,6 +771,70 @@ mod stt_language_tests {
 }
 
 #[cfg(test)]
+mod stt_prompt_probe {
+    use super::*;
+
+    /// Why English speech came back as fluent Romanian.
+    ///
+    /// Not a mis-heard transcript — a translation: "Ce puteți face pentru un
+    /// video demo?" is correct Romanian for a sentence spoken in English, which
+    /// means Whisper understood the audio and decoded it into another language.
+    /// Two candidates: the vocabulary `prompt` we attach, which Whisper treats
+    /// as the *preceding text of the same recording* and which contains names a
+    /// Romanian speaker would use, or plain mis-detection now that no language
+    /// is forced.
+    ///
+    /// Run against the exact file that failed, so this is the real audio and not
+    /// a re-enactment. Pass the path:
+    ///
+    ///     FERAL_STT_PROBE=C:\Users\Darius\.feral\voice\<id>.webm \
+    ///       cargo test -p feral --lib probe_whisper_prompt -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "sends a stored recording to Groq"]
+    async fn probe_whisper_prompt() {
+        let path = std::env::var("FERAL_STT_PROBE").expect("set FERAL_STT_PROBE to a .webm path");
+        let key = byok::byok_get("groq").expect("no groq key stored");
+        let bytes = std::fs::read(&path).expect("read the recording");
+        let client = reqwest::Client::new();
+
+        for (label, prompt, language) in [
+            ("as shipped (prompt, no language)", Some(PROPER_NOUNS), None),
+            ("no prompt, no language", None, None),
+            ("prompt + language=en", Some(PROPER_NOUNS), Some("en")),
+            ("no prompt + language=en", None, Some("en")),
+        ] {
+            let part = reqwest::multipart::Part::bytes(bytes.clone())
+                .file_name("probe.webm")
+                .mime_str("application/octet-stream")
+                .unwrap();
+            let mut form = reqwest::multipart::Form::new()
+                .text("model", "whisper-large-v3")
+                .text("response_format", "verbose_json")
+                .part("file", part);
+            if let Some(p) = prompt {
+                form = form.text("prompt", p);
+            }
+            if let Some(l) = language {
+                form = form.text("language", l);
+            }
+            let res = client
+                .post("https://api.groq.com/openai/v1/audio/transcriptions")
+                .header("Authorization", format!("Bearer {key}"))
+                .multipart(form)
+                .send()
+                .await
+                .expect("groq request");
+            let body: serde_json::Value = res.json().await.expect("groq json");
+            println!(
+                "  {label}\n     lang={} text={}",
+                body["language"].as_str().unwrap_or("?"),
+                body["text"].as_str().unwrap_or("?").trim(),
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod tts_bridge_tests {
     use super::*;
 

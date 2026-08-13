@@ -89,6 +89,27 @@ const REPLY_IDLE_TIMEOUT_MS = 60_000;
 const FILLER_AFTER_MS = 2_500;
 
 /**
+ * How long the line may stay quiet AFTER something has already been said.
+ *
+ * The first version fired once, at 2.5 s, and never again — so a turn that took
+ * forty seconds said "one moment" and then nothing for the remaining
+ * thirty-seven. Worse, its condition was "nothing spoken yet", which stops being
+ * true the instant the model says its first sentence: a reply that then stopped
+ * to run tools for half a minute had no cover at all, because from the loop's
+ * point of view it had already spoken.
+ *
+ * So the rule is about SILENCE, not about the start of a turn: whenever nothing
+ * has gone out for this long and the turn is still running, say something. Longer
+ * than the opening gap, because interrupting an answer in progress is worse than
+ * a pause in the middle of one.
+ */
+const FILLER_EVERY_MS = 12_000;
+
+/** How often the silence is checked. Cheap; the timer does nothing until the
+ *  gap is exceeded. */
+const FILLER_TICK_MS = 1_000;
+
+/**
  * Hard ceiling, so a turn cannot run forever if something unrelated keeps nudging
  * the store and resetting the idle timer. Long enough for real multi-step work.
  */
@@ -124,6 +145,29 @@ function hangWatchdog(idleMs: number, maxMs: number) {
 
 /** Sentinel for the timeout branch — a plain string could collide with a reply. */
 const TIMED_OUT = Symbol('reply-timeout');
+
+/**
+ * What to say while nothing is happening, in order.
+ *
+ * Not one line repeated: a turn can now be covered four or five times, and the
+ * same sentence at twelve-second intervals stops sounding like patience and
+ * starts sounding like a fault. They also get vaguer as they go — the later ones
+ * are honest about the wait rather than promising it is nearly over, because by
+ * the fourth one it plainly is not.
+ *
+ * The last is reused for everything after it. A turn still running past a minute
+ * has a different problem, and the watchdog is what handles that.
+ */
+const FILLER_KEYS = [
+  'call.thinkingAloud',
+  'call.stillWorking',
+  'call.stillWorkingLong',
+  'call.almostThere',
+] as const;
+
+function fillerLine(index: number): string {
+  return t(FILLER_KEYS[Math.min(index, FILLER_KEYS.length - 1)]);
+}
 
 /**
  * Send one line of the loop's reasoning to the terminal running the app.
@@ -420,6 +464,9 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           let spoken = '';
           /** Set when the store's text stops being an extension of what we spoke. */
           let desynced = false;
+          /** Reset the silence clock. Assigned once the filler timer exists; a
+           *  no-op before that, because the pump can feed before it is armed. */
+          let onSpoke: () => void = () => {};
           const pump = (finished: boolean) => {
             if (desynced) return;
             const full = forSpeech(lastAssistantText());
@@ -445,6 +492,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               // rest of the reply streams behind it and is not felt.
               if (!firstSpeechMs && sentAt) firstSpeechMs = Date.now() - sentAt;
               feedSpeech(piece.speak);
+              onSpoke();
               // `spoken` grows by exactly what was fed, including the whitespace
               // `takeSpeakable` trimmed, so the prefix check keeps matching.
               spoken = full.slice(0, full.length - piece.rest.length);
@@ -456,6 +504,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           let unpump: () => void = () => {};
           /** Cleared the moment the turn resolves, however it resolves. */
           let filler: number | undefined;
+          const clearFiller = () => { if (filler !== undefined) window.clearInterval(filler); };
           const pending = replyWhenDone();
           const turn = (async () => {
             log('turn', `sending ${text.length} chars`);
@@ -471,13 +520,28 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             spoken = '';
             unpump = useChat.subscribe(() => pump(false));
             pump(false);
-            // Only if the pump has still produced nothing by then — a reply that
-            // started streaming is already talking and does not need covering.
-            filler = window.setTimeout(() => {
-              if (spoken || desynced || callRef.current !== call) return;
-              log('turn', 'still waiting on the model — saying something');
-              feedSpeech(t('call.thinkingAloud'));
-            }, FILLER_AFTER_MS);
+            // Keep the line warm for as long as the turn runs, not once at the
+            // start. Measured turns: 25 s before the first word with nothing to
+            // hear after "one moment", and answers that begin, then stop for
+            // half a minute while tools run.
+            let lastOut = Date.now();
+            let saidFillers = 0;
+            filler = window.setInterval(() => {
+              if (desynced || callRef.current !== call) return;
+              const quietFor = Date.now() - lastOut;
+              // The opening gap is short — silence right after a question is the
+              // most alarming kind. Once something has been said, the bar rises,
+              // because chattering over a reply in progress is its own defect.
+              const allowed = spoken ? FILLER_EVERY_MS : FILLER_AFTER_MS;
+              if (quietFor < allowed) return;
+              lastOut = Date.now();
+              const line = fillerLine(saidFillers++);
+              log('turn', `quiet for ${quietFor}ms — saying "${line}"`);
+              feedSpeech(line);
+            }, FILLER_TICK_MS);
+            // Anything the pump sends counts as the line being warm, so a reply
+            // that is streaming normally never triggers this at all.
+            onSpoke = () => { lastOut = Date.now(); };
             if (status !== 'streaming') {
               pending.cancel();
               // One frame plus a tick before reading: the sender may write the
@@ -504,7 +568,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           const watchdog = hangWatchdog(REPLY_IDLE_TIMEOUT_MS, REPLY_MAX_MS);
           const reply = await Promise.race([turn, watchdog.promise]);
           watchdog.cancel();
-          window.clearTimeout(filler);
+          clearFiller();
           if (callRef.current !== call) {
             pending.cancel();
             return;

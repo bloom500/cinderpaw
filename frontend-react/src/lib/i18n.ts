@@ -92,6 +92,12 @@ const en = {
   // Deliberately says nothing about what it is doing: it fires on every slow
   // turn, and a promise to "look that up" would be a lie on most of them.
   'call.thinkingAloud': 'One moment.',
+  // Said at twelve-second intervals while a turn runs long. Deliberately vaguer
+  // as they go: by the third one, promising it is nearly done would be a lie,
+  // and the honest version is the one that keeps the line trustworthy.
+  'call.stillWorking': 'Still working on it.',
+  'call.stillWorkingLong': "This one's taking a while — still going.",
+  'call.almostThere': "Still here, still on it.",
   'call.replyStopped': 'That reply was cut off. Say it again.',
   'call.voiceMissing': 'This engine has no voice downloaded yet — get one from “Change voice engine”.',
   'call.keyNeeded': 'This voice engine needs an API key. It goes straight to your OS keychain.',
@@ -209,6 +215,9 @@ const ro: Strings = {
   'call.replyFailed': 'Răspunsul a eșuat. Deschide panoul de chat ca să vezi de ce.',
   'call.replyTimeout': 'A rămas mut un minut — încă ascult.',
   'call.thinkingAloud': 'O secundă.',
+  'call.stillWorking': 'Încă lucrez la asta.',
+  'call.stillWorkingLong': 'Durează un pic mai mult — încă lucrez.',
+  'call.almostThere': 'Sunt aici, încă mă ocup.',
   'call.replyStopped': 'Răspunsul a fost întrerupt. Mai zi o dată.',
   'call.voiceMissing': 'Motorul ăsta n-are încă nicio voce descărcată — ia una din „Schimbă motorul de voce”.',
   'call.keyNeeded': 'Motorul ăsta de voce are nevoie de o cheie API. Merge direct în keychain-ul sistemului.',

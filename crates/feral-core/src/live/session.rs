@@ -501,3 +501,57 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod route_latency_probe {
+    /// How long the configured chat route takes to its FIRST token, with and
+    /// without a large prefix.
+    ///
+    /// A voice turn measured 25 seconds before the model produced anything, on a
+    /// 25-character question with a 106-character answer, no tools and no
+    /// reasoning. Two causes fit: the ~10k tokens of schema and system prompt
+    /// re-sent every completion, or the route OpenRouter picks. They need
+    /// different fixes, and only a side-by-side separates them.
+    ///
+    ///     cargo test -p feral-core --lib probe_route_latency -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "spends a few cents against the configured provider"]
+    async fn probe_route_latency() {
+        let key = crate::byok::byok_get("openrouter").expect("no openrouter key stored");
+        let client = reqwest::Client::new();
+
+        // Roughly the prefill a real turn carries, as filler the model must read
+        // but cannot answer from.
+        let bulk = "The quick brown fox jumps over the lazy dog. ".repeat(900);
+
+        for (label, system) in [("bare", ""), ("~10k tokens of prefix", bulk.as_str())] {
+            let started = std::time::Instant::now();
+            let body = serde_json::json!({
+                "model": "deepseek/deepseek-v4-flash",
+                "max_tokens": 16,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": "Say OK."},
+                ],
+            });
+            let res = client
+                .post("https://openrouter.ai/api/v1/chat/completions")
+                .header("Authorization", format!("Bearer {key}"))
+                .json(&body)
+                .send()
+                .await;
+            match res {
+                Ok(r) => {
+                    let status = r.status();
+                    let text = r.text().await.unwrap_or_default();
+                    println!(
+                        "  {label}: {} ms, status {status}, {}",
+                        started.elapsed().as_millis(),
+                        text.chars().take(160).collect::<String>()
+                    );
+                }
+                Err(e) => println!("  {label}: FAILED after {} ms — {e}", started.elapsed().as_millis()),
+            }
+        }
+    }
+}
