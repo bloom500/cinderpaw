@@ -147,6 +147,23 @@ function lastAssistantText(): string {
 }
 
 /**
+ * How much reasoning the model has produced this turn.
+ *
+ * The discriminator for a silence with no events in it. A turn that took 64
+ * seconds to say its first word either spent them waiting for a first token, or
+ * spent them THINKING — and reasoning never reaches `content`, so the speech
+ * pump has nothing to say for the whole of it while the stream is perfectly
+ * healthy. The two need opposite fixes, and only this number tells them apart.
+ */
+function lastAssistantThinkingChars(): number {
+  const messages = useChat.getState().messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') return messages[i].thinking?.length ?? 0;
+  }
+  return 0;
+}
+
+/**
  * Resolves with the reply when the current turn stops streaming.
  *
  * Watching the store rather than the send call is what makes one loop serve both
@@ -556,7 +573,11 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             log(
               'timing',
               `stt=${sttMs}ms firstWord=${firstSpeechMs || -1}ms ` +
-                `answer=${sentAt ? Date.now() - sentAt : -1}ms turn=${sttStartedAt ? Date.now() - sttStartedAt : -1}ms`,
+                `answer=${sentAt ? Date.now() - sentAt : -1}ms turn=${sttStartedAt ? Date.now() - sttStartedAt : -1}ms ` +
+                // Thinking against firstWord is the whole diagnosis: a large
+                // number here means the wait was reasoning the pump could not
+                // speak, not a slow provider.
+                `think=${lastAssistantThinkingChars()}chars`,
             );
           }
         } catch (err) {
