@@ -527,7 +527,15 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             let lastOut = Date.now();
             let saidFillers = 0;
             filler = window.setInterval(() => {
-              if (desynced || callRef.current !== call) return;
+              // Deliberately NOT stopped by `desynced`. A desync means the reply
+              // can no longer be streamed safely — the store's text stopped being
+              // an extension of what was said, which happens whenever a tool call
+              // clears it mid-answer — and from that point the turn speaks
+              // NOTHING, not even the final flush. Measured: seventy seconds of
+              // total silence on a call that was working the whole time. When the
+              // answer cannot be spoken, this is the only voice left, and it is
+              // the one moment it matters most.
+              if (callRef.current !== call) return;
               const quietFor = Date.now() - lastOut;
               // Short for the FIRST line only. Keying this on `spoken` instead
               // was wrong in a way that only sounds wrong: "nothing said yet"
