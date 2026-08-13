@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
+  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -80,20 +81,38 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
 
   return (
     <div className="tw-rise overflow-hidden rounded-xl border border-border-default bg-bg-surface/95 shadow-2xl backdrop-blur">
-      <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
-        <Icon size={13} className={cn('shrink-0', tint)} />
-        <span className="shrink-0 text-[11px] font-medium text-text-secondary">{a.tool}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-2">
-          {running && <Elapsed since={a.startedAt} />}
-          {running ? (
-            <Loader2 size={12} className="animate-spin text-brand" />
-          ) : a.status === 'failed' ? (
-            <AlertTriangle size={12} className="text-amber-400" />
-          ) : (
-            <Check size={12} className="tw-pop text-emerald-400" />
-          )}
-        </span>
-      </header>
+      {/* The browser gets a real window's head — traffic lights and a tab —
+          because that is the part a viewer recognises before reading anything.
+          Every other kind keeps the plain strip: a terminal draws its own tab
+          bar, and a file card with fake window chrome would just be noise. */}
+      {a.kind === 'browser' ? (
+        <header className="flex items-center gap-2 border-b border-border-subtle bg-black/20 px-2.5 py-1.5">
+          <span className="flex shrink-0 gap-1.5">
+            <i className="h-2 w-2 rounded-full bg-[#ff5f57]" />
+            <i className="h-2 w-2 rounded-full bg-[#febc2e]" />
+            <i className="h-2 w-2 rounded-full bg-[#28c840]" />
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5 rounded-t-md bg-bg-elevated px-2 py-1">
+            <Globe size={9} className="shrink-0 text-sky-400" />
+            <span className="truncate text-[10px] text-text-secondary">DuckDuckGo</span>
+            <X size={9} className="shrink-0 text-text-muted/50" />
+          </span>
+          <Plus size={10} className="shrink-0 text-text-muted/50" />
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {running && <Elapsed since={a.startedAt} />}
+            <Status running={running} status={a.status} />
+          </span>
+        </header>
+      ) : (
+        <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
+          <Icon size={13} className={cn('shrink-0', tint)} />
+          <span className="shrink-0 text-[11px] font-medium text-text-secondary">{a.tool}</span>
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {running && <Elapsed since={a.startedAt} />}
+            <Status running={running} status={a.status} />
+          </span>
+        </header>
+      )}
 
       <div className="px-3 py-2">
         {a.error ? (
@@ -125,6 +144,13 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
   );
 }
 
+/** Running, done, or failed — the same three glyphs everywhere. */
+function Status({ running, status }: { running: boolean; status: ToolActivity['status'] }) {
+  if (running) return <Loader2 size={12} className="animate-spin text-brand" />;
+  if (status === 'failed') return <AlertTriangle size={12} className="text-amber-400" />;
+  return <Check size={12} className="tw-pop text-emerald-400" />;
+}
+
 /**
  * The outer task: what the call handed to Feral, in its own words.
  *
@@ -153,21 +179,32 @@ function AgentBody({ a }: { a: ToolActivity }) {
 function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: (k: 'call.toolSearching') => string }) {
   return (
     <>
-      {/* The search pill. Rounded fully, magnifier left, engine right — the
-          furniture that says "search box" without saying whose. */}
-      <div
-        className={cn(
-          'relative flex items-center gap-2 overflow-hidden rounded-full border border-border-subtle bg-bg-elevated px-2.5 py-1.5',
-          running && 'tw-scan',
-        )}
-      >
-        <Search size={11} className="shrink-0 text-text-muted" />
-        <span className="min-w-0 flex-1 truncate text-[11px] text-text-primary" title={a.subject}>
-          {a.subject || t('call.toolSearching')}
+      {/* Navigation row: dead arrows, then the address bar. The arrows are
+          greyed because they are not controls — nobody can click this. They are
+          there because a browser without them does not read as a browser. */}
+      <div className="flex items-center gap-2 pb-2">
+        <span className="flex shrink-0 items-center gap-1.5 text-text-muted/40">
+          <ArrowLeft size={11} />
+          <ArrowRight size={11} />
+          <RotateCw size={10} />
         </span>
-        <span className="shrink-0 text-[9px] uppercase tracking-wide text-text-muted">
-          duckduckgo
-        </span>
+        <div
+          className={cn(
+            'relative flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-full bg-bg-elevated px-2 py-1',
+            // The blue focus ring, breathing. This is the single detail that
+            // says a search is being typed right now rather than displayed.
+            running ? 'tw-focus' : 'ring-1 ring-inset ring-border-subtle',
+          )}
+        >
+          <Search size={10} className="shrink-0 text-text-muted" />
+          <span className="min-w-0 flex-1 truncate text-[11px] text-text-primary" title={a.subject}>
+            {/* Typed in, not printed. The string is exactly what the agent sent;
+                revealing it progressively is what makes a still panel read as
+                happening rather than happened. */}
+            <span className="tw-type">{a.subject || t('call.toolSearching')}</span>
+          </span>
+        </div>
+        <MoreHorizontal size={12} className="shrink-0 text-text-muted/50" />
       </div>
 
       {a.hits.length > 0 && (

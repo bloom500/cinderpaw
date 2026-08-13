@@ -315,6 +315,30 @@ body { overflow: hidden; }
   animation: tw-scan 1.4s ease-in-out infinite;
 }
 
+/* The query typing itself into the search field. Real text, revealed — the
+   query is exactly what the agent sent, and progressive reveal is what makes a
+   still panel read as "happening now" rather than "happened". Width rather than
+   character count, so it works for any string without measuring it. */
+@keyframes tw-type {
+  from { max-width: 0; }
+  to   { max-width: 100%; }
+}
+.tw-type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  animation: tw-type 0.65s steps(28, end) both;
+}
+
+/* The focus ring on the address bar, breathing while a search is in flight.
+   It is the detail that says someone is typing in this field right now. */
+@keyframes tw-focus {
+  0%, 100% { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.9); }
+  50%      { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.45); }
+}
+.tw-focus { animation: tw-focus 1.8s ease-in-out infinite; }
+
 /* Completion: the tick scales in once. Overshoot is what makes it read as
    "landed" rather than "appeared". */
 @keyframes tw-pop {
@@ -335,7 +359,10 @@ body { overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tw-rise, .tw-row, .tw-pop { animation: none; }
-  .tw-scan::after, .tw-caret { animation: none; }
+  .tw-rise, .tw-row, .tw-pop, .tw-type { animation: none; }
+  .tw-scan::after, .tw-caret, .tw-focus { animation: none; }
   .tw-scan::after { display: none; }
+  /* The ring still has to be visible, just not moving. */
+  .tw-focus { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.8); }
+  .tw-type { max-width: 100%; }
 }
