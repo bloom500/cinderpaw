@@ -20,6 +20,12 @@ export interface ToolHit {
   title: string;
   url: string;
   host: string;
+  /** The abstract under the title, which is what makes a result page look like
+   *  a result page rather than a list of links. */
+  snippet: string;
+  /** Path after the host, shown as the breadcrumb a search engine puts above
+   *  the title: `example.com › docs › guide`. */
+  crumbs: string;
 }
 
 /**
@@ -114,6 +120,22 @@ function hostOf(url: string): string {
 }
 
 /**
+ * The path as a breadcrumb: `docs › guide`.
+ *
+ * Search engines show this instead of the raw URL because a path with slashes
+ * and extensions reads as machinery, while the same path with separators reads
+ * as a place. Two segments at most — the third is always noise at this width.
+ */
+export function crumbsOf(url: string): string {
+  try {
+    const parts = new URL(url).pathname.split('/').filter(Boolean).slice(0, 2);
+    return parts.map((p) => decodeURIComponent(p).replace(/\.\w+$/, '')).join(' › ');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Search hits out of a tool result.
  *
  * `data` is the structured array the search tools return; everything else has
@@ -174,11 +196,21 @@ export function hitsOf(result: unknown): ToolHit[] {
     if (!row || typeof row !== 'object') continue;
     const r = row as Record<string, unknown>;
     const url = typeof r.url === 'string' ? r.url : '';
-    // `text` is the DDG shape ("title — snippet"), `title` the SearXNG one.
+    // `text` is the DDG shape ("title — snippet"), `title` the SearXNG one,
+    // which carries its abstract separately in `content`.
     const raw = typeof r.text === 'string' ? r.text : typeof r.title === 'string' ? r.title : '';
-    const title = raw.split(' — ')[0]?.trim() ?? '';
+    const [head, ...rest] = raw.split(' — ');
+    const title = head?.trim() ?? '';
     if (!url || !title) continue;
-    out.push({ title, url, host: hostOf(url) });
+    const snippet =
+      rest.join(' — ').trim() || (typeof r.content === 'string' ? r.content.trim() : '');
+    out.push({
+      title,
+      url,
+      host: hostOf(url),
+      snippet,
+      crumbs: crumbsOf(url),
+    });
     if (out.length >= 8) break;
   }
   return out;

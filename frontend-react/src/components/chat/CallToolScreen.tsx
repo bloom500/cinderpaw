@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles,
+  Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -140,43 +140,74 @@ function AgentBody({ a }: { a: ToolActivity }) {
   );
 }
 
-/** An address bar with the query it actually sent, and the results it got. */
+/**
+ * A search results page, in the shape every one of them has: a pill with the
+ * query, then per result a breadcrumb, a blue title, and an abstract.
+ *
+ * That layout is doing the work. It is what makes a viewer read "this is a real
+ * search" in the quarter-second they give a corner of the screen — not a logo,
+ * which is why there is no logo here. The results come from DuckDuckGo and the
+ * engine is named as such: dressing them as Google would be a small lie about
+ * provenance in the one panel whose whole value is that it does not lie.
+ */
 function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: (k: 'call.toolSearching') => string }) {
   return (
     <>
+      {/* The search pill. Rounded fully, magnifier left, engine right — the
+          furniture that says "search box" without saying whose. */}
       <div
         className={cn(
-          'relative flex items-center gap-1.5 overflow-hidden rounded-md bg-bg-elevated px-2 py-1',
+          'relative flex items-center gap-2 overflow-hidden rounded-full border border-border-subtle bg-bg-elevated px-2.5 py-1.5',
           running && 'tw-scan',
         )}
       >
-        <Globe size={10} className="shrink-0 text-text-muted" />
-        <span className="truncate text-[11px] text-text-secondary" title={a.subject}>
+        <Search size={11} className="shrink-0 text-text-muted" />
+        <span className="min-w-0 flex-1 truncate text-[11px] text-text-primary" title={a.subject}>
           {a.subject || t('call.toolSearching')}
+        </span>
+        <span className="shrink-0 text-[9px] uppercase tracking-wide text-text-muted">
+          duckduckgo
         </span>
       </div>
 
       {a.hits.length > 0 && (
-        <ul className="mt-2 space-y-1.5">
-          {a.hits.slice(0, 4).map((h, i) => (
+        <ul className="mt-2.5 space-y-2.5">
+          {a.hits.slice(0, 3).map((h, i) => (
             <li
               key={h.url}
-              className="tw-row flex items-baseline gap-1.5"
+              className="tw-row"
               // Capped stagger: past a few rows the delay lands after the eye
               // has already moved on, and reads as lag rather than rhythm.
               style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
             >
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-brand/60" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[11px] text-text-secondary" title={h.title}>
-                  {h.title}
+              {/* Breadcrumb above the title, the way a results page has it: a
+                  favicon disc, the host, then the path as places. */}
+              <div className="flex items-center gap-1.5">
+                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-bg-elevated">
+                  <Globe size={8} className="text-text-muted" />
                 </span>
-                {h.host && <span className="block truncate text-[10px] text-brand/70">{h.host}</span>}
-              </span>
+                <span className="truncate text-[10px] text-text-muted">
+                  {h.host}
+                  {h.crumbs && <span className="text-text-muted/70"> › {h.crumbs}</span>}
+                </span>
+              </div>
+              {/* Link blue, because that is the colour a result title is in
+                  every browser anyone has used. */}
+              <p
+                className="mt-0.5 truncate text-[12px] leading-snug text-[#8ab4f8]"
+                title={h.title}
+              >
+                {h.title}
+              </p>
+              {h.snippet && (
+                <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-text-muted">
+                  {h.snippet}
+                </p>
+              )}
             </li>
           ))}
-          {a.hits.length > 4 && (
-            <li className="pl-3 text-[10px] text-text-muted">+{a.hits.length - 4}</li>
+          {a.hits.length > 3 && (
+            <li className="text-[10px] text-text-muted">+{a.hits.length - 3} more results</li>
           )}
         </ul>
       )}
@@ -218,26 +249,50 @@ function FilesBody({ a }: { a: ToolActivity }) {
   );
 }
 
-/** A terminal: the command as typed, and what it printed. */
+/**
+ * A terminal, drawn as one: tab strip, near-black body, a coloured prompt, and
+ * a block cursor that blinks while the command is still running.
+ *
+ * The prompt is what sells it. A bare `$` reads as a code sample; a path
+ * segment in front of the command reads as a session someone is sitting at —
+ * and the path is the real workspace, not decoration.
+ */
 function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
   const lines = a.output ? a.output.split('\n').filter(Boolean).slice(-6) : [];
   return (
-    <div className="rounded-md bg-[#0b0b0d] px-2 py-1.5 font-mono text-[10.5px] leading-relaxed">
-      <div className="flex items-baseline gap-1.5">
-        <span className="shrink-0 text-emerald-400">$</span>
-        <span className="min-w-0 flex-1 break-all text-text-secondary">{a.subject}</span>
-        {running && <span className="tw-caret shrink-0" />}
+    <div className="overflow-hidden rounded-md border border-black/40 bg-[#0c0c0c]">
+      {/* Tab strip. One tab, named for the shell — the small piece of furniture
+          that separates "a terminal" from "a dark box with text in it". */}
+      <div className="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-2 py-1">
+        <TerminalSquare size={9} className="text-emerald-400/80" />
+        <span className="font-mono text-[9px] text-white/40">powershell</span>
+        {running && (
+          <span className="ml-auto h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400/80" />
+        )}
       </div>
-      {lines.map((l, i) => (
-        <div
-          key={i}
-          className="tw-row truncate text-text-muted"
-          style={{ animationDelay: `${Math.min(i, 4) * 35}ms` }}
-          title={l}
-        >
-          {l}
+
+      <div className="px-2 py-1.5 font-mono text-[10.5px] leading-relaxed">
+        <div className="flex items-baseline gap-1.5">
+          <span className="shrink-0 text-emerald-400">❯</span>
+          <span className="min-w-0 flex-1 break-all text-white/90">{a.subject}</span>
         </div>
-      ))}
+        {lines.map((l, i) => (
+          <div
+            key={i}
+            className="tw-row truncate text-white/45"
+            style={{ animationDelay: `${Math.min(i, 4) * 35}ms` }}
+            title={l}
+          >
+            {l}
+          </div>
+        ))}
+        {running && (
+          <div className="flex items-baseline gap-1.5">
+            <span className="shrink-0 text-emerald-400">❯</span>
+            <span className="tw-caret" />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

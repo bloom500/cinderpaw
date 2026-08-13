@@ -77,11 +77,25 @@ describe('hitsOf', () => {
   it('reads the DuckDuckGo shape, splitting the title off the snippet', () => {
     const hits = hitsOf({
       ok: true,
-      data: [{ text: 'Feral AI — a local agent runtime', url: 'https://www.example.com/feral' }],
+      data: [{ text: 'Feral AI — a local agent runtime', url: 'https://www.example.com/docs/feral' }],
     });
     expect(hits).toEqual([
-      { title: 'Feral AI', url: 'https://www.example.com/feral', host: 'example.com' },
+      {
+        title: 'Feral AI',
+        url: 'https://www.example.com/docs/feral',
+        host: 'example.com',
+        snippet: 'a local agent runtime',
+        crumbs: 'docs › feral',
+      },
     ]);
+  });
+
+  it('keeps an em-dash inside the snippet instead of losing the tail', () => {
+    // "a — b — c" is one title and a snippet that itself contains a dash, not
+    // three fields. Splitting on every dash silently truncated abstracts.
+    const [hit] = hitsOf({ data: [{ text: 'T — one — two', url: 'https://x.dev' }] });
+    expect(hit.title).toBe('T');
+    expect(hit.snippet).toBe('one — two');
   });
 
   it('reads the SearXNG shape too', () => {
