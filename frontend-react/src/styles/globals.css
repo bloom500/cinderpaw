@@ -356,7 +356,7 @@ body { overflow: hidden; }
   width: 0.55em;
   height: 1.05em;
   vertical-align: text-bottom;
-  background: #CCCCCC;
+  background: #ffffff;
   animation: cursor-blink 1s steps(2, start) infinite;
 }
 

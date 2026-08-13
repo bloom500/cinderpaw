@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-shell';
 import {
   Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
-  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus, ChevronDown,
+  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -107,6 +107,12 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
             <Status running={running} status={a.status} />
           </span>
         </header>
+      ) : a.kind === 'terminal' && !a.error ? (
+        // No header at all. The terminal draws a complete window — traffic
+        // lights, centred title — and a strip above it reading "shell_exec"
+        // makes that window a picture inside a frame instead of the thing
+        // itself. The elapsed seconds and the state move onto the title bar.
+        null
       ) : (
         <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
           <Icon size={13} className={cn('shrink-0', tint)} />
@@ -118,7 +124,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
         </header>
       )}
 
-      <div className="px-3 py-2">
+      <div className={a.kind === 'terminal' && !a.error ? '' : 'px-3 py-2'}>
         {a.error ? (
           // A failure says so. A search that failed and a search that found
           // nothing look identical otherwise, and one of them is a bug.
@@ -338,55 +344,60 @@ function FilesBody({ a }: { a: ToolActivity }) {
  * and the path is the real workspace, not decoration.
  */
 function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
+  const { startedAt, status } = a;
   const lines = a.output ? a.output.split('\n').filter(Boolean).slice(-6) : [];
-  // The real directory when the tool reported one. `PS >` with nothing in front
-  // is a drawing of a prompt; `PS D:\FeralLocalAI>` is a session someone is in.
-  const prompt = `PS ${a.cwd || 'D:\\FeralLocalAI'}>`;
+  // The real directory the command ran in. The last segment is what a shell
+  // prompt shows, and it is what makes this a session rather than a drawing of
+  // one: `~ %` on its own is furniture, `FeralLocalAI %` is a place.
+  const folder = (a.cwd || 'D:\\FeralLocalAI').split(/[\\/]/).filter(Boolean).pop() ?? '~';
 
   return (
-    <div className="overflow-hidden rounded-md border border-white/10 bg-[#0C0C0C]">
-      {/* Windows Terminal's head: a tab that sits on the strip, a new-tab plus,
-          a dropdown chevron, and the three window controls on the right. The
-          first version had a label where the tab goes, and a label is what makes
-          a dark rectangle look like a code block instead of an application. */}
-      <div className="flex items-stretch bg-[#1F1F1F] text-white/60">
-        <span className="flex items-center gap-1.5 rounded-t-md bg-[#0C0C0C] px-2 py-1">
-          <TerminalSquare size={9} className="text-[#4FC1FF]" />
-          <span className="text-[9px]">Windows PowerShell</span>
-          <X size={8} className="text-white/30" />
+    <div className="overflow-hidden rounded-lg border border-black/60 shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+      {/* Terminal.app's title bar: a soft vertical gradient, the traffic lights
+          hard left, and the title centred over them. Centring is the detail that
+          identifies it — every other terminal puts its title beside the tab. */}
+      <div
+        className="relative flex items-center px-2 py-1"
+        style={{ background: 'linear-gradient(#3A3A3C, #2C2C2E)' }}
+      >
+        <span className="z-10 flex shrink-0 gap-[3px]">
+          <i className="h-[7px] w-[7px] rounded-full bg-[#FF5F57]" />
+          <i className="h-[7px] w-[7px] rounded-full bg-[#FEBC2E]" />
+          <i className="h-[7px] w-[7px] rounded-full bg-[#28C840]" />
         </span>
-        <span className="flex items-center gap-1.5 px-1.5">
-          <Plus size={9} className="text-white/40" />
-          <ChevronDown size={8} className="text-white/40" />
+        {/* The shell named here is the one that actually ran the command. The
+            window is Terminal.app's; pretending the shell underneath it is zsh
+            on a machine running PowerShell would make the one panel whose worth
+            is that it does not lie into a costume. */}
+        <span className="pointer-events-none absolute inset-x-0 truncate text-center text-[9px] font-medium text-white/70">
+          {folder} — pwsh — 80×24
         </span>
-        {/* Minimise / maximise / close, as glyphs rather than icons — that is
-            how Windows draws them, and at this size the difference is visible. */}
-        <span className="ml-auto flex items-center gap-2 px-2 font-sans text-[8px] leading-none text-white/40">
-          <span>&#9472;</span>
-          <span>&#9633;</span>
-          <span>&#10005;</span>
+        {/* State on the title bar, where a window puts its own status — the card
+            around this one no longer has a header to carry it. */}
+        <span className="z-10 ml-auto flex shrink-0 items-center gap-1.5">
+          {running && <Elapsed since={startedAt} />}
+          <Status running={running} status={status} />
         </span>
       </div>
 
       <div
-        className="px-2 py-1.5 text-[10.5px] leading-[1.45]"
-        // Cascadia Mono is Windows Terminal's own face, Menlo is the macOS
-        // Terminal's. Naming both means the widget uses whichever the machine
-        // actually has, so it matches the terminal beside it rather than
-        // whatever generic monospace the browser falls back to.
-        style={{ fontFamily: '"Cascadia Mono", "Cascadia Code", Consolas, Menlo, monospace' }}
+        className="bg-[#1E1E1E] px-2.5 py-2 text-[10.5px] leading-[1.5]"
+        // SF Mono then Menlo: Terminal.app's own faces, in its own order. Named
+        // so the widget uses the real thing where it exists instead of whatever
+        // generic monospace the browser would pick.
+        style={{ fontFamily: '"SF Mono", Menlo, "Cascadia Mono", Consolas, monospace' }}
       >
         <div className="flex flex-wrap items-baseline gap-x-1.5">
-          {/* PowerShell renders its prompt in the same light grey as its output
-              and the typed command in white. Colouring the prompt green is the
-              zsh convention and reads wrong on Windows. */}
-          <span className="shrink-0 text-[#CCCCCC]">{prompt}</span>
+          {/* zsh's prompt, which is what a current macOS opens with: the folder,
+              then a percent sign. The command itself is plain white. */}
+          <span className="shrink-0 text-[#A8C7FA]">{folder}</span>
+          <span className="shrink-0 text-white/70">%</span>
           <span className="min-w-0 break-all text-white">{a.subject}</span>
         </div>
         {lines.map((l, i) => (
           <div
             key={i}
-            className="tw-row truncate text-[#CCCCCC]/70"
+            className="tw-row truncate text-white/65"
             style={{ animationDelay: `${Math.min(i, 4) * 35}ms` }}
             title={l}
           >
@@ -395,7 +406,8 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
         ))}
         {running && (
           <div className="flex items-baseline gap-1.5">
-            <span className="shrink-0 text-[#CCCCCC]">{prompt}</span>
+            <span className="shrink-0 text-[#A8C7FA]">{folder}</span>
+            <span className="shrink-0 text-white/70">%</span>
             <span className="tw-caret" />
           </div>
         )}
