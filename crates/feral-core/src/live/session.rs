@@ -361,6 +361,14 @@ mod tests {
     /// this key can open a bidirectional session with, and which PART of the
     /// setup the server objects to, by sending progressively more of it.
     ///
+    /// **ACCEPTED does not mean SUPPORTED**, and this probe cannot tell the
+    /// difference — it reports whether the server took the setup, not whether the
+    /// model honours it. Two cases proved it: `gemini-3.5-live-translate-preview`
+    /// accepts tools and a system instruction and supports neither, and
+    /// `gemini-3.1-flash-live-preview` accepts `behavior: NON_BLOCKING` while
+    /// running every call sequentially. Both connect, work, and quietly do less.
+    /// Whether a model HONOURS a field is answered by the docs, or by listening.
+    ///
     /// Reads the key from the OS keychain, so it never has to be pasted anywhere.
     /// Ignored by default: it opens real sockets.
     ///
@@ -415,6 +423,18 @@ mod tests {
                 ("+ transcripts", bare.clone()),
                 ("+ system instruction", bare.clone().with_system_instruction("Say hello.")),
                 ("+ tools (what the app sends)", Setup::spoken(model, super::super::bridge::declarations())),
+                // `behavior: NON_BLOCKING` is what lets the model keep talking
+                // while a slow tool runs — the whole reason a 25-second agent
+                // turn can live inside a voice call. The docs say 3.1 does not
+                // support it; what they do not say is whether it REJECTS the
+                // field or ignores it, and those need different code.
+                ("+ tools marked NON_BLOCKING", {
+                    let mut decls = super::super::bridge::declarations();
+                    for d in &mut decls {
+                        d.behavior = Some("NON_BLOCKING".to_string());
+                    }
+                    Setup::spoken(model, decls)
+                }),
             ] {
                 match try_setup(&key, setup).await {
                     Ok(()) => println!("  {label}: ACCEPTED"),

@@ -15,7 +15,7 @@ use std::sync::Arc;
 use base64::Engine as _;
 use feral_core::live::{self, bridge, LiveCommand, LiveEvent as CoreEvent};
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 use crate::{events, AppState};
@@ -112,10 +112,31 @@ async fn pump(
                 // Answered off the event loop: a slow tool must not stall the
                 // audio still arriving behind it.
                 let commands = commands.clone();
+                let app = app.clone();
+                let session_id = session_id.clone();
                 tokio::spawn(async move {
                     let mut answers = Vec::with_capacity(calls.len());
                     for call in &calls {
-                        answers.push(bridge::answer(call).await);
+                        // Logged on both sides of the await, and that is not
+                        // noise. Nothing on this path said anything, so a call
+                        // where the model asked for a tool and got a failure was
+                        // indistinguishable from one where it never asked — the
+                        // user reports "it could not search" and there is no way
+                        // to tell which half is broken. These two lines answer it.
+                        tracing::info!(tool = %call.name, args = %call.args, "live: tool call");
+                        // The runtime is what makes `ask_feral` answerable: it
+                        // holds the sidecar's stdin and the event bus its reply
+                        // comes back on. Fetched per call rather than captured,
+                        // because the sidecar can restart mid-conversation and a
+                        // captured sender would then be pointing at a dead pipe.
+                        let state = app.state::<AppState>();
+                        let answer = bridge::answer(call, Some(&state.runtime), &session_id).await;
+                        tracing::info!(
+                            tool = %call.name,
+                            ok = %answer.response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+                            "live: tool answered",
+                        );
+                        answers.push(answer);
                     }
                     let _ = commands.send(LiveCommand::ToolResponse(answers)).await;
                 });

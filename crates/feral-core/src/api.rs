@@ -815,7 +815,11 @@ struct AgentOutputLine {
 
 /// Wait for the `done` event matching `msg_id`, returning its full text.
 /// Used by the non-stream path.
-async fn await_agent_reply(
+/// `pub(crate)` for the Live bridge: a speech-to-speech call reaches Feral's
+/// tools by putting a request to the agent and speaking what comes back, which
+/// is the same round trip `/runtime/chat` already makes. Re-implementing the
+/// wait would mean two definitions of "the reply finished".
+pub(crate) async fn await_agent_reply(
     mut rx: broadcast::Receiver<crate::host::HostEvent>,
     msg_id: &str,
 ) -> Result<String, String> {

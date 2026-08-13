@@ -771,3 +771,20 @@ mod security_tests {
         std::env::remove_var("FERAL_AGENT_WORKSPACE");
     }
 }
+
+#[cfg(test)]
+mod live_search_probe {
+    use super::*;
+
+    /// Does the Rust-side `web_search` actually return anything?
+    ///
+    /// The Live call reaches THIS implementation, not the sidecar's — so the
+    /// DuckDuckGo fix that made search work for the agent never applied here.
+    /// Ignored by default: it goes to the network.
+    #[tokio::test]
+    #[ignore = "hits public search instances"]
+    async fn probe_web_search() {
+        let out = execute(ToolType::WebSearch, serde_json::json!({"query": "ce este Feral AI"})).await;
+        println!("ok={} output={}", out.ok, &out.output[..out.output.len().min(600)]);
+    }
+}
