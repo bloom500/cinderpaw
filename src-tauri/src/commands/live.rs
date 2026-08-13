@@ -131,9 +131,23 @@ async fn pump(
                         // captured sender would then be pointing at a dead pipe.
                         let state = app.state::<AppState>();
                         let answer = bridge::answer(call, Some(&state.runtime), &session_id).await;
+                        // The ANSWER, not just its verdict. `ok=true` says the
+                        // round trip completed; it does not say whether the agent
+                        // found anything, and those need opposite fixes — one is
+                        // a retrieval problem, the other is the model summarising
+                        // a good answer badly. Truncated, because a tool result
+                        // can be a whole web page and the terminal is for
+                        // deciding which of the two this is.
+                        let preview = answer
+                            .response
+                            .get("output")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         tracing::info!(
                             tool = %call.name,
                             ok = %answer.response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+                            chars = preview.len(),
+                            answer = %preview.chars().take(400).collect::<String>(),
                             "live: tool answered",
                         );
                         answers.push(answer);
