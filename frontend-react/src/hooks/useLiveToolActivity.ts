@@ -89,6 +89,10 @@ export interface ToolActivity {
   files: FileFact[];
   /** Whatever the tool printed — the terminal widget's body. */
   output: string;
+  /** The directory a command ran in, when the tool reported one. Shown in the
+   *  prompt, because `PS >` with nothing in front of it is a drawing of a
+   *  terminal and `PS D:\FeralLocalAI>` is a session. */
+  cwd: string;
   /** Facts a memory lookup came back with. */
   facts: string[];
   /** Present when the tool failed, so the panel can say so rather than empty. */
@@ -235,7 +239,7 @@ export function useLiveToolActivity(enabled: boolean) {
     let cancelled = false;
 
     /** Add or replace a row, newest of that tool wins. */
-    const begin = (tool: string, subject: string) =>
+    const begin = (tool: string, subject: string, cwd = '') =>
       setActivity((prev) =>
         [
           ...prev.filter((a) => a.tool !== tool),
@@ -251,6 +255,7 @@ export function useLiveToolActivity(enabled: boolean) {
             hits: [],
             files: [],
             output: '',
+            cwd,
             facts: [],
             error: null,
           },
@@ -294,7 +299,8 @@ export function useLiveToolActivity(enabled: boolean) {
         if (!tool) return;
 
         if (line.type === 'tool_start') {
-          begin(tool, subjectOf(line.args));
+          const cwd = typeof line.args?.cwd === 'string' ? line.args.cwd : '';
+          begin(tool, subjectOf(line.args), cwd);
         } else if (line.type === 'tool_progress') {
           const note = (line.message || line.stage || '').trim() || null;
           setActivity((prev) =>

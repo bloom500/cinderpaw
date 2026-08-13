@@ -20,6 +20,7 @@ function activity(over: Partial<ToolActivity> = {}): ToolActivity {
     hits: [{ title: 'T', url: 'https://x.dev', host: 'x.dev', snippet: '', crumbs: '' }],
     files: [],
     output: '',
+    cwd: '',
     facts: [],
     error: null,
     ...over,

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-shell';
 import {
   Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
-  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus,
+  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus, ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -339,27 +339,54 @@ function FilesBody({ a }: { a: ToolActivity }) {
  */
 function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
   const lines = a.output ? a.output.split('\n').filter(Boolean).slice(-6) : [];
+  // The real directory when the tool reported one. `PS >` with nothing in front
+  // is a drawing of a prompt; `PS D:\FeralLocalAI>` is a session someone is in.
+  const prompt = `PS ${a.cwd || 'D:\\FeralLocalAI'}>`;
+
   return (
-    <div className="overflow-hidden rounded-md border border-black/40 bg-[#0c0c0c]">
-      {/* Tab strip. One tab, named for the shell — the small piece of furniture
-          that separates "a terminal" from "a dark box with text in it". */}
-      <div className="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-2 py-1">
-        <TerminalSquare size={9} className="text-emerald-400/80" />
-        <span className="font-mono text-[9px] text-white/40">powershell</span>
-        {running && (
-          <span className="ml-auto h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400/80" />
-        )}
+    <div className="overflow-hidden rounded-md border border-white/10 bg-[#0C0C0C]">
+      {/* Windows Terminal's head: a tab that sits on the strip, a new-tab plus,
+          a dropdown chevron, and the three window controls on the right. The
+          first version had a label where the tab goes, and a label is what makes
+          a dark rectangle look like a code block instead of an application. */}
+      <div className="flex items-stretch bg-[#1F1F1F] text-white/60">
+        <span className="flex items-center gap-1.5 rounded-t-md bg-[#0C0C0C] px-2 py-1">
+          <TerminalSquare size={9} className="text-[#4FC1FF]" />
+          <span className="text-[9px]">Windows PowerShell</span>
+          <X size={8} className="text-white/30" />
+        </span>
+        <span className="flex items-center gap-1.5 px-1.5">
+          <Plus size={9} className="text-white/40" />
+          <ChevronDown size={8} className="text-white/40" />
+        </span>
+        {/* Minimise / maximise / close, as glyphs rather than icons — that is
+            how Windows draws them, and at this size the difference is visible. */}
+        <span className="ml-auto flex items-center gap-2 px-2 font-sans text-[8px] leading-none text-white/40">
+          <span>&#9472;</span>
+          <span>&#9633;</span>
+          <span>&#10005;</span>
+        </span>
       </div>
 
-      <div className="px-2 py-1.5 font-mono text-[10.5px] leading-relaxed">
-        <div className="flex items-baseline gap-1.5">
-          <span className="shrink-0 text-emerald-400">❯</span>
-          <span className="min-w-0 flex-1 break-all text-white/90">{a.subject}</span>
+      <div
+        className="px-2 py-1.5 text-[10.5px] leading-[1.45]"
+        // Cascadia Mono is Windows Terminal's own face, Menlo is the macOS
+        // Terminal's. Naming both means the widget uses whichever the machine
+        // actually has, so it matches the terminal beside it rather than
+        // whatever generic monospace the browser falls back to.
+        style={{ fontFamily: '"Cascadia Mono", "Cascadia Code", Consolas, Menlo, monospace' }}
+      >
+        <div className="flex flex-wrap items-baseline gap-x-1.5">
+          {/* PowerShell renders its prompt in the same light grey as its output
+              and the typed command in white. Colouring the prompt green is the
+              zsh convention and reads wrong on Windows. */}
+          <span className="shrink-0 text-[#CCCCCC]">{prompt}</span>
+          <span className="min-w-0 break-all text-white">{a.subject}</span>
         </div>
         {lines.map((l, i) => (
           <div
             key={i}
-            className="tw-row truncate text-white/45"
+            className="tw-row truncate text-[#CCCCCC]/70"
             style={{ animationDelay: `${Math.min(i, 4) * 35}ms` }}
             title={l}
           >
@@ -368,7 +395,7 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
         ))}
         {running && (
           <div className="flex items-baseline gap-1.5">
-            <span className="shrink-0 text-emerald-400">❯</span>
+            <span className="shrink-0 text-[#CCCCCC]">{prompt}</span>
             <span className="tw-caret" />
           </div>
         )}

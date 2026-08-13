@@ -348,13 +348,15 @@ body { overflow: hidden; }
 }
 .tw-pop { animation: tw-pop 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 
-/* The terminal caret, while a command is still running. */
+/* The terminal caret, while a command is still running. A filled block in the
+   foreground colour, which is what a console draws — a coloured bar is an
+   editor's cursor and reads as the wrong application. */
 .tw-caret {
   display: inline-block;
-  width: 0.5em;
-  height: 1em;
+  width: 0.55em;
+  height: 1.05em;
   vertical-align: text-bottom;
-  background: var(--brand);
+  background: #CCCCCC;
   animation: cursor-blink 1s steps(2, start) infinite;
 }
 
