@@ -264,7 +264,7 @@ export function CallOverlay({
             {heard && phase !== 'ready' ? `“${heard}”` : t('call.prompt')}
           </p>
           {/* Said out loud on screen when nothing was said out loud in audio. */}
-          {notice && <p className="text-sm text-amber-400">{notice}</p>}
+          {notice && <p className="text-sm text-[var(--warning)]">{notice}</p>}
         </div>
 
         {phase === 'ready' && (
@@ -318,7 +318,7 @@ export function CallOverlay({
             )}
 
             {ready === false && voice?.needsDownload && (
-              <p className="max-w-sm text-center text-xs text-amber-400">{t('call.voiceMissing')}</p>
+              <p className="max-w-sm text-center text-xs text-[var(--warning)]">{t('call.voiceMissing')}</p>
             )}
             {ready === false && (live || voice?.needsKey) && (
               <div className="w-full max-w-sm">
@@ -346,7 +346,12 @@ export function CallOverlay({
 
         {/* Controls: one pill, round buttons, nothing labelled. A call is the one
             screen where the two things you can do are obvious from the icons. */}
-        <div className="relative flex items-center gap-2 rounded-full border border-border-subtle bg-bg-surface/70 p-2 backdrop-blur">
+        {/* Opaque surface and the stronger border, not a 70% wash over the page.
+            In dark that translucency read as a pill; in light it put #F5EBE0 at
+            70% over #FFF5EE, which is the same colour — the two most important
+            controls on the screen sat in a container nobody could see. A shadow
+            does the lifting that the transparency was pretending to do. */}
+        <div className="relative flex items-center gap-2 rounded-full border border-border-default bg-bg-surface p-2 shadow-lg">
           <RoundButton onClick={onHangUp} label={t('call.hangUp')} tone="danger">
             <X size={20} />
           </RoundButton>
@@ -684,10 +689,18 @@ function RoundButton({
       aria-label={label}
       title={label}
       className={cn(
-        'flex h-14 w-14 items-center justify-center rounded-full transition-colors',
-        tone === 'danger' && 'bg-bg-elevated text-rose-400 hover:bg-rose-500/15',
-        tone === 'brand' && 'bg-brand text-bg-primary hover:bg-brand-hover',
-        tone === 'neutral' && 'bg-bg-elevated text-text-secondary hover:bg-bg-hover',
+        // A border on every tone. `bg-bg-elevated` is #252119 on dark, which
+        // reads as a button against the surface, and #FFFFFF on light, which
+        // reads as nothing against #FFF5EE — so the shape has to be drawn
+        // rather than implied by a fill that only contrasts in one theme.
+        'flex h-14 w-14 items-center justify-center rounded-full border transition-colors',
+        // Themed tokens rather than Tailwind's palette: `--error` is tuned per
+        // theme (#C0472A dark, #A03820 light) while `rose-400` is a single
+        // value picked to sit on black and washes out on cream.
+        tone === 'danger' &&
+          'border-border-default bg-bg-elevated text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_12%,transparent)]',
+        tone === 'brand' && 'border-transparent bg-brand text-bg-primary hover:bg-brand-hover',
+        tone === 'neutral' && 'border-border-default bg-bg-elevated text-text-secondary hover:bg-bg-hover',
         active && 'text-brand',
         disabled && 'cursor-default opacity-40 hover:bg-bg-elevated',
       )}
@@ -757,7 +770,9 @@ function EngineLine({
       <span
         className={cn(
           'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
-          local ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400',
+          local
+            ? 'bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]'
+            : 'bg-[color-mix(in_srgb,var(--warning)_15%,transparent)] text-[var(--warning)]',
         )}
       >
         {local ? <Laptop size={10} /> : <Cloud size={10} />}

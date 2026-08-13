@@ -128,7 +128,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
         {a.error ? (
           // A failure says so. A search that failed and a search that found
           // nothing look identical otherwise, and one of them is a bug.
-          <p className="text-[11px] text-amber-400" title={a.error}>
+          <p className="text-[11px] text-[var(--warning)]" title={a.error}>
             {a.error}
           </p>
         ) : a.kind === 'agent' ? (
@@ -188,8 +188,8 @@ function EngineMark({ size = 10 }: { size?: number }) {
 /** Running, done, or failed — the same three glyphs everywhere. */
 function Status({ running, status }: { running: boolean; status: ToolActivity['status'] }) {
   if (running) return <Loader2 size={12} className="animate-spin text-brand" />;
-  if (status === 'failed') return <AlertTriangle size={12} className="text-amber-400" />;
-  return <Check size={12} className="tw-pop text-emerald-400" />;
+  if (status === 'failed') return <AlertTriangle size={12} className="text-[var(--warning)]" />;
+  return <Check size={12} className="tw-pop text-[var(--success)]" />;
 }
 
 /**
