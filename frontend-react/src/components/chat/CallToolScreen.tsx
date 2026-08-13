@@ -93,7 +93,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
             <i className="h-2 w-2 rounded-full bg-[#28c840]" />
           </span>
           <span className="flex min-w-0 items-center gap-1.5 rounded-t-md bg-bg-elevated px-2 py-1">
-            <Globe size={9} className="shrink-0 text-sky-400" />
+            <EngineMark size={10} />
             <span className="truncate text-[10px] text-text-secondary">DuckDuckGo</span>
             <X size={9} className="shrink-0 text-text-muted/50" />
           </span>
@@ -141,6 +141,39 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The search engine's mark, for attribution.
+ *
+ * Drawn here rather than fetched: the webview makes no external requests, so a
+ * remote favicon would render as a broken square. It is **my rendering in their
+ * style, not their official artwork** — the orange disc, the white duck, the
+ * green bow — because their real file is not in this repo and inventing path
+ * data from memory produces a distorted mark, which is worse than an honest
+ * approximation. Drop `duckduckgo.svg` into `public/` and swap this for an
+ * `<img>` if the exact mark matters.
+ *
+ * At the sizes it renders — 9px in the tab, 8px beside a result — this reads as
+ * the icon it stands for, which is the whole job.
+ */
+function EngineMark({ size = 10 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
+      <circle cx="12" cy="12" r="12" fill="#DE5833" />
+      {/* Head and body as one silhouette, tilted the way the original sits. */}
+      <path
+        d="M12.4 4.6c2.6 0 4.4 1.9 4.4 4.4 0 1.3-.5 2.4-1.3 3.2.9 1.6 1.4 3.5 1.4 5.4 0 .9-.1 1.7-.3 2.5H8.2c-.6-1.6-1-3.3-1-5 0-2.4.7-4.6 1.9-6.2-.2-.5-.3-1-.3-1.5 0-1.6 1.2-2.8 3.6-2.8z"
+        fill="#fff"
+      />
+      {/* Beak. */}
+      <path d="M15.2 8.3l3.4.6-3.3 1.1z" fill="#FDD20A" />
+      {/* Eye. */}
+      <circle cx="13.6" cy="7.9" r=".75" fill="#2D4F8E" />
+      {/* Bow tie. */}
+      <path d="M10.2 13.2l2.1-.8 2.1.8-2.1.9z" fill="#3CA82B" />
+    </svg>
   );
 }
 
@@ -196,6 +229,9 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
             running ? 'tw-focus' : 'ring-1 ring-inset ring-border-subtle',
           )}
         >
+          {/* The engine's mark sits left of the field, where the reference puts
+              it — it is what identifies the bar before a single word is read. */}
+          <EngineMark size={12} />
           <Search size={10} className="shrink-0 text-text-muted" />
           <span className="min-w-0 flex-1 truncate text-[11px] text-text-primary" title={a.subject}>
             {/* Typed in, not printed. The string is exactly what the agent sent;
