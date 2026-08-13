@@ -90,7 +90,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
           Every other kind keeps the plain strip: a terminal draws its own tab
           bar, and a file card with fake window chrome would just be noise. */}
       {a.kind === 'browser' ? (
-        <header className="flex items-center gap-2 border-b border-border-subtle bg-black/20 px-2.5 py-1.5">
+        <header className="flex items-center gap-2 border-b border-border-subtle bg-bg-elevated/40 px-2.5 py-1.5">
           <span className="flex shrink-0 gap-1.5">
             <i className="h-2 w-2 rounded-full bg-[#ff5f57]" />
             <i className="h-2 w-2 rounded-full bg-[#febc2e]" />
@@ -281,7 +281,7 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
                 type="button"
                 onClick={() => void open(h.url)}
                 title={h.url}
-                className="mt-0.5 block w-full truncate text-left text-[12px] leading-snug text-[#8ab4f8] hover:underline"
+                className="mt-0.5 block w-full truncate text-left text-[12px] leading-snug text-[var(--result-link)] hover:underline"
               >
                 {h.title}
               </button>

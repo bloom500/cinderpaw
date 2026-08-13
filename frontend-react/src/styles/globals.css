@@ -274,6 +274,20 @@ body { overflow: hidden; }
   .word-fade { animation: none; }
 }
 
+/* The colour a search result's title is in, per theme.
+   `#8ab4f8` is the dark-mode link blue and lands at roughly 2:1 on white, which
+   is below any readable threshold — the widgets were built dark-first and this
+   was the one place that broke rather than merely looked off. Declared as a
+   variable so the rule lives here with its light counterpart instead of being
+   a hex buried in a component that only one theme ever sees. */
+:root { --result-link: #1a5fd0; }
+:root:not([data-theme="light"]) { --result-link: #8ab4f8; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) { --result-link: #1a5fd0; }
+}
+[data-theme="dark"]  { --result-link: #8ab4f8; }
+[data-theme="light"] { --result-link: #1a5fd0; }
+
 /* ── Call telemetry widgets ──────────────────────────────────────────────
    The panel that shows what Feral is doing during a voice call. Motion here
    has one job: make work legible at a glance, from across a room. So it is
