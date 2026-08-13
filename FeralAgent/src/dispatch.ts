@@ -1061,10 +1061,23 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           // was guaranteed to 503 "no model selected" — burying the real cloud
           // error — and the Rust API's lazy-load would drag the multi-GB model
           // straight back into RSS on the first hiccup.
-          const fallback =
-            isLoopbackUrl(baseUrl) || msg.localFallbackAvailable === false
-              ? undefined
-              : localFallbackTarget;
+          // A second cloud provider, when the host found one, in preference to
+          // the local engine. It is the only fallback that exists on a machine
+          // with no GGUF resident — which is where the missing one hurt, since
+          // there a single 429 ended the turn outright.
+          const cloudFallback: ModelTarget | undefined = msg.fallback?.provider
+            ? {
+                provider: msg.fallback.provider,
+                model: msg.fallback.model,
+                baseUrl: msg.fallback.baseUrl,
+                apiKey: msg.fallback.apiKey,
+              }
+            : undefined;
+          const fallback = isLoopbackUrl(baseUrl)
+            // A local primary IS the safe target; nothing to fail over to.
+            ? undefined
+            : (cloudFallback ??
+               (msg.localFallbackAvailable === false ? undefined : localFallbackTarget));
           router.reconfigure(primary, fallback);
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past

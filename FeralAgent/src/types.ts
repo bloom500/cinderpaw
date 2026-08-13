@@ -1162,6 +1162,10 @@ export interface InboundMessage {
    *  user said, so the pair travels in one message and cannot be split by a
    *  crash between two. */
   assistantContent?: string;
+  /** `set_model` only: a second configured cloud provider to fail over to. The
+   *  host picks it, because it is the side that can read the keychain. Absent
+   *  when the user has only one provider set up. */
+  fallback?: { provider: string; model: string; baseUrl: string; apiKey?: string };
   sessionId?: string;
   /** RSI start payload (type === "rsi_start"). */
   rsiGoal?: string;

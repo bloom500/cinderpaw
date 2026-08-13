@@ -140,6 +140,7 @@ export class TauriTransport implements Transport {
  */
 const INBOUND_TYPES = [
   "message",
+  "record_turn",
   "ping",
   "shutdown",
   "set_model",

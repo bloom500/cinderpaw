@@ -9,6 +9,54 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
+/// Another configured provider to fail over to, or `None`.
+///
+/// Picked rather than asked for, because the alternative is a settings screen
+/// for something with exactly one sensible answer: any enabled provider that
+/// is not the one already failing, with a key and a model. The user configured
+/// it, so they have consented to it being used; the only question was whether
+/// it gets used when it would help.
+///
+/// Deterministic order, so a turn that fails over twice lands on the same
+/// endpoint both times and a bug report is reproducible.
+fn second_provider(primary: &str) -> Option<serde_json::Value> {
+    let settings = feral_core::settings::load();
+    let byok = feral_core::byok::load(&settings);
+    let catalog = feral_core::byok::provider_catalog();
+
+    let mut candidates: Vec<_> = byok
+        .providers
+        .iter()
+        .filter(|(id, cfg)| id.as_str() != primary && cfg.enabled)
+        .collect();
+    candidates.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (id, cfg) in candidates {
+        // The key lives in the keychain, not in the record — an entry without
+        // one is a provider the user started configuring and never finished,
+        // and failing over to it would turn a rate limit into an auth error.
+        let Some(key) = feral_core::byok::byok_get(id).filter(|k| !k.trim().is_empty()) else {
+            continue;
+        };
+        let entry = catalog.iter().find(|e| &e.id == id);
+        let model = cfg
+            .default_model
+            .clone()
+            .or_else(|| entry.map(|e| e.default_model.clone()))?;
+        let base_url = cfg
+            .base_url
+            .clone()
+            .or_else(|| entry.map(|e| e.default_base_url.clone()))?;
+        return Some(serde_json::json!({
+            "provider": id,
+            "model": model,
+            "baseUrl": base_url,
+            "apiKey": key,
+        }));
+    }
+    None
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn get_models() -> Result<Vec<ModelInfo>, String> {
@@ -512,6 +560,17 @@ pub(crate) async fn feral_set_model(
     // the truth and let it drop the fallback while we're on a cloud route.
     let local_fallback_available = state.manager.current().is_some();
 
+    // A second cloud provider, for the machines where the local one cannot be
+    // the safety net.
+    //
+    // The sidecar's fallback has always been the bundled local engine, which
+    // works on a box with a GGUF resident and is nothing at all on a box
+    // without one — and on that second kind of machine the router reports
+    // "primary inference failed and no fallback configured", so a single 429
+    // ends the turn. That is not a missing feature, it is a fallback that
+    // silently does not exist for the user who most needs it.
+    let cloud_fallback = second_provider(&provider);
+
     let msg = serde_json::json!({
         "type": "set_model",
         "provider": provider,
@@ -520,6 +579,7 @@ pub(crate) async fn feral_set_model(
         "apiKey": api_key,
         "contextWindow": context_window,
         "localFallbackAvailable": local_fallback_available,
+        "fallback": cloud_fallback,
     })
     .to_string();
 
