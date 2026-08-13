@@ -147,49 +147,31 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
 /**
  * The search engine's mark, for attribution.
  *
- * Drawn here rather than fetched: the webview makes no external requests, so a
- * remote favicon would render as a broken square. It is **a rendering in their
- * style, not their official artwork** — traced by eye from the logo Darius
- * supplied, after a first attempt from memory got it materially wrong (orange
- * instead of red, one eye instead of two, no ring). Drop `duckduckgo.svg` into
- * `public/` and swap this for an `<img>` if the exact mark ever matters.
+ * Their actual logo, bundled at `public/duckduckgo.png` rather than fetched:
+ * the webview makes no external requests, so a remote favicon renders as a
+ * broken square. Two hand-drawn approximations preceded it and both were wrong
+ * in ways only visible next to the real thing — the file removes the question.
  *
  * At the sizes it renders — 9px in the tab, 8px beside a result — this reads as
  * the icon it stands for, which is the whole job.
  */
 function EngineMark({ size = 10 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
-      {/* Red, with the thin white ring inset from the edge. */}
-      <circle cx="12" cy="12" r="12" fill="#DE2A17" />
-      <circle cx="12" cy="12" r="10.5" fill="none" stroke="#fff" strokeWidth="0.7" />
-
-      {/* Neck, then the grey stripe down its left edge. */}
-      <path d="M8.7 11.5h4.6l-.8 10.3H9.4z" fill="#fff" />
-      <path d="M8.7 11.5h1.1l-.6 10.3h-.4z" fill="#cfcfcf" />
-      {/* The feather flick above the head. */}
-      <path d="M9.6 4.9L8 3.5l2 1z" fill="#fff" />
-      <ellipse cx="11" cy="8.8" rx="3.3" ry="4.4" fill="#fff" />
-
-      {/* Beak: two mandibles with the gap between them, pointing right. */}
-      <path d="M13.4 8.6c2.2-.9 4.2-.5 4.2.3 0 .7-2 1-3.6 1z" fill="#FDD20A" />
-      <path d="M13.8 10.6c1.7 0 3.2.2 3.2.9s-1.7.7-3.3.2z" fill="#FDD20A" />
-
-      {/* Two eyes, and the light arcs above them. */}
-      <circle cx="11.2" cy="8" r=".95" fill="#2D8EF5" />
-      <circle cx="13" cy="8.2" r=".8" fill="#2D8EF5" />
-      <path
-        d="M10.1 6.6c.5-.5 1.3-.5 1.8-.1M12.4 6.9c.4-.4 1.1-.4 1.4 0"
-        stroke="#4FA8F7"
-        strokeWidth=".5"
-        fill="none"
-        strokeLinecap="round"
-      />
-
-      {/* Bow tie, knot included — at this size it is the green that registers. */}
-      <path d="M11 18.6l-2.6-1.4v2.9zM11 18.6l2.6-1.4v2.9z" fill="#3CA82B" />
-      <rect x="10.3" y="17.8" width="1.5" height="1.7" rx=".4" fill="#2E8B22" />
-    </svg>
+    <span
+      aria-hidden
+      className="shrink-0 rounded-full bg-contain bg-no-repeat"
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: 'url(/duckduckgo.png)',
+        // The file is the horizontal lockup — duck then wordmark, 2400×756 —
+        // and only the duck belongs in a 10px slot. Scaling to the container's
+        // height and anchoring left shows exactly the leading square, which is
+        // the duck, with no second cropped copy of the asset to keep in sync.
+        backgroundSize: 'auto 100%',
+        backgroundPosition: 'left center',
+      }}
+    />
   );
 }
 
