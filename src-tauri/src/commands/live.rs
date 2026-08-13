@@ -152,6 +152,12 @@ async fn pump(
 }
 
 fn emit_status(app: &AppHandle, session_id: &str, event: CoreEvent) {
+    // The one status worth a line in the terminal. A call that dies mid-session
+    // reports its reason to the webview and nowhere else, so the only record of
+    // WHY was whatever the user managed to copy off the screen.
+    if let CoreEvent::Closed(reason) = &event {
+        tracing::warn!(reason = %reason, "live: session closed");
+    }
     let (kind, text) = match event {
         CoreEvent::Interrupted => ("interrupted", String::new()),
         CoreEvent::TurnComplete => ("turnComplete", String::new()),

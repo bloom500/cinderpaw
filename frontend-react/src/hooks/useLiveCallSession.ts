@@ -3,6 +3,7 @@ import { useChat } from '@/stores/chat';
 import { tauri } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import { captureMicPcm } from '@/lib/micPcm';
+import { forSpeech } from '@/lib/speechText';
 import { useSpeechPlayer } from './useSpeechPlayer';
 import { LEVEL_CEILING, type CallPhase } from './useCallSession';
 import { t } from '@/lib/i18n';
@@ -27,6 +28,49 @@ import { t } from '@/lib/i18n';
 /** How long a `heard` line lingers after the model finishes answering, so a
  *  question does not vanish from the screen the instant it is answered. */
 const HEARD_LINGER_MS = 1_500;
+
+/** How many recent turns travel into the briefing, and how much of each. Enough
+ *  to pick up a conversation mid-thought; short enough that the setup message
+ *  stays a briefing rather than a transcript. */
+const BRIEF_TURNS = 6;
+const BRIEF_CHARS = 400;
+
+/**
+ * What the model is told before it says a word.
+ *
+ * This was the whole of "it doesn't know it's in Feral and has no memory": the
+ * call opened with nothing but the speech rules, because nobody filled these in.
+ * The fields have existed since the engine was written and the one caller passed
+ * none of them.
+ *
+ * The session is stateful, so this is said once and never re-sent — which makes
+ * it cheap to be generous here, and expensive to be wrong.
+ *
+ * Everything is best-effort: a briefing that fails must not stop a call. An
+ * absent field is left out entirely rather than sent empty, because "the user
+ * was working on: nothing" is worse than silence.
+ */
+async function briefing() {
+  const last = await tauri.raw.getLastTask().catch(() => null);
+
+  // The conversation already on screen, so a call started mid-chat continues the
+  // thought instead of opening cold. `forSpeech` strips the markdown the model
+  // would otherwise read out loud if it quoted any of it back.
+  const recent = useChat
+    .getState()
+    .messages.slice(-BRIEF_TURNS)
+    .map((m) => `${m.role === 'user' ? 'They' : 'You'}: ${forSpeech(m.content).slice(0, BRIEF_CHARS)}`)
+    .filter((line) => line.length > 6)
+    .join('\n');
+
+  return {
+    currentTask: last?.task?.title ?? undefined,
+    workspace: last?.workspace_name ?? undefined,
+    context: recent
+      ? `Here is the end of the conversation you were having with them in text, just before this call:\n${recent}`
+      : undefined,
+  };
+}
 
 export function useLiveCallSession() {
   const sessionId = useChat((s) => s.sessionId);
@@ -129,7 +173,7 @@ export function useLiveCallSession() {
     setPhase('thinking'); // connecting; the orb's fastest tempo is the honest one
 
     try {
-      await tauri.raw.startLiveCall(sessionId);
+      await tauri.raw.startLiveCall(sessionId, await briefing());
     } catch (err) {
       const code = err instanceof Error ? err.message : String(err);
       setNotice(code === 'live-no-key' ? t('call.liveNoKey') : code.slice(0, 160));

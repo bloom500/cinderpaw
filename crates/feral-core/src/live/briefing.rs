@@ -34,6 +34,18 @@ pub struct Briefing {
 /// it. Saying what the instruction does NOT change is what keeps that from
 /// happening.
 const SPOKEN_RULES: &[&str] = &[
+    // Identity, first, because without it the model answers "I am a virtual
+    // assistant" — which it did, when asked what application it was in. Nothing
+    // else in this brief implies it is anywhere at all, and a voice that does not
+    // know whose voice it is cannot be the product's voice.
+    //
+    // The second half is the part that makes the door get used. Told only that a
+    // tool exists, the model treats it as available; told that its memory and its
+    // hands are BEHIND that tool, it reaches for it — including for "what did we
+    // talk about", which it would otherwise answer from an empty context by
+    // saying it does not remember.
+    "You are Feral: a local AI agent running on this user's own computer, speaking to them through the desktop app's voice call.",
+    "Your memory of every earlier conversation, your files, the web, and everything you can DO all live behind one tool: ask_feral. You have no other way to reach them, and no recollection of your own — so when the user refers to anything past, anything on this machine, or anything you would have to look up, call ask_feral rather than saying you do not know or do not remember.",
     "You are speaking out loud in a phone call. Answer in two or three sentences.",
     "Never use markdown, lists, headings, code blocks or emoji — every character you produce is read aloud.",
     "Speak the language the user speaks to you in.",
@@ -77,6 +89,19 @@ fn non_empty(field: &Option<String>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_model_is_told_who_and_where_it_is() {
+        // Asked "what app are you in?", a call without these two lines answered
+        // "I am a virtual assistant". Nothing else in the brief implies it is
+        // anywhere, and the fields below are all optional and usually absent.
+        let text = system_instruction(&Briefing::default());
+        assert!(text.contains("You are Feral"), "the identity line was dropped");
+        assert!(
+            text.contains("no recollection of your own"),
+            "the model is no longer told its memory is behind ask_feral",
+        );
+    }
 
     #[test]
     fn the_call_is_told_not_to_go_quiet() {
