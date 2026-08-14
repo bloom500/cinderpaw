@@ -25,12 +25,14 @@
  *                                `budget` defaults to 4096. Clamped to
  *                                ≥ 32 so an agent never gets a zero-token
  *                                budget on a 0.1 fraction.
- *   - `decompositionDepth`     → number of parallel sub-calls (depth+1),
- *                                each prefixed `[Part k/N] …`. Responses
- *                                joined with blank lines. Depth is capped
- *                                at MAX_DECOMPOSITION so a pathological
- *                                genome can't burst the router with 100
- *                                parallel completions per prompt.
+ *   - `decompositionDepth`     → CEILING on the number of parallel sub-calls
+ *                                (depth+1, capped at MAX_DECOMPOSITION so a
+ *                                pathological genome cannot burst the router
+ *                                with 100 completions per prompt). A ceiling
+ *                                only: the sub-prompts come from a promoted
+ *                                L4 planner module, and without one the
+ *                                prompt is not split at all. Responses are
+ *                                joined with blank lines.
  *   - `toolPreferenceWeights`  → if a `toolRegistry` is provided, its
  *                                tools are sorted by the genome's weight
  *                                (index-aligned; missing entries are 0),
@@ -241,28 +243,18 @@ async function runOnce(args: {
     ...(openAITools ? { openAITools: openAITools as InferenceRequest["openAITools"] } : {}),
   };
 
-  // Decomposition: depth=0 → single call; depth≥1 → (depth+1) calls
-  // (capped at maxDecomposition). Sub-calls run concurrently — the
-  // router itself is rate-limit-aware, and the eval suite is the
-  // canonical example of the engine's pool-style concurrency.
+  // Decomposition: `depth+1` sub-prompts at most (capped at
+  // maxDecomposition), and only ever as many as a planner actually produces.
+  //
+  // The L4 planner seam (§1.2) is what turns one goal into several; without a
+  // promoted module there is nothing here that can split anything, so the
+  // answer is one call. The old fallback manufactured `n` copies of the same
+  // prompt under a `[Part k/N]` prefix and joined the `n` identical answers —
+  // see `builtinPlanSteps` for what that did to every genome with
+  // `decompositionDepth > 0`.
   const n = Math.min(args.maxDecomposition, args.config.decompositionDepth + 1);
-  if (n <= 1) {
-    const res = await args.router.complete({
-      ...baseRequest,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-    });
-    return { response: gradableAnswer(res.content), tokens: res.totalTokens };
-  }
-
-  // L4 planner seam (§1.2): when a planner module is active it produces
-  // the sub-prompts; any failure or malformed reply falls back to the
-  // builtin `[Part k/N]` split (the adapter already falls back to the
-  // builtin implementation — this guard covers a schema-breaching reply).
   let parts: string[] | null = null;
-  if (args.plan) {
+  if (n > 1 && args.plan) {
     try {
       const steps = await args.plan({
         goal: userContent,
@@ -273,14 +265,13 @@ async function runOnce(args: {
         parts = steps.slice(0, n).map((s) => s.description);
       }
     } catch {
-      parts = null;
+      parts = null; // a broken planner must not cost the eval its answer
     }
   }
-  parts ??= Array.from(
-    { length: n },
-    (_, k) => `[Part ${k + 1}/${n}]\n${userContent}`,
-  );
+  parts ??= [userContent];
 
+  // Sub-calls run concurrently — the router itself is rate-limit-aware, and
+  // the eval suite is the canonical example of the engine's pool concurrency.
   const subCalls = parts.map((content, k) =>
     args.router.complete({
       ...baseRequest,

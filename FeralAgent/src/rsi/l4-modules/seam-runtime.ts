@@ -116,14 +116,24 @@ export interface PlanStep {
   suggestedTools: string[];
 }
 
-/** The builtin planner IS today's decomposition: n parts, `[Part k/N]`
- *  prefix, no tool suggestions — byte-identical to the historical
- *  behavior in invoke-agent.ts (AC10). */
-export function builtinPlanSteps(goal: string, n: number): PlanStep[] {
-  return Array.from({ length: n }, (_, k) => ({
-    description: `[Part ${k + 1}/${n}]\n${goal}`,
-    suggestedTools: [],
-  }));
+/**
+ * The builtin planner does not plan: it returns the goal, once.
+ *
+ * It used to return `n` copies of the same goal under a `[Part k/N]` prefix,
+ * which is not a decomposition — it is the same question asked `n` times, and
+ * `invoke-agent` then joined the `n` answers into one string. Measured on the
+ * VPS, that is exactly what every genome with `decompositionDepth > 0` was
+ * graded on: `{"answer": 7} {"answer": 7} {"answer": 7} {"answer": 7}`. The
+ * answer was right every time and the grader saw malformed JSON, so Tier 0
+ * failed, the confidence gate rejected the candidate, and no genome could ever
+ * be promoted — at three to four times the tokens for the privilege.
+ *
+ * Splitting a goal needs something that can actually split it. Until a planner
+ * module is promoted into this seam, one call is the honest answer, and
+ * `decompositionDepth` costs nothing rather than disqualifying its genome.
+ */
+export function builtinPlanSteps(goal: string): PlanStep[] {
+  return [{ description: goal, suggestedTools: [] }];
 }
 
 /** Seam response → validated steps. A malformed module reply yields
