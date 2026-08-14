@@ -735,10 +735,18 @@ export class AgentLoop {
     // the expensive direction is worse than no instrument.
     const schema = countTokens(JSON.stringify(advertised));
     const prompt = countTokens(stripToolsFromSystemPrompt(this.#systemPrompt));
+    // The notebook doctrine is added per session, so it is NOT in
+    // `#systemPrompt` and this line under-reported the bill the moment the
+    // notebook shipped — understating it by ~1,100 tokens on every completion.
+    // Wrong in the cheap direction is the worse failure: an instrument that
+    // never alarms is one nobody checks. Measured at depth 0, which is the
+    // expensive case (the recursion clause is roughly half of it).
+    const doctrine = countTokens(buildNotebookAddendum(this.#registry, ""));
     log(
       `tools: ${advertised.length} of ${this.#openAITools.length} advertised by default — ` +
-        `${schema} tokens of schema + ${prompt} tokens of system prompt = ` +
-        `${schema + prompt} re-sent on every completion`,
+        `${schema} tokens of schema + ${prompt} tokens of system prompt` +
+        (doctrine > 0 ? ` + ${doctrine} tokens of notebook doctrine` : "") +
+        ` = ${schema + prompt + doctrine} re-sent on every completion`,
     );
   }
 
