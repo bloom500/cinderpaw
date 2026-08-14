@@ -8,8 +8,14 @@
 import { describe, expect, it } from "bun:test";
 import { Notebook, toIdentifier } from "../src/rlm/repl.ts";
 import { buildNotebookPrompt } from "../src/rlm/prompt.ts";
+import { buildNotebookAddendum, buildWorkerAddendum } from "../src/core/agent-loop.ts";
+import { stripToolsFromSystemPrompt } from "../src/egress/inference-providers.ts";
 import { ChildRegistry, defaultChildName, normalizeRequestedName } from "../src/rlm/children.ts";
-import { createNotifyParentTool, type ChildRegistries } from "../src/tools/builtin/notebook.ts";
+import {
+  createNotebookTool,
+  createNotifyParentTool,
+  type ChildRegistries,
+} from "../src/tools/builtin/notebook.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool, ToolResult } from "../src/types.ts";
 
@@ -338,6 +344,98 @@ describe("prompt — parity with the audited source", () => {
     const off = buildNotebookPrompt({ ...base, allowRecursion: false, depth: 1 });
     expect(off).toContain("`rlm` is not available at this depth");
     expect(off).not.toContain("await rlm(");
+  });
+});
+
+/**
+ * Delivery. The doctrine above is worth nothing until it reaches a model, and
+ * for its first three weeks it reached none: `buildNotebookPrompt` was exported,
+ * tested, and called from nowhere but this file. The notebook tool shipped with
+ * it, so the model got a JavaScript interpreter and no hint that its variables
+ * survive — which is the single property the whole design exists for. These
+ * tests pin the wiring, not the wording.
+ */
+describe("the doctrine actually reaches the prompt", () => {
+  const withNotebook = (names: string[]) =>
+    ({
+      list: () => names.map((name) => ({ manifest: { name, description: `Does ${name}.` } })),
+    }) as unknown as ToolRegistry;
+
+  it("is silent when the notebook is not registered — the default", () => {
+    expect(buildNotebookAddendum(withNotebook(["read_file", "grep"]), "s1")).toBe("");
+  });
+
+  it("delivers the doctrine when the notebook IS registered", () => {
+    const p = buildNotebookAddendum(withNotebook(["read_file", "notebook"]), "s1");
+    expect(p).toContain("## The notebook");
+    expect(p).toContain("bind results to named variables");
+    expect(p).toContain("persist across cells");
+  });
+
+  it("drops upstream's identity framing, which would outrank SOUL.md", () => {
+    const p = buildNotebookAddendum(withNotebook(["notebook"]), "s1");
+    expect(p).not.toContain("solves tasks by writing code");
+    // …but keeps the stop condition, which is about REPLs, not identity.
+    expect(p).toContain("stop running cells and state your final answer");
+  });
+
+  it("lists the functions the notebook really injects, itself excluded", () => {
+    const p = buildNotebookAddendum(withNotebook(["read_file", "shell-exec", "notebook"]), "s1");
+    // `shell-exec` is not a JS identifier; the notebook binds it as shell_exec.
+    expect(p).toContain("read_file, shell_exec");
+    expect(p).not.toContain("notebook,");
+  });
+
+  it("promises recursion to a root session and withholds it from a worker", () => {
+    const root = buildNotebookAddendum(withNotebook(["notebook"]), "chat-42");
+    expect(root).toContain("await rlm(");
+    expect(root).toContain("Recursion depth: 0");
+
+    // Matches notebook.ts's own rule: a subagent's notebook binds no `rlm`, so
+    // telling it otherwise sends it after a function that does not exist.
+    const worker = buildNotebookAddendum(withNotebook(["notebook"]), "subagent:chat-42:sa-1");
+    expect(worker).toContain("`rlm` is not available at this depth");
+    expect(worker).not.toContain("await rlm(");
+    expect(worker).toContain("Recursion depth: 1");
+  });
+
+  it("tolerates a registry fake without list()", () => {
+    expect(buildNotebookAddendum({ describe: () => "" } as unknown as ToolRegistry, "s1")).toBe("");
+  });
+
+  it("tells a worker it is one, whoever spawned it", () => {
+    // Not notebook-specific: delegate_task builds its child the same way, so a
+    // plain delegation gets this too.
+    expect(buildWorkerAddendum("subagent:chat-42:sa-1")).toContain("You are a worker");
+    expect(buildWorkerAddendum("subagent:chat-42:sa-1")).toContain("read by that agent");
+    expect(buildWorkerAddendum("chat-42")).toBe("");
+  });
+
+  it("matches the name the REAL tool registers under", () => {
+    // The name is taken from the tool itself rather than typed here, so a
+    // rename breaks this test instead of silently switching the doctrine off
+    // for everyone — the gap this whole block exists to close.
+    const real = createNotebookTool({ registry: () => withNotebook([]) });
+    const p = buildNotebookAddendum(withNotebook([real.manifest.name]), "s1");
+    expect(p).toContain("## The notebook");
+  });
+
+  it("SURVIVES the native-tool prompt strip", () => {
+    // Cloud routes with native tool-calling delete the `## Available tools`
+    // block. A doctrine that lived inside it would vanish on exactly the
+    // providers the notebook is most useful on.
+    const prompt = [
+      "## Available tools",
+      "- read_file(path): reads",
+      "",
+      "## Rules",
+      "- Be concise.",
+      "",
+      buildNotebookAddendum(withNotebook(["read_file", "notebook"]), "s1"),
+    ].join("\n");
+    const stripped = stripToolsFromSystemPrompt(prompt);
+    expect(stripped).not.toContain("- read_file(path): reads");
+    expect(stripped).toContain("bind results to named variables");
   });
 });
 

@@ -72,6 +72,9 @@ import {
 } from "./feral-prompt.ts";
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
+import { NOTEBOOK_TOOL_NAME } from "../tools/builtin/notebook.ts";
+import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
+import { toIdentifier } from "../rlm/repl.ts";
 import { isConnectorTool, isCoreTool } from "../tools/tiers.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
@@ -2321,9 +2324,18 @@ export class AgentLoop {
       // at session creation, so a mid-session ratchet can't churn the
       // cache-friendly static prefix of an active conversation.
       const championStyle = this.#championParams.systemPromptAddendum;
-      const ownerPrompt = championStyle
-        ? `${this.#systemPrompt}\n\n${championStyle}`
-        : this.#systemPrompt;
+      // The notebook doctrine rides here rather than inside buildSystemPrompt
+      // because it is session-scoped (see buildNotebookAddendum). Resolved once
+      // at session creation like everything else in this prefix, so the
+      // cache-friendly static head stays static.
+      const ownerPrompt = [
+        this.#systemPrompt,
+        championStyle,
+        buildWorkerAddendum(sessionId),
+        buildNotebookAddendum(this.#registry, sessionId),
+      ]
+        .filter((s): s is string => !!s)
+        .join("\n\n");
       const memory = new WorkingMemory(profile?.systemPrompt ?? ownerPrompt);
       // Re-hydrate the transcript from episodic memory. Without this a
       // session that was evicted (idle/LRU) or lost to a restart came back
@@ -2521,6 +2533,58 @@ export function buildSystemPrompt(
     "- Never output raw JSON outside a tool block as your final answer.",
     "- Respond in the same language the user writes in.",
   ].filter((s) => s.length > 0).join("\n");
+}
+
+/**
+ * The notebook doctrine, for a session that actually has a notebook.
+ *
+ * Separate from `buildSystemPrompt` for one reason: the doctrine's recursion
+ * clause is only true at depth 0, and depth is a property of the SESSION, not
+ * of the loop. A subagent's session id is `subagent:<parent>:<child>` and its
+ * notebook binds no `rlm` (notebook.ts applies the same rule), so promising a
+ * worker it can spawn workers would send it after a function that is not there.
+ *
+ * Returns "" when the notebook is not registered — which is the default, since
+ * the tool only exists under FERAL_ENABLE_NOTEBOOK. Nobody who has not turned
+ * the notebook on pays a token for this.
+ */
+/** A subagent's session, by the id `Subagent.run` mints for it. */
+export const isWorkerSession = (sessionId: string): boolean => sessionId.startsWith("subagent:");
+
+/**
+ * Tell a spawned worker that it is one.
+ *
+ * A subagent runs its own AgentLoop with `soul = null`, so it gets the default
+ * identity — "You are Feral, a proactive and helpful AI assistant running
+ * locally on the user's device" — and nothing else. It therefore answers as if
+ * a person were reading, mid-conversation, and may ask a follow-up question
+ * that reaches nobody: the parent gets the question as the answer.
+ *
+ * The text is upstream's `buildChildAgentDoctrine`, which was ported months ago
+ * and, like the notebook doctrine beside it, was never wired to anything. It
+ * applies to every subagent, not only to a worker `rlm()` spawned, because
+ * `delegate_task` builds the child exactly the same way.
+ */
+export function buildWorkerAddendum(sessionId: string): string {
+  return isWorkerSession(sessionId) ? `## You are a worker\n${WORKER_BRIEF}` : "";
+}
+
+export function buildNotebookAddendum(registry: ToolRegistry, sessionId: string): string {
+  // Same degradation as buildCapabilityIndex: several callers pass a fake with
+  // only `describe()`, and an optional section must not take the prompt down.
+  if (typeof registry?.list !== "function") return "";
+  const names = registry.list().map((t) => t.manifest.name);
+  if (!names.includes(NOTEBOOK_TOOL_NAME)) return "";
+
+  const isWorker = isWorkerSession(sessionId);
+  return buildNotebookSection({
+    // What the notebook actually injects: one identifier per tool, itself
+    // excluded (repl.ts `exclude`), so the list the model reads is the list of
+    // functions that exist.
+    toolIdentifiers: names.filter((n) => n !== NOTEBOOK_TOOL_NAME).map(toIdentifier),
+    depth: isWorker ? 1 : 0,
+    allowRecursion: !isWorker,
+  });
 }
 
 /**
