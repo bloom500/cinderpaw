@@ -47,9 +47,9 @@
  * be reconstructed post-hoc.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { feralHome } from "../../config.ts";
+import { cfgBool, feralHome } from "../../config.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 import type { ToolRegistry } from "../registry.ts";
 import type { InferenceRouter } from "../../egress/inference-router.ts";
@@ -340,6 +340,32 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     rollback:
       "`brain.route()` is pure (no I/O), so a misbehaving routing is recoverable by configuration reload. Falls back to the primary target on any error.",
     inspect: ["self_describe", "self_providers"],
+  },
+  notebook: {
+    purpose:
+      "The RLM notebook — a long-lived JavaScript interpreter (`node:vm`) per session, with every other tool bound as an async function, so tool calls are composed as program logic instead of one per turn. Opt-in via FERAL_ENABLE_NOTEBOOK; absent entirely when off.",
+    inputs: [
+      "A cell of JavaScript from the model (`notebook` tool, `code` argument).",
+      "The session's live tool registry — one injected function per registered tool, itself excluded.",
+      "The previous snapshot for this session (`~/.feral/notebooks/<session>.json`), restored on first use.",
+    ],
+    outputs: [
+      "The last expression's value plus anything logged, returned as the tool result.",
+      "Variables and helper functions that persist across cells, turns and compaction.",
+      "Background workers admitted by `rlm()`, collected via `rlm.list_subagents()` and the `notify_parent` inbox.",
+    ],
+    safety: [
+      "No ambient authority: the vm context gets none of our builtins, so `Function` is unreachable and there is no `fetch`, `require` or `process`.",
+      "Host objects and tool results are prototype-severed, closing the `.constructor.constructor` escape (regression-tested — those tests are load-bearing).",
+      "Every capability still goes through ToolRegistry, so the egress proxy, audit log and process sandbox apply exactly as they do to a normal tool call.",
+      "Workers default to the same read-only tool set as delegate_task; recursion is capped at depth 1, so a child cannot spawn its own.",
+      "A hardened vm, NOT a jail against an adversary who controls the source — the threat model is careless model-written code.",
+    ],
+    promotion:
+      "Human decision, not evolution: the notebook is off unless FERAL_ENABLE_NOTEBOOK is set. Nothing promotes it automatically.",
+    rollback:
+      "Unset FERAL_ENABLE_NOTEBOOK and the tool is never registered; the agent loop, BRSI and FMS are untouched by its absence. Per-session state is a plain JSON file that can be deleted.",
+    inspect: ["self_describe", "self_subsystem"],
   },
   rsi: {
     purpose:
@@ -910,6 +936,27 @@ function healthDreams(paths: ShapePaths = {}): SubsystemHealth {
     : { available: false, detail: "no dream episodes logged" };
 }
 
+/**
+ * The notebook is opt-in and off by default, so "no state on disk" is the
+ * normal, correct condition rather than a fault. `available` therefore means
+ * "nothing is wrong here" and the detail line carries the truth — reporting a
+ * `·` for a subsystem the user deliberately left off would flip the whole
+ * diagnostic's banner to "some subsystems not yet persisted" on every install
+ * that never wanted a notebook, which is how a health check stops being read.
+ */
+function healthNotebook(): SubsystemHealth {
+  if (!cfgBool("FERAL_ENABLE_NOTEBOOK")) {
+    return { available: true, detail: "disabled (FERAL_ENABLE_NOTEBOOK unset)" };
+  }
+  let snapshots = 0;
+  try {
+    snapshots = readdirSync(join(feralHome(), "notebooks")).filter((f) => f.endsWith(".json")).length;
+  } catch {
+    // No directory yet: enabled but never used. Not a fault either.
+  }
+  return { available: true, detail: `enabled; ${snapshots} session snapshot(s) on disk` };
+}
+
 function healthConnectorsMgr(ctx: SelfContext): SubsystemHealth {
   if (!ctx.connectors) return { available: false, detail: "ConnectorManager not in scope (headless?)" };
   return { available: true, detail: "ConnectorManager live; reload() is the only mutating entry point" };
@@ -1277,6 +1324,7 @@ function makeSelfHealth(ctx: SelfContext): Tool {
         meta: healthMeta(),
         connectors: healthConnectors(),
         connectors_manager: healthConnectorsMgr(ctx),
+        notebook: healthNotebook(),
         memory: {
           available: shapeMemory().leaf_store_exists || shapeMemory().graph_exists,
           detail: `leaves ${shapeMemory().estimators.leaf_count_estimate}; graph ${shapeMemory().graph_exists ? "yes" : "no"}`,
@@ -1480,5 +1528,6 @@ export const __testInternals = {
   healthDreams,
   healthLora,
   healthConnectors,
+  healthNotebook,
   SUBSYSTEMS,
 };
