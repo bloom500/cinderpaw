@@ -1,7 +1,7 @@
 // Aliased: the bare name would shadow the DOM `KeyboardEvent` that the Escape
 // listener below is typed against.
 import {
-  useEffect, useRef, useState, useSyncExternalStore,
+  lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -27,6 +27,14 @@ import { CallToolScreen } from './CallToolScreen';
 import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
+/**
+ * Loaded only when a call opens. three.js is ~1.1 MB of the bundle and this is
+ * the one screen that uses it — bundling it into the entry chunk made every
+ * cold start pay for a sphere most sessions never see. Suspense falls back to
+ * nothing on purpose: the CSS orb is already rendered underneath, so the wait
+ * is invisible rather than a hole.
+ */
+const CallOrb3D = lazy(() => import('./CallOrb3D').then((m) => ({ default: m.CallOrb3D })));
 import { tauri, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
@@ -556,6 +564,15 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
             'radial-gradient(circle, rgba(214,206,255,0.16) 42%, transparent 70%)',
         }}
       />
+
+      {/* The real sphere. Drawn over the CSS one rather than instead of it: if
+          WebGL is unavailable the component renders nothing and the gradient
+          ball below is still a sphere, still animated, still carrying the call
+          state. A call screen with an empty middle is worse than an
+          approximate one. */}
+      <Suspense fallback={null}>
+        <CallOrb3D phase={phase} level={level} />
+      </Suspense>
 
       <div
         className="relative h-44 w-44 transition-transform duration-150"
