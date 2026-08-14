@@ -96,14 +96,31 @@ pub struct Setup {
     pub input_audio_transcription: Option<AudioTranscriptionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_audio_transcription: Option<AudioTranscriptionConfig>,
-    /// What keeps a call alive past ten minutes.
+    /// Sliding-window history compression. **Off by default — it appears to be
+    /// the cause of the very failure it was added to fix.**
     ///
-    /// An audio session is capped at fifteen minutes and the WebSocket itself is
-    /// torn down at about ten — and the server reports that as "the audio content
-    /// type (CONTENT_TYPE_AUDIO) is not supported for this model configuration",
-    /// which reads as a setup error and sends whoever is debugging it to check
-    /// the model. Measured: a call opened at 12:26 died at 12:37. The docs' own
-    /// remedy is to compress the history instead of dropping the connection.
+    /// The story, because it is the kind that repeats. An audio session is
+    /// capped at fifteen minutes and the socket is torn down at about ten; the
+    /// server reports that as "the audio content type (CONTENT_TYPE_AUDIO) is
+    /// not supported for this model configuration", which reads as a setup
+    /// error. Measured then: opened 12:26, dead 12:37. Compression is the
+    /// documented remedy, so it went on by default.
+    ///
+    /// Measured after: opened, spoke, **dead 18 seconds later**, same message.
+    /// Second call, 6 seconds. Thirty times sooner than the wall it was meant
+    /// to clear. The reading that fits is that the message was always literal —
+    /// audio content cannot be compressed, and "this model configuration" is
+    /// the sliding window WE asked for. Audio burns tokens fast, so the
+    /// server-chosen trigger is reached in seconds.
+    ///
+    /// The verification that let this through said the probe "sends the new
+    /// setup and the server accepts it" — and that probe's own docstring warns
+    /// that ACCEPTED does not mean SUPPORTED. Accepting a field and honouring
+    /// it are different claims; only the weaker one was ever tested.
+    ///
+    /// `FERAL_LIVE_COMPRESS_HISTORY=true` puts it back. Dying at ten minutes is
+    /// a better failure than dying at eighteen seconds, so that is the default
+    /// until a long call is actually measured with it on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window_compression: Option<ContextWindowCompression>,
 }
@@ -148,13 +165,15 @@ impl Setup {
             },
             input_audio_transcription: Some(AudioTranscriptionConfig {}),
             output_audio_transcription: Some(AudioTranscriptionConfig {}),
-            // On by default, not optional. A call that dies at ten minutes with
-            // a message about audio content types is the worst kind of bug —
-            // it works, then stops, and blames the wrong thing.
-            context_window_compression: Some(ContextWindowCompression {
-                sliding_window: SlidingWindow {},
-                trigger_tokens: None,
-            }),
+            // Off unless asked for — see the field's docs. Opt-in rather than
+            // deleted so the next person can re-measure it in one env var
+            // instead of re-deriving the whole story from the error message.
+            context_window_compression: std::env::var("FERAL_LIVE_COMPRESS_HISTORY")
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .then(|| ContextWindowCompression {
+                    sliding_window: SlidingWindow {},
+                    trigger_tokens: None,
+                }),
         }
     }
 
@@ -388,13 +407,26 @@ mod tests {
         // Both transcripts, or a spoken call leaves no text behind.
         assert!(v["setup"]["inputAudioTranscription"].is_object());
         assert!(v["setup"]["outputAudioTranscription"].is_object());
-        // Without this the WebSocket is torn down at about ten minutes and the
-        // server blames the audio content type, which is not a hint anyone would
-        // follow to a duration limit. Measured: a call died at eleven minutes.
+        // Compression is NOT here by default any more, and the inversion is the
+        // point: sending it appears to end the call in seconds rather than
+        // extend it past ten minutes. See the field's docs. This assertion used
+        // to demand the opposite, which is how a fix that reproduced its own
+        // symptom stayed in — the test pinned the remedy, never the outcome.
         assert!(
-            v["setup"]["contextWindowCompression"]["slidingWindow"].is_object(),
-            "a call without compression ends mid-conversation",
+            v["setup"].get("contextWindowCompression").is_none(),
+            "compression is opt-in via FERAL_LIVE_COMPRESS_HISTORY",
         );
+    }
+
+    #[test]
+    fn compression_can_be_put_back_with_one_env_var() {
+        // Kept reachable rather than deleted: whoever re-measures the ten-minute
+        // wall should not have to rebuild the whole story from an error message.
+        // SAFETY: single-threaded test process; no other thread reads the env.
+        unsafe { std::env::set_var("FERAL_LIVE_COMPRESS_HISTORY", "true") };
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        unsafe { std::env::remove_var("FERAL_LIVE_COMPRESS_HISTORY") };
+        assert!(v["setup"]["contextWindowCompression"]["slidingWindow"].is_object());
     }
 
     #[test]
