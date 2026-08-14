@@ -112,7 +112,11 @@ const en = {
   'call.modePipeline': 'Transcribe → answer → speak',
   'call.modeLive': 'Speech to speech',
   'call.liveEngine': 'Gemini Live',
-  'call.liveNote': 'One model hears you and answers in its own voice. It decides when your turn ended, so it can be interrupted mid-sentence — and the call is not saved to the chat.',
+  // The last clause used to say the call is NOT saved to the chat. It was true
+  // when written and stopped being true the moment both transcripts started
+  // landing in the conversation — a stale promise about privacy is the worst
+  // kind of stale text, because someone acts on it.
+  'call.liveNote': 'One model hears you and answers in its own voice. It decides when your turn ended, so it can be interrupted mid-sentence. Each turn is saved to the chat as it finishes.',
   'call.liveNoKey': 'No Google API key stored. The same AI Studio key the chat side uses — paste it below.',
   'call.liveClosed': 'The call was dropped. Press call to reconnect.',
   'call.liveConnecting': 'Connecting…',
