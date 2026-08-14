@@ -38,11 +38,11 @@ import type { CallPhase } from '@/hooks/useCallSession';
  * telling you what it is doing.
  */
 const TEMPO: Record<CallPhase, { spin: number; churn: number; ridge: number }> = {
-  idle:      { spin: 0.045, churn: 0.10, ridge: 0.004 },
-  ready:     { spin: 0.060, churn: 0.14, ridge: 0.005 },
-  listening: { spin: 0.130, churn: 0.34, ridge: 0.008 },
-  thinking:  { spin: 0.290, churn: 0.80, ridge: 0.011 },
-  speaking:  { spin: 0.190, churn: 0.52, ridge: 0.009 },
+  idle:      { spin: 0.045, churn: 0.10, ridge: 0.0015 },
+  ready:     { spin: 0.060, churn: 0.14, ridge: 0.0018 },
+  listening: { spin: 0.130, churn: 0.34, ridge: 0.0030 },
+  thinking:  { spin: 0.290, churn: 0.80, ridge: 0.0045 },
+  speaking:  { spin: 0.190, churn: 0.52, ridge: 0.0038 },
 };
 
 /**
@@ -93,13 +93,17 @@ function makeSwirlTexture(): THREE.Texture {
   // to pale lavender. Light first, saturated on top, and none of them large
   // enough to own the whole sphere. A white blob is gone entirely — white on a
   // 512px map is not a highlight, it is an eraser.
+  // Four regions, not six, and each one big enough to own a quarter of the
+  // sphere. The reference is a handful of broad zones that meet and bleed; a
+  // longer list at smaller radius reads as stripes once the map wraps, which is
+  // exactly what the last version looked like.
   const zones: Array<[number, number, number, string]> = [
-    [0.70, 0.68, 0.34, 'rgba(255, 176, 64, 1)'],
-    [0.88, 0.34, 0.30, 'rgba(64, 206, 240, 1)'],
-    [0.14, 0.28, 0.38, 'rgba(126, 62, 248, 1)'],
-    [0.34, 0.78, 0.34, 'rgba(58, 28, 190, 1)'],
-    [0.52, 0.24, 0.36, 'rgba(244, 58, 20, 1)'],
+    [0.62, 0.58, 0.52, 'rgba(255, 186, 72, 1)'],
+    [0.90, 0.30, 0.46, 'rgba(72, 214, 244, 1)'],
+    [0.16, 0.34, 0.54, 'rgba(132, 66, 250, 1)'],
+    [0.40, 0.80, 0.48, 'rgba(238, 52, 32, 1)'],
   ];
+
 
   for (const [fx, fy, fr, color] of zones) {
     const x = fx * c.width;
@@ -144,11 +148,15 @@ function makeEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   // clearcoat has nothing to catch and the sphere renders matte no matter how
   // low its roughness — the first look at this was a foggy ball for exactly
   // that reason. This is the hard highlight.
-  const spec = ctx.createRadialGradient(20, 44, 0, 20, 44, 26);
+  // Wide and soft rather than a point. A pinprick source gives a pinprick
+  // highlight, which reads as a rendering artefact; the reference's highlight is
+  // a broad soft oval, because a real window is a panel and not a bulb.
+  const spec = ctx.createRadialGradient(22, 48, 2, 22, 48, 54);
   spec.addColorStop(0, '#FFFFFF');
+  spec.addColorStop(0.35, 'rgba(255,255,255,0.72)');
   spec.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = spec;
-  ctx.fillRect(0, 0, 64, 100);
+  ctx.fillRect(0, 0, 64, 130);
 
   const tex = new THREE.CanvasTexture(c);
   tex.mapping = THREE.EquirectangularReflectionMapping;

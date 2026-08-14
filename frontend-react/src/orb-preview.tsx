@@ -4,10 +4,11 @@ import { createRoot } from 'react-dom/client';
 import { CallOrb3D } from './components/chat/CallOrb3D';
 
 const FIELD = [
-  'radial-gradient(ellipse 95% 75% at 76% 4%, #E8834F 0%, transparent 62%)',
-  'radial-gradient(ellipse 75% 62% at 6% 92%, #D96A45 0%, transparent 58%)',
-  'radial-gradient(ellipse 130% 95% at 32% 44%, #B4482A 0%, transparent 72%)',
-  'linear-gradient(150deg, #C4522F 0%, #A63C22 58%, #BE5A34 100%)',
+  'linear-gradient(118deg, transparent 26%, rgba(255,214,170,0.30) 44%, rgba(255,180,120,0.10) 56%, transparent 70%)',
+  'radial-gradient(ellipse 80% 62% at 88% 2%, #FF9A4E 0%, transparent 58%)',
+  'radial-gradient(ellipse 70% 58% at 4% 96%, #F4713F 0%, transparent 56%)',
+  'radial-gradient(ellipse 120% 90% at 34% 46%, #E4451C 0%, transparent 74%)',
+  'linear-gradient(150deg, #EF5423 0%, #D63A14 56%, #E8632C 100%)',
 ].join(', ');
 
 createRoot(document.getElementById('root')!).render(
