@@ -832,6 +832,16 @@ async fn stdout_reader(
                             "feral-agent: hello line missing 'protocol' field: {v}"
                         ),
                     }
+                    // SOUL.md, for the voice call. A speech-to-speech session
+                    // is briefed by us rather than by the agent loop, so this
+                    // is the only route the persona has into a call — without
+                    // it the caller hears the formatting rules and nothing
+                    // else, which is a correct appliance rather than a voice.
+                    // Absent on an older sidecar; the call just stays as it was.
+                    if let Some(p) = v.get("persona").and_then(|p| p.as_str()) {
+                        crate::live::briefing::set_persona(Some(p.to_string()));
+                        tracing::info!("feral-agent: persona received ({} chars)", p.len());
+                    }
                     continue;
                 }
             }

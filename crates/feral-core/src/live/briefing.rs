@@ -65,8 +65,51 @@ const SPOKEN_RULES: &[&str] = &[
 ///
 /// Paragraphs, because the reference says each part becomes its own paragraph
 /// and the model reads them as separate instructions rather than one run-on.
+/// SOUL.md, handed over by the sidecar on its `hello` line.
+///
+/// Process-wide because there is one sidecar and one persona; threading it
+/// through the call command would touch every signature between here and the
+/// host for a value that is set once at startup.
+static PERSONA: std::sync::OnceLock<parking_lot::RwLock<Option<String>>> =
+    std::sync::OnceLock::new();
+
+fn persona_cell() -> &'static parking_lot::RwLock<Option<String>> {
+    PERSONA.get_or_init(|| parking_lot::RwLock::new(None))
+}
+
+/// Called by the sidecar reader. `None` clears it (an older sidecar sends no
+/// persona, and a call briefed with a stale one is worse than one briefed
+/// without).
+pub fn set_persona(text: Option<String>) {
+    *persona_cell().write() = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+}
+
+fn persona() -> Option<String> {
+    persona_cell().read().clone()
+}
+
+/// Reconciles the two documents when they disagree, which they do.
+///
+/// SOUL.md is written for a text surface and says emoji are fine when they earn
+/// their place; every character here is spoken aloud, so they are not. Left to
+/// infer it, the model picks one of two documents at random per turn. Stating
+/// which layer wins costs a sentence and removes the coin flip.
+const PERSONA_APPLIES_TO_SPEECH: &str =
+    "Everything above describes WHO you are, and it holds on this call: the warmth, the register, the short declarative sentences, the refusal to perform the character. Where it describes how text is FORMATTED — markdown, emoji, layout — it does not apply here, because everything you produce is read aloud. Be the same character, spoken.";
+
 pub fn system_instruction(brief: &Briefing) -> String {
-    let mut out: Vec<String> = SPOKEN_RULES.iter().map(|s| s.to_string()).collect();
+    let mut out: Vec<String> = Vec::new();
+
+    // Character first, mechanics after. The rules that follow are prohibitions
+    // — no markdown, no emoji, two sentences — and a brief that opens with a
+    // list of things not to do produces exactly what it describes: correct,
+    // brief, and nobody in particular.
+    if let Some(soul) = persona() {
+        out.push(soul);
+        out.push(PERSONA_APPLIES_TO_SPEECH.to_string());
+    }
+
+    out.extend(SPOKEN_RULES.iter().map(|s| s.to_string()));
 
     // Only state what is actually known. "The user is working on: nothing" is
     // worse than silence — the model will try to make it mean something.
@@ -101,6 +144,38 @@ mod tests {
             text.contains("no recollection of your own"),
             "the model is no longer told its memory is behind ask_feral",
         );
+    }
+
+    /// The bug these pin: a call was briefed with an identity line, tool rules
+    /// and a list of formatting prohibitions, and nothing about character. It
+    /// answered correctly and sounded, in the user's words, like a fridge —
+    /// because that is exactly what it was told to be. SOUL.md existed the whole
+    /// time and had no route into a speech-to-speech session.
+    /// One test rather than three, because the persona is process-wide state
+    /// and `cargo test` runs threads in parallel — three tests setting and
+    /// clearing one global race each other, and the failure looks like the
+    /// feature is broken rather than the test.
+    #[test]
+    fn the_persona_reaches_a_call_before_the_rules_do() {
+        set_persona(Some("Short declarative sentences. Never baby talk.".into()));
+        let text = system_instruction(&Briefing::default());
+
+        assert!(text.contains("Never baby talk"), "SOUL.md did not reach the call");
+        // Order is the point, not presence. Character first, mechanics after:
+        // a brief that opens with what NOT to do produces what it describes.
+        let soul_at = text.find("Short declarative").expect("persona present");
+        let rules_at = text.find("You are Feral").expect("rules present");
+        assert!(soul_at < rules_at, "the prohibitions came before the character");
+        // SOUL.md is written for text and allows emoji that earn their place;
+        // every character here is spoken. Left to infer it, the model picks one
+        // of the two documents per turn at random.
+        assert!(text.contains("read aloud"), "nothing reconciles the two documents");
+
+        // An older sidecar sends no persona at all. That must be a call without
+        // one, not a blank paragraph the model tries to make mean something.
+        set_persona(None);
+        let bare = system_instruction(&Briefing::default());
+        assert!(bare.starts_with("You are Feral"), "an empty persona left a gap");
     }
 
     #[test]

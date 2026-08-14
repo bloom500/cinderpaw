@@ -2011,7 +2011,22 @@ export async function boot(transportOverride?: Transport) {
     // `start()`, which is the earliest point the transport itself considers
     // safe to receive/emit — writing any earlier risks racing its own setup.
     if (!transportOverride) {
-      console.log(JSON.stringify({ type: "hello", protocol: SIDECAR_PROTOCOL }));
+      // The persona rides along because a voice call has no other way to get
+      // it. In a speech-to-speech call the conversational brain is Gemini, not
+      // this agent loop, so SOUL.md — which every text turn is built on — never
+      // reached the caller at all: the call was briefed with identity, tool
+      // rules and a list of formatting prohibitions, and nothing about who it
+      // is. It answered like a polite appliance, correctly, exactly as briefed.
+      //
+      // Sent on `hello` rather than fetched on demand: the host already reads
+      // this line, it is the one message guaranteed to arrive before any call
+      // can start, and a request/response round trip for a value that changes
+      // only on hot-reload would be more moving parts for the same string.
+      console.log(JSON.stringify({
+        type: "hello",
+        protocol: SIDECAR_PROTOCOL,
+        persona: soul.content,
+      }));
     }
     log(
       `ready — transport=${config.transport} model=${config.inference.primary.model} ` +
