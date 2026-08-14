@@ -163,12 +163,25 @@ function makeEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   return env;
 }
 
-export function CallOrb3D({ phase, level }: { phase: CallPhase; level: number }) {
+export function CallOrb3D({
+  phase,
+  level,
+  working = false,
+}: {
+  phase: CallPhase;
+  level: number;
+  /**
+   * A tool is running right now. Its own signal rather than a sixth phase,
+   * because it is orthogonal: Feral can be answering out loud WHILE a search
+   * is still running, and the sphere should be able to say both at once.
+   */
+  working?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   /** Written every frame by the component, read every frame by the loop. Refs
    *  rather than deps, so a mic level arriving 60×/s never rebuilds the scene. */
-  const stateRef = useRef({ phase, level });
-  stateRef.current = { phase, level };
+  const stateRef = useRef({ phase, level, working });
+  stateRef.current = { phase, level, working };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -313,16 +326,27 @@ export function CallOrb3D({ phase, level }: { phase: CallPhase; level: number })
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
 
-      const { phase: p, level: lv } = stateRef.current;
+      const { phase: p, level: lv, working: busy } = stateRef.current;
       const t = TEMPO[p];
 
+      // Tool work reads as CHURN, not as speed. Spinning faster is what the
+      // sphere already does while thinking, so reusing it would say the same
+      // thing twice and mean neither; making the colour inside move while the
+      // ball itself keeps its tempo says "something is happening in there",
+      // which is exactly what a tool call is. It also composes: Feral can be
+      // speaking and searching at once, and both show.
+      const churn = t.churn * (busy ? 3.4 : 1);
+
       if (!reduced) {
-        uniforms.uTime.value += dt * t.churn;
+        uniforms.uTime.value += dt * churn;
         spun += dt * t.spin;
       }
       uniforms.uRidge.value += (t.ridge - uniforms.uRidge.value) * Math.min(dt * 3, 1);
 
-      const target = p === 'listening' ? lv * 0.09 : 0;
+      // A slow pulse under the surface while it works, on top of whatever the
+      // microphone is doing. Small enough to be felt rather than watched.
+      const pulse = busy && !reduced ? Math.sin(now / 420) * 0.012 + 0.012 : 0;
+      const target = (p === 'listening' ? lv * 0.09 : 0) + pulse;
       swell += (target - swell) * Math.min(dt * 6, 1);
       uniforms.uSwell.value = swell;
 

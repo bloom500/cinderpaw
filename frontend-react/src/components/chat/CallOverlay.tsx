@@ -110,6 +110,9 @@ export function CallOverlay({
   // actually up — a listener attached at `idle` would collect the tool calls of
   // whatever the user is doing in the chat behind the overlay.
   const toolActivity = useLiveToolActivity(phase !== 'idle' && phase !== 'ready');
+  /** Any tool still running. Feeds the sphere, which shows work as movement
+   *  inside the glass rather than as another speed — see CallOrb3D. */
+  const workingNow = toolActivity.some((a) => a.status === 'running');
   const [voice, setVoice] = useState<TtsProviderInfo | null>(null);
   /** Can the chosen engine actually speak? `null` until known — the Call button
    *  must not be blocked by a check that has not answered yet, nor allowed by one
@@ -291,7 +294,7 @@ export function CallOverlay({
           }}
         />
 
-        <Orb phase={phase} level={level} />
+        <Orb phase={phase} level={level} working={workingNow} />
 
         {/* Voice picker, live for the whole call. Deliberately not buried in the
             pre-call panel: which voice is talking is the one setting you want to
@@ -499,7 +502,7 @@ const ORB_TEMPO: Record<CallPhase, { a: string; b: string; c: string; breathe: s
  * waveform from nothing would be a lie in the one place the user is looking for
  * feedback. Tempo carries the state instead.
  */
-function Orb({ phase, level }: { phase: CallPhase; level: number }) {
+function Orb({ phase, level, working }: { phase: CallPhase; level: number; working: boolean }) {
   const tempo = ORB_TEMPO[phase];
   // The mic only scales the sphere while listening; elsewhere the breathing
   // keyframe owns the scale and the two would fight over the same property.
@@ -571,7 +574,11 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
           state. A call screen with an empty middle is worse than an
           approximate one. */}
       <Suspense fallback={null}>
-        <CallOrb3D phase={phase} level={level} />
+        <CallOrb3D
+          phase={phase}
+          level={level}
+          working={working}
+        />
       </Suspense>
 
       <div
