@@ -50,7 +50,15 @@ export function pcm16Base64(samples: Float32Array): string {
  * the caller has a screen to put that on.
  */
 export async function captureMicPcm(
-  onFrame: (pcmBase64: string, level: number) => void,
+  /**
+   * Raw samples, not base64, and COPIED — `getChannelData` hands back a buffer
+   * WebAudio reuses for the next frame, so anything the caller holds on to
+   * would be overwritten under it. Handing over samples instead of an encoded
+   * string is what lets a caller coalesce several frames into one message when
+   * the transport is falling behind; base64 chunks cannot simply be joined,
+   * because a 4096-byte frame is not a multiple of three and carries padding.
+   */
+  onFrame: (samples: Float32Array, level: number) => void,
 ): Promise<() => void> {
   // Echo cancellation is what stops the model from hearing itself answer and
   // treating it as the user interrupting. In a speech-to-speech call the far end
@@ -74,7 +82,9 @@ export async function captureMicPcm(
   const node = ctx.createScriptProcessor(MIC_FRAME, 1, 1);
   node.onaudioprocess = (e) => {
     const input = e.inputBuffer.getChannelData(0);
-    onFrame(pcm16Base64(input), rms(input));
+    // `rms` reads it synchronously so it can use the live view; the copy is for
+    // the caller, which may keep the frame past this callback.
+    onFrame(new Float32Array(input), rms(input));
   };
 
   // A ScriptProcessorNode only runs while its output reaches the destination.

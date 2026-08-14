@@ -2,10 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChat } from '@/stores/chat';
 import { tauri } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
-import { captureMicPcm } from '@/lib/micPcm';
+import { captureMicPcm, pcm16Base64 } from '@/lib/micPcm';
+import { TARGET_RATE } from '@/lib/audio';
 import { forSpeech } from '@/lib/speechText';
 import { useSpeechPlayer } from './useSpeechPlayer';
 import { LEVEL_CEILING, type CallPhase } from './useCallSession';
+
+/**
+ * Hard ceiling on un-sent microphone audio, in samples — four seconds at 16 kHz.
+ * Only reachable if the bridge stalls outright; past it, the oldest audio is
+ * dropped rather than delivered late, because late audio is what makes the
+ * model answer half a sentence and then answer it again.
+ */
+const MIC_BACKLOG_SAMPLES = TARGET_RATE * 4;
 import { t } from '@/lib/i18n';
 
 /**
@@ -82,6 +91,55 @@ export function useLiveCallSession() {
 
   /** Bumped by every open/hang-up; an async step that finds it changed gives up. */
   const callRef = useRef(0);
+
+  /**
+   * Microphone frames waiting for the bridge, and whether one send is already
+   * out there.
+   *
+   * The bug this exists for: the mic produces a frame every 128 ms and each one
+   * was fired at the Tauri IPC without waiting. Fire-and-forget has no
+   * backpressure, so whenever a round trip took longer than 128 ms — and it
+   * does, because the model's own 24 kHz reply audio is crossing the same
+   * bridge in the other direction — the calls stacked up. The backlog grew for
+   * as long as the user kept talking, and a long sentence reached the model
+   * half a minute after it was spoken: the model answered the first half, then
+   * the rest of the sentence arrived mid-answer and it answered again.
+   *
+   * One send in flight at a time, everything that arrives meanwhile merged into
+   * the next one. The queue is then self-limiting — it holds exactly as much as
+   * the bridge is behind — and the payload count drops from eight a second to
+   * however many the transport can actually take.
+   */
+  const micQueue = useRef<Float32Array[]>([]);
+  const micBusy = useRef(false);
+
+  /** The turn being spoken, accumulated in refs rather than state: the pieces
+   *  arrive many times a second and only the completed pair is ever read. */
+  const heardRef = useRef('');
+  const saidRef = useRef('');
+
+  const pumpMic = useCallback(async () => {
+    if (micBusy.current || micQueue.current.length === 0) return;
+    micBusy.current = true;
+    const frames = micQueue.current;
+    micQueue.current = [];
+    let total = 0;
+    for (const f of frames) total += f.length;
+    const merged = new Float32Array(total);
+    let at = 0;
+    for (const f of frames) {
+      merged.set(f, at);
+      at += f.length;
+    }
+    try {
+      await tauri.raw.sendLiveAudio(pcm16Base64(merged));
+    } catch {
+      // A dropped frame is a syllable; a thrown one must not stop the pump.
+    }
+    micBusy.current = false;
+    // Anything that arrived while that was in flight goes out now.
+    void pumpMic();
+  }, []);
   const stopMicRef = useRef<(() => void) | null>(null);
   /** The next input transcript starts a new question rather than continuing the
    *  last one. Set when the model finishes a turn. */
@@ -120,12 +178,14 @@ export function useLiveCallSession() {
           case 'inputTranscript':
             // The model's transcription of what it heard, arriving in pieces.
             arrivalsRef.current.push(performance.now());
-            setHeard((prev) => (freshRef.current ? text : prev + text));
+            heardRef.current = freshRef.current ? text : heardRef.current + text;
+            setHeard(heardRef.current);
             freshRef.current = false;
             break;
           case 'outputTranscript':
             // Audio and its transcript arrive together, so this is also the only
             // signal that the reply has started coming back.
+            saidRef.current += text;
             setPhase('speaking');
             break;
           case 'interrupted':
@@ -154,6 +214,34 @@ export function useLiveCallSession() {
                 .catch(() => {});
             }
             arrivalsRef.current = [];
+
+            // File the spoken exchange in the conversation.
+            //
+            // Rust already hands the same pair to the sidecar's `record_turn`,
+            // so the agent REMEMBERS a call — `recall` finds it, the next call
+            // opens informed. What was missing is the half a person can see:
+            // the chat panel stayed empty through a ten-minute conversation, so
+            // there was no scrollback, nothing to copy, and no way to check
+            // what it heard. Two records of one exchange, for two different
+            // readers.
+            {
+              const said = saidRef.current.trim();
+              const asked = heardRef.current.trim();
+              const now = Date.now();
+              if (asked) {
+                useChat.getState().addMessage({
+                  id: `live-u-${now}`, role: 'user', content: asked, createdAt: now,
+                });
+              }
+              if (said) {
+                useChat.getState().addMessage({
+                  id: `live-a-${now}`, role: 'assistant', content: said, createdAt: now + 1,
+                });
+              }
+              saidRef.current = '';
+              heardRef.current = '';
+            }
+
             setPhase('listening');
             freshRef.current = true;
             window.setTimeout(() => {
@@ -221,12 +309,21 @@ export function useLiveCallSession() {
     await beginSpeech();
 
     try {
-      stopMicRef.current = await captureMicPcm((pcm, loudness) => {
+      stopMicRef.current = await captureMicPcm((frame, loudness) => {
         if (callRef.current !== call) return;
         setLevel(Math.min(1, loudness / LEVEL_CEILING));
-        // Fire and forget. A dropped frame is a syllable; awaiting each one would
-        // make the audio path as slow as the slowest IPC round trip.
-        void tauri.raw.sendLiveAudio(pcm).catch(() => {});
+        micQueue.current.push(frame);
+        // Bound the backlog. Coalescing keeps it at one or two frames in normal
+        // conditions; this only matters if the bridge stalls for seconds, and
+        // then old audio is worth less than catching up — a sentence that
+        // arrives thirty seconds late is answered after the model has already
+        // replied to half of it, which is exactly the failure being fixed.
+        let queued = 0;
+        for (const f of micQueue.current) queued += f.length;
+        while (queued > MIC_BACKLOG_SAMPLES && micQueue.current.length > 1) {
+          queued -= micQueue.current.shift()!.length;
+        }
+        void pumpMic();
       });
     } catch {
       void tauri.raw.endLiveCall().catch(() => {});
