@@ -1496,10 +1496,10 @@ export class AgentLoop {
       // a stopwatch is how an afternoon disappears.
       const sentAt = Date.now();
       let firstTokenAt = 0;
-      let streamedTokens = 0;
+      let streamedChunks = 0;
       const onToken = (token: string) => {
         if (firstTokenAt === 0) firstTokenAt = Date.now();
-        streamedTokens++;
+        streamedChunks++;
         streamedSoFar += token;
         hold.push(token);
       };
@@ -1523,9 +1523,19 @@ export class AgentLoop {
         // turn — say "n/a" rather than printing 0 and implying it was instant.
         const ttft = firstTokenAt > 0 ? `${((firstTokenAt - sentAt) / 1000).toFixed(1)}s` : "n/a";
         const total = (now - sentAt) / 1000;
-        const rate = firstTokenAt > 0 && now > firstTokenAt
-          ? (streamedTokens / ((now - firstTokenAt) / 1000)).toFixed(1)
-          : "0";
+        // Rate from the provider's OWN completion count, not from how many
+        // times onToken fired. The first reading said "6.0 tok/s" for 233
+        // tokens in 1.7s — off by more than twenty times, because a provider
+        // streams CHUNKS and a chunk is many tokens. An instrument that
+        // understates throughput by 20× points the investigation straight at
+        // the wrong half of the turn, which is the one thing it exists to
+        // prevent. Chunks are still reported, because a low chunk count with a
+        // high token count means the "stream" arrived in two lumps — which
+        // feels like a stall no matter how good the tokens-per-second is.
+        const streamSecs = firstTokenAt > 0 ? (now - firstTokenAt) / 1000 : 0;
+        const rate = streamSecs > 0 && completionTokens
+          ? `${(completionTokens / streamSecs).toFixed(0)} tok/s`
+          : "n/a";
         // Thinking is measured because it is the cheapest way to rule the model
         // OUT: `think=0` on a slow turn means nothing was reasoned, so the time
         // was spent somewhere that is not the model's head.
@@ -1538,7 +1548,7 @@ export class AgentLoop {
           : "";
         log(
           `turn: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
-            `${rate} tok/s streaming${usage}, think=${think}`,
+            `${rate} over ${streamedChunks} chunk(s)${usage}, think=${think}`,
         );
       }
       // The live registry is the allowlist for the vendored repair pass: a
