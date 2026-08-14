@@ -243,6 +243,29 @@ export function CallOverlay({
           ].join(', '),
         }}
       >
+        {/* The field's one moving part, and it moves only while a voice is in
+            the room: listening or speaking, never thinking and never at rest.
+            A background that drifts continuously becomes wallpaper within
+            thirty seconds — tying it to speech makes the screen answer the one
+            question a caller actually has, which is whether anything is
+            happening. While listening it also swells with the measured mic
+            level, so it is reacting to YOU rather than performing. */}
+        {(phase === 'listening' || phase === 'speaking') && (
+          <div
+            aria-hidden
+            className="orb-motion pointer-events-none absolute inset-0 transition-opacity duration-500"
+            style={{
+              background:
+                'radial-gradient(ellipse 58% 46% at 62% 28%, rgba(255,196,130,0.30) 0%, transparent 62%)',
+              // Listening tracks the microphone; speaking has no measured
+              // loudness (the audio is scheduled, never read back), so it
+              // breathes on the clock instead of faking a level.
+              opacity: phase === 'listening' ? 0.45 + level * 0.55 : 0.75,
+              animation: `stage-drift ${phase === 'listening' ? '7s' : '5s'} ease-in-out infinite`,
+            }}
+          />
+        )}
+
         {/* The close glow that seats the sphere in the field — kept, because
             without it the ball floats a centimetre off the surface. */}
         <div
@@ -541,7 +564,10 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
             // polished chrome, and chrome's unlit areas are light grey, not
             // black. A dark base under bright bands is what made the first pass
             // look like a lit ball instead of a reflective one.
-            background: 'radial-gradient(circle at 50% 40%, #F4F0FF 0%, #C8C0E8 52%, #8B84B8 100%)',
+            // Deeper than the first pass. A near-white base under bright bands
+            // leaves nothing for them to be brighter THAN, which is half of why
+            // the result came out as a beige pearl.
+            background: 'radial-gradient(circle at 46% 36%, #C9BEEE 0%, #8C7FC4 46%, #4A3E78 100%)',
             // Cool halo, so it separates from the orange rather than melting
             // into it.
             boxShadow: '0 0 54px rgba(196, 186, 255, 0.34), 0 18px 44px rgba(60, 20, 8, 0.30)',
@@ -552,17 +578,40 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
         >
           {/* Oversized so no corner of the square ever swings into view inside
               the circular clip while it turns. */}
+          {/* Colour. Blurred only enough to soften the seams — the first pass
+              used 20-26px on a 176px ball, which turned every band into fog and
+              produced a beige pearl. Ribbons have to survive as ribbons. */}
           {band(
             `repeating-conic-gradient(from 0deg,
-               #EFE6FF 0deg, #9BB8F0 26deg, #6FE0D8 52deg, #B9F0A8 74deg,
-               #FFE79A 96deg, #FFA9C9 120deg, #C79BF0 146deg, #EFE6FF 180deg)`,
-            '150%', '20px', tempo.a,
+               #B98CFF 0deg, #6FA8FF 18deg, #4BE3D8 34deg, #A8F08C 50deg,
+               #FFD86B 66deg, #FF7FB0 84deg, #B98CFF 104deg)`,
+            '150%', '7px', tempo.a,
           )}
           {band(
             `repeating-conic-gradient(from 140deg,
-               #FFFFFF 0deg, #C9D8FF 30deg, #8FE8E0 62deg, #FFD1E8 96deg,
-               #D9C2FF 130deg, #FFFFFF 165deg)`,
-            '135%', '26px', tempo.b, true, 'overlay',
+               #FFFFFF 0deg, #7FC8FF 22deg, #FF9AD5 44deg, #C6A0FF 66deg, #FFFFFF 92deg)`,
+            '135%', '9px', tempo.b, true, 'overlay',
+          )}
+          {/* The relief, and the piece that was missing entirely.
+              What makes the reference read as a twisted object rather than as a
+              coloured ball is the RIDGES — light catching the crest of each fold
+              and dying in the trough. Hard-stopped bright/dark stripes in
+              `overlay` do that: they shade whatever colour is underneath instead
+              of painting over it, so the ribbons keep their hue and gain a
+              surface. Two sets at crossed angles, because a single direction
+              reads as corduroy and two reads as wrung cloth. */}
+          {band(
+            `repeating-linear-gradient(102deg,
+               rgba(255,255,255,0.62) 0px, rgba(255,255,255,0.62) 2px,
+               rgba(255,255,255,0.06) 5px, rgba(28,16,54,0.42) 9px,
+               rgba(28,16,54,0.10) 13px, rgba(255,255,255,0.62) 16px)`,
+            '150%', '1.5px', tempo.c, true, 'overlay',
+          )}
+          {band(
+            `repeating-linear-gradient(28deg,
+               rgba(255,255,255,0.34) 0px, rgba(255,255,255,0.02) 4px,
+               rgba(30,18,58,0.30) 8px, rgba(255,255,255,0.34) 13px)`,
+            '140%', '2px', tempo.a, false, 'soft-light',
           )}
           {/* The wobble. Two conics alone turn like clockwork; a third layer on a
               non-round scale keeps the fluid from ever being quite a circle. */}
@@ -570,9 +619,12 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
             aria-hidden
             className="orb-motion absolute inset-[-25%] rounded-full"
             style={{
+              // Was 0.85 white — a fog light inside the ball that erased every
+              // band it touched. It exists to break the clockwork, not to
+              // illuminate.
               background:
-                'radial-gradient(circle at 38% 40%, rgba(255,255,255,0.85) 0%, rgba(190,220,255,0.35) 38%, transparent 62%)',
-              filter: 'blur(24px)',
+                'radial-gradient(circle at 38% 40%, rgba(255,255,255,0.22) 0%, rgba(190,220,255,0.10) 40%, transparent 64%)',
+              filter: 'blur(18px)',
               animation: `orb-wobble ${tempo.c} ease-in-out infinite`,
             }}
           />
@@ -613,8 +665,11 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
           aria-hidden
           className="pointer-events-none absolute inset-0 rounded-full"
           style={{
+            // 0.30 across the top third was the last of the three white layers
+            // washing the colour out. A sheen should suggest a wet surface, not
+            // repaint it.
             background:
-              'radial-gradient(ellipse 60% 38% at 42% 16%, rgba(255,255,255,0.30) 0%, transparent 70%)',
+              'radial-gradient(ellipse 52% 30% at 40% 14%, rgba(255,255,255,0.14) 0%, transparent 72%)',
           }}
         />
       </div>
