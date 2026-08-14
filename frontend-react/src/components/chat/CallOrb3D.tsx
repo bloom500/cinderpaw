@@ -64,27 +64,43 @@ function makeSwirlTexture(): THREE.Texture {
   c.height = S / 2;
   const ctx = c.getContext('2d')!;
 
-  ctx.fillStyle = '#F6F2FF';
+  // A tinted base, not white. The first attempt filled with #F6F2FF and let the
+  // blobs fade to transparent white, so every colour was averaged toward paper
+  // and the sphere rendered as a pale fog — visible only once it was actually
+  // looked at rather than reasoned about.
+  ctx.fillStyle = '#5B2BC9';
   ctx.fillRect(0, 0, c.width, c.height);
 
   const blob = (x: number, y: number, r: number, color: string) => {
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, color);
-    g.addColorStop(1, 'rgba(255,255,255,0)');
+    // Holds full strength through the middle: a gradient that starts falling
+    // off at the centre has no solid colour anywhere, which is what turns
+    // swirls into haze.
+    g.addColorStop(0.45, color);
+    g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)'));
     ctx.fillStyle = g;
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
   };
 
   // Wrapped horizontally: this is an equirect map, so a blob near either edge
   // is drawn twice or it shows a seam down the back of the sphere.
+  // Big and overlapping. Small blobs on a large map read as spots; the
+  // reference is a handful of broad regions that meet and bleed into each other.
+  // Order and size, both of which were wrong the first time and cost four
+  // screenshots: the light colours were drawn LAST over the saturated ones, and
+  // every blob was wide enough to cover half the map, so the composite averaged
+  // to pale lavender. Light first, saturated on top, and none of them large
+  // enough to own the whole sphere. A white blob is gone entirely — white on a
+  // 512px map is not a highlight, it is an eraser.
   const zones: Array<[number, number, number, string]> = [
-    [0.16, 0.34, 0.40, 'rgba(124, 78, 232, 0.95)'],
-    [0.34, 0.72, 0.34, 'rgba(90, 58, 210, 0.85)'],
-    [0.54, 0.30, 0.36, 'rgba(232, 84, 40, 0.92)'],
-    [0.70, 0.62, 0.30, 'rgba(255, 168, 60, 0.88)'],
-    [0.88, 0.40, 0.32, 'rgba(96, 206, 232, 0.80)'],
-    [0.02, 0.62, 0.26, 'rgba(255, 255, 255, 0.95)'],
+    [0.70, 0.68, 0.34, 'rgba(255, 176, 64, 1)'],
+    [0.88, 0.34, 0.30, 'rgba(64, 206, 240, 1)'],
+    [0.14, 0.28, 0.38, 'rgba(126, 62, 248, 1)'],
+    [0.34, 0.78, 0.34, 'rgba(58, 28, 190, 1)'],
+    [0.52, 0.24, 0.36, 'rgba(244, 58, 20, 1)'],
   ];
+
   for (const [fx, fy, fr, color] of zones) {
     const x = fx * c.width;
     const y = fy * c.height;
@@ -124,6 +140,16 @@ function makeEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 64, 256);
 
+  // A window. A smooth gradient has no bright small source anywhere, so a
+  // clearcoat has nothing to catch and the sphere renders matte no matter how
+  // low its roughness — the first look at this was a foggy ball for exactly
+  // that reason. This is the hard highlight.
+  const spec = ctx.createRadialGradient(20, 44, 0, 20, 44, 26);
+  spec.addColorStop(0, '#FFFFFF');
+  spec.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = spec;
+  ctx.fillRect(0, 0, 64, 100);
+
   const tex = new THREE.CanvasTexture(c);
   tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -162,8 +188,11 @@ export function CallOrb3D({ phase, level }: { phase: CallPhase; level: number })
     // also decoding audio.
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(240, 240, false);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    // ACES desaturates saturated colour hard by design — it is a film curve,
+    // and the swirls are the subject here, not a photographic highlight roll-off.
+    // Linear keeps them the colour they were painted.
+    renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 1.0;
     host.appendChild(renderer.domElement);
     renderer.domElement.style.width = '240px';
     renderer.domElement.style.height = '240px';
@@ -181,23 +210,49 @@ export function CallOrb3D({ phase, level }: { phase: CallPhase; level: number })
     const geometry = new THREE.IcosahedronGeometry(1, 64);
 
     const swirl = makeSwirlTexture();
+
+    // Lights, because a scene lit only by an image-based environment lights the
+    // ALBEDO with that environment — and this environment is mostly white sky,
+    // so the purple underneath rendered as pale lavender no matter what the
+    // texture said. Two: a key that gives the coat a direction, and a warm
+    // bounce so the underside is not dead.
+    const key = new THREE.DirectionalLight(0xffffff, 0.85);
+    key.position.set(-1.6, 2.2, 2.4);
+    scene.add(key);
+    const bounce = new THREE.DirectionalLight(0xffb27a, 0.30);
+    bounce.position.set(1.4, -1.8, 0.8);
+    scene.add(bounce);
     const material = new THREE.MeshPhysicalMaterial({
       map: swirl,
+      // The same swirls again as EMISSION, and this is what sells "colour
+      // suspended in glass" rather than "colour painted on a ball": light
+      // leaving from inside cannot be washed out by what is reflecting off the
+      // outside. Held well under 1 so it glows rather than self-illuminates
+      // into a flat sticker.
+      emissive: 0xffffff,
+      emissiveMap: swirl,
+      emissiveIntensity: 0.32,
       // Colour suspended in glass, not painted on metal. Zero metalness and a
       // near-mirror clearcoat is the whole difference between "swirl sphere"
       // and the ribbed chrome the first version chased: the coat carries the
       // gloss and the highlight, the map underneath carries the colour, and
       // nothing about the surface is supposed to have texture.
       metalness: 0,
-      roughness: 0.22,
+      // Near-zero: at 0.22 the surface scattered the environment into a haze
+      // and the swirls came out as fog. Glass this glossy is what lets the
+      // colour underneath stay saturated.
+      roughness: 0.04,
       clearcoat: 1,
-      clearcoatRoughness: 0.02,
+      clearcoatRoughness: 0.01,
       // A trace, not the subject. Enough to warm the rim where the coat turns
       // away from the eye; at 1 it took the swirls over and made foil again.
       iridescence: 0.22,
       iridescenceIOR: 1.25,
       iridescenceThicknessRange: [180, 520],
-      envMapIntensity: 1.25,
+      // Low. The environment is there for the highlight and the rim, not to light
+      // the ball — at 1.25 the white sky reflected across the whole surface and
+      // washed every swirl to pastel.
+      envMapIntensity: 0.55,
     });
 
     // Displacement in the vertex stage. Done with onBeforeCompile rather than a
