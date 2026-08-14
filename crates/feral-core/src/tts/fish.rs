@@ -22,11 +22,13 @@
 //! the BYOK store like every other provider credential.
 
 use anyhow::{bail, Context, Result};
-use futures::StreamExt;
 use serde::Serialize;
 use tokio::sync::mpsc::Sender;
 
-use super::{SpeechRequest, TtsProvider, Voice, SAMPLE_RATE};
+use super::{
+    http, pump, SpeechRequest, TtsProvider, Voice, LIST_TIMEOUT_SECS, SAMPLE_RATE,
+    SPEAK_TIMEOUT_SECS,
+};
 
 /// Where synthesis happens. Overridable for tests and for a self-hosted proxy.
 pub const DEFAULT_BASE_URL: &str = "https://api.fish.audio";
@@ -106,15 +108,7 @@ pub async fn synthesize(
         normalize: true,
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        // Generous but finite: a long reply legitimately takes a while, a hung
-        // connection must not hold the voice loop open forever.
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .context("build reqwest client")?;
-
-    let res = client
+    let res = http(SPEAK_TIMEOUT_SECS)?
         .post(format!("{}/v1/tts", opts.base_url.trim_end_matches('/')))
         .bearer_auth(api_key)
         .header("model", &opts.model)
@@ -137,22 +131,7 @@ pub async fn synthesize(
         bail!("{hint} (HTTP {status}) {}", detail.chars().take(200).collect::<String>());
     }
 
-    let mut stream = res.bytes_stream();
-    let mut total = 0usize;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.context("fish audio: stream interrupted")?;
-        if chunk.is_empty() {
-            continue;
-        }
-        total += chunk.len();
-        // A closed receiver means the caller stopped caring — a barge-in, or a
-        // cancelled turn. Stop pulling the body instead of treating it as an
-        // error the user has to see.
-        if audio.send(chunk.to_vec()).await.is_err() {
-            break;
-        }
-    }
-    Ok(total)
+    pump(res, "fish audio", audio).await
 }
 
 #[cfg(test)]
@@ -189,12 +168,6 @@ impl FishTts {
     pub fn new(api_key: String) -> Self {
         Self { api_key, opts: TtsOptions::default() }
     }
-
-    /// Override model, base URL or temperature (settings, or a self-hosted proxy).
-    pub fn with_options(mut self, opts: TtsOptions) -> Self {
-        self.opts = opts;
-        self
-    }
 }
 
 #[async_trait::async_trait]
@@ -223,12 +196,7 @@ impl TtsProvider for FishTts {
         if self.api_key.trim().is_empty() {
             bail!("no Fish Audio API key configured — add one on the call screen");
         }
-        let client = reqwest::Client::builder()
-            .user_agent("feral/0.1")
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .context("build reqwest client")?;
-        let res = client
+        let res = http(LIST_TIMEOUT_SECS)?
             .get(format!("{}/model", self.opts.base_url.trim_end_matches('/')))
             .query(&[("page_size", "100")])
             .bearer_auth(&self.api_key)

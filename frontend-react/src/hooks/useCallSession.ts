@@ -181,13 +181,17 @@ const log = (scope: string, message: string) => {
   void tauri.raw.uiLog(scope, message).catch(() => {});
 };
 
-/** Read the reply text of the turn that just finished. */
-function lastAssistantText(): string {
+/** The turn that just finished, or `undefined` before the first one. */
+function lastAssistant() {
   const messages = useChat.getState().messages;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant') return messages[i].content;
+    if (messages[i].role === 'assistant') return messages[i];
   }
-  return '';
+}
+
+/** Read the reply text of the turn that just finished. */
+function lastAssistantText(): string {
+  return lastAssistant()?.content ?? '';
 }
 
 /**
@@ -200,11 +204,20 @@ function lastAssistantText(): string {
  * healthy. The two need opposite fixes, and only this number tells them apart.
  */
 function lastAssistantThinkingChars(): number {
-  const messages = useChat.getState().messages;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant') return messages[i].thinking?.length ?? 0;
-  }
-  return 0;
+  return lastAssistant()?.thinking?.length ?? 0;
+}
+
+/**
+ * Wait for the sender's final content patch to land.
+ *
+ * A terminal `streamStatus` can arrive before the batched write that carries the
+ * last words, so reading in the same microtask catches the message still empty.
+ * One frame plus a tick is what clears it.
+ */
+function settled(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 50));
+  });
 }
 
 /**
@@ -223,12 +236,7 @@ function replyWhenDone(): { text: Promise<string>; cancel: () => void } {
       if (prev.streamStatus === 'streaming' && s.streamStatus !== 'streaming') {
         unsub();
         log('turn', `stream ended with status=${s.streamStatus}`);
-        // Same batching guard as the direct read: the terminal status can land
-        // before the final content patch.
-        void Promise.resolve()
-          .then(() => new Promise((r) => requestAnimationFrame(() => r(null))))
-          .then(() => new Promise((r) => setTimeout(r, 50)))
-          .then(() => resolve(lastAssistantText()));
+        void settled().then(() => resolve(lastAssistantText()));
       }
     });
   });
@@ -555,14 +563,10 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             onSpoke = () => { lastOut = Date.now(); };
             if (status !== 'streaming') {
               pending.cancel();
-              // One frame plus a tick before reading: the sender may write the
-              // final content in a batched flush, and reading in the same
-              // microtask as the status change can catch the message still empty.
-              await new Promise((r) => requestAnimationFrame(() => r(null)));
-              await new Promise((r) => setTimeout(r, 50));
-              const settled = lastAssistantText();
-              log('turn', `read reply directly: ${settled.length} chars`);
-              return settled;
+              await settled();
+              const direct = lastAssistantText();
+              log('turn', `read reply directly: ${direct.length} chars`);
+              return direct;
             }
             const waited = await pending.text;
             log('turn', `reply after stream ended: ${waited.length} chars`);

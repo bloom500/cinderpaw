@@ -102,10 +102,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
             <X size={9} className="shrink-0 text-text-muted/50" />
           </span>
           <Plus size={10} className="shrink-0 text-text-muted/50" />
-          <span className="ml-auto flex shrink-0 items-center gap-2">
-            {running && <Elapsed since={a.startedAt} />}
-            <Status running={running} status={a.status} />
-          </span>
+          <State a={a} className="ml-auto" />
         </header>
       ) : a.kind === 'terminal' && !a.error ? (
         // No header at all. The terminal draws a complete window — traffic
@@ -117,10 +114,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
         <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
           <Icon size={13} className={cn('shrink-0', tint)} />
           <span className="shrink-0 text-[11px] font-medium text-text-secondary">{a.tool}</span>
-          <span className="ml-auto flex shrink-0 items-center gap-2">
-            {running && <Elapsed since={a.startedAt} />}
-            <Status running={running} status={a.status} />
-          </span>
+          <State a={a} className="ml-auto" />
         </header>
       )}
 
@@ -185,11 +179,24 @@ function EngineMark({ size = 10 }: { size?: number }) {
   );
 }
 
-/** Running, done, or failed — the same three glyphs everywhere. */
-function Status({ running, status }: { running: boolean; status: ToolActivity['status'] }) {
-  if (running) return <Loader2 size={12} className="animate-spin text-brand" />;
-  if (status === 'failed') return <AlertTriangle size={12} className="text-[var(--warning)]" />;
-  return <Check size={12} className="tw-pop text-[var(--success)]" />;
+/**
+ * How long it has run and how it ended — the same corner of every widget's head,
+ * whether that head is a plain strip, a browser tab bar or a terminal title.
+ */
+function State({ a, className }: { a: ToolActivity; className?: string }) {
+  const running = a.status === 'running';
+  return (
+    <span className={cn('flex shrink-0 items-center gap-1.5', className)}>
+      {running && <Elapsed since={a.startedAt} />}
+      {running ? (
+        <Loader2 size={12} className="animate-spin text-brand" />
+      ) : a.status === 'failed' ? (
+        <AlertTriangle size={12} className="text-[var(--warning)]" />
+      ) : (
+        <Check size={12} className="tw-pop text-[var(--success)]" />
+      )}
+    </span>
+  );
 }
 
 /**
@@ -344,7 +351,6 @@ function FilesBody({ a }: { a: ToolActivity }) {
  * and the path is the real workspace, not decoration.
  */
 function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
-  const { startedAt, status } = a;
   const lines = a.output ? a.output.split('\n').filter(Boolean).slice(-6) : [];
   // The real directory the command ran in. The last segment is what a shell
   // prompt shows, and it is what makes this a session rather than a drawing of
@@ -374,10 +380,7 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
         </span>
         {/* State on the title bar, where a window puts its own status — the card
             around this one no longer has a header to carry it. */}
-        <span className="z-10 ml-auto flex shrink-0 items-center gap-1.5">
-          {running && <Elapsed since={startedAt} />}
-          <Status running={running} status={status} />
-        </span>
+        <State a={a} className="z-10 ml-auto" />
       </div>
 
       <div

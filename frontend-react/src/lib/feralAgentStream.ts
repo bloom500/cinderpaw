@@ -319,7 +319,6 @@ export async function requestFeralStop(sessionId?: string): Promise<void> {
 /**
  * True if a feral stream is in flight — for `sessionId` when given (entries
  * without a declared session count as a match), otherwise for any session.
- * Mirrors `isChatStreaming` so callers can route stop/interrupt uniformly.
  */
 export function isFeralStreaming(sessionId?: string): boolean {
   if (!sessionId) return inflight.size > 0;

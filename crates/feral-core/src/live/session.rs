@@ -70,6 +70,10 @@ pub enum LiveCommand {
     ToolResponse(Vec<FunctionResponse>),
 }
 
+/// `Clone` because a resumed call needs the same config with a new handle, and
+/// the host would otherwise hand-write the copy field by field — which is the
+/// same key duplication with more places to forget a field.
+#[derive(Clone)]
 pub struct SessionConfig {
     pub api_key: String,
     /// Bare id or `models/…`; both work.
@@ -281,7 +285,6 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
     Ok(LiveHandle { commands, events })
 }
 
-/// Server frames are JSON, as text or binary depending on the hop. Anything that
 /// What crossed the wire just before the call ended.
 ///
 /// A close frame on its own says WHY the server hung up but never WHAT it was
@@ -304,7 +307,7 @@ pub(crate) struct Journal {
 }
 
 struct JournalEntry {
-    at: Option<std::time::Instant>,
+    at: std::time::Instant,
     outbound: bool,
     kind: &'static str,
     count: u32,
@@ -324,7 +327,7 @@ impl Journal {
             }
         }
         self.entries.push_back(JournalEntry {
-            at: Some(std::time::Instant::now()),
+            at: std::time::Instant::now(),
             outbound,
             kind,
             count: 1,
@@ -341,7 +344,7 @@ impl Journal {
         self.entries
             .iter()
             .map(|e| {
-                let ago = e.at.map(|t| now.saturating_duration_since(t).as_secs_f32()).unwrap_or(0.0);
+                let ago = now.saturating_duration_since(e.at).as_secs_f32();
                 let arrow = if e.outbound { "→" } else { "←" };
                 if e.count > 1 {
                     format!("-{ago:.1}s {arrow} {}×{} {}B", e.kind, e.count, e.bytes)
@@ -377,6 +380,7 @@ fn inbound_kind(msg: &ServerMessage) -> &'static str {
     }
 }
 
+/// Server frames are JSON, as text or binary depending on the hop. Anything that
 /// is neither — ping, pong, close — is not a message for us.
 fn parse(frame: &Message) -> Option<ServerMessage> {
     let bytes = match frame {
@@ -650,60 +654,6 @@ mod tests {
         match waited {
             Err(_) => Err("timed out".to_string()),
             Ok(r) => r,
-        }
-    }
-}
-
-#[cfg(test)]
-mod route_latency_probe {
-    /// How long the configured chat route takes to its FIRST token, with and
-    /// without a large prefix.
-    ///
-    /// A voice turn measured 25 seconds before the model produced anything, on a
-    /// 25-character question with a 106-character answer, no tools and no
-    /// reasoning. Two causes fit: the ~10k tokens of schema and system prompt
-    /// re-sent every completion, or the route OpenRouter picks. They need
-    /// different fixes, and only a side-by-side separates them.
-    ///
-    ///     cargo test -p feral-core --lib probe_route_latency -- --ignored --nocapture
-    #[tokio::test]
-    #[ignore = "spends a few cents against the configured provider"]
-    async fn probe_route_latency() {
-        let key = crate::byok::byok_get("openrouter").expect("no openrouter key stored");
-        let client = reqwest::Client::new();
-
-        // Roughly the prefill a real turn carries, as filler the model must read
-        // but cannot answer from.
-        let bulk = "The quick brown fox jumps over the lazy dog. ".repeat(900);
-
-        for (label, system) in [("bare", ""), ("~10k tokens of prefix", bulk.as_str())] {
-            let started = std::time::Instant::now();
-            let body = serde_json::json!({
-                "model": "deepseek/deepseek-v4-flash",
-                "max_tokens": 16,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": "Say OK."},
-                ],
-            });
-            let res = client
-                .post("https://openrouter.ai/api/v1/chat/completions")
-                .header("Authorization", format!("Bearer {key}"))
-                .json(&body)
-                .send()
-                .await;
-            match res {
-                Ok(r) => {
-                    let status = r.status();
-                    let text = r.text().await.unwrap_or_default();
-                    println!(
-                        "  {label}: {} ms, status {status}, {}",
-                        started.elapsed().as_millis(),
-                        text.chars().take(160).collect::<String>()
-                    );
-                }
-                Err(e) => println!("  {label}: FAILED after {} ms — {e}", started.elapsed().as_millis()),
-            }
         }
     }
 }

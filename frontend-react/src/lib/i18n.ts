@@ -234,7 +234,7 @@ const ro: Strings = {
   'call.modePipeline': 'Transcrie → răspunde → vorbește',
   'call.modeLive': 'Vorbire la vorbire',
   'call.liveEngine': 'Gemini Live',
-  'call.liveNote': 'Un singur model te aude și îți răspunde cu vocea lui. El decide când ai terminat de vorbit, deci poate fi întrerupt la mijlocul frazei — iar apelul nu se salvează în chat.',
+  'call.liveNote': 'Un singur model te aude și îți răspunde cu vocea lui. El decide când ai terminat de vorbit, deci poate fi întrerupt la mijlocul frazei. Fiecare tură se salvează în chat pe măsură ce se termină.',
   'call.liveNoKey': 'Nu e salvată nicio cheie Google. E aceeași cheie AI Studio pe care o folosește și chatul — lipește-o mai jos.',
   'call.liveClosed': 'Apelul a căzut. Apasă pe apel ca să reconectezi.',
   'call.liveConnecting': 'Se conectează…',

@@ -16,11 +16,13 @@
 //! a fresh setup speaks at all.
 
 use anyhow::{bail, Context, Result};
-use futures::StreamExt;
 use serde::Serialize;
 use tokio::sync::mpsc::Sender;
 
-use super::{EngineConfig, SpeechRequest, TtsProvider, Voice};
+use super::{
+    http, pump, EngineConfig, SpeechRequest, TtsProvider, Voice, LIST_TIMEOUT_SECS,
+    SPEAK_TIMEOUT_SECS,
+};
 
 /// Stable id for settings and `from_id`.
 pub const ID: &str = "elevenlabs";
@@ -98,12 +100,7 @@ impl TtsProvider for ElevenLabsTts {
         if self.api_key.trim().is_empty() {
             bail!("no ElevenLabs key configured — add one on the call screen");
         }
-        let client = reqwest::Client::builder()
-            .user_agent("feral/0.1")
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .context("build reqwest client")?;
-        let res = client
+        let res = http(LIST_TIMEOUT_SECS)?
             .get(format!("{}/v1/voices", self.base_url))
             .header("xi-api-key", &self.api_key)
             .send()
@@ -153,13 +150,7 @@ impl TtsProvider for ElevenLabsTts {
         }
 
         let voice_id = req.voice.as_deref().unwrap_or(&self.voice_id);
-        let client = reqwest::Client::builder()
-            .user_agent("feral/0.1")
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("build reqwest client")?;
-
-        let res = client
+        let res = http(SPEAK_TIMEOUT_SECS)?
             .post(format!("{}/v1/text-to-speech/{voice_id}/stream", self.base_url))
             .query(&[("output_format", OUTPUT_FORMAT)])
             // ElevenLabs uses its own header, not bearer auth.
@@ -187,20 +178,7 @@ impl TtsProvider for ElevenLabsTts {
             );
         }
 
-        let mut stream = res.bytes_stream();
-        let mut total = 0usize;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("elevenlabs: stream interrupted")?;
-            if chunk.is_empty() {
-                continue;
-            }
-            total += chunk.len();
-            // A closed receiver is a barge-in, not an error: stop pulling.
-            if audio.send(chunk.to_vec()).await.is_err() {
-                break;
-            }
-        }
-        Ok(total)
+        pump(res, "elevenlabs", audio).await
     }
 }
 

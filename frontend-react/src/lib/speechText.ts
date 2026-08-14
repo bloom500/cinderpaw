@@ -100,48 +100,6 @@ function lastSentenceEnd(text: string, limit: number): number {
   );
 }
 
-/**
- * Split a reply so speaking can start before the whole thing is synthesised, and
- * so an interruption cannot waste a minute of audio.
- *
- * A short head goes first — that is the latency win, the listener hears a voice
- * a second after the reply lands instead of after the last token. The rest is cut
- * into bounded parts rather than one blob, and that second rule was paid for in
- * evidence: a 982-character answer split into 32 + 935 characters, and the tail
- * came back as **68 seconds** of synthesised speech. Barging in one second later
- * threw all of it away — already generated, already charged for, on an engine
- * that bills per character.
- *
- * Every cut lands on a sentence end. A seam mid-phrase is heard as a glitch,
- * while a seam at a full stop is heard as a breath; if no boundary exists inside
- * a window the text stays whole, which is slower and never wrong.
- */
-export function splitForPipeline(text: string, headChars = 140, partChars = 420): string[] {
-  const trimmed = text.trim();
-  if (trimmed.length <= headChars) return [trimmed];
-
-  const parts: string[] = [];
-  let rest = trimmed;
-
-  // The head is deliberately smaller than the rest: it only has to be long
-  // enough to sound like a sentence and short enough to synthesise fast.
-  const headEnd = lastSentenceEnd(rest, headChars);
-  if (headEnd <= 0) return [trimmed]; // nowhere to cut without cutting a phrase
-  parts.push(rest.slice(0, headEnd + 1).trim());
-  rest = rest.slice(headEnd + 1).trim();
-
-  while (rest.length > partChars) {
-    const cut = lastSentenceEnd(rest, partChars);
-    // One sentence longer than a whole part: keep it whole rather than seam it.
-    if (cut <= 0) break;
-    parts.push(rest.slice(0, cut + 1).trim());
-    rest = rest.slice(cut + 1).trim();
-  }
-  if (rest) parts.push(rest);
-
-  return parts.filter((p) => p.length > 0);
-}
-
 export function forSpeech(markdown: string): string {
   return (
     markdown

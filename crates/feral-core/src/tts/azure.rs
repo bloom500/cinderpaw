@@ -16,10 +16,12 @@
 //! provider's stored base URL and its absence is an error with instructions.
 
 use anyhow::{bail, Context, Result};
-use futures::StreamExt;
 use tokio::sync::mpsc::Sender;
 
-use super::{EngineConfig, SpeechRequest, TtsProvider, Voice};
+use super::{
+    http, pump, EngineConfig, SpeechRequest, TtsProvider, Voice, LIST_TIMEOUT_SECS,
+    SPEAK_TIMEOUT_SECS,
+};
 
 /// Stable id for settings and `from_id`.
 pub const ID: &str = "azure";
@@ -117,12 +119,7 @@ impl TtsProvider for AzureTts {
         if self.api_key.trim().is_empty() {
             bail!("no Azure Speech key configured — add one on the call screen");
         }
-        let client = reqwest::Client::builder()
-            .user_agent("feral/0.1")
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .context("build reqwest client")?;
-        let res = client
+        let res = http(LIST_TIMEOUT_SECS)?
             .get(format!("{}/cognitiveservices/voices/list", self.base_url))
             .header("Ocp-Apim-Subscription-Key", &self.api_key)
             .send()
@@ -174,13 +171,7 @@ impl TtsProvider for AzureTts {
             text = escape_ssml(&req.text),
         );
 
-        let client = reqwest::Client::builder()
-            .user_agent("feral/0.1")
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("build reqwest client")?;
-
-        let res = client
+        let res = http(SPEAK_TIMEOUT_SECS)?
             .post(format!("{}/cognitiveservices/v1", self.base_url))
             .header("Ocp-Apim-Subscription-Key", &self.api_key)
             .header("Content-Type", "application/ssml+xml")
@@ -205,20 +196,7 @@ impl TtsProvider for AzureTts {
             bail!("{hint} (HTTP {status}) {}", detail.chars().take(200).collect::<String>());
         }
 
-        let mut stream = res.bytes_stream();
-        let mut total = 0usize;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("azure speech: stream interrupted")?;
-            if chunk.is_empty() {
-                continue;
-            }
-            total += chunk.len();
-            // A closed receiver is a barge-in, not an error: stop pulling.
-            if audio.send(chunk.to_vec()).await.is_err() {
-                break;
-            }
-        }
-        Ok(total)
+        pump(res, "azure speech", audio).await
     }
 }
 

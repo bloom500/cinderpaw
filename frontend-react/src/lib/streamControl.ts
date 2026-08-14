@@ -25,9 +25,9 @@ import { requestFeralStop } from './feralAgentStream';
 export async function stopActiveStream(sessionId: string): Promise<void> {
   // Both paths are asked, unconditionally.
   //
-  // This used to be gated on `isFeralStreaming` / `isChatStreaming`, and that is
-  // what made the Stop button do nothing: the button is rendered from
-  // `useChat.streamStatus`, while the guards read a separate in-flight registry.
+  // This used to be gated on each path's in-flight registry, and that is what
+  // made the Stop button do nothing: the button is rendered from
+  // `useChat.streamStatus`, while the guards read a separate registry.
   // Two sources of truth for one question, and when they disagreed the user got a
   // visible button that sent no signal at all — the logs show zero `stop
   // requested` lines reaching the sidecar for an entire session of pressing it.

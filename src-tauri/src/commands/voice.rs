@@ -167,24 +167,19 @@ pub(crate) fn ui_log(scope: String, message: String) {
 /// user never says would start pulling ordinary speech toward them.
 const PROPER_NOUNS: &str = "Feral, Cubby, Bloom, Darius, Piper, Kokoro.";
 
-/// The language of the last transcription long enough to trust, as ISO-639-1.
+/// The language the last long-enough transcript came back in, kept for one
+/// reason: telling a flip apart from a steady state.
 ///
-/// This is what replaces asking the user to pick a language. Whisper identifies
-/// the language per request, and on a two-word turn that identification is a coin
-/// flip: one evening of logs has the same Romanian speaker decoded as English
-/// ("mă auzi" → "Mouse") and as Portuguese ("Mano, isso aí é…"), while every full
-/// sentence came back correct. So detection is trusted exactly where it works —
-/// on a long utterance — and the answer is carried into the short turns that
-/// follow instead of being re-rolled on each one.
-///
-/// Process-wide rather than per session: it tracks who is at the microphone, and
-/// that does not change when a conversation does. Switching language mid-call
-/// self-corrects on the next full sentence.
-static DETECTED_LANG: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+/// It is deliberately NOT fed back into the next request. Whisper's `language`
+/// is an override, not a hint, so doing that made the loop self-sealing — we
+/// forced `ro`, the response therefore said "romanian", and that re-learned
+/// `ro`. Nothing else reads this; voice ranking uses the user's own setting.
+static LAST_LANG: OnceLock<Mutex<Option<&'static str>>> = OnceLock::new();
 
 /// A transcript at least this long is treated as real evidence of a language.
-/// Below it, Whisper is guessing from too little audio — which is the failure this
-/// whole mechanism exists to route around.
+/// Below it, Whisper is guessing from too little audio: one evening of logs has
+/// the same Romanian speaker decoded as English ("mă auzi" → "Mouse") and as
+/// Portuguese ("Mano, isso aí é…"), while every full sentence came back correct.
 const CONFIDENT_TRANSCRIPT_CHARS: usize = 25;
 
 /// What may be put on the wire as Whisper's `language`.
@@ -195,10 +190,6 @@ const CONFIDENT_TRANSCRIPT_CHARS: usize = 25;
 /// override that no later evidence can undo.
 fn request_language(asked: Option<String>) -> Option<String> {
     asked.map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
-}
-
-fn detected_lang() -> &'static Mutex<Option<String>> {
-    DETECTED_LANG.get_or_init(|| Mutex::new(None))
 }
 
 /// Whisper's `verbose_json` names languages in full ("romanian"); the `language`
@@ -262,31 +253,14 @@ pub(crate) async fn transcribe_audio_cloud(
         .file_name(file_name)
         .mime_str("application/octet-stream")
         .map_err(|_| "stt-cloud-failed".to_string())?;
-    // ONLY the caller's explicit choice. The learned language deliberately does
-    // not fill in here any more, and the reason is worth keeping:
-    //
-    // Whisper's `language` is not a hint, it is an override. Passing the learned
-    // value made the loop self-sealing — we forced `ro`, the response therefore
-    // said "romanian", and that re-learned `ro`. What the code observed was its
-    // own instruction, so a first mistake became permanent and a user switching
-    // language could never be heard again. Measured: English speech transcribed
-    // as Romanian, on a session where `asked` was `<none>` and `sending` was `ro`.
-    //
-    // Detection is now free every turn. A wrong guess costs one turn instead of
-    // all of them, and the learned value keeps being recorded below for the
-    // things a hint is actually good for — ranking voices, not commanding the
-    // transcriber.
-    let asked = language.clone();
+    // ONLY the caller's explicit choice. Whisper's `language` is an override,
+    // not a hint, so filling it in from what was detected last time made the
+    // loop self-sealing: we forced `ro`, the response therefore said "romanian",
+    // and that re-learned `ro`. A first mistake became permanent and a user
+    // switching language could never be heard again. Detection is free every
+    // turn now — a wrong guess costs one turn instead of all of them.
     let language = request_language(language);
-    // Both values still, because `asked=<none> sending=ro` is exactly the line
-    // that exposed the latch, and the next person to touch this should be able
-    // to see at a glance whether anything is being forced.
-    tracing::info!(
-        asked = asked.as_deref().unwrap_or("<none>"),
-        sending = language.as_deref().unwrap_or("<none>"),
-        learned = detected_lang().lock().as_deref().unwrap_or("<none>"),
-        "stt: language"
-    );
+    tracing::info!(sending = language.as_deref().unwrap_or("<none>"), "stt: language");
 
     let mut form = reqwest::multipart::Form::new()
         .text("model", "whisper-large-v3")
@@ -339,41 +313,29 @@ pub(crate) async fn transcribe_audio_cloud(
         .map_err(|_| "stt-cloud-failed".to_string())?;
     let text = parsed.text.trim().to_string();
 
-    // Remember the language ONLY when the transcript is long enough to be evidence
-    // rather than a guess. A three-word turn identified as Portuguese must not
-    // become the hint that mistranslates everything after it.
-    let detected = parsed.language.as_deref().and_then(iso_code_of);
-    if let Some(code) = detected {
+    // Every language flip, reported — but only between transcripts long enough
+    // to be evidence rather than a guess.
+    //
+    // Two things produce this line and they are opposites: the user genuinely
+    // switched language, or Whisper mis-detected and TRANSLATED (measured once:
+    // fluent Romanian out of English audio, indistinguishable from a switch by
+    // reading the transcript alone). No fix is shipped, because none is known —
+    // forcing the language brings back a latch that cannot correct itself. What
+    // is shipped is the count, so the next session can say how often it happens
+    // instead of arguing about whether it does.
+    if let Some(code) = parsed.language.as_deref().and_then(iso_code_of) {
         if text.chars().count() >= CONFIDENT_TRANSCRIPT_CHARS {
-            let mut slot = detected_lang().lock();
-            if let Some(previous) = slot.as_deref() {
-                if previous != code {
-                    // Every language flip, counted.
-                    //
-                    // Two things produce this line and they are opposites: the
-                    // user genuinely switched language, or Whisper mis-detected
-                    // and TRANSLATED — measured once, fluent Romanian out of
-                    // English audio, which is indistinguishable from a switch by
-                    // reading the transcript alone.
-                    //
-                    // No fix is shipped for that, because none is known: forcing
-                    // the language brings back a latch that cannot correct
-                    // itself, and leaving it free is what allows this. What is
-                    // shipped is the count, so the next session can say how
-                    // often it happens instead of arguing about whether it does.
-                    tracing::warn!(
-                        from = previous,
-                        to = code,
-                        chars = text.chars().count(),
-                        transcript = %text,
-                        "stt: language flipped — a real switch, or a translation",
-                    );
-                }
+            let mut slot = LAST_LANG.get_or_init(|| Mutex::new(None)).lock();
+            if slot.is_some_and(|previous| previous != code) {
+                tracing::warn!(
+                    from = slot.unwrap_or(""),
+                    to = code,
+                    chars = text.chars().count(),
+                    transcript = %text,
+                    "stt: language flipped — a real switch, or a translation",
+                );
             }
-            if slot.as_deref() != Some(code) {
-                tracing::info!(language = code, "stt: language learned from a full sentence");
-            }
-            *slot = Some(code.to_string());
+            *slot = Some(code);
         }
     }
 

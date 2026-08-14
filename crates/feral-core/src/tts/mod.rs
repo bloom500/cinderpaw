@@ -27,12 +27,54 @@ pub mod piper;
 /// Piper's id, known to the catalog whether or not the engine is compiled in —
 /// the row is shown either way, and `from_id` is what refuses it.
 pub const PIPER_ID: &str = "piper";
-/// Same for Kokoro, which has no implementation yet at all.
-pub const KOKORO_ID: &str = "kokoro";
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
+
+/// Long enough for a slow link, short enough that a wrong key does not hang a
+/// picker. Voice lists are small.
+pub(crate) const LIST_TIMEOUT_SECS: u64 = 30;
+/// Generous but finite: a long reply legitimately takes a while, a hung
+/// connection must not hold the voice loop open forever.
+pub(crate) const SPEAK_TIMEOUT_SECS: u64 = 120;
+
+/// One HTTP client, built the same way for every hosted engine.
+pub(crate) fn http(timeout_secs: u64) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+        .context("build reqwest client")
+}
+
+/// Forward a streaming response body to `audio` as it arrives, returning the
+/// byte count.
+///
+/// A closed receiver is a barge-in, not an error: stop pulling the body rather
+/// than reporting a failure the user has to see. Every hosted engine does
+/// exactly this, and the four copies of it differed only in which vendor name
+/// went into the error message.
+pub(crate) async fn pump(
+    res: reqwest::Response,
+    who: &str,
+    audio: Sender<Vec<u8>>,
+) -> Result<usize> {
+    let mut stream = res.bytes_stream();
+    let mut total = 0usize;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.with_context(|| format!("{who}: stream interrupted"))?;
+        if chunk.is_empty() {
+            continue;
+        }
+        total += chunk.len();
+        if audio.send(chunk.to_vec()).await.is_err() {
+            break;
+        }
+    }
+    Ok(total)
+}
 
 /// PCM the whole pipeline agrees on: 24 kHz, mono, signed 16-bit little-endian.
 ///
@@ -202,17 +244,6 @@ pub fn catalog() -> Vec<TtsEngine> {
             )
         },
         TtsEngine {
-            is_local: true,
-            needs_model: true,
-            needs_download: true,
-            available: false, // ponytail: lands with tts/kokoro.rs
-            ..engine(
-                KOKORO_ID,
-                "Kokoro",
-                "On device. Best free quality, English-first. Larger download.",
-            )
-        },
-        TtsEngine {
             needs_key: true,
             needs_model: true,
             console_url: Some("https://fish.audio/go-api/api-keys/".into()),
@@ -329,23 +360,6 @@ mod tests {
         };
         assert!(err.contains("unknown TTS provider"), "{err}");
         assert!(err.contains(fish::ID), "the error should list what IS known: {err}");
-    }
-
-    #[test]
-    fn a_catalogued_but_unbuilt_engine_refuses_instead_of_pretending() {
-        // Kokoro is in the picker before its implementation lands. Resolving it
-        // must fail loudly rather than fall back to whatever else is around —
-        // silently answering in a hosted voice when the user chose the local one
-        // is the exact failure `is_local` exists to prevent.
-        //
-        // Piper used to stand in for this case and stopped being a valid example
-        // the moment it was built, which is the useful property: this test tracks
-        // whatever is still unfinished rather than a name frozen in the past.
-        let err = match from_id(KOKORO_ID, cfg("k")) {
-            Ok(_) => panic!("an unbuilt engine must not resolve"),
-            Err(e) => e.to_string(),
-        };
-        assert!(err.contains("not built"), "{err}");
     }
 
     #[test]

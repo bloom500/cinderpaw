@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { events } from '@/lib/tauri/events';
 import { recordArtifact } from '@/lib/callArtifacts';
 
@@ -222,12 +222,11 @@ export function hitsOf(result: unknown): ToolHit[] {
 }
 
 export function useLiveToolActivity(enabled: boolean) {
-  const [activity, setActivity] = useState<ToolActivity[]>([]);
   /** Rows are keyed by tool name: the sidecar's tool events carry the message
    *  id, not a per-call id, so two calls to the same tool in one turn would
    *  otherwise be indistinguishable. Last one wins, which is what a live
    *  indicator wants anyway. */
-  const sweepRef = useRef<number | undefined>(undefined);
+  const [activity, setActivity] = useState<ToolActivity[]>([]);
 
   useEffect(() => {
     if (!enabled) {
@@ -344,7 +343,7 @@ export function useLiveToolActivity(enabled: boolean) {
 
     // Finished rows age out on a timer rather than on the next event: the last
     // tool of a turn would otherwise sit on screen until the next call.
-    sweepRef.current = window.setInterval(() => {
+    const sweep = window.setInterval(() => {
       const cutoff = Date.now() - LINGER_MS;
       setActivity((prev) => {
         const kept = prev.filter((a) => a.endedAt === null || a.endedAt > cutoff);
@@ -356,7 +355,7 @@ export function useLiveToolActivity(enabled: boolean) {
       cancelled = true;
       unlisten?.();
       unlistenLive?.();
-      if (sweepRef.current !== undefined) clearInterval(sweepRef.current);
+      clearInterval(sweep);
     };
   }, [enabled]);
 

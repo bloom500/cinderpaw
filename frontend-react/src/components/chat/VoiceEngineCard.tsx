@@ -424,16 +424,6 @@ export function VoiceEngineCard({
             );
           })}
         </div>
-
-        {/* Only for an engine that needs nothing configured — every current one
-            does, so this is the door left open for the next one. */}
-        {selected && !hasSettings(selected) && (
-          <div className="flex justify-end">
-            <Button onClick={() => void save()} disabled={blocked}>
-              {t('voice.provider.confirm')}
-            </Button>
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   );

@@ -359,9 +359,8 @@ export function CallOverlay({
             </div>
 
             {/* What is different about this mode, said once: it hears you
-                directly, it can be cut off mid-sentence, and nothing is written
-                to the conversation. The last part is a real limitation, so it is
-                disclosed rather than discovered. */}
+                directly, it can be cut off mid-sentence, and each finished turn
+                lands in the chat. */}
             {live && (
               <p className="max-w-sm text-center text-xs text-text-muted">{t('call.liveNote')}</p>
             )}
@@ -475,84 +474,22 @@ export function CallOverlay({
 }
 
 /**
- * How fast the orb moves in each state. One set of motions at four tempos, so it
- * stays recognisably the same object while telling you what it is doing.
- *
- * `ready` is slow enough to read as at rest without being frozen; `thinking` is
- * the fastest, because that is the state where the user is waiting and needs to
- * see that something is happening.
- */
-const ORB_TEMPO: Record<CallPhase, { a: string; b: string; c: string; breathe: string }> = {
-  idle:      { a: '30s', b: '38s', c: '24s', breathe: '7s' },
-  ready:     { a: '26s', b: '34s', c: '20s', breathe: '6s' },
-  listening: { a: '13s', b: '17s', c: '10s', breathe: '5s' },
-  thinking:  { a: '6s',  b: '8s',  c: '5s',  breathe: '2.4s' },
-  speaking:  { a: '9s',  b: '12s', c: '7s',  breathe: '3.2s' },
-};
-
-/**
  * The living part of the screen.
  *
  * Listening scales with the measured mic level, so it reacts to *you*. The other
  * states animate on their own, because the reply's loudness is never measured —
  * the audio is scheduled on the Web Audio clock, not read back, and faking a
  * waveform from nothing would be a lie in the one place the user is looking for
- * feedback. Tempo carries the state instead.
+ * feedback. `CallOrb3D` carries the state as tempo instead.
  */
 function Orb({ phase, level, working }: { phase: CallPhase; level: number; working: boolean }) {
-  const tempo = ORB_TEMPO[phase];
-  /**
-   * The CSS sphere is a FALLBACK, and it was being drawn under the WebGL one
-   * rather than instead of it — two spheres at once, the older banded one
-   * showing through the new one's edges. It hides as soon as WebGL reports it
-   * is running, and comes back if WebGL never starts or goes away.
-   */
+  /** True once WebGL is up. The plain ball below is only there for when it is
+   *  not, and has to get out of the way when it is — drawn under the real
+   *  sphere, it showed through its edges. */
   const [gl, setGl] = useState(false);
-  // The mic only scales the sphere while listening; elsewhere the breathing
-  // keyframe owns the scale and the two would fight over the same property.
+  // The mic only scales the sphere while listening; elsewhere it sits still.
   const listening = phase === 'listening';
   const micScale = listening ? 1 + level * 0.14 : 1;
-
-  /**
-   * One band of the iridescence. Two of these, turning opposite ways at
-   * different speeds, are the whole liquid-glass effect: where the bands cross
-   * they shear, and shearing bands read as a fluid rather than as two wheels.
-   *
-   * The spectrum is the full iridescence of the reference, cool half included.
-   * An earlier version warmed it to match the orange field on the theory that
-   * glass shows you the room it stands in — true of a tinted sphere, wrong for
-   * this one: the reference reads as CHROME, and chrome throws the whole
-   * spectrum back regardless of what is around it. Warming it made a copper
-   * ball. The cool bands are also what separates the sphere from the field —
-   * warm-on-warm was the reason it sank into the background.
-   *
-   * `repeating-conic-gradient` rather than a single sweep: the reference's
-   * surface is ribbons, not a smooth wash, and repeating stops give the banding
-   * that blur then softens into twisted foil.
-   */
-  const band = (
-    spectrum: string,
-    size: string,
-    blur: string,
-    duration: string,
-    reverse?: boolean,
-    blend?: string,
-  ) => (
-    <div
-      aria-hidden
-      className="orb-motion absolute rounded-full"
-      style={{
-        width: size,
-        height: size,
-        left: `calc(50% - ${size} / 2)`,
-        top: `calc(50% - ${size} / 2)`,
-        background: spectrum,
-        filter: `blur(${blur})`,
-        ...(blend ? { mixBlendMode: blend as 'overlay' } : {}),
-        animation: `${reverse ? 'orb-swirl-reverse' : 'orb-swirl'} ${duration} linear infinite`,
-      }}
-    />
-  );
 
   return (
     <div className="relative flex h-60 w-60 items-center justify-center">
@@ -572,11 +509,9 @@ function Orb({ phase, level, working }: { phase: CallPhase; level: number; worki
         }}
       />
 
-      {/* The real sphere. Drawn over the CSS one rather than instead of it: if
-          WebGL is unavailable the component renders nothing and the gradient
-          ball below is still a sphere, still animated, still carrying the call
-          state. A call screen with an empty middle is worse than an
-          approximate one. */}
+      {/* The real sphere. If WebGL is unavailable it renders nothing and the
+          plain ball below stays visible — a call screen with an empty middle is
+          worse than an approximate one. */}
       <Suspense fallback={null}>
         <CallOrb3D
           phase={phase}
@@ -586,127 +521,20 @@ function Orb({ phase, level, working }: { phase: CallPhase; level: number; worki
         />
       </Suspense>
 
+      {/* The fallback, and only that: one gradient ball, no bands and no
+          keyframes. Everything that made this a second implementation of the
+          sphere is gone — `CallOrb3D` is the sphere, and this is what is left
+          when it cannot run. */}
       <div
-        className="relative h-44 w-44 transition-transform duration-150"
-        style={{ transform: `scale(${micScale})`, opacity: gl ? 0 : 1 }}
-      >
-        <div
-          className="orb-motion absolute inset-0 overflow-hidden rounded-full"
-          style={{
-            // Base tone under the bands, so the sphere never shows a gap between
-            // them. Pale silver-lavender, not the old dark brown: this reads as
-            // polished chrome, and chrome's unlit areas are light grey, not
-            // black. A dark base under bright bands is what made the first pass
-            // look like a lit ball instead of a reflective one.
-            // Deeper than the first pass. A near-white base under bright bands
-            // leaves nothing for them to be brighter THAN, which is half of why
-            // the result came out as a beige pearl.
-            background: 'radial-gradient(circle at 46% 36%, #C9BEEE 0%, #8C7FC4 46%, #4A3E78 100%)',
-            // Cool halo, so it separates from the orange rather than melting
-            // into it.
-            boxShadow: '0 0 54px rgba(196, 186, 255, 0.34), 0 18px 44px rgba(60, 20, 8, 0.30)',
-            // Breathing lives on the clipping layer, not on the scaled wrapper, so
-            // it composes with the mic scale instead of overwriting it.
-            animation: `orb-breathe ${tempo.breathe} ease-in-out infinite`,
-          }}
-        >
-          {/* Oversized so no corner of the square ever swings into view inside
-              the circular clip while it turns. */}
-          {/* Colour. Blurred only enough to soften the seams — the first pass
-              used 20-26px on a 176px ball, which turned every band into fog and
-              produced a beige pearl. Ribbons have to survive as ribbons. */}
-          {band(
-            `repeating-conic-gradient(from 0deg,
-               #B98CFF 0deg, #6FA8FF 18deg, #4BE3D8 34deg, #A8F08C 50deg,
-               #FFD86B 66deg, #FF7FB0 84deg, #B98CFF 104deg)`,
-            '150%', '7px', tempo.a,
-          )}
-          {band(
-            `repeating-conic-gradient(from 140deg,
-               #FFFFFF 0deg, #7FC8FF 22deg, #FF9AD5 44deg, #C6A0FF 66deg, #FFFFFF 92deg)`,
-            '135%', '9px', tempo.b, true, 'overlay',
-          )}
-          {/* The relief, and the piece that was missing entirely.
-              What makes the reference read as a twisted object rather than as a
-              coloured ball is the RIDGES — light catching the crest of each fold
-              and dying in the trough. Hard-stopped bright/dark stripes in
-              `overlay` do that: they shade whatever colour is underneath instead
-              of painting over it, so the ribbons keep their hue and gain a
-              surface. Two sets at crossed angles, because a single direction
-              reads as corduroy and two reads as wrung cloth. */}
-          {band(
-            `repeating-radial-gradient(ellipse 150% 105% at -14% 46%,
-               rgba(255,255,255,0.60) 0px, rgba(255,255,255,0.04) 7px,
-               rgba(26,14,52,0.46) 13px, rgba(26,14,52,0.06) 18px,
-               rgba(255,255,255,0.60) 22px)`,
-            '150%', '1.5px', tempo.c, true, 'overlay',
-          )}
-          {band(
-            `repeating-radial-gradient(ellipse 130% 120% at 118% 62%,
-               rgba(255,255,255,0.34) 0px, rgba(255,255,255,0.02) 9px,
-               rgba(30,18,58,0.32) 16px, rgba(255,255,255,0.34) 26px)`,
-            '140%', '2px', tempo.a, false, 'soft-light',
-          )}
-          {/* The wobble. Two conics alone turn like clockwork; a third layer on a
-              non-round scale keeps the fluid from ever being quite a circle. */}
-          <div
-            aria-hidden
-            className="orb-motion absolute inset-[-25%] rounded-full"
-            style={{
-              // Was 0.85 white — a fog light inside the ball that erased every
-              // band it touched. It exists to break the clockwork, not to
-              // illuminate.
-              background:
-                'radial-gradient(circle at 38% 40%, rgba(255,255,255,0.22) 0%, rgba(190,220,255,0.10) 40%, transparent 64%)',
-              filter: 'blur(18px)',
-              animation: `orb-wobble ${tempo.c} ease-in-out infinite`,
-            }}
-          />
-        </div>
-
-        {/* Glass, in three parts, all on top of the clip.
-            1. The rim: a bright hairline where the sphere's edge bends the light
-               back at you, and a dark inner floor so the bottom recedes. Without
-               these the bands read as a flat disc of colour.
-            2. The travelling glint: a real specular moves as a sphere turns, and
-               a fixed one is the clearest tell that this is a circle with a
-               gradient on it.
-            3. The broad sheen, which is what makes it look wet rather than lit. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 rounded-full"
-          style={{
-            boxShadow: [
-              'inset 0 2px 2px rgba(255,255,255,0.85)',
-              'inset 0 0 0 1px rgba(255,255,255,0.34)',
-              // Cool shadow, not warm: a chrome ball's underside picks up the
-              // sky, not the lamp. A brown floor here made it look ceramic.
-              'inset 0 -26px 40px rgba(74,62,120,0.40)',
-              'inset 0 20px 34px rgba(255,255,255,0.20)',
-            ].join(', '),
-          }}
-        />
-        <div
-          aria-hidden
-          className="orb-motion pointer-events-none absolute inset-0 rounded-full"
-          style={{
-            background:
-              'radial-gradient(circle at 32% 22%, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.18) 12%, transparent 34%)',
-            animation: `orb-glint ${tempo.b} ease-in-out infinite`,
-          }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 rounded-full"
-          style={{
-            // 0.30 across the top third was the last of the three white layers
-            // washing the colour out. A sheen should suggest a wet surface, not
-            // repaint it.
-            background:
-              'radial-gradient(ellipse 52% 30% at 40% 14%, rgba(255,255,255,0.14) 0%, transparent 72%)',
-          }}
-        />
-      </div>
+        aria-hidden
+        className="relative h-44 w-44 rounded-full transition-transform duration-150"
+        style={{
+          transform: `scale(${micScale})`,
+          opacity: gl ? 0 : 1,
+          background: 'radial-gradient(circle at 46% 36%, #C9BEEE 0%, #8C7FC4 46%, #4A3E78 100%)',
+          boxShadow: '0 0 54px rgba(196, 186, 255, 0.34), 0 18px 44px rgba(60, 20, 8, 0.30)',
+        }}
+      />
     </div>
   );
 }

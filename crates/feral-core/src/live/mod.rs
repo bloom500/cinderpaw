@@ -96,33 +96,6 @@ pub struct Setup {
     pub input_audio_transcription: Option<AudioTranscriptionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_audio_transcription: Option<AudioTranscriptionConfig>,
-    /// Sliding-window history compression. **Off by default — it appears to be
-    /// the cause of the very failure it was added to fix.**
-    ///
-    /// The story, because it is the kind that repeats. An audio session is
-    /// capped at fifteen minutes and the socket is torn down at about ten; the
-    /// server reports that as "the audio content type (CONTENT_TYPE_AUDIO) is
-    /// not supported for this model configuration", which reads as a setup
-    /// error. Measured then: opened 12:26, dead 12:37. Compression is the
-    /// documented remedy, so it went on by default.
-    ///
-    /// Measured after: opened, spoke, **dead 18 seconds later**, same message.
-    /// Second call, 6 seconds. Thirty times sooner than the wall it was meant
-    /// to clear. The reading that fits is that the message was always literal —
-    /// audio content cannot be compressed, and "this model configuration" is
-    /// the sliding window WE asked for. Audio burns tokens fast, so the
-    /// server-chosen trigger is reached in seconds.
-    ///
-    /// The verification that let this through said the probe "sends the new
-    /// setup and the server accepts it" — and that probe's own docstring warns
-    /// that ACCEPTED does not mean SUPPORTED. Accepting a field and honouring
-    /// it are different claims; only the weaker one was ever tested.
-    ///
-    /// `FERAL_LIVE_COMPRESS_HISTORY=true` puts it back. Dying at ten minutes is
-    /// a better failure than dying at eighteen seconds, so that is the default
-    /// until a long call is actually measured with it on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_window_compression: Option<ContextWindowCompression>,
     /// Ask for a resumption handle, or hand one back to continue an earlier call.
     ///
     /// This is the documented answer to the wall that actually exists. Measured:
@@ -146,21 +119,6 @@ pub struct SessionResumption {
     pub handle: Option<String>,
 }
 
-/// Slide the oldest turns out instead of ending the call.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContextWindowCompression {
-    /// Present and empty: the field's presence selects the strategy.
-    pub sliding_window: SlidingWindow,
-    /// When to start compressing. Left to the server, which knows the model's
-    /// window — a number invented here would be wrong the day the model changes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trigger_tokens: Option<u32>,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct SlidingWindow {}
-
 impl Setup {
     /// A spoken call: audio out, both transcripts on, tools declared.
     ///
@@ -176,7 +134,6 @@ impl Setup {
             },
             generation_config: GenerationConfig {
                 response_modalities: vec!["AUDIO".to_string()],
-                speech_config: None,
             },
             system_instruction: None,
             tools: if tools.is_empty() {
@@ -186,18 +143,15 @@ impl Setup {
             },
             input_audio_transcription: Some(AudioTranscriptionConfig {}),
             output_audio_transcription: Some(AudioTranscriptionConfig {}),
-            // Off unless asked for — see the field's docs. Opt-in rather than
-            // deleted so the next person can re-measure it in one env var
-            // instead of re-deriving the whole story from the error message.
             // Always requested. A handle costs nothing to be given and is the
             // only thing that makes the duration wall survivable.
+            //
+            // Sliding-window compression is deliberately NOT here. It is the
+            // documented remedy for the ten-minute audio cap and it killed calls
+            // in eighteen seconds instead: audio cannot be compressed, so "not
+            // supported for this model configuration" was literal and the
+            // configuration it meant was ours. Resumption is what actually works.
             session_resumption: Some(SessionResumption::default()),
-            context_window_compression: std::env::var("FERAL_LIVE_COMPRESS_HISTORY")
-                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .then(|| ContextWindowCompression {
-                    sliding_window: SlidingWindow {},
-                    trigger_tokens: None,
-                }),
         }
     }
 
@@ -220,11 +174,6 @@ pub struct GenerationConfig {
     /// kind of example that works for its author and produces a mute call for
     /// everyone who copies it. The type reference is the authority.
     pub response_modalities: Vec<String>,
-    /// Voice and language selection. Passed through as JSON: its shape is
-    /// documented outside the Live reference, and inventing it here would put a
-    /// guess on the wire.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub speech_config: Option<serde_json::Value>,
 }
 
 /// No fields today; present because the server distinguishes "absent" from
@@ -318,7 +267,6 @@ pub struct ServerMessage {
     pub server_content: Option<ServerContent>,
     pub tool_call: Option<ToolCall>,
     pub tool_call_cancellation: Option<ToolCallCancellation>,
-    pub go_away: Option<serde_json::Value>,
     /// A fresh handle for resuming this conversation after the socket ends.
     /// Sent repeatedly through a call; only the latest one is worth keeping.
     pub session_resumption_update: Option<SessionResumptionUpdate>,
@@ -345,8 +293,6 @@ pub struct ServerContent {
     pub interrupted: bool,
     #[serde(default)]
     pub turn_complete: bool,
-    #[serde(default)]
-    pub generation_complete: bool,
     pub input_transcription: Option<Transcription>,
     pub output_transcription: Option<Transcription>,
 }
@@ -445,15 +391,11 @@ mod tests {
         // Both transcripts, or a spoken call leaves no text behind.
         assert!(v["setup"]["inputAudioTranscription"].is_object());
         assert!(v["setup"]["outputAudioTranscription"].is_object());
-        // Compression is NOT here by default any more, and the inversion is the
-        // point: sending it appears to end the call in seconds rather than
-        // extend it past ten minutes. See the field's docs. This assertion used
-        // to demand the opposite, which is how a fix that reproduced its own
-        // symptom stayed in — the test pinned the remedy, never the outcome.
-        assert!(
-            v["setup"].get("contextWindowCompression").is_none(),
-            "compression is opt-in via FERAL_LIVE_COMPRESS_HISTORY",
-        );
+        // Never compression: sending it ends the call in seconds rather than
+        // extending it past ten minutes. This assertion used to demand the
+        // opposite, which is how a fix that reproduced its own symptom stayed
+        // in — the test pinned the remedy, never the outcome.
+        assert!(v["setup"].get("contextWindowCompression").is_none());
     }
 
     #[test]
@@ -493,17 +435,6 @@ mod tests {
         let u = msg.session_resumption_update.expect("parsed");
         assert_eq!(u.new_handle.as_deref(), Some("h1"));
         assert!(!u.resumable);
-    }
-
-    #[test]
-    fn compression_can_be_put_back_with_one_env_var() {
-        // Kept reachable rather than deleted: whoever re-measures the ten-minute
-        // wall should not have to rebuild the whole story from an error message.
-        // SAFETY: single-threaded test process; no other thread reads the env.
-        unsafe { std::env::set_var("FERAL_LIVE_COMPRESS_HISTORY", "true") };
-        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
-        unsafe { std::env::remove_var("FERAL_LIVE_COMPRESS_HISTORY") };
-        assert!(v["setup"]["contextWindowCompression"]["slidingWindow"].is_object());
     }
 
     #[test]

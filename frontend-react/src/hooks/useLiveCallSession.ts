@@ -27,11 +27,9 @@ import { t } from '@/lib/i18n';
  * two streams pointed at each other. The shapes only look alike from the
  * overlay's side, which is why the return type matches and nothing else does.
  *
- * What that costs, and it is worth naming: there is no transcript in the chat
- * store, so the call's turns are not saved and the chat panel has nothing to
- * show. Both sides of the conversation ARE transcribed by the model and arrive
- * here, so writing them into the session is the obvious next step — it needs an
- * inbound sidecar message that records a turn without generating a reply.
+ * Both sides of the conversation are transcribed by the model, and each finished
+ * turn is written into the chat store — so the call leaves scrollback a person
+ * can read, the same way Rust files it with the agent's memory.
  */
 
 /** How long a `heard` line lingers after the model finishes answering, so a
@@ -144,18 +142,6 @@ export function useLiveCallSession() {
   /** The next input transcript starts a new question rather than continuing the
    *  last one. Set when the model finishes a turn. */
   const freshRef = useRef(true);
-  /**
-   * When each transcript piece reached the webview, in milliseconds since the
-   * one before it.
-   *
-   * Rust already logs the same pieces as it emits them, ~140 ms apart and one
-   * or two characters each — a cadence that should read as live typing and does
-   * not. The gap between those two timestamps is the whole question: even here
-   * means the render is what stutters, bunched here means they queue behind the
-   * audio on the IPC bridge. Reported once per turn rather than per piece,
-   * because logging each arrival would add traffic to the bridge under suspicion.
-   */
-  const arrivalsRef = useRef<number[]>([]);
 
   const closeMic = useCallback(() => {
     stopMicRef.current?.();
@@ -177,7 +163,6 @@ export function useLiveCallSession() {
         switch (kind) {
           case 'inputTranscript':
             // The model's transcription of what it heard, arriving in pieces.
-            arrivalsRef.current.push(performance.now());
             heardRef.current = freshRef.current ? text : heardRef.current + text;
             setHeard(heardRef.current);
             freshRef.current = false;
@@ -198,23 +183,6 @@ export function useLiveCallSession() {
             setPhase('listening');
             break;
           case 'turnComplete': {
-            // Rust logs the same pieces as it emits them; this is when they
-            // landed. Even gaps here mean the bridge is fine and the render is
-            // what stutters; bunched ones mean they queued behind the audio.
-            const at = arrivalsRef.current;
-            if (at.length > 2) {
-              const gaps = at.slice(1).map((t, i) => Math.round(t - at[i]));
-              gaps.sort((a, b) => a - b);
-              void tauri.raw
-                .uiLog(
-                  'live',
-                  `transcript arrivals: ${gaps.length} gaps, ` +
-                    `median ${gaps[gaps.length >> 1]}ms, worst ${gaps[gaps.length - 1]}ms`,
-                )
-                .catch(() => {});
-            }
-            arrivalsRef.current = [];
-
             // File the spoken exchange in the conversation.
             //
             // Rust already hands the same pair to the sidecar's `record_turn`,
@@ -224,23 +192,21 @@ export function useLiveCallSession() {
             // there was no scrollback, nothing to copy, and no way to check
             // what it heard. Two records of one exchange, for two different
             // readers.
-            {
-              const said = saidRef.current.trim();
-              const asked = heardRef.current.trim();
-              const now = Date.now();
-              if (asked) {
-                useChat.getState().addMessage({
-                  id: `live-u-${now}`, role: 'user', content: asked, createdAt: now,
-                });
-              }
-              if (said) {
-                useChat.getState().addMessage({
-                  id: `live-a-${now}`, role: 'assistant', content: said, createdAt: now + 1,
-                });
-              }
-              saidRef.current = '';
-              heardRef.current = '';
+            const said = saidRef.current.trim();
+            const asked = heardRef.current.trim();
+            const now = Date.now();
+            if (asked) {
+              useChat.getState().addMessage({
+                id: `live-u-${now}`, role: 'user', content: asked, createdAt: now,
+              });
             }
+            if (said) {
+              useChat.getState().addMessage({
+                id: `live-a-${now}`, role: 'assistant', content: said, createdAt: now + 1,
+              });
+            }
+            saidRef.current = '';
+            heardRef.current = '';
 
             setPhase('listening');
             freshRef.current = true;

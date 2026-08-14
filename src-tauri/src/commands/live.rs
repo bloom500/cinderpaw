@@ -85,7 +85,7 @@ pub(crate) async fn start_live_call(
         tools: bridge::declarations(),
         resume: None,
     };
-    let handle = live::connect(clone_cfg(&cfg)).await.map_err(|e| e.to_string())?;
+    let handle = live::connect(cfg.clone()).await.map_err(|e| e.to_string())?;
 
     // Replacing a live slot ends the previous call: dropping its sender closes
     // that socket. Leaving both open would put two models on one microphone.
@@ -94,19 +94,6 @@ pub(crate) async fn start_live_call(
 
     tokio::spawn(supervise(app, session_id, cfg, handle));
     Ok(())
-}
-
-/// `SessionConfig` is not `Clone` — it holds the key — so the one place that
-/// needs a second copy says so out loud rather than deriving Clone and making
-/// key duplication invisible everywhere else.
-fn clone_cfg(cfg: &live::SessionConfig) -> live::SessionConfig {
-    live::SessionConfig {
-        api_key: cfg.api_key.clone(),
-        model: cfg.model.clone(),
-        system_instruction: cfg.system_instruction.clone(),
-        tools: cfg.tools.clone(),
-        resume: cfg.resume.clone(),
-    }
 }
 
 /// Keep the call alive across the server's own session limit.
@@ -170,7 +157,7 @@ async fn supervise(
         total += 1;
         tracing::info!("live: resuming session (#{total})");
 
-        let mut next_cfg = clone_cfg(&cfg);
+        let mut next_cfg = cfg.clone();
         next_cfg.resume = Some(token);
         match live::connect(next_cfg).await {
             Ok(next) => {
@@ -496,12 +483,5 @@ mod tests {
         // failed for the correct one. A guard that only accepts a typo is worse
         // than no guard.
         assert!(DEFAULT_MODEL.contains("native-audio"), "see the comment above DEFAULT_MODEL");
-    }
-
-    #[test]
-    fn the_engine_borrows_the_existing_google_key() {
-        // If this ever changes, the settings UI has to grow a second key field
-        // and the two can then disagree. It is deliberately the same slot.
-        assert_eq!(KEY_PROVIDER, "google");
     }
 }

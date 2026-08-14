@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  forSpeech,
-  splitForPipeline,
-  takeSpeakable,
-  isLikelyHallucination,
-  SPEAK_CHUNK_CHARS,
-} from '../speechText';
+import { forSpeech, takeSpeakable, isLikelyHallucination, SPEAK_CHUNK_CHARS } from '../speechText';
 
 describe('isLikelyHallucination', () => {
   it('catches the subtitle boilerplate Whisper invents on quiet audio', () => {
@@ -79,37 +73,6 @@ describe('takeSpeakable', () => {
     expect(spoken.join(' ')).toBe(original);
   });
 });
-
-describe('splitForPipeline', () => {
-  it('leaves a short reply whole — there is nothing to gain', () => {
-    expect(splitForPipeline('Yes, that works.')).toEqual(['Yes, that works.']);
-  });
-
-  it('cuts at a sentence end so the head can start playing', () => {
-    const text =
-      'The build finished. It took about two minutes, mostly the native dependencies. ' +
-      'Everything else was cached from the previous run and did not need rebuilding.';
-    const [head, tail] = splitForPipeline(text, 60);
-    expect(head).toBe('The build finished.');
-    expect(tail?.startsWith('It took')).toBe(true);
-    // Nothing may be lost or duplicated across the seam.
-    expect(`${head} ${tail}`).toBe(text);
-  });
-
-  it('keeps a long sentence whole rather than seaming mid-phrase', () => {
-    // No boundary inside the window: a cut here would be heard as a glitch, so
-    // the caller waits instead. Slower, not broken.
-    const text = 'This one long sentence runs past the window without any punctuation to break on';
-    expect(splitForPipeline(text, 30)).toEqual([text]);
-  });
-
-  it('does not split on a decimal point', () => {
-    const text = 'Pi is 3.14159 and that is more digits than anyone needs for this purpose here.';
-    const parts = splitForPipeline(text, 20);
-    expect(parts).toEqual([text]);
-  });
-});
-
 describe('forSpeech', () => {
   it('announces a code block instead of reading it aloud', () => {
     const out = forSpeech('Try this:\n\n```ts\nconst x = 1;\n```\n\nThen run it.');

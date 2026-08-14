@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { tauri } from '../lib/tauri';
 import { events } from '../lib/tauri/events';
 import { pcm16ToFloat32 } from '../lib/audio';
@@ -28,8 +28,6 @@ import { pcm16ToFloat32 } from '../lib/audio';
 const LEAD_SECONDS = 0.09;
 
 export function useSpeechPlayer(sessionId: string) {
-  const [speaking, setSpeaking] = useState(false);
-
   const ctxRef = useRef<AudioContext | null>(null);
   /** ctx.currentTime at which the next chunk should start. */
   const cursorRef = useRef(0);
@@ -93,7 +91,6 @@ export function useSpeechPlayer(sessionId: string) {
     nodesRef.current.clear();
     carryRef.current = new Uint8Array(0);
     cursorRef.current = 0;
-    setSpeaking(false);
     settlePlayback();
   }, []);
 
@@ -128,7 +125,6 @@ export function useSpeechPlayer(sessionId: string) {
         nodesRef.current.delete(node);
         // Last buffer of a finished synthesis: the utterance is over.
         if (synthesisDoneRef.current && nodesRef.current.size === 0 && generation === generationRef.current) {
-          setSpeaking(false);
           settlePlayback();
         }
       };
@@ -159,16 +155,6 @@ export function useSpeechPlayer(sessionId: string) {
     };
   }, [sessionId, ctx]);
 
-  /**
-   * Speak one string, or a sequence of parts back to back, resolving with the
-   * PCM byte count once the words have actually been said — every part
-   * synthesised AND the last buffer played out.
-   *
-   * Playback, not synthesis, is the contract a caller needs: a voice loop that
-   * reopened the microphone when synthesis ended would start recording over the
-   * tail of its own sentence. A barge-in resolves it early, so `await speak(…)`
-   * cannot be left hanging by an interruption.
-   */
   /** One synthesis request at a time, appending to the same audio cursor. */
   const drain = useCallback(async () => {
     if (drainingRef.current) return;
@@ -197,10 +183,7 @@ export function useSpeechPlayer(sessionId: string) {
       // that knows a request just finished.
       if (feedDoneRef.current && queueRef.current.length === 0) {
         synthesisDoneRef.current = true;
-        if (nodesRef.current.size === 0) {
-          setSpeaking(false);
-          settlePlayback();
-        }
+        if (nodesRef.current.size === 0) settlePlayback();
       }
     }
   }, [sessionId, silence]);
@@ -223,7 +206,6 @@ export function useSpeechPlayer(sessionId: string) {
       feedDoneRef.current = false;
       synthesisDoneRef.current = false;
       optsRef.current = opts ?? {};
-      setSpeaking(true);
       // Resume before the first chunk lands: a context created outside a user
       // gesture starts suspended, and chunks scheduled while suspended play
       // against a clock that is not moving.
@@ -266,16 +248,6 @@ export function useSpeechPlayer(sessionId: string) {
     return totalRef.current;
   }, [drain]);
 
-  /** Speak a finished string in one go — `begin` + `feed` + `end`. */
-  const speak = useCallback(
-    async (text: string, opts?: { provider?: string; voice?: string }) => {
-      await beginSpeech(opts);
-      feedSpeech(text);
-      return endSpeech();
-    },
-    [beginSpeech, feedSpeech, endSpeech],
-  );
-
   /** Barge-in: stop the audio here and stop the synthesis over there. */
   const stop = useCallback(() => {
     generationRef.current += 1;
@@ -289,5 +261,5 @@ export function useSpeechPlayer(sessionId: string) {
     ctxRef.current = null;
   }, [silence]);
 
-  return { speaking, speak, beginSpeech, feedSpeech, endSpeech, stop };
+  return { beginSpeech, feedSpeech, endSpeech, stop };
 }

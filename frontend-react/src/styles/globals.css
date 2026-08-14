@@ -14,77 +14,20 @@
 }
 
 /*
- * Voice-call orb.
+ * The call field's one moving part.
  *
- * Three blurred blobs orbiting inside a clipped circle, at different speeds and
- * in opposite directions. Rotating one gradient instead looks mechanical — the
- * eye follows the seam around; overlapping blobs never repeat the same shape, so
- * the surface reads as fluid. The blur is what turns three discs into one
- * gradient, so it is structural rather than decorative.
+ * Runs ONLY while someone is actually talking — a background that drifts all
+ * the time stops meaning anything and becomes the screensaver you learn to
+ * ignore, which is the opposite of what a call screen is for. Silence is part
+ * of the signal here.
  *
- * Speed is set per call state from the component (`animationDuration`), not with
- * separate keyframes: one set of motions, driven faster or slower, keeps idle,
- * listening, thinking and speaking recognisably the same object.
+ * Transform only, on one small layer, so the 4-stop gradient underneath is
+ * never repainted. The sphere itself is WebGL (`CallOrb3D`); the keyframes that
+ * used to animate a CSS copy of it went with the copy.
  */
-@keyframes orb-orbit {
-  from { transform: rotate(0deg) translate(var(--orb-offset, 12%), 0); }
-  to   { transform: rotate(360deg) translate(var(--orb-offset, 12%), 0); }
-}
-@keyframes orb-orbit-reverse {
-  from { transform: rotate(360deg) translate(var(--orb-offset, 12%), 0); }
-  to   { transform: rotate(0deg) translate(var(--orb-offset, 12%), 0); }
-}
-/* Breathing, so the sphere is never completely still. Idle should look alive but
-   not busy; the amplitude stays small enough to read as breath, not as a pulse. */
-@keyframes orb-breathe {
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.035); }
-}
-
-/* ── Liquid glass ──────────────────────────────────────────────────────────
- *
- * What makes a sphere read as GLASS rather than as a coloured ball is that the
- * colour appears to be *inside* it and to move independently of the surface.
- * Two conic gradients turning at different speeds in opposite directions do
- * that with no texture and no library: where the bands cross they shear, and
- * the eye reads shearing bands as a fluid rather than as two spinning wheels.
- *
- * `rotate` and `scale` only — both composited, so this costs no layout and no
- * paint per frame. The blur is applied once as a static filter on the layer,
- * never animated, because animating a filter re-rasterises every frame and is
- * what turns an orb like this into a fan-spinner.
- */
-@keyframes orb-swirl {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@keyframes orb-swirl-reverse {
-  from { transform: rotate(360deg); }
-  to   { transform: rotate(0deg); }
-}
-/* The wobble that stops the two conics from reading as clockwork. Slightly
-   non-round scaling, so the "fluid" inside is never quite a circle. */
-@keyframes orb-wobble {
-  0%, 100% { transform: scale(1.06, 1) rotate(0deg); }
-  33%      { transform: scale(1, 1.08) rotate(4deg); }
-  66%      { transform: scale(1.05, 1.02) rotate(-3deg); }
-}
-/* The travelling glint. A real specular highlight moves across a sphere as it
-   turns; a fixed one is the single clearest tell that the ball is a flat disc
-   with a gradient on it. */
-/* The room breathing. Runs ONLY while someone is actually talking — a
-   background that drifts all the time stops meaning anything and becomes the
-   screensaver you learn to ignore, which is the opposite of what a call screen
-   is for. Silence is part of the signal here.
-   Transform only, on one small layer, so the 4-stop gradient underneath is
-   never repainted. */
 @keyframes stage-drift {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
   50%      { transform: translate3d(-4%, 3%, 0) scale(1.14); }
-}
-@keyframes orb-glint {
-  0%, 100% { transform: translate(-6%, -4%) scale(1); opacity: 0.9; }
-  50%      { transform: translate(8%, 6%) scale(1.15); opacity: 0.55; }
 }
 
 /* Motion is decoration here — the call's state is also carried by the status

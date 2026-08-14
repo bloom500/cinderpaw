@@ -15,11 +15,10 @@
 //! exactly what is missing.
 
 use anyhow::{bail, Context, Result};
-use futures::StreamExt;
 use serde::Serialize;
 use tokio::sync::mpsc::Sender;
 
-use super::{EngineConfig, SpeechRequest, TtsProvider, Voice};
+use super::{http, pump, EngineConfig, SpeechRequest, TtsProvider, Voice, SPEAK_TIMEOUT_SECS};
 
 /// Stable id for settings and `from_id`.
 pub const ID: &str = "openai-compat";
@@ -121,13 +120,7 @@ impl TtsProvider for OpenAiCompatTts {
             response_format: "pcm",
         };
 
-        let client = reqwest::Client::builder()
-            .user_agent("feral/0.1")
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("build reqwest client")?;
-
-        let res = client
+        let res = http(SPEAK_TIMEOUT_SECS)?
             .post(format!("{}/v1/audio/speech", self.base_url))
             .bearer_auth(&self.api_key)
             .json(&body)
@@ -154,20 +147,7 @@ impl TtsProvider for OpenAiCompatTts {
             );
         }
 
-        let mut stream = res.bytes_stream();
-        let mut total = 0usize;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("speech stream interrupted")?;
-            if chunk.is_empty() {
-                continue;
-            }
-            total += chunk.len();
-            // A closed receiver is a barge-in, not an error: stop pulling.
-            if audio.send(chunk.to_vec()).await.is_err() {
-                break;
-            }
-        }
-        Ok(total)
+        pump(res, "speech", audio).await
     }
 }
 

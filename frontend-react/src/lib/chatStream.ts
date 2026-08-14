@@ -168,8 +168,3 @@ export async function requestStreamStop(sessionId: string): Promise<void> {
   // another session's generation. No guard needed on this side.
   await tauri.chat.stop(sessionId);
 }
-
-/** True if a stream is currently in flight for `sessionId`. */
-export function isChatStreaming(sessionId: string): boolean {
-  return inflight.has(sessionId);
-}
