@@ -327,6 +327,43 @@ body { overflow: hidden; }
    look. The badges matter most: they are 10px, which is the size where WCAG
    wants 4.5:1 and where `--warning` at #B8862A on cream delivers about 2.9:1 —
    so light gets its own darker foreground rather than the shared token. */
+/* ── The call stage ───────────────────────────────────────────────────────
+ *
+ * The one surface in the app that does NOT follow the theme, and deliberately.
+ * A call is a full-screen immersive moment — the same thing a phone's call
+ * screen or a now-playing view is — so it carries its own light instead of
+ * inheriting the page's. That is also the whole answer to "how do we do this in
+ * light theme": we don't. Saturated orange with light text reads the same at
+ * noon and at midnight, and the alternative (a pale variant) would need every
+ * child element re-checked for contrast twice over.
+ *
+ * Scoped to `.call-stage`, so the tokens the children already use — text,
+ * borders, surfaces — resolve to stage values inside it and to theme values
+ * everywhere else. Nothing downstream had to change.
+ */
+.call-stage {
+  --text-primary:    rgba(255, 246, 238, 0.97);
+  --text-secondary:  rgba(255, 238, 226, 0.82);
+  --text-muted:      rgba(255, 232, 216, 0.68);
+  --border-default:  rgba(255, 226, 205, 0.22);
+  --border-subtle:   rgba(255, 226, 205, 0.14);
+  /* Frosted panels, as in the reference: the surface is the background seen
+     through glass, so it is white at low alpha rather than a solid colour. */
+  --bg-elevated:     rgba(255, 236, 222, 0.13);
+  --bg-surface:      rgba(255, 236, 222, 0.10);
+  --bg-hover:        rgba(255, 236, 222, 0.20);
+  /* Links and badges have to clear 4.5:1 on orange, where the theme's blues do
+     not: #8AB4F8 on #E8451F is about 2.4:1. Cream carries the same "this is a
+     link" weight at 7:1+. */
+  --result-link:     #FFF1DC;
+  --badge-warn-fg:   #FFE9B8;
+  --badge-warn-bg:   rgba(255, 233, 184, 0.18);
+  --badge-warn-br:   rgba(255, 233, 184, 0.38);
+  --badge-ok-fg:     #DDF3C9;
+  --badge-ok-bg:     rgba(221, 243, 201, 0.18);
+  --badge-ok-br:     rgba(221, 243, 201, 0.38);
+}
+
 :root[data-theme="dark"] {
   --result-link:    #8AB4F8;
   --badge-warn-fg:  #E0A94A;

@@ -227,37 +227,31 @@ export function CallOverlay({
           screen. This strip spans the top and does nothing else. */}
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-10 h-8" />
 
-      <div className="relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6">
-        {/* The room the sphere is standing in.
-            Two large, very soft warm sources from opposite corners rather than
-            one disc behind the orb — a single centred glow lights the ball and
-            leaves the rest of the screen flat black, which is what made this
-            read as a logo on a background instead of an object somewhere.
-            Corner light gives the screen a direction, and the glass has
-            something to pick up: the bands inside the sphere are warm BECAUSE
-            the room is, which is the only reason a rainbow works over orange.
-            Kept under 10% so the text on top keeps its contrast — this is the
-            one place where turning it up would look better in a screenshot and
-            worse to use. */}
+      <div
+        className="call-stage relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6"
+        style={{
+          // The field itself, not a glow on top of black. Layered ellipses
+          // rather than a linear gradient, because the reference's orange is
+          // lit silk — light pooling and falling off in soft patches — and a
+          // linear ramp always reads as a banner. Deepest at the lower left so
+          // the sphere sits against the dark half and the light comes past it.
+          background: [
+            'radial-gradient(ellipse 90% 70% at 78% 6%, #FF8A3C 0%, transparent 58%)',
+            'radial-gradient(ellipse 70% 60% at 8% 88%, #FF6B35 0%, transparent 55%)',
+            'radial-gradient(ellipse 120% 90% at 30% 40%, #D93A15 0%, transparent 70%)',
+            'linear-gradient(150deg, #E8451F 0%, #C42D0E 55%, #E05320 100%)',
+          ].join(', '),
+        }}
+      >
+        {/* The close glow that seats the sphere in the field — kept, because
+            without it the ball floats a centimetre off the surface. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 transition-opacity duration-700"
-          style={{
-            background: [
-              'radial-gradient(ellipse 70% 55% at 82% 8%, color-mix(in srgb, var(--brand-hover) 16%, transparent) 0%, transparent 62%)',
-              'radial-gradient(ellipse 60% 50% at 12% 96%, color-mix(in srgb, #E8615A 11%, transparent) 0%, transparent 58%)',
-            ].join(', '),
-            opacity: phase === 'ready' ? 0.55 : 1,
-          }}
-        />
-        {/* The close glow that seats the sphere in that room. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-700"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-700"
           style={{
             background:
-              'radial-gradient(circle, color-mix(in srgb, var(--brand) 9%, transparent) 0%, transparent 58%)',
-            opacity: phase === 'ready' ? 0.5 : 0.85,
+              'radial-gradient(circle, rgba(255,214,170,0.20) 0%, rgba(255,150,80,0.08) 38%, transparent 62%)',
+            opacity: phase === 'ready' ? 0.55 : 0.95,
           }}
         />
 
@@ -481,13 +475,17 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
    * different speeds, are the whole liquid-glass effect: where the bands cross
    * they shear, and shearing bands read as a fluid rather than as two wheels.
    *
-   * The spectrum is warm-biased on purpose. The reference sphere is iridescent
-   * against a lavender room and comes out cool; ours sits in an orange one, and
-   * glass shows you the light around it. A full rainbow here would read as a
-   * sticker on the screen rather than as an object in the scene — and against
-   * the warm field behind it, the cool half turns to mud. Violet and cyan stay,
-   * but only as the narrow edge of the spread, which is where a real oil-slick
-   * puts them too.
+   * The spectrum is the full iridescence of the reference, cool half included.
+   * An earlier version warmed it to match the orange field on the theory that
+   * glass shows you the room it stands in — true of a tinted sphere, wrong for
+   * this one: the reference reads as CHROME, and chrome throws the whole
+   * spectrum back regardless of what is around it. Warming it made a copper
+   * ball. The cool bands are also what separates the sphere from the field —
+   * warm-on-warm was the reason it sank into the background.
+   *
+   * `repeating-conic-gradient` rather than a single sweep: the reference's
+   * surface is ribbons, not a smooth wash, and repeating stops give the banding
+   * that blur then softens into twisted foil.
    */
   const band = (
     spectrum: string,
@@ -525,7 +523,9 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
         style={{
           transform: `scale(${1 + (micScale - 1) * 1.8})`,
           background:
-            'radial-gradient(circle, color-mix(in srgb, var(--brand) 12%, transparent) 42%, transparent 70%)',
+            // Cool, like the sphere it tracks — a brand-orange halo around a
+            // chrome ball on an orange field made the edge disappear entirely.
+            'radial-gradient(circle, rgba(214,206,255,0.16) 42%, transparent 70%)',
         }}
       />
 
@@ -537,11 +537,14 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
           className="orb-motion absolute inset-0 overflow-hidden rounded-full"
           style={{
             // Base tone under the bands, so the sphere never shows a gap between
-            // them, plus the glow that makes it sit in the dark rather than on it.
-            background: 'radial-gradient(circle at 50% 55%, var(--brand-muted) 0%, #1a1206 100%)',
-            // A close, soft shadow that seats the sphere on the background —
-            // 100px at 45% was a lamp, and everything around it looked washed.
-            boxShadow: '0 0 46px color-mix(in srgb, var(--brand) 18%, transparent)',
+            // them. Pale silver-lavender, not the old dark brown: this reads as
+            // polished chrome, and chrome's unlit areas are light grey, not
+            // black. A dark base under bright bands is what made the first pass
+            // look like a lit ball instead of a reflective one.
+            background: 'radial-gradient(circle at 50% 40%, #F4F0FF 0%, #C8C0E8 52%, #8B84B8 100%)',
+            // Cool halo, so it separates from the orange rather than melting
+            // into it.
+            boxShadow: '0 0 54px rgba(196, 186, 255, 0.34), 0 18px 44px rgba(60, 20, 8, 0.30)',
             // Breathing lives on the clipping layer, not on the scaled wrapper, so
             // it composes with the mic scale instead of overwriting it.
             animation: `orb-breathe ${tempo.breathe} ease-in-out infinite`,
@@ -550,15 +553,15 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
           {/* Oversized so no corner of the square ever swings into view inside
               the circular clip while it turns. */}
           {band(
-            `conic-gradient(from 0deg,
-               #F2A65A 0deg, #E8615A 60deg, #C2569B 115deg,
-               #7B6BD6 160deg, #4FB3C9 195deg, #E0A24E 260deg, #F2A65A 360deg)`,
-            '150%', '22px', tempo.a,
+            `repeating-conic-gradient(from 0deg,
+               #EFE6FF 0deg, #9BB8F0 26deg, #6FE0D8 52deg, #B9F0A8 74deg,
+               #FFE79A 96deg, #FFA9C9 120deg, #C79BF0 146deg, #EFE6FF 180deg)`,
+            '150%', '20px', tempo.a,
           )}
           {band(
-            `conic-gradient(from 140deg,
-               #FFD9A0 0deg, #E8894A 80deg, #B85BA8 150deg,
-               #5E7BD6 210deg, #F0B267 300deg, #FFD9A0 360deg)`,
+            `repeating-conic-gradient(from 140deg,
+               #FFFFFF 0deg, #C9D8FF 30deg, #8FE8E0 62deg, #FFD1E8 96deg,
+               #D9C2FF 130deg, #FFFFFF 165deg)`,
             '135%', '26px', tempo.b, true, 'overlay',
           )}
           {/* The wobble. Two conics alone turn like clockwork; a third layer on a
@@ -568,7 +571,7 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
             className="orb-motion absolute inset-[-25%] rounded-full"
             style={{
               background:
-                'radial-gradient(circle at 38% 40%, color-mix(in srgb, var(--brand-hover) 70%, #ffd9a0) 0%, transparent 58%)',
+                'radial-gradient(circle at 38% 40%, rgba(255,255,255,0.85) 0%, rgba(190,220,255,0.35) 38%, transparent 62%)',
               filter: 'blur(24px)',
               animation: `orb-wobble ${tempo.c} ease-in-out infinite`,
             }}
@@ -588,10 +591,12 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
           className="pointer-events-none absolute inset-0 rounded-full"
           style={{
             boxShadow: [
-              'inset 0 1px 1px rgba(255,255,255,0.55)',
-              'inset 0 0 0 1px rgba(255,255,255,0.16)',
-              'inset 0 -22px 34px rgba(24,12,2,0.42)',
-              'inset 0 18px 30px rgba(255,214,160,0.14)',
+              'inset 0 2px 2px rgba(255,255,255,0.85)',
+              'inset 0 0 0 1px rgba(255,255,255,0.34)',
+              // Cool shadow, not warm: a chrome ball's underside picks up the
+              // sky, not the lamp. A brown floor here made it look ceramic.
+              'inset 0 -26px 40px rgba(74,62,120,0.40)',
+              'inset 0 20px 34px rgba(255,255,255,0.20)',
             ].join(', '),
           }}
         />
