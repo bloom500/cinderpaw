@@ -38,12 +38,67 @@ import type { CallPhase } from '@/hooks/useCallSession';
  * telling you what it is doing.
  */
 const TEMPO: Record<CallPhase, { spin: number; churn: number; ridge: number }> = {
-  idle:      { spin: 0.045, churn: 0.10, ridge: 0.030 },
-  ready:     { spin: 0.060, churn: 0.14, ridge: 0.034 },
-  listening: { spin: 0.130, churn: 0.34, ridge: 0.046 },
-  thinking:  { spin: 0.290, churn: 0.80, ridge: 0.058 },
-  speaking:  { spin: 0.190, churn: 0.52, ridge: 0.052 },
+  idle:      { spin: 0.045, churn: 0.10, ridge: 0.004 },
+  ready:     { spin: 0.060, churn: 0.14, ridge: 0.005 },
+  listening: { spin: 0.130, churn: 0.34, ridge: 0.008 },
+  thinking:  { spin: 0.290, churn: 0.80, ridge: 0.011 },
+  speaking:  { spin: 0.190, churn: 0.52, ridge: 0.009 },
 };
+
+/**
+ * The colour that lives INSIDE the glass.
+ *
+ * The two references turned out to be different objects, and the ridged one
+ * sent this component chasing the wrong problem. What is actually wanted is a
+ * smooth glossy sphere with soft swirls of colour suspended in it — no relief
+ * at all — which is both closer to the original orb and far easier: broad soft
+ * blobs painted once into a texture, turned slowly under a clear coat.
+ *
+ * Drawn at 512 and blurred hard on purpose: the swirls should have no visible
+ * edge anywhere, because an edge inside glass reads as a decal on the surface.
+ */
+function makeSwirlTexture(): THREE.Texture {
+  const S = 512;
+  const c = document.createElement('canvas');
+  c.width = S;
+  c.height = S / 2;
+  const ctx = c.getContext('2d')!;
+
+  ctx.fillStyle = '#F6F2FF';
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const blob = (x: number, y: number, r: number, color: string) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, color);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  };
+
+  // Wrapped horizontally: this is an equirect map, so a blob near either edge
+  // is drawn twice or it shows a seam down the back of the sphere.
+  const zones: Array<[number, number, number, string]> = [
+    [0.16, 0.34, 0.40, 'rgba(124, 78, 232, 0.95)'],
+    [0.34, 0.72, 0.34, 'rgba(90, 58, 210, 0.85)'],
+    [0.54, 0.30, 0.36, 'rgba(232, 84, 40, 0.92)'],
+    [0.70, 0.62, 0.30, 'rgba(255, 168, 60, 0.88)'],
+    [0.88, 0.40, 0.32, 'rgba(96, 206, 232, 0.80)'],
+    [0.02, 0.62, 0.26, 'rgba(255, 255, 255, 0.95)'],
+  ];
+  for (const [fx, fy, fr, color] of zones) {
+    const x = fx * c.width;
+    const y = fy * c.height;
+    const r = fr * c.height;
+    blob(x, y, r, color);
+    if (x < r) blob(x + c.width, y, r, color);
+    if (x > c.width - r) blob(x - c.width, y, r, color);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
+}
 
 /**
  * The room, as an equirectangular gradient.
@@ -125,19 +180,24 @@ export function CallOrb3D({ phase, level }: { phase: CallPhase; level: number })
     // starving the equator where the ridges live.
     const geometry = new THREE.IcosahedronGeometry(1, 64);
 
+    const swirl = makeSwirlTexture();
     const material = new THREE.MeshPhysicalMaterial({
-      color: 0xdcd6f0,
-      metalness: 0.28,
-      roughness: 0.12,
+      map: swirl,
+      // Colour suspended in glass, not painted on metal. Zero metalness and a
+      // near-mirror clearcoat is the whole difference between "swirl sphere"
+      // and the ribbed chrome the first version chased: the coat carries the
+      // gloss and the highlight, the map underneath carries the colour, and
+      // nothing about the surface is supposed to have texture.
+      metalness: 0,
+      roughness: 0.22,
       clearcoat: 1,
-      clearcoatRoughness: 0.06,
-      // The reference look, in three numbers. The thickness RANGE is what makes
-      // the rainbow move across the surface: a single thickness gives one flat
-      // tint, and the spread is what separates the bands.
-      iridescence: 1,
-      iridescenceIOR: 1.32,
-      iridescenceThicknessRange: [120, 780],
-      envMapIntensity: 1.5,
+      clearcoatRoughness: 0.02,
+      // A trace, not the subject. Enough to warm the rim where the coat turns
+      // away from the eye; at 1 it took the swirls over and made foil again.
+      iridescence: 0.22,
+      iridescenceIOR: 1.25,
+      iridescenceThicknessRange: [180, 520],
+      envMapIntensity: 1.25,
     });
 
     // Displacement in the vertex stage. Done with onBeforeCompile rather than a
@@ -222,6 +282,7 @@ export function CallOrb3D({ phase, level }: { phase: CallPhase; level: number })
       geometry.dispose();
       material.dispose();
       env.dispose();
+      swirl.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
