@@ -127,6 +127,25 @@ export function defaultChildName(prompt: string, childId: string): string {
   return `subagent-${promptPart || "worker"}-${idSuffix}`;
 }
 
+/**
+ * Live telemetry about one child, for a surface that wants to SHOW it.
+ *
+ * It lives here rather than in the host because this class is the authority on
+ * both halves a UI needs: the name (which the caller may have chosen, so the
+ * host cannot derive it) and the status transitions. Computing either one
+ * outside would drift from what `rlm.list_subagents()` reports, and two
+ * disagreeing accounts of the same worker is worse than none.
+ *
+ * A plain callback, not a transport — this module stays host-free.
+ */
+export type ChildTelemetry = (e: {
+  childId: string;
+  name: string;
+  status: "running" | "completed" | "error" | "cancelled";
+  detail?: string;
+  durationMs?: number;
+}) => void;
+
 /** A message from a child to the parent that spawned it. */
 export interface ChildMessage {
   at: number;
@@ -149,7 +168,11 @@ export class ChildRegistry {
   readonly #inbox: ChildMessage[] = [];
   #seq = 0;
 
-  constructor(private readonly run: RunChild) {}
+  constructor(
+    private readonly run: RunChild,
+    /** Optional: a surface that wants to show the work as it happens. */
+    private readonly telemetry?: ChildTelemetry,
+  ) {}
 
   /**
    * Admit a child and return immediately. The run continues in the background;
@@ -177,10 +200,28 @@ export class ChildRegistry {
     this.#entries.set(id, entry);
     this.#byName.set(name, id);
 
+    const startedAt = Date.now();
+    const emit = (
+      status: "running" | "completed" | "error" | "cancelled",
+      detail?: string,
+      durationMs?: number,
+    ) => {
+      // A broken observer must never take a worker down with it.
+      try {
+        this.telemetry?.({ childId: id, name, status, detail, durationMs });
+      } catch {
+        /* ignore */
+      }
+    };
+    emit("running", task.slice(0, 120).replace(/\s+/g, " "));
+
     const push = (kind: string, detail: string) => {
       const t = entry.trail!;
       t.push({ at: Date.now(), kind, detail: detail.slice(0, 200) });
       if (t.length > TRAIL_MAX) t.splice(0, t.length - TRAIL_MAX);
+      // Same events the parent can poll with `rlm.observe()`, pushed instead
+      // of pulled, so a surface can render progress without the model asking.
+      emit("running", `${kind}${detail ? ` ${detail}` : ""}`.slice(0, 120));
     };
 
     // One controller per child, chained to the parent's. Per-child rather than
@@ -200,10 +241,19 @@ export class ChildRegistry {
         entry.toolCalls = r.toolCalls;
         entry.durationMs = r.durationMs;
         if (r.status !== "completed") entry.error = r.status;
+        // `cancelled` is reported as itself rather than folded into `error`:
+        // a worker the user stopped is not a worker that broke, and a UI that
+        // paints the two the same teaches people to ignore red.
+        emit(
+          r.status === "completed" ? "completed" : r.status === "cancelled" ? "cancelled" : "error",
+          r.status === "completed" ? `${r.toolCalls} tool call(s)` : r.status,
+          r.durationMs,
+        );
       })
       .catch((e) => {
         entry.status = "error";
         entry.error = e instanceof Error ? e.message : String(e);
+        emit("error", entry.error, Date.now() - startedAt);
       })
       .finally(() => {
         // The parent's signal outlives this child; leaving the listener on it

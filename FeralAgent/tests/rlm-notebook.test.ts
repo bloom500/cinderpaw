@@ -235,6 +235,64 @@ describe("recursion — the R in RLM", () => {
     });
   });
 
+  /**
+   * Telemetry. A worker had no UI at all: `rlm()` returns instantly, so the
+   * turn ends and the child does everything afterwards, with nothing on screen
+   * to say it exists. The registry — not the host — emits, because it is the
+   * only place that knows both the name (which the caller may have chosen) and
+   * the status transitions; deriving either outside would drift from what
+   * `rlm.list_subagents()` reports.
+   */
+  describe("worker telemetry", () => {
+    const collect = () => {
+      const seen: Array<{ name: string; status: string; detail?: string }> = [];
+      return { seen, sink: (e: { name: string; status: string; detail?: string }) => seen.push(e) };
+    };
+
+    it("announces the worker the moment it is admitted, not when it finishes", async () => {
+      const { seen, sink } = collect();
+      const reg = new ChildRegistry(runner(), sink);
+      reg.admit("count the files");
+      // Synchronous with admit: the whole point is that the UI shows the
+      // worker during the minutes it runs, not after.
+      expect(seen[0]!.status).toBe("running");
+      expect(seen[0]!.detail).toContain("count the files");
+      await reg.drain();
+      expect(seen.at(-1)!.status).toBe("completed");
+    });
+
+    it("carries the caller's chosen name, not a derived one", async () => {
+      const { seen, sink } = collect();
+      const reg = new ChildRegistry(runner(), sink);
+      reg.admit("anything", { name: "api-reviewer" });
+      expect(seen[0]!.name).toBe("api-reviewer");
+      await reg.drain();
+    });
+
+    it("reports a stopped worker as cancelled, not as an error", async () => {
+      const { seen, sink } = collect();
+      const reg = new ChildRegistry(
+        async () => ({
+          status: "cancelled" as const, answer: "", toolCalls: 0, durationMs: 1, subagentId: "x",
+        }),
+        sink,
+      );
+      reg.admit("work");
+      await reg.drain();
+      expect(seen.at(-1)!.status).toBe("cancelled");
+    });
+
+    it("survives a telemetry sink that throws", async () => {
+      // An observer is a UI concern; it must never be able to kill a worker.
+      const reg = new ChildRegistry(runner(), () => {
+        throw new Error("render blew up");
+      });
+      expect(() => reg.admit("work")).not.toThrow();
+      await reg.drain();
+      expect(reg.list()[0]!.status).toBe("completed");
+    });
+  });
+
   it("returns a handle immediately, not the answer", async () => {
     const { nb } = nbWith();
     const r = await nb.run(`const h = await rlm("count the files"); JSON.stringify(h)`);

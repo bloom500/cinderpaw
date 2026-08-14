@@ -141,6 +141,18 @@ interface ChatStore {
   /** #18: attach a live progress/retry note to the most recent running tool. */
   noteToolProgress: (message: string) => void;
   pushSkillsContext: (names: string[]) => void;
+  /**
+   * Create or update a background worker's bubble from an `rlm_child` event.
+   * One action rather than push/complete because the sidecar sends a stream of
+   * updates keyed by the same childId, and the first one may arrive after the
+   * turn that spawned it has already ended.
+   */
+  upsertWorker: (e: {
+    childId: string;
+    name: string;
+    status: 'running' | 'completed' | 'error' | 'cancelled';
+    detail?: string;
+  }) => void;
   clearToolCallStream: () => void;
 }
 
@@ -176,6 +188,18 @@ export type ToolCallEvent =
       startedAt: number;
       endedAt: number;
       status: 'done';
+    }
+  | {
+      /** The ChildRegistry id — stable, so repeated events update one bubble. */
+      id: string;
+      kind: 'worker';
+      /** Registry name, e.g. `subagent-count-the-files-a1b2`. */
+      name: string;
+      /** What it is doing right now, or why it ended. */
+      detail: string | null;
+      status: 'running' | 'done' | 'error' | 'cancelled';
+      startedAt: number;
+      endedAt: number | null;
     };
 
 /** Hard cap on the number of bubbles the mascot renders at once. */
@@ -368,6 +392,39 @@ export const useChat = create<ChatStore>((set) => ({
     }, TOOL_CALL_LINGER_MS);
   },
 
-  clearToolCallStream: () => set({ toolCallStream: [] }),
+  upsertWorker: ({ childId, name, status, detail }) => {
+    const done = status !== 'running';
+    set((s) => {
+      const existing = s.toolCallStream.find((e) => e.id === childId);
+      const entry: ToolCallEvent = {
+        id: childId,
+        kind: 'worker',
+        name,
+        detail: detail ?? null,
+        status: status === 'completed' ? 'done' : status,
+        startedAt: existing?.startedAt ?? Date.now(),
+        endedAt: done ? Date.now() : null,
+      };
+      const next = existing
+        ? s.toolCallStream.map((e) => (e.id === childId ? entry : e))
+        : [...s.toolCallStream, entry];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+    // Only a settled worker fades. A running one has no known end — that is
+    // the whole difference between a worker and a tool call.
+    if (done) {
+      window.setTimeout(() => {
+        set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== childId) }));
+      }, TOOL_CALL_LINGER_MS);
+    }
+  },
+
+  // A running worker SURVIVES the clear. The stream is wiped 5s after the turn
+  // ends, and a worker outliving its turn is the normal case, not the edge —
+  // wiping it would hide exactly the work that has nothing else to show it.
+  clearToolCallStream: () =>
+    set((s) => ({
+      toolCallStream: s.toolCallStream.filter((e) => e.kind === 'worker' && e.status === 'running'),
+    })),
 
 }));

@@ -1376,6 +1376,33 @@ export type OutboundEvent =
   // it is being held back for `waitMs`. Emitted so the pause is legible: a
   // silent gap of several seconds is indistinguishable from a hung agent.
   | { type: "rate_limited"; sessionId: string; waitMs: number; limitRpm: number; baseUrl: string; traceId?: string }
+  /**
+   * A background worker spawned by the notebook's `rlm()`.
+   *
+   * Deliberately NOT `tool_start`/`tool_done`: those belong to a tool call
+   * inside a turn, and a worker is the opposite — `rlm()` returns the instant
+   * the child is admitted, so the child does all its work AFTER the turn that
+   * created it has ended. It therefore carries a sessionId and no message id,
+   * like `tool_progress`, and the UI must be able to show it while the agent
+   * is otherwise idle.
+   *
+   * Without this the only trace of a worker was two incidental log lines in
+   * the sidecar's stderr: the user saw a turn end normally while two paid
+   * model loops ran on invisibly.
+   */
+  | {
+      type: "rlm_child";
+      sessionId: string;
+      /** The ChildRegistry id — stable for the life of the worker. */
+      childId: string;
+      /** Human-readable name (`subagent-count-the-files-a1b2`). */
+      name: string;
+      status: "running" | "completed" | "error" | "cancelled";
+      /** What it is doing right now, or why it ended. */
+      detail?: string;
+      durationMs?: number;
+      traceId?: string;
+    }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
   // Heartbeat for in-flight agent inference (mirrors Rust
   // `events::StreamProgressEvent`). Emitted on a ~750 ms cadence so the

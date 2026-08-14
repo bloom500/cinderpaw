@@ -549,6 +549,19 @@ export type FeralAgentEvent =
   // #18: live progress/retry notes from long-running tools (sidecar emits
   // these with a sessionId, not a message id).
   | { type: 'tool_progress'; sessionId: string; tool: string; stage: string; progress: number | null; message: string }
+  // A background worker spawned by the notebook's `rlm()`. Carries a
+  // sessionId and no message id, and unlike every other event here it usually
+  // arrives AFTER the turn that caused it has finished — `rlm()` returns the
+  // instant a child is admitted, so all the child's work happens later.
+  | {
+      type: 'rlm_child';
+      sessionId: string;
+      childId: string;
+      name: string;
+      status: 'running' | 'completed' | 'error' | 'cancelled';
+      detail?: string;
+      durationMs?: number;
+    }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
   | { type: 'model_error'; message: string }

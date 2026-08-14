@@ -865,6 +865,10 @@ export async function boot(transportOverride?: Transport) {
       // gateway restart — upstream persists its kernel namespace for the same
       // reason. Only JSON-round-trippable variables come back; see repl.ts.
       stateDir: join(feralHome(), "notebooks"),
+      // Worker telemetry out to the UI. `sendHolder` rather than the turn's
+      // emitter: by the time a child does anything, the turn that spawned it
+      // has ended — that is what `rlm()` is for.
+      onChildEvent: (e) => sendHolder.current({ type: "rlm_child", ...e }),
       runChild: async (task, allowedTools, sessionId, onEvent, childId, signal) => {
         // A background worker used to leave exactly two traces in the log —
         // the two `tools: N of M` lines its AgentLoop prints on construction —

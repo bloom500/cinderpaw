@@ -129,6 +129,18 @@ export function ensureFeralListener(): Promise<void> {
         // chat store's most recent running bubble — previously dropped.
         if (parsed.message) useChat.getState().noteToolProgress(parsed.message);
         break;
+      case 'rlm_child':
+        // A background worker from the notebook's `rlm()`. Like tool_progress
+        // it carries a sessionId and no message id — but for a stronger
+        // reason: the turn that spawned it has usually ENDED by now, so there
+        // is no in-flight stream to route through. Straight to the store.
+        useChat.getState().upsertWorker({
+          childId: parsed.childId,
+          name: parsed.name,
+          status: parsed.status,
+          detail: parsed.detail,
+        });
+        break;
       case 'spawning':
         if (parsed.id) {
           inflight.get(parsed.id)?.onSpawning?.(parsed.count ?? 1);

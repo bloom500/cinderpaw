@@ -39,7 +39,7 @@ export const OUTBOUND_TYPES = [
   "meta_result", "governance_result", "modules_result", "mcp_result",
   "resume_get_result", "compact_result", "fractal_bench_progress", "fractal_bench_result",
   "code_patches", "code_patch_resolved", "lora_reviews",
-  "lora_review_resolved", "lora_train_result", "fractal_activity",
+  "lora_review_resolved", "lora_train_result", "fractal_activity", "rlm_child",
   "fractal_cluster_leaves_result", "dream_cycle", "provider_added",
   "provider_removed", "provider_validated", "provider_validation_failed",
   "connector_configured", "connector_connected", "connector_disconnected",

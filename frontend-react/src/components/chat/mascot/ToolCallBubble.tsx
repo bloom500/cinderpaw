@@ -17,7 +17,7 @@ export interface ToolCallBubbleProps {
   emoji: string;
   label: string;
   mainArg: string | null;
-  status: 'running' | 'done' | 'error';
+  status: 'running' | 'done' | 'error' | 'cancelled';
   startedAt: number;
   endedAt: number | null;
   resultPreview?: string | null;
@@ -29,6 +29,9 @@ const STATUS_BORDER: Record<ToolCallBubbleProps['status'], string> = {
   running: 'border-l-brand',
   done: 'border-l-text-muted',
   error: 'border-l-red-500',
+  // Amber, not red: the user stopped this on purpose. Painting a deliberate
+  // stop the same as a crash is how people learn to ignore red.
+  cancelled: 'border-l-amber-500',
 };
 
 function useElapsedMs(startedAt: number, endedAt: number | null): number {
@@ -91,6 +94,7 @@ export function ToolCallBubble({
           {status === 'running' && <span>⏱</span>}
           {status === 'done' && <span>✓</span>}
           {status === 'error' && <span>!</span>}
+          {status === 'cancelled' && <span>⏹</span>}
           <span>{formatMs(elapsed)}</span>
         </span>
       </span>

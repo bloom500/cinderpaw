@@ -22,7 +22,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Notebook } from "../../rlm/repl.ts";
-import { ChildRegistry, type RunChild } from "../../rlm/children.ts";
+import { ChildRegistry, type ChildTelemetry, type RunChild } from "../../rlm/children.ts";
 import type { ToolRegistry } from "../../tools/registry.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
@@ -84,6 +84,12 @@ export interface NotebookToolDeps {
     childId: string,
     signal: AbortSignal,
   ) => ReturnType<RunChild>;
+  /**
+   * Live worker telemetry, tagged with the session that spawned it. The host
+   * turns this into an `rlm_child` event; omit it and workers run silently as
+   * before.
+   */
+  onChildEvent?: (e: Parameters<ChildTelemetry>[0] & { sessionId: string }) => void;
   maxDepth?: number;
   /** Where per-session snapshots live. Omit to keep notebooks in memory only. */
   stateDir?: string;
@@ -132,8 +138,13 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
   function childrenFor(sessionId: string): ChildRegistry {
     let reg = registries.get(sessionId);
     if (!reg) {
-      reg = new ChildRegistry((task, allowedTools, onEvent, childId, signal) =>
-        deps.runChild!(task, allowedTools, sessionId, onEvent, childId, signal));
+      reg = new ChildRegistry(
+        (task, allowedTools, onEvent, childId, signal) =>
+          deps.runChild!(task, allowedTools, sessionId, onEvent, childId, signal),
+        // The registry is per session, so the tag is closed over here rather
+        // than threaded through every telemetry call.
+        deps.onChildEvent ? (e) => deps.onChildEvent!({ ...e, sessionId }) : undefined,
+      );
       registries.set(sessionId, reg);
     }
     return reg;
