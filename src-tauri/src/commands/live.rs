@@ -10,6 +10,7 @@
 //! found — which is the point: a round trip through the UI would add latency to
 //! the one path that is supposed to be fast.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use base64::Engine as _;
@@ -247,7 +248,23 @@ async fn pump(
                         // because the sidecar can restart mid-conversation and a
                         // captured sender would then be pointing at a dead pipe.
                         let state = app.state::<AppState>();
+                        let mic_before = MIC_FRAMES.load(Ordering::Relaxed);
+                        let blocked_before = MIC_BLOCKED_MS.load(Ordering::Relaxed);
+                        let started = std::time::Instant::now();
                         let answer = bridge::answer(call, Some(&state.runtime), &session_id).await;
+                        // The measurement this exists for. ~8 frames a second is
+                        // a microphone that never stopped; near zero means the
+                        // audio never reached us and the stall is on our side of
+                        // the wire.
+                        let secs = started.elapsed().as_secs_f32().max(0.001);
+                        let frames = MIC_FRAMES.load(Ordering::Relaxed) - mic_before;
+                        tracing::info!(
+                            "live: tool ran {:.1}s — {} mic frames in ({:.1}/s), {} ms blocked on a full channel",
+                            secs,
+                            frames,
+                            frames as f32 / secs,
+                            MIC_BLOCKED_MS.load(Ordering::Relaxed) - blocked_before,
+                        );
                         // The ANSWER, not just its verdict. `ok=true` says the
                         // round trip completed; it does not say whether the agent
                         // found anything, and those need opposite fixes — one is
@@ -409,8 +426,28 @@ pub(crate) async fn send_live_audio(state: State<'_, AppState>, pcm: String) -> 
         .map_err(|_| "live-bad-audio".to_string())?;
     let sender = state.live_call.lock().clone();
     let Some(sender) = sender else { return Err("live-not-started".into()) };
-    sender.send(LiveCommand::Audio(bytes)).await.map_err(|_| "live-closed".to_string())
+    MIC_FRAMES.fetch_add(1, Ordering::Relaxed);
+    // Timed, because "my voice waits in a queue while a tool runs" has two
+    // opposite causes and they look identical from the outside: either the
+    // frames stop reaching us (the webview or the bridge is stalled), or they
+    // arrive fine and the SERVER is holding the conversation while it waits for
+    // the tool answer. One is ours to fix and the other is not, and guessing
+    // wrong costs an afternoon — this counts frames and how long the handoff
+    // took, so the tool-call log line below can report both.
+    let at = std::time::Instant::now();
+    let r = sender.send(LiveCommand::Audio(bytes)).await.map_err(|_| "live-closed".to_string());
+    let waited = at.elapsed().as_millis() as u64;
+    if waited > 50 {
+        MIC_BLOCKED_MS.fetch_add(waited, Ordering::Relaxed);
+    }
+    r
 }
+
+/// Microphone frames handed to the session since the process started, and how
+/// long `send` spent blocked on a full channel. Both are read as deltas around
+/// a tool call; absolute values mean nothing.
+static MIC_FRAMES: AtomicU64 = AtomicU64::new(0);
+static MIC_BLOCKED_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Hang up. Idempotent — hanging up twice is not an error, and a UI that has to
 /// track whether it already did would get it wrong on the path that matters

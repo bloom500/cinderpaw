@@ -105,7 +105,7 @@ import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { DEFAULT_SYSTEM_PROMPT, RsiSidecar } from "./rsi/sidecar.ts";
 import { PROMPT_STYLE_POOL } from "./rsi/l1-config/prompt-pool.ts";
 import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/l4-modules/seam-runtime.ts";
-import { shouldAutostartPassive } from "./rsi/l1-config/passive-supervisor.ts";
+import { shouldAutostartPassive, isPlaceholderModel } from "./rsi/l1-config/passive-supervisor.ts";
 import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
 import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
@@ -262,6 +262,9 @@ function loadConfig(): AppConfig {
         // 11435). Override with FERAL_PROVIDER/FERAL_BASE_URL to target external
         // Ollama (11434) or any other OpenAI-compatible server.
         provider: env.FERAL_PROVIDER ?? "openai_compatible",
+        // The id is still substituted so every downstream config field has a
+        // shape, but the readiness line below no longer presents it as a model
+        // that exists — see `isPlaceholderModel`.
         model: env.FERAL_MODEL ?? "qwen2.5:7b",
         baseUrl: env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
         // Optional API key for cloud providers (OpenAI-compatible
@@ -2029,8 +2032,18 @@ export async function boot(transportOverride?: Transport) {
         persona: soul.persona,
       }));
     }
+    // Say which of the two states this is. A fresh install has no model, and
+    // announcing "ready, model=qwen2.5:7b" for one is how a first run becomes a
+    // dead end: the app looks up, names a model, and refuses the first message
+    // with "no model loaded". The user is not told what to do because nothing
+    // ever admitted there was a problem.
+    const noModel = isPlaceholderModel(process.env.FERAL_MODEL);
     log(
-      `ready — transport=${config.transport} model=${config.inference.primary.model} ` +
+      `ready — transport=${config.transport} ` +
+        (noModel
+          ? "NO MODEL CONFIGURED — chat will fail until one is chosen " +
+            "(Models page, or set a cloud key in Settings) "
+          : `model=${config.inference.primary.model} `) +
         `workspace=${config.workspaceRoots.join(", ")}`,
     );
     // X1 fix: inner-thoughts is opt-in via FERAL_PROACTIVE_ENABLED.
