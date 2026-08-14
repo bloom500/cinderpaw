@@ -175,9 +175,17 @@ export function CallOrb3D({
   phase,
   level,
   working = false,
+  onActive,
 }: {
   phase: CallPhase;
   level: number;
+  /**
+   * Called with true once WebGL is up, false if it never comes. The CSS orb
+   * underneath is a fallback and has to be TOLD to get out of the way — drawn
+   * on top of it without this, both spheres are visible at once and the older
+   * one shows through the new one's edges.
+   */
+  onActive?: (ok: boolean) => void;
   /**
    * A tool is running right now. Its own signal rather than a sixth phase,
    * because it is orthogonal: Feral can be answering out loud WHILE a search
@@ -201,6 +209,7 @@ export function CallOrb3D({
     } catch {
       // No WebGL (software rendering disabled, driver blocklisted). The caller
       // keeps its CSS orb visible underneath, so the call still has a subject.
+      onActive?.(false);
       return;
     }
 
@@ -363,8 +372,10 @@ export function CallOrb3D({
       renderer.render(scene, camera);
     };
     raf = requestAnimationFrame(frame);
+    onActive?.(true);
 
     return () => {
+      onActive?.(false);
       cancelAnimationFrame(raf);
       geometry.dispose();
       material.dispose();

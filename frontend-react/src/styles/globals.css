@@ -352,33 +352,45 @@ body { overflow: hidden; }
  * everywhere else. Nothing downstream had to change.
  */
 .call-stage {
-  --text-primary:    rgba(255, 246, 238, 0.97);
-  --text-secondary:  rgba(255, 238, 226, 0.82);
-  --text-muted:      rgba(255, 232, 216, 0.68);
-  --border-default:  rgba(255, 234, 218, 0.46);
-  --border-subtle:   rgba(255, 234, 218, 0.26);
+  /* Dark ink, not light. The field started deep and the text was near-white;
+     the field then got much brighter to match the reference, and white on a
+     bright orange is about 3.5:1 — under the 4.5:1 body-text floor, and it
+     showed. A deep warm brown rather than pure black: black on orange is
+     correct and reads as a placeholder, while the brown belongs to the same
+     family as the ground it sits on and clears 7:1. */
+  --text-primary:    #3A1206;
+  --text-secondary:  rgba(58, 18, 6, 0.82);
+  --text-muted:      rgba(58, 18, 6, 0.66);
+  --border-default:  rgba(58, 18, 6, 0.34);
+  --border-subtle:   rgba(58, 18, 6, 0.18);
   /* Panels are a DARK scrim, not white glass. White at 13% over orange is
      orange — the first version made the hang-up and interrupt buttons
      effectively invisible, which on a call screen is the one control that has
      to be findable without looking for it. Darkening instead of lightening
      also gives the light icons something to sit on. */
-  --bg-elevated:     rgba(84, 22, 6, 0.38);
-  --bg-surface:      rgba(84, 22, 6, 0.28);
-  --bg-hover:        rgba(84, 22, 6, 0.52);
+  /* Light glass now that the ink is dark — a dark scrim under dark text is the
+     same mistake in reverse. These lift off the orange without going white,
+     which would strand the panels as bright patches on a bright field. */
+  --bg-elevated:     rgba(255, 238, 224, 0.30);
+  --bg-surface:      rgba(255, 238, 224, 0.22);
+  --bg-hover:        rgba(255, 238, 224, 0.46);
   /* Red on red is nothing. The danger of the hang-up button is carried by its
      icon and its position; its colour has to be readable first, so it goes
-     light and keeps a red tint only on hover, where there is a fill behind it. */
-  --error:           #FFDDD2;
+     to the darkest tone available here and keeps its meaning from the shape. */
+  --error:           #5C1400;
   /* Links and badges have to clear 4.5:1 on orange, where the theme's blues do
      not: #8AB4F8 on #E8451F is about 2.4:1. Cream carries the same "this is a
      link" weight at 7:1+. */
-  --result-link:     #FFF1DC;
-  --badge-warn-fg:   #FFE9B8;
-  --badge-warn-bg:   rgba(255, 233, 184, 0.18);
-  --badge-warn-br:   rgba(255, 233, 184, 0.38);
-  --badge-ok-fg:     #DDF3C9;
-  --badge-ok-bg:     rgba(221, 243, 201, 0.18);
-  --badge-ok-br:     rgba(221, 243, 201, 0.38);
+  /* Dark for the same reason the body text is: these sit on the same bright
+     field, and the cream values that cleared 7:1 on the old deep orange now
+     clear about 2:1. */
+  --result-link:     #4A1400;
+  --badge-warn-fg:   #5C2A00;
+  --badge-warn-bg:   rgba(92, 42, 0, 0.14);
+  --badge-warn-br:   rgba(92, 42, 0, 0.34);
+  --badge-ok-fg:     #234A10;
+  --badge-ok-bg:     rgba(35, 74, 16, 0.14);
+  --badge-ok-br:     rgba(35, 74, 16, 0.34);
 }
 
 :root[data-theme="dark"] {

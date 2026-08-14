@@ -241,11 +241,7 @@ export function CallOverlay({
       <div
         className="call-stage relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6"
         style={{
-          // The field itself, not a glow on top of black. Layered ellipses
-          // rather than a linear gradient, because the reference's orange is
-          // lit silk — light pooling and falling off in soft patches — and a
-          // linear ramp always reads as a banner. Deepest at the lower left so
-          // the sphere sits against the dark half and the light comes past it.
+          background: [
             // Silk, not a wash. The reference's orange is bright and high-chroma
             // with a broad diagonal sheen running across it — that band of light
             // is what makes it read as fabric rather than as a painted wall. A
@@ -506,6 +502,13 @@ const ORB_TEMPO: Record<CallPhase, { a: string; b: string; c: string; breathe: s
  */
 function Orb({ phase, level, working }: { phase: CallPhase; level: number; working: boolean }) {
   const tempo = ORB_TEMPO[phase];
+  /**
+   * The CSS sphere is a FALLBACK, and it was being drawn under the WebGL one
+   * rather than instead of it — two spheres at once, the older banded one
+   * showing through the new one's edges. It hides as soon as WebGL reports it
+   * is running, and comes back if WebGL never starts or goes away.
+   */
+  const [gl, setGl] = useState(false);
   // The mic only scales the sphere while listening; elsewhere the breathing
   // keyframe owns the scale and the two would fight over the same property.
   const listening = phase === 'listening';
@@ -580,12 +583,13 @@ function Orb({ phase, level, working }: { phase: CallPhase; level: number; worki
           phase={phase}
           level={level}
           working={working}
+          onActive={setGl}
         />
       </Suspense>
 
       <div
         className="relative h-44 w-44 transition-transform duration-150"
-        style={{ transform: `scale(${micScale})` }}
+        style={{ transform: `scale(${micScale})`, opacity: gl ? 0 : 1 }}
       >
         <div
           className="orb-motion absolute inset-0 overflow-hidden rounded-full"
