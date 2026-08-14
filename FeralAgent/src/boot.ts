@@ -2025,7 +2025,8 @@ export async function boot(transportOverride?: Transport) {
       console.log(JSON.stringify({
         type: "hello",
         protocol: SIDECAR_PROTOCOL,
-        persona: soul.content,
+        // `persona`, not `content`: WHO without the working manual. See SoulDoc.
+        persona: soul.persona,
       }));
     }
     log(

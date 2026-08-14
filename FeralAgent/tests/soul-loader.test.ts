@@ -68,6 +68,30 @@ describe("loadSoul", () => {
     expect(soul.content).toContain("Working Habits");
   });
 
+  it("persona is WHO without the working manual", () => {
+    // A voice call is briefed with this once and has exactly one tool, so
+    // AGENTS.md — the text agent's operating manual — is four kilobytes about
+    // a job the caller is not doing, crowding out the part that decides how it
+    // sounds. The call sounded like an appliance until this split existed.
+    const soul = loadSoul(home);
+    expect(soul.persona).toContain("Feral — Soul");
+    expect(soul.persona).toContain("Feral — Identity");
+    expect(soul.persona).not.toContain("Working Habits");
+    // The text agent still gets everything; only the voice brief is narrowed.
+    expect(soul.content).toContain("Working Habits");
+    expect(soul.content.length).toBeGreaterThan(soul.persona.length);
+  });
+
+  it("persona honours a user override too", () => {
+    const feralDir = join(home, ".feral");
+    mkdirSync(feralDir, { recursive: true });
+    writeFileSync(join(feralDir, "SOUL.md"), "# My Own Cub");
+
+    const soul = loadSoul(home);
+    expect(soul.persona).toContain("# My Own Cub");
+    expect(soul.persona).not.toContain("Working Habits");
+  });
+
   it("prefers per-file user overrides for companions", () => {
     const feralDir = join(home, ".feral");
     mkdirSync(feralDir, { recursive: true });
