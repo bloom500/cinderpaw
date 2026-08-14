@@ -355,13 +355,20 @@ body { overflow: hidden; }
   --text-primary:    rgba(255, 246, 238, 0.97);
   --text-secondary:  rgba(255, 238, 226, 0.82);
   --text-muted:      rgba(255, 232, 216, 0.68);
-  --border-default:  rgba(255, 226, 205, 0.22);
-  --border-subtle:   rgba(255, 226, 205, 0.14);
-  /* Frosted panels, as in the reference: the surface is the background seen
-     through glass, so it is white at low alpha rather than a solid colour. */
-  --bg-elevated:     rgba(255, 236, 222, 0.13);
-  --bg-surface:      rgba(255, 236, 222, 0.10);
-  --bg-hover:        rgba(255, 236, 222, 0.20);
+  --border-default:  rgba(255, 234, 218, 0.46);
+  --border-subtle:   rgba(255, 234, 218, 0.26);
+  /* Panels are a DARK scrim, not white glass. White at 13% over orange is
+     orange — the first version made the hang-up and interrupt buttons
+     effectively invisible, which on a call screen is the one control that has
+     to be findable without looking for it. Darkening instead of lightening
+     also gives the light icons something to sit on. */
+  --bg-elevated:     rgba(84, 22, 6, 0.38);
+  --bg-surface:      rgba(84, 22, 6, 0.28);
+  --bg-hover:        rgba(84, 22, 6, 0.52);
+  /* Red on red is nothing. The danger of the hang-up button is carried by its
+     icon and its position; its colour has to be readable first, so it goes
+     light and keeps a red tint only on hover, where there is a fill behind it. */
+  --error:           #FFDDD2;
   /* Links and badges have to clear 4.5:1 on orange, where the theme's blues do
      not: #8AB4F8 on #E8451F is about 2.4:1. Cream carries the same "this is a
      link" weight at 7:1+. */

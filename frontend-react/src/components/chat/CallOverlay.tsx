@@ -235,11 +235,16 @@ export function CallOverlay({
           // lit silk — light pooling and falling off in soft patches — and a
           // linear ramp always reads as a banner. Deepest at the lower left so
           // the sphere sits against the dark half and the light comes past it.
+          // Softer than the first pass, which was right for a 300px card in the
+          // reference and far too loud filling a 27-inch screen — the same
+          // saturation reads as energetic at postcard size and as a warning
+          // light at full bleed. Dustier terracotta, and the pools are closer
+          // together in value so the field settles instead of shouting.
           background: [
-            'radial-gradient(ellipse 90% 70% at 78% 6%, #FF8A3C 0%, transparent 58%)',
-            'radial-gradient(ellipse 70% 60% at 8% 88%, #FF6B35 0%, transparent 55%)',
-            'radial-gradient(ellipse 120% 90% at 30% 40%, #D93A15 0%, transparent 70%)',
-            'linear-gradient(150deg, #E8451F 0%, #C42D0E 55%, #E05320 100%)',
+            'radial-gradient(ellipse 95% 75% at 76% 4%, #E8834F 0%, transparent 62%)',
+            'radial-gradient(ellipse 75% 62% at 6% 92%, #D96A45 0%, transparent 58%)',
+            'radial-gradient(ellipse 130% 95% at 32% 44%, #B4482A 0%, transparent 72%)',
+            'linear-gradient(150deg, #C4522F 0%, #A63C22 58%, #BE5A34 100%)',
           ].join(', '),
         }}
       >
@@ -601,16 +606,16 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
               surface. Two sets at crossed angles, because a single direction
               reads as corduroy and two reads as wrung cloth. */}
           {band(
-            `repeating-linear-gradient(102deg,
-               rgba(255,255,255,0.62) 0px, rgba(255,255,255,0.62) 2px,
-               rgba(255,255,255,0.06) 5px, rgba(28,16,54,0.42) 9px,
-               rgba(28,16,54,0.10) 13px, rgba(255,255,255,0.62) 16px)`,
+            `repeating-radial-gradient(ellipse 150% 105% at -14% 46%,
+               rgba(255,255,255,0.60) 0px, rgba(255,255,255,0.04) 7px,
+               rgba(26,14,52,0.46) 13px, rgba(26,14,52,0.06) 18px,
+               rgba(255,255,255,0.60) 22px)`,
             '150%', '1.5px', tempo.c, true, 'overlay',
           )}
           {band(
-            `repeating-linear-gradient(28deg,
-               rgba(255,255,255,0.34) 0px, rgba(255,255,255,0.02) 4px,
-               rgba(30,18,58,0.30) 8px, rgba(255,255,255,0.34) 13px)`,
+            `repeating-radial-gradient(ellipse 130% 120% at 118% 62%,
+               rgba(255,255,255,0.34) 0px, rgba(255,255,255,0.02) 9px,
+               rgba(30,18,58,0.32) 16px, rgba(255,255,255,0.34) 26px)`,
             '140%', '2px', tempo.a, false, 'soft-light',
           )}
           {/* The wobble. Two conics alone turn like clockwork; a third layer on a
