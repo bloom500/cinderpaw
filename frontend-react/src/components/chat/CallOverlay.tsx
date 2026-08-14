@@ -228,10 +228,29 @@ export function CallOverlay({
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-10 h-8" />
 
       <div className="relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6">
-        {/* A hint of warmth behind the orb, not a spotlight. The first version put
-            a 22%-brand disc 640px wide behind everything and it read as cheap
-            neon; light should suggest the object is glowing, not that the screen
-            is. */}
+        {/* The room the sphere is standing in.
+            Two large, very soft warm sources from opposite corners rather than
+            one disc behind the orb — a single centred glow lights the ball and
+            leaves the rest of the screen flat black, which is what made this
+            read as a logo on a background instead of an object somewhere.
+            Corner light gives the screen a direction, and the glass has
+            something to pick up: the bands inside the sphere are warm BECAUSE
+            the room is, which is the only reason a rainbow works over orange.
+            Kept under 10% so the text on top keeps its contrast — this is the
+            one place where turning it up would look better in a screenshot and
+            worse to use. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 transition-opacity duration-700"
+          style={{
+            background: [
+              'radial-gradient(ellipse 70% 55% at 82% 8%, color-mix(in srgb, var(--brand-hover) 16%, transparent) 0%, transparent 62%)',
+              'radial-gradient(ellipse 60% 50% at 12% 96%, color-mix(in srgb, #E8615A 11%, transparent) 0%, transparent 58%)',
+            ].join(', '),
+            opacity: phase === 'ready' ? 0.55 : 1,
+          }}
+        />
+        {/* The close glow that seats the sphere in that room. */}
         <div
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-700"
@@ -457,21 +476,39 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
   const listening = phase === 'listening';
   const micScale = listening ? 1 + level * 0.14 : 1;
 
-  const blob = (color: string, size: string, offset: string, duration: string, reverse?: boolean) => (
+  /**
+   * One band of the iridescence. Two of these, turning opposite ways at
+   * different speeds, are the whole liquid-glass effect: where the bands cross
+   * they shear, and shearing bands read as a fluid rather than as two wheels.
+   *
+   * The spectrum is warm-biased on purpose. The reference sphere is iridescent
+   * against a lavender room and comes out cool; ours sits in an orange one, and
+   * glass shows you the light around it. A full rainbow here would read as a
+   * sticker on the screen rather than as an object in the scene — and against
+   * the warm field behind it, the cool half turns to mud. Violet and cyan stay,
+   * but only as the narrow edge of the spread, which is where a real oil-slick
+   * puts them too.
+   */
+  const band = (
+    spectrum: string,
+    size: string,
+    blur: string,
+    duration: string,
+    reverse?: boolean,
+    blend?: string,
+  ) => (
     <div
       aria-hidden
-      className="absolute rounded-full"
+      className="orb-motion absolute rounded-full"
       style={{
         width: size,
         height: size,
         left: `calc(50% - ${size} / 2)`,
         top: `calc(50% - ${size} / 2)`,
-        background: color,
-        filter: 'blur(26px)',
-        // The offset is the orbit radius; the keyframe reads it as a custom prop
-        // so one pair of keyframes serves every blob.
-        ['--orb-offset' as string]: offset,
-        animation: `${reverse ? 'orb-orbit-reverse' : 'orb-orbit'} ${duration} linear infinite`,
+        background: spectrum,
+        filter: `blur(${blur})`,
+        ...(blend ? { mixBlendMode: blend as 'overlay' } : {}),
+        animation: `${reverse ? 'orb-swirl-reverse' : 'orb-swirl'} ${duration} linear infinite`,
       }}
     />
   );
@@ -497,9 +534,9 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
         style={{ transform: `scale(${micScale})` }}
       >
         <div
-          className="absolute inset-0 overflow-hidden rounded-full"
+          className="orb-motion absolute inset-0 overflow-hidden rounded-full"
           style={{
-            // Base tone under the blobs, so the sphere never shows a gap between
+            // Base tone under the bands, so the sphere never shows a gap between
             // them, plus the glow that makes it sit in the dark rather than on it.
             background: 'radial-gradient(circle at 50% 55%, var(--brand-muted) 0%, #1a1206 100%)',
             // A close, soft shadow that seats the sphere on the background —
@@ -510,19 +547,69 @@ function Orb({ phase, level }: { phase: CallPhase; level: number }) {
             animation: `orb-breathe ${tempo.breathe} ease-in-out infinite`,
           }}
         >
-          {blob('var(--brand-hover)', '70%', '14%', tempo.a)}
-          {blob('var(--brand)', '85%', '10%', tempo.b, true)}
-          {blob('color-mix(in srgb, var(--brand-hover) 60%, #ffd9a0)', '55%', '18%', tempo.c)}
+          {/* Oversized so no corner of the square ever swings into view inside
+              the circular clip while it turns. */}
+          {band(
+            `conic-gradient(from 0deg,
+               #F2A65A 0deg, #E8615A 60deg, #C2569B 115deg,
+               #7B6BD6 160deg, #4FB3C9 195deg, #E0A24E 260deg, #F2A65A 360deg)`,
+            '150%', '22px', tempo.a,
+          )}
+          {band(
+            `conic-gradient(from 140deg,
+               #FFD9A0 0deg, #E8894A 80deg, #B85BA8 150deg,
+               #5E7BD6 210deg, #F0B267 300deg, #FFD9A0 360deg)`,
+            '135%', '26px', tempo.b, true, 'overlay',
+          )}
+          {/* The wobble. Two conics alone turn like clockwork; a third layer on a
+              non-round scale keeps the fluid from ever being quite a circle. */}
+          <div
+            aria-hidden
+            className="orb-motion absolute inset-[-25%] rounded-full"
+            style={{
+              background:
+                'radial-gradient(circle at 38% 40%, color-mix(in srgb, var(--brand-hover) 70%, #ffd9a0) 0%, transparent 58%)',
+              filter: 'blur(24px)',
+              animation: `orb-wobble ${tempo.c} ease-in-out infinite`,
+            }}
+          />
         </div>
 
-        {/* Highlight on top of the clip, so the disc reads as a sphere lit from
-            above rather than as a flat circle of moving colour. */}
+        {/* Glass, in three parts, all on top of the clip.
+            1. The rim: a bright hairline where the sphere's edge bends the light
+               back at you, and a dark inner floor so the bottom recedes. Without
+               these the bands read as a flat disc of colour.
+            2. The travelling glint: a real specular moves as a sphere turns, and
+               a fixed one is the clearest tell that this is a circle with a
+               gradient on it.
+            3. The broad sheen, which is what makes it look wet rather than lit. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            boxShadow: [
+              'inset 0 1px 1px rgba(255,255,255,0.55)',
+              'inset 0 0 0 1px rgba(255,255,255,0.16)',
+              'inset 0 -22px 34px rgba(24,12,2,0.42)',
+              'inset 0 18px 30px rgba(255,214,160,0.14)',
+            ].join(', '),
+          }}
+        />
+        <div
+          aria-hidden
+          className="orb-motion pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background:
+              'radial-gradient(circle at 32% 22%, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.18) 12%, transparent 34%)',
+            animation: `orb-glint ${tempo.b} ease-in-out infinite`,
+          }}
+        />
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 rounded-full"
           style={{
             background:
-              'radial-gradient(circle at 32% 22%, rgba(255,255,255,0.38) 0%, transparent 46%)',
+              'radial-gradient(ellipse 60% 38% at 42% 16%, rgba(255,255,255,0.30) 0%, transparent 70%)',
           }}
         />
       </div>

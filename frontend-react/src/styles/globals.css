@@ -41,6 +41,50 @@
   50%      { transform: scale(1.035); }
 }
 
+/* ── Liquid glass ──────────────────────────────────────────────────────────
+ *
+ * What makes a sphere read as GLASS rather than as a coloured ball is that the
+ * colour appears to be *inside* it and to move independently of the surface.
+ * Two conic gradients turning at different speeds in opposite directions do
+ * that with no texture and no library: where the bands cross they shear, and
+ * the eye reads shearing bands as a fluid rather than as two spinning wheels.
+ *
+ * `rotate` and `scale` only — both composited, so this costs no layout and no
+ * paint per frame. The blur is applied once as a static filter on the layer,
+ * never animated, because animating a filter re-rasterises every frame and is
+ * what turns an orb like this into a fan-spinner.
+ */
+@keyframes orb-swirl {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes orb-swirl-reverse {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+/* The wobble that stops the two conics from reading as clockwork. Slightly
+   non-round scaling, so the "fluid" inside is never quite a circle. */
+@keyframes orb-wobble {
+  0%, 100% { transform: scale(1.06, 1) rotate(0deg); }
+  33%      { transform: scale(1, 1.08) rotate(4deg); }
+  66%      { transform: scale(1.05, 1.02) rotate(-3deg); }
+}
+/* The travelling glint. A real specular highlight moves across a sphere as it
+   turns; a fixed one is the single clearest tell that the ball is a flat disc
+   with a gradient on it. */
+@keyframes orb-glint {
+  0%, 100% { transform: translate(-6%, -4%) scale(1); opacity: 0.9; }
+  50%      { transform: translate(8%, 6%) scale(1.15); opacity: 0.55; }
+}
+
+/* Motion is decoration here — the call's state is also carried by the status
+   line and the buttons, so removing it costs nothing and keeping it can cost a
+   user their focus or their stomach. The sphere stays lit and present, just
+   still. */
+@media (prefers-reduced-motion: reduce) {
+  .orb-motion { animation: none !important; }
+}
+
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none;
