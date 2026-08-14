@@ -39,7 +39,17 @@ const KEY_PROVIDER: &str = "google";
 /// rustls reporting a TLS stream that ended without `close_notify`. So the whole
 /// failure reads as a network fault and points nowhere near the typo. The two
 /// real ids are `gemini-3.1-flash-live-preview` and this one.
-const DEFAULT_MODEL: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
+///
+/// `-latest` rather than the `-preview-12-2025` snapshot, changed while chasing
+/// a call that dies seconds in with "the audio content type is not supported".
+/// A pinned preview id is a snapshot the vendor can change or retire under you,
+/// which fits a call that worked one day and not the next; `-latest` at least
+/// fails the same way for everyone. Both are live-capable on this key —
+/// `probe_what_the_live_api_accepts` lists them and both accept the full setup.
+///
+/// This is a suspect being eliminated, not a diagnosis. If the call still dies,
+/// the model id was innocent.
+const DEFAULT_MODEL: &str = "gemini-2.5-flash-native-audio-latest";
 
 /// One call at a time — you cannot be in two conversations at once, and a map
 /// keyed by session would imply otherwise.

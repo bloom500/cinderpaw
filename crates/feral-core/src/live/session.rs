@@ -166,10 +166,15 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
     let (event_tx, events) = mpsc::channel::<LiveEvent>(64);
     let (commands, mut command_rx) = mpsc::channel::<LiveCommand>(64);
 
+    // Shared so the close frame can be logged next to what preceded it — the
+    // two halves of the answer live in different tasks.
+    let journal = std::sync::Arc::new(parking_lot::Mutex::new(Journal::default()));
+
     // Inbound: socket → events.
     {
         let key = key.clone();
         let event_tx = event_tx.clone();
+        let journal = journal.clone();
         tokio::spawn(async move {
             let reason = loop {
                 match read.next().await {
@@ -186,6 +191,7 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                     }
                     Some(Ok(frame)) => {
                         let Some(msg) = parse(&frame) else { continue };
+                        journal.lock().note(false, inbound_kind(&msg), frame.len());
                         // A send failure means the caller stopped listening —
                         // the call is over, and pumping into a closed channel
                         // would spin.
@@ -195,6 +201,10 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                     }
                 }
             };
+            // The whole point of the journal: printed WITH the reason, so the
+            // two are read together instead of the reason being read alone and
+            // taken at face value.
+            tracing::warn!("live: closed — {reason}\n  {}", journal.lock().render());
             let _ = event_tx.send(LiveEvent::Closed(reason)).await;
         });
     }
@@ -213,7 +223,14 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                     ClientMessage::ToolResponse(ToolResponse { function_responses: responses })
                 }
             };
+            let kind = match &msg {
+                ClientMessage::RealtimeInput(r) if r.audio_stream_end.is_some() => "audioStreamEnd",
+                ClientMessage::RealtimeInput(_) => "audio",
+                ClientMessage::ToolResponse(_) => "toolResponse",
+                ClientMessage::Setup(_) => "setup",
+            };
             let Ok(json) = serde_json::to_string(&msg) else { continue };
+            journal.lock().note(true, kind, json.len());
             if write.send(Message::Text(json.into())).await.is_err() {
                 break;
             }
@@ -225,6 +242,101 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
 }
 
 /// Server frames are JSON, as text or binary depending on the hop. Anything that
+/// What crossed the wire just before the call ended.
+///
+/// A close frame on its own says WHY the server hung up but never WHAT it was
+/// answering, and two afternoons went into guessing that from the message text.
+/// This keeps the immediate history so the reason can be read in context: a
+/// death right after a `toolResponse` and a death in the middle of an audio run
+/// are different bugs that produce the identical sentence.
+///
+/// Consecutive same-kind frames are COUNTED, not listed. Audio arrives tens of
+/// times a second, so a plain ring buffer holds about two seconds and can never
+/// contain the tool call that preceded a death by a minute — which is exactly
+/// the case worth seeing. Runs collapse to one line, so sixty entries cover a
+/// whole call.
+///
+/// Sizes only, never payloads: this goes to a log file, and the audio is the
+/// user's voice.
+#[derive(Default)]
+pub(crate) struct Journal {
+    entries: std::collections::VecDeque<JournalEntry>,
+}
+
+struct JournalEntry {
+    at: Option<std::time::Instant>,
+    outbound: bool,
+    kind: &'static str,
+    count: u32,
+    bytes: usize,
+}
+
+/// Enough to cover a call once runs are collapsed; small enough to log whole.
+const JOURNAL_MAX: usize = 60;
+
+impl Journal {
+    fn note(&mut self, outbound: bool, kind: &'static str, bytes: usize) {
+        if let Some(last) = self.entries.back_mut() {
+            if last.outbound == outbound && last.kind == kind {
+                last.count += 1;
+                last.bytes += bytes;
+                return;
+            }
+        }
+        self.entries.push_back(JournalEntry {
+            at: Some(std::time::Instant::now()),
+            outbound,
+            kind,
+            count: 1,
+            bytes,
+        });
+        if self.entries.len() > JOURNAL_MAX {
+            self.entries.pop_front();
+        }
+    }
+
+    /// One line per run, oldest first, with seconds since the run began.
+    fn render(&self) -> String {
+        let now = std::time::Instant::now();
+        self.entries
+            .iter()
+            .map(|e| {
+                let ago = e.at.map(|t| now.saturating_duration_since(t).as_secs_f32()).unwrap_or(0.0);
+                let arrow = if e.outbound { "→" } else { "←" };
+                if e.count > 1 {
+                    format!("-{ago:.1}s {arrow} {}×{} {}B", e.kind, e.count, e.bytes)
+                } else {
+                    format!("-{ago:.1}s {arrow} {} {}B", e.kind, e.bytes)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    }
+}
+
+/// The shape of a server message, for the journal. Cheap: reads flags that are
+/// already parsed, never the payload.
+fn inbound_kind(msg: &ServerMessage) -> &'static str {
+    if msg.setup_complete.is_some() {
+        return "setupComplete";
+    }
+    if msg.tool_call.is_some() {
+        return "toolCall";
+    }
+    if msg.tool_call_cancellation.is_some() {
+        return "toolCallCancellation";
+    }
+    match &msg.server_content {
+        Some(c) if c.interrupted => "interrupted",
+        Some(c) if c.turn_complete => "turnComplete",
+        Some(c) if !c.audio().is_empty() => "audio",
+        Some(c) if c.output_transcription.is_some() => "outTranscript",
+        Some(c) if c.input_transcription.is_some() => "inTranscript",
+        Some(_) => "serverContent",
+        None => "other",
+    }
+}
+
 /// is neither — ping, pong, close — is not a message for us.
 fn parse(frame: &Message) -> Option<ServerMessage> {
     let bytes = match frame {

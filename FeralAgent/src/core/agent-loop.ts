@@ -1487,7 +1487,19 @@ export class AgentLoop {
       const hold = createStreamHoldback((content) =>
         ctx.emit({ type: "chunk", id: messageId, content, traceId }),
       );
+      // Where the time actually goes, because "it feels slow" has no answer and
+      // is the third time this year the same question has been re-derived by
+      // hand. Three numbers separate the three causes that look identical from
+      // the outside: a long WAIT then a fast stream is the provider queueing,
+      // a short wait then a slow stream is us (or the route), and a long wait
+      // with thinking output is the model reasoning. Guessing between them from
+      // a stopwatch is how an afternoon disappears.
+      const sentAt = Date.now();
+      let firstTokenAt = 0;
+      let streamedTokens = 0;
       const onToken = (token: string) => {
+        if (firstTokenAt === 0) firstTokenAt = Date.now();
+        streamedTokens++;
         streamedSoFar += token;
         hold.push(token);
       };
@@ -1505,6 +1517,30 @@ export class AgentLoop {
       // consumption (the latest call's prompt = full context fed to the model,
       // plus this turn's completion) instead of a rough message estimate.
       ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
+      {
+        const now = Date.now();
+        // A non-streaming provider never calls onToken, so the wait IS the whole
+        // turn — say "n/a" rather than printing 0 and implying it was instant.
+        const ttft = firstTokenAt > 0 ? `${((firstTokenAt - sentAt) / 1000).toFixed(1)}s` : "n/a";
+        const total = (now - sentAt) / 1000;
+        const rate = firstTokenAt > 0 && now > firstTokenAt
+          ? (streamedTokens / ((now - firstTokenAt) / 1000)).toFixed(1)
+          : "0";
+        // Thinking is measured because it is the cheapest way to rule the model
+        // OUT: `think=0` on a slow turn means nothing was reasoned, so the time
+        // was spent somewhere that is not the model's head.
+        const think = completion.length - stripThinking(completion).length;
+        // Not every provider returns usage. Printing "undefined prompt" in an
+        // instrument built to answer "where does the time go" just adds a
+        // second question — say the counts are missing, or leave them out.
+        const usage = promptTokens || completionTokens
+          ? `, ${promptTokens ?? "?"} prompt + ${completionTokens ?? "?"} completion`
+          : "";
+        log(
+          `turn: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
+            `${rate} tok/s streaming${usage}, think=${think}`,
+        );
+      }
       // The live registry is the allowlist for the vendored repair pass: a
       // shape we do not natively parse may only become a call if it names a
       // tool that actually exists. Read fresh each turn — load_tool can add

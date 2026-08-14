@@ -270,6 +270,15 @@ unset, the exporter refuses to start and nothing leaves the machine.
 | `FERAL_PUBLIC_JOURNAL_LIMIT` | int | `200` | Max events per run. A backlog drains over successive runs. |
 | `FERAL_PUBLIC_JOURNAL_VERSION` | string | unset | Version string reported in the heartbeat. Dropped unless it matches `[0-9A-Za-z.\-+]{1,24}`. |
 
+## 3c. Voice calls (Rust host)
+
+Read by the Rust host, not the TS sidecar, so they are not in the schema table
+above.
+
+| Var | Type | Default | Notes |
+| --- | ---- | ------- | ----- |
+| `FERAL_LIVE_COMPRESS_HISTORY` | bool | `false` | Sends `contextWindowCompression` (sliding window) in the Gemini Live setup. **Off because it appears to CAUSE the failure it was added to prevent.** The documented remedy for the ten-minute session wall, it was turned on after a call died at eleven minutes with "The audio content type (CONTENT_TYPE_AUDIO) is not supported for this model configuration". With it on, calls then died 6–40 seconds in with the *same message* — thirty times sooner than the wall it was meant to clear. The reading that fits is that the message is literal: audio history cannot be compressed, and "this model configuration" is the sliding window we asked for. Set it only to re-measure the ten-minute wall, and measure a long call rather than trusting that the server accepted the field — it does, and ignores it. |
+
 ## 4. Footnotes
 
 - *"Positive integer only"* means the perf-policy reader parses a
@@ -323,6 +332,7 @@ FERAL_ENABLE_DESKTOP_CONTROL
 FERAL_ENABLE_NOTEBOOK
 FERAL_ENABLE_SHELL_EXEC
 FERAL_EXTERNAL_WRITE_BUDGET
+FERAL_LIVE_COMPRESS_HISTORY
 FERAL_FALLBACK_API_KEY
 FERAL_FALLBACK_BASE_URL
 FERAL_FALLBACK_MODEL
