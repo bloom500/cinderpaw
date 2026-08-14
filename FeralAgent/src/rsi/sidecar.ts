@@ -254,13 +254,13 @@ export class RsiSidecar {
     );
   }
 
-  /** The live planner seam (§1.2) — builtin is today's `[Part k/N]` split. */
+  /** The live planner seam (§1.2) — builtin is "no decomposition". */
   private livePlannerSeam() {
     return liveSeamAdapter(
       "planner",
       async (_method, params) => {
-        const p = params as { goal: string; maxDepth: number };
-        return { steps: builtinPlanSteps(p.goal, Math.max(1, p.maxDepth)) };
+        const p = params as { goal: string };
+        return { steps: builtinPlanSteps(p.goal) };
       },
       this.deps.log,
     );

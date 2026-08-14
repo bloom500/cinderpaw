@@ -42,6 +42,22 @@ pub const AUDIO_IN_MIME: &str = "audio/pcm;rate=16000";
 /// these bytes to the player untouched.
 pub const AUDIO_OUT_HZ: u32 = 24_000;
 
+/// The prebuilt voices a native-audio session can be pinned to.
+///
+/// Listed here rather than fetched because there is no endpoint that returns
+/// them — they are named in the reference and nowhere else, which makes this the
+/// one honest place for a hardcoded list.
+pub const VOICES: &[&str] =
+    &["Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede"];
+
+/// The voice a call uses unless told otherwise.
+///
+/// Pinning one at all is the point. Left unset, the server picks per session,
+/// so the same assistant answers in a different voice tomorrow — the exact
+/// inconsistency that reads as unfinished software, and the one already paid for
+/// on the pipeline side (see `voices.rs::preferredVoice`).
+pub const DEFAULT_VOICE: &str = "Kore";
+
 /// A tool the model may call, in Gemini's shape.
 ///
 /// `parameters` is a JSON Schema object and is passed through as-is: every tool
@@ -76,7 +92,29 @@ pub enum ClientMessage {
     /// input can be sent without interrupting generation, and end-of-turn is
     /// derived from speech rather than announced.
     RealtimeInput(RealtimeInput),
+    /// A typed turn, for what dictation mangles — a URL, a name, an error
+    /// string. Deliberately NOT `realtimeInput`: that channel is a stream the
+    /// server segments itself, while this is a complete turn that ends where it
+    /// says it ends, which is why it carries `turnComplete`.
+    ClientContent(ClientContent),
     ToolResponse(ToolResponse),
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientContent {
+    pub turns: Vec<Content>,
+    /// The turn is finished — answer it. Without this the server waits for more
+    /// of a sentence that is never coming, and the call goes quiet.
+    pub turn_complete: bool,
+}
+
+/// One typed line, as a finished user turn.
+pub fn text_turn(text: &str) -> ClientMessage {
+    ClientMessage::ClientContent(ClientContent {
+        turns: vec![Content { role: Some("user".into()), ..Content::text(text) }],
+        turn_complete: true,
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,6 +172,9 @@ impl Setup {
             },
             generation_config: GenerationConfig {
                 response_modalities: vec!["AUDIO".to_string()],
+                // Pinned from the first message. The server picks per session
+                // otherwise, so "the default voice" is a lottery run once a call.
+                speech_config: Some(SpeechConfig::voice(DEFAULT_VOICE)),
             },
             system_instruction: None,
             tools: if tools.is_empty() {
@@ -155,6 +196,34 @@ impl Setup {
         }
     }
 
+    /// Stop asking for a specific voice.
+    ///
+    /// The escape hatch for a model that will not take `speechConfig`. Measured
+    /// 2026-08-15 on `gemini-2.5-flash-native-audio-latest`: the session was
+    /// accepted, ran for twenty seconds, then closed with "The audio content
+    /// type (CONTENT_TYPE_AUDIO) is not supported for this model
+    /// configuration" — the same sentence `contextWindowCompression` produced,
+    /// and the same meaning: a field we asked for is not supported here, and
+    /// the server says so by killing the audio rather than by refusing setup.
+    ///
+    /// A pinned voice is worth having. It is not worth a call that dies every
+    /// twenty seconds, so the host drops it and reconnects.
+    pub fn unpinned(mut self) -> Self {
+        self.generation_config.speech_config = None;
+        self
+    }
+
+    /// Pin a specific voice. An empty or unknown name leaves the default in
+    /// place rather than putting a typo on the wire — the server answers an
+    /// unknown voice by dropping the socket, which reads as a network fault.
+    pub fn with_voice(mut self, voice: &str) -> Self {
+        let voice = voice.trim();
+        if VOICES.iter().any(|v| v.eq_ignore_ascii_case(voice)) {
+            self.generation_config.speech_config = Some(SpeechConfig::voice(voice));
+        }
+        self
+    }
+
     /// What the model should know before it says a word. This is where the
     /// pre-call memory lookup lands.
     pub fn with_system_instruction(mut self, text: impl Into<String>) -> Self {
@@ -174,6 +243,40 @@ pub struct GenerationConfig {
     /// kind of example that works for its author and produces a mute call for
     /// everyone who copies it. The type reference is the authority.
     pub response_modalities: Vec<String>,
+    /// Which voice answers. Always sent — see [`DEFAULT_VOICE`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speech_config: Option<SpeechConfig>,
+}
+
+/// `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName` — three levels of
+/// wrapper for one string, which is the shape the reference defines and not one
+/// to simplify: the nesting is where a future `customVoiceConfig` goes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechConfig {
+    pub voice_config: VoiceConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceConfig {
+    pub prebuilt_voice_config: PrebuiltVoiceConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrebuiltVoiceConfig {
+    pub voice_name: String,
+}
+
+impl SpeechConfig {
+    pub fn voice(name: impl Into<String>) -> Self {
+        SpeechConfig {
+            voice_config: VoiceConfig {
+                prebuilt_voice_config: PrebuiltVoiceConfig { voice_name: name.into() },
+            },
+        }
+    }
 }
 
 /// No fields today; present because the server distinguishes "absent" from
@@ -190,12 +293,16 @@ pub struct Tool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Content {
     pub parts: Vec<Part>,
+    /// Set on a `clientContent` turn, absent on a system instruction — which
+    /// takes no role and is the reason this is optional rather than defaulted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 impl Content {
     /// System instructions must be text-only parts, per the reference.
     pub fn text(s: impl Into<String>) -> Self {
-        Content { parts: vec![Part { text: Some(s.into()), inline_data: None }] }
+        Content { parts: vec![Part { text: Some(s.into()), inline_data: None }], role: None }
     }
 }
 
@@ -396,6 +503,67 @@ mod tests {
         // opposite, which is how a fix that reproduced its own symptom stayed
         // in — the test pinned the remedy, never the outcome.
         assert!(v["setup"].get("contextWindowCompression").is_none());
+    }
+
+    #[test]
+    fn a_spoken_setup_always_pins_a_voice() {
+        // Absent, `speechConfig` means "the server picks", and it picks per
+        // session — so the same assistant answers in a different voice tomorrow.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        assert_eq!(
+            v["setup"]["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]
+                ["voiceName"],
+            DEFAULT_VOICE,
+        );
+    }
+
+    #[test]
+    fn an_unknown_voice_name_leaves_the_default_rather_than_going_on_the_wire() {
+        // The server answers an unknown voice by dropping the socket, which
+        // arrives as a truncated TLS stream and reads as a network fault.
+        let pinned = Setup::spoken("x", vec![]).with_voice("Puck");
+        let v = serde_json::to_value(ClientMessage::Setup(pinned)).unwrap();
+        let name = |v: &serde_json::Value| {
+            v["setup"]["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]
+                ["voiceName"]
+                .clone()
+        };
+        assert_eq!(name(&v), "Puck");
+
+        // Dropping the pin entirely is what the host does when the server
+        // kills the audio stream over it — see `unpinned`.
+        let none = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]).unpinned())).unwrap();
+        assert!(none["setup"]["generationConfig"].get("speechConfig").is_none());
+
+        for junk in ["", "   ", "NotAVoice", "kore; drop"] {
+            let s = Setup::spoken("x", vec![]).with_voice(junk);
+            let v = serde_json::to_value(ClientMessage::Setup(s)).unwrap();
+            assert_eq!(name(&v), DEFAULT_VOICE, "{junk:?} should not reach the wire");
+        }
+        // Case is the vendor's business, not the user's.
+        let s = Setup::spoken("x", vec![]).with_voice("kore");
+        assert_eq!(name(&serde_json::to_value(ClientMessage::Setup(s)).unwrap()), "kore");
+    }
+
+    #[test]
+    fn a_typed_turn_is_a_complete_client_content_turn() {
+        // Not `realtimeInput`: that is a stream the server segments itself. A
+        // typed line ends where it says it ends, and without `turnComplete` the
+        // server waits for the rest of a sentence that is never coming.
+        let v = serde_json::to_value(text_turn("open github.com/bloom500/feral")).unwrap();
+        assert_eq!(v.as_object().unwrap().len(), 1);
+        assert_eq!(v["clientContent"]["turnComplete"], true);
+        assert_eq!(v["clientContent"]["turns"][0]["role"], "user");
+        assert_eq!(
+            v["clientContent"]["turns"][0]["parts"][0]["text"],
+            "open github.com/bloom500/feral"
+        );
+        // A system instruction takes no role, and must not grow one.
+        let setup = serde_json::to_value(ClientMessage::Setup(
+            Setup::spoken("x", vec![]).with_system_instruction("be brief"),
+        ))
+        .unwrap();
+        assert!(setup["setup"]["systemInstruction"].get("role").is_none());
     }
 
     #[test]

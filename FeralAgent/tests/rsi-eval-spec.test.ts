@@ -39,6 +39,28 @@ describe("validateOutcome — fact_lookup", () => {
     expect(validateOutcome(s, "PARIS", 50, 100)).toBe(true);
   });
 
+  test("a correct answer typed with Unicode is not marked wrong", () => {
+    // Measured 2026-08-14: asked for the chemical formula of water, the model
+    // answered "H₂O" with a subscript. The frozen Tier 0 spec expects "h2o", so
+    // a right answer failed — and being Tier 0, that one flourish breached the
+    // sanity floor and blocked every promotion on the machine.
+    const water = spec({ kind: "fact_lookup", expected: { type: "fact_lookup", answer: "h2o" } });
+    expect(validateOutcome(water, "H₂O", 50, 100)).toBe(true);
+    expect(validateOutcome(water, "The formula is H₂O.", 50, 100)).toBe(true);
+    // Fullwidth forms are the same story in another alphabet.
+    const pi = spec({ kind: "fact_lookup", expected: { type: "fact_lookup", answer: "3.14" } });
+    expect(validateOutcome(pi, "３.１４", 50, 100)).toBe(true);
+  });
+
+  test("folding does not make a wrong answer right", () => {
+    // The guard on the guard: NFKC removes ways of writing the SAME answer, and
+    // must never widen what counts as the answer.
+    const water = spec({ kind: "fact_lookup", expected: { type: "fact_lookup", answer: "h2o" } });
+    expect(validateOutcome(water, "H₃O", 50, 100)).toBe(false);
+    expect(validateOutcome(water, "water", 50, 100)).toBe(false);
+    expect(validateOutcome(water, "", 50, 100)).toBe(false);
+  });
+
   test("rejects a wrong answer", () => {
     expect(validateOutcome(s, "London", 50, 100)).toBe(false);
   });

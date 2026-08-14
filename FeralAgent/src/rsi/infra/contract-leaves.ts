@@ -30,21 +30,69 @@ import {
   type AuditEntryLike,
 } from "../l2-adapt/personal-fitness.ts";
 
+/**
+ * Tier 0 specs that measure the MACHINE, not the candidate.
+ *
+ * `latency` asks for an answer inside a fixed millisecond budget and
+ * `token_budget` for one inside a fixed token count. Neither is a property of
+ * the genome being judged: a cloud route answers in 2–5 s because that is what
+ * the round trip costs, and no mutation of `temperature` or `retrievalStrategy`
+ * will make the network faster.
+ */
+const ENVIRONMENT_KINDS: ReadonlySet<string> = new Set(["latency", "token_budget"]);
+
 /** Tier 0 is the frozen sanity floor (INVARIANT I8, BRSI §2.7 accept
  *  criterion "Tier 0 floor intact"). The Rust scorer folds every task into
  *  one aggregate success rate, so a candidate can fail a Tier 0 task yet
  *  still out-score the champion on cost/latency — exactly the gaming the
- *  spec forbids. This is the absolute check the aggregate can't express:
- *  ANY tier-0 task that failed or errored breaks the floor. Returns a
- *  human-readable reason, or null if the floor holds. Pure + deterministic;
- *  exported for testing. */
-export function tier0FloorBreach(outcomes: readonly EvalOutcome[]): string | null {
+ *  spec forbids. This is the absolute check the aggregate can't express.
+ *
+ *  A CAPABILITY task that failed or errored breaks the floor, always. That is
+ *  the anti-gaming rule and it is unchanged: a candidate that answers wrong is
+ *  never promoted, however fast or cheap it got.
+ *
+ *  An ENVIRONMENT task breaks the floor only when the champion passed it on
+ *  this same machine — a real regression — rather than whenever the wall clock
+ *  disagrees with a number frozen for different hardware. Measured 2026-08-14
+ *  on two installs: `tier0/latency_short` wants a reply inside 1500 ms, the
+ *  configured cloud route answers in 2051–5087 ms, so the floor was breached by
+ *  physics on EVERY candidate and nothing had been promoted since 10 July. The
+ *  champion on disk was still `seed-conservative`, the seed it started from.
+ *
+ *  This narrows nothing that protects quality and matches how L4 already judges
+ *  speed (`module-eval.ts` compares candidate latency to the incumbent's as a
+ *  ratio, not to a constant). Without a champion to compare against — the first
+ *  candidate ever — an environment failure cannot be told from a slow machine,
+ *  so it does not veto; correctness still does.
+ *
+ *  Returns a human-readable reason, or null if the floor holds. Pure +
+ *  deterministic; exported for testing. */
+export function tier0FloorBreach(
+  outcomes: readonly EvalOutcome[],
+  champion?: readonly EvalOutcome[],
+): string | null {
+  const championPassed = new Map<string, boolean>();
+  for (const o of champion ?? []) {
+    if (o.tier === 0) championPassed.set(o.taskId, o.success && !o.errored);
+  }
+
   let failed = 0;
+  let excused = 0;
   for (const o of outcomes) {
-    if (o.tier === 0 && (!o.success || o.errored)) failed += 1;
+    if (o.tier !== 0) continue;
+    if (o.success && !o.errored) continue;
+    // An outcome with no `kind` is treated as capability: unknown means strict,
+    // so a spec shape this file has not been taught about still vetoes.
+    if (o.kind !== undefined && ENVIRONMENT_KINDS.has(o.kind) && !o.errored) {
+      if (championPassed.get(o.taskId) === true) failed += 1;
+      else excused += 1;
+      continue;
+    }
+    failed += 1;
   }
   if (failed === 0) return null;
-  return `Tier 0 floor breached: ${failed} frozen sanity task(s) failed`;
+  const note = excused > 0 ? ` (${excused} environment task(s) the champion also fails)` : "";
+  return `Tier 0 floor breached: ${failed} frozen sanity task(s) failed${note}`;
 }
 
 /** Pair the current candidate's per-task outcomes against the champion's,
@@ -131,7 +179,7 @@ export function contractLeavesFromRatchet(
 
     // The tier-0 subset already ran inside the eval; pass iff no breach.
     runTier0: async () => {
-      const breach = ctx.outcomes ? tier0FloorBreach(ctx.outcomes) : null;
+      const breach = ctx.outcomes ? tier0FloorBreach(ctx.outcomes, ctx.championOutcomes) : null;
       return breach ? { ok: false, reason: breach } : { ok: true };
     },
 
@@ -181,7 +229,7 @@ export function contractLeavesFromRatchet(
     // marks tier0 in the Journal; this is the safety re-assert. Redundant
     // by design and free — it only runs when `tests` already passed.
     runSafetyChecks: async () => {
-      const breach = ctx.outcomes ? tier0FloorBreach(ctx.outcomes) : null;
+      const breach = ctx.outcomes ? tier0FloorBreach(ctx.outcomes, ctx.championOutcomes) : null;
       return breach ? { ok: false, reason: breach } : { ok: true };
     },
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChat } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 import { tauri } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import { captureMicPcm, pcm16Base64 } from '@/lib/micPcm';
@@ -36,6 +37,15 @@ import { t } from '@/lib/i18n';
  *  question does not vanish from the screen the instant it is answered. */
 const HEARD_LINGER_MS = 1_500;
 
+/**
+ * The key the Live engine's chosen voice is stored under.
+ *
+ * The same per-engine map every TTS engine uses (`ttsVoice[engineId]`), because
+ * a voice id is only meaningful to the vendor that issued it — Gemini's `Kore`
+ * must not carry over to Fish.
+ */
+export const LIVE_ENGINE_ID = 'gemini-live';
+
 /** How many recent turns travel into the briefing, and how much of each. Enough
  *  to pick up a conversation mid-thought; short enough that the setup message
  *  stays a briefing rather than a transcript. */
@@ -71,6 +81,10 @@ async function briefing() {
     .join('\n');
 
   return {
+    // Pinned per session, from the same per-engine store the pipeline voices
+    // use. Unset on a first call, and Rust then pins its own default rather
+    // than letting the server choose one per session.
+    voice: useUI.getState().ttsVoice[LIVE_ENGINE_ID],
     currentTask: last?.task?.title ?? undefined,
     workspace: last?.workspace_name ?? undefined,
     context: recent
@@ -329,8 +343,27 @@ export function useLiveCallSession() {
     void tauri.raw.endLiveCall().catch(() => {});
   }, []);
 
-  // `say` is deliberately absent: the Live session takes audio, tool answers and
-  // nothing else, so there is no channel a typed line could travel on. The
-  // overlay hides its chat panel when nothing is passed.
-  return { phase, heard, level, notice, open, begin, hangUp, interrupt };
+  /**
+   * Type instead of speaking, mid-call.
+   *
+   * It goes on the session's OWN text channel (`clientContent`), not through the
+   * agent: the model is conducting this conversation, so a line routed around it
+   * would be answered twice, once by each side. It also stops the playback here
+   * — typing over a reply is a barge-in like any other — and the model hears the
+   * interruption on the microphone that never closed.
+   */
+  const say = useCallback((text: string) => {
+    if (!text.trim()) return;
+    stopSpeech();
+    void beginSpeech();
+    void tauri.raw.sendLiveText(text.trim()).catch(() => {});
+    // Shown immediately: the server transcribes speech back to us, but a typed
+    // line never passes through that, so nothing else would put it on screen.
+    heardRef.current = text.trim();
+    setHeard(heardRef.current);
+    freshRef.current = false;
+    setPhase('thinking');
+  }, [beginSpeech, stopSpeech]);
+
+  return { phase, heard, level, notice, open, begin, hangUp, interrupt, say };
 }

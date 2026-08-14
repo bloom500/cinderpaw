@@ -649,6 +649,25 @@ export function parseDiscordSession(
 }
 
 /** A live Discord gateway connection that drives the shared agent. */
+
+/**
+ * What to say at boot about who can reach this connector.
+ *
+ * An empty allowlist is the quietest catastrophe this file can produce: the
+ * connector logs in, shows as online in Discord, and answers nobody — because
+ * the gate is `#allow.has(id)` and an empty Set has nothing. Measured
+ * 2026-08-14: four hours of "why is Cubby ignoring me" whose only trace was the
+ * number `0` inside an otherwise cheerful "online" line.
+ *
+ * So the number stops being a number when it is zero, and says what it means.
+ */
+export function allowSummary(size: number): string {
+  return size === 0
+    ? "0 allowed — NOBODY CAN REACH IT: the allowlist is empty, so every message " +
+        "is ignored. Add user ids to the allowlist to make it answer."
+    : `${size} allowed`;
+}
+
 export class DiscordConnector {
   readonly #token: string;
   readonly #allow: Set<string>;
@@ -695,7 +714,7 @@ export class DiscordConnector {
     this.#client = client;
 
     client.once(Events.ClientReady, (c) =>
-      this.#log(`discord connector online as ${c.user.tag} (${this.#allow.size} allowed)`),
+      this.#log(`discord connector online as ${c.user.tag} (${allowSummary(this.#allow.size)})`),
     );
     client.on(Events.MessageCreate, (msg) => {
       void this.#onMessage(msg).catch((e) => this.#log(`discord message error: ${String(e)}`));
@@ -981,7 +1000,7 @@ export class SlackConnector {
       await this.#onMessage(args.event ?? {}).catch((e) => this.#log(`slack message error: ${String(e)}`));
     });
     await this.#socket.start();
-    this.#log(`slack connector online as ${this.#botUserId} (${this.#allow.size} allowed)`);
+    this.#log(`slack connector online as ${this.#botUserId} (${allowSummary(this.#allow.size)})`);
 
     // ask_user over Slack: post the question text into the session's channel.
     this.#ask?.registerSender("slack", async (sessionId, text) => {

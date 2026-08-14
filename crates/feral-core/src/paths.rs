@@ -70,6 +70,12 @@ pub fn piper_dir() -> PathBuf {
     feral_dir().join("piper")
 }
 
+/// Kokoro's model, tokenizer and voice packs, mirroring the repo's own layout
+/// (`onnx/…`, `voices/…`) so it is obvious on disk where a file came from.
+pub fn kokoro_dir() -> PathBuf {
+    feral_dir().join("kokoro")
+}
+
 /// HuggingFace repo hosting Piper voices (MIT).
 pub const PIPER_VOICES_REPO: &str = "rhasspy/piper-voices";
 

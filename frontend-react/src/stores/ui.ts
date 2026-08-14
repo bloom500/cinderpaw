@@ -12,17 +12,6 @@ export type WhisperModel = 'small' | 'base';
 /** Speech-to-text backend for voice messages. `null` = user hasn't chosen yet
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
 export type SttProvider = 'local' | 'groq';
-/**
- * The language the user SPEAKS, which is not the language the interface is in.
- *
- * Reading the spoken language off the UI locale was a bad assumption with a
- * visible cost: an English interface forced `language=en` on Romanian speech and
- * "Salut, Feral" came back as "Pozdvormiu Română!". `auto` lets the transcriber
- * guess, which is right when someone switches languages mid-call and wrong when
- * two words are all it has to go on — so it is a choice, not an inference.
- */
-export type SpokenLang = 'auto' | 'ro' | 'en';
-
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
 interface UIStore {
@@ -74,9 +63,6 @@ interface UIStore {
    */
   callEngine: 'pipeline' | 'live';
   setCallEngine: (e: 'pipeline' | 'live') => void;
-  /** The language the user speaks — see `SpokenLang`. Independent of `language`. */
-  spokenLanguage: SpokenLang;
-  setSpokenLanguage: (l: SpokenLang) => void;
   /**
    * Chosen voice per engine id.
    *
@@ -148,8 +134,6 @@ export const useUI = create<UIStore>()(
       setTtsProvider: (ttsProvider) => set({ ttsProvider }),
       callEngine: 'pipeline',
       setCallEngine: (callEngine) => set({ callEngine }),
-      spokenLanguage: 'auto',
-      setSpokenLanguage: (spokenLanguage) => set({ spokenLanguage }),
       ttsVoice: {},
       setTtsVoice: (engineId, voiceId) =>
         set((s) => ({ ttsVoice: { ...s.ttsVoice, [engineId]: voiceId } })),
@@ -168,7 +152,6 @@ export const useUI = create<UIStore>()(
         sttProvider: s.sttProvider,
         ttsProvider: s.ttsProvider,
         callEngine: s.callEngine,
-        spokenLanguage: s.spokenLanguage,
         ttsVoice: s.ttsVoice,
       }),
       onRehydrateStorage: () => (state) => {

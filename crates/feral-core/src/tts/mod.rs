@@ -20,13 +20,16 @@
 pub mod azure;
 pub mod elevenlabs;
 pub mod fish;
+#[cfg(feature = "kokoro")]
+pub mod kokoro;
 pub mod openai_compat;
 #[cfg(feature = "piper")]
 pub mod piper;
 
-/// Piper's id, known to the catalog whether or not the engine is compiled in —
-/// the row is shown either way, and `from_id` is what refuses it.
+/// Ids known to the catalog whether or not the engine is compiled in — the row
+/// is shown either way, and `from_id` is what refuses it.
 pub const PIPER_ID: &str = "piper";
+pub const KOKORO_ID: &str = "kokoro";
 
 use anyhow::{Context, Result};
 use futures::StreamExt;
@@ -244,6 +247,17 @@ pub fn catalog() -> Vec<TtsEngine> {
             )
         },
         TtsEngine {
+            is_local: true,
+            needs_model: true,
+            needs_download: true,
+            available: cfg!(feature = "kokoro"),
+            ..engine(
+                KOKORO_ID,
+                "Kokoro",
+                "On device. Better voice than Piper, ~90 MB. No Romanian — English, ES, FR, HI, IT, JA, PT, ZH. Apache-2.0.",
+            )
+        },
+        TtsEngine {
             needs_key: true,
             needs_model: true,
             console_url: Some("https://fish.audio/go-api/api-keys/".into()),
@@ -327,6 +341,8 @@ pub fn from_id(id: &str, cfg: EngineConfig) -> Result<Box<dyn TtsProvider>> {
         Some(_) => match id {
             #[cfg(feature = "piper")]
             PIPER_ID => Ok(Box::new(piper::PiperTts::new(&cfg))),
+            #[cfg(feature = "kokoro")]
+            KOKORO_ID => Ok(Box::new(kokoro::KokoroTts::new(&cfg))),
             fish::ID => Ok(Box::new(fish::FishTts::new(cfg.api_key.to_string()))),
             azure::ID => Ok(Box::new(azure::AzureTts::new(&cfg)?)),
             elevenlabs::ID => Ok(Box::new(elevenlabs::ElevenLabsTts::new(&cfg))),

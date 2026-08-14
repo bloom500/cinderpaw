@@ -173,7 +173,7 @@ const PROPER_NOUNS: &str = "Feral, Cubby, Bloom, Darius, Piper, Kokoro.";
 /// It is deliberately NOT fed back into the next request. Whisper's `language`
 /// is an override, not a hint, so doing that made the loop self-sealing — we
 /// forced `ro`, the response therefore said "romanian", and that re-learned
-/// `ro`. Nothing else reads this; voice ranking uses the user's own setting.
+/// `ro`. Nothing else reads it — no code anywhere sends a language to Whisper.
 static LAST_LANG: OnceLock<Mutex<Option<&'static str>>> = OnceLock::new();
 
 /// A transcript at least this long is treated as real evidence of a language.
@@ -364,60 +364,110 @@ pub(crate) fn tts_providers() -> Vec<tts::TtsEngine> {
     tts::catalog()
 }
 
-/// True if a Piper voice is fully downloaded (both the model and its config).
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn piper_voice_present(voice: String) -> bool {
-    #[cfg(feature = "piper")]
-    {
-        tts::piper::voice_present(&voice)
-    }
-    // A build without the engine can never have a usable voice, whatever is on
-    // disk — answering "true" here would let the picker start a mute call.
-    #[cfg(not(feature = "piper"))]
-    {
-        let _ = voice;
-        false
+/// Every file a local engine needs on disk, as `(repo, path-in-repo, destination)`.
+///
+/// The LAST entry is the big one: it gets the progress bar, everything before it
+/// is fetched silently. A tokenizer or a config is a few kilobytes next to a
+/// ~90 MB model, and a bar that jumps to 100% for the small file and restarts is
+/// worse than no bar at all.
+///
+/// `None` means the engine does not exist, is not built into this version, or
+/// the voice id is not one it can place — all three are "there is nothing to
+/// download", and refusing here is what stops a 404 page landing in a `.onnx`.
+fn local_voice_files(engine: &str, voice: &str) -> Option<Vec<(String, String, std::path::PathBuf)>> {
+    match engine {
+        #[cfg(feature = "piper")]
+        tts::PIPER_ID => {
+            let (model_repo, model_rel) = paths::piper_source(voice, "")?;
+            let (config_repo, config_rel) = paths::piper_source(voice, ".json")?;
+            Some(vec![
+                (config_repo.to_string(), config_rel, paths::piper_config_path(voice)?),
+                (model_repo.to_string(), model_rel, paths::piper_voice_path(voice)?),
+            ])
+        }
+        #[cfg(feature = "kokoro")]
+        tts::KOKORO_ID => {
+            use tts::kokoro;
+            let repo = kokoro::REPO.to_string();
+            Some(vec![
+                (repo.clone(), kokoro::TOKENIZER_FILE.into(), kokoro::tokenizer_path()),
+                (repo.clone(), kokoro::voice_rel_path(voice)?, kokoro::voice_path(voice)?),
+                (repo, kokoro::MODEL_FILE.into(), kokoro::model_path()),
+            ])
+        }
+        _ => {
+            let _ = voice;
+            None
+        }
     }
 }
 
-/// Download a Piper voice: the `.onnx` model and its `.onnx.json` config.
+/// The voice a local engine falls back to when the user has not named one.
 ///
-/// Two files, one progress stream. The config is a few kilobytes next to a
-/// ~60 MB model, so it is fetched first and silently — a progress bar that jumps
-/// to 100% for the small file and restarts is worse than no progress at all.
-/// Streams over `feral://piper-download-progress`, ends on
-/// `feral://piper-download-complete` / `-error`, matching the whisper channels.
+/// Empty for anything else, which reads as "not present" everywhere it is
+/// used — an engine nobody has taught this function about must not be reported
+/// ready on a guess.
+fn default_voice_for(engine: &str) -> &'static str {
+    match engine {
+        #[cfg(feature = "piper")]
+        tts::PIPER_ID => tts::piper::DEFAULT_VOICE,
+        #[cfg(feature = "kokoro")]
+        tts::KOKORO_ID => tts::kokoro::DEFAULT_VOICE,
+        _ => "",
+    }
+}
+
+/// Is this engine's voice ready to speak?
+///
+/// A build without the engine can never have a usable voice, whatever is on
+/// disk — answering "true" here would let the picker start a mute call.
+fn engine_voice_present(engine: &str, voice: &str) -> bool {
+    match engine {
+        #[cfg(feature = "piper")]
+        tts::PIPER_ID => tts::piper::voice_present(voice),
+        #[cfg(feature = "kokoro")]
+        tts::KOKORO_ID => tts::kokoro::voice_present(voice),
+        _ => {
+            let _ = voice;
+            false
+        }
+    }
+}
+
+/// True if a local engine's voice is fully downloaded — every file it needs,
+/// not just the one with the voice's name on it.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn download_piper_voice(
+pub(crate) fn tts_voice_present(engine: String, voice: String) -> bool {
+    engine_voice_present(&engine, &voice)
+}
+
+/// Download everything a local engine needs to speak in `voice`.
+///
+/// One progress stream per download, whatever the engine: streams over
+/// `feral://tts-download-progress`, ends on `feral://tts-download-complete` /
+/// `-error`, matching the whisper channels. The engine id rides along as
+/// `repo_id` so a UI listening to one channel can tell whose download it is.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn download_tts_voice(
     app: AppHandle,
     state: State<'_, AppState>,
+    engine: String,
     voice: String,
 ) -> Result<String, String> {
-    // Where the bytes come from and where they land are two questions: a
-    // community voice is fetched from another repo with another layout, but is
-    // stored where every other voice is, so nothing downstream has to care.
-    let (Some((model_repo, model_rel)), Some(model_dest)) =
-        (paths::piper_source(&voice, ""), paths::piper_voice_path(&voice))
-    else {
-        return Err("piper-bad-voice".into());
-    };
-    let (Some((config_repo, config_rel)), Some(config_dest)) =
-        (paths::piper_source(&voice, ".json"), paths::piper_config_path(&voice))
-    else {
-        return Err("piper-bad-voice".into());
+    let Some(files) = local_voice_files(&engine, &voice) else {
+        return Err("tts-bad-voice".into());
     };
 
-    let key = format!("piper::{voice}");
+    let key = format!("{engine}::{voice}");
     {
         let map = state.downloads.lock();
         if map.contains_key(&key) {
             return Err(format!("Download already in progress: {key}"));
         }
     }
-    #[cfg(feature = "piper")]
-    if tts::piper::voice_present(&voice) {
+    if engine_voice_present(&engine, &voice) {
         return Ok(key);
     }
 
@@ -427,13 +477,14 @@ pub(crate) async fn download_piper_voice(
     let (tx, mut rx) = mpsc::channel::<f32>(32);
     {
         let app = app.clone();
+        let engine = engine.clone();
         let voice = voice.clone();
         tokio::spawn(async move {
             while let Some(p) = rx.recv().await {
                 let _ = app.emit(
-                    "feral://piper-download-progress",
+                    "feral://tts-download-progress",
                     events::DownloadProgressEvent {
-                        repo_id: "piper".into(),
+                        repo_id: engine.clone(),
                         filename: voice.clone(),
                         progress: p,
                     },
@@ -445,40 +496,31 @@ pub(crate) async fn download_piper_voice(
     let downloads_map = state.downloads.clone();
     let key_for_task = key.clone();
     tokio::spawn(async move {
-        // The config first, on a throwaway progress channel: it is tiny, and its
-        // percentages would fight the model's on the same bar.
-        let (config_tx, mut config_rx) = mpsc::channel::<f32>(4);
-        tokio::spawn(async move { while config_rx.recv().await.is_some() {} });
-        let config = models::download_hf_file_as(
-            config_repo.to_string(),
-            config_rel,
-            config_dest,
-            config_tx,
-            cancel.clone(),
-        )
-        .await;
-
-        let result = match config {
-            Err(e) => Err(e),
-            Ok(_) => {
-                models::download_hf_file_as(
-                    model_repo.to_string(),
-                    model_rel,
-                    model_dest,
-                    tx,
-                    cancel.clone(),
-                )
-                .await
+        let mut result = Ok(std::path::PathBuf::new());
+        let last = files.len() - 1;
+        for (i, (repo, rel, dest)) in files.into_iter().enumerate() {
+            // Everything but the last file reports into a channel nobody reads,
+            // so one bar tracks one download.
+            let progress = if i == last {
+                tx.clone()
+            } else {
+                let (quiet_tx, mut quiet_rx) = mpsc::channel::<f32>(4);
+                tokio::spawn(async move { while quiet_rx.recv().await.is_some() {} });
+                quiet_tx
+            };
+            result = models::download_hf_file_as(repo, rel, dest, progress, cancel.clone()).await;
+            if result.is_err() {
+                break;
             }
-        };
+        }
 
         downloads_map.lock().remove(&key_for_task);
         match result {
             Ok(path) => {
                 let _ = app.emit(
-                    "feral://piper-download-complete",
+                    "feral://tts-download-complete",
                     events::DownloadCompleteEvent {
-                        repo_id: "piper".into(),
+                        repo_id: engine.clone(),
                         filename: voice.clone(),
                         path: path.to_string_lossy().into_owned(),
                     },
@@ -486,9 +528,9 @@ pub(crate) async fn download_piper_voice(
             }
             Err(e) => {
                 let _ = app.emit(
-                    "feral://piper-download-error",
+                    "feral://tts-download-error",
                     events::DownloadErrorEvent {
-                        repo_id: "piper".into(),
+                        repo_id: engine.clone(),
                         filename: voice.clone(),
                         error: e.to_string(),
                         cancelled: cancel.load(Ordering::Relaxed),
@@ -535,20 +577,19 @@ pub(crate) fn tts_ready(state: State<AppState>, provider_id: String) -> bool {
         return false; // catalogued, not built into this version
     }
 
-    if provider_id == tts::PIPER_ID {
-        #[cfg(feature = "piper")]
-        {
-            let settings = byok::load(&state.settings);
-            let voice = settings
-                .get_provider(&provider_id)
-                .and_then(|c| c.default_model.clone())
-                .unwrap_or_else(|| tts::piper::DEFAULT_VOICE.to_string());
-            return tts::piper::voice_present(&voice);
-        }
-        #[cfg(not(feature = "piper"))]
-        {
-            return false;
-        }
+    // An engine whose voice lives on disk is ready only once that voice is
+    // there. Driven by the catalog's flag rather than by an id compared here:
+    // this used to name Piper, so Kokoro — the next engine with a download —
+    // fell through to `true` and enabled a Call button for an engine with
+    // nothing to speak with. A call that listens, thinks, then cannot answer is
+    // the exact failure this check exists to prevent, so it asks the property.
+    if entry.needs_download {
+        let settings = byok::load(&state.settings);
+        let voice = settings
+            .get_provider(&provider_id)
+            .and_then(|c| c.default_model.clone())
+            .unwrap_or_else(|| default_voice_for(&provider_id).to_string());
+        return engine_voice_present(&provider_id, &voice);
     }
 
     if entry.needs_key {

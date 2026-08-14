@@ -67,6 +67,8 @@ pub enum LiveCommand {
     /// The microphone closed. Only meaningful while the server is doing its own
     /// activity detection, which is the default and the entire point here.
     AudioStreamEnd,
+    /// A typed turn, for what dictation mangles. Answered like a spoken one.
+    Text(String),
     ToolResponse(Vec<FunctionResponse>),
 }
 
@@ -84,6 +86,17 @@ pub struct SessionConfig {
     /// Continue an earlier conversation instead of starting fresh. Supplied by
     /// the host from the last `Closed` event.
     pub resume: Option<String>,
+    /// Which prebuilt voice answers. `None` uses [`super::DEFAULT_VOICE`] —
+    /// never "whatever the server feels like", which is what an absent
+    /// `speechConfig` means.
+    pub voice: Option<String>,
+    /// Send `speechConfig` at all.
+    ///
+    /// True normally — a call must not re-roll its voice per session. Set false
+    /// by the host after a close that blamed the audio content type, because on
+    /// some models asking for a voice is what kills the stream twenty seconds
+    /// in. A call in the server's default voice beats no call.
+    pub pin_voice: bool,
 }
 
 /// A live call in progress. Dropping `commands` closes the session.
@@ -109,7 +122,15 @@ pub(crate) fn redact(text: &str, key: &str) -> String {
 /// Returns only after `setupComplete`. Callers therefore cannot send audio into
 /// a socket that is not ready — a rule the API states and that would otherwise
 /// have to be remembered at every call site.
+///
+/// **Nothing unverified goes in the setup message.** `enableAffectiveDialog`
+/// and `proactivity` were sent here for one evening on the strength of the
+/// reference, and the server answered `Invalid JSON payload received. Unknown
+/// name "enableAffectiveDialog" at 'setup'` — every connect paid a refused
+/// handshake and a retry before it could start. A field this file cannot prove
+/// belongs is worse than a feature it does not have.
 pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
+
     let url = format!("{LIVE_WS_URL}?key={}", cfg.api_key);
     let key = cfg.api_key.clone();
 
@@ -119,6 +140,13 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
     let (mut write, mut read) = stream.split();
 
     let mut setup = Setup::spoken(&cfg.model, cfg.tools);
+    if cfg.pin_voice {
+        if let Some(voice) = cfg.voice.as_deref() {
+            setup = setup.with_voice(voice);
+        }
+    } else {
+        setup = setup.unpinned();
+    }
     if let Some(instruction) = cfg.system_instruction {
         setup = setup.with_system_instruction(instruction);
     }
@@ -263,6 +291,7 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                     audio: None,
                     audio_stream_end: Some(true),
                 }),
+                LiveCommand::Text(text) => super::text_turn(&text),
                 LiveCommand::ToolResponse(responses) => {
                     ClientMessage::ToolResponse(ToolResponse { function_responses: responses })
                 }
@@ -270,6 +299,7 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
             let kind = match &msg {
                 ClientMessage::RealtimeInput(r) if r.audio_stream_end.is_some() => "audioStreamEnd",
                 ClientMessage::RealtimeInput(_) => "audio",
+                ClientMessage::ClientContent(_) => "clientContent",
                 ClientMessage::ToolResponse(_) => "toolResponse",
                 ClientMessage::Setup(_) => "setup",
             };

@@ -56,9 +56,25 @@ const SPOKEN_RULES: &[&str] = &[
     // was alive the whole time and simply had nothing to say. A caller cannot
     // tell that apart from a dead line, and a hundred seconds of it reads as
     // broken. Speaking is therefore made an instruction rather than left to
-    // judgement: before the call, so the silence never starts, and during it,
-    // because a hundred seconds is far too long for one "one moment".
-    "Before you call ask_feral, say out loud that you are looking it up — one short sentence, then make the call. While you wait, keep the line warm: say something every ten or fifteen seconds, and answer anything the user says in the meantime. Never let the call go quiet for more than about fifteen seconds.",
+    // judgement: during the wait, because a hundred seconds is far too long for
+    // one "one moment".
+    //
+    // The announcement is BOUND to the call, and that binding is the whole
+    // point of this rule's shape. It used to read "before you call ask_feral,
+    // say out loud that you are looking it up, then make the call" — which asks
+    // for two things and gets the cheap one. Measured 2026-08-15: asked whether
+    // it could search the web, the model said it was searching and never called
+    // the tool. Nothing ran, no widget appeared, and the caller was told work
+    // was happening that was not. An instruction that can be half-obeyed will
+    // be, and the half that survives is the half that costs nothing.
+    // Both halves, and both are needed. The prohibition alone made it worse:
+    // forbidden to NARRATE a search and not pushed to MAKE one, the model simply
+    // answered from memory and searched nothing. Measured 2026-08-15 — "search
+    // the web for ways to promote Feral" produced an answer and no tool call,
+    // and ask_feral was reached only when the user named it out loud.
+    "When the user asks you to search, look something up, check, find out or read anything, that is an INSTRUCTION TO CALL ask_feral — not a topic to discuss. Do not answer it from what you already know: you cannot see the internet, and what you remember about it may be years out of date. Make the call first, then answer from what comes back.",
+    "Saying you are looking something up and calling ask_feral are ONE action, never two: say the sentence only as you make the call, in the same breath. If you are genuinely answering from your own knowledge, say that instead — never describe searching, checking, looking up or 'letting me find out' unless the call is going out with it, because the user is watching a panel that shows what actually ran and an empty panel next to those words is a lie they can see.",
+    "While you wait for ask_feral, keep the line warm: say something every ten or fifteen seconds, and answer anything the user says in the meantime. Never let the call go quiet for more than about fifteen seconds.",
 ];
 
 /// Compose the setup message's system instruction.
@@ -186,6 +202,41 @@ mod tests {
         let text = system_instruction(&Briefing::default());
         assert!(text.contains("ask_feral"), "the model is no longer told to announce the lookup");
         assert!(text.contains("quiet"), "the keep-talking instruction was dropped");
+    }
+
+    #[test]
+    fn a_request_to_search_is_told_to_be_a_tool_call() {
+        // Measured 2026-08-15: "search the web for ways to promote Feral" got an
+        // answer from memory and no tool call. Forbidding the NARRATION of a
+        // search without also demanding the CALL made it quieter, not more
+        // honest — both halves ship together or this comes back.
+        let text = system_instruction(&Briefing::default());
+        assert!(
+            text.contains("INSTRUCTION TO CALL ask_feral"),
+            "nothing turns 'search this' into a tool call",
+        );
+        assert!(
+            text.contains("Make the call first"),
+            "the model is no longer told to look before it answers",
+        );
+    }
+
+    #[test]
+    fn announcing_a_lookup_is_bound_to_making_it() {
+        // Measured 2026-08-15: asked whether it could search the web, the model
+        // said it was searching and never called the tool — because the rule
+        // asked for two things ("say it, then call") and it did the free one.
+        // The user watched an empty tool panel while being told work was
+        // happening. The two must read as ONE action or this comes back.
+        let text = system_instruction(&Briefing::default());
+        assert!(
+            text.contains("ONE action, never two"),
+            "the announcement is no longer bound to the call — it will be made alone",
+        );
+        assert!(
+            text.contains("never describe searching"),
+            "nothing forbids narrating a search that is not happening",
+        );
     }
 
     #[test]

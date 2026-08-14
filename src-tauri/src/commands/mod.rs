@@ -53,7 +53,7 @@ mod command_count_test {
     // by hand.
     // 136 = + tts_providers + tts_has_key + speak_text + stop_speaking (voice
     // mode's outbound half — the streaming TTS bridge and its key check).
-    // 138 = + piper_voice_present + download_piper_voice (on-device TTS).
+    // 138 = + tts_voice_present + download_tts_voice (on-device TTS).
     // 139 = + tts_ready ("can this engine actually speak", which differs per
     // engine: a key for hosted ones, a downloaded voice for Piper).
     // 140 = + ui_log (the webview's console cannot be read from the terminal, so
@@ -63,7 +63,10 @@ mod command_count_test {
     // 144 = + start_live_call + send_live_audio + end_live_call (the Gemini Live
     // speech-to-speech engine — one session replacing the STT→LLM→TTS chain,
     // so these three are a call's whole surface: start, feed, hang up).
-    const EXPECTED_COMMAND_COUNT: usize = 144;
+    // 146 = + send_live_text + live_voices (typing into a live call, and the
+    // prebuilt voices it can be pinned to — the model's voice is the one thing
+    // a spoken call must not re-roll per session).
+    const EXPECTED_COMMAND_COUNT: usize = 146;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

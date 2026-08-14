@@ -1,7 +1,7 @@
 // Aliased: the bare name would shadow the DOM `KeyboardEvent` that the Escape
 // listener below is typed against.
 import {
-  lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore,
+  useEffect, useRef, useState, useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -27,14 +27,6 @@ import { CallToolScreen } from './CallToolScreen';
 import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
-/**
- * Loaded only when a call opens. three.js is ~1.1 MB of the bundle and this is
- * the one screen that uses it — bundling it into the entry chunk made every
- * cold start pay for a sphere most sessions never see. Suspense falls back to
- * nothing on purpose: the CSS orb is already rendered underneath, so the wait
- * is invisible rather than a hole.
- */
-const CallOrb3D = lazy(() => import('./CallOrb3D').then((m) => ({ default: m.CallOrb3D })));
 import { tauri, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
@@ -42,6 +34,7 @@ import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { CallPhase } from '@/hooks/useCallSession';
+import { LIVE_ENGINE_ID } from '@/hooks/useLiveCallSession';
 
 /**
  * The in-call screen: one orb, one line of state, two buttons.
@@ -105,14 +98,30 @@ export function CallOverlay({
   const ttsProvider = useUI((s) => s.ttsProvider);
   const callEngine = useUI((s) => s.callEngine);
   const live = callEngine === 'live';
+  /**
+   * Can this call DO anything, or only talk?
+   *
+   * Agent mode routes every turn through the sidecar, which carries its own
+   * tools whatever this store says; chat mode offers exactly `enabledTools`,
+   * and that list is empty until someone turns one on. A call with none is a
+   * perfectly good call — but it must not be mistaken for one that searched and
+   * found nothing, which is what an empty tool panel looks like.
+   */
+  const inputMode = useUI((s) => s.inputMode);
+  const toolCount = useUI((s) => s.enabledTools.length);
+  const hasTools = live || inputMode === 'agent' || toolCount > 0;
   // Both call modes end up asking the same agent, and the agent reports its
   // tools on one channel, so one listener serves both. Only while the call is
   // actually up — a listener attached at `idle` would collect the tool calls of
   // whatever the user is doing in the chat behind the overlay.
   const toolActivity = useLiveToolActivity(phase !== 'idle' && phase !== 'ready');
-  /** Any tool still running. Feeds the sphere, which shows work as movement
-   *  inside the glass rather than as another speed — see CallOrb3D. */
+  /** A tool is running right now. Its own signal rather than a sixth phase,
+   *  because it is orthogonal: Feral can be answering out loud WHILE a search
+   *  is still running, and the sphere should be able to say both at once. */
   const workingNow = toolActivity.some((a) => a.status === 'running');
+  /** Which Gemini voice is answering — the sphere is tinted to match, so the
+   *  choice is visible from across the room rather than only in a dropdown. */
+  const liveVoice = useUI((s) => s.ttsVoice[LIVE_ENGINE_ID]);
   const [voice, setVoice] = useState<TtsProviderInfo | null>(null);
   /** Can the chosen engine actually speak? `null` until known — the Call button
    *  must not be blocked by a check that has not answered yet, nor allowed by one
@@ -291,20 +300,31 @@ export function CallOverlay({
           }}
         />
 
-        <Orb phase={phase} level={level} working={workingNow} />
+        <Orb phase={phase} level={level} working={workingNow} voice={liveVoice} />
 
         {/* Voice picker, live for the whole call. Deliberately not buried in the
             pre-call panel: which voice is talking is the one setting you want to
             change WHILE hearing it, and the next thing said picks it up. */}
-        {/* No language selector, by product decision: the transcriber is expected
-            to identify the spoken language on its own. What replaced the manual
-            escape hatch is `useCallSession`'s learned hint — the language of the
-            last confidently transcribed turn is carried into the next one, so
-            detection happens once on good evidence instead of being re-guessed on
-            every fragment. */}
+        {/* No language selector anywhere, by product decision: the transcriber
+            identifies the spoken language per request, which is what makes
+            switching language mid-call work at all. */}
         {/* Nothing to pick in a Live call: the voice belongs to the model, not to
             a synthesiser we choose. */}
         {!live && ttsProvider && <VoicePicker engineId={ttsProvider} />}
+        {/* A Live call has a voice too, and it is the one thing that must not be
+            re-rolled per session — left unpinned, the server picks, and the same
+            assistant answers in a different voice tomorrow. Eight fixed names,
+            so all of them are offered rather than a shortlist. */}
+        {live && (
+          <VoicePicker
+            engineId={LIVE_ENGINE_ID}
+            limit={99}
+            defaultVoiceId="Kore"
+            load={async () =>
+              (await tauri.raw.liveVoices()).map((v) => ({ id: v, label: v, locale: '' }))
+            }
+          />
+        )}
 
         <div className="relative flex max-w-xl flex-col items-center gap-2 text-center">
           <p className="text-2xl font-light tracking-tight text-text-primary">{title}</p>
@@ -357,6 +377,17 @@ export function CallOverlay({
                 </>
               )}
             </div>
+
+            {/* Whether it can act, not just answer. The tool panel during a
+                call shows what ran; this says beforehand whether anything CAN,
+                so an empty panel reads as "nothing to do" rather than as a
+                broken indicator. */}
+            <span className="flex items-center gap-2">
+              <span className="text-text-muted">{t('call.tools')}</span>
+              <span className={hasTools ? 'text-text-secondary' : 'text-[var(--warning)]'}>
+                {hasTools ? t('call.toolsOn') : t('call.toolsOff')}
+              </span>
+            </span>
 
             {/* What is different about this mode, said once: it hears you
                 directly, it can be cut off mid-sentence, and each finished turn
@@ -474,22 +505,137 @@ export function CallOverlay({
 }
 
 /**
- * The living part of the screen.
+/**
+/**
+ * A palette per Gemini voice, so the sphere says who is talking.
  *
- * Listening scales with the measured mic level, so it reacts to *you*. The other
- * states animate on their own, because the reply's loudness is never measured —
- * the audio is scheduled on the Web Audio clock, not read back, and faking a
- * waveform from nothing would be a lie in the one place the user is looking for
- * feedback. `CallOrb3D` carries the state as tempo instead.
+ * Eight voices that are otherwise only a name in a dropdown; the ball is the
+ * one thing on the screen big enough to carry the difference. `anchor` is the
+ * cool mass that keeps the sphere off the orange field, `cool` is the note that
+ * makes the anchor read as a colour rather than as grey, and `warm` is the
+ * single warm region — one, never two, or the edge dissolves into the
+ * background.
+ *
+ * Unknown names fall back to Kore's, which is also what Rust pins by default,
+ * so a voice added by the vendor tomorrow looks deliberate rather than broken.
  */
-function Orb({ phase, level, working }: { phase: CallPhase; level: number; working: boolean }) {
-  /** True once WebGL is up. The plain ball below is only there for when it is
-   *  not, and has to get out of the way when it is — drawn under the real
-   *  sphere, it showed through its edges. */
-  const [gl, setGl] = useState(false);
-  // The mic only scales the sphere while listening; elsewhere it sits still.
+const VOICE_PALETTE: Record<string, { anchor: string; cool: string; warm: string }> = {
+  Kore:    { anchor: '124, 77, 255',  cool: '64, 208, 245',  warm: '255, 138, 76' },
+  Puck:    { anchor: '86, 124, 255',  cool: '96, 232, 210',  warm: '255, 196, 84' },
+  Charon:  { anchor: '62, 84, 168',   cool: '120, 176, 255', warm: '226, 132, 96' },
+  Fenrir:  { anchor: '164, 62, 200',  cool: '96, 176, 255',  warm: '255, 112, 92' },
+  Aoede:   { anchor: '112, 96, 232',  cool: '128, 240, 208', warm: '255, 168, 120' },
+  Leda:    { anchor: '150, 108, 240', cool: '164, 216, 255', warm: '255, 172, 156' },
+  Orus:    { anchor: '72, 104, 196',  cool: '84, 200, 232',  warm: '240, 150, 72' },
+  Zephyr:  { anchor: '96, 140, 248',  cool: '148, 240, 236', warm: '255, 184, 128' },
+};
+
+/**
+ * How fast the colour inside the sphere drifts, per call state. One set of
+ * motions at four tempos, so it stays recognisably the same object while
+ * telling you what it is doing.
+ *
+ * `ready` is slow enough to read as at rest without being frozen; `thinking` is
+ * the fastest, because that is the state where the user is waiting and needs to
+ * see that something is happening.
+ */
+const ORB_TEMPO: Record<CallPhase, { a: string; b: string; c: string; breathe: string }> = {
+  idle:      { a: '30s', b: '38s', c: '24s', breathe: '7s' },
+  ready:     { a: '26s', b: '34s', c: '20s', breathe: '6s' },
+  listening: { a: '13s', b: '17s', c: '10s', breathe: '5s' },
+  thinking:  { a: '6s',  b: '8s',  c: '5s',  breathe: '2.4s' },
+  speaking:  { a: '9s',  b: '12s', c: '7s',  breathe: '3.2s' },
+};
+
+/**
+ * The living part of the screen — a swirl sphere.
+ *
+ * Glass with a few broad regions of colour suspended INSIDE it, meeting and
+ * bleeding into one another. Not ribbons and not relief: the previous version
+ * chased twisted foil through repeating conic gradients and hard-stopped
+ * ridges, which is a different object entirely.
+ *
+ * Four rules make it read as one solid ball rather than as stacked circles:
+ *
+ *  1. **Few blobs, and big.** Four regions, each wide enough to own a quarter of
+ *     the sphere. A longer list at smaller radius reads as spots.
+ *  2. **No edge anywhere.** Every blob is blurred far past its own radius, so
+ *     colour meets colour in a wide transition. An edge inside glass reads as a
+ *     decal stuck on the surface.
+ *  3. **A pale base, not white.** Colour needs something to be brighter than;
+ *     paper-white leaves nothing for it to lift off, which is how this ends up
+ *     a beige pearl.
+ *  4. **The coat is separate from the colour.** Rim, travelling glint and sheen
+ *     sit ON TOP of the clip, never inside it — that separation is what makes
+ *     the ball look wet rather than lit.
+ *
+ * Listening scales it with the measured mic level, so it reacts to *you*. The
+ * other states drift on their own, because the reply's loudness is never
+ * measured — the audio is scheduled on the Web Audio clock, not read back, and
+ * faking a waveform from nothing would be a lie in the one place the user is
+ * looking for feedback. Tempo carries the state instead.
+ */
+function Orb({
+  phase,
+  level,
+  working,
+  voice,
+}: {
+  phase: CallPhase;
+  level: number;
+  working: boolean;
+  /** The Live voice answering, when there is one. Only tints the sphere. */
+  voice?: string;
+}) {
+  const tempo = ORB_TEMPO[phase];
+  const hue = (voice && VOICE_PALETTE[voice]) || VOICE_PALETTE.Kore!;
+  // The mic only scales the sphere while listening; elsewhere the breathing
+  // keyframe owns the scale and the two would fight over the same property.
   const listening = phase === 'listening';
   const micScale = listening ? 1 + level * 0.14 : 1;
+
+  /**
+   * Tool work reads as CHURN, not as another speed.
+   *
+   * Spinning the whole ball faster is what it already does while thinking, so
+   * reusing that would say the same thing twice and mean neither. Only the
+   * colour INSIDE takes it, while the breathing and the glint keep the phase's
+   * tempo — so it composes: Feral can be speaking and searching at once, and
+   * the sphere shows both.
+   */
+  const churn = (d: string) => (working ? `${(parseFloat(d) / 2.6).toFixed(1)}s` : d);
+
+  /**
+   * One region of suspended colour.
+   *
+   * Oversized and blurred well beyond its radius: the blur is what turns four
+   * discs into one continuous swirl, so it is structural rather than
+   * decorative. `alternate` on the drift keeps a blob from ever completing a
+   * lap — a colour that returns to where it started reads as a rotating
+   * texture, which is the thing this is not.
+   */
+  const blob = (
+    colour: string,
+    at: string,
+    size: string,
+    blur: string,
+    duration: string,
+    delay = '0s',
+  ) => (
+    <div
+      aria-hidden
+      className="orb-motion absolute rounded-full"
+      style={{
+        width: size,
+        height: size,
+        left: `calc(${at.split(' ')[0]} - ${size} / 2)`,
+        top: `calc(${at.split(' ')[1]} - ${size} / 2)`,
+        background: `radial-gradient(circle, ${colour} 0%, transparent 68%)`,
+        filter: `blur(${blur})`,
+        animation: `orb-drift ${duration} ease-in-out ${delay} infinite alternate`,
+      }}
+    />
+  );
 
   return (
     <div className="relative flex h-60 w-60 items-center justify-center">
@@ -504,37 +650,112 @@ function Orb({ phase, level, working }: { phase: CallPhase; level: number; worki
           transform: `scale(${1 + (micScale - 1) * 1.8})`,
           background:
             // Cool, like the sphere it tracks — a brand-orange halo around a
-            // chrome ball on an orange field made the edge disappear entirely.
+            // glass ball on an orange field made the edge disappear entirely.
             'radial-gradient(circle, rgba(214,206,255,0.16) 42%, transparent 70%)',
         }}
       />
 
-      {/* The real sphere. If WebGL is unavailable it renders nothing and the
-          plain ball below stays visible — a call screen with an empty middle is
-          worse than an approximate one. */}
-      <Suspense fallback={null}>
-        <CallOrb3D
-          phase={phase}
-          level={level}
-          working={working}
-          onActive={setGl}
-        />
-      </Suspense>
-
-      {/* The fallback, and only that: one gradient ball, no bands and no
-          keyframes. Everything that made this a second implementation of the
-          sphere is gone — `CallOrb3D` is the sphere, and this is what is left
-          when it cannot run. */}
       <div
-        aria-hidden
-        className="relative h-44 w-44 rounded-full transition-transform duration-150"
-        style={{
-          transform: `scale(${micScale})`,
-          opacity: gl ? 0 : 1,
-          background: 'radial-gradient(circle at 46% 36%, #C9BEEE 0%, #8C7FC4 46%, #4A3E78 100%)',
-          boxShadow: '0 0 54px rgba(196, 186, 255, 0.34), 0 18px 44px rgba(60, 20, 8, 0.30)',
-        }}
-      />
+        className="relative h-44 w-44 transition-transform duration-150"
+        style={{ transform: `scale(${micScale})` }}
+      >
+        <div
+          className="orb-motion absolute inset-0 overflow-hidden rounded-full"
+          style={{
+            // The pale base the colour floats in. Faintly violet rather than
+            // white so the sphere still has a body where no blob reaches.
+            background: 'radial-gradient(circle at 42% 34%, #FBF8FF 0%, #E4DCF7 58%, #B9AEE0 100%)',
+            // Cool halo, so it separates from the orange field rather than
+            // melting into it.
+            boxShadow: '0 0 54px rgba(196, 186, 255, 0.34), 0 18px 44px rgba(60, 20, 8, 0.30)',
+            // Breathing lives on the clipping layer, not on the scaled wrapper, so
+            // it composes with the mic scale instead of overwriting it.
+            animation: `orb-breathe ${tempo.breathe} ease-in-out infinite`,
+          }}
+        >
+          {/* Violet owns the lower left and is the anchor: on an orange field a
+              cool mass is what keeps the sphere from dissolving into the
+              background. */}
+          {blob(`rgba(${hue.anchor}, 0.92)`, '32% 68%', '150%', '26px', churn(tempo.a))}
+          {/* Cyan across the top — the coldest note, and the one that makes the
+              violet read as violet rather than as grey. */}
+          {blob(`rgba(${hue.cool}, 0.85)`, '64% 24%', '125%', '24px', churn(tempo.b), '-4s')}
+          {/* One warm region only. Two would tie the ball to the field it sits
+              on and the edge would vanish. */}
+          {blob(`rgba(${hue.warm}, 0.78)`, '76% 66%', '115%', '28px', churn(tempo.c), '-9s')}
+          {/* A pale bloom that keeps the middle from turning muddy where the
+              other three overlap. */}
+          {blob('rgba(255, 255, 255, 0.75)', '40% 40%', '95%', '22px', churn(tempo.b), '-14s')}
+        </div>
+
+        {/* The glass, in three parts, all on top of the clip.
+            1. The rim: a bright hairline where the sphere's edge bends the light
+               back at you, and a dark inner floor so the bottom recedes. Without
+               these the colour reads as a flat disc.
+            2. The travelling glint: a real specular moves as a sphere turns, and
+               a fixed one is the clearest tell that this is a circle with a
+               gradient on it.
+            3. The broad sheen, which is what makes it look wet rather than lit. */}
+        {/* 1. The shell. A glass ball is not a lit ball: what says "glass" is a
+               hard bright hairline at the top edge, a DARK containing line all
+               the way round, and a floor that recedes. The dark ring is the one
+               most often left out, and without it the sphere has no boundary —
+               it just fades into whatever is behind it, which is what made this
+               read as painted plastic. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            boxShadow: [
+              'inset 0 2px 3px rgba(255,255,255,0.95)',
+              'inset 0 0 0 1px rgba(255,255,255,0.55)',
+              // The containing edge. Thin, cool, and darker than anything
+              // inside — glass has a boundary you can see.
+              'inset 0 0 0 2.5px rgba(58,44,104,0.28)',
+              'inset 0 -30px 44px rgba(58,46,110,0.42)',
+              'inset 0 22px 36px rgba(255,255,255,0.26)',
+              // Light that entered the top and pooled at the far wall: the
+              // bright crescent along the lower right, which is the single
+              // strongest glass cue in the reference.
+              'inset -14px -18px 26px rgba(255,255,255,0.42)',
+            ].join(', '),
+          }}
+        />
+
+        {/* 2. The caustic — light focused through the ball onto its own far
+               side. Small, bright, low and off-centre; it is what separates a
+               transparent sphere from an opaque one with a highlight. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background:
+              'radial-gradient(ellipse 26% 16% at 62% 84%, rgba(255,255,255,0.70) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          aria-hidden
+          className="orb-motion pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background:
+              // Tighter and brighter than a sheen: a specular is a REFLECTION of
+              // the light source, so it has an edge. Spread soft and wide, it
+              // reads as a matte surface catching light instead of a wet one.
+              'radial-gradient(circle at 33% 23%, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0.72) 5%, rgba(255,255,255,0.12) 15%, transparent 30%)',
+            animation: `orb-glint ${tempo.b} ease-in-out infinite`,
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            // A sheen should suggest a wet surface, not repaint it: at 0.30
+            // across the top third this was the layer washing the colour out.
+            background:
+              'radial-gradient(ellipse 52% 30% at 40% 14%, rgba(255,255,255,0.16) 0%, transparent 72%)',
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -550,14 +771,31 @@ function Orb({ phase, level, working }: { phase: CallPhase; level: number; worki
  * Pinning a voice is also what fixed replies arriving in two different voices —
  * see the split in `useCallSession`.
  */
-function VoicePicker({ engineId }: { engineId: string }) {
+function VoicePicker({
+  engineId,
+  load,
+  limit,
+  defaultVoiceId,
+}: {
+  engineId: string;
+  /** Where the list comes from. Defaults to the TTS catalog; a Live call passes
+   *  its own, because its voices are the model's, not a synthesiser's. */
+  load?: () => Promise<TtsVoice[]>;
+  /** How many rows to offer. A fixed, short vendor list wants all of them. */
+  limit?: number;
+  /** Which voice to pin when none is chosen yet. Without it the first row wins,
+   *  which for a fixed list means alphabetical order picks the default — and
+   *  the vendor's recommended voice is rarely the alphabetical one. */
+  defaultVoiceId?: string;
+}) {
   const t = useT();
   const chosen = useUI((s) => s.ttsVoice[engineId]);
   const setTtsVoice = useUI((s) => s.setTtsVoice);
-  // Rank by the language actually being spoken. `auto` means unknown, and then
-  // multilingual voices lead — they are the ones that work either way.
-  const spoken = useUI((s) => s.spokenLanguage);
-  const spokenLocale = spoken === 'auto' ? null : spoken;
+  // Ranked by the INTERFACE language, which is a safe hint here and was not one
+  // for the transcriber: this only decides which five voices are shown first,
+  // and every other voice stays reachable by id. Being wrong costs a scroll,
+  // not a mistranscribed sentence.
+  const spokenLocale = useUI((s) => s.language);
   const [voices, setVoices] = useState<TtsVoice[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [typed, setTyped] = useState('');
@@ -566,8 +804,7 @@ function VoicePicker({ engineId }: { engineId: string }) {
     let current = true;
     setVoices(null);
     setFailed(false);
-    tauri.voice
-      .ttsVoices(engineId)
+    (load ? load() : tauri.voice.ttsVoices(engineId))
       .then((list) => {
         if (!current) return;
         setVoices(list);
@@ -576,7 +813,8 @@ function VoicePicker({ engineId }: { engineId: string }) {
         // back in one voice and the next in another. A voice is always explicit
         // from here on; the user can change it, but not to "unspecified".
         if (!chosen && list.length > 0) {
-          const pick = preferredVoice(list, spokenLocale);
+          const pick =
+            list.find((v) => v.id === defaultVoiceId) ?? preferredVoice(list, spokenLocale);
           if (pick) setTtsVoice(engineId, pick.id);
         }
       })
@@ -614,7 +852,7 @@ function VoicePicker({ engineId }: { engineId: string }) {
     );
   }
 
-  const shortlist = shortlistVoices(voices, spokenLocale, chosen);
+  const shortlist = shortlistVoices(voices, spokenLocale, chosen, limit);
   const current = voices.find((v) => v.id === chosen);
 
   return (

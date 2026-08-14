@@ -22,12 +22,46 @@
  * of the signal here.
  *
  * Transform only, on one small layer, so the 4-stop gradient underneath is
- * never repainted. The sphere itself is WebGL (`CallOrb3D`); the keyframes that
- * used to animate a CSS copy of it went with the copy.
+ * never repainted.
  */
 @keyframes stage-drift {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
   50%      { transform: translate3d(-4%, 3%, 0) scale(1.14); }
+}
+
+/* ── The orb ───────────────────────────────────────────────────────────────
+ *
+ * A swirl sphere: a few broad regions of colour suspended inside glass, meeting
+ * and bleeding into one another. What makes it read as a solid ball rather than
+ * as stacked circles is that no blob ever completes a lap — `alternate` on the
+ * drift means each one wanders and comes back, while a full rotation would read
+ * as a texture spinning behind a window.
+ *
+ * `translate` and `scale` only — both composited, so this costs no layout and
+ * no paint per frame. The blur is a static filter on each layer, never
+ * animated: animating a filter re-rasterises every frame, which is what turns
+ * an orb like this into a fan-spinner.
+ *
+ * Speed comes from the component (`ORB_TEMPO`), not from separate keyframes:
+ * one set of motions driven faster or slower keeps idle, listening, thinking
+ * and speaking recognisably the same object.
+ */
+@keyframes orb-drift {
+  from { transform: translate(-7%, 4%) scale(1); }
+  to   { transform: translate(8%, -6%) scale(1.12); }
+}
+/* Breathing, so the sphere is never completely still. Idle should look alive
+   but not busy; the amplitude stays small enough to read as breath. */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+/* The travelling glint. A real specular highlight moves across a sphere as it
+   turns; a fixed one is the single clearest tell that the ball is a flat disc
+   with a gradient on it. */
+@keyframes orb-glint {
+  0%, 100% { transform: translate(-6%, -4%) scale(1); opacity: 0.9; }
+  50%      { transform: translate(8%, 6%) scale(1.15); opacity: 0.55; }
 }
 
 /* Motion is decoration here — the call's state is also carried by the status

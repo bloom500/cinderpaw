@@ -6,8 +6,8 @@
  *     with no module promoted the recall tool sees identical data);
  *   - a malformed module reply degrades to empty hits, never a throw;
  *   - planner: invoke-agent consults `plan` only when decomposition
- *     splits; module steps replace the `[Part k/N]` prompts; a malformed
- *     reply falls back to the builtin split byte-identically.
+ *     splits; module steps ARE the sub-prompts; with no module (or a
+ *     malformed reply) the prompt is asked once, not duplicated.
  */
 import { describe, expect, test } from "bun:test";
 import { makeInvokeAgent } from "../src/rsi/infra/invoke-agent.ts";
@@ -74,11 +74,13 @@ describe("retrieval mapping (§1.1)", () => {
 });
 
 describe("planner mapping (§1.2)", () => {
-  test("builtin steps mirror the historical [Part k/N] split", () => {
-    const steps = builtinPlanSteps("do the thing", 2);
-    expect(steps.map((s) => s.description)).toEqual([
-      "[Part 1/2]\ndo the thing",
-      "[Part 2/2]\ndo the thing",
+  test("the builtin does not decompose — it hands the goal back once", () => {
+    // It used to return n copies of the goal under a `[Part k/N]` prefix, which
+    // is the same question asked n times. invoke-agent joined the n identical
+    // answers, and Tier 0 graded THAT: every genome with decompositionDepth > 0
+    // failed on format alone and none could ever be promoted.
+    expect(builtinPlanSteps("do the thing")).toEqual([
+      { description: "do the thing", suggestedTools: [] },
     ]);
   });
 
@@ -127,7 +129,7 @@ describe("invoke-agent planner consultation", () => {
     expect(router.prompts.sort()).toEqual(["step one", "step two"]);
   });
 
-  test("null / throwing plan falls back to the builtin split byte-identically", async () => {
+  test("a null or throwing plan asks the question once, unaltered", async () => {
     for (const plan of [async () => null, async () => Promise.reject(new Error("boom"))]) {
       const router = fakeRouter();
       const invoke = makeInvokeAgent({
@@ -136,7 +138,7 @@ describe("invoke-agent planner consultation", () => {
         plan: plan as never,
       });
       await invoke("hello", GENOME(1));
-      expect(router.prompts.sort()).toEqual(["[Part 1/2]\nhello", "[Part 2/2]\nhello"]);
+      expect(router.prompts).toEqual(["hello"]);
     }
   });
 });

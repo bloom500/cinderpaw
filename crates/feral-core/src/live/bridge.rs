@@ -37,11 +37,31 @@ pub const ASK_FERAL: &str = "ask_feral";
 pub fn declarations() -> Vec<FunctionDeclaration> {
     vec![FunctionDeclaration {
         name: ASK_FERAL.to_string(),
-        description: "Ask Feral — the local agent — to do something you cannot do \
-            yourself: search the web, read or write files, run code, look something \
-            up in its memory, or recall what happened in earlier conversations. \
-            State the request in one sentence, the way you would to a colleague. \
-            It may take a while; keep talking to the user while you wait."
+        // Written as a TRIGGER, not as an offer, and that rewrite was paid for.
+        // It used to open "ask Feral to do something you cannot do yourself",
+        // which asks the model to first conclude it cannot — and on "search the
+        // web for ways to promote Feral" it concluded the opposite, answered
+        // from memory, and called nothing. Measured 2026-08-15: the tool was
+        // only reached when the user named it out loud.
+        //
+        // So the description states the absence of the capability as fact and
+        // lists the words that mean "call me". A model that believes it can
+        // already search will never reach a door labelled "for things you
+        // cannot do".
+        description: "The ONLY way you can reach the internet, this computer, or \
+            anything that happened before this call. You have no web access, no \
+            files and no memory of your own — without this call you are guessing \
+            from training data that may be years old.\n\n\
+            Call it whenever the user asks you to search, look up, check, find \
+            out, google, read, open, run, remember or recall anything — those \
+            words are instructions to call this tool, not topics to talk about. \
+            Call it too when they mention anything from an earlier conversation, \
+            anything on their machine, or any fact that could have changed since \
+            you were trained.\n\n\
+            Feral is the local agent and has real tools: web search, files, \
+            shell, memory. State the request in one sentence, the way you would \
+            to a colleague. It may take a while; keep talking to the user while \
+            you wait."
             .to_string(),
         parameters: serde_json::json!({
             "type": "object",

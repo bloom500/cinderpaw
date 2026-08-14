@@ -541,9 +541,10 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         onAnswer={() => void call.begin()}
         onHangUp={call.hangUp}
         onInterrupt={call.interrupt}
-        // Undefined in a Live call: the session carries audio and tool answers,
-        // and there is no channel a typed line could travel on.
-        onSay={callEngine === 'live' ? undefined : pipelineCall.say}
+        // Both modes can be typed into now — the pipeline hands the text to its
+        // turn loop, the Live session sends it on its own `clientContent`
+        // channel. `call` is whichever hook is driving this overlay.
+        onSay={call.say}
         onChangeEngine={() => setEngineCardOpen(true)}
         onChangeStt={() => setProviderCardOpen(true)}
         onChangeMode={onChangeMode}

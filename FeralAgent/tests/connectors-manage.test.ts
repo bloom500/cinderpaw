@@ -94,3 +94,98 @@ test("unknown connector id is rejected", async () => {
   expect(res.ok).toBe(false);
   expect(reloads()).toBe(0);
 });
+
+test("emptying a populated allowlist is refused — empty means NOBODY, not everyone", async () => {
+  // The failure this exists for, measured 2026-08-14: the agent was asked to
+  // configure a DIFFERENT bot, reached for this tool (the only one shaped like
+  // "manage a Discord bot"), cleared its own allowlist, announced that everyone
+  // could now talk to it, and went silent for four hours. The gate is
+  // `#allow.has(id)` over a Set built from this list — empty answers nobody.
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    JSON.stringify({
+      connectors: [
+        { id: "discord", enabled: true, secrets: { DISCORD_TOKEN: "t" }, allowlist: ["195569970095194113"] },
+      ],
+    }),
+    "utf8",
+  );
+  const { tool, reloads } = makeTool();
+  const res = await tool.execute({ action: "configure", id: "discord", allowlist: [] }, ctx);
+
+  expect(res.ok).toBe(false);
+  expect(res.error).toBe("would_lock_out");
+  // The refusal has to teach, or the next attempt is the same attempt.
+  expect(res.content).toContain("does NOT mean");
+  // Nothing was written and nothing was reloaded — the bot is still reachable.
+  const onDisk = JSON.parse(readFileSync(file, "utf8")) as { connectors: Array<{ allowlist: string[] }> };
+  expect(onDisk.connectors[0]!.allowlist).toEqual(["195569970095194113"]);
+  expect(reloads()).toBe(0);
+});
+
+test("blank entries do not sneak an allowlist to empty", async () => {
+  // `[""]` and `["  "]` are the same lockout with a different shape.
+  writeFileSync(
+    file,
+    JSON.stringify({ connectors: [{ id: "discord", enabled: true, allowlist: ["123"] }] }),
+    "utf8",
+  );
+  const { tool } = makeTool();
+  const res = await tool.execute({ action: "configure", id: "discord", allowlist: ["", "   "] }, ctx);
+  expect(res.ok).toBe(false);
+  expect(res.error).toBe("would_lock_out");
+});
+
+test("a real allowlist still saves, and ids are trimmed", async () => {
+  writeFileSync(
+    file,
+    JSON.stringify({ connectors: [{ id: "discord", enabled: true, allowlist: ["123"] }] }),
+    "utf8",
+  );
+  const { tool, reloads } = makeTool();
+  const res = await tool.execute(
+    { action: "configure", id: "discord", allowlist: [" 123 ", "456"] },
+    ctx,
+  );
+  expect(res.ok).toBe(true);
+  const onDisk = JSON.parse(readFileSync(file, "utf8")) as { connectors: Array<{ allowlist: string[] }> };
+  expect(onDisk.connectors[0]!.allowlist).toEqual(["123", "456"]);
+  expect(reloads()).toBe(1);
+});
+
+test("a first-time connector starts with no allowlist, and is TOLD it answers nobody", async () => {
+  // Refusing here would make the tool unable to connect anyone: on a first
+  // connection the user may not know their own id yet. So it saves — and warns
+  // in the result the model actually reads. Without this, a brand-new install
+  // gets a bot that shows online in Discord and ignores its owner forever,
+  // which is the same catastrophe as the lockout, moved to day one.
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  const { tool } = makeTool();
+  const res = await tool.execute(
+    { action: "configure", id: "discord", enabled: true, secrets: { DISCORD_TOKEN: "t" }, allowlist: [] },
+    ctx,
+  );
+  expect(res.ok).toBe(true);
+  expect(res.content).toContain("answers NOBODY");
+  expect(res.content).toContain("allowlist:");
+});
+
+test("a connector with someone on the list gets no scary warning", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  const { tool } = makeTool();
+  const res = await tool.execute(
+    { action: "configure", id: "discord", enabled: true, secrets: { DISCORD_TOKEN: "t" }, allowlist: ["42"] },
+    ctx,
+  );
+  expect(res.ok).toBe(true);
+  expect(res.content).not.toContain("answers NOBODY");
+});
+
+test("a zero allowlist announces itself at boot instead of reading as healthy", async () => {
+  // The connector logs in and shows as online in Discord either way. The only
+  // difference between "working" and "deaf to everyone" was this number.
+  const { allowSummary } = await import("../src/transports/connectors.ts");
+  expect(allowSummary(0)).toContain("NOBODY CAN REACH IT");
+  expect(allowSummary(2)).toBe("2 allowed");
+});

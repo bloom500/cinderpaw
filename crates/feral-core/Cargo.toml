@@ -50,6 +50,14 @@ whisper-rs = { version = "0.16", default-features = false, optional = true }
 # this build does not contain.
 piper-rs = { version = "0.2", optional = true }
 
+# Kokoro runs on the same two native pieces Piper already pulls — ONNX Runtime
+# for the model and espeak-ng for the G2P — so it is a second engine over one
+# toolchain rather than a second toolchain. Declared directly (rather than
+# leaning on piper-rs pulling them in) because `kokoro` must be buildable with
+# `piper` off; the versions are the ones already in the lockfile.
+ort = { version = "=2.0.0-rc.12", optional = true }
+espeak-rs = { version = "0.2", optional = true }
+
 # Utilities
 anyhow = "1"
 thiserror = "1"
@@ -121,6 +129,8 @@ whisper = ["dep:whisper-rs"]
 # On-device TTS. Off by default so `cargo check` stays fast and a broken native
 # toolchain cannot block the whole workspace; the desktop build turns it on.
 piper = ["dep:piper-rs"]
+# The other on-device engine. Same native pieces as Piper, its own model.
+kokoro = ["dep:ort", "dep:espeak-rs"]
 
 [dev-dependencies]
 tempfile = "3"

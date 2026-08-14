@@ -791,12 +791,12 @@ const raw = {
     invoke<boolean>('tts_ready', { providerId }),
   ttsVoices:                (providerId: string) =>
     invoke<TtsVoice[]>('tts_voices', { providerId }),
-  piperVoicePresent:        (voice: string) =>
-    invoke<boolean>('piper_voice_present', { voice }),
-  // Idempotent — returns immediately if the voice is already on disk. Progress
-  // streams over `feral://piper-download-*`.
-  downloadPiperVoice:       (voice: string) =>
-    invoke<string>('download_piper_voice', { voice }),
+  ttsVoicePresent:          (engine: string, voice: string) =>
+    invoke<boolean>('tts_voice_present', { engine, voice }),
+  // Idempotent — returns immediately if everything the engine needs is already
+  // on disk. Progress streams over `feral://tts-download-*`.
+  downloadTtsVoice:         (engine: string, voice: string) =>
+    invoke<string>('download_tts_voice', { engine, voice }),
   // Resolves when SYNTHESIS ends (with the PCM byte count), not when playback
   // does — audio arrives on `feral://tts-chunk` and the webview owns the clock.
   speakText:                (sessionId: string, text: string, provider?: string, voice?: string) =>
@@ -812,10 +812,13 @@ const raw = {
   //
   // Audio comes back on `feral://tts-chunk` like every other engine's, at the
   // rate carried in the event; everything else arrives on `feral://live-status`.
-  startLiveCall:            (sessionId: string, brief?: { model?: string; currentTask?: string; workspace?: string; context?: string }) =>
+  startLiveCall:            (sessionId: string, brief?: { model?: string; voice?: string; currentTask?: string; workspace?: string; context?: string }) =>
     invoke<void>('start_live_call', {
       sessionId,
       model: brief?.model ?? null,
+      // The voice is pinned for the whole session: absent, the server picks one
+      // per call and the same assistant answers in a different voice tomorrow.
+      voice: brief?.voice ?? null,
       currentTask: brief?.currentTask ?? null,
       workspace: brief?.workspace ?? null,
       context: brief?.context ?? null,
@@ -823,6 +826,10 @@ const raw = {
   // Base64 of 16 kHz mono 16-bit LE PCM. Base64 and not a byte array because
   // Tauri's IPC serialises `Vec<u8>` as a JSON array of numbers.
   sendLiveAudio:            (pcm: string) => invoke<void>('send_live_audio', { pcm }),
+  // A typed turn into the running call, for what dictation mangles.
+  sendLiveText:             (text: string) => invoke<void>('send_live_text', { text }),
+  // The prebuilt voices a Live call can be pinned to.
+  liveVoices:               () => invoke<string[]>('live_voices'),
   // Idempotent: hanging up twice is not an error.
   endLiveCall:              () => invoke<void>('end_live_call'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
@@ -905,8 +912,8 @@ export const tauri = {
     ttsHasKey:     async (providerId: string) => raw.ttsHasKey(providerId),
     ttsReady:      async (providerId: string) => raw.ttsReady(providerId),
     ttsVoices:     async (providerId: string) => raw.ttsVoices(providerId),
-    piperPresent:  async (voice: string) => raw.piperVoicePresent(voice),
-    piperDownload: async (voice: string) => raw.downloadPiperVoice(voice),
+    voicePresent:  async (engine: string, voice: string) => raw.ttsVoicePresent(engine, voice),
+    voiceDownload: async (engine: string, voice: string) => raw.downloadTtsVoice(engine, voice),
     // An empty `apiKey` means "leave the stored key untouched" all the way down
     // to the keychain, so re-saving only a region cannot wipe a working key.
     saveTtsKey:    async (providerId: string, apiKey: string, baseUrl?: string, model?: string) =>

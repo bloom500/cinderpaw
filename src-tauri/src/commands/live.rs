@@ -67,6 +67,7 @@ pub(crate) async fn start_live_call(
     state: State<'_, AppState>,
     session_id: String,
     model: Option<String>,
+    voice: Option<String>,
     current_task: Option<String>,
     workspace: Option<String>,
     context: Option<String>,
@@ -84,6 +85,8 @@ pub(crate) async fn start_live_call(
         system_instruction: Some(live::system_instruction(&brief)),
         tools: bridge::declarations(),
         resume: None,
+        voice,
+        pin_voice: true,
     };
     let handle = live::connect(cfg.clone()).await.map_err(|e| e.to_string())?;
 
@@ -133,10 +136,26 @@ async fn supervise(
     let mut recent: std::collections::VecDeque<std::time::Instant> = Default::default();
     let mut handle = first;
     let mut total = 0u32;
+    let mut pin_voice = true;
 
     loop {
         let ended = pump(app.clone(), session_id.clone(), handle.commands.clone(), handle.events).await;
-        let Some(token) = ended else { return };
+        let Some((token, reason)) = ended else { return };
+
+        // The server's way of saying "a field you asked for is not supported
+        // here" is to kill the audio stream rather than refuse the setup.
+        // Measured 2026-08-15: a call with `speechConfig` ran twenty seconds and
+        // closed with "The audio content type (CONTENT_TYPE_AUDIO) is not
+        // supported for this model configuration" — the same sentence
+        // `contextWindowCompression` produced before it was removed. So the
+        // voice pin is dropped for the rest of this call rather than dying every
+        // twenty seconds in the right voice.
+        if pin_voice && reason.contains("CONTENT_TYPE_AUDIO") {
+            tracing::warn!(
+                "live: the model refused the pinned voice — continuing in the server's default",
+            );
+            pin_voice = false;
+        }
 
         let now = std::time::Instant::now();
         while recent.front().is_some_and(|t| now.duration_since(*t) > LOOP_WINDOW) {
@@ -159,6 +178,7 @@ async fn supervise(
 
         let mut next_cfg = cfg.clone();
         next_cfg.resume = Some(token);
+        next_cfg.pin_voice = pin_voice;
         match live::connect(next_cfg).await {
             Ok(next) => {
                 // The slot is what the microphone writes into. Swapping it here
@@ -192,7 +212,7 @@ async fn pump(
     session_id: String,
     commands: mpsc::Sender<LiveCommand>,
     mut events_rx: mpsc::Receiver<CoreEvent>,
-) -> Option<String> {
+) -> Option<(String, String)> {
     // The turn being spoken, from both sides, until the model says it is done.
     let mut heard = String::new();
     let mut said = String::new();
@@ -351,7 +371,7 @@ async fn pump(
             // in the middle of a sentence.
             CoreEvent::Closed { reason, resume: Some(token) } => {
                 tracing::info!(reason = %reason, "live: socket ended, resuming");
-                return Some(token);
+                return Some((token, reason));
             }
             other => emit_status(&app, &session_id, other),
         }
@@ -455,6 +475,36 @@ pub(crate) async fn send_live_audio(state: State<'_, AppState>, pcm: String) -> 
 /// a tool call; absolute values mean nothing.
 static MIC_FRAMES: AtomicU64 = AtomicU64::new(0);
 static MIC_BLOCKED_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Send a typed turn into the running call.
+///
+/// The way back to text for what dictation mangles — a URL, a name, an error
+/// string. It goes on the session's own text channel rather than through the
+/// agent: the model is conducting this conversation, so a line that bypassed it
+/// would be answered twice, once by each side.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn send_live_text(
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+    let sender = state.live_call.lock().clone();
+    let Some(sender) = sender else { return Err("live-not-started".into()) };
+    sender
+        .send(LiveCommand::Text(text))
+        .await
+        .map_err(|_| "live-closed".to_string())
+}
+
+/// The voices a Live call can be pinned to, for the picker.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn live_voices() -> Vec<String> {
+    live::VOICES.iter().map(|v| v.to_string()).collect()
+}
 
 /// Hang up. Idempotent — hanging up twice is not an error, and a UI that has to
 /// track whether it already did would get it wrong on the path that matters

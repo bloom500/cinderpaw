@@ -41,16 +41,21 @@ export function finalTokenStats(
   };
 }
 
+/** How a spoken answer is shaped, whatever tools the turn has. */
+const VOICE_SHAPE = [
+  '- Two or three sentences. If the full answer is longer, say the short version and offer the rest.',
+  '- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.',
+  '- No preamble and no summary of what you are about to say — just say it.',
+  '- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.',
+].join('\n');
+
 /**
- * What a good answer is when it will be spoken out loud.
+ * The brief for a call that CAN act: search, read, run things.
  *
- * Mirrors the sidecar's brief in `FeralAgent/src/dispatch.ts` — the agent path
- * receives it as a surface drawer, the plain chat path as a system-prompt suffix.
- * Kept as two copies rather than one shared file because the two live on opposite
- * sides of a process boundary; if they drift, the symptom is a spoken answer that
- * reads like a document, which is exactly what this fixes.
+ * The point is that being brief is a property of the words, not of the work — a
+ * spoken answer that skipped the lookup is just a faster wrong answer.
  */
-export const VOICE_SURFACE_BRIEF = [
+const VOICE_WITH_TOOLS = [
   'This turn is a VOICE CALL: your answer will be read out loud by a speech engine,',
   'and the person is listening, not reading.',
   '',
@@ -58,11 +63,42 @@ export const VOICE_SURFACE_BRIEF = [
   'every tool exactly as you would in a typed conversation, and do the work before',
   'answering. Being brief is about the words, never about doing less.',
   '',
-  '- Two or three sentences. If the full answer is longer, say the short version and offer the rest.',
-  '- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.',
-  '- No preamble and no summary of what you are about to say — just say it.',
-  '- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.',
+  VOICE_SHAPE,
 ].join('\n');
+
+/**
+ * The brief for a call that has NO tools, and the reason this pair exists.
+ *
+ * A voice call in chat mode with no tools enabled was still told to "search,
+ * read files, run commands". It has none, so the only thing it can do is SAY it
+ * searched — and the tool panel stays empty because nothing ran. From the
+ * listener's side that is indistinguishable from broken telemetry, and it is
+ * worse than a missing feature: it is the agent claiming work it did not do.
+ */
+const VOICE_WITHOUT_TOOLS = [
+  'This turn is a VOICE CALL: your answer will be read out loud by a speech engine,',
+  'and the person is listening, not reading.',
+  '',
+  'You have NO tools this turn: you cannot search the web, read files or run',
+  'anything. Answer from what you already know. If the answer needs a lookup you',
+  'cannot do, say so plainly in one sentence — never describe searching, checking',
+  'or looking something up, because none of that is happening.',
+  '',
+  VOICE_SHAPE,
+].join('\n');
+
+/**
+ * What a good answer is when it will be spoken out loud.
+ *
+ * Mirrors the sidecar's brief in `FeralAgent/src/dispatch.ts` — the agent path
+ * receives it as a surface drawer, the plain chat path as a system-prompt suffix.
+ * Kept as two copies rather than one shared file because the two live on
+ * opposite sides of a process boundary; if they drift, the symptom is a spoken
+ * answer that reads like a document, which is exactly what this fixes.
+ */
+export function voiceSurfaceBrief(hasTools: boolean): string {
+  return hasTools ? VOICE_WITH_TOOLS : VOICE_WITHOUT_TOOLS;
+}
 
 export function buildUserContent(text: string, files: AttachedFile[]): string {
   const textFiles = files.filter((f) => f.content !== null);
@@ -189,7 +225,10 @@ export function useSendMessage() {
       // gets this as a surface brief from the sidecar; the plain chat path has no
       // sidecar, so it goes into the system prompt here — same words, same reason.
       if (opts?.surface === 'voice') {
-        params.system_prompt = [params.system_prompt, VOICE_SURFACE_BRIEF]
+        // WHICH brief depends on whether this turn actually has tools. Telling a
+        // toolless call to "search the web" is how the agent ends up narrating
+        // work it never did, while the tool panel stays correctly empty.
+        params.system_prompt = [params.system_prompt, voiceSurfaceBrief(effectiveEnabledTools.length > 0)]
           .filter(Boolean)
           .join('\n\n');
       }
@@ -395,15 +434,14 @@ export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
  * "voice-unavailable") propagate to the caller for toast handling.
  */
 export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promise<string> {
-  const { whisperModel, sttProvider, spokenLanguage } = useUI.getState();
+  const { whisperModel, sttProvider } = useUI.getState();
   if (sttProvider === 'groq') {
-    // The language the user SPEAKS, never the language the interface is in: an
-    // English UI forced `language=en` on Romanian speech and turned "Salut,
-    // Feral" into "Pozdvormiu Română!". `auto` sends no hint and lets Groq guess,
-    // which is the right default and the wrong answer for two quiet words — hence
-    // a setting rather than an inference.
-    const hint = spokenLanguage === 'auto' ? undefined : spokenLanguage;
-    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq', hint);
+    // No language is ever sent. Whisper's `language` is an ORDER, not a hint:
+    // an English UI once forced `language=en` on Romanian speech and turned
+    // "Salut, Feral" into "Pozdvormiu Română!", and a stored preference is the
+    // same mistake with the user's name on it. Detection runs per request, so a
+    // wrong guess costs one turn instead of every turn after it.
+    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq', undefined);
     console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
     return transcript;
   }

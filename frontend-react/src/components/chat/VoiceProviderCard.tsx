@@ -33,8 +33,6 @@ export function VoiceProviderCard({
   const t = useT();
   const sttProvider = useUI((s) => s.sttProvider);
   const setSttProvider = useUI((s) => s.setSttProvider);
-  const spokenLanguage = useUI((s) => s.spokenLanguage);
-  const setSpokenLanguage = useUI((s) => s.setSpokenLanguage);
 
   const [choice, setChoice] = useState<SttProvider>(sttProvider ?? 'local');
   const [groqKey, setGroqKey] = useState('');
@@ -116,30 +114,11 @@ export function VoiceProviderCard({
             </div>
           ))}
 
-        {/* The language you SPEAK. Separate from the interface language on
-            purpose: an English UI with a Romanian speaker is the normal case here,
-            and inferring one from the other made Whisper transcribe Romanian
-            through English phonetics. */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-text-muted">{t('voice.spoken.title')}</span>
-          <div className="flex overflow-hidden rounded-lg border border-border-default">
-            {(['auto', 'ro', 'en'] as const).map((code) => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setSpokenLanguage(code)}
-                className={cn(
-                  'flex-1 px-3 py-1.5 text-xs transition-colors',
-                  spokenLanguage === code
-                    ? 'bg-bg-hover text-text-primary'
-                    : 'text-text-muted hover:text-text-secondary',
-                )}
-              >
-                {code === 'auto' ? t('voice.spoken.auto') : code === 'ro' ? 'Română' : 'English'}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* No "language you speak" picker. Detection is the transcriber's job
+            and it does it per request; a setting here only gave someone a way to
+            be wrong about themselves, and a wrong value is an ORDER to Whisper,
+            not a hint — it transcribes Romanian through English phonetics and
+            never recovers. */}
 
         <DialogFooter>
           <Button onClick={() => void confirm()} disabled={needsKey || saving}>

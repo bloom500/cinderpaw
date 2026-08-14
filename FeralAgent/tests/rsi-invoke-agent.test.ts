@@ -243,6 +243,13 @@ describe("makeInvokeAgent — return shape", () => {
 });
 
 describe("makeInvokeAgent — decomposition", () => {
+  /** A planner that really splits: one step per requested part. */
+  const splitter = async (req: { goal: string; maxDepth: number }) =>
+    Array.from({ length: req.maxDepth }, (_, k) => ({
+      description: `step ${k + 1} of ${req.goal}`,
+      suggestedTools: [],
+    }));
+
   test("decompositionDepth=0 issues a single call", async () => {
     const router = new FakeRouter();
     const invoke = makeInvokeAgent({
@@ -253,7 +260,39 @@ describe("makeInvokeAgent — decomposition", () => {
     expect(router.calls.length).toBe(1);
   });
 
-  test("decompositionDepth=1 issues 2 parallel calls, joined with blank lines", async () => {
+  test("without a planner, ANY depth still issues one call with the prompt intact", async () => {
+    // The bug this pins, measured live on the VPS: the builtin fallback
+    // manufactured `n` copies of the same prompt under a `[Part k/N]` prefix
+    // and joined the `n` identical answers, so a genome with depth 3 was
+    // graded on `{"answer": 7} {"answer": 7} {"answer": 7} {"answer": 7}`.
+    // Every Tier 0 format spec failed, the confidence gate rejected every
+    // candidate, and nothing could ever be promoted — at 4x the tokens.
+    // Splitting a prompt needs a planner; with none, do not split.
+    const router = new FakeRouter();
+    router.setNextResponses([{ content: '{"answer": 7}', totalTokens: 5 }]);
+    const invoke = makeInvokeAgent({ router, getSystemPrompt: () => "sys" });
+    const out = await invoke("What is 3 + 4?", makeGenome({ decompositionDepth: 3 }));
+    expect(router.calls.length).toBe(1);
+    expect(router.calls[0]!.messages[1]!.content).toBe("What is 3 + 4?");
+    expect(out.response).toBe('{"answer": 7}');
+  });
+
+  test("a planner that fails does not cost the eval its answer", async () => {
+    const router = new FakeRouter();
+    router.setNextResponses([{ content: "answered anyway", totalTokens: 3 }]);
+    const invoke = makeInvokeAgent({
+      router,
+      getSystemPrompt: () => "sys",
+      plan: async () => {
+        throw new Error("planner module blew up");
+      },
+    });
+    const out = await invoke("x", makeGenome({ decompositionDepth: 2 }));
+    expect(router.calls.length).toBe(1);
+    expect(out.response).toBe("answered anyway");
+  });
+
+  test("with a planner, depth=1 issues 2 parallel calls, joined with blank lines", async () => {
     const router = new FakeRouter();
     router.setNextResponses([
       { content: "part-a", totalTokens: 5 },
@@ -262,6 +301,7 @@ describe("makeInvokeAgent — decomposition", () => {
     const invoke = makeInvokeAgent({
       router,
       getSystemPrompt: () => "sys",
+      plan: splitter,
     });
     const out = await invoke("x", makeGenome({ decompositionDepth: 1 }));
     expect(router.calls.length).toBe(2);
@@ -269,7 +309,7 @@ describe("makeInvokeAgent — decomposition", () => {
     expect(out.tokens).toBe(5 + 7);
   });
 
-  test("each sub-call is prefixed [Part k/N]", async () => {
+  test("the planner's steps ARE the sub-prompts", async () => {
     const router = new FakeRouter();
     router.setNextResponses([
       { content: "x", totalTokens: 1 },
@@ -279,12 +319,15 @@ describe("makeInvokeAgent — decomposition", () => {
     const invoke = makeInvokeAgent({
       router,
       getSystemPrompt: () => "sys",
+      plan: splitter,
     });
     await invoke("base", makeGenome({ decompositionDepth: 2 }));
     expect(router.calls.length).toBe(3);
-    expect(router.calls[0]!.messages[1]!.content).toBe("[Part 1/3]\nbase");
-    expect(router.calls[1]!.messages[1]!.content).toBe("[Part 2/3]\nbase");
-    expect(router.calls[2]!.messages[1]!.content).toBe("[Part 3/3]\nbase");
+    expect(router.calls.map((c) => c.messages[1]!.content)).toEqual([
+      "step 1 of base",
+      "step 2 of base",
+      "step 3 of base",
+    ]);
   });
 
   test("decompositionDepth is capped at maxDecomposition", async () => {
@@ -293,6 +336,7 @@ describe("makeInvokeAgent — decomposition", () => {
       router,
       getSystemPrompt: () => "sys",
       maxDecomposition: 2,
+      plan: splitter,
     });
     await invoke("x", makeGenome({ decompositionDepth: 10 }));
     expect(router.calls.length).toBe(2);
@@ -304,6 +348,7 @@ describe("makeInvokeAgent — decomposition", () => {
       router,
       getSystemPrompt: () => "sys",
       sessionIdFor: (id) => `rsi-${id}`,
+      plan: splitter,
     });
     await invoke("x", makeGenome({ decompositionDepth: 2 }, "g7"));
     const ids = router.calls.map((c) => c.sessionId);
@@ -436,7 +481,16 @@ describe("makeInvokeAgent — the grader sees the answer, not the reasoning", ()
       { content: "<think>hmm", totalTokens: 10 },
       { content: "<think>ok</think>second answer", totalTokens: 20 },
     ]);
-    const res = await invokeWith(router)("x", makeGenome({ decompositionDepth: 1 }));
+    const invoke = makeInvokeAgent({
+      router,
+      getSystemPrompt: () => "sys",
+      // Decomposition only happens when a planner produces the parts.
+      plan: async (req) => [
+        { description: `a ${req.goal}`, suggestedTools: [] },
+        { description: `b ${req.goal}`, suggestedTools: [] },
+      ],
+    });
+    const res = await invoke("x", makeGenome({ decompositionDepth: 1 }));
     expect(res.response).toContain("second answer");
     expect(res.response).not.toContain("hmm");
   });

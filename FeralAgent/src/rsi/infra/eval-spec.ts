@@ -161,7 +161,23 @@ function factLookupOk(response: string, answer: string): boolean {
   return r.includes(a);
 }
 
-/** Collapse whitespace and lowercase — matches Rust's `normalise`. */
+/**
+ * Collapse whitespace, fold compatibility forms, lowercase.
+ *
+ * `NFKC` is the whole reason this is not a one-liner, and it is doing real
+ * work: asked for the chemical formula of water, the model answers **`H₂O`**
+ * with a Unicode subscript, while the frozen spec expects `h2o`. A correct
+ * answer was being graded wrong — and because that spec is Tier 0, one
+ * typographic flourish breached the sanity floor and blocked every promotion.
+ *
+ * NFKC is the standard answer to exactly this class: it maps subscripts and
+ * superscripts to their ASCII digits, fullwidth Latin to ASCII, ligatures to
+ * their letters. It cannot turn a wrong answer into a right one — it only
+ * removes the ways of writing the SAME answer differently.
+ *
+ * Rust's `normalise` (tier0.rs) does not fold, so a Tier 0 spec graded on that
+ * side is still literal. This is the side that grades the live eval suite.
+ */
 function normalise(s: string): string {
-  return s.trim().split(/\s+/).join(" ").toLowerCase();
+  return s.normalize("NFKC").trim().split(/\s+/).join(" ").toLowerCase();
 }

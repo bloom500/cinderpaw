@@ -346,14 +346,14 @@ export const events = {
    * the same channels in the future.
    */
   /**
-   * On-device voice (Piper) download. Same `Download*Event` payload shape as
+   * On-device voice download (Piper, Kokoro). Same `Download*Event` shape as
    * every other download channel; `filename` carries the voice id, and the
    * config file is fetched silently before the model so the bar does not jump to
    * 100% for a few kilobytes and then restart.
    */
-  onPiperDownloadProgress: wrap<DownloadProgressEvent>('feral://piper-download-progress'),
-  onPiperDownloadComplete: wrap<DownloadCompleteEvent>('feral://piper-download-complete'),
-  onPiperDownloadError:    wrap<DownloadErrorEvent>('feral://piper-download-error'),
+  onTtsDownloadProgress: wrap<DownloadProgressEvent>('feral://tts-download-progress'),
+  onTtsDownloadComplete: wrap<DownloadCompleteEvent>('feral://tts-download-complete'),
+  onTtsDownloadError:    wrap<DownloadErrorEvent>('feral://tts-download-error'),
   onEmbeddingDownloadProgress: wrap<DownloadProgressEvent>('feral://embedding-download-progress'),
   onEmbeddingDownloadComplete: wrap<DownloadCompleteEvent>('feral://embedding-download-complete'),
   onEmbeddingDownloadError:    wrap<DownloadErrorEvent>('feral://embedding-download-error'),

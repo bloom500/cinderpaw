@@ -70,10 +70,13 @@ export function createConnectorsManageTool(
   const manifest: ToolManifest = {
     name: "connectors_manage",
     description:
-      "List or configure Feral's messaging connectors (Discord, Slack, WhatsApp). " +
-      "Use action 'list' to see what's supported and what each needs; use " +
-      "'configure' with an id (and secrets/allowlist if required) to connect or " +
-      "disconnect. Changes apply immediately. Secrets are stored, never echoed.",
+      "Configure YOUR OWN messaging connectors (Discord, Slack, WhatsApp) — the " +
+      "accounts you yourself speak through. This does NOT configure any other " +
+      "bot: if the user asks you to set up a different bot, this tool changes " +
+      "you instead, and the usual result is that you go silent. Use action " +
+      "'list' to see what's supported and what each needs; 'configure' with an " +
+      "id (and secrets/allowlist if required) to connect or disconnect. Changes " +
+      "apply immediately. Secrets are stored, never echoed.",
     permissions: [],
     networkAccess: false,
   };
@@ -105,7 +108,11 @@ export function createConnectorsManageTool(
       },
       allowlist: {
         type: "array",
-        description: "User ids/handles allowed to talk to the agent (configure). Empty = owner-only defaults per connector.",
+        description:
+          "The ONLY user ids this connector answers (configure). Not a filter on " +
+          "top of an open door — it IS the door: an id that is not listed gets no " +
+          "reply at all. An empty list therefore means NOBODY, not everyone, and " +
+          "is refused. Send the full list you want, including yourself.",
         required: false,
         schema: { type: "array", items: { type: "string" } },
       },
@@ -153,7 +160,35 @@ export function createConnectorsManageTool(
         }
       }
       if (Array.isArray(args.allowlist)) {
-        row.allowlist = (args.allowlist as unknown[]).filter((x): x is string => typeof x === "string");
+        const next = (args.allowlist as unknown[])
+          .filter((x): x is string => typeof x === "string")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        // An empty allowlist is not "everyone" — it is NOBODY.
+        //
+        // `ConnectorManager` builds `new Set(allowlist)` and answers only ids in
+        // it, so clearing the list makes the connector deaf to every human,
+        // including whoever is asking. This is not hypothetical: on 2026-08-14
+        // this agent cleared its own Discord allowlist, announced "orice user
+        // primește răspuns", and went silent for four hours. The only signal was
+        // `(0 allowed)` in a log line nobody reads.
+        //
+        // Refused rather than corrected, because the two things the caller might
+        // have meant — "let everyone in" and "lock it down" — are opposites, and
+        // guessing between them is how the bot goes quiet again.
+        if (next.length === 0 && (row.allowlist?.length ?? 0) > 0) {
+          return {
+            ok: false,
+            content:
+              `Refusing to empty ${id}'s allowlist. Empty does NOT mean "everyone" — ` +
+              `the connector answers only ids on the list, so clearing it makes ${id} ` +
+              `ignore every message, including yours, with no error anywhere. ` +
+              `To keep it open to specific people, pass their ids. To take someone off, ` +
+              `pass the list without them. Current list: ${JSON.stringify(row.allowlist)}.`,
+            error: "would_lock_out",
+          };
+        }
+        row.allowlist = next;
       }
       if (Array.isArray(args.channels)) {
         row.channels = (args.channels as unknown[]).filter((x): x is string => typeof x === "string");
@@ -169,12 +204,24 @@ export function createConnectorsManageTool(
         (k) => !row.secrets?.[k]?.trim() && !(id === "discord" && row.token?.trim()),
       );
       const state = redact(row, id);
+      // An enabled connector with nobody on the allowlist is the failure this
+      // whole file now guards against, and refusing it outright is not an
+      // option: on a first connection the user may not know their own id yet,
+      // and blocking here would leave them unable to connect at all. So it
+      // saves, and says — in the result the model reads, not only in a log line
+      // it never sees — that the bot it just brought online answers no one.
+      const deaf = row.enabled && (row.allowlist?.length ?? 0) === 0;
       const hint =
         row.enabled && missing.length > 0
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
-          : id === "whatsapp" && row.enabled
-            ? " WhatsApp pairs via QR — tell the user to scan the code in the Feral app (Connectors page or TUI)."
-            : "";
+          : deaf
+            ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
+              `answers NOBODY — not "everyone". Ask the user for their ${id} user id ` +
+              `and call configure again with allowlist:["<their id>"], or the bot will ` +
+              `look connected and silently ignore every message, including theirs.`
+            : id === "whatsapp" && row.enabled
+              ? " WhatsApp pairs via QR — tell the user to scan the code in the Feral app (Connectors page or TUI)."
+              : "";
       return {
         ok: true,
         content: `Saved and reloaded.${hint}\n${JSON.stringify(state, null, 2)}`,

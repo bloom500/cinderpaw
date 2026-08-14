@@ -17,27 +17,52 @@ import { events } from '@/lib/tauri/events';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
-/** The voice a fresh install downloads. Romanian, and the only free engine that
- *  offers it — mirrors `feral_core::tts::piper::DEFAULT_VOICE`. */
-const PIPER_DEFAULT_VOICE = 'ro_RO-mihai-medium';
-
 /**
- * The Romanian voices, offered by name.
+ * Per on-device engine: what a fresh setup downloads, a few voices worth
+ * offering by name, and the credit their licence requires.
  *
- * Mirrors `paths::PIPER_EXTRA_VOICES` plus the one the official repo ships.
- * Without it this step is a text box that only works if you already know the id
- * to type — which in practice meant one voice for everyone, male and medium.
+ * Without the shortlist this step is a text box that only works if you already
+ * know the id to type — which in practice meant one voice for everyone. Typing
+ * an id still reaches every other voice the engine has.
  *
- * The `-medium` variants of lili and sanda exist upstream and are deliberately
- * left out: `-high` exists for both, so listing both doubles the row and asks a
- * question the user has no way to answer. Typing the id still downloads them.
+ * The defaults mirror Rust (`tts::piper::DEFAULT_VOICE`, `tts::kokoro::
+ * DEFAULT_VOICE`); nothing else here is duplicated from it.
  */
-const PIPER_RO_VOICES: Array<{ id: string; label: string }> = [
-  { id: PIPER_DEFAULT_VOICE, label: 'mihai · medium' },
-  { id: 'ro_RO-raluca-high', label: 'raluca · high' },
-  { id: 'ro_RO-lili-high', label: 'lili · high' },
-  { id: 'ro_RO-sanda-high', label: 'sanda · high' },
-];
+const LOCAL_VOICES: Record<
+  string,
+  { fallback: string; offer: Array<{ id: string; label: string }>; credit?: string }
+> = {
+  piper: {
+    // Romanian, because the person this was built for speaks it and Piper is
+    // the only free engine that has it at all.
+    fallback: 'ro_RO-mihai-medium',
+    // The `-medium` variants of lili and sanda exist upstream and are left out:
+    // `-high` exists for both, so listing both doubles the row and asks a
+    // question the user has no way to answer.
+    offer: [
+      { id: 'ro_RO-mihai-medium', label: 'mihai · medium' },
+      { id: 'ro_RO-raluca-high', label: 'raluca · high' },
+      { id: 'ro_RO-lili-high', label: 'lili · high' },
+      { id: 'ro_RO-sanda-high', label: 'sanda · high' },
+    ],
+    credit: 'raluca / lili / sanda — eduardem, CC BY-NC 4.0',
+  },
+  kokoro: {
+    fallback: 'af_heart',
+    // English only, and that is the whole trade against Piper: a better voice
+    // in a language the user may not want to be answered in.
+    offer: [
+      { id: 'af_heart', label: 'heart · US' },
+      { id: 'af_bella', label: 'bella · US' },
+      { id: 'am_michael', label: 'michael · US' },
+      { id: 'bf_emma', label: 'emma · UK' },
+    ],
+  },
+};
+
+/** The voice used when the field is left empty, for whichever engine is selected. */
+const defaultVoiceFor = (engineId?: string) =>
+  (engineId ? LOCAL_VOICES[engineId]?.fallback : undefined) ?? '';
 
 /**
  * First-call chooser for the voice that answers you.
@@ -136,13 +161,15 @@ export function VoiceEngineCard({
       return;
     }
     let current = true;
-    const voice = model.trim() || PIPER_DEFAULT_VOICE;
+    const voice = model.trim() || defaultVoiceFor(selected?.id);
     tauri.voice
-      .piperPresent(voice)
+      .voicePresent(selected?.id ?? '', voice)
       .then((present) => { if (current) setVoiceReady(present); })
       .catch(() => { if (current) setVoiceReady(null); });
     return () => { current = false; };
-  }, [open, needsVoice, model]);
+    // `selected?.id` matters: switching engines changes both which voice is the
+    // default and who is asked whether it is present.
+  }, [open, needsVoice, model, selected?.id]);
 
   // Download progress. Listeners live while the card is open rather than while a
   // download runs: `listen` is async, and a fast first chunk would otherwise
@@ -161,12 +188,12 @@ export function VoiceEngineCard({
       });
     };
 
-    track(events.onPiperDownloadProgress, (p: { progress: number }) => setDownloading(p.progress));
-    track(events.onPiperDownloadComplete, () => {
+    track(events.onTtsDownloadProgress, (p: { progress: number }) => setDownloading(p.progress));
+    track(events.onTtsDownloadComplete, () => {
       setDownloading(null);
       setVoiceReady(true);
     });
-    track(events.onPiperDownloadError, (p: { error: string; cancelled: boolean }) => {
+    track(events.onTtsDownloadError, (p: { error: string; cancelled: boolean }) => {
       setDownloading(null);
       if (!p.cancelled) useNotifications.getState().push('error', p.error);
     });
@@ -178,9 +205,10 @@ export function VoiceEngineCard({
   }, [open]);
 
   const startDownload = async () => {
+    if (!selected) return;
     setDownloading(0);
     try {
-      await tauri.voice.piperDownload(model.trim() || PIPER_DEFAULT_VOICE);
+      await tauri.voice.voiceDownload(selected.id, model.trim() || defaultVoiceFor(selected.id));
     } catch (err) {
       setDownloading(null);
       useNotifications.getState().push('error', err instanceof Error ? err.message : String(err));
@@ -349,7 +377,7 @@ export function VoiceEngineCard({
                         onChange={(ev) => setModel(ev.target.value)}
                         placeholder={
                           e.needsDownload
-                            ? `${t('engine.voicePlaceholder')} (${PIPER_DEFAULT_VOICE})`
+                            ? `${t('engine.voicePlaceholder')} (${defaultVoiceFor(e.id)})`
                             : t('engine.modelPlaceholder')
                         }
                       />
@@ -358,8 +386,8 @@ export function VoiceEngineCard({
                     {e.needsDownload && (
                       <div className="flex flex-col gap-1.5">
                         <div className="flex flex-wrap gap-1.5">
-                          {PIPER_RO_VOICES.map((v) => {
-                            const active = (model.trim() || PIPER_DEFAULT_VOICE) === v.id;
+                          {(LOCAL_VOICES[e.id]?.offer ?? []).map((v) => {
+                            const active = (model.trim() || defaultVoiceFor(e.id)) === v.id;
                             return (
                               <button
                                 key={v.id}
@@ -377,10 +405,11 @@ export function VoiceEngineCard({
                             );
                           })}
                         </div>
-                        {/* Their licence requires the credit, so it ships with them. */}
-                        <p className="text-[10px] text-text-disabled">
-                          raluca / lili / sanda — eduardem, CC BY-NC 4.0
-                        </p>
+                        {/* A licence that requires credit gets it here, beside
+                            the voices it covers. */}
+                        {LOCAL_VOICES[e.id]?.credit && (
+                          <p className="text-[10px] text-text-disabled">{LOCAL_VOICES[e.id]!.credit}</p>
+                        )}
                       </div>
                     )}
 
