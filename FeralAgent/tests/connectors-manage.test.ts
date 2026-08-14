@@ -154,13 +154,32 @@ test("a real allowlist still saves, and ids are trimmed", async () => {
   expect(reloads()).toBe(1);
 });
 
-test("a first-time connector may still start with no allowlist", async () => {
-  // Refusing here would make the tool unable to create a row at all. The guard
-  // is about REMOVING everyone's access, not about never having granted it.
+test("a first-time connector starts with no allowlist, and is TOLD it answers nobody", async () => {
+  // Refusing here would make the tool unable to connect anyone: on a first
+  // connection the user may not know their own id yet. So it saves — and warns
+  // in the result the model actually reads. Without this, a brand-new install
+  // gets a bot that shows online in Discord and ignores its owner forever,
+  // which is the same catastrophe as the lockout, moved to day one.
   writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
   const { tool } = makeTool();
-  const res = await tool.execute({ action: "configure", id: "discord", allowlist: [] }, ctx);
+  const res = await tool.execute(
+    { action: "configure", id: "discord", enabled: true, secrets: { DISCORD_TOKEN: "t" }, allowlist: [] },
+    ctx,
+  );
   expect(res.ok).toBe(true);
+  expect(res.content).toContain("answers NOBODY");
+  expect(res.content).toContain("allowlist:");
+});
+
+test("a connector with someone on the list gets no scary warning", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  const { tool } = makeTool();
+  const res = await tool.execute(
+    { action: "configure", id: "discord", enabled: true, secrets: { DISCORD_TOKEN: "t" }, allowlist: ["42"] },
+    ctx,
+  );
+  expect(res.ok).toBe(true);
+  expect(res.content).not.toContain("answers NOBODY");
 });
 
 test("a zero allowlist announces itself at boot instead of reading as healthy", async () => {

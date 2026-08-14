@@ -204,12 +204,24 @@ export function createConnectorsManageTool(
         (k) => !row.secrets?.[k]?.trim() && !(id === "discord" && row.token?.trim()),
       );
       const state = redact(row, id);
+      // An enabled connector with nobody on the allowlist is the failure this
+      // whole file now guards against, and refusing it outright is not an
+      // option: on a first connection the user may not know their own id yet,
+      // and blocking here would leave them unable to connect at all. So it
+      // saves, and says — in the result the model reads, not only in a log line
+      // it never sees — that the bot it just brought online answers no one.
+      const deaf = row.enabled && (row.allowlist?.length ?? 0) === 0;
       const hint =
         row.enabled && missing.length > 0
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
-          : id === "whatsapp" && row.enabled
-            ? " WhatsApp pairs via QR — tell the user to scan the code in the Feral app (Connectors page or TUI)."
-            : "";
+          : deaf
+            ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
+              `answers NOBODY — not "everyone". Ask the user for their ${id} user id ` +
+              `and call configure again with allowlist:["<their id>"], or the bot will ` +
+              `look connected and silently ignore every message, including theirs.`
+            : id === "whatsapp" && row.enabled
+              ? " WhatsApp pairs via QR — tell the user to scan the code in the Feral app (Connectors page or TUI)."
+              : "";
       return {
         ok: true,
         content: `Saved and reloaded.${hint}\n${JSON.stringify(state, null, 2)}`,
