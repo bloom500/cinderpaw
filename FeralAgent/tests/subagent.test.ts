@@ -172,6 +172,59 @@ describe("Subagent.run", () => {
     expect(r.tokensUsed).toBeGreaterThanOrEqual(0);
   });
 
+  /**
+   * Cancellation. Before this existed, `SubagentConfig` had no signal at all
+   * and a subagent could not be stopped by anything: the user's Stop reaches
+   * the PARENT's session controller, and a child runs its own AgentLoop under
+   * its own session id. For `rlm()` workers — which run detached in the
+   * background — that meant Stop ended the visible turn while paid model loops
+   * carried on invisibly.
+   */
+  test("an already-stopped signal cancels before the first model call", async () => {
+    let calls = 0;
+    const counting = {
+      ...deps.router,
+      complete: async (...a: unknown[]) => {
+        calls++;
+        return (deps.router.complete as (...x: unknown[]) => unknown)(...a);
+      },
+    } as unknown as typeof deps.router;
+    const sa = new Subagent({ ...deps, router: counting });
+    const ac = new AbortController();
+    ac.abort("user stop");
+
+    const r = await sa.run({
+      task: "do something",
+      allowedTools: ["echo_a"],
+      budget: { maxTokens: 1024, maxIterations: 5 },
+      parentSessionId: "parent",
+      signal: ac.signal,
+    });
+
+    expect(r.status).toBe("cancelled");
+    // The point of the early check: a stopped turn must not be billed.
+    expect(calls).toBe(0);
+  });
+
+  test("cancelled is not 'failed' — delegate_task must not retry a user's stop", async () => {
+    // Pinning the distinction rather than the plumbing: the retry in
+    // delegate-task.ts fires on every non-completed status, so folding
+    // cancellation into `failed` would silently re-run the work the user was
+    // in the middle of stopping, at double the cost.
+    const sa = new Subagent({ ...deps });
+    const ac = new AbortController();
+    ac.abort();
+    const r = await sa.run({
+      task: "do something",
+      allowedTools: ["echo_a"],
+      budget: { maxTokens: 1024, maxIterations: 5 },
+      parentSessionId: "parent",
+      signal: ac.signal,
+    });
+    expect(r.status).not.toBe("failed");
+    expect(r.status).toBe("cancelled");
+  });
+
   test("inference error → status: 'failed' with a useful answer", async () => {
     const failDeps = makeDeps(
       makeFailingRouter("inference down"),

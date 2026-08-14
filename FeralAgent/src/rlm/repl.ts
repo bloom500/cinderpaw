@@ -131,6 +131,17 @@ export function toIdentifier(toolName: string): string {
 export class Notebook {
   readonly #ctx: Record<string, unknown>;
   readonly #timeoutMs: number;
+  /**
+   * The CURRENT turn's abort, not the one the notebook was born with.
+   *
+   * A notebook is built once and lives for the whole session, but a session's
+   * abort controller is created per turn — so the signal captured at
+   * construction belonged to turn 1 and was already dead by turn 2. Every tool
+   * call from every later cell was therefore unstoppable, and so was every
+   * worker they spawned. The tool wrappers read this at call time; the host
+   * re-points it before each cell (see notebook.ts).
+   */
+  #signal?: AbortSignal;
   #log: string[] = [];
   #calls: string[] = [];
   #children: string[] = [];
@@ -138,6 +149,7 @@ export class Notebook {
 
   constructor(opts: ReplOptions) {
     this.#timeoutMs = opts.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS;
+    this.#signal = opts.signal;
 
     const logLines: string[] = [];
     const write = (a: unknown[]) => {
@@ -162,7 +174,7 @@ export class Notebook {
       sandbox[toIdentifier(name)] = severed(async (args: Record<string, unknown> = {}) => {
         this.#calls.push(name);
         const res: ToolResult = await opts.registry.call(name, args ?? {}, opts.sessionId, {
-          signal: opts.signal,
+          signal: this.#signal,
         });
         // Sever the result too: handing back an object with host
         // `Object.prototype` would reopen the `.constructor` route we just
@@ -203,7 +215,12 @@ export class Notebook {
         const tools = Array.isArray(o.allowedTools)
           ? o.allowedTools.filter((t): t is string => typeof t === "string")
           : undefined;
-        const h = kids.admit(task.trim(), { name: o.name as string | undefined, allowedTools: tools });
+        const h = kids.admit(task.trim(), {
+          name: o.name as string | undefined,
+          allowedTools: tools,
+          // The live signal, so Stop reaches a worker spawned in ANY turn.
+          signal: this.#signal,
+        });
         this.#children.push(h.rlm_child_id);
         return severed({ ...h });
       }) as ((task: unknown, options?: unknown) => Promise<unknown>) & Record<string, unknown>;
@@ -251,6 +268,14 @@ export class Notebook {
   /** Ids of child agents this notebook spawned, in order. */
   get children(): readonly string[] {
     return this.#children;
+  }
+
+  /**
+   * Re-point the notebook at the current turn's abort. Called before each cell
+   * because the notebook outlives the controller — see `#signal`.
+   */
+  set signal(s: AbortSignal | undefined) {
+    this.#signal = s;
   }
 
   /**

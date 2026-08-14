@@ -865,9 +865,18 @@ export async function boot(transportOverride?: Transport) {
       // gateway restart — upstream persists its kernel namespace for the same
       // reason. Only JSON-round-trippable variables come back; see repl.ts.
       stateDir: join(feralHome(), "notebooks"),
-      runChild: (task, allowedTools, sessionId, onEvent, childId) =>
-        notebookSubagent.run({
+      runChild: async (task, allowedTools, sessionId, onEvent, childId, signal) => {
+        // A background worker used to leave exactly two traces in the log —
+        // the two `tools: N of M` lines its AgentLoop prints on construction —
+        // and nothing at all when it finished. Diagnosing a stuck fan-out meant
+        // reading the process's open sockets to guess whether it was still
+        // alive. Two lines fix that; they cost nothing and only appear when
+        // somebody actually spawned a worker.
+        const startedAt = Date.now();
+        log(`rlm: child ${childId} started — ${task.slice(0, 80).replace(/\s+/g, " ")}`);
+        const r = await notebookSubagent.run({
           task,
+          signal,
           // The registry's id becomes the subagent id, so the child's session
           // carries it and notify_parent can route back to this entry.
           subagentId: childId,
@@ -885,7 +894,13 @@ export async function boot(transportOverride?: Transport) {
             const ev = e as { type?: string; tool?: string; message?: string };
             onEvent(ev.type ?? "event", ev.tool ?? ev.message ?? "");
           },
-        }),
+        });
+        log(
+          `rlm: child ${childId} ${r.status} in ${Math.round((Date.now() - startedAt) / 1000)}s ` +
+            `(${r.toolCalls} tool call(s))`,
+        );
+        return r;
+      },
     }));
     log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true), rlm() wired");
   }

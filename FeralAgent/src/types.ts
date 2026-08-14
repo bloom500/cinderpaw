@@ -813,6 +813,18 @@ export interface SubagentConfig {
    */
   subagentId?: string;
   /**
+   * Cancellation from the caller. Without it a subagent could not be stopped
+   * at all: the user's Stop reaches the PARENT's session controller, and a
+   * child runs its own AgentLoop under its own session id, so the abort never
+   * arrived. Harmless for `delegate_task`, which at least blocks the parent's
+   * turn while it runs — but `rlm()` children run detached in the background,
+   * so pressing Stop left two model loops spending money invisibly.
+   *
+   * Aborting stops the child the same way a user stop does (its loop's own
+   * `stop()`), rather than through a second, less-tested cancellation path.
+   */
+  signal?: AbortSignal;
+  /**
    * Observer for the child loop's events (tool_start/tool_done/error…).
    * The delegate tool forwards these as tool_progress on the PARENT's
    * stream so every surface (desktop, TUI, Discord status line) shows
@@ -823,8 +835,12 @@ export interface SubagentConfig {
 
 /** The subagent's outcome. Returned to the parent agent for context. */
 export interface SubagentResult {
-  /** Terminal status of the subagent run. */
-  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  /**
+   * Terminal status of the subagent run. `cancelled` is its own outcome and
+   * not a kind of `failed`: a caller that retries failures must NOT retry a
+   * run the user deliberately stopped (see delegate-task.ts).
+   */
+  status: "completed" | "failed" | "timeout" | "budget_exceeded" | "cancelled";
   /** The subagent's final answer, truncated to fit the parent's context. */
   answer: string;
   /** How many tool calls the subagent made (observability). */
@@ -910,7 +926,7 @@ export interface SubagentSpawnPayload {
 export interface SubagentCompletePayload {
   parentSessionId: string;
   subagentId: string;
-  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  status: "completed" | "failed" | "timeout" | "budget_exceeded" | "cancelled";
   durationMs: number;
 }
 

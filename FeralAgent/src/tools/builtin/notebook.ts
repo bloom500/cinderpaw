@@ -82,6 +82,7 @@ export interface NotebookToolDeps {
     sessionId: string,
     onEvent: (kind: string, detail: string) => void,
     childId: string,
+    signal: AbortSignal,
   ) => ReturnType<RunChild>;
   maxDepth?: number;
   /** Where per-session snapshots live. Omit to keep notebooks in memory only. */
@@ -131,8 +132,8 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
   function childrenFor(sessionId: string): ChildRegistry {
     let reg = registries.get(sessionId);
     if (!reg) {
-      reg = new ChildRegistry((task, allowedTools, onEvent, childId) =>
-        deps.runChild!(task, allowedTools, sessionId, onEvent, childId));
+      reg = new ChildRegistry((task, allowedTools, onEvent, childId, signal) =>
+        deps.runChild!(task, allowedTools, sessionId, onEvent, childId, signal));
       registries.set(sessionId, reg);
     }
     return reg;
@@ -185,6 +186,12 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
         loadInto(sessionId, book);
         books.set(sessionId, book);
       }
+
+      // Point the notebook at THIS turn's abort before running. The notebook
+      // is per session and outlives any one controller, so without this a cell
+      // from turn 2 onwards ran with turn 1's dead signal and could not be
+      // stopped — nor could the workers it spawned.
+      book.signal = ctx.signal;
 
       const r = await book.run(code);
       schedulePersist(sessionId, book);

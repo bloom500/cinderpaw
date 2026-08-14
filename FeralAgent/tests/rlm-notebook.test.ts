@@ -10,7 +10,12 @@ import { Notebook, toIdentifier } from "../src/rlm/repl.ts";
 import { buildNotebookPrompt } from "../src/rlm/prompt.ts";
 import { buildNotebookAddendum, buildWorkerAddendum } from "../src/core/agent-loop.ts";
 import { stripToolsFromSystemPrompt } from "../src/egress/inference-providers.ts";
-import { ChildRegistry, defaultChildName, normalizeRequestedName } from "../src/rlm/children.ts";
+import {
+  ChildRegistry,
+  defaultChildName,
+  normalizeRequestedName,
+  type RunChild,
+} from "../src/rlm/children.ts";
 import {
   createNotebookTool,
   createNotifyParentTool,
@@ -142,6 +147,93 @@ describe("recursion — the R in RLM", () => {
       nb: new Notebook({ registry: fakeRegistry(), sessionId: "s1", children, ...extra }),
     };
   };
+
+  /**
+   * Cancellation. Found live: two `rlm()` workers were spawned, Stop was
+   * pressed, and nothing reached them — a child runs its own AgentLoop under
+   * its own session id, so the parent's abort had no path to it. These pin the
+   * path that now exists, because the failure is invisible: a worker nobody
+   * can stop looks exactly like a worker that already finished.
+   */
+  describe("Stop reaches the workers", () => {
+    /** A runner that never settles on its own — only cancellation ends it. */
+    const hangingRunner =
+      (seen: AbortSignal[]): RunChild =>
+      (_task, _tools, _onEvent, _id, signal) => {
+        seen.push(signal);
+        const cancelled = {
+          status: "cancelled" as const, answer: "", toolCalls: 0, durationMs: 1, subagentId: "x",
+        };
+        // Checking `aborted` first is the contract, not defensive noise: a
+        // signal that fired before the runner was reached never emits `abort`,
+        // so a listen-only implementation hangs forever. Subagent.run has the
+        // same check for the same reason.
+        if (signal.aborted) return Promise.resolve(cancelled);
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve(cancelled), { once: true });
+        });
+      };
+
+    it("aborts a running child when the parent's signal fires", async () => {
+      const seen: AbortSignal[] = [];
+      const parent = new AbortController();
+      const reg = new ChildRegistry(hangingRunner(seen));
+      reg.admit("work", { signal: parent.signal });
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.aborted).toBe(false);
+      parent.abort("user stop");
+      expect(seen[0]!.aborted).toBe(true);
+      // The child settles rather than hanging forever, which is what makes the
+      // registry drainable after a stop.
+      await reg.drain();
+      expect(reg.list()[0]!.status).toBe("error");
+    });
+
+    it("hands an already-stopped parent's child a dead signal, not a live one", async () => {
+      // Spawning for a turn the user just stopped would spend money on an
+      // answer nobody is waiting for.
+      const seen: AbortSignal[] = [];
+      const parent = new AbortController();
+      parent.abort("user stop");
+      const reg = new ChildRegistry(hangingRunner(seen));
+      reg.admit("work", { signal: parent.signal });
+      expect(seen[0]!.aborted).toBe(true);
+      await reg.drain();
+    });
+
+    it("keeps siblings alive — one controller per child, not one shared", async () => {
+      const seen: AbortSignal[] = [];
+      const reg = new ChildRegistry(hangingRunner(seen));
+      const a = new AbortController();
+      reg.admit("first", { signal: a.signal });
+      reg.admit("second"); // no parent signal at all
+      a.abort();
+      expect(seen[0]!.aborted).toBe(true);
+      expect(seen[1]!.aborted).toBe(false);
+    });
+
+    it("uses THIS turn's signal, not the one the notebook was born with", async () => {
+      // The notebook is per session and outlives any one controller. Reading
+      // the constructor's signal meant every cell after the first was
+      // unstoppable — the same bug, one layer up.
+      const seen: AbortSignal[] = [];
+      const turn1 = new AbortController();
+      const turn2 = new AbortController();
+      const nb = new Notebook({
+        registry: fakeRegistry(),
+        sessionId: "s1",
+        signal: turn1.signal,
+        children: new ChildRegistry(hangingRunner(seen)),
+      });
+      nb.signal = turn2.signal;
+      await nb.run(`await rlm("later turn")`);
+      turn1.abort(); // the stale one must not reach it
+      expect(seen[0]!.aborted).toBe(false);
+      turn2.abort();
+      expect(seen[0]!.aborted).toBe(true);
+    });
+  });
 
   it("returns a handle immediately, not the answer", async () => {
     const { nb } = nbWith();

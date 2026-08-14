@@ -69,8 +69,17 @@ export type RunChild = (
   /** The registry's id for this child. The host must use it as the subagent
    *  id, so a tool the child calls can be traced back to this entry. */
   childId: string,
+  /**
+   * Cancellation for THIS child. The host must honour it or Stop is a lie.
+   *
+   * It may ALREADY be aborted on arrival — the parent's turn can be stopped
+   * between the model asking for a worker and the worker starting. Check
+   * `signal.aborted` before doing any work; an implementation that only
+   * subscribes to `abort` will wait forever for an event that already fired.
+   */
+  signal: AbortSignal,
 ) => Promise<{
-  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  status: "completed" | "failed" | "timeout" | "budget_exceeded" | "cancelled";
   answer: string;
   toolCalls: number;
   durationMs: number;
@@ -136,6 +145,7 @@ export class ChildRegistry {
   readonly #entries = new Map<string, ChildEntry>();
   readonly #byName = new Map<string, string>();
   readonly #inflight = new Set<Promise<void>>();
+  readonly #aborts = new Map<string, AbortController>();
   readonly #inbox: ChildMessage[] = [];
   #seq = 0;
 
@@ -145,8 +155,17 @@ export class ChildRegistry {
    * Admit a child and return immediately. The run continues in the background;
    * an unhandled rejection here would take the whole sidecar down, so the
    * promise catches everything and parks it on the entry.
+   *
+   * `opts.signal` is the PARENT's cancellation — the user's Stop. Because a
+   * child is detached from the turn that spawned it, this is the only thread
+   * connecting the two: without it, Stop ended the parent's turn while its
+   * workers kept calling a paid model in the background, invisibly and with
+   * nothing left in the UI able to reach them.
    */
-  admit(task: string, opts: { name?: string; allowedTools?: string[] } = {}): ChildHandle {
+  admit(
+    task: string,
+    opts: { name?: string; allowedTools?: string[]; signal?: AbortSignal } = {},
+  ): ChildHandle {
     const requested = normalizeRequestedName(opts.name);
     const id = `sa-${(++this.#seq).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const name = requested ?? defaultChildName(task, id);
@@ -164,7 +183,17 @@ export class ChildRegistry {
       if (t.length > TRAIL_MAX) t.splice(0, t.length - TRAIL_MAX);
     };
 
-    const p = this.run(task, opts.allowedTools, push, id)
+    // One controller per child, chained to the parent's. Per-child rather than
+    // shared so `delete_subagent` can grow the ability to stop just one later
+    // without every sibling dying with it.
+    const ac = new AbortController();
+    const parent = opts.signal;
+    const onParentAbort = () => ac.abort("parent stopped");
+    if (parent?.aborted) ac.abort("parent stopped");
+    else parent?.addEventListener("abort", onParentAbort, { once: true });
+    this.#aborts.set(id, ac);
+
+    const p = this.run(task, opts.allowedTools, push, id, ac.signal)
       .then((r) => {
         entry.status = r.status === "completed" ? "completed" : "error";
         entry.answer = r.answer;
@@ -177,6 +206,10 @@ export class ChildRegistry {
         entry.error = e instanceof Error ? e.message : String(e);
       })
       .finally(() => {
+        // The parent's signal outlives this child; leaving the listener on it
+        // leaks one per worker ever spawned in the session.
+        parent?.removeEventListener("abort", onParentAbort);
+        this.#aborts.delete(id);
         this.#inflight.delete(p);
       });
     this.#inflight.add(p);
