@@ -184,7 +184,7 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
     // most recent one is worth anything, and only while the server says the
     // conversation is in a resumable state — resuming from a handle it has not
     // finished writing replays a half-formed turn.
-    let resume = std::sync::Arc::new(parking_lot::Mutex::new(None::<String>));
+    let resume = std::sync::Arc::new(parking_lot::Mutex::new(None::<(String, std::time::Instant)>));
 
     // Inbound: socket → events.
     {
@@ -212,7 +212,7 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                         if let Some(u) = &msg.session_resumption_update {
                             if u.resumable {
                                 if let Some(h) = &u.new_handle {
-                                    *resume.lock() = Some(h.clone());
+                                    *resume.lock() = Some((h.clone(), std::time::Instant::now()));
                                 }
                             }
                         }
@@ -228,12 +228,23 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
             // The whole point of the journal: printed WITH the reason, so the
             // two are read together instead of the reason being read alone and
             // taken at face value.
-            let resume = resume.lock().clone();
+            let held = resume.lock().clone();
+            // The AGE of the handle, not just whether there is one. A handle is
+            // only issued between turns, so a socket that dies mid-turn leaves
+            // the newest usable one predating everything said since — and
+            // resuming from it loses exactly that much conversation. From the
+            // other side of the microphone that is "it came back with amnesia":
+            // the call continues and has forgotten what it was just asked.
+            let age = held.as_ref().map(|(_, at)| at.elapsed().as_secs_f32());
             tracing::warn!(
-                "live: closed — {reason} (resumable: {})\n  {}",
-                resume.is_some(),
+                "live: closed — {reason} (handle: {})\n  {}",
+                match age {
+                    Some(a) => format!("{a:.0}s old"),
+                    None => "none".to_string(),
+                },
                 journal.lock().render(),
             );
+            let resume = held.map(|(h, _)| h);
             let _ = event_tx.send(LiveEvent::Closed { reason, resume }).await;
         });
     }

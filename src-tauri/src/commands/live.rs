@@ -132,23 +132,43 @@ async fn supervise(
     cfg: live::SessionConfig,
     first: live::LiveHandle,
 ) {
-    const MAX_RESUMES: u32 = 8;
+    // A count was the wrong shape. Eight resumptions sounded generous until the
+    // target was named: a three-hour call, on a session the server ends every
+    // twenty-five to fifty seconds, needs a couple of hundred of them. A budget
+    // that runs out mid-afternoon is the same failure as no budget at all.
+    //
+    // So the guard is a RATE, not a total. Resuming for hours is exactly what
+    // this is for; resuming five times inside ten seconds is a crash loop, and
+    // that is the only thing worth refusing — it burns money and never
+    // recovers. Long calls are unlimited; a tight loop stops.
+    const LOOP_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+    const LOOP_LIMIT: usize = 5;
+    let mut recent: std::collections::VecDeque<std::time::Instant> = Default::default();
     let mut handle = first;
-    let mut resumes = 0u32;
+    let mut total = 0u32;
 
     loop {
         let ended = pump(app.clone(), session_id.clone(), handle.commands.clone(), handle.events).await;
         let Some(token) = ended else { return };
-        if resumes >= MAX_RESUMES {
-            tracing::warn!("live: {MAX_RESUMES} resumptions reached, letting the call end");
+
+        let now = std::time::Instant::now();
+        while recent.front().is_some_and(|t| now.duration_since(*t) > LOOP_WINDOW) {
+            recent.pop_front();
+        }
+        if recent.len() >= LOOP_LIMIT {
+            tracing::warn!(
+                "live: {LOOP_LIMIT} resumptions inside {}s — treating this as a loop, not a long call",
+                LOOP_WINDOW.as_secs(),
+            );
             emit_status(&app, &session_id, CoreEvent::Closed {
-                reason: "session ended".into(),
+                reason: "the call kept dropping and could not be kept open".into(),
                 resume: None,
             });
             return;
         }
-        resumes += 1;
-        tracing::info!("live: resuming session ({resumes}/{MAX_RESUMES})");
+        recent.push_back(now);
+        total += 1;
+        tracing::info!("live: resuming session (#{total})");
 
         let mut next_cfg = clone_cfg(&cfg);
         next_cfg.resume = Some(token);
