@@ -321,6 +321,16 @@ describe("prompt — parity with the audited source", () => {
     expect(buildNotebookPrompt(base)).toContain("Do not invent wrappers");
   });
 
+  it("sends the model to `data` when it computes, not to `content`", () => {
+    // Found live on the first real RLM run: asked for line counts, the model
+    // read `res.content` from shell_exec and counted its three-line header
+    // ($ command / cwd / [exit N]) as file content. Every file came back
+    // exactly three lines too long — wrong quietly, which is the bad kind.
+    const p = buildNotebookPrompt(base);
+    expect(p).toContain("`content` is a TRANSCRIPT");
+    expect(p).toContain("use `data`");
+  });
+
   it("lists tools deterministically", () => {
     const a = buildNotebookPrompt({ toolIdentifiers: ["b", "a"] });
     const b = buildNotebookPrompt({ toolIdentifiers: ["a", "b"] });
