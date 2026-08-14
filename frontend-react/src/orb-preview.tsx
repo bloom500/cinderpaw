@@ -4,11 +4,17 @@ import { createRoot } from 'react-dom/client';
 import { CallOrb3D } from './components/chat/CallOrb3D';
 
 const FIELD = [
-  'linear-gradient(118deg, transparent 26%, rgba(255,214,170,0.30) 44%, rgba(255,180,120,0.10) 56%, transparent 70%)',
-  'radial-gradient(ellipse 80% 62% at 88% 2%, #FF9A4E 0%, transparent 58%)',
-  'radial-gradient(ellipse 70% 58% at 4% 96%, #F4713F 0%, transparent 56%)',
-  'radial-gradient(ellipse 120% 90% at 34% 46%, #E4451C 0%, transparent 74%)',
-  'linear-gradient(150deg, #EF5423 0%, #D63A14 56%, #E8632C 100%)',
+  // The reference read properly this time: it is not pools of light, it is one
+  // broad diagonal BEAM crossing the surface from lower left to upper right,
+  // with the corners falling into deep red. Beam plus vignette. Earlier passes
+  // kept adding soft pools, which averages to an even field — the exact thing
+  // the reference is not. Layers paint first-on-top, so the corner darkening is
+  // listed first and the base last.
+  'radial-gradient(ellipse 62% 56% at 4% 2%, rgba(122, 20, 4, 0.62) 0%, transparent 62%)',
+  'radial-gradient(ellipse 72% 62% at 98% 98%, rgba(138, 26, 6, 0.52) 0%, transparent 64%)',
+  'linear-gradient(126deg, transparent 10%, rgba(255, 150, 82, 0.34) 34%, rgba(255, 198, 146, 0.46) 50%, rgba(255, 142, 70, 0.24) 66%, transparent 90%)',
+  'radial-gradient(ellipse 88% 68% at 74% 16%, #F4581F 0%, transparent 66%)',
+  'linear-gradient(160deg, #E8410F 0%, #D2340C 52%, #E04A1A 100%)',
 ].join(', ');
 
 createRoot(document.getElementById('root')!).render(
