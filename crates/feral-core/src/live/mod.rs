@@ -123,6 +123,27 @@ pub struct Setup {
     /// until a long call is actually measured with it on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window_compression: Option<ContextWindowCompression>,
+    /// Ask for a resumption handle, or hand one back to continue an earlier call.
+    ///
+    /// This is the documented answer to the wall that actually exists. Measured:
+    /// a call opened at 13:38 and the server closed it at 13:50 saying "The
+    /// session duration limit was reached. Connection closed. You may reconnect
+    /// and resume this session using your resumption handle." Nothing we send
+    /// makes a session last longer — the remedy is to start a new one that
+    /// remembers the old, which the user never sees.
+    ///
+    /// Empty object on a fresh call (please issue handles), populated on a
+    /// reconnect.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_resumption: Option<SessionResumption>,
+}
+
+/// `{}` asks the server to start issuing handles; `{ handle }` resumes.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResumption {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 /// Slide the oldest turns out instead of ending the call.
@@ -168,6 +189,9 @@ impl Setup {
             // Off unless asked for — see the field's docs. Opt-in rather than
             // deleted so the next person can re-measure it in one env var
             // instead of re-deriving the whole story from the error message.
+            // Always requested. A handle costs nothing to be given and is the
+            // only thing that makes the duration wall survivable.
+            session_resumption: Some(SessionResumption::default()),
             context_window_compression: std::env::var("FERAL_LIVE_COMPRESS_HISTORY")
                 .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .then(|| ContextWindowCompression {
@@ -295,6 +319,20 @@ pub struct ServerMessage {
     pub tool_call: Option<ToolCall>,
     pub tool_call_cancellation: Option<ToolCallCancellation>,
     pub go_away: Option<serde_json::Value>,
+    /// A fresh handle for resuming this conversation after the socket ends.
+    /// Sent repeatedly through a call; only the latest one is worth keeping.
+    pub session_resumption_update: Option<SessionResumptionUpdate>,
+}
+
+/// The server's offer to let this conversation continue on a new socket.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResumptionUpdate {
+    pub new_handle: Option<String>,
+    /// False while the server is mid-turn — resuming from a handle it has not
+    /// finished writing would replay a half-formed state.
+    #[serde(default)]
+    pub resumable: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -416,6 +454,45 @@ mod tests {
             v["setup"].get("contextWindowCompression").is_none(),
             "compression is opt-in via FERAL_LIVE_COMPRESS_HISTORY",
         );
+    }
+
+    #[test]
+    fn a_call_always_asks_for_a_resumption_handle() {
+        // Without this the server issues none, and a call that hits the duration
+        // limit — measured at twelve minutes — has nothing to reconnect with.
+        // Asking costs nothing and is the only thing that makes the wall
+        // survivable, so it is unconditional rather than a setting.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        assert!(
+            v["setup"]["sessionResumption"].is_object(),
+            "the call did not ask for a handle",
+        );
+        assert!(
+            v["setup"]["sessionResumption"].get("handle").is_none(),
+            "a fresh call must not claim to be resuming one",
+        );
+    }
+
+    #[test]
+    fn a_resumed_call_sends_the_handle_back() {
+        let mut setup = Setup::spoken("x", vec![]);
+        setup.session_resumption = Some(SessionResumption { handle: Some("abc123".into()) });
+        let v = serde_json::to_value(ClientMessage::Setup(setup)).unwrap();
+        assert_eq!(v["setup"]["sessionResumption"]["handle"], "abc123");
+    }
+
+    #[test]
+    fn an_unresumable_update_is_read_but_not_trusted() {
+        // The server sends handles mid-turn with `resumable: false`. Resuming
+        // from one of those replays a half-written state, so the flag is the
+        // whole point of parsing this message rather than just taking the id.
+        let msg: ServerMessage = serde_json::from_str(
+            r#"{"sessionResumptionUpdate":{"newHandle":"h1","resumable":false}}"#,
+        )
+        .unwrap();
+        let u = msg.session_resumption_update.expect("parsed");
+        assert_eq!(u.new_handle.as_deref(), Some("h1"));
+        assert!(!u.resumable);
     }
 
     #[test]

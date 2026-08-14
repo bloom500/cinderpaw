@@ -50,8 +50,13 @@ pub enum LiveEvent {
     /// These calls were interrupted and must not be answered. Any that already
     /// ran may need undoing — the server cannot know what they touched.
     ToolCallCancelled(Vec<String>),
-    /// The socket ended. Carries the reason, already stripped of the API key.
-    Closed(String),
+    /// The socket ended. Carries the reason, already stripped of the API key,
+    /// and the resumption handle if the server issued one.
+    ///
+    /// The handle is what makes the duration wall survivable: the session cannot
+    /// be made to last longer, but a NEW one can be told to continue this
+    /// conversation, and the person on the call never learns that happened.
+    Closed { reason: String, resume: Option<String> },
 }
 
 /// What the runtime says to the model.
@@ -72,6 +77,9 @@ pub struct SessionConfig {
     /// Injected into the setup message. Where the pre-call memory lookup lands.
     pub system_instruction: Option<String>,
     pub tools: Vec<FunctionDeclaration>,
+    /// Continue an earlier conversation instead of starting fresh. Supplied by
+    /// the host from the last `Closed` event.
+    pub resume: Option<String>,
 }
 
 /// A live call in progress. Dropping `commands` closes the session.
@@ -109,6 +117,9 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
     let mut setup = Setup::spoken(&cfg.model, cfg.tools);
     if let Some(instruction) = cfg.system_instruction {
         setup = setup.with_system_instruction(instruction);
+    }
+    if let Some(handle) = cfg.resume.clone() {
+        setup.session_resumption = Some(super::SessionResumption { handle: Some(handle) });
     }
     let setup_json = serde_json::to_string(&ClientMessage::Setup(setup))?;
     write
@@ -169,12 +180,18 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
     // Shared so the close frame can be logged next to what preceded it — the
     // two halves of the answer live in different tasks.
     let journal = std::sync::Arc::new(parking_lot::Mutex::new(Journal::default()));
+    // The latest resumption handle. Updated repeatedly through a call; only the
+    // most recent one is worth anything, and only while the server says the
+    // conversation is in a resumable state — resuming from a handle it has not
+    // finished writing replays a half-formed turn.
+    let resume = std::sync::Arc::new(parking_lot::Mutex::new(None::<String>));
 
     // Inbound: socket → events.
     {
         let key = key.clone();
         let event_tx = event_tx.clone();
         let journal = journal.clone();
+        let resume = resume.clone();
         tokio::spawn(async move {
             let reason = loop {
                 match read.next().await {
@@ -192,6 +209,13 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
                     Some(Ok(frame)) => {
                         let Some(msg) = parse(&frame) else { continue };
                         journal.lock().note(false, inbound_kind(&msg), frame.len());
+                        if let Some(u) = &msg.session_resumption_update {
+                            if u.resumable {
+                                if let Some(h) = &u.new_handle {
+                                    *resume.lock() = Some(h.clone());
+                                }
+                            }
+                        }
                         // A send failure means the caller stopped listening —
                         // the call is over, and pumping into a closed channel
                         // would spin.
@@ -204,8 +228,13 @@ pub async fn connect(cfg: SessionConfig) -> Result<LiveHandle> {
             // The whole point of the journal: printed WITH the reason, so the
             // two are read together instead of the reason being read alone and
             // taken at face value.
-            tracing::warn!("live: closed — {reason}\n  {}", journal.lock().render());
-            let _ = event_tx.send(LiveEvent::Closed(reason)).await;
+            let resume = resume.lock().clone();
+            tracing::warn!(
+                "live: closed — {reason} (resumable: {})\n  {}",
+                resume.is_some(),
+                journal.lock().render(),
+            );
+            let _ = event_tx.send(LiveEvent::Closed { reason, resume }).await;
         });
     }
 

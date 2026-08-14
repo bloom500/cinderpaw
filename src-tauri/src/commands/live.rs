@@ -77,32 +77,114 @@ pub(crate) async fn start_live_call(
     // Everything the model gets to know, said once. The session is stateful, so
     // it is not re-sent per turn.
     let brief = live::Briefing { current_task, workspace, context };
-    let handle = live::connect(live::SessionConfig {
+    let cfg = live::SessionConfig {
         api_key,
         model: model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
         system_instruction: Some(live::system_instruction(&brief)),
         tools: bridge::declarations(),
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+        resume: None,
+    };
+    let handle = live::connect(clone_cfg(&cfg)).await.map_err(|e| e.to_string())?;
 
     // Replacing a live slot ends the previous call: dropping its sender closes
     // that socket. Leaving both open would put two models on one microphone.
     let previous = state.live_call.lock().replace(handle.commands.clone());
     drop(previous);
 
-    tokio::spawn(pump(app, session_id, handle.commands, handle.events));
+    tokio::spawn(supervise(app, session_id, cfg, handle));
     Ok(())
+}
+
+/// `SessionConfig` is not `Clone` — it holds the key — so the one place that
+/// needs a second copy says so out loud rather than deriving Clone and making
+/// key duplication invisible everywhere else.
+fn clone_cfg(cfg: &live::SessionConfig) -> live::SessionConfig {
+    live::SessionConfig {
+        api_key: cfg.api_key.clone(),
+        model: cfg.model.clone(),
+        system_instruction: cfg.system_instruction.clone(),
+        tools: cfg.tools.clone(),
+        resume: cfg.resume.clone(),
+    }
+}
+
+/// Keep the call alive across the server's own session limit.
+///
+/// Measured: a call opened at 13:38 was closed at 13:50 by the server, which
+/// said in as many words that the duration limit was reached and that the
+/// conversation could be resumed with a handle. Nothing we send makes one
+/// session last longer — the fix is to open the next one already knowing what
+/// was said, which is what the handle is for.
+///
+/// The webview is never told. It holds no socket: the microphone calls
+/// `send_live_audio`, which reads whatever sender is in the slot, so swapping
+/// the slot swaps the call underneath a page that has no idea. From the user's
+/// side the conversation simply does not end.
+///
+/// Only a close that HAS a handle is retried, and only a few times. A refused
+/// key, a depleted quota or a model that does not exist all close the socket
+/// too, and reconnecting into those is a loop that spends money on the same
+/// error — those arrive without a handle and end the call as before.
+async fn supervise(
+    app: AppHandle,
+    session_id: String,
+    cfg: live::SessionConfig,
+    first: live::LiveHandle,
+) {
+    const MAX_RESUMES: u32 = 8;
+    let mut handle = first;
+    let mut resumes = 0u32;
+
+    loop {
+        let ended = pump(app.clone(), session_id.clone(), handle.commands.clone(), handle.events).await;
+        let Some(token) = ended else { return };
+        if resumes >= MAX_RESUMES {
+            tracing::warn!("live: {MAX_RESUMES} resumptions reached, letting the call end");
+            emit_status(&app, &session_id, CoreEvent::Closed {
+                reason: "session ended".into(),
+                resume: None,
+            });
+            return;
+        }
+        resumes += 1;
+        tracing::info!("live: resuming session ({resumes}/{MAX_RESUMES})");
+
+        let mut next_cfg = clone_cfg(&cfg);
+        next_cfg.resume = Some(token);
+        match live::connect(next_cfg).await {
+            Ok(next) => {
+                // The slot is what the microphone writes into. Swapping it here
+                // is the whole trick — the old sender drops, its socket closes,
+                // and the next frame of audio goes to the new one.
+                let state = app.state::<AppState>();
+                let previous = state.live_call.lock().replace(next.commands.clone());
+                drop(previous);
+                handle = next;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "live: resume failed");
+                emit_status(&app, &session_id, CoreEvent::Closed {
+                    reason: e.to_string(),
+                    resume: None,
+                });
+                return;
+            }
+        }
+    }
 }
 
 /// Forward everything the model says to the webview, and answer its tool calls
 /// here rather than there.
+/// Returns the resumption handle when the socket ended in a way that can be
+/// continued, and `None` when the call is genuinely over. The caller decides
+/// what to do with that — pump itself never reconnects, so the decision lives
+/// in one place instead of being tangled with the event loop.
 async fn pump(
     app: AppHandle,
     session_id: String,
     commands: mpsc::Sender<LiveCommand>,
     mut events_rx: mpsc::Receiver<CoreEvent>,
-) {
+) -> Option<String> {
     // The turn being spoken, from both sides, until the model says it is done.
     let mut heard = String::new();
     let mut said = String::new();
@@ -239,9 +321,18 @@ async fn pump(
                 }
                 emit_status(&app, &session_id, CoreEvent::TurnComplete);
             }
+            // A close that carries a handle is NOT reported to the webview: the
+            // conversation is about to continue on a new socket, and telling the
+            // screen the call ended would put the pre-call panel up for a second
+            // in the middle of a sentence.
+            CoreEvent::Closed { reason, resume: Some(token) } => {
+                tracing::info!(reason = %reason, "live: socket ended, resuming");
+                return Some(token);
+            }
             other => emit_status(&app, &session_id, other),
         }
     }
+    None
 }
 
 /// Hand one spoken exchange to the agent's memory, without asking for a reply.
@@ -274,7 +365,7 @@ fn emit_status(app: &AppHandle, session_id: &str, event: CoreEvent) {
     // The one status worth a line in the terminal. A call that dies mid-session
     // reports its reason to the webview and nowhere else, so the only record of
     // WHY was whatever the user managed to copy off the screen.
-    if let CoreEvent::Closed(reason) = &event {
+    if let CoreEvent::Closed { reason, .. } = &event {
         tracing::warn!(reason = %reason, "live: session closed");
     }
     // The CADENCE of the input transcript, which is the only way to tell a
@@ -292,7 +383,7 @@ fn emit_status(app: &AppHandle, session_id: &str, event: CoreEvent) {
         CoreEvent::TurnComplete => ("turnComplete", String::new()),
         CoreEvent::InputTranscript(t) => ("inputTranscript", t),
         CoreEvent::OutputTranscript(t) => ("outputTranscript", t),
-        CoreEvent::Closed(reason) => ("closed", reason),
+        CoreEvent::Closed { reason, .. } => ("closed", reason),
         // Audio and tool calls are handled before this is reached.
         CoreEvent::Audio(_) | CoreEvent::ToolCall(_) | CoreEvent::ToolCallCancelled(_) => return,
     };
