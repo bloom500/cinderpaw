@@ -1,7 +1,7 @@
 // Aliased: the bare name would shadow the DOM `KeyboardEvent` that the Escape
 // listener below is typed against.
 import {
-  useEffect, useRef, useState, useSyncExternalStore,
+  useCallback, useEffect, useRef, useState, useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -23,9 +23,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { preferredVoice, shortlistVoices } from '@/lib/voices';
 import { MessageItem } from './MessageItem';
+import { MoltenOrb } from './MoltenOrb';
 import { CallToolScreen } from './CallToolScreen';
 import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
+import { speechLevel } from '@/hooks/useSpeechPlayer';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
 import { tauri, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
@@ -250,6 +252,22 @@ export function CallOverlay({
       <div
         className="call-stage relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6"
         style={{
+          // The overlay carries its own text scale, and it has to.
+          //
+          // Everything in here uses the app's `--text-*` tokens, which are
+          // tuned against the app's SURFACES — and this screen is not one. On
+          // a warm near-black field, `--text-muted` (#8C7E6A in the dark
+          // theme) is within a few points of the background it sits on: the
+          // microphone line and the device button were effectively invisible,
+          // which is how a caller loses the one place that tells them which
+          // microphone is about to be used.
+          //
+          // Warm rather than pure white, so the type belongs to the same room
+          // as the sphere, and stepped far enough apart that the hierarchy
+          // still reads once the contrast is fixed.
+          ['--text-primary' as string]: '#FFF3E4',
+          ['--text-secondary' as string]: '#E4D2BC',
+          ['--text-muted' as string]: '#B9A48C',
           background: [
     // The reference read properly this time: it is not pools of light, it is one
     // broad diagonal BEAM crossing the surface from lower left to upper right,
@@ -257,16 +275,66 @@ export function CallOverlay({
     // kept adding soft pools, which averages to an even field — the exact thing
     // the reference is not. Layers paint first-on-top, so the corner darkening is
     // listed first and the base last.
-    'radial-gradient(ellipse 62% 56% at 4% 2%, rgba(122, 20, 4, 0.62) 0%, transparent 62%)',
-    'radial-gradient(ellipse 72% 62% at 98% 98%, rgba(138, 26, 6, 0.52) 0%, transparent 64%)',
-    'linear-gradient(126deg, transparent 10%, rgba(255, 150, 82, 0.34) 34%, rgba(255, 198, 146, 0.46) 50%, rgba(255, 142, 70, 0.24) 66%, transparent 90%)',
-    'radial-gradient(ellipse 88% 68% at 74% 16%, #F4581F 0%, transparent 66%)',
-    'linear-gradient(160deg, #E8410F 0%, #D2340C 52%, #E04A1A 100%)',
+    //
+    // A dark room, so the sphere is the only light in it.
+    //
+    // This field used to be brand orange, and every choice inside the sphere
+    // bent around that: a cool anchor so the silhouette survived, exactly one
+    // warm region, a white glass shell. All of it was compensation for a ball
+    // sitting on a background the same temperature as itself. Going dark is
+    // what buys the molten look — contrast is free here, so the sphere can be
+    // as hot as it likes.
+    //
+    // Still five hues rather than five greys, for the same reason as before: a
+    // single colour at three brightnesses reads as a flat wash however many
+    // layers build it. These are just all near-black now.
+    // Warm bloom directly behind the ball — the light it throws into the room.
+    // Sized and placed to sit under the sphere, so the glow belongs to it.
+    'radial-gradient(ellipse 46% 52% at 50% 46%, rgba(196, 74, 22, 0.30) 0%, rgba(150, 52, 16, 0.14) 34%, rgba(90, 30, 12, 0.05) 54%, transparent 74%)',
+    // Cool plum in the top-left, the one thing keeping the dark from going
+    // muddy brown where the bloom falls off.
+    'radial-gradient(ellipse 62% 56% at 4% 2%, rgba(52, 26, 64, 0.55) 0%, rgba(34, 20, 46, 0.28) 38%, transparent 70%)',
+    // A colder blue-grey in the opposite corner, so the two tinted corners
+    // frame the sphere instead of stacking on one side.
+    'radial-gradient(ellipse 70% 60% at 100% 100%, rgba(26, 34, 52, 0.60) 0%, rgba(18, 22, 34, 0.30) 40%, transparent 72%)',
+    // A very faint warm floor, so the ball looks like it is above a surface
+    // rather than floating in a void.
+    'radial-gradient(ellipse 60% 22% at 50% 100%, rgba(120, 48, 18, 0.22) 0%, transparent 70%)',
+    // The base. Charcoal that leans warm in the middle and cold at the edges.
+    'linear-gradient(160deg, #14100F 0%, #1A1513 26%, #221A17 52%, #191413 76%, #100D0D 100%)',
           ].join(', '),
         }}
       >
-        {/* The field's one moving part, and it moves only while a voice is in
-            the room: listening or speaking, never thinking and never at rest.
+        {/* The slow warp. Two wide, weak washes that lean on the beam from
+            either side and turn over about once a minute — far too slow and too
+            faint to watch, which is the point: the objection to a moving
+            background is that it becomes wallpaper, and that only applies to
+            motion you can see. What this removes is the stillness that makes a
+            gradient read as a painted surface. The layer that actually says
+            "something is happening" is still the speech-tied one below. */}
+        <div
+          aria-hidden
+          className="orb-motion pointer-events-none absolute -inset-[12%]"
+          style={{
+            background: [
+              // Two washes that are two different colours, so the warp is a
+              // colour SHIFT and not a brightness wobble. At one hue the slow
+              // turn was invisible, which made the whole layer pointless.
+              // Dimmed hard for the dark room. At the old strengths these were
+              // two pink clouds on charcoal; the job is to keep the background
+              // from reading as painted, not to be seen.
+              'radial-gradient(ellipse 58% 50% at 20% 76%, rgba(120, 40, 96, 0.16) 0%, rgba(110, 46, 54, 0.07) 44%, transparent 72%)',
+              'radial-gradient(ellipse 64% 46% at 84% 30%, rgba(150, 96, 48, 0.14) 0%, rgba(130, 74, 34, 0.05) 46%, transparent 74%)',
+            ].join(', '),
+            // 64s was slower than anyone stays on one screen. At 34 it is still
+            // below "look, it's moving" and above "nothing ever changes".
+            animation: 'stage-flow 34s ease-in-out infinite',
+          }}
+        />
+
+        {/* The field's one moving part you are meant to notice, and it moves
+            only while a voice is in the room: listening or speaking, never
+            thinking and never at rest.
             A background that drifts continuously becomes wallpaper within
             thirty seconds — tying it to speech makes the screen answer the one
             question a caller actually has, which is whether anything is
@@ -278,7 +346,7 @@ export function CallOverlay({
             className="orb-motion pointer-events-none absolute inset-0 transition-opacity duration-500"
             style={{
               background:
-                'radial-gradient(ellipse 58% 46% at 62% 28%, rgba(255,196,130,0.30) 0%, transparent 62%)',
+                'radial-gradient(ellipse 58% 46% at 62% 28%, rgba(224,132,56,0.22) 0%, rgba(198,104,44,0.11) 34%, rgba(150,72,30,0.04) 52%, transparent 70%)',
               // Listening tracks the microphone; speaking has no measured
               // loudness (the audio is scheduled, never read back), so it
               // breathes on the clock instead of faking a level.
@@ -295,7 +363,10 @@ export function CallOverlay({
           className="pointer-events-none absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-700"
           style={{
             background:
-              'radial-gradient(circle, rgba(255,214,170,0.20) 0%, rgba(255,150,80,0.08) 38%, transparent 62%)',
+              // The sphere's own light spilling onto the room. Bigger and
+              // warmer than before, because on a dark field this is the layer
+              // that makes the ball look like a source instead of a decal.
+              'radial-gradient(circle, rgba(255,146,64,0.20) 0%, rgba(236,116,44,0.13) 22%, rgba(196,86,30,0.07) 40%, rgba(140,58,22,0.03) 56%, transparent 72%)',
             opacity: phase === 'ready' ? 0.55 : 0.95,
           }}
         />
@@ -369,7 +440,7 @@ export function CallOverlay({
                   />
                   <EngineLine
                     label={t('call.tts')}
-                    name={voice?.label ?? '—'}
+                    name={voice?.label ?? '-'}
                     local={voice?.isLocal ?? false}
                     t={t}
                     onChange={onChangeEngine}
@@ -378,22 +449,17 @@ export function CallOverlay({
               )}
             </div>
 
-            {/* Whether it can act, not just answer. The tool panel during a
-                call shows what ran; this says beforehand whether anything CAN,
-                so an empty panel reads as "nothing to do" rather than as a
-                broken indicator. */}
-            <span className="flex items-center gap-2">
-              <span className="text-text-muted">{t('call.tools')}</span>
-              <span className={hasTools ? 'text-text-secondary' : 'text-[var(--warning)]'}>
-                {hasTools ? t('call.toolsOn') : t('call.toolsOff')}
+            {/* Only the case worth interrupting for. A call that CANNOT act is
+                a different product from one that can, and the tool panel it
+                would normally fill stays empty — which reads as broken rather
+                than as "nothing to do". The opposite line (tools are on, here
+                is what that means) was noise on a screen the user reads once
+                and then never again, and it is gone. */}
+            {!hasTools && (
+              <span className="flex items-center gap-2">
+                <span className="text-text-muted">{t('call.tools')}</span>
+                <span className="text-[var(--warning)]">{t('call.toolsOff')}</span>
               </span>
-            </span>
-
-            {/* What is different about this mode, said once: it hears you
-                directly, it can be cut off mid-sentence, and each finished turn
-                lands in the chat. */}
-            {live && (
-              <p className="max-w-sm text-center text-xs text-text-muted">{t('call.liveNote')}</p>
             )}
 
             {ready === false && voice?.needsDownload && (
@@ -519,15 +585,44 @@ export function CallOverlay({
  * Unknown names fall back to Kore's, which is also what Rust pins by default,
  * so a voice added by the vendor tomorrow looks deliberate rather than broken.
  */
-const VOICE_PALETTE: Record<string, { anchor: string; cool: string; warm: string }> = {
-  Kore:    { anchor: '124, 77, 255',  cool: '64, 208, 245',  warm: '255, 138, 76' },
-  Puck:    { anchor: '86, 124, 255',  cool: '96, 232, 210',  warm: '255, 196, 84' },
-  Charon:  { anchor: '62, 84, 168',   cool: '120, 176, 255', warm: '226, 132, 96' },
-  Fenrir:  { anchor: '164, 62, 200',  cool: '96, 176, 255',  warm: '255, 112, 92' },
-  Aoede:   { anchor: '112, 96, 232',  cool: '128, 240, 208', warm: '255, 168, 120' },
-  Leda:    { anchor: '150, 108, 240', cool: '164, 216, 255', warm: '255, 172, 156' },
-  Orus:    { anchor: '72, 104, 196',  cool: '84, 200, 232',  warm: '240, 150, 72' },
-  Zephyr:  { anchor: '96, 140, 248',  cool: '148, 240, 236', warm: '255, 184, 128' },
+const VOICE_PALETTE: Record<
+  string,
+  { deep: string; mid: string; hot: string; glow: string; rim: string; base: string }
+> = {
+  // Eight MOLTEN metals, not eight tinted glass balls.
+  //
+  // The sphere used to be pale glass with colour suspended inside it, sitting on
+  // a bright orange field. That composition had one hard constraint — exactly
+  // one warm region, or the ball dissolved into the background it matched. The
+  // field is dark now, which removes that constraint entirely: on charcoal, the
+  // hottest possible sphere has the MOST separation, not the least.
+  //
+  // So each row is a temperature ramp through one metal rather than a set of
+  // contrasting hues:
+  //   `deep` — the dark veins where the melt has cooled. This is what makes it
+  //            read as marbled liquid instead of a glowing ball; without a dark
+  //            end the swirl has nothing to be a swirl against.
+  //   `mid`  — the body, the colour you would name if asked.
+  //   `hot`  — the bright core, near the top of the ramp.
+  //   `glow` — what it throws onto the room around it.
+  //   `base` — three stops for the mass underneath, dark to mid. Dark, always:
+  //            a pale base is what turned the old sphere into a pearl.
+  /** Molten iron — the default, and the one the Rust side pins. */
+  Kore:    { deep: '104, 26, 8',   mid: '226, 88, 22',  hot: '255, 194, 92',  glow: '255, 122, 40',  rim: '54, 14, 4',  base: '#3A0E04,#8C2A0A,#C2470F' },
+  /** Molten copper, cooled towards green in the veins. */
+  Puck:    { deep: '10, 62, 58',   mid: '30, 168, 138', hot: '176, 255, 206', glow: '40, 200, 160',  rim: '4, 34, 32',  base: '#04211F,#0B5B50,#12897A' },
+  /** Molten steel — the coldest of the eight. */
+  Charon:  { deep: '18, 26, 70',   mid: '72, 104, 200', hot: '178, 214, 255', glow: '96, 140, 235',  rim: '8, 12, 40',  base: '#070B24,#1B2A6B,#2E47A0' },
+  /** Molten ruby. */
+  Fenrir:  { deep: '96, 6, 34',    mid: '214, 32, 82',  hot: '255, 158, 190', glow: '236, 60, 110',  rim: '48, 2, 18',  base: '#2C0212,#770A2A,#AE1444' },
+  /** Molten jade. */
+  Aoede:   { deep: '10, 58, 30',   mid: '46, 166, 84',  hot: '190, 255, 158', glow: '70, 200, 110',  rim: '4, 30, 16',  base: '#04200F,#0E5A2A,#177F3C' },
+  /** Molten rose gold. */
+  Leda:    { deep: '72, 10, 30',   mid: '232, 76, 92',   hot: '255, 172, 120', glow: '246, 110, 108', rim: '34, 4, 16',  base: '#1E030C,#7A1830,#C43C50' },
+  /** Molten bronze — the closest sibling to the default. */
+  Orus:    { deep: '86, 40, 4',    mid: '198, 128, 24',  hot: '255, 224, 140', glow: '236, 168, 52',  rim: '42, 18, 2',  base: '#2A1301,#6E3F06,#9C6410' },
+  /** Molten glacier — pale, and the only one whose deep end is still blue. */
+  Zephyr:  { deep: '10, 54, 90',   mid: '58, 152, 214',  hot: '206, 246, 255', glow: '96, 190, 245',  rim: '4, 26, 46',  base: '#031A2E,#0D4A76,#1670A6' },
 };
 
 /**
@@ -540,6 +635,18 @@ const VOICE_PALETTE: Record<string, { anchor: string; cool: string; warm: string
  * see that something is happening.
  */
 const ORB_TEMPO: Record<CallPhase, { a: string; b: string; c: string; breathe: string }> = {
+  // At rest it should look alive, not busy. In the three states where something
+  // is HAPPENING it has to look like something is happening, and it did not:
+  // listening ran a blob across the sphere in thirteen seconds, which at any
+  // glance shorter than that is a still image. The rule of thumb these follow is
+  // that a state you watch for a couple of seconds needs a cycle of about that
+  // long, or the eye cannot tell it from paint.
+  // Two clocks, and they are not the same clock. The COLOUR inside may move
+  // quickly — that is the fluid, and it is what says the thing is awake. The
+  // BREATH is the whole ball changing size, and it must stay slow whatever the
+  // state: a sphere breathing twice a second does not read as alive, it reads
+  // as agitated. The first pass drove both together and the result was a
+  // hummingbird.
   idle:      { a: '30s', b: '38s', c: '24s', breathe: '7s' },
   ready:     { a: '26s', b: '34s', c: '20s', breathe: '6s' },
   listening: { a: '13s', b: '17s', c: '10s', breathe: '5s' },
@@ -591,8 +698,81 @@ function Orb({
   const hue = (voice && VOICE_PALETTE[voice]) || VOICE_PALETTE.Kore!;
   // The mic only scales the sphere while listening; elsewhere the breathing
   // keyframe owns the scale and the two would fight over the same property.
-  const listening = phase === 'listening';
-  const micScale = listening ? 1 + level * 0.14 : 1;
+  /**
+   * The sphere answers BOTH voices, and neither through React.
+   *
+   * While the user talks it follows the microphone; while the agent talks it
+   * follows the reply's own loudness, measured off the audio being played
+   * (`speechLevel`). That second half never existed: the reply's volume was
+   * never read back, so through an entire answer the sphere ran at one fixed
+   * tempo and looked switched off at exactly the moment the caller is watching
+   * it hardest.
+   *
+   * Written to a CSS variable from a frame loop rather than to state. Sixty
+   * `setState` calls a second would re-render this overlay, the chat input that
+   * owns it and everything under them, for something the compositor can do by
+   * itself — and re-render storms are the reason the rest of this screen
+   * already lags behind the conversation.
+   */
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  // Read inside the loop, never depended on. `level` arrives as a prop several
+  // times a second, and listing it as a dependency tore the loop down and built
+  // a new one on every reading — with `shown` and `voice` starting from zero
+  // again each time. The smoothing could never accumulate, so the sphere jumped
+  // from nothing to something and back on every syllable, which is the "full
+  // auto" everyone saw. One loop for the component's life, reading the latest
+  // values through refs, is the whole fix.
+  const levelRef = useRef(level);
+  levelRef.current = level;
+  /** The smoothed value the shader reads. Same number the CSS variable gets. */
+  const smoothedRef = useRef(0);
+  /**
+   * Does this machine have WebGL2?
+   *
+   * Starts optimistic and flips once if the shader cannot run, which puts the
+   * CSS sphere back. Keeping that path alive is the whole reason it is still
+   * in this file: a blocklisted GPU, a driver reset that never recovers, or a
+   * WebView built without WebGL must all end at a working call screen, not at
+   * a hole where the sphere was.
+   */
+  const [shaderOk, setShaderOk] = useState(true);
+  const dropShader = useCallback(() => setShaderOk(false), []);
+  /**
+   * Give the shader another chance whenever a new call starts.
+   *
+   * The fallback used to be permanent for the life of the component: one lost
+   * context — a driver reset, the GPU process being recycled, waking from
+   * sleep — and every call for the rest of the session ran on the CSS sphere,
+   * with nothing on screen saying why. A graphics stack that failed once is
+   * usually fine a minute later, so the only sensible scope for "this machine
+   * cannot do it" is a single call.
+   */
+  useEffect(() => {
+    if (phase === 'ready') setShaderOk(true);
+  }, [phase]);
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  useEffect(() => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    let raf = 0;
+    let shown = 0;
+    const tick = () => {
+      const at = phaseRef.current;
+      const target = at === 'listening' ? levelRef.current : at === 'speaking' ? speechLevel() : 0;
+      // Ease towards it, slowly. At a quarter per frame the sphere tracked
+      // individual syllables and twitched; what should show through is the
+      // ENVELOPE of a voice — the swell of a phrase, not every consonant in it.
+      shown += (target - shown) * 0.06;
+      shellRef.current?.style.setProperty('--orb-level', shown.toFixed(3));
+      // The shader reads the same smoothed number, straight from a ref. Going
+      // back through `getComputedStyle` for it would force a style resolve on
+      // every frame to fetch a value we are already holding.
+      smoothedRef.current = shown;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   /**
    * Tool work reads as CHURN, not as another speed.
@@ -605,6 +785,9 @@ function Orb({
    */
   const churn = (d: string) => (working ? `${(parseFloat(d) / 2.6).toFixed(1)}s` : d);
 
+  /** Pull one blob off the shared tempo without inventing a fifth clock. */
+  const scale = (d: string, by: number) => `${(parseFloat(d) * by).toFixed(1)}s`;
+
   /**
    * One region of suspended colour.
    *
@@ -615,77 +798,208 @@ function Orb({
    * texture, which is the thing this is not.
    */
   const blob = (
-    colour: string,
+    /** `r, g, b` — the alpha is applied here, at two strengths. */
+    rgb: string,
+    alpha: number,
     at: string,
     size: string,
     blur: string,
     duration: string,
     delay = '0s',
+    /** How elliptical this region is. A circle blurred is still a circle; an
+     *  ellipse that turns is what stretches and slims as it goes. */
+    shape = '58% 42%',
+    /**
+     * Fixed angle for this band, before the drift turns it further.
+     *
+     * This is what makes the sphere marbled rather than mottled. Every region
+     * used to be a near-circular puff on the same axis, and a pile of puffs is
+     * a cloud — soft patches of colour with no direction, which is exactly how
+     * the first attempt read. Marble is made of long streaks that CROSS each
+     * other, so each band is stretched thin and laid at its own angle; where
+     * two of them overlap at different angles you get the seam that says
+     * "flow" instead of "blur".
+     */
+    tilt = '0deg',
   ) => (
+    // The tilt has to live on a wrapper: `orb-flow` animates `transform` on
+    // the element below, so a rotation set there would be overwritten on the
+    // first frame.
     <div
       aria-hidden
-      className="orb-motion absolute rounded-full"
+      className="absolute"
       style={{
         width: size,
         height: size,
         left: `calc(${at.split(' ')[0]} - ${size} / 2)`,
         top: `calc(${at.split(' ')[1]} - ${size} / 2)`,
-        background: `radial-gradient(circle, ${colour} 0%, transparent 68%)`,
+        transform: `rotate(${tilt})`,
+      }}
+    >
+    <div
+      aria-hidden
+      className="orb-motion absolute inset-0 rounded-full"
+      style={{
+        // Three stops, not two. A single stop to `transparent` fades along a
+        // straight ramp, and a straight ramp is what makes overlapping colours
+        // average into mud instead of marbling: the midpoint holds most of the
+        // colour, then it lets go fast, so two regions meet in a visible seam
+        // of the mixed hue rather than in a grey plateau.
+        background:
+          `radial-gradient(ellipse ${shape} at 50% 50%, ` +
+          `rgba(${rgb}, ${alpha}) 0%, ` +
+          `rgba(${rgb}, ${(alpha * 0.6).toFixed(2)}) 38%, ` +
+          `transparent 74%)`,
         filter: `blur(${blur})`,
-        animation: `orb-drift ${duration} ease-in-out ${delay} infinite alternate`,
+        // The duration rides a CSS variable instead of sitting in the shorthand,
+        // and that is the whole reason the colour stopped jumping back to where
+        // it started every time the agent began to answer. Each phase has its
+        // own tempo, so the shorthand string changed on every phase change —
+        // and a changed `animation` property RESTARTS the animation, snapping
+        // all four regions home at once. Changing only `animation-duration`
+        // retimes a running animation instead of beginning a new one.
+        ['--flow' as string]: duration,
+        animationName: 'orb-flow',
+        animationDuration: 'var(--flow)',
+        animationTimingFunction: 'cubic-bezier(0.45, 0, 0.55, 1)',
+        animationDelay: delay,
+        animationIterationCount: 'infinite',
+        animationDirection: 'alternate',
       }}
     />
+    </div>
   );
 
+  // The molten mass under the veins, dark → bright, per voice.
+  const [baseDark, baseMid, baseBright] = hue.base.split(',');
+
   return (
-    <div className="relative flex h-60 w-60 items-center justify-center">
+    <div ref={shellRef} className="orb-shell relative flex h-60 w-60 items-center justify-center">
       {/* Halo — tracks the sphere one step behind, so loud speech pushes light
           outward instead of only stretching the disc. Kept faint: at 32% it was a
           second glowing ring around a glowing ball, which is what made the screen
           look cheap. */}
       <div
         aria-hidden
-        className="absolute inset-0 rounded-full transition-transform duration-150"
+        className="orb-halo absolute inset-0 rounded-full"
         style={{
-          transform: `scale(${1 + (micScale - 1) * 1.8})`,
           background:
-            // Cool, like the sphere it tracks — a brand-orange halo around a
-            // glass ball on an orange field made the edge disappear entirely.
-            'radial-gradient(circle, rgba(214,206,255,0.16) 42%, transparent 70%)',
+            // A molten object throws light. On the old orange field a warm halo
+            // erased the silhouette, so this had to be the cool anchor; on
+            // charcoal the opposite is true — the bloom is the thing that says
+            // the sphere is a source rather than a sticker.
+            `radial-gradient(circle, rgba(${hue.glow}, 0.34) 0%, rgba(${hue.glow}, 0.20) 38%, rgba(${hue.glow}, 0.07) 58%, transparent 74%)`,
         }}
       />
 
-      <div
-        className="relative h-44 w-44 transition-transform duration-150"
-        style={{ transform: `scale(${micScale})` }}
-      >
+      {/* Tools are running. Sits between the halo and the body, outside the
+          clip, so the arc travels the silhouette rather than the fluid.
+          Mounted only while working — an always-present element at zero opacity
+          would still cost a compositor layer for the whole call. */}
+      {working && (
         <div
-          className="orb-motion absolute inset-0 overflow-hidden rounded-full"
+          aria-hidden
+          className="orb-motion pointer-events-none absolute -inset-[7%] rounded-full"
+          style={{ animation: 'orb-sweep-pulse 2.1s ease-in-out infinite' }}
+        >
+          <div
+            className="orb-motion absolute inset-0 rounded-full"
+            style={{
+              background:
+                // One bright arc, the rest transparent. The trailing stops are
+                // what give it a comet tail instead of a hard spoke.
+                `conic-gradient(from 0deg, transparent 0deg, transparent 250deg, rgba(${hue.hot},0.10) 285deg, rgba(${hue.hot},0.55) 330deg, rgba(255,255,255,0.92) 352deg, rgba(${hue.hot},0.55) 358deg, transparent 360deg)`,
+              // Cut to a ring. Without the mask this is a filled pie slice
+              // rotating over the ball, which looks like a loading spinner
+              // someone dropped on top of the artwork.
+              WebkitMaskImage:
+                'radial-gradient(closest-side, transparent 84%, #000 88%, #000 97%, transparent 100%)',
+              maskImage:
+                'radial-gradient(closest-side, transparent 84%, #000 88%, #000 97%, transparent 100%)',
+              animation: 'orb-sweep 2.1s linear infinite',
+              filter: `drop-shadow(0 0 8px rgba(${hue.glow},0.85))`,
+            }}
+          />
+        </div>
+      )}
+
+      {/* Scaled by the frame loop through `--orb-level`, never by a React state
+          update per microphone reading. */}
+      <div className="orb-body relative h-44 w-44">
+        {shaderOk ? (
+          /* The shader does its own lighting — fresnel, specular, falloff — so
+             none of the CSS coat below is layered on top of it. Two lighting
+             models on one object is what makes a render look like a sticker on
+             a photograph. All that stays outside is the halo and the tool ring,
+             which belong to the room rather than to the surface. */
+          <div
+            className="absolute inset-0 overflow-hidden rounded-full"
+            style={{
+              boxShadow:
+                `0 0 40px rgba(${hue.glow}, 0.55), 0 0 110px rgba(${hue.glow}, 0.28), 0 22px 60px rgba(0, 0, 0, 0.55)`,
+              animation: `orb-breathe ${tempo.breathe} ease-in-out infinite`,
+            }}
+          >
+            <MoltenOrb
+              levelRef={smoothedRef}
+              phase={phase}
+              working={working}
+              palette={{ deep: hue.deep, mid: hue.mid, hot: hue.hot }}
+              onUnavailable={dropShader}
+            />
+          </div>
+        ) : (
+          <>
+        <div
+          className="orb-motion orb-fluid absolute inset-0 overflow-hidden rounded-full"
           style={{
-            // The pale base the colour floats in. Faintly violet rather than
-            // white so the sphere still has a body where no blob reaches.
-            background: 'radial-gradient(circle at 42% 34%, #FBF8FF 0%, #E4DCF7 58%, #B9AEE0 100%)',
-            // Cool halo, so it separates from the orange field rather than
-            // melting into it.
-            boxShadow: '0 0 54px rgba(196, 186, 255, 0.34), 0 18px 44px rgba(60, 20, 8, 0.30)',
-            // Breathing lives on the clipping layer, not on the scaled wrapper, so
-            // it composes with the mic scale instead of overwriting it.
+            // The molten mass the veins move through. Lit from upper left and
+            // falling away to near-black at the lower right, so the ball has
+            // a light direction before a single blob is drawn.
+            background:
+              `radial-gradient(circle at 36% 28%, ${baseBright} 0%, ${baseMid} 44%, ${baseMid} 58%, ${baseDark} 100%)`,
+            // Its own light, thrown outward. Two radii: a tight hot one that
+            // reads as heat coming off the surface, and a wide soft one that
+            // lifts the charcoal behind it.
+            boxShadow:
+              `0 0 40px rgba(${hue.glow}, 0.55), 0 0 110px rgba(${hue.glow}, 0.28), 0 22px 60px rgba(0, 0, 0, 0.55)`,
+            // Breathing lives on the clipping layer, not on the wrapper, so it
+            // composes with the voice scale instead of overwriting it. Exactly
+            // where it was before this file was touched today.
             animation: `orb-breathe ${tempo.breathe} ease-in-out infinite`,
           }}
         >
-          {/* Violet owns the lower left and is the anchor: on an orange field a
-              cool mass is what keeps the sphere from dissolving into the
-              background. */}
-          {blob(`rgba(${hue.anchor}, 0.92)`, '32% 68%', '150%', '26px', churn(tempo.a))}
-          {/* Cyan across the top — the coldest note, and the one that makes the
-              violet read as violet rather than as grey. */}
-          {blob(`rgba(${hue.cool}, 0.85)`, '64% 24%', '125%', '24px', churn(tempo.b), '-4s')}
-          {/* One warm region only. Two would tie the ball to the field it sits
-              on and the edge would vanish. */}
-          {blob(`rgba(${hue.warm}, 0.78)`, '76% 66%', '115%', '28px', churn(tempo.c), '-9s')}
-          {/* A pale bloom that keeps the middle from turning muddy where the
-              other three overlap. */}
-          {blob('rgba(255, 255, 255, 0.75)', '40% 40%', '95%', '22px', churn(tempo.b), '-14s')}
+          {/* Four regions, and no two of them on the same clock. Sharing a
+              duration is what made this read as a texture: two blobs on
+              `tempo.b` reach their extremes together every cycle, the eye finds
+              the beat, and a beat is the opposite of liquid. The multipliers
+              below are deliberately not simple ratios of each other, so the
+              four never line up twice in the same way. */}
+          {/* The dark veins, and they are the whole trick.
+              A ball of hot colours is a glowing ball; hot colours with COLD
+              ones cutting through them is molten marble.
+
+              The blur here is the single most important number on the sphere,
+              and the first pass had it at 18-30px on a 176px ball — which is
+              wide enough that every region averaged into its neighbours and
+              the whole thing came out a smooth pearl with a gradient. Blur has
+              to be big enough that no region shows an edge and small enough
+              that two regions still MEET somewhere visible. That window is
+              narrow, and it is around 10-13px at this size. */}
+          {blob(hue.deep, 0.98, '30% 62%', '132%', '11px', churn(tempo.a), '0s', '92% 20%', '-24deg')}
+          {/* A second dark band crossing the first at a wide angle. One vein
+              reads as a shadow; two that cross read as flow. */}
+          {blob(hue.deep, 0.86, '66% 34%', '116%', '10px', churn(scale(tempo.a, 1.43)), '-11s', '88% 18%', '38deg')}
+          {/* A third, short and steep, breaking up the lower mass. */}
+          {blob(hue.deep, 0.66, '56% 86%', '92%', '9px', churn(scale(tempo.c, 1.77)), '-6s', '80% 24%', '74deg')}
+          {/* The body colour, the widest band, nearly level. */}
+          {blob(hue.mid, 0.94, '52% 50%', '126%', '12px', churn(scale(tempo.b, 1.0)), '-4s', '94% 26%', '8deg')}
+          {/* The hot core, upper-left where the light is, laid across the
+              body band so the two make a seam rather than a halo. */}
+          {blob(hue.hot, 0.90, '38% 32%', '96%', '10px', churn(scale(tempo.c, 1.31)), '-9s', '86% 22%', '-52deg')}
+          {/* The brightest flare, thinnest and fastest — the highlight inside a
+              liquid always moves quicker than the mass carrying it. */}
+          {blob(hue.hot, 0.76, '64% 58%', '72%', '8px', churn(scale(tempo.b, 0.73)), '-14s', '90% 16%', '20deg')}
         </div>
 
         {/* The glass, in three parts, all on top of the clip.
@@ -707,18 +1021,63 @@ function Orb({
           className="pointer-events-none absolute inset-0 rounded-full"
           style={{
             boxShadow: [
-              'inset 0 2px 3px rgba(255,255,255,0.95)',
-              'inset 0 0 0 1px rgba(255,255,255,0.55)',
-              // The containing edge. Thin, cool, and darker than anything
-              // inside — glass has a boundary you can see.
-              'inset 0 0 0 2.5px rgba(58,44,104,0.28)',
-              'inset 0 -30px 44px rgba(58,46,110,0.42)',
-              'inset 0 22px 36px rgba(255,255,255,0.26)',
-              // Light that entered the top and pooled at the far wall: the
-              // bright crescent along the lower right, which is the single
-              // strongest glass cue in the reference.
-              'inset -14px -18px 26px rgba(255,255,255,0.42)',
+              // Warm, not white. Every one of these was pure white when the
+              // ball was pale glass, and on a molten surface white is not a
+              // highlight — it is bleach. It flattened the hottest part of the
+              // ramp into paper and was the single biggest reason the first
+              // attempt at this looked like a marble instead of a melt.
+              `inset 0 2px 3px rgba(${hue.hot},0.75)`,
+              `inset 0 0 0 1px rgba(${hue.hot},0.28)`,
+              // The containing edge: darker than anything inside, so the
+              // silhouette holds against the charcoal behind it.
+              `inset 0 0 0 2.5px rgba(${hue.rim},0.55)`,
+              // The far side falls off to nearly cold. A molten ball is lit by
+              // ITSELF, so the shading is steeper than a lit object's.
+              `inset -10px -16px 40px rgba(${hue.rim},0.80)`,
+              `inset 0 -34px 52px rgba(${hue.rim},0.62)`,
+              `inset 0 14px 26px rgba(${hue.hot},0.09)`,
             ].join(', '),
+          }}
+        />
+
+        {/* 1b. Fresnel. Glass reflects almost nothing head-on and almost
+               everything at a grazing angle, which is why a real sphere has a
+               bright band hugging its silhouette and a comparatively dull
+               middle. Painting the highlight evenly is the difference between
+               "sphere with a gradient" and "glass". The band is pushed right to
+               the edge (92%+) because that is where the grazing angles are. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background:
+              `radial-gradient(circle at 50% 50%, transparent 88%, rgba(${hue.hot},0.06) 94%, rgba(${hue.hot},0.20) 99%, transparent 100%)`,
+          }}
+        />
+
+        {/* 1c. Refraction, in the only way a flat element can honestly show it:
+               the field BEHIND the ball is bent inward at the rim, so the ring
+               just inside the silhouette carries the room's colour — here the
+               orange field — rather than the fluid's. Without it the ball reads
+               as opaque, because an opaque object is exactly one that shows you
+               nothing of what is behind it. Multiply keeps it as tinted glass
+               instead of a painted orange ring. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background: [
+              // The terminator. This layer used to show the ORANGE FIELD bent
+              // through the rim, which was honest when the room behind the ball
+              // was orange; the room is charcoal now, so what a real melt shows
+              // at its edge is its own cooling crust. Multiply keeps it as a
+              // darkening of the fluid rather than a ring painted over it.
+              `radial-gradient(circle at 50% 50%, transparent 74%, rgba(${hue.rim},0.55) 93%, rgba(${hue.rim},0.85) 100%)`,
+              // Weighted low and right, away from the light.
+              `radial-gradient(ellipse 78% 70% at 70% 82%, transparent 52%, rgba(${hue.rim},0.42) 96%)`,
+            ].join(', '),
+            mixBlendMode: 'multiply',
+            opacity: 0.85,
           }}
         />
 
@@ -730,7 +1089,12 @@ function Orb({
           className="pointer-events-none absolute inset-0 rounded-full"
           style={{
             background:
-              'radial-gradient(ellipse 26% 16% at 62% 84%, rgba(255,255,255,0.70) 0%, transparent 70%)',
+              // Was a white caustic — light focused through a transparent ball
+              // onto its own far wall. This one is opaque, so that cue is a lie
+              // here; what a melt actually has low and off-centre is a pool
+              // where the hot fluid gathers.
+              `radial-gradient(ellipse 30% 18% at 62% 82%, rgba(${hue.hot},0.34) 0%, transparent 72%)`,
+            mixBlendMode: 'screen',
           }}
         />
         <div
@@ -741,8 +1105,20 @@ function Orb({
               // Tighter and brighter than a sheen: a specular is a REFLECTION of
               // the light source, so it has an edge. Spread soft and wide, it
               // reads as a matte surface catching light instead of a wet one.
-              'radial-gradient(circle at 33% 23%, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0.72) 5%, rgba(255,255,255,0.12) 15%, transparent 30%)',
-            animation: `orb-glint ${tempo.b} ease-in-out infinite`,
+              // Kept white only at its very centre — a molten surface is glossy,
+              // and gloss reflects the room's white light even when the body
+              // underneath is glowing orange. Wider than the centre it goes
+              // straight to the hot colour, or the ball turns pearlescent.
+              `radial-gradient(circle at 33% 23%, rgba(255,255,255,0.46) 0%, rgba(${hue.hot},0.44) 5%, rgba(${hue.hot},0.10) 14%, transparent 27%)`,
+            // Off the blobs' clocks too: a specular that peaks with the colour
+            // underneath it turns the whole ball into one pulsing thing.
+            // Same reason as the blobs: duration through a variable, so a
+            // phase change retimes the glint instead of teleporting it.
+            ['--glint' as string]: scale(tempo.b, 1.17),
+            animationName: 'orb-glint',
+            animationDuration: 'var(--glint)',
+            animationTimingFunction: 'ease-in-out',
+            animationIterationCount: 'infinite',
           }}
         />
         <div
@@ -752,9 +1128,50 @@ function Orb({
             // A sheen should suggest a wet surface, not repaint it: at 0.30
             // across the top third this was the layer washing the colour out.
             background:
-              'radial-gradient(ellipse 52% 30% at 40% 14%, rgba(255,255,255,0.16) 0%, transparent 72%)',
+              `radial-gradient(ellipse 52% 30% at 40% 14%, rgba(${hue.hot},0.10) 0%, transparent 72%)`,
           }}
         />
+
+        {/* 4. The back-surface reflection. Light hitting glass reflects TWICE —
+               off the front face and again off the inside of the back face — so
+               a real ball shows the same light source a second time, dimmer,
+               smaller, and on the opposite side. It is the cue that says the
+               object has a far wall, i.e. that it is transparent, and leaving
+               it out is why a single highlight always reads as a sticker.
+               Travels with the glint, half a beat behind. */}
+        <div
+          aria-hidden
+          className="orb-motion pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background:
+              `radial-gradient(circle at 71% 76%, rgba(${hue.hot},0.50) 0%, rgba(${hue.hot},0.16) 8%, transparent 20%)`,
+            ['--glint' as string]: scale(tempo.b, 1.17),
+            animationName: 'orb-glint',
+            animationDuration: 'var(--glint)',
+            animationTimingFunction: 'ease-in-out',
+            animationDelay: '-1.2s',
+            animationIterationCount: 'infinite',
+            animationDirection: 'reverse',
+            opacity: 0.7,
+          }}
+        />
+
+        {/* 5. The room, seen in the glass. The ball sits on a bright orange
+               field, and a reflective sphere shows that field back — a soft
+               warm band low on the surface, brightest where the surface faces
+               the ground. Without it the sphere is lit by nothing in
+               particular, which is the quiet reason it can look pasted on. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background:
+              `radial-gradient(ellipse 78% 34% at 50% 96%, rgba(${hue.mid},0.30) 0%, rgba(${hue.mid},0.10) 44%, transparent 72%)`,
+            mixBlendMode: 'screen',
+          }}
+        />
+          </>
+        )}
       </div>
     </div>
   );

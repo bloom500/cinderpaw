@@ -50,8 +50,74 @@
   from { transform: translate(-7%, 4%) scale(1); }
   to   { transform: translate(8%, -6%) scale(1.12); }
 }
+/* The liquid version of the same idea, and the difference is that a blob no
+ * longer keeps its shape while it moves.
+ *
+ * Translating a soft disc gives you a disc somewhere else — the eye reads a
+ * moving OBJECT, which is why the earlier sphere looked like coloured marbles
+ * suspended in glass rather than like colour in motion. Fluid does three things
+ * at once: it drifts, it turns, and it stretches along the direction it is
+ * being pulled. The non-uniform scale is the load-bearing part; the rotation is
+ * what keeps the stretch from always lying along the same axis.
+ *
+ * Still `translate`/`rotate`/`scale` only — all composited, no layout, no
+ * repaint. Four waypoints rather than two, because two is a straight line back
+ * and forth and a straight line is the one thing liquid never does.
+ *
+ * (The keyframe itself is further down; what follows first is the live half.)
+ */
+/* The live half of the sphere.
+ *
+ * `--orb-level` is written by a frame loop in `CallOverlay`, 0..1, and it is a
+ * MEASUREMENT: the microphone while the user speaks, the reply's own loudness
+ * while the agent does. Everything below reads it, so the whole object swells
+ * and quickens with the voice instead of running at one tempo per state.
+ *
+ * Defaulted here so nothing depends on the loop having run yet — before the
+ * first call, and under reduced-motion where the loop never starts, this is a
+ * still sphere rather than a broken one. */
+.orb-shell { --orb-level: 0; }
+/* The voice reaction, at exactly the strength it shipped with: the ball follows
+ * a loud voice by 14% and the halo by 1.8 times that. Two differences from the
+ * original, both of them fixes rather than changes:
+ *
+ *  - it is driven from a CSS variable a frame loop writes, not from a React
+ *    state update per microphone reading, so the smoothing survives and the
+ *    overlay is not re-rendered sixty times a second;
+ *  - it follows the AGENT's voice too, measured off the audio being played.
+ *    Only the microphone was ever read, so through an entire answer the sphere
+ *    had nothing to react to. */
+.orb-shell .orb-body { transform: scale(calc(1 + var(--orb-level) * 0.14)); }
+.orb-shell .orb-halo { transform: scale(calc(1 + var(--orb-level) * 0.252)); }
+@keyframes orb-flow {
+  0%   { transform: translate(-8%, 5%) rotate(0deg) scale(1.04, 0.93); }
+  35%  { transform: translate(3%, -6%) rotate(38deg) scale(0.9, 1.12); }
+  70%  { transform: translate(8%, 4%) rotate(76deg) scale(1.14, 0.95); }
+  100% { transform: translate(-4%, -4%) rotate(104deg) scale(0.97, 1.06); }
+}
+/* The field's slow warp. Amplitude deliberately near the threshold of notice:
+ * the argument against a continuously moving background is that it becomes
+ * wallpaper, and that argument holds for anything you can SEE moving. This is
+ * slower than a minute per cycle and moves a few percent, so it never announces
+ * itself — it only stops the gradients reading as paint. The loud motion is
+ * still the speech-tied highlight, which is the layer that answers "is anything
+ * happening".
+ */
+@keyframes stage-flow {
+  0%   { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
+  33%  { transform: translate3d(4%, -3%, 0) rotate(11deg) scale(1.02, 1.16); }
+  66%  { transform: translate3d(3%, 4%, 0) rotate(-7deg) scale(1.14, 1.02); }
+  100% { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
+}
 /* Breathing, so the sphere is never completely still. Idle should look alive
-   but not busy; the amplitude stays small enough to read as breath. */
+   but not busy; the amplitude stays small enough to read as breath.
+
+   Restored to exactly what shipped in 87f69dd after three attempts to improve
+   it made it worse in three different ways: faster read as agitation, gating it
+   on the voice made it invisible, and moving it onto the whole ball turned a
+   breath into a throb. The original is a small, continuous, slow swell of the
+   COLOUR inside the glass, and the glass around it holding still is part of why
+   it reads as breathing rather than as pulsing. */
 @keyframes orb-breathe {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.035); }
@@ -62,6 +128,29 @@
 @keyframes orb-glint {
   0%, 100% { transform: translate(-6%, -4%) scale(1); opacity: 0.9; }
   50%      { transform: translate(8%, 6%) scale(1.15); opacity: 0.55; }
+}
+
+/* Tools are running.
+ *
+ * A tool call used to show up only as the fluid inside moving faster, which is
+ * invisible unless you already knew to look: the sphere is always moving, so
+ * "moving somewhat more" is not a signal. This is the one piece of the sphere
+ * that is unambiguously mechanical — a bright arc travelling the rim, once a
+ * couple of seconds, like something being scanned. It reads as work rather than
+ * as mood, which is exactly the distinction the caller needs while they wait.
+ *
+ * A steady rotation on purpose: every other motion here eases back and forth
+ * because liquid never travels in a straight line, and this one is not liquid. */
+@keyframes orb-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* The arc brightens as it comes round, so a slow sweep still has a pulse to it
+ * and the ring never sits at one flat intensity. */
+@keyframes orb-sweep-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
 }
 
 /* Motion is decoration here — the call's state is also carried by the status
