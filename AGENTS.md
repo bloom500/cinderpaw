@@ -6,6 +6,18 @@
 > bug (the next agent will believe the wrong thing), so update them when
 > the underlying fact changes.
 
+## Agent rules (all models, all sessions)
+
+- Never work on `main`. One branch per task.
+- No refactoring outside the stated task. No drive-by "improvements".
+- Do NOT modify unless the task names them explicitly:
+  `useCallSession.ts`, `vad.ts`, the Rust audio pipeline, `mcp.json`.
+- Before declaring done, run `./scripts/verify.sh` — FeralAgent tests/typecheck,
+  React tests/typecheck, and TUI tests/build must all be green.
+- Keep diffs small. If a task needs more than 3 files, stop and ask.
+- Do not invent library APIs. If unsure, stop and report instead of guessing.
+- Conventional commits. One logical change per commit.
+
 ## How Feral works at a glance
 
 Feral = Tauri (Rust) host + Leptos/React frontend + a Bun/TypeScript
