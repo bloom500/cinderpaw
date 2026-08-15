@@ -13,7 +13,8 @@
 - Do NOT modify unless the task names them explicitly:
   `useCallSession.ts`, `vad.ts`, the Rust audio pipeline, `mcp.json`.
 - Before declaring done, run `./scripts/verify.sh` — FeralAgent tests/typecheck,
-  React tests/typecheck, and TUI tests/build must all be green.
+  React tests/typecheck, Rust workspace check/Tauri tests, and TUI tests/build
+  must all be green.
 - Keep diffs small. If a task needs more than 3 files, stop and ask.
 - Do not invent library APIs. If unsure, stop and report instead of guessing.
 - Conventional commits. One logical change per commit.
