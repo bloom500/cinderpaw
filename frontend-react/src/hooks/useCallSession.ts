@@ -8,9 +8,11 @@ import { saveVoiceBlobToDisk, transcribeVoiceBlob } from './useSendMessage';
 import {
   rms,
   isVoiced,
-  BARGE_IN_FRAMES,
-  BARGE_IN_RMS,
+  createBargeInDetector,
+  isTtsEcho,
   SPEECH_RMS,
+  TRAIL_SILENCE_MS,
+  MAX_UTTERANCE_MS,
   utteranceEnded,
   type Verdict,
 } from '@/lib/vad';
@@ -48,6 +50,16 @@ export type CallPhase = 'idle' | 'ready' | 'listening' | 'thinking' | 'speaking'
 /** How often the mic level is sampled. ~16 Hz: fast enough that the trailing
  *  silence is measured to within a frame, slow enough to be free. */
 const POLL_MS = 60;
+
+/**
+ * Longest pre-roll kept while waiting for an interruption that may never come.
+ *
+ * The barge-in recorder runs for the whole agent turn, which can be minutes.
+ * Restarting it every few seconds while the user is quiet bounds the blob
+ * without ever cutting into an utterance, because the restart only happens on
+ * the quiet branch.
+ */
+const PRE_ROLL_MAX_MS = 5_000;
 
 /** The mic level the orb treats as "full". Six times the speech threshold —
  *  normal speech then sits around half, and shouting fills it. Exported so the
@@ -145,6 +157,8 @@ function hangWatchdog(idleMs: number, maxMs: number) {
 
 /** Sentinel for the timeout branch — a plain string could collide with a reply. */
 const TIMED_OUT = Symbol('reply-timeout');
+/** The user talked over the turn — abandon it and take their new question. */
+const INTERRUPTED = Symbol('barge-in');
 
 /**
  * What to say while nothing is happening, in order.
@@ -260,7 +274,10 @@ export function useCallSession(send: (text: string) => Promise<void>) {
    * voice that was never coming.
    */
   const [notice, setNotice] = useState<string | null>(null);
-  const { beginSpeech, feedSpeech, endSpeech, stop: stopSpeech } = useSpeechPlayer(sessionId);
+  const { beginSpeech, feedSpeech, endSpeech, stop: stopSpeech, isPlaying } = useSpeechPlayer(sessionId);
+  /** Read through a ref so the barge-in poll always asks the live player. */
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
 
   // The loop reads these through refs: it is a long-lived async function, and it
   // must see the current send target and the current call, not the ones that
@@ -277,11 +294,39 @@ export function useCallSession(send: (text: string) => Promise<void>) {
    *  loop stays the only thing that takes turns — two senders racing would put
    *  two questions to the model and speak the answer to one of them. */
   const typedRef = useRef<string | null>(null);
+  /**
+   * The utterance that interrupted the reply, captured from its first syllable.
+   *
+   * Same discipline as `typedRef`: the loop stays the only thing that takes
+   * turns, so a barge-in hands its audio over here instead of sending it.
+   * `whilePlaying` records the phase it was captured in, because only a
+   * playback-phase capture can be our own voice coming back.
+   */
+  const bargedRef = useRef<{ blob: Blob; whilePlaying: boolean } | null>(null);
+  /** Everything handed to the player this turn — what an echo would echo.
+   *  Bounded: only the recent tail can still be in the air. */
+  const lastSpokenRef = useRef('');
+  /**
+   * Abandons the turn in flight. Set while one is running, a no-op otherwise.
+   *
+   * There are three ways to interrupt — talking over the reply, pressing
+   * Interrupt, typing over it — and all three used to only silence the
+   * speaker. The model kept writing behind the silence, so the answer nobody
+   * wanted still had to finish before the next question could be asked. One
+   * signal, so all three mean the same thing.
+   */
+  const abandonTurnRef = useRef<() => void>(() => {});
 
   const takeTyped = () => {
     const text = typedRef.current;
     typedRef.current = null;
     return text;
+  };
+
+  const takeBarged = () => {
+    const captured = bargedRef.current;
+    bargedRef.current = null;
+    return captured;
   };
 
   const releaseMic = useCallback(() => {
@@ -368,24 +413,146 @@ export function useCallSession(send: (text: string) => Promise<void>) {
    * you can interrupt. The microphone is already open — the loop keeps one stream
    * for the whole call — so this costs a timer, not a device.
    */
-  const watchForBargeIn = useCallback(() => {
+  const watchForBargeIn = useCallback((onTrip: () => void) => {
     const analyser = analyserRef.current;
-    if (!analyser) return () => {};
+    const stream = streamRef.current;
+    if (!analyser) return async () => {};
     const frame = new Float32Array(analyser.fftSize);
-    let loudFrames = 0;
-    const poll = window.setInterval(() => {
+    const detector = createBargeInDetector();
+
+    // Pre-roll. Detection alone loses the first words: by the time sustained
+    // speech is believed and a fresh recorder spins up, "stai, de fapt—" has
+    // already become "de fapt—", and the agent answers half a sentence. So a
+    // recorder runs from the moment the watch is armed, and when the trigger
+    // fires we keep THAT recording — onset included — rather than starting a
+    // new one.
+    let recorder: MediaRecorder | null = null;
+    let chunks: Blob[] = [];
+    let segmentStartedAt = Date.now();
+    const startSegment = () => {
+      if (!stream || typeof MediaRecorder === 'undefined') return;
+      try {
+        recorder = new MediaRecorder(stream);
+      } catch {
+        recorder = null; // no capture available — detection still works
+        return;
+      }
+      chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.start(250);
+    };
+    /** Drop stale pre-roll — only ever called while the user is quiet, since
+     *  rotating mid-speech would throw away the onset this exists to keep. */
+    const rotateSegment = () => {
+      if (!recorder || recorder.state === 'inactive') return;
+      recorder.ondataavailable = null;
+      try { recorder.stop(); } catch { /* already stopped */ }
+      startSegment();
+    };
+    startSegment();
+
+    let tripped = false;
+    let trippedWhilePlaying = false;
+    let trippedAt = 0;
+    let quietSince: number | null = null;
+    let poll = 0;
+    let finishing = false;
+
+    /**
+     * Resolves once the captured utterance is safely in `bargedRef` — or once
+     * we know there will not be one.
+     *
+     * The turn cannot simply walk away from a trip. Cutting the reply resolves
+     * the loop's `await endSpeech()` immediately, so the loop reaches its
+     * cleanup while the user is still mid-sentence; tearing the recorder down
+     * there would throw away exactly the words this whole mechanism exists to
+     * keep. So the caller awaits this instead.
+     */
+    let settle: () => void = () => {};
+    const captured = new Promise<void>((resolve) => { settle = resolve; });
+
+    const finish = () => {
+      if (finishing) return captured;
+      finishing = true;
+      window.clearInterval(poll);
+      const active = recorder;
+      recorder = null;
+      const handOver = () => {
+        bargedRef.current = chunks.length
+          ? { blob: new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' }), whilePlaying: trippedWhilePlaying }
+          : null;
+        settle();
+      };
+      if (!active || active.state === 'inactive') {
+        handOver();
+        return captured;
+      }
+      active.onstop = handOver;
+      try {
+        active.stop();
+      } catch {
+        handOver(); // never leave the turn waiting on a recorder that is gone
+      }
+      return captured;
+    };
+
+    poll = window.setInterval(() => {
       analyser.getFloatTimeDomainData(frame);
       const loudness = rms(frame);
       // The orb keeps reacting while speaking, so an interruption that is not
       // quite loud enough is visible instead of mysterious.
       setLevel(Math.min(1, loudness / LEVEL_CEILING));
-      loudFrames = loudness >= BARGE_IN_RMS ? loudFrames + 1 : 0;
-      if (loudFrames >= BARGE_IN_FRAMES) {
-        clearInterval(poll);
-        stopSpeech(); // resolves the loop's `await speak`, so the next turn listens
+      const now = Date.now();
+
+      if (!tripped) {
+        const playing = isPlayingRef.current();
+        if (detector.feed(loudness, playing, now)) {
+          tripped = true;
+          trippedWhilePlaying = playing;
+          trippedAt = now;
+          quietSince = null;
+          log('vad', `barge-in at rms=${loudness.toFixed(3)} trigger=${detector.trigger().toFixed(3)} playing=${playing}`);
+          // Silence the reply immediately; keep recording what is being said.
+          stopSpeech();
+          // Tell the turn to give up too. Muting an answer the model is still
+          // writing is only half an interruption: without this the generation
+          // ran to completion behind the silence, and the user's new question
+          // queued up behind an answer nobody would ever hear.
+          onTrip();
+          if (!recorder) { window.clearInterval(poll); settle(); return; }
+        } else if (now - segmentStartedAt >= PRE_ROLL_MAX_MS) {
+          // Bound the pre-roll so a two-minute turn does not accumulate a
+          // two-minute blob. Safe here: this branch is the quiet one.
+          rotateSegment();
+          segmentStartedAt = now;
+        }
+        return;
+      }
+
+      // Tripped: the reply is already cut, so plain silence detection works.
+      if (loudness >= SPEECH_RMS) quietSince = null;
+      else quietSince ??= now;
+      if ((quietSince && now - quietSince >= TRAIL_SILENCE_MS) || now - trippedAt >= MAX_UTTERANCE_MS) {
+        void finish();
       }
     }, POLL_MS);
-    return () => clearInterval(poll);
+
+    /** Stop watching. Awaits the interrupting utterance if one is mid-capture. */
+    return () => {
+      if (finishing) return captured;
+      // Tripped and still recording: let it run to its natural end rather than
+      // discarding the sentence the user is in the middle of saying.
+      if (tripped && recorder) return finish();
+      window.clearInterval(poll);
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        try { recorder.stop(); } catch { /* already stopped */ }
+      }
+      recorder = null;
+      settle();
+      return captured;
+    };
   }, [stopSpeech]);
 
   const runTurns = useCallback(
@@ -404,13 +571,31 @@ export function useCallSession(send: (text: string) => Promise<void>) {
         let sttMs = 0;
         let sentAt = 0;
         let firstSpeechMs = 0;
+        /**
+         * Armed before the question is sent and released however the turn
+         * ends, including the paths that `continue` early (a hung reply, a
+         * reply with nothing speakable). Hoisted for exactly that reason: a
+         * watcher left running would keep a second recorder on the microphone
+         * into the next turn.
+         */
+        let stopWatching: () => Promise<void> = async () => {};
         try {
           // Typed while the last turn was still running.
           let text = takeTyped();
 
+          // An interruption already recorded what was said, from its first
+          // syllable — transcribe THAT rather than opening a new recording,
+          // which would start after the fact and lose the words that caused it.
+          const barged = text ? null : takeBarged();
+
           if (!text) {
-            setPhase('listening');
-            const blob = await listenOnce();
+            let blob: Blob | null;
+            if (barged) {
+              blob = barged.blob;
+            } else {
+              setPhase('listening');
+              blob = await listenOnce();
+            }
             if (callRef.current !== call) return;
             // Typed while listening — `say` stopped the recorder, so the blob is
             // a half-sentence nobody wants transcribed.
@@ -431,6 +616,16 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               if (isLikelyHallucination(text)) {
                 log('stt', `discarded a known hallucination: ${text}`);
                 setNotice(t('call.tooShort'));
+                text = '';
+              }
+              // Second line of defence against hearing ourselves. Applied only
+              // to a capture taken while audio was playing: speech heard while
+              // the model was still generating cannot be our voice, because
+              // there was no voice yet. Without this the reply leaks into the
+              // microphone, gets transcribed, and comes back as the user's next
+              // turn — the agent answering itself, forever.
+              if (text && barged?.whilePlaying && isTtsEcho(text, lastSpokenRef.current)) {
+                log('stt', `discarded our own voice coming back: ${text}`);
                 text = '';
               }
             }
@@ -456,6 +651,15 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           const engineNow = useUI.getState().ttsProvider ?? undefined;
           const voiceNow = (engineNow ? useUI.getState().ttsVoice[engineNow] : undefined) || undefined;
           await beginSpeech({ provider: engineNow, voice: voiceNow });
+
+          // Every route to the player goes through here, so the echo guard sees
+          // the filler lines too — those are our voice as much as the answer is,
+          // and a leaked "one moment" coming back as a question is the same bug.
+          lastSpokenRef.current = '';
+          const speakPiece = (piece: string) => {
+            lastSpokenRef.current = `${lastSpokenRef.current} ${piece}`.slice(-2000);
+            feedSpeech(piece);
+          };
 
           /**
            * Everything handed to the player so far, as text.
@@ -499,7 +703,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               // between the question landing and the first word going out. The
               // rest of the reply streams behind it and is not felt.
               if (!firstSpeechMs && sentAt) firstSpeechMs = Date.now() - sentAt;
-              feedSpeech(piece.speak);
+              speakPiece(piece.speak);
               onSpoke();
               // `spoken` grows by exactly what was fed, including the whitespace
               // `takeSpeakable` trimmed, so the prefix check keeps matching.
@@ -514,6 +718,28 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           let filler: number | undefined;
           const clearFiller = () => { if (filler !== undefined) window.clearInterval(filler); };
           const pending = replyWhenDone();
+
+          // Listen for an interruption across the WHOLE agent turn, not just
+          // the tail of it.
+          //
+          // This used to be armed after the reply text had fully arrived, which
+          // put it in the wrong place twice. The player starts speaking from the
+          // first finished sentence — inside the race below — so most of the
+          // talking was already unguarded. And before that comes the generation
+          // wait, measured on this machine at five to twenty seconds, which is
+          // precisely when someone realises they asked the wrong thing. Barge-in
+          // was unavailable for the longest, most annoying part of every turn.
+          //
+          // The detector knows which phase it is in (`isPlaying`) and raises its
+          // own trigger once our voice is in the room, so arming it this early
+          // costs nothing in false interruptions.
+          let signalInterrupt: () => void = () => {};
+          const interrupted = new Promise<typeof INTERRUPTED>((resolve) => {
+            signalInterrupt = () => resolve(INTERRUPTED);
+          });
+          stopWatching = watchForBargeIn(signalInterrupt);
+          abandonTurnRef.current = signalInterrupt;
+
           const turn = (async () => {
             log('turn', `sending ${text.length} chars`);
             sentAt = Date.now();
@@ -556,7 +782,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               lastOut = Date.now();
               const line = fillerLine(saidFillers++);
               log('turn', `quiet for ${quietFor}ms — saying "${line}"`);
-              feedSpeech(line);
+              speakPiece(line);
             }, FILLER_TICK_MS);
             // Anything the pump sends counts as the line being warm, so a reply
             // that is streaming normally never triggers this at all.
@@ -581,12 +807,27 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           // for elapsed time: a turn that is searching the web is working, and a
           // deadline that cannot tell the difference kills the answer.
           const watchdog = hangWatchdog(REPLY_IDLE_TIMEOUT_MS, REPLY_MAX_MS);
-          const reply = await Promise.race([turn, watchdog.promise]);
+          const reply = await Promise.race([turn, watchdog.promise, interrupted]);
           watchdog.cancel();
           clearFiller();
           if (callRef.current !== call) {
             pending.cancel();
             return;
+          }
+
+          if (reply === INTERRUPTED) {
+            pending.cancel();
+            unpump();
+            // Same reasoning as the timeout path: stop the generation rather
+            // than abandoning it locally. A stream left running in the backend
+            // gets cancelled by the NEXT turn's send, and that `stopped` status
+            // lands on the new turn — so walking away from an interrupted reply
+            // would poison the reply the user actually wanted.
+            log('turn', 'user interrupted — stopping the stream');
+            await stopActiveStream(useChat.getState().sessionId).catch(() => {});
+            // The outer `finally` awaits the capture, so the interrupting words
+            // are already waiting in `bargedRef` when the next turn starts.
+            continue;
           }
           if (reply === TIMED_OUT) {
             pending.cancel();
@@ -638,12 +879,9 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           if (!desynced) pump(true);
           log('turn', `spoken=${spoken.length} of ${words.length} chars, voice=${voiceNow ?? '<vendor default>'}`);
 
-          // Listen for an interruption the whole time it talks.
-          const stopWatching = watchForBargeIn();
           try {
             await endSpeech();
           } finally {
-            stopWatching();
             setLevel(0);
             // One line, four numbers, at the only moment all of them are known.
             // `answer` is the whole reply arriving; `firstWord` is what the user
@@ -677,6 +915,13 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           // On the call screen too, not only as a toast: the overlay is where the
           // user is looking, and a toast can be missed entirely.
           setNotice(code === 'stt-no-key' ? t('voice.provider.title') : t('call.turnFailed'));
+        } finally {
+          // Whatever happened — answered, timed out, interrupted, threw, hung
+          // up — the watcher stops here, and every early `continue` above
+          // passes through it. Awaited, because when the user is mid-sentence
+          // this is what waits for their words to finish landing.
+          abandonTurnRef.current = () => {};
+          await stopWatching();
         }
       }
     },
@@ -741,7 +986,12 @@ export function useCallSession(send: (text: string) => Promise<void>) {
 
   /** Barge-in: cut the reply short. The loop's `speak` resolves, so the next
    *  turn starts listening immediately. */
-  const interrupt = useCallback(() => stopSpeech(), [stopSpeech]);
+  const interrupt = useCallback(() => {
+    stopSpeech();
+    // Not just the speaker: give up the answer being written, too. Otherwise
+    // Interrupt looks like it worked and the call stays busy behind it.
+    abandonTurnRef.current();
+  }, [stopSpeech]);
 
   /**
    * Take the next turn with typed text instead of the microphone — the call's
@@ -756,6 +1006,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
     if (!text.trim()) return;
     typedRef.current = text.trim();
     stopSpeech(); // typing over a reply is a barge-in like any other
+    abandonTurnRef.current(); // …including giving up the answer in flight
     try { recorderRef.current?.stop(); } catch { /* not listening right now */ }
   }, [stopSpeech]);
 

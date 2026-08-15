@@ -58,6 +58,10 @@ export function isVoiced(loudness: number, wasVoiced: boolean): boolean {
  * them — at the plain speech threshold the agent hears its own voice and
  * interrupts itself, which looks exactly like a broken feature. Raise this if
  * that happens on a loud speaker; lower it if a barge-in needs shouting.
+ *
+ * This is the FLOOR of the barge-in trigger, not the trigger itself: see
+ * `createBargeInDetector`, which lifts it against the room actually measured
+ * and again while audio is playing.
  */
 export const BARGE_IN_RMS = SPEECH_RMS * 2.5;
 
@@ -65,8 +69,199 @@ export const BARGE_IN_RMS = SPEECH_RMS * 2.5;
  * Consecutive loud frames before a barge-in is believed. At ~60 ms a frame, three
  * is ~180 ms — long enough that a cough, a keyboard, or a leaked syllable of the
  * reply does not cut it off, short enough to feel immediate.
+ *
+ * @deprecated Superseded by the windowed majority in `createBargeInDetector`.
+ * A consecutive count resets to zero on the dip between two syllables, so it
+ * needs a louder, more continuous shout than real speech provides. Kept only
+ * because it names the timescale the majority window still uses.
  */
 export const BARGE_IN_FRAMES = 3;
+
+// ── Barge-in: hearing the user over our own voice ────────────────────────────
+//
+// The hard part is not detecting speech, it is detecting speech that is NOT
+// ours. `echoCancellation` does not reliably cancel same-application playback
+// on Windows, so the reply bleeds into the microphone at a level that varies
+// with the speaker, the volume and the room. A single fixed threshold cannot
+// be right for both "quiet room, laptop mic" and "external speakers at
+// eighty percent" — too low and the agent interrupts itself, too high and a
+// barge-in needs shouting.
+//
+// So the trigger is derived per call instead of declared:
+//   - a quiet-phase noise floor, measured only while nothing is playing and
+//     HELD through playback (calibrating against our own bleed bakes it into
+//     the floor and puts the trigger out of reach),
+//   - lifted while audio plays so bleed alone cannot trip it, but capped so
+//     real speech always stays reachable,
+//   - a short grace after playback starts, to swallow the onset transient,
+//   - and a windowed majority rather than a consecutive run, so the dip
+//     between two syllables does not reset the evidence.
+//
+// The absolute levels below are expressed as multiples of `SPEECH_RMS`, the
+// one value here that was measured on real hardware. They are calibration
+// knobs: a machine whose microphone gain differs will need them re-measured,
+// not re-derived.
+
+/** Quiet needed before the noise floor is trusted. */
+export const BARGE_CALIBRATION_MS = 400;
+/** Window over which the majority vote is taken. */
+export const BARGE_SUSTAINED_MS = 300;
+/** Fraction of that window that must be above trigger. */
+export const BARGE_SUSTAINED_MAJORITY = 0.8;
+/** How far above the measured room noise counts as a voice. */
+export const BARGE_FLOOR_MULTIPLIER = 3.5;
+/** While the reply plays, the trigger is lifted at least this high… */
+export const BARGE_PLAYBACK_MIN_RMS = SPEECH_RMS * 4.5;
+/** …and never above this, or barge-in becomes impossible over loud playback. */
+export const BARGE_CEILING_RMS = SPEECH_RMS * 12;
+/** Ignore the microphone for this long after playback starts. */
+export const BARGE_GRACE_MS = 500;
+/**
+ * Only grant that grace when playback resumes after a real gap.
+ *
+ * The reply is spoken sentence by sentence, so "is audio playing" flickers
+ * many times per turn. Granting a fresh grace window on every flicker chains
+ * them end to end and silently disables barge-in for the whole reply.
+ */
+export const BARGE_GRACE_GAP_MS = 1_000;
+
+export interface BargeInDetector {
+  /** Feed one frame. Returns true the moment sustained speech is believed. */
+  feed(loudness: number, playing: boolean, now: number): boolean;
+  /** The trigger level currently in force — for logging a tuning session. */
+  trigger(): number;
+}
+
+/**
+ * Stateful barge-in decision, kept out of the audio graph so it can be tested
+ * with numbers instead of hardware.
+ */
+export function createBargeInDetector(): BargeInDetector {
+  const floorSamples: number[] = [];
+  const recent: { above: boolean; at: number }[] = [];
+  let quietFloor = 0;
+  let floorLocked = false;
+  let calibratedSince: number | null = null;
+  let wasPlaying = false;
+  let playbackSeen = false;
+  let lastPlayingAt = 0;
+  let graceUntil = 0;
+  let currentTrigger = BARGE_IN_RMS;
+
+  /** Median of the quiet samples — robust to a single door slam. */
+  const pushFloor = (level: number) => {
+    floorSamples.push(level);
+    // ~3 s of history at a 60 ms frame; older rooms are not this room.
+    if (floorSamples.length > 50) floorSamples.shift();
+    const sorted = [...floorSamples].sort((a, b) => a - b);
+    quietFloor = sorted[sorted.length >> 1] ?? 0;
+  };
+
+  return {
+    trigger: () => currentTrigger,
+    feed(loudness, playing, now) {
+      if (!floorLocked) {
+        if (!playing) {
+          calibratedSince ??= now;
+          pushFloor(loudness);
+        }
+        // Playback starting before calibration finishes locks whatever we
+        // have: a floor measured against our own voice is worse than none.
+        if (playing || (calibratedSince !== null && now - calibratedSince >= BARGE_CALIBRATION_MS)) {
+          floorLocked = true;
+        }
+      }
+
+      if (playing && !wasPlaying && (!playbackSeen || now - lastPlayingAt >= BARGE_GRACE_GAP_MS)) {
+        graceUntil = now + BARGE_GRACE_MS;
+      }
+      if (playing) {
+        playbackSeen = true;
+        lastPlayingAt = now;
+      }
+      wasPlaying = playing;
+
+      let trigger = Math.max(BARGE_IN_RMS, quietFloor * BARGE_FLOOR_MULTIPLIER);
+      if (playing) {
+        trigger = Math.min(Math.max(trigger, BARGE_PLAYBACK_MIN_RMS), BARGE_CEILING_RMS);
+      }
+      currentTrigger = trigger;
+
+      // Keep following the room while it is quiet and nothing is happening.
+      if (floorLocked && !playing && loudness < trigger) pushFloor(loudness);
+
+      const above = floorLocked && loudness >= trigger && now >= graceUntil;
+      recent.push({ above, at: now });
+      while (recent.length && now - recent[0].at > BARGE_SUSTAINED_MS) recent.shift();
+
+      if (!above) return false;
+      const span = recent.length ? now - recent[0].at : 0;
+      if (span < BARGE_SUSTAINED_MS * BARGE_SUSTAINED_MAJORITY) return false;
+      const aboveCount = recent.reduce((n, s) => n + (s.above ? 1 : 0), 0);
+      return aboveCount >= recent.length * BARGE_SUSTAINED_MAJORITY;
+    },
+  };
+}
+
+// ── Telling our own voice apart from the user's ──────────────────────────────
+
+/** Lowercase, drop punctuation, collapse whitespace. */
+function normalizeSpoken(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[.,!?;:…"'`´„“”‘’()\[\]{}\-–—]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Character bigrams — language-agnostic, so this works on Romanian too. */
+function bigrams(text: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < text.length - 1; i++) out.push(text.slice(i, i + 2));
+  return out;
+}
+
+/**
+ * Below this many characters a transcript is not judged at all.
+ *
+ * Short utterances are exactly the ones that matter most — "stop", "wait",
+ * "nu" — and they are also the ones most likely to appear by chance inside a
+ * long reply. Refusing to judge them is the safe direction: the cost of a
+ * missed echo is one wasted turn, the cost of swallowing "stop" is a call the
+ * user cannot end by speaking.
+ */
+export const ECHO_MIN_CHARS = 16;
+
+/** Fraction of the transcript that must already exist in the spoken text. */
+export const ECHO_CONTAINMENT = 0.85;
+
+/**
+ * Did the microphone just capture our own reply coming back?
+ *
+ * Even with the trigger tuned, some bleed gets through, gets transcribed, and
+ * would be submitted as the user's next turn — the agent answering itself.
+ * This is the second line of defence, applied ONLY to captures taken while
+ * audio was playing; speech heard while the model was still generating cannot
+ * be our voice, because there was no voice yet.
+ *
+ * Measured by CONTAINMENT (how much of the transcript exists in what we said)
+ * rather than similarity between the two strings. A real self-capture is
+ * usually a short fragment of a much longer reply, and a symmetric ratio
+ * dilutes to nothing against that length mismatch — the fragment case is the
+ * common one, so scoring it as "unrelated" would defeat the whole guard.
+ */
+export function isTtsEcho(transcript: string, spoken: string): boolean {
+  const heard = normalizeSpoken(transcript);
+  const said = normalizeSpoken(spoken);
+  if (heard.length < ECHO_MIN_CHARS || !said) return false;
+  if (said.includes(heard)) return true;
+
+  const heardGrams = bigrams(heard);
+  if (heardGrams.length === 0) return false;
+  const saidGrams = new Set(bigrams(said));
+  const shared = heardGrams.reduce((n, g) => n + (saidGrams.has(g) ? 1 : 0), 0);
+  return shared / heardGrams.length >= ECHO_CONTAINMENT;
+}
 
 /**
  * Total voiced time a recording needs before it is worth transcribing.

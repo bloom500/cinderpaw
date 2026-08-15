@@ -27,8 +27,29 @@ import { pcm16ToFloat32 } from '../lib/audio';
  *  latency and covers both. */
 const LEAD_SECONDS = 0.09;
 
+/**
+ * How loud the reply is, right now, 0..1.
+ *
+ * A plain module function rather than React state, and that is the point: the
+ * orb reads it sixty times a second from a `requestAnimationFrame` loop and
+ * writes a CSS variable. Routing that through `useState` would re-render the
+ * call overlay, the chat input above it and everything they hold, sixty times a
+ * second, for an animation the compositor can do on its own.
+ *
+ * Returns 0 when nothing is playing, which is also what it returns before any
+ * call has ever been placed.
+ */
+let readSpeechMeter: () => number = () => 0;
+function setSpeechMeter(fn: () => number) {
+  readSpeechMeter = fn;
+}
+export function speechLevel(): number {
+  return readSpeechMeter();
+}
+
 export function useSpeechPlayer(sessionId: string) {
   const ctxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   /** ctx.currentTime at which the next chunk should start. */
   const cursorRef = useRef(0);
   /** Odd trailing byte of the previous chunk — see `pcm16ToFloat32`. */
@@ -77,6 +98,29 @@ export function useSpeechPlayer(sessionId: string) {
     return (ctxRef.current ??= new AC());
   }, []);
 
+  /** The tap the orb reads. Built on first use, alongside the context. */
+  const analyser = useCallback(() => {
+    const audio = ctx();
+    if (!analyserRef.current) {
+      const node = audio.createAnalyser();
+      // Small window: this is a loudness meter, not a spectrogram, and 256
+      // samples is ~10 ms at 24 kHz — fast enough to follow syllables.
+      node.fftSize = 256;
+      node.connect(audio.destination);
+      analyserRef.current = node;
+      setSpeechMeter(() => {
+        const buf = new Float32Array(node.fftSize);
+        node.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (const v of buf) sum += v * v;
+        // RMS, then a gentle curve: speech sits low in linear terms and a raw
+        // RMS barely moves anything on screen.
+        return Math.min(1, Math.sqrt(sum / buf.length) * 3.2);
+      });
+    }
+    return analyserRef.current;
+  }, [ctx]);
+
   const silence = useCallback(() => {
     acceptingRef.current = false;
     scheduledRef.current = 0;
@@ -118,7 +162,12 @@ export function useSpeechPlayer(sessionId: string) {
       buffer.copyToChannel(samples, 0);
       const node = audio.createBufferSource();
       node.buffer = buffer;
-      node.connect(audio.destination);
+      // Through the meter, not straight to the speakers. The orb has never had
+      // anything to move to while the agent talks: the reply's loudness was
+      // never read back, so the sphere sat at one tempo through a whole answer
+      // and looked switched off. This is a measurement of the audio actually
+      // being played, not a waveform invented to look busy.
+      node.connect(analyser());
 
       const at = Math.max(cursorRef.current, audio.currentTime + LEAD_SECONDS);
       node.onended = () => {
@@ -261,5 +310,17 @@ export function useSpeechPlayer(sessionId: string) {
     ctxRef.current = null;
   }, [silence]);
 
-  return { beginSpeech, feedSpeech, endSpeech, stop };
+  /**
+   * Is reply audio scheduled or sounding right now?
+   *
+   * The barge-in detector needs this to know which phase it is in: while the
+   * model is still generating there is nothing of ours for the microphone to
+   * pick up, so the trigger can sit low; the moment we start speaking it must
+   * rise above our own bleed. Nodes enter the set when they are scheduled
+   * rather than when they sound, which is the right edge — bleed begins with
+   * the audio, not with our bookkeeping.
+   */
+  const isPlaying = useCallback(() => nodesRef.current.size > 0, []);
+
+  return { beginSpeech, feedSpeech, endSpeech, stop, isPlaying };
 }
