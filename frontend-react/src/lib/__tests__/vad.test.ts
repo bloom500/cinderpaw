@@ -193,6 +193,15 @@ describe('createBargeInDetector', () => {
     for (let i = 0; i < 10; i++) { noisy.feed(0.03, false, now); now += POLL; }
     expect(noisy.trigger()).toBeGreaterThan(quiet.trigger());
   });
+
+  it('rejects immediate speech as a polluted calibration window', () => {
+    const detector = createBargeInDetector();
+    const tripped = run(detector, [
+      { loudness: 0.08, playing: false, ms: 1_200 },
+    ]);
+
+    expect(tripped).not.toBeNull();
+  });
 });
 
 describe('isTtsEcho', () => {

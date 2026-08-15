@@ -162,8 +162,14 @@ export function createBargeInDetector(): BargeInDetector {
     feed(loudness, playing, now) {
       if (!floorLocked) {
         if (!playing) {
-          calibratedSince ??= now;
-          pushFloor(loudness);
+          if (loudness < BARGE_IN_RMS) {
+            calibratedSince ??= now;
+            pushFloor(loudness);
+          } else {
+            // Speech can begin before the quiet-room window exists. Treating
+            // that voice as the floor multiplies the trigger out of reach.
+            floorLocked = true;
+          }
         }
         // Playback starting before calibration finishes locks whatever we
         // have: a floor measured against our own voice is worse than none.
