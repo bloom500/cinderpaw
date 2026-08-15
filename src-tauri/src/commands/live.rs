@@ -21,6 +21,80 @@ use tokio::sync::mpsc;
 
 use crate::{events, AppState};
 
+/// How long a tool may take before the model is given a holding reply.
+///
+/// This is a budget for ANSWERING, not for working. It has to sit above a
+/// normal round trip — a web search and a summary is comfortably inside ten
+/// seconds — and well below the point where a caller decides the app is dead.
+/// Twenty seconds is about the longest a person will hold a phone to their ear
+/// hearing nothing at all.
+const ASK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Work that outlived its answer deadline and is still running.
+///
+/// Two jobs, both of them long-horizon problems that only appear on a call that
+/// lasts. First, the model is free again the moment it gets a holding reply, and
+/// the obvious thing for it to do is ask the same question again — which without
+/// this starts a SECOND copy of an eighteen-minute job, then a third. Second, a
+/// spoken "stop" needs something concrete to cancel; before this there was
+/// nothing anywhere in the process that knew a job existed.
+static IN_FLIGHT: std::sync::OnceLock<Mutex<Vec<InFlight>>> = std::sync::OnceLock::new();
+
+struct InFlight {
+    /// The request that started it, lowercased — the dedupe key.
+    request: String,
+    task: tokio::task::JoinHandle<()>,
+}
+
+fn in_flight() -> &'static Mutex<Vec<InFlight>> {
+    IN_FLIGHT.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Cancel everything still running. Returns how many were stopped.
+fn cancel_in_flight() -> usize {
+    let jobs = std::mem::take(&mut *in_flight().lock());
+    for job in &jobs {
+        job.task.abort();
+    }
+    jobs.len()
+}
+
+/// Is this whole utterance a command to stop, rather than a sentence that
+/// merely contains the word?
+///
+/// Matched HERE, in the transport, and deliberately not left to the model. When
+/// a tool call is outstanding the model has no turn to take, so "stop it" could
+/// not reach it at all — and once it did, it had no tool that stops anything, so
+/// it answered "I'm stopping it now" and nothing happened. A stop the user can
+/// say out loud has to work while everything else is jammed, which means it
+/// cannot depend on the thing that is jammed.
+///
+/// Conservative on purpose: only a bare stop command counts, so "stop the docker
+/// container" stays a normal request. Same rule as the typed stop word.
+fn is_stop_command(utterance: &str) -> bool {
+    let cleaned: String = utterance
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    // Address prefixes, so "feral, stop" and "ok stop" still count.
+    let body = match words.as_slice() {
+        [first, rest @ ..] if !rest.is_empty() && matches!(*first, "feral" | "hey" | "ok" | "okay") => rest,
+        all => all,
+    };
+    matches!(
+        body.join(" ").as_str(),
+        // English and Romanian, because the call is bilingual in practice and a
+        // stop word that only works in one of them is a stop word that fails at
+        // the moment it is needed.
+        "stop" | "stop it" | "stop that" | "stop please" | "please stop" | "cancel"
+            | "cancel it" | "abort" | "never mind" | "nevermind" | "forget it"
+            | "opreste" | "oprește" | "opreste te" | "oprește te" | "opreste l"
+            | "oprește l" | "stai" | "gata" | "anuleaza" | "anulează" | "lasa" | "lasă"
+    )
+}
+
 /// The provider id whose key this engine borrows.
 ///
 /// The same AI Studio key already powers the OpenAI-compatible chat surface, so
@@ -99,6 +173,53 @@ pub(crate) async fn start_live_call(
     Ok(())
 }
 
+/// Turn the vendor's close sentence into something the caller can act on.
+///
+/// A WebSocket close reason is capped at 123 bytes by the protocol, so a long
+/// vendor message arrives amputated — the quota one ends mid-URL, literally
+/// "head to: h". That is what the user was being shown. Worse, it points at
+/// billing, and the person reading it has just checked AI Studio and seen
+/// plenty of quota left: the Live API meters audio MINUTES against its own
+/// allowance, which is not the token quota on that dashboard, and a call spends
+/// them for as long as it is open.
+///
+/// Unrecognised reasons pass through untouched. Inventing a friendlier sentence
+/// for a message nobody has read yet is how a real cause gets hidden.
+fn explain(reason: &str) -> String {
+    if reason.contains("exceeded your current quota") || reason.contains("RESOURCE_EXHAUSTED") {
+        return "Google's live-voice allowance for this key is used up. It is metered in \
+                minutes of call, separately from the token quota shown in AI Studio, and it \
+                refills on its own timetable. Another key, or a wait, is what fixes it."
+            .to_string();
+    }
+    if reason.contains("prepayment credits are depleted") {
+        return "This Google project has a billing account with no balance, which blocks the \
+                free tier as well. A key from a project with no billing attached will work."
+            .to_string();
+    }
+    if reason.contains("API key not valid") || reason.contains("API_KEY_INVALID") {
+        return "Google refused the API key. Paste it again on the call screen.".to_string();
+    }
+    reason.to_string()
+}
+
+/// Is this close the server objecting to the SETUP, rather than to the key,
+/// the quota or the network?
+///
+/// It matters because the two need opposite handling. A refused key or a
+/// depleted balance is final: reconnecting spends money to be told the same
+/// thing. A setup the model will not take is worth exactly one more attempt
+/// with the suspect field dropped, and that attempt is the only way to learn
+/// which field it was — the server names none of them.
+///
+/// Matched on the sentence because that is all the server gives us. There is no
+/// code, no field name, and the same wording has now been produced by two
+/// different fields (`contextWindowCompression`, then the pinned voice), so a
+/// narrower match would silently stop catching the next one.
+fn is_configuration_kill(reason: &str) -> bool {
+    reason.contains("CONTENT_TYPE_AUDIO") || reason.contains("not supported for this model configuration")
+}
+
 /// Keep the call alive across the server's own session limit.
 ///
 /// Measured: a call opened at 13:38 was closed at 13:50 by the server, which
@@ -137,6 +258,8 @@ async fn supervise(
     let mut handle = first;
     let mut total = 0u32;
     let mut pin_voice = true;
+    // Spent once a handle-less reconnect has been made.
+    let mut config_retry_used = false;
 
     loop {
         let ended = pump(app.clone(), session_id.clone(), handle.commands.clone(), handle.events).await;
@@ -146,15 +269,41 @@ async fn supervise(
         // here" is to kill the audio stream rather than refuse the setup.
         // Measured 2026-08-15: a call with `speechConfig` ran twenty seconds and
         // closed with "The audio content type (CONTENT_TYPE_AUDIO) is not
-        // supported for this model configuration" — the same sentence
+        // supported for this model configuration", the same sentence
         // `contextWindowCompression` produced before it was removed. So the
         // voice pin is dropped for the rest of this call rather than dying every
         // twenty seconds in the right voice.
+        //
+        // This branch could not run until the close below started arriving here.
+        // The kill carries NO resumption handle, `pump` only reported closes
+        // that had one, and so the function returned before ever reaching these
+        // four lines: a remedy written for a path the error never takes. It is
+        // the reason the same error was still being reported hours after it was
+        // "fixed" — measured again 2026-08-15 13:52, seven seconds into a tool
+        // call, with the answer arriving nine seconds after the socket was gone.
         if pin_voice && reason.contains("CONTENT_TYPE_AUDIO") {
             tracing::warn!(
-                "live: the model refused the pinned voice — continuing in the server's default",
+                "live: the model refused the pinned voice, continuing in the server's default",
             );
             pin_voice = false;
+        }
+
+        // A handle-less reconnect is a GUESS: nothing is carried over, and the
+        // only reason to make it is to find out whether the field we just
+        // dropped was the one the server objected to. One guess, then stop.
+        // Repeating it would be a session every twenty seconds, forever, each
+        // one billed and each one dying the same way — and the rate guard below
+        // would not catch it, because twenty seconds apart is not a tight loop.
+        if token.is_none() {
+            if config_retry_used {
+                tracing::warn!("live: the setup is still refused with the voice unpinned");
+                emit_status(&app, &session_id, CoreEvent::Closed {
+                    reason: format!("the model refused this call's setup: {reason}"),
+                    resume: None,
+                });
+                return;
+            }
+            config_retry_used = true;
         }
 
         let now = std::time::Instant::now();
@@ -177,7 +326,9 @@ async fn supervise(
         tracing::info!("live: resuming session (#{total})");
 
         let mut next_cfg = cfg.clone();
-        next_cfg.resume = Some(token);
+        // `None` is a FRESH session, not a resumed one: the kill that brings us
+        // down that path issues no handle to carry the conversation over.
+        next_cfg.resume = token;
         next_cfg.pin_voice = pin_voice;
         match live::connect(next_cfg).await {
             Ok(next) => {
@@ -192,7 +343,7 @@ async fn supervise(
             Err(e) => {
                 tracing::warn!(error = %e, "live: resume failed");
                 emit_status(&app, &session_id, CoreEvent::Closed {
-                    reason: e.to_string(),
+                    reason: explain(&e.to_string()),
                     resume: None,
                 });
                 return;
@@ -212,10 +363,14 @@ async fn pump(
     session_id: String,
     commands: mpsc::Sender<LiveCommand>,
     mut events_rx: mpsc::Receiver<CoreEvent>,
-) -> Option<(String, String)> {
+) -> Option<(Option<String>, String)> {
     // The turn being spoken, from both sides, until the model says it is done.
     let mut heard = String::new();
     let mut said = String::new();
+    // Cadence of the input transcript, per turn. See the InputTranscript arm.
+    let mut heard_pieces = 0usize;
+    let mut heard_first_at: Option<std::time::Instant> = None;
+    let mut heard_last_at: Option<std::time::Instant> = None;
     while let Some(event) = events_rx.recv().await {
         match event {
             CoreEvent::Audio(pcm) => {
@@ -278,7 +433,128 @@ async fn pump(
                         let mic_before = MIC_FRAMES.load(Ordering::Relaxed);
                         let blocked_before = MIC_BLOCKED_MS.load(Ordering::Relaxed);
                         let started = std::time::Instant::now();
-                        let answer = bridge::answer(call, Some(&state.runtime), &session_id).await;
+                        // A tool call must not be allowed to freeze the call.
+                        //
+                        // This was a bare `.await`, and a measured one ran for
+                        // 1069.9 SECONDS. While a function call is outstanding
+                        // the model cannot take another turn, so for eighteen
+                        // minutes the caller could speak and hear nothing back —
+                        // and every symptom the user reported comes from that one
+                        // fact: replies arriving late, the delay growing the
+                        // longer the call went on, and "stop it" being answered
+                        // with "I'm stopping it now" by a model that had no turn
+                        // in which to do anything about it.
+                        //
+                        // So the work gets a deadline for ANSWERING, not for
+                        // running. Past it the model is handed a truthful holding
+                        // reply and the conversation resumes; the work continues
+                        // and delivers itself into the session when it lands.
+                        // Nothing is cancelled and no result is dropped — the
+                        // promise made to the user is the one that gets kept.
+                        let key = call
+                            .args
+                            .get("request")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_lowercase();
+                        // Already running? Say so instead of starting it twice.
+                        let duplicate = !key.is_empty()
+                            && in_flight().lock().iter().any(|j| j.request == key);
+                        if duplicate {
+                            tracing::info!(request = %key, "live: same work already running — not starting a second");
+                            answers.push(live::FunctionResponse {
+                                id: call.id.clone(),
+                                name: call.name.clone(),
+                                response: serde_json::json!({
+                                    "ok": true,
+                                    "output": "STILL RUNNING — this is the same job you already \
+                                               started, not a new one. It has not finished yet. \
+                                               Do not start it again and do not invent a result; \
+                                               say you are still waiting and talk about something else.",
+                                }),
+                            });
+                            continue;
+                        }
+
+                        let owned_call = call.clone();
+                        let rt = state.runtime.clone();
+                        let sid = session_id.clone();
+                        let late_cmds = commands.clone();
+                        let late_rt = state.runtime.clone();
+                        let late_sid = session_id.clone();
+                        let key_for_task = key.clone();
+                        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+                        let task = tokio::spawn(async move {
+                            let finished = bridge::answer(&owned_call, Some(&rt), &sid).await;
+                            in_flight().lock().retain(|j| j.request != key_for_task);
+                            // `send` fails only when the receiver is gone, which
+                            // here means exactly one thing: the deadline passed
+                            // and the model was promised a follow-up.
+                            if let Err(late) = done_tx.send(finished) {
+                                let text = late
+                                    .response
+                                    .get("output")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let spoken = late_cmds
+                                    .send(LiveCommand::Text(format!(
+                                        "The work you started earlier has finished. \
+                                         Tell the user the result now, briefly: {text}"
+                                    )))
+                                    .await
+                                    .is_ok();
+                                // The call may well be over by now — that is the
+                                // normal end of a job that took this long. The
+                                // result must not evaporate with the socket: file
+                                // it as a turn so it is in the conversation, `recall`
+                                // finds it, and the next call opens knowing it.
+                                if !spoken {
+                                    record_turn(&late_rt, &late_sid, &key_for_task, &text);
+                                }
+                                tracing::info!(
+                                    chars = text.len(),
+                                    delivered = if spoken { "spoken" } else { "filed (call had ended)" },
+                                    "live: late tool answer"
+                                );
+                            }
+                        });
+                        if !key.is_empty() {
+                            in_flight().lock().push(InFlight { request: key, task });
+                        }
+                        let answer = match tokio::time::timeout(ASK_DEADLINE, done_rx).await {
+                            Ok(Ok(a)) => a,
+                            // The worker vanished — say so rather than leaving
+                            // the model waiting on a response that never comes.
+                            Ok(Err(_)) => live::FunctionResponse {
+                                id: call.id.clone(),
+                                name: call.name.clone(),
+                                response: serde_json::json!({
+                                    "ok": false,
+                                    "output": "that stopped before it could answer",
+                                }),
+                            },
+                            Err(_) => {
+                                tracing::info!(
+                                    tool = %call.name,
+                                    "live: past the answer deadline — handing back a holding reply, work continues"
+                                );
+                                live::FunctionResponse {
+                                    id: call.id.clone(),
+                                    name: call.name.clone(),
+                                    response: serde_json::json!({
+                                        "ok": true,
+                                        "output": "STILL RUNNING. This is not the result — \
+                                                   it is genuinely still working. Say briefly that \
+                                                   it is taking a while and you will report back, \
+                                                   then carry on the conversation normally. Do NOT \
+                                                   claim it finished, and do NOT invent a result; \
+                                                   the real answer will arrive on its own.",
+                                    }),
+                                }
+                            }
+                        };
                         // The measurement this exists for. ~8 frames a second is
                         // a microphone that never stopped; near zero means the
                         // audio never reached us and the stall is on our side of
@@ -350,7 +626,51 @@ async fn pump(
             // or drops has still happened, and a record written only at the end
             // is the one that is never written.
             CoreEvent::InputTranscript(ref t) => {
+                // WHEN the pieces arrive, not just that they do.
+                //
+                // "I speak a sentence and wait half a minute to see my own words"
+                // has two causes that look identical from the screen and need
+                // opposite fixes. Either the server streams the transcript while
+                // the user talks and something downstream of here holds it — ours
+                // to fix — or the server withholds the whole thing until it
+                // commits the turn, in which case no amount of frontend work will
+                // make a word appear sooner and the answer is a different design.
+                //
+                // A span tells the two apart with no new plumbing: pieces spread
+                // over the length of a spoken sentence mean streaming; a whole
+                // sentence arriving inside a few hundred milliseconds means the
+                // server sat on it.
+                let now = std::time::Instant::now();
+                if heard_pieces == 0 {
+                    heard_first_at = Some(now);
+                }
+                heard_pieces += 1;
+                heard_last_at = Some(now);
                 heard.push_str(t);
+                // A spoken stop, acted on here rather than passed along.
+                //
+                // Checked on every piece instead of at turn end, because waiting
+                // for the turn to close is waiting for the exact thing the user
+                // is trying to interrupt. Fires at most once per turn — the
+                // registry is empty afterwards, so a second piece finds nothing
+                // to cancel.
+                if is_stop_command(&heard) {
+                    let stopped = cancel_in_flight();
+                    if stopped > 0 {
+                        tracing::info!(stopped, "live: spoken stop — cancelled work in flight");
+                        // Tell the model what just happened, or it will answer
+                        // the user's "stop" out of its own imagination — which
+                        // is how it came to say "I'm stopping it now" about a job
+                        // it had no way to touch.
+                        let _ = commands
+                            .send(LiveCommand::Text(format!(
+                                "SYSTEM: the user said stop, and {stopped} running job(s) were \
+                                 cancelled just now. This already happened — confirm it in one \
+                                 short sentence. Do not offer to stop anything else."
+                            )))
+                            .await;
+                    }
+                }
                 emit_status(&app, &session_id, event);
             }
             CoreEvent::OutputTranscript(ref t) => {
@@ -358,6 +678,17 @@ async fn pump(
                 emit_status(&app, &session_id, event);
             }
             CoreEvent::TurnComplete => {
+                if let (Some(first), Some(last)) = (heard_first_at, heard_last_at) {
+                    tracing::info!(
+                        "live: input transcript {} piece(s) over {:.1}s, last one {:.1}s before the turn closed",
+                        heard_pieces,
+                        last.duration_since(first).as_secs_f32(),
+                        last.elapsed().as_secs_f32(),
+                    );
+                }
+                heard_pieces = 0;
+                heard_first_at = None;
+                heard_last_at = None;
                 let turn = (std::mem::take(&mut heard), std::mem::take(&mut said));
                 if !turn.0.trim().is_empty() || !turn.1.trim().is_empty() {
                     let state = app.state::<AppState>();
@@ -371,8 +702,25 @@ async fn pump(
             // in the middle of a sentence.
             CoreEvent::Closed { reason, resume: Some(token) } => {
                 tracing::info!(reason = %reason, "live: socket ended, resuming");
-                return Some((token, reason));
+                return Some((Some(token), reason));
             }
+            // A close with NO handle, but whose reason is the server objecting
+            // to the setup rather than to the key or the quota. It is reported
+            // the same way, because the caller can still do something about it:
+            // reconnect fresh with the suspect field dropped. Before this, every
+            // handle-less close ended the call here, which is why the remedy for
+            // exactly this error sat in `supervise` unreachable.
+            CoreEvent::Closed { reason, resume: None } if is_configuration_kill(&reason) => {
+                tracing::warn!(reason = %reason, "live: socket killed by the setup, no handle to resume with");
+                return Some((None, reason));
+            }
+            // Every other close the webview is told about, with the vendor's
+            // amputated sentence turned into one the reader can act on.
+            CoreEvent::Closed { reason, resume } => emit_status(
+                &app,
+                &session_id,
+                CoreEvent::Closed { reason: explain(&reason), resume },
+            ),
             other => emit_status(&app, &session_id, other),
         }
     }
@@ -522,6 +870,27 @@ pub(crate) async fn end_live_call(state: State<'_, AppState>) -> Result<(), Stri
 mod tests {
     use super::*;
 
+    /// The bug this pins is not "does the string match" — it is that the close
+    /// carrying this sentence arrives with NO resumption handle, and every
+    /// handle-less close used to end the call before the remedy for it could
+    /// run. Measured twice on 2026-08-15, hours apart, with the fix already in
+    /// the binary and unreachable.
+    #[test]
+    fn the_setup_kill_is_told_apart_from_a_dead_key() {
+        assert!(is_configuration_kill(
+            "The audio content type (CONTENT_TYPE_AUDIO) is not supported for this model configuration."
+        ));
+        // The other field that produced the identical sentence, before it was
+        // removed. A narrower match would have stopped catching this one.
+        assert!(is_configuration_kill("contextWindowCompression is not supported for this model configuration"));
+
+        // Final failures. Reconnecting into any of these spends money to be
+        // told the same thing, so they must NOT come back here.
+        assert!(!is_configuration_kill("1011 prepayment credits are depleted"));
+        assert!(!is_configuration_kill("API key not valid. Please pass a valid API key."));
+        assert!(!is_configuration_kill("The session duration limit was reached."));
+    }
+
     #[test]
     fn the_default_model_is_the_one_that_can_run_tools_asynchronously() {
         // Guards a plausible "upgrade" to a newer live model, which would
@@ -533,5 +902,51 @@ mod tests {
         // failed for the correct one. A guard that only accepts a typo is worse
         // than no guard.
         assert!(DEFAULT_MODEL.contains("native-audio"), "see the comment above DEFAULT_MODEL");
+    }
+}
+
+#[cfg(test)]
+mod stop_command_tests {
+    use super::is_stop_command;
+
+    #[test]
+    fn a_bare_stop_is_a_stop() {
+        for said in [
+            "stop", "Stop.", "stop it", "please stop", "cancel", "abort",
+            "never mind", "oprește", "opreste", "oprește-te", "gata", "anulează",
+        ] {
+            assert!(is_stop_command(said), "{said:?} should stop the work");
+        }
+    }
+
+    #[test]
+    fn an_address_prefix_still_counts() {
+        // "feral, stop" and "ok stop" are how people actually say it out loud.
+        for said in ["feral stop", "Feral, stop it", "ok stop", "hey stop"] {
+            assert!(is_stop_command(said), "{said:?} should stop the work");
+        }
+    }
+
+    #[test]
+    fn a_sentence_that_merely_contains_stop_is_left_alone() {
+        // The expensive direction to get wrong: cancelling an eighteen-minute
+        // job because the user asked a question with "stop" in it.
+        for said in [
+            "stop the docker container",
+            "how do I stop a running process",
+            "don't stop until it works",
+            "oprește serverul de test",
+            "cancel my subscription please",
+        ] {
+            assert!(!is_stop_command(said), "{said:?} must NOT cancel anything");
+        }
+    }
+
+    #[test]
+    fn a_bare_address_is_not_a_command() {
+        // Saying the assistant's name is not an instruction.
+        for said in ["feral", "hey", "ok", ""] {
+            assert!(!is_stop_command(said), "{said:?} must NOT cancel anything");
+        }
     }
 }
