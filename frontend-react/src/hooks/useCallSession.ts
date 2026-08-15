@@ -361,6 +361,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
         const frame = new Float32Array(analyser.fftSize);
         const startedAt = Date.now();
         let spoke = false;
+        let sawSignal = false;
         let voicedMs = 0;
         let quietSince: number | null = startedAt;
         let verdict: Verdict = 'continue';
@@ -378,6 +379,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
         poll = window.setInterval(() => {
           analyser.getFloatTimeDomainData(frame);
           const loudness = rms(frame);
+          if (loudness > 0) sawSignal = true;
           setLevel(Math.min(1, loudness / LEVEL_CEILING));
           const now = Date.now();
           // Hysteresis: starting a turn takes a clear voice, continuing one only
@@ -402,6 +404,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // discarding real speech is the one failure that looks exactly like
             // the microphone not working.
             if (verdict === 'abort' && spoke) setNotice(t('call.tooShort'));
+            else if (verdict === 'abort' && !sawSignal) setNotice(t('call.micSilent'));
             recorder.stop();
           }
         }, POLL_MS);

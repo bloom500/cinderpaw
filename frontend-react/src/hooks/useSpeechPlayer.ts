@@ -306,9 +306,10 @@ export function useSpeechPlayer(sessionId: string) {
 
   useEffect(() => () => {
     silence();
+    void tauri.voice.stopSpeaking(sessionId);
     void ctxRef.current?.close();
     ctxRef.current = null;
-  }, [silence]);
+  }, [sessionId, silence]);
 
   /**
    * Is reply audio scheduled or sounding right now?

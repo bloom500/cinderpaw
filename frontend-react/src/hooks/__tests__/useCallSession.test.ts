@@ -231,4 +231,23 @@ describe('useCallSession turn generation', () => {
     act(() => result.current.hangUp());
     unmount();
   });
+
+  it('reports a muted microphone after a full silent recording', async () => {
+    vi.useFakeTimers();
+    try {
+      const mic = mediaStream();
+      vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce(mic.stream);
+      const { result, unmount } = renderHook(() => useCallSession(vi.fn(async () => {})));
+
+      act(() => result.current.open());
+      await act(async () => { await result.current.begin(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(8_100); });
+
+      expect(result.current.notice).toBe('No microphone signal detected. Check your input device or mute setting.');
+      act(() => result.current.hangUp());
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

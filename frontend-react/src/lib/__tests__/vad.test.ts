@@ -51,6 +51,12 @@ describe('rms', () => {
     expect(rms(new Float32Array(64))).toBe(0);
     expect(rms(new Float32Array(64).fill(1))).toBeCloseTo(1, 6);
   });
+
+  it('treats empty and non-finite frames as silence', () => {
+    expect(rms(new Float32Array())).toBe(0);
+    expect(rms(new Float32Array([0.1, Number.NaN, 0.1]))).toBe(0);
+    expect(rms(new Float32Array([Number.POSITIVE_INFINITY]))).toBe(0);
+  });
 });
 
 describe('utteranceEnded', () => {

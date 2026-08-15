@@ -12,9 +12,14 @@
 
 /** Root-mean-square of a time-domain frame — loudness, cheaply. */
 export function rms(frame: Float32Array): number {
+  if (frame.length === 0) return 0;
   let sum = 0;
-  for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
-  return Math.sqrt(sum / frame.length);
+  for (let i = 0; i < frame.length; i++) {
+    if (!Number.isFinite(frame[i])) return 0;
+    sum += frame[i] * frame[i];
+  }
+  const loudness = Math.sqrt(sum / frame.length);
+  return Number.isFinite(loudness) ? loudness : 0;
 }
 
 /**
