@@ -286,6 +286,12 @@ export function useCallSession(send: (text: string) => Promise<void>) {
   sendRef.current = send;
   /** Bumped by every open/hang-up. The loop exits when it no longer matches. */
   const callRef = useRef(0);
+  /**
+   * Invalidates every async continuation belonging to the previous begin/turn.
+   * A call id answers "is this still the same call?"; this finer token answers
+   * "is this still the same turn inside that call?".
+   */
+  const turnGenerationRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -558,6 +564,9 @@ export function useCallSession(send: (text: string) => Promise<void>) {
   const runTurns = useCallback(
     async (call: number) => {
       while (callRef.current === call) {
+        const generation = ++turnGenerationRef.current;
+        const isCurrent = () =>
+          callRef.current === call && turnGenerationRef.current === generation;
         /**
          * Where a turn's seconds actually go.
          *
@@ -596,7 +605,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               setPhase('listening');
               blob = await listenOnce();
             }
-            if (callRef.current !== call) return;
+            if (!isCurrent()) return;
             // Typed while listening — `say` stopped the recorder, so the blob is
             // a half-sentence nobody wants transcribed.
             text = takeTyped();
@@ -609,7 +618,9 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               // ponytail: no replayable audio for call turns; add the optimistic
               // voice bubble here if someone wants to re-listen to a call.
               const audioPath = await saveVoiceBlobToDisk(blob);
+              if (!isCurrent()) return;
               text = (await transcribeVoiceBlob(blob, audioPath)).trim();
+              if (!isCurrent()) return;
               sttMs = Date.now() - sttStartedAt;
               // Whisper's subtitle boilerplate is not a turn. Passing it on made the
               // agent answer "don't forget to subscribe" as if it had been asked.
@@ -630,7 +641,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               }
             }
           }
-          if (callRef.current !== call) return;
+          if (!isCurrent()) return;
           if (!text) continue; // silence — keep the line open rather than hang up
 
           setPhase('thinking');
@@ -651,6 +662,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           const engineNow = useUI.getState().ttsProvider ?? undefined;
           const voiceNow = (engineNow ? useUI.getState().ttsVoice[engineNow] : undefined) || undefined;
           await beginSpeech({ provider: engineNow, voice: voiceNow });
+          if (!isCurrent()) return;
 
           // Every route to the player goes through here, so the echo guard sees
           // the filler lines too — those are our voice as much as the answer is,
@@ -735,15 +747,21 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           // costs nothing in false interruptions.
           let signalInterrupt: () => void = () => {};
           const interrupted = new Promise<typeof INTERRUPTED>((resolve) => {
-            signalInterrupt = () => resolve(INTERRUPTED);
+            signalInterrupt = () => {
+              if (turnGenerationRef.current === generation) {
+                turnGenerationRef.current += 1;
+              }
+              resolve(INTERRUPTED);
+            };
           });
           stopWatching = watchForBargeIn(signalInterrupt);
           abandonTurnRef.current = signalInterrupt;
 
-          const turn = (async () => {
+          const turn = (async (): Promise<string | typeof INTERRUPTED> => {
             log('turn', `sending ${text.length} chars`);
             sentAt = Date.now();
             await sendRef.current(text);
+            if (!isCurrent()) return INTERRUPTED;
             const status = useChat.getState().streamStatus;
             log('turn', `send returned, streamStatus=${status}`);
             // Subscribe only now: `send` has replaced the last assistant message
@@ -790,11 +808,13 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             if (status !== 'streaming') {
               pending.cancel();
               await settled();
+              if (!isCurrent()) return INTERRUPTED;
               const direct = lastAssistantText();
               log('turn', `read reply directly: ${direct.length} chars`);
               return direct;
             }
             const waited = await pending.text;
+            if (!isCurrent()) return INTERRUPTED;
             log('turn', `reply after stream ended: ${waited.length} chars`);
             return waited;
           })();
@@ -810,10 +830,6 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           const reply = await Promise.race([turn, watchdog.promise, interrupted]);
           watchdog.cancel();
           clearFiller();
-          if (callRef.current !== call) {
-            pending.cancel();
-            return;
-          }
 
           if (reply === INTERRUPTED) {
             pending.cancel();
@@ -825,12 +841,18 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // would poison the reply the user actually wanted.
             log('turn', 'user interrupted — stopping the stream');
             await stopActiveStream(useChat.getState().sessionId).catch(() => {});
+            if (callRef.current !== call) return;
             // The outer `finally` awaits the capture, so the interrupting words
             // are already waiting in `bargedRef` when the next turn starts.
             continue;
           }
           if (reply === TIMED_OUT) {
             pending.cancel();
+            unpump();
+            if (turnGenerationRef.current === generation) {
+              turnGenerationRef.current += 1;
+            }
+            stopSpeech();
             // Stop the generation, do not just walk away from it. Abandoning it
             // locally left a stream still running in the backend: the NEXT turn's
             // send cancelled that zombie, and the resulting `stopped` status
@@ -839,8 +861,15 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // one until the call was restarted.
             log('turn', `no progress for ${REPLY_IDLE_TIMEOUT_MS}ms — stopping the stream`);
             await stopActiveStream(useChat.getState().sessionId).catch(() => {});
+            if (callRef.current !== call) return;
             setNotice(t('call.replyTimeout'));
             continue; // back to listening — the line stays open
+          }
+
+          if (!isCurrent()) {
+            pending.cancel();
+            unpump();
+            return;
           }
 
           unpump();
@@ -881,6 +910,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
 
           try {
             await endSpeech();
+            if (!isCurrent()) continue;
           } finally {
             setLevel(0);
             // One line, four numbers, at the only moment all of them are known.
@@ -898,6 +928,10 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             );
           }
         } catch (err) {
+          if (!isCurrent()) {
+            if (callRef.current !== call) return;
+            continue;
+          }
           console.error('[call] turn failed', err);
           const code = err instanceof Error ? err.message : String(err);
           // Transcription failures are per-turn: say so and listen again. A
@@ -925,11 +959,13 @@ export function useCallSession(send: (text: string) => Promise<void>) {
         }
       }
     },
-    [listenOnce, beginSpeech, feedSpeech, endSpeech, watchForBargeIn],
+    [listenOnce, beginSpeech, feedSpeech, endSpeech, stopSpeech, watchForBargeIn],
   );
 
   /** Open the overlay. No microphone yet — see `ready` above. */
   const open = useCallback(() => {
+    abandonTurnRef.current();
+    turnGenerationRef.current += 1;
     callRef.current += 1;
     setHeard('');
     setNotice(null);
@@ -943,11 +979,13 @@ export function useCallSession(send: (text: string) => Promise<void>) {
       setPhase('idle');
       return;
     }
+    const generation = ++turnGenerationRef.current;
+    let stream: MediaStream;
     try {
       // Echo cancellation is not cosmetic here: the loop reopens the mic right
       // after Cubby stops speaking, and it is what stops a call from hearing
       // itself through the speakers. It is also the groundwork for barge-in.
-      streamRef.current = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch {
@@ -955,6 +993,11 @@ export function useCallSession(send: (text: string) => Promise<void>) {
       setPhase('idle');
       return;
     }
+    if (turnGenerationRef.current !== generation) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    streamRef.current = stream;
     const AC: typeof AudioContext =
       window.AudioContext ??
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -978,6 +1021,8 @@ export function useCallSession(send: (text: string) => Promise<void>) {
   }, [runTurns]);
 
   const hangUp = useCallback(() => {
+    abandonTurnRef.current();
+    turnGenerationRef.current += 1;
     callRef.current += 1;
     stopSpeech();
     releaseMic();
@@ -1013,6 +1058,8 @@ export function useCallSession(send: (text: string) => Promise<void>) {
   // A call must not outlive the component — an open microphone that nothing is
   // reading is the worst possible leak to ship.
   useEffect(() => () => {
+    abandonTurnRef.current();
+    turnGenerationRef.current += 1;
     callRef.current += 1;
     releaseMic();
   }, [releaseMic]);

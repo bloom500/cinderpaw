@@ -40,6 +40,8 @@ interface StreamEntry extends ChatStreamHandlers {
 }
 
 const inflight = new Map<string, StreamEntry>();
+/** A stop that arrived after the UI declared streaming but before registration. */
+const stopRequested = new Set<string>();
 let unlistens: UnlistenFn[] = [];
 let initPromise: Promise<void> | null = null;
 
@@ -129,6 +131,14 @@ export async function startChatStream(
     }
   }
 
+  // `useSendMessage` performs async setup before it reaches this registration.
+  // A barge-in during that setup must cancel this send, not become a stale stop
+  // that the fresh backend generation never sees.
+  if (stopRequested.delete(sessionId)) {
+    handlers.onStopped();
+    return;
+  }
+
   inflight.set(sessionId, { ...handlers, stopped: false });
 
   try {
@@ -163,6 +173,7 @@ export async function startChatStream(
 export async function requestStreamStop(sessionId: string): Promise<void> {
   const entry = inflight.get(sessionId);
   if (entry) entry.stopped = true;
+  else stopRequested.add(sessionId);
   // The backend keys its stop flags by session, so a stale stop click from a
   // tab whose stream already finished is a no-op there and cannot touch
   // another session's generation. No guard needed on this side.
