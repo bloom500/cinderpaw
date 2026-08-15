@@ -62,7 +62,7 @@ export function ExtensionsPage() {
               Extensions <span aria-hidden="true">🧩</span>
             </h1>
             <p className="text-sm text-text-muted mt-1">
-              Give your assistant new superpowers — install with one click, switch off anytime.
+              Give your assistant new superpowers. Install with one click, switch off anytime.
             </p>
           </div>
 
@@ -422,7 +422,17 @@ function CatalogCard({
           )}
         >
           {busy && <Loader2 size={11} className="animate-spin" />}
-          {installed ? '✓ Installed' : configOpen ? 'Confirm & Install' : 'Install'}
+          {installed
+            ? '✓ Installed'
+            : // A bare spinner for up to ten minutes reads as frozen. Say what
+              // it is actually waiting for — which is the user, in another window.
+              busy && entry.browser_login
+              ? 'Waiting for you to sign in…'
+              : busy
+                ? 'Connecting…'
+                : configOpen
+                  ? 'Confirm & Install'
+                  : 'Install'}
         </button>
       </div>
 
@@ -439,9 +449,21 @@ function CatalogCard({
           <div className="space-y-2 text-sm text-text-secondary">
             <p>
               This extension runs third-party software made by its publisher on your
-              computer to do its job. It runs with your account’s access — outside
+              computer to do its job. It runs with your account’s access, outside
               Feral’s protected area.
             </p>
+            {/* Said BEFORE the install starts, not after. A browser window
+                opening by itself looks like something went wrong, and the
+                install cannot finish until the user goes and completes the
+                sign-in — so they have to know it is coming and that it is
+                theirs to finish. */}
+            {entry.browser_login && (
+              <p className="rounded-lg bg-bg-hover px-3 py-2 text-text-secondary">
+                A browser window will open for you to sign in to {entry.name} and
+                approve access. Finish that, and this will connect on its own —
+                it waits for you, so take the time you need.
+              </p>
+            )}
             <p className="text-text-muted">
               Only add extensions from publishers you trust.
             </p>

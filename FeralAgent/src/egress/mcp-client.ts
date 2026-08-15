@@ -103,7 +103,19 @@ export interface MCPClientConfig {
    * are stripped so a rogue MCP server config cannot inject shared libraries.
    */
   env?: Record<string, string>;
-  /** How long to wait for the initialize handshake (default 10 s). */
+  /**
+   * How long to wait for the initialize handshake (default 90 s).
+   *
+   * This budget covers a COLD `npx -y <pkg>` on a machine that has never
+   * run the extension: npm resolves and downloads the package before the
+   * server prints its first byte, which routinely takes far longer than the
+   * handshake itself. The old 10 s default was survivable only with a warm
+   * npm cache — i.e. on a machine where the extension had already been
+   * installed once — so on a fresh install every extension "timed out"
+   * regardless of whether it worked. Boot reconcile is fire-and-forget and
+   * `McpManager.ready()` caps its own wait at 3 s, so a slow server delays
+   * nothing except the install call that asked for it.
+   */
   initTimeoutMs?: number;
   /** How long to wait for each tool call (default 30 s). */
   callTimeoutMs?: number;
@@ -122,6 +134,15 @@ export class MCPClient {
   #nextId = 1;
   #buf = "";
   #connected = false;
+  /**
+   * Tail of the server's stderr. `Bun.spawn` gives us a stderr pipe that
+   * nothing used to read, so the ONE line that says what actually went
+   * wrong — `npm error 404 Not Found`, `Missing API key`, a stack trace —
+   * drained into a buffer no human ever saw, and every failure surfaced to
+   * the user as a bare handshake timeout. Kept bounded; attached to the
+   * connect error so the desktop can humanize the real cause.
+   */
+  #stderrTail = "";
 
   constructor(config: MCPClientConfig, audit: AuditLogger) {
     this.#audit = audit;
@@ -129,7 +150,7 @@ export class MCPClient {
       command: config.command,
       args: config.args ?? [],
       env: config.env ?? {},
-      initTimeoutMs: config.initTimeoutMs ?? 10_000,
+      initTimeoutMs: config.initTimeoutMs ?? 90_000,
       callTimeoutMs: config.callTimeoutMs ?? 30_000,
       permissions: config.permissions ?? {},
     };
@@ -168,20 +189,28 @@ export class MCPClient {
     // Fire-and-forget: it runs until the process's stdout closes; #readLoop
     // catches its own errors, so the promise never rejects unhandled.
     void this.#readLoop();
+    void this.#drainStderr();
 
-    // Run MCP initialize handshake.
-    const initResult = await this.#rpc(
-      "initialize",
-      {
-        protocolVersion: "2024-11-05",
-        capabilities: { tools: {} },
-        clientInfo: { name: "feral-agent", version: "1.0.0" },
-      },
-      this.#config.initTimeoutMs,
-    );
+    // Run MCP initialize handshake. On failure, re-throw with the server's
+    // own stderr appended — that text is the only place the real reason
+    // (missing package, bad key, crash) ever appears.
+    let initResult: unknown;
+    try {
+      initResult = await this.#rpc(
+        "initialize",
+        {
+          protocolVersion: "2024-11-05",
+          capabilities: { tools: {} },
+          clientInfo: { name: "feral-agent", version: "1.0.0" },
+        },
+        this.#config.initTimeoutMs,
+      );
+    } catch (err) {
+      throw new Error(this.#withStderr(String(err)));
+    }
 
     if (!initResult || typeof initResult !== "object") {
-      throw new Error("MCP initialize returned unexpected result");
+      throw new Error(this.#withStderr("MCP initialize returned unexpected result"));
     }
 
     // Send initialized notification (required by MCP spec).
@@ -315,6 +344,31 @@ export class MCPClient {
   // ---------------------------------------------------------------------------
   // Internal: JSON-RPC transport
   // ---------------------------------------------------------------------------
+
+  /** Keep the last ~2 KB of the server's stderr for error reporting. */
+  async #drainStderr(): Promise<void> {
+    const stderr = this.#proc?.stderr;
+    if (!stderr || typeof (stderr as ReadableStream<Uint8Array>).getReader !== "function") return;
+    const reader = (stderr as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        this.#stderrTail = (this.#stderrTail + decoder.decode(value, { stream: true })).slice(-2048);
+      }
+    } catch {
+      /* proc died */
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /** Append the stderr tail to `message` so the real cause travels with it. */
+  #withStderr(message: string): string {
+    const tail = this.#stderrTail.trim();
+    return tail ? `${message} — server said: ${tail}` : message;
+  }
 
   async #readLoop(): Promise<void> {
     const proc = this.#proc;

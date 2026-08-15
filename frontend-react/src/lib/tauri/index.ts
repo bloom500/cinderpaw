@@ -105,6 +105,8 @@ export interface McpCatalogEntry {
   icon: string;
   logo_url?: string;
   fields: McpConfigField[];
+  /** Connecting opens a browser for the user to sign in to the publisher. */
+  browser_login: boolean;
 }
 export interface McpServerView {
   id: string;
@@ -240,6 +242,13 @@ export interface Settings {
   token_budget_conversation: number | null;
   /** USD spend cap for the passive RSI background engine. null / 0 = local-only (free). */
   rsi_max_cost_usd: number | null;
+  /** Let the dream cycle run on a CLOUD model. Off by default — background
+   *  dreaming on a paid route spends money while the user is away. Without it,
+   *  a machine with no local model never dreams at all. */
+  rsi_allow_cloud_dreams: boolean;
+  /** The chosen inference route: `"<provider>:<model>"` (cloud) or
+   *  `"local:<file>"`. null = the bundled local default. */
+  active_route: string | null;
 }
 
 export interface ByokProvider {
@@ -637,6 +646,8 @@ const raw = {
     invoke<void>('set_token_budget_conversation', { budget }),
   setRsiBudget: (budget: number | null) =>
     invoke<void>('set_rsi_budget', { budget }),
+  setRsiAllowCloudDreams: (enabled: boolean) =>
+    invoke<void>('set_rsi_allow_cloud_dreams', { enabled }),
   searchHfModels:        (query: string, cursor?: string | null) =>
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
@@ -883,6 +894,7 @@ export const tauri = {
     setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
     setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
+    setRsiAllowCloudDreams: async (enabled: boolean) => raw.setRsiAllowCloudDreams(enabled),
   },
 
   hf: {

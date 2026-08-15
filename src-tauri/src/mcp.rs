@@ -46,7 +46,7 @@ pub struct McpServerConfig {
     pub enabled: bool,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct McpConfigFile {
     servers: Vec<McpServerConfig>,
 }
@@ -98,6 +98,14 @@ pub struct McpCatalogEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_url: Option<String>,
     pub fields: Vec<McpConfigField>,
+    /// True when connecting opens a browser for the user to sign in.
+    ///
+    /// These extensions have no API key to paste: the publisher hosts the
+    /// service and authorises Feral through the browser instead. The UI has to
+    /// say so BEFORE the install starts — an unexplained browser window
+    /// appearing is indistinguishable from something going wrong, and the user
+    /// has to know to go and finish the login or the install just times out.
+    pub browser_login: bool,
 }
 
 struct CatalogDef {
@@ -107,8 +115,39 @@ struct CatalogDef {
     args: &'static [&'static str],
     /// Field keys that become env vars instead of args.
     env_keys: &'static [&'static str],
+    /// Fixed env vars the server needs that the user is never asked about
+    /// (mode flags and the like). Never secrets — those go through `env_keys`.
+    static_env: &'static [(&'static str, &'static str)],
 }
 
+/// The curated store.
+///
+/// Every entry here has been launched and has completed a real MCP
+/// `initialize` handshake — not merely looked up on a registry. That bar
+/// exists because the catalog previously shipped 29 entries whose packages
+/// had never existed at all, plus several whose package existed but whose
+/// command line was wrong (`server-pdf` defaults to an HTTP listener and
+/// needs `--stdio`; `xcodebuildmcp` needs an `mcp` subcommand;
+/// `mcp-server-cloudflare` needs `run <account>`; Salesforce reads
+/// `SALESFORCE_*` and we were setting `SF_*`). Every one of those failed
+/// identically from the user's side — install, spinner, "something went
+/// wrong" — so no amount of care in the UI could have told them apart.
+///
+/// Rules for adding an entry, learned the expensive way:
+///   - Pin an exact version. `npx -y pkg` without one re-resolves against the
+///     registry on every spawn, so what runs is whatever the publisher pushed
+///     last, not what was reviewed here. `every_npx_catalog_entry_pins_an_exact_version`
+///     enforces it.
+///   - Prefer the publisher's own package. A third-party republish of someone
+///     else's server is a supply-chain risk we would be handing to people who
+///     cannot evaluate it.
+///   - Ask only for things the user can paste from the service's own settings
+///     page. "Path to OAuth credentials JSON" means "go create a Google Cloud
+///     project", which is not a field, it is a project.
+///     `catalog_never_asks_the_user_for_a_credentials_file` enforces it.
+///   - Run `node scripts/check-mcp-catalog.mjs --spawn` before shipping a
+///     change here. It is the only check that catches a package which exists
+///     and still cannot start.
 fn catalog() -> Vec<CatalogDef> {
     let f = |key: &str, label: &str, secret: bool, optional: bool| McpConfigField {
         key: key.into(),
@@ -117,6 +156,21 @@ fn catalog() -> Vec<CatalogDef> {
         optional,
     };
     let logo = |url: &'static str| -> Option<String> { Some(url.into()) };
+
+    // Services whose publisher no longer ships an installable server and
+    // hosts one instead. `mcp-remote` bridges their HTTP endpoint onto the
+    // stdio transport the sidecar speaks, and runs the browser sign-in.
+    //
+    // Vercel is deliberately absent despite hosting one: their MCP only
+    // accepts AI clients Vercel has reviewed and approved, and Feral is not
+    // on that list, so the card would fail for every user at the consent
+    // screen. The rest use open Dynamic Client Registration.
+    //
+    // The bridge version is written out at each entry rather than hoisted into
+    // a constant: these specs are the thing that gets audited, and an auditor
+    // (human or `scripts/check-mcp-catalog.mjs`) should not have to resolve a
+    // binding to find out what actually runs.
+
     vec![
         // ── Files ─────────────────────────────────────────────────────────────
         CatalogDef {
@@ -128,10 +182,48 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "📁".into(),
                 logo_url: None,
                 fields: vec![f("FOLDER", "Folder the assistant may access", false, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-filesystem", "{FOLDER}"],
+            args: &["-y", "@modelcontextprotocol/server-filesystem@2026.7.10", "{FOLDER}"],
             env_keys: &[],
+            static_env: &[],
+        },
+        CatalogDef {
+            entry: McpCatalogEntry {
+                id: "pdf".into(),
+                name: "PDF Reader".into(),
+                description: "Extract and search text from PDF documents.".into(),
+                category: "Files".into(),
+                icon: "📄".into(),
+                logo_url: None,
+                fields: vec![f("PDF_DIR", "Folder containing your PDFs", false, false)],
+                browser_login: false,
+            },
+            command: "npx",
+            // `--stdio` is not optional: without it this server starts an HTTP
+            // listener, prints "Ready" to stderr and never answers the
+            // handshake — which reads as a hang, not as a misconfiguration.
+            args: &["-y", "@modelcontextprotocol/server-pdf@1.7.5", "--stdio", "{PDF_DIR}"],
+            env_keys: &[],
+            static_env: &[],
+        },
+        CatalogDef {
+            entry: McpCatalogEntry {
+                id: "excel".into(),
+                name: "Excel / CSV".into(),
+                description: "Read and analyze Excel spreadsheets and CSV files.".into(),
+                category: "Files".into(),
+                icon: "📊".into(),
+                logo_url: logo("https://www.microsoft.com/favicon.ico"),
+                // Takes the file path per request, so there is nothing to set up.
+                fields: vec![],
+                browser_login: false,
+            },
+            command: "npx",
+            args: &["-y", "@negokaz/excel-mcp-server@0.12.0"],
+            env_keys: &[],
+            static_env: &[],
         },
         // ── Productivity ──────────────────────────────────────────────────────
         CatalogDef {
@@ -143,10 +235,12 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🧠".into(),
                 logo_url: None,
                 fields: vec![],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-memory"],
+            args: &["-y", "@modelcontextprotocol/server-memory@2026.7.4"],
             env_keys: &[],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -157,66 +251,12 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🪜".into(),
                 logo_url: None,
                 fields: vec![],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-sequential-thinking"],
+            args: &["-y", "@modelcontextprotocol/server-sequential-thinking@2026.7.4"],
             env_keys: &[],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "calcom".into(),
-                name: "Cal.com".into(),
-                description: "Manage your Cal.com calendar, bookings, and availability.".into(),
-                category: "Productivity".into(),
-                icon: "📅".into(),
-                logo_url: logo("https://cal.com/logo.svg"),
-                fields: vec![f("CAL_API_KEY", "Cal.com API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@calcom/mcp-server"],
-            env_keys: &["CAL_API_KEY"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "mindmeister".into(),
-                name: "MindMeister".into(),
-                description: "Create and manage mind maps in MindMeister.".into(),
-                category: "Productivity".into(),
-                icon: "🗺️".into(),
-                logo_url: logo("https://www.mindmeister.com/favicon.ico"),
-                fields: vec![f("MINDMEISTER_API_KEY", "MindMeister API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@meisterlabs/mindmeister-mcp"],
-            env_keys: &["MINDMEISTER_API_KEY"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "meistertask".into(),
-                name: "MeisterTask".into(),
-                description: "Manage tasks and projects in MeisterTask.".into(),
-                category: "Productivity".into(),
-                icon: "✅".into(),
-                logo_url: logo("https://www.meistertask.com/favicon.ico"),
-                fields: vec![f("MEISTERTASK_API_KEY", "MeisterTask API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@meisterlabs/meistertask-mcp"],
-            env_keys: &["MEISTERTASK_API_KEY"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "superlist".into(),
-                name: "Superlist".into(),
-                description: "Manage your Superlist tasks and lists.".into(),
-                category: "Productivity".into(),
-                icon: "📋".into(),
-                logo_url: logo("https://superlist.com/favicon.ico"),
-                fields: vec![f("SUPERLIST_API_KEY", "Superlist API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@superlistapp/mcp-server"],
-            env_keys: &["SUPERLIST_API_KEY"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -226,11 +266,13 @@ fn catalog() -> Vec<CatalogDef> {
                 category: "Productivity".into(),
                 icon: "🔴".into(),
                 logo_url: logo("https://todoist.com/favicon.ico"),
-                fields: vec![f("TODOIST_API_TOKEN", "Todoist API token", true, false)],
+                fields: vec![f("TODOIST_API_KEY", "Todoist API token", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@doist/todoist-mcp-server"],
-            env_keys: &["TODOIST_API_TOKEN"],
+            args: &["-y", "@doist/todoist-mcp@12.5.7"],
+            env_keys: &["TODOIST_API_KEY"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -241,10 +283,12 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "📓".into(),
                 logo_url: logo("https://www.notion.so/favicon.ico"),
                 fields: vec![f("NOTION_API_TOKEN", "Notion API token", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@notionhq/notion-mcp-server"],
+            args: &["-y", "@notionhq/notion-mcp-server@2.5.1"],
             env_keys: &["NOTION_API_TOKEN"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -254,11 +298,13 @@ fn catalog() -> Vec<CatalogDef> {
                 category: "Productivity".into(),
                 icon: "📐".into(),
                 logo_url: logo("https://linear.app/favicon.ico"),
-                fields: vec![f("LINEAR_API_KEY", "Linear API key", true, false)],
+                fields: vec![],
+                browser_login: true,
             },
             command: "npx",
-            args: &["-y", "@linear/mcp-server"],
-            env_keys: &["LINEAR_API_KEY"],
+            args: &["-y", "mcp-remote@0.1.38", "https://mcp.linear.app/mcp"],
+            env_keys: &[],
+            static_env: &[],
         },
         // ── Developer ─────────────────────────────────────────────────────────
         CatalogDef {
@@ -275,10 +321,16 @@ fn catalog() -> Vec<CatalogDef> {
                     true,
                     false,
                 )],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-github"],
+            // Marked deprecated upstream, but it starts, it works, and it takes
+            // a token the user can paste. GitHub's replacement is a hosted
+            // server behind a browser sign-in; swap to that when we have a
+            // reason to, not because npm prints a warning.
+            args: &["-y", "@modelcontextprotocol/server-github@2025.4.8"],
             env_keys: &["GITHUB_PERSONAL_ACCESS_TOKEN"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -288,14 +340,15 @@ fn catalog() -> Vec<CatalogDef> {
                 category: "Developer".into(),
                 icon: "⚡".into(),
                 logo_url: logo("https://supabase.com/favicon/favicon-32x32.png"),
-                fields: vec![
-                    f("SUPABASE_URL", "Supabase project URL", false, false),
-                    f("SUPABASE_SERVICE_ROLE_KEY", "Service role key", true, false),
-                ],
+                fields: vec![f("SUPABASE_ACCESS_TOKEN", "Supabase personal access token", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@supabase/mcp-server-supabase@0.8.2", "--supabase-url", "{SUPABASE_URL}", "--supabase-key", "{SUPABASE_SERVICE_ROLE_KEY}"],
-            env_keys: &[],
+            // The key travels in the environment, never in the arguments: a
+            // command line is readable by every process on the machine.
+            args: &["-y", "@supabase/mcp-server-supabase@0.10.0"],
+            env_keys: &["SUPABASE_ACCESS_TOKEN"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -309,24 +362,14 @@ fn catalog() -> Vec<CatalogDef> {
                     f("CLOUDFLARE_API_TOKEN", "Cloudflare API token", true, false),
                     f("CLOUDFLARE_ACCOUNT_ID", "Account ID", false, false),
                 ],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@cloudflare/mcp-server-cloudflare"],
-            env_keys: &["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "xcodebuild".into(),
-                name: "Xcode Build".into(),
-                description: "Build, test, and manage Xcode projects from the assistant.".into(),
-                category: "Developer".into(),
-                icon: "🔨".into(),
-                logo_url: logo("https://developer.apple.com/favicon.ico"),
-                fields: vec![],
-            },
-            command: "npx",
-            args: &["-y", "@cameroncooke/xcodebuildmcp"],
-            env_keys: &[],
+            // `run <account>` — without the subcommand this exits immediately
+            // with "Unknown command: undefined".
+            args: &["-y", "@cloudflare/mcp-server-cloudflare@0.2.0", "run", "{CLOUDFLARE_ACCOUNT_ID}"],
+            env_keys: &["CLOUDFLARE_API_TOKEN"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -337,24 +380,29 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🔧".into(),
                 logo_url: logo("https://www.google.com/chrome/static/images/chrome-logo.svg"),
                 fields: vec![],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "chrome-devtools-mcp"],
+            args: &["-y", "chrome-devtools-mcp@1.7.0"],
             env_keys: &[],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
-                id: "sqlite".into(),
-                name: "SQLite".into(),
-                description: "Run queries and explore tables in a local SQLite database.".into(),
+                id: "xcodebuild".into(),
+                name: "Xcode Build".into(),
+                description: "Build, test, and manage Xcode projects from the assistant.".into(),
                 category: "Developer".into(),
-                icon: "🗄️".into(),
-                logo_url: None,
-                fields: vec![f("DB_PATH", "Path to the .db file", false, false)],
+                icon: "🔨".into(),
+                logo_url: logo("https://developer.apple.com/favicon.ico"),
+                fields: vec![],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-sqlite", "{DB_PATH}"],
+            // The bare command prints usage and exits; `mcp` is the server.
+            args: &["-y", "xcodebuildmcp@2.7.0", "mcp"],
             env_keys: &[],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -365,55 +413,45 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🐘".into(),
                 logo_url: logo("https://www.postgresql.org/favicon.ico"),
                 fields: vec![f("POSTGRES_URL", "PostgreSQL connection URL", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-postgres", "{POSTGRES_URL}"],
+            args: &["-y", "@henkey/postgres-mcp-server@1.0.7", "--connection-string", "{POSTGRES_URL}"],
             env_keys: &[],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
-                id: "karea".into(),
-                name: "Karea".into(),
-                description: "Connect to the Karea developer platform.".into(),
+                id: "kubernetes".into(),
+                name: "Kubernetes".into(),
+                description: "Manage Kubernetes clusters, pods, and deployments.".into(),
                 category: "Developer".into(),
-                icon: "🎯".into(),
-                logo_url: None,
-                fields: vec![f("KAREA_API_KEY", "Karea API key", true, false)],
+                icon: "☸️".into(),
+                logo_url: logo("https://kubernetes.io/images/favicon.png"),
+                // Reads the kubeconfig already on the machine.
+                fields: vec![],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@starecz/karea-mcp"],
-            env_keys: &["KAREA_API_KEY"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "vercel".into(),
-                name: "Vercel".into(),
-                description: "Manage Vercel deployments, projects, and domains.".into(),
-                category: "Developer".into(),
-                icon: "▲".into(),
-                logo_url: logo("https://vercel.com/favicon.ico"),
-                fields: vec![f("VERCEL_TOKEN", "Vercel API token", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@vercel/mcp-adapter"],
-            env_keys: &["VERCEL_TOKEN"],
+            args: &["-y", "mcp-server-kubernetes@4.1.4"],
+            env_keys: &[],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
                 id: "jira".into(),
-                name: "Jira".into(),
-                description: "Manage Jira issues, projects, and sprints from the assistant.".into(),
+                name: "Jira & Confluence".into(),
+                description: "Manage Jira issues, projects, and Confluence pages.".into(),
                 category: "Developer".into(),
                 icon: "🔵".into(),
                 logo_url: logo("https://www.atlassian.com/favicon.ico"),
-                fields: vec![
-                    f("ATLASSIAN_API_TOKEN", "Atlassian API token", true, false),
-                    f("ATLASSIAN_URL", "Atlassian workspace URL", false, false),
-                ],
+                fields: vec![],
+                browser_login: true,
             },
             command: "npx",
-            args: &["-y", "@atlassian/mcp-atlassian"],
-            env_keys: &["ATLASSIAN_API_TOKEN", "ATLASSIAN_URL"],
+            args: &["-y", "mcp-remote@0.1.38", "https://mcp.atlassian.com/v1/sse"],
+            env_keys: &[],
+            static_env: &[],
         },
         // ── Internet ──────────────────────────────────────────────────────────
         CatalogDef {
@@ -425,10 +463,12 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🌐".into(),
                 logo_url: logo("https://playwright.dev/img/playwright-logo.svg"),
                 fields: vec![],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@playwright/mcp@0.0.76"],
+            args: &["-y", "@playwright/mcp@0.0.79"],
             env_keys: &[],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -439,10 +479,12 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🔎".into(),
                 logo_url: logo("https://brave.com/static-assets/images/brave-favicon.png"),
                 fields: vec![f("BRAVE_API_KEY", "Brave Search API key", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-brave-search"],
+            args: &["-y", "@brave/brave-search-mcp-server@2.1.0"],
             env_keys: &["BRAVE_API_KEY"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -453,27 +495,13 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🔥".into(),
                 logo_url: logo("https://www.firecrawl.dev/favicon.ico"),
                 fields: vec![f("FIRECRAWL_API_KEY", "Firecrawl API key", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "firecrawl-mcp"],
+            args: &["-y", "firecrawl-mcp@3.24.0"],
             env_keys: &["FIRECRAWL_API_KEY"],
+            static_env: &[],
         },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "fetch".into(),
-                name: "Web Fetch".into(),
-                description: "Fetch and read content from any public URL.".into(),
-                category: "Internet".into(),
-                icon: "📡".into(),
-                logo_url: None,
-                fields: vec![],
-            },
-            command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-fetch"],
-            env_keys: &[],
-        },
-        // Communication channels (Discord, Slack, Telegram, WhatsApp) live in
-        // the dedicated Connectors section now — not here. See connectors.rs.
         // ── CRM & Sales ───────────────────────────────────────────────────────
         CatalogDef {
             entry: McpCatalogEntry {
@@ -483,25 +511,13 @@ fn catalog() -> Vec<CatalogDef> {
                 category: "CRM & Sales".into(),
                 icon: "🧡".into(),
                 logo_url: logo("https://www.hubspot.com/favicon.ico"),
-                fields: vec![f("HUBSPOT_ACCESS_TOKEN", "HubSpot private app access token", true, false)],
+                fields: vec![f("PRIVATE_APP_ACCESS_TOKEN", "HubSpot private app access token", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@baryhuang/mcp-hubspot"],
-            env_keys: &["HUBSPOT_ACCESS_TOKEN"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "gohighlevel".into(),
-                name: "GoHighLevel".into(),
-                description: "Manage GoHighLevel CRM contacts, pipelines, and automations.".into(),
-                category: "CRM & Sales".into(),
-                icon: "📈".into(),
-                logo_url: logo("https://www.gohighlevel.com/favicon.ico"),
-                fields: vec![f("GHL_API_KEY", "GoHighLevel API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@busybee/go-high-level-mcp"],
-            env_keys: &["GHL_API_KEY"],
+            args: &["-y", "@hubspot/mcp-server@0.4.0"],
+            env_keys: &["PRIVATE_APP_ACCESS_TOKEN"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -512,10 +528,15 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "💳".into(),
                 logo_url: logo("https://stripe.com/favicon.ico"),
                 fields: vec![f("STRIPE_SECRET_KEY", "Stripe secret key", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@stripe/agent-toolkit"],
+            // 0.2.x is the local server. 0.3.x is a thin proxy to Stripe's
+            // hosted MCP that cannot even start without a live key, so it
+            // fails the install for anyone typing a key with a typo in it.
+            args: &["-y", "@stripe/mcp@0.2.3", "--tools=all"],
             env_keys: &["STRIPE_SECRET_KEY"],
+            static_env: &[],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -526,14 +547,18 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "☁️".into(),
                 logo_url: logo("https://www.salesforce.com/favicon.ico"),
                 fields: vec![
-                    f("SF_USERNAME", "Salesforce username", false, false),
-                    f("SF_PASSWORD", "Salesforce password", true, false),
-                    f("SF_SECURITY_TOKEN", "Security token", true, false),
+                    f("SALESFORCE_USERNAME", "Salesforce username", false, false),
+                    f("SALESFORCE_PASSWORD", "Salesforce password", true, false),
+                    f("SALESFORCE_TOKEN", "Security token", true, false),
                 ],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@tsmztech/mcp-server-salesforce"],
-            env_keys: &["SF_USERNAME", "SF_PASSWORD", "SF_SECURITY_TOKEN"],
+            args: &["-y", "@tsmztech/mcp-server-salesforce@0.0.7"],
+            env_keys: &["SALESFORCE_USERNAME", "SALESFORCE_PASSWORD", "SALESFORCE_TOKEN"],
+            // Without this the server picks a different auth strategy and the
+            // username/password it was just given are never used.
+            static_env: &[("SALESFORCE_CONNECTION_TYPE", "User_Password")],
         },
         CatalogDef {
             entry: McpCatalogEntry {
@@ -543,264 +568,15 @@ fn catalog() -> Vec<CatalogDef> {
                 category: "CRM & Sales".into(),
                 icon: "💬".into(),
                 logo_url: logo("https://www.intercom.com/favicon.ico"),
-                fields: vec![f("INTERCOM_ACCESS_TOKEN", "Intercom access token", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@intercom/mcp-server"],
-            env_keys: &["INTERCOM_ACCESS_TOKEN"],
-        },
-        // ── Analytics ─────────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "clamp-analytics".into(),
-                name: "Clamp Analytics".into(),
-                description: "Query your Clamp Analytics data and reports.".into(),
-                category: "Analytics".into(),
-                icon: "📊".into(),
-                logo_url: None,
-                fields: vec![f("CLAMP_API_KEY", "Clamp API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@clamp-sh/mcp"],
-            env_keys: &["CLAMP_API_KEY"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "google-analytics".into(),
-                name: "Google Analytics".into(),
-                description: "Query Google Analytics GA4 reports and metrics.".into(),
-                category: "Analytics".into(),
-                icon: "📉".into(),
-                logo_url: logo("https://www.google.com/favicon.ico"),
-                fields: vec![
-                    f("GA_PROPERTY_ID", "GA4 Property ID", false, false),
-                    f("GOOGLE_APPLICATION_CREDENTIALS", "Path to service account JSON", false, false),
-                ],
-            },
-            command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-google-analytics"],
-            env_keys: &["GA_PROPERTY_ID", "GOOGLE_APPLICATION_CREDENTIALS"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "mixpanel".into(),
-                name: "Mixpanel".into(),
-                description: "Query Mixpanel events, funnels, and retention reports.".into(),
-                category: "Analytics".into(),
-                icon: "📊".into(),
-                logo_url: logo("https://mixpanel.com/favicon.ico"),
-                fields: vec![f("MIXPANEL_TOKEN", "Mixpanel project token", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@mixpanel/mcp-server"],
-            env_keys: &["MIXPANEL_TOKEN"],
-        },
-        // ── Google ────────────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "google-drive".into(),
-                name: "Google Drive".into(),
-                description: "Read and manage files in your Google Drive.".into(),
-                category: "Google".into(),
-                icon: "📂".into(),
-                logo_url: logo("https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png"),
-                fields: vec![f("GDRIVE_CREDENTIALS_FILE", "Path to OAuth credentials JSON", false, false)],
-            },
-            command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-gdrive"],
-            env_keys: &["GDRIVE_CREDENTIALS_FILE"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "google-calendar".into(),
-                name: "Google Calendar".into(),
-                description: "Read and create events in your Google Calendar.".into(),
-                category: "Google".into(),
-                icon: "📆".into(),
-                logo_url: logo("https://calendar.google.com/googlecalendar/images/favicon_v2018_256.png"),
-                fields: vec![f("GCAL_CREDENTIALS_FILE", "Path to OAuth credentials JSON", false, false)],
-            },
-            command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-google-calendar"],
-            env_keys: &["GCAL_CREDENTIALS_FILE"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "gmail".into(),
-                name: "Gmail".into(),
-                description: "Read and send emails via your Gmail account.".into(),
-                category: "Google".into(),
-                icon: "📧".into(),
-                logo_url: logo("https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico"),
-                fields: vec![f("GMAIL_CREDENTIALS_FILE", "Path to OAuth credentials JSON", false, false)],
-            },
-            command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-gmail"],
-            env_keys: &["GMAIL_CREDENTIALS_FILE"],
-        },
-        // ── AI & Media ────────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "higgsfield".into(),
-                name: "Higgsfield AI".into(),
-                description: "Generate cinematic AI videos with Higgsfield.".into(),
-                category: "AI & Media".into(),
-                icon: "🎬".into(),
-                logo_url: logo("https://higgsfield.ai/favicon.ico"),
-                fields: vec![f("HIGGSFIELD_API_KEY", "Higgsfield API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@higgsfield/mcp-server"],
-            env_keys: &["HIGGSFIELD_API_KEY"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "replicate".into(),
-                name: "Replicate".into(),
-                description: "Run AI models for images, video, audio, and more via Replicate.".into(),
-                category: "AI & Media".into(),
-                icon: "🖼️".into(),
-                logo_url: logo("https://replicate.com/favicon.ico"),
-                fields: vec![f("REPLICATE_API_TOKEN", "Replicate API token", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@replicate/mcp-server"],
-            env_keys: &["REPLICATE_API_TOKEN"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "elevenlabs".into(),
-                name: "ElevenLabs".into(),
-                description: "Generate realistic speech and audio with ElevenLabs.".into(),
-                category: "AI & Media".into(),
-                icon: "🔊".into(),
-                logo_url: logo("https://elevenlabs.io/favicon.ico"),
-                fields: vec![f("ELEVENLABS_API_KEY", "ElevenLabs API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@elevenlabs/mcp"],
-            env_keys: &["ELEVENLABS_API_KEY"],
-        },
-        // ── Monetization ──────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "chipp".into(),
-                name: "Chipp".into(),
-                description: "Monetize your AI tools and agents with Chipp.".into(),
-                category: "Monetization".into(),
-                icon: "💰".into(),
-                logo_url: logo("https://chipp.ai/favicon.ico"),
-                fields: vec![f("CHIPP_API_KEY", "Chipp API key", true, false)],
-            },
-            command: "npx",
-            args: &["-y", "@chipp/mcp-server"],
-            env_keys: &["CHIPP_API_KEY"],
-        },
-        // ── Crypto & Web3 ─────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "chain-signer".into(),
-                name: "Chain Signer".into(),
-                description: "Sign and broadcast transactions on EVM-compatible blockchains.".into(),
-                category: "Crypto & Web3".into(),
-                icon: "⛓️".into(),
-                logo_url: None,
                 fields: vec![],
+                browser_login: true,
             },
             command: "npx",
-            args: &["-y", "@kevthetech143/chain-signer"],
+            args: &["-y", "mcp-remote@0.1.38", "https://mcp.intercom.com/mcp"],
             env_keys: &[],
-        },
-        // ── Infrastructure ────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "homelab".into(),
-                name: "HomeLab Monitor".into(),
-                description: "Monitor and manage your self-hosted homelab services.".into(),
-                category: "Infrastructure".into(),
-                icon: "🏠".into(),
-                logo_url: None,
-                fields: vec![f("HOMELAB_API_URL", "HomeLab Monitor API URL", false, false)],
-            },
-            command: "npx",
-            args: &["-y", "@sikamikanikobg/homelab-monitor"],
-            env_keys: &["HOMELAB_API_URL"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "docker".into(),
-                name: "Docker".into(),
-                description: "Manage Docker containers, images, and volumes.".into(),
-                category: "Infrastructure".into(),
-                icon: "🐳".into(),
-                logo_url: logo("https://www.docker.com/favicon.ico"),
-                fields: vec![],
-            },
-            command: "npx",
-            args: &["-y", "@docker/mcp-server"],
-            env_keys: &[],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "aws".into(),
-                name: "AWS".into(),
-                description: "Manage AWS services, S3, Lambda, and more.".into(),
-                category: "Infrastructure".into(),
-                icon: "☁️".into(),
-                logo_url: logo("https://aws.amazon.com/favicon.ico"),
-                fields: vec![
-                    f("AWS_ACCESS_KEY_ID", "AWS access key ID", true, false),
-                    f("AWS_SECRET_ACCESS_KEY", "AWS secret access key", true, false),
-                    f("AWS_REGION", "AWS region (e.g. us-east-1)", false, true),
-                ],
-            },
-            command: "npx",
-            args: &["-y", "@aws-sdk/mcp-server"],
-            env_keys: &["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "kubernetes".into(),
-                name: "Kubernetes".into(),
-                description: "Manage Kubernetes clusters, pods, and deployments.".into(),
-                category: "Infrastructure".into(),
-                icon: "☸️".into(),
-                logo_url: logo("https://kubernetes.io/images/favicon.png"),
-                fields: vec![],
-            },
-            command: "npx",
-            args: &["-y", "@kubernetes-mcp/server"],
-            env_keys: &[],
+            static_env: &[],
         },
         // ── Data ──────────────────────────────────────────────────────────────
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "excel".into(),
-                name: "Excel / CSV".into(),
-                description: "Read and analyze Excel spreadsheets and CSV files.".into(),
-                category: "Data".into(),
-                icon: "📊".into(),
-                logo_url: logo("https://www.microsoft.com/favicon.ico"),
-                fields: vec![f("FILE_PATH", "Path to the spreadsheet or CSV", false, false)],
-            },
-            command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-excel-csv", "{FILE_PATH}"],
-            env_keys: &[],
-        },
-        CatalogDef {
-            entry: McpCatalogEntry {
-                id: "pdf".into(),
-                name: "PDF Reader".into(),
-                description: "Extract and search text from PDF documents.".into(),
-                category: "Data".into(),
-                icon: "📄".into(),
-                logo_url: None,
-                fields: vec![f("PDF_DIR", "Folder containing your PDFs", false, false)],
-            },
-            command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-pdf", "{PDF_DIR}"],
-            env_keys: &[],
-        },
         CatalogDef {
             entry: McpCatalogEntry {
                 id: "airtable".into(),
@@ -810,11 +586,67 @@ fn catalog() -> Vec<CatalogDef> {
                 icon: "🟡".into(),
                 logo_url: logo("https://airtable.com/favicon.ico"),
                 fields: vec![f("AIRTABLE_API_KEY", "Airtable personal access token", true, false)],
+                browser_login: false,
             },
             command: "npx",
-            args: &["-y", "@modelcontextprotocol/server-airtable"],
+            args: &["-y", "airtable-mcp-server@1.14.0"],
             env_keys: &["AIRTABLE_API_KEY"],
+            static_env: &[],
         },
+        // ── AI & Media ────────────────────────────────────────────────────────
+        CatalogDef {
+            entry: McpCatalogEntry {
+                id: "replicate".into(),
+                name: "Replicate".into(),
+                description: "Run AI models for images, video, audio, and more via Replicate.".into(),
+                category: "AI & Media".into(),
+                icon: "🖼️".into(),
+                logo_url: logo("https://replicate.com/favicon.ico"),
+                fields: vec![f("REPLICATE_API_TOKEN", "Replicate API token", true, false)],
+                browser_login: false,
+            },
+            command: "npx",
+            args: &["-y", "replicate-mcp@0.9.0"],
+            env_keys: &["REPLICATE_API_TOKEN"],
+            static_env: &[],
+        },
+        CatalogDef {
+            entry: McpCatalogEntry {
+                id: "higgsfield".into(),
+                name: "Higgsfield AI".into(),
+                description: "Generate cinematic AI videos with Higgsfield.".into(),
+                category: "AI & Media".into(),
+                icon: "🎬".into(),
+                logo_url: logo("https://higgsfield.ai/favicon.ico"),
+                fields: vec![f("HIGGSFIELD_API_KEY", "Higgsfield API key", true, false)],
+                browser_login: false,
+            },
+            command: "npx",
+            args: &["-y", "higgsfield-mcp@0.2.0"],
+            env_keys: &["HIGGSFIELD_API_KEY"],
+            static_env: &[],
+        },
+        // Communication channels (Discord, Slack, Telegram, WhatsApp) live in
+        // the dedicated Connectors section — not here. See connectors.rs.
+        //
+        // Deliberately absent, and why, so nobody re-adds them from memory:
+        //   - Google Drive / Calendar / Gmail: every npm server for these wants
+        //     an OAuth client-credentials JSON, i.e. a Google Cloud project.
+        //     There is no key to paste, so there is no honest card to show.
+        //   - Vercel: hosted MCP, but restricted to AI clients Vercel has
+        //     approved. Feral is not one, so it would fail at the consent screen.
+        //   - AWS, Docker, ElevenLabs, Google Analytics: no maintained Node
+        //     server exists. The official ones are Python (uvx) or a desktop
+        //     plugin, neither of which this install flow can offer.
+        //   - Clamp Analytics: the package is real and does work, but it verifies
+        //     its API key against Clamp's servers before it will start, so
+        //     `check-mcp-catalog.mjs --spawn` can never clear it without a live
+        //     account. An entry nobody can re-verify is an entry that rots quietly.
+        //   - MindMeister, MeisterTask, Superlist, Chipp, Karea, Chain Signer,
+        //     HomeLab Monitor, Cal.com, SQLite, Mixpanel, GoHighLevel: no
+        //     package exists at all, or only an abandoned third-party one with
+        //     double-digit weekly downloads. They were listed here for months
+        //     and could never have worked.
     ]
 }
 
@@ -952,10 +784,23 @@ async fn reload_and_status(
     Ok(out)
 }
 
-/// Reload timeout: first connect of an npx-based server may cold-download
-/// the package; the sidecar's per-server init timeout is 10 s, so 30 s
-/// covers a couple of servers connecting sequentially.
-const RELOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Reload timeout: the first connect of an npx-based extension cold-downloads
+/// the package from npm before the server prints a single byte, which on a
+/// fresh machine over an ordinary connection takes tens of seconds — and the
+/// sidecar reconciles servers sequentially. The sidecar's per-server init
+/// budget is 90 s (`mcp-client.ts` initTimeoutMs); this must exceed it, or
+/// the desktop gives up first and reports a timeout for an extension that
+/// was still downloading and would have worked.
+const RELOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(150);
+
+/// Reload timeout for an extension whose sign-in happens in a browser.
+///
+/// The clock is not measuring software here, it is measuring a person: find
+/// the window the bridge just opened, sign in, possibly do two-factor, pick a
+/// workspace, press Approve. Two and a half minutes is nowhere near enough for
+/// that, and running out means the install fails for someone who did nothing
+/// wrong and was, in fact, halfway through doing it right.
+const BROWSER_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -964,7 +809,15 @@ const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 fn humanize(raw: &str) -> String {
     tracing::warn!("MCP error: {raw}");
     let lower = raw.to_lowercase();
-    if lower.contains("program not found") || lower.contains("no such file") || lower.contains("spawn failed") {
+    // Now that the sidecar forwards the server's own stderr, npm's real
+    // complaint is readable here. A package that 404s will NEVER start, so
+    // "try again in a minute" would be a lie — say it's gone instead.
+    if lower.contains("404") || lower.contains("is not in this registry") || lower.contains("e404") {
+        return "This extension is no longer available from its publisher. Please remove it.".into();
+    }
+    if lower.contains("program not found") || lower.contains("no such file") || lower.contains("spawn failed")
+        || lower.contains("not recognized as an internal") || lower.contains("command not found")
+    {
         return "This extension needs Node.js installed. Install it from nodejs.org and try again.".into();
     }
     if lower.contains("closed") || lower.contains("eof") || lower.contains("broken pipe") {
@@ -977,6 +830,21 @@ fn humanize(raw: &str) -> String {
         return "The access key for this extension doesn't work. Check it in Configure.".into();
     }
     "Something went wrong with this extension. Turning it off and on again usually helps.".into()
+}
+
+/// Put `previous` back and re-reconcile, so a change that failed to come up
+/// leaves no trace in `mcp.json`.
+///
+/// Without this, `mcp_install` / `mcp_set_enabled` committed the config
+/// BEFORE the server was proven to start: the user got an error toast *and*
+/// a permanent "Installed", enabled card for something that never ran, and
+/// every boot re-attempted the dead server forever. On a fresh machine that
+/// is the first thing a mistyped key or an unavailable extension does.
+/// Best-effort by design — restoring the file is what matters; the sidecar
+/// poke is a courtesy (it reconciles from the file at next boot anyway).
+async fn rollback(state: &crate::AppState, previous: &McpConfigFile) {
+    let _ = save_config(previous);
+    let _ = reload_and_status(state, QUERY_TIMEOUT).await;
 }
 
 fn view_of(cfg: &McpServerConfig, running: bool) -> McpServerView {
@@ -1079,11 +947,14 @@ pub async fn mcp_install(
             s
         })
         .collect::<Vec<_>>();
-    let env = def
+    let mut env = def
         .env_keys
         .iter()
         .filter_map(|k| values.get(*k).map(|v| ((*k).to_string(), v.clone())))
         .collect::<HashMap<_, _>>();
+    for (k, v) in def.static_env {
+        env.insert((*k).to_string(), (*v).to_string());
+    }
 
     let server = McpServerConfig {
         id: def.entry.id.clone(),
@@ -1097,16 +968,33 @@ pub async fn mcp_install(
     };
     validate_config_tokens(&server.command, &server.args)?;
 
-    let mut cfg = load_config();
+    let previous = load_config();
+    let mut cfg = previous.clone();
     cfg.servers.retain(|s| s.id != server.id);
     cfg.servers.push(server.clone());
     save_config(&cfg)?;
 
-    let status = reload_and_status(&state, RELOAD_TIMEOUT).await?;
+    // An install that doesn't come up is NOT an install: undo the file so the
+    // user is left exactly where they started instead of with a dead card.
+    let budget = if def.entry.browser_login {
+        BROWSER_LOGIN_TIMEOUT
+    } else {
+        RELOAD_TIMEOUT
+    };
+    let status = match reload_and_status(&state, budget).await {
+        Ok(s) => s,
+        Err(e) => {
+            rollback(&state, &previous).await;
+            return Err(e);
+        }
+    };
     match status.get(&server.id) {
         Some((true, _)) => Ok(view_of(&server, true)),
-        Some((false, err)) => Err(humanize(err.as_deref().unwrap_or("closed"))),
-        None => Err(humanize("closed")),
+        other => {
+            let raw = other.and_then(|(_, err)| err.clone());
+            rollback(&state, &previous).await;
+            Err(humanize(raw.as_deref().unwrap_or("closed")))
+        }
     }
 }
 
@@ -1118,7 +1006,8 @@ pub async fn mcp_set_enabled(
     id: String,
     enabled: bool,
 ) -> Result<McpServerView, String> {
-    let mut cfg = load_config();
+    let previous = load_config();
+    let mut cfg = previous.clone();
     let server = cfg
         .servers
         .iter_mut()
@@ -1128,12 +1017,30 @@ pub async fn mcp_set_enabled(
     let snapshot = server.clone();
     save_config(&cfg)?;
 
-    let status = reload_and_status(&state, RELOAD_TIMEOUT).await?;
+    // Same rule as install: a switch that didn't actually turn the extension
+    // on goes back to off, so the card matches reality and the next boot
+    // doesn't keep re-launching a server that can't start.
+    //
+    // Browser-login extensions get the same long budget here as at install:
+    // a cached token can expire, and then flipping the switch back on means
+    // signing in again, at human speed.
+    let budget = match catalog().into_iter().find(|d| d.entry.id == id) {
+        Some(def) if def.entry.browser_login => BROWSER_LOGIN_TIMEOUT,
+        _ => RELOAD_TIMEOUT,
+    };
+    let status = match reload_and_status(&state, budget).await {
+        Ok(s) => s,
+        Err(e) => {
+            rollback(&state, &previous).await;
+            return Err(e);
+        }
+    };
     let (running, err) = status
         .get(&id)
         .cloned()
         .unwrap_or((false, None));
     if enabled && !running {
+        rollback(&state, &previous).await;
         return Err(humanize(err.as_deref().unwrap_or("closed")));
     }
     Ok(view_of(&snapshot, running))
@@ -1385,6 +1292,79 @@ mod catalog_pin_tests {
             violations.is_empty(),
             "MCP catalog supply-chain violations:\n  - {}",
             violations.join("\n  - ")
+        );
+    }
+
+    /// Every npx package spec must carry an exact `@x.y.z`.
+    ///
+    /// A BARE spec (`@scope/pkg`, no version) is the same supply-chain hole
+    /// as `@latest` wearing different clothes: `npx -y` resolves it against
+    /// the registry on every single spawn, so what runs on the user's
+    /// machine is whatever the publisher pushed most recently — never what
+    /// was reviewed here. The floating-dist-tag test above deliberately
+    /// scoped bare specs out as "a separate audit"; this is that audit,
+    /// closed. It is also the guard that would have caught the 29 catalog
+    /// entries that pointed at packages which had never existed at all:
+    /// you cannot pin a version to a package you never looked up.
+    ///
+    /// Existence and startup are checked by `scripts/check-mcp-catalog.mjs`,
+    /// which needs the network and so cannot live in a unit test.
+    #[test]
+    fn every_npx_catalog_entry_pins_an_exact_version() {
+        let mut unpinned: Vec<String> = Vec::new();
+        for def in catalog() {
+            if def.command != "npx" {
+                continue;
+            }
+            let Some(spec) = def
+                .args
+                .iter()
+                .find(|a| !a.starts_with('-') && !a.contains('{'))
+            else {
+                continue;
+            };
+            // `@scope/name@1.2.3` → the version is after the LAST `@`, which
+            // must exist beyond position 0 and start with a digit.
+            let pinned = match spec.rfind('@') {
+                Some(at) if at > 0 => spec[at + 1..].starts_with(|c: char| c.is_ascii_digit()),
+                _ => false,
+            };
+            if !pinned {
+                unpinned.push(format!("{} → {:?}", def.entry.id, spec));
+            }
+        }
+        assert!(
+            unpinned.is_empty(),
+            "MCP catalog entries must pin an exact version (@x.y.z):\n  - {}",
+            unpinned.join("\n  - ")
+        );
+    }
+
+    /// Every config field the user is asked for must be answerable by
+    /// pasting one value from the service's own settings page.
+    ///
+    /// The catalog is a store for people who do not know what MCP is. A
+    /// field asking for "path to OAuth credentials JSON" is not a field
+    /// they can fill — it asks them to create a Google Cloud project — so
+    /// the extension is unusable no matter how healthy its npm package is.
+    #[test]
+    fn catalog_never_asks_the_user_for_a_credentials_file() {
+        let mut offenders: Vec<String> = Vec::new();
+        for def in catalog() {
+            for field in &def.entry.fields {
+                let l = field.label.to_lowercase();
+                if l.contains("credentials json")
+                    || l.contains("service account")
+                    || l.contains("oauth")
+                {
+                    offenders.push(format!("{} → {:?}", def.entry.id, field.label));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these entries ask for something a non-technical user cannot produce:\n  - {}",
+            offenders.join("\n  - ")
         );
     }
 }
