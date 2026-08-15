@@ -243,6 +243,20 @@ function bigrams(text: string): string[] {
  */
 export const ECHO_MIN_CHARS = 16;
 
+/** Residual speaker audio may remain in the input path after playback ends. */
+export const ECHO_GUARD_AFTER_PLAYBACK_MS = 1_500;
+
+/** Whether a recording began while our voice could still be in the microphone. */
+export function isEchoGuardedCapture(
+  whilePlaying: boolean,
+  captureStartedAt: number,
+  lastPlaybackEndedAt: number,
+): boolean {
+  if (whilePlaying) return true;
+  if (lastPlaybackEndedAt <= 0 || captureStartedAt < lastPlaybackEndedAt) return false;
+  return captureStartedAt - lastPlaybackEndedAt <= ECHO_GUARD_AFTER_PLAYBACK_MS;
+}
+
 /** Fraction of the transcript that must already exist in the spoken text. */
 export const ECHO_CONTAINMENT = 0.85;
 
@@ -264,8 +278,9 @@ export const ECHO_CONTAINMENT = 0.85;
 export function isTtsEcho(transcript: string, spoken: string): boolean {
   const heard = normalizeSpoken(transcript);
   const said = normalizeSpoken(spoken);
-  if (heard.length < ECHO_MIN_CHARS || !said) return false;
+  if (!heard || !said) return false;
   if (said.includes(heard)) return true;
+  if (heard.length < ECHO_MIN_CHARS) return false;
 
   const heardGrams = bigrams(heard);
   if (heardGrams.length === 0) return false;

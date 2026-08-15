@@ -16,12 +16,13 @@ const chat = vi.hoisted(() => ({
   stop: vi.fn(async () => {}),
 }));
 const listen = vi.hoisted(() => vi.fn(async () => () => {}));
+const transcribeVoiceBlob = vi.hoisted(() => vi.fn(async () => 'voice turn'));
 let analyserLevel = 0;
 
 vi.mock('../useSpeechPlayer', () => ({ useSpeechPlayer: () => speech }));
 vi.mock('../useSendMessage', () => ({
   saveVoiceBlobToDisk: vi.fn(async () => 'voice.webm'),
-  transcribeVoiceBlob: vi.fn(async () => 'voice turn'),
+  transcribeVoiceBlob,
 }));
 vi.mock('@/lib/voiceModel', () => ({ ensureWhisperModel: vi.fn(async () => {}) }));
 vi.mock('@/lib/streamControl', () => ({ stopActiveStream }));
@@ -77,8 +78,9 @@ class FakeAudioContext {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function mediaStream() {
@@ -166,6 +168,75 @@ describe('useCallSession turn generation', () => {
     expect(secondMic.stop).toHaveBeenCalledOnce();
   });
 
+  it('ignores a stale getUserMedia rejection after a newer begin succeeds', async () => {
+    const first = deferred<MediaStream>();
+    const second = deferred<MediaStream>();
+    const secondMic = mediaStream();
+    vi.mocked(navigator.mediaDevices.getUserMedia)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const { result, unmount } = renderHook(() => useCallSession(async () => {}));
+    act(() => result.current.open());
+
+    let firstBegin!: Promise<void>;
+    let secondBegin!: Promise<void>;
+    act(() => {
+      firstBegin = result.current.begin();
+      secondBegin = result.current.begin();
+    });
+    second.resolve(secondMic.stream);
+    await act(async () => { await secondBegin; });
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+
+    first.reject(new Error('stale permission failure'));
+    await act(async () => { await firstBegin; });
+
+    expect(result.current.phase).toBe('listening');
+    act(() => result.current.hangUp());
+    unmount();
+  });
+
+  it('stops speech that rearms after its turn was abandoned', async () => {
+    const speechReady = deferred<void>();
+    speech.beginSpeech.mockReturnValueOnce(speechReady.promise);
+    const { result, unmount } = await startTypedTurn(vi.fn(async () => {}));
+    await waitFor(() => expect(speech.beginSpeech).toHaveBeenCalledOnce());
+
+    act(() => result.current.hangUp());
+    speech.stop.mockClear();
+    speechReady.resolve();
+    await act(async () => { await speechReady.promise; });
+
+    expect(speech.stop).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it('does not hand a closed call capture to the next call', async () => {
+    const pending = deferred<void>();
+    const { result, unmount } = await startTypedTurn(vi.fn(() => pending.promise));
+    const capture = FakeRecorder.instances.at(-1)!;
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    analyserLevel = 0.24;
+    await waitFor(() => expect(stopActiveStream).toHaveBeenCalledOnce(), { timeout: 2_000 });
+    capture.ondataavailable?.({ data: new Blob(['old call']) });
+    act(() => result.current.hangUp());
+    await waitFor(() => expect(capture.state).toBe('inactive'));
+
+    transcribeVoiceBlob.mockClear();
+    analyserLevel = 0;
+    const nextMic = mediaStream();
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce(nextMic.stream);
+    act(() => result.current.open());
+    await act(async () => { await result.current.begin(); });
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(transcribeVoiceBlob).not.toHaveBeenCalled();
+    act(() => result.current.hangUp());
+    unmount();
+  });
+
   it('does not let a stopped send continuation leave listening', async () => {
     const pending = deferred<void>();
     const send = vi.fn(() => pending.promise);
@@ -249,5 +320,29 @@ describe('useCallSession turn generation', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('rejects playback residue captured by the next recording', async () => {
+    const reply = 'Playback residue phrase from the speaker.';
+    transcribeVoiceBlob.mockResolvedValueOnce(reply);
+    const send = vi.fn(async () => {
+      useChat.setState({
+        messages: [{ id: 'assistant-1', role: 'assistant', content: reply, createdAt: Date.now() }],
+        streamStatus: 'done',
+      });
+    });
+    const { result, unmount } = await startTypedTurn(send);
+    await waitFor(() => expect(speech.endSpeech).toHaveBeenCalledOnce());
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+
+    analyserLevel = 0.08;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    analyserLevel = 0;
+    await waitFor(() => expect(transcribeVoiceBlob).toHaveBeenCalledOnce(), { timeout: 2_000 });
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+
+    expect(send).toHaveBeenCalledOnce();
+    act(() => result.current.hangUp());
+    unmount();
   });
 });

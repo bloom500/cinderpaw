@@ -14,6 +14,8 @@ import {
   BARGE_CEILING_RMS,
   BARGE_GRACE_MS,
   createBargeInDetector,
+  ECHO_GUARD_AFTER_PLAYBACK_MS,
+  isEchoGuardedCapture,
   isTtsEcho,
   type UtteranceTiming,
 } from '../vad';
@@ -226,6 +228,10 @@ describe('isTtsEcho', () => {
     expect(isTtsEcho('Sigur iată, sigur iată un rezumat. Compilarea a picat', spoken)).toBe(true);
   });
 
+  it('flags a short transcript when it is strictly contained in our reply', () => {
+    expect(isTtsEcho('One moment.', 'One moment. I am still working on it.')).toBe(true);
+  });
+
   it('lets a genuine interruption through even if it shares words', () => {
     expect(isTtsEcho('stai, verifică și dependențele din package.json', spoken)).toBe(false);
   });
@@ -240,5 +246,16 @@ describe('isTtsEcho', () => {
 
   it('says no when nothing has been spoken yet', () => {
     expect(isTtsEcho('Compilarea a picat din cauza unei dependențe', '')).toBe(false);
+  });
+});
+
+describe('isEchoGuardedCapture', () => {
+  it('guards playback captures and recordings started inside the residual window', () => {
+    const playbackEndedAt = 10_000;
+
+    expect(isEchoGuardedCapture(true, 50_000, playbackEndedAt)).toBe(true);
+    expect(isEchoGuardedCapture(false, playbackEndedAt + ECHO_GUARD_AFTER_PLAYBACK_MS, playbackEndedAt)).toBe(true);
+    expect(isEchoGuardedCapture(false, playbackEndedAt + ECHO_GUARD_AFTER_PLAYBACK_MS + 1, playbackEndedAt)).toBe(false);
+    expect(isEchoGuardedCapture(false, playbackEndedAt - 1, playbackEndedAt)).toBe(false);
   });
 });

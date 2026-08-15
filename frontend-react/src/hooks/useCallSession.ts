@@ -9,6 +9,7 @@ import {
   rms,
   isVoiced,
   createBargeInDetector,
+  isEchoGuardedCapture,
   isTtsEcho,
   SPEECH_RMS,
   TRAIL_SILENCE_MS,
@@ -308,10 +309,11 @@ export function useCallSession(send: (text: string) => Promise<void>) {
    * `whilePlaying` records the phase it was captured in, because only a
    * playback-phase capture can be our own voice coming back.
    */
-  const bargedRef = useRef<{ blob: Blob; whilePlaying: boolean } | null>(null);
+  const bargedRef = useRef<{ blob: Blob; whilePlaying: boolean; capturedAt: number } | null>(null);
   /** Everything handed to the player this turn — what an echo would echo.
    *  Bounded: only the recent tail can still be in the air. */
   const lastSpokenRef = useRef('');
+  const lastPlaybackEndedAtRef = useRef(0);
   /**
    * Abandons the turn in flight. Set while one is running, a no-op otherwise.
    *
@@ -422,7 +424,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
    * you can interrupt. The microphone is already open — the loop keeps one stream
    * for the whole call — so this costs a timer, not a device.
    */
-  const watchForBargeIn = useCallback((onTrip: () => void) => {
+  const watchForBargeIn = useCallback((onTrip: () => void, isCallCurrent: () => boolean) => {
     const analyser = analyserRef.current;
     const stream = streamRef.current;
     if (!analyser) return async () => {};
@@ -483,8 +485,12 @@ export function useCallSession(send: (text: string) => Promise<void>) {
     const handOver = () => {
       if (handedOver) return;
       handedOver = true;
-      bargedRef.current = chunks.length
-        ? { blob: new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' }), whilePlaying: trippedWhilePlaying }
+      bargedRef.current = isCallCurrent() && chunks.length
+        ? {
+            blob: new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' }),
+            whilePlaying: trippedWhilePlaying,
+            capturedAt: trippedAt,
+          }
         : null;
       settle();
     };
@@ -609,10 +615,17 @@ export function useCallSession(send: (text: string) => Promise<void>) {
 
           if (!text) {
             let blob: Blob | null;
+            let echoGuarded = false;
             if (barged) {
               blob = barged.blob;
+              echoGuarded = isEchoGuardedCapture(
+                barged.whilePlaying,
+                barged.capturedAt,
+                lastPlaybackEndedAtRef.current,
+              );
             } else {
               setPhase('listening');
+              echoGuarded = isEchoGuardedCapture(false, Date.now(), lastPlaybackEndedAtRef.current);
               blob = await listenOnce();
             }
             if (!isCurrent()) return;
@@ -645,7 +658,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               // there was no voice yet. Without this the reply leaks into the
               // microphone, gets transcribed, and comes back as the user's next
               // turn — the agent answering itself, forever.
-              if (text && barged?.whilePlaying && isTtsEcho(text, lastSpokenRef.current)) {
+              if (text && echoGuarded && isTtsEcho(text, lastSpokenRef.current)) {
                 log('stt', `discarded our own voice coming back: ${text}`);
                 text = '';
               }
@@ -672,7 +685,12 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           const engineNow = useUI.getState().ttsProvider ?? undefined;
           const voiceNow = (engineNow ? useUI.getState().ttsVoice[engineNow] : undefined) || undefined;
           await beginSpeech({ provider: engineNow, voice: voiceNow });
-          if (!isCurrent()) return;
+          if (!isCurrent()) {
+            // `beginSpeech` rearms chunk acceptance after resuming its audio
+            // context. If this turn died during that await, consume that rearm.
+            stopSpeech();
+            return;
+          }
 
           // Every route to the player goes through here, so the echo guard sees
           // the filler lines too — those are our voice as much as the answer is,
@@ -764,7 +782,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               resolve(INTERRUPTED);
             };
           });
-          stopWatching = watchForBargeIn(signalInterrupt);
+          stopWatching = watchForBargeIn(signalInterrupt, () => callRef.current === call);
           abandonTurnRef.current = signalInterrupt;
 
           const turn = (async (): Promise<string | typeof INTERRUPTED> => {
@@ -921,6 +939,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           try {
             await endSpeech();
             if (!isCurrent()) continue;
+            lastPlaybackEndedAtRef.current = Date.now();
           } finally {
             setLevel(0);
             // One line, four numbers, at the only moment all of them are known.
@@ -977,6 +996,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
     abandonTurnRef.current();
     turnGenerationRef.current += 1;
     callRef.current += 1;
+    lastPlaybackEndedAtRef.current = 0;
     setHeard('');
     setNotice(null);
     setPhase('ready');
@@ -999,6 +1019,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch {
+      if (turnGenerationRef.current !== generation) return;
       useNotifications.getState().push('error', t('voice.permissionDenied'));
       setPhase('idle');
       return;
