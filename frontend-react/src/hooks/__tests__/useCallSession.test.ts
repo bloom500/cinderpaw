@@ -16,6 +16,7 @@ const chat = vi.hoisted(() => ({
   stop: vi.fn(async () => {}),
 }));
 const listen = vi.hoisted(() => vi.fn(async () => () => {}));
+let analyserLevel = 0;
 
 vi.mock('../useSpeechPlayer', () => ({ useSpeechPlayer: () => speech }));
 vi.mock('../useSendMessage', () => ({
@@ -67,7 +68,7 @@ class FakeAudioContext {
   createAnalyser() {
     return {
       fftSize: 1024,
-      getFloatTimeDomainData: (frame: Float32Array) => frame.fill(0),
+      getFloatTimeDomainData: (frame: Float32Array) => frame.fill(analyserLevel),
     } as unknown as AnalyserNode;
   }
   createMediaStreamSource() { return { connect: vi.fn() } as unknown as MediaStreamAudioSourceNode; }
@@ -104,6 +105,7 @@ async function startTypedTurn(send: (text: string) => Promise<void>) {
 beforeEach(() => {
   vi.clearAllMocks();
   FakeRecorder.instances = [];
+  analyserLevel = 0;
   Object.defineProperty(globalThis, 'MediaRecorder', { configurable: true, value: FakeRecorder });
   Object.defineProperty(globalThis, 'AudioContext', { configurable: true, value: FakeAudioContext });
   Object.defineProperty(navigator, 'mediaDevices', {
@@ -190,6 +192,43 @@ describe('useCallSession turn generation', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(result.current.phase).toBe('idle');
+    unmount();
+  });
+
+  it('keeps the barge-in recorder open until trailing silence', async () => {
+    const pending = deferred<void>();
+    const send = vi.fn(() => pending.promise);
+    const { result, unmount } = await startTypedTurn(send);
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+    const capture = FakeRecorder.instances.at(-1)!;
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    analyserLevel = 0.24;
+    await waitFor(() => expect(stopActiveStream).toHaveBeenCalledOnce(), { timeout: 2_000 });
+
+    expect(capture.state).toBe('recording');
+    analyserLevel = 0;
+    await waitFor(() => expect(capture.state).toBe('inactive'), { timeout: 2_000 });
+
+    act(() => result.current.hangUp());
+    unmount();
+  });
+
+  it('settles a tripped capture when its input stream stops', async () => {
+    const pending = deferred<void>();
+    const send = vi.fn(() => pending.promise);
+    const { result, unmount } = await startTypedTurn(send);
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+    const capture = FakeRecorder.instances.at(-1)!;
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    analyserLevel = 0.24;
+    await waitFor(() => expect(stopActiveStream).toHaveBeenCalledOnce(), { timeout: 2_000 });
+
+    act(() => capture.stop());
+    await waitFor(() => expect(result.current.phase).toBe('listening'), { timeout: 2_000 });
+
+    act(() => result.current.hangUp());
     unmount();
   });
 });

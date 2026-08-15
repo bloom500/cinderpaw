@@ -476,6 +476,15 @@ export function useCallSession(send: (text: string) => Promise<void>) {
      */
     let settle: () => void = () => {};
     const captured = new Promise<void>((resolve) => { settle = resolve; });
+    let handedOver = false;
+    const handOver = () => {
+      if (handedOver) return;
+      handedOver = true;
+      bargedRef.current = chunks.length
+        ? { blob: new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' }), whilePlaying: trippedWhilePlaying }
+        : null;
+      settle();
+    };
 
     const finish = () => {
       if (finishing) return captured;
@@ -483,12 +492,6 @@ export function useCallSession(send: (text: string) => Promise<void>) {
       window.clearInterval(poll);
       const active = recorder;
       recorder = null;
-      const handOver = () => {
-        bargedRef.current = chunks.length
-          ? { blob: new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' }), whilePlaying: trippedWhilePlaying }
-          : null;
-        settle();
-      };
       if (!active || active.state === 'inactive') {
         handOver();
         return captured;
@@ -544,10 +547,14 @@ export function useCallSession(send: (text: string) => Promise<void>) {
     }, POLL_MS);
 
     /** Stop watching. Awaits the interrupting utterance if one is mid-capture. */
-    return () => {
+    return (force = false) => {
       if (finishing) return captured;
       // Tripped and still recording: let it run to its natural end rather than
       // discarding the sentence the user is in the middle of saying.
+      if (tripped && recorder && !force) {
+        recorder.onstop = handOver;
+        return captured;
+      }
       if (tripped && recorder) return finish();
       window.clearInterval(poll);
       if (recorder && recorder.state !== 'inactive') {
@@ -587,7 +594,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
          * watcher left running would keep a second recorder on the microphone
          * into the next turn.
          */
-        let stopWatching: () => Promise<void> = async () => {};
+        let stopWatching: (force?: boolean) => Promise<void> = async () => {};
         try {
           // Typed while the last turn was still running.
           let text = takeTyped();
@@ -955,7 +962,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           // passes through it. Awaited, because when the user is mid-sentence
           // this is what waits for their words to finish landing.
           abandonTurnRef.current = () => {};
-          await stopWatching();
+          await stopWatching(callRef.current !== call);
         }
       }
     },
