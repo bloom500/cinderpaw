@@ -132,7 +132,7 @@ describe("FractalMemory.upsertLeaf", () => {
     expect(pending[0]?.text).toBe("language: ro");
   });
 
-  test("allocates within the reactive owner namespace even when the source id overlaps episodic", async () => {
+  test("allocates above episodic ids so the reactive owner never collides", async () => {
     const persisted: { id: number; vec: Float32Array }[] = [];
     const { fm } = makeMemory({
       leaves: [{ id: 1, text: "episodic", vec: vec([1, 0, 0]), ts: 1, sessionId: "s0" }],
@@ -143,7 +143,7 @@ describe("FractalMemory.upsertLeaf", () => {
       embedding: [0, 1, 0],
       provenance: { source: "react", first_seen_at: 2, sessionId: "s1", ts: 2 },
     });
-    expect(result).toEqual({ kind: "grow", leafId: 1 });
+    expect(result).toEqual({ kind: "grow", leafId: 2 });
     expect(persisted).toHaveLength(0);
   });
 
