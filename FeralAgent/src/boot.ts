@@ -593,7 +593,7 @@ export async function boot(transportOverride?: Transport) {
         ts: e.timestamp,
         sessionId: e.sessionId,
       })),
-    embed: (texts) => embed(texts),
+    embed: (texts, signal) => embed(texts, undefined, signal),
     summarize: summarizeFromRouter(router),
     ftsSearch: (q, limit) => episodic.search(q, limit),
     fallback: recall,
@@ -662,7 +662,7 @@ export async function boot(transportOverride?: Transport) {
     hooks,
     fractal: fractalMemory,
     graph: memoryGraph,
-    embed,
+    embed: (texts, signal) => embed(texts, undefined, signal),
   });
   reconciler.start();
 
@@ -1479,7 +1479,7 @@ export async function boot(transportOverride?: Transport) {
   void runMigration({
     semantic,
     fractal: fractalMemory,
-    embed,
+    embed: (texts, signal) => embed(texts, undefined, signal),
     dataDir,
   }).then((result) => {
     if (result.ran) {

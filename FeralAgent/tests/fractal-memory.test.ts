@@ -12,7 +12,11 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FractalMemory, type RecallFallback } from "../src/memory/fractal/fractal-memory.ts";
+import {
+  FractalMemory,
+  nextAvailableLeafId,
+  type RecallFallback,
+} from "../src/memory/fractal/fractal-memory.ts";
 import type { Leaf } from "../src/memory/fractal/types.ts";
 import type { EpisodicEvent } from "../../src/types.ts";
 import { InferenceSpendAuthority } from "../src/egress/inference-spend-authority.ts";
@@ -290,6 +294,16 @@ describe("FractalMemory — concurrent rebuild dedupe", () => {
     logs.length = 0;
     expect(await fm.rebuild()).toBe(true);
     expect(logs.filter((m) => m.includes("rebuild started")).length).toBe(1);
+  });
+});
+
+describe("FractalMemory — large-corpus id allocation", () => {
+  it("finds the next id without spreading an unbounded corpus into Math.max", () => {
+    function* millionIds(): Generator<{ id: number }> {
+      for (let id = 1; id <= 1_000_000; id++) yield { id };
+    }
+
+    expect(nextAvailableLeafId(millionIds())).toBe(1_000_001);
   });
 });
 

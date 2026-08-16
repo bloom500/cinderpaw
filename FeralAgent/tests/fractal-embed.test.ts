@@ -13,8 +13,10 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 import {
   embed,
   resetEmbedCache,
+  rsiBridgeEmbed,
   type EmbedInvoker,
 } from "../src/memory/fractal/embed.ts";
+import { RsiBridge } from "../src/rsi/infra/bridge.ts";
 
 /** Helper: a fake invoker that counts calls and returns stable fake vectors. */
 function fakeInvoker(
@@ -132,5 +134,86 @@ describe("embed — error handling", () => {
   it("throws when the invoker returns a length-mismatched batch", async () => {
     const inv: EmbedInvoker = async () => [new Float32Array([1, 0])]; // 1 vec, 2 texts
     await expect(embed(["a", "b"], inv)).rejects.toThrow(/length mismatch/i);
+  });
+});
+
+describe("embed — physical cancellation boundary", () => {
+  beforeEach(() => resetEmbedCache());
+
+  it("does not send an embed_text request when the signal is already aborted", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const bridge = new RsiBridge({ send: (message) => sent.push(message) });
+    const invoke = rsiBridgeEmbed(bridge);
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled before start"));
+
+    await expect(invoke(["never starts"], controller.signal)).rejects.toThrow(
+      "cancelled before start",
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  it("does not start a retry until the aborted physical request actually settles", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const bridge = new RsiBridge({ send: (message) => sent.push(message) });
+    const invoke = rsiBridgeEmbed(bridge);
+    const controller = new AbortController();
+
+    const first = invoke(["first"], controller.signal);
+    await Promise.resolve();
+    expect(sent).toHaveLength(1);
+
+    controller.abort(new Error("caller timed out"));
+    await expect(first).rejects.toThrow("caller timed out");
+
+    const second = invoke(["second"]);
+    await Promise.resolve();
+    expect(sent).toHaveLength(1);
+
+    bridge.onResponse({
+      type: "rsi_response",
+      id: sent[0]!.id as string,
+      ok: true,
+      data: [[1, 0]],
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(sent).toHaveLength(2);
+
+    bridge.onResponse({
+      type: "rsi_response",
+      id: sent[1]!.id as string,
+      ok: true,
+      data: [[0, 1]],
+    });
+    expect(Array.from((await second)[0]!)).toEqual([0, 1]);
+  });
+
+  it("does not dispatch a queued request after its caller timeout expires", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const bridge = new RsiBridge({ send: (message) => sent.push(message) });
+    const invoke = rsiBridgeEmbed(bridge, 20);
+
+    const first = invoke(["physical"]).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await Promise.resolve();
+    expect(sent).toHaveLength(1);
+    const expiredWhileQueued = invoke(["zombie"]).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(String(await first)).toContain("timed out");
+    expect(String(await expiredWhileQueued)).toContain("timed out");
+
+    bridge.onResponse({
+      type: "rsi_response",
+      id: sent[0]!.id as string,
+      ok: true,
+      data: [[1, 0]],
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(sent).toHaveLength(1);
   });
 });

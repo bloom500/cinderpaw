@@ -252,7 +252,7 @@ export class FractalMemory {
   #remapReactiveCollisions(episodic: Leaf[]): LeafRecord[] {
     const records = this.#leafStore.all();
     const occupied = new Set(episodic.map((leaf) => leaf.id));
-    let nextId = Math.max(0, ...occupied, ...records.map((record) => record.id)) + 1;
+    let nextId = nextAvailableLeafId(episodic, records);
     let changed = false;
     const remapped = records.map((record) => {
       if (!occupied.has(record.id)) {
@@ -391,7 +391,10 @@ export class FractalMemory {
     const storedDim = leaves.find((l) => l.vec.length > 0)?.vec.length ?? 0;
     if (storedDim > 0 && this.#clearEmbeddings) {
       try {
-        const probe = await this.#embed(["dimension probe"]);
+        const probe = await abortableWork(
+          () => this.#embed(["dimension probe"], scope.signal),
+          scope.signal,
+        );
         const currentDim = probe[0]?.length ?? 0;
         if (currentDim > 0 && currentDim !== storedDim) {
           const cleared = this.#clearEmbeddings() + this.#leafStore.clearEmbeddings();
@@ -413,7 +416,10 @@ export class FractalMemory {
     this.#log?.(`fractal: rebuild started (${leaves.length} leaves)`);
     try {
       tree = await buildTree(leaves, {
-        embed: (texts) => abortableWork(this.#embed(texts), scope.signal),
+        embed: (texts) => abortableWork(
+          () => this.#embed(texts, scope.signal),
+          scope.signal,
+        ),
         summarize: (items) => this.#summarize(items, scope),
         persistEmbeddings: (rows) => this.#persistOwnedEmbeddings(rows, catalog),
       });
@@ -503,8 +509,11 @@ export class FractalMemory {
       ftsLeafId: (sourceId) => sourceId,
       tree: this.#tree,
       leavesById: this.#leavesById,
-      embed: (texts) => abortableWork(this.#embed(texts), opts.signal),
-      infer: (prompt) => abortableWork(opts.infer(prompt), opts.signal),
+      embed: (texts) => abortableWork(
+        () => this.#embed(texts, opts.signal),
+        opts.signal,
+      ),
+      infer: (prompt) => abortableWork(() => opts.infer(prompt), opts.signal),
       querySetJsonl: opts.querySetJsonl,
       count: opts.count,
       seed: opts.seed,
@@ -544,8 +553,11 @@ export class FractalMemory {
       ftsLeafId: (sourceId) => sourceId,
       tree: this.#tree,
       leavesById: this.#leavesById,
-      embed: (texts) => abortableWork(this.#embed(texts), opts.signal),
-      infer: (prompt) => abortableWork(opts.infer(prompt), opts.signal),
+      embed: (texts) => abortableWork(
+        () => this.#embed(texts, opts.signal),
+        opts.signal,
+      ),
+      infer: (prompt) => abortableWork(() => opts.infer(prompt), opts.signal),
       querySetJsonl: opts.querySetJsonl,
       count: opts.count ?? DEFAULT_BENCH_COUNT,
       seed: opts.seed,
@@ -1034,9 +1046,10 @@ function catalogLeaf(owner: LeafOwner, leaf: Leaf): CatalogLeaf {
   };
 }
 
-function abortableWork<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return work;
+function abortableWork<T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return start();
   if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+  const work = start();
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
     signal.addEventListener("abort", onAbort, { once: true });
@@ -1046,6 +1059,17 @@ function abortableWork<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
       (error) => { cleanup(); reject(error); },
     );
   });
+}
+
+/** Iterative maximum so an uncapped local corpus cannot overflow call args. */
+export function nextAvailableLeafId(
+  ...collections: Iterable<{ id: number }>[]
+): number {
+  let max = 0;
+  for (const collection of collections) {
+    for (const item of collection) max = Math.max(max, item.id);
+  }
+  return max + 1;
 }
 
 function sourceLeaf(entry: CatalogLeaf): Leaf {

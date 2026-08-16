@@ -28,7 +28,10 @@ import type { RsiBridge } from "../../rsi/infra/bridge.ts";
  * `Float32Array` per input, in order. Production wires this to the
  * `RsiBridge`; tests wire it to a fake.
  */
-export type EmbedInvoker = (texts: string[]) => Promise<Float32Array[]>;
+export type EmbedInvoker = (
+  texts: string[],
+  signal?: AbortSignal,
+) => Promise<Float32Array[]>;
 
 /** Default invoker — set once at sidecar startup with `setEmbedInvoker`. */
 let defaultInvoker: EmbedInvoker | null = null;
@@ -80,6 +83,7 @@ function normalize(v: Float32Array): Float32Array {
 export async function embed(
   texts: string[],
   invoker?: EmbedInvoker,
+  signal?: AbortSignal,
 ): Promise<Float32Array[]> {
   const invoke = invoker ?? defaultInvoker;
   if (!invoke) {
@@ -107,7 +111,7 @@ export async function embed(
 
   if (missTexts.length === 0) return results as Float32Array[];
 
-  const vectors = await invoke(missTexts);
+  const vectors = await invoke(missTexts, signal);
   if (vectors.length !== missTexts.length) {
     throw new Error(
       `embed: invoker returned ${vectors.length} vectors for ${missTexts.length} texts (length mismatch)`,
@@ -134,13 +138,50 @@ export async function embed(
  * `Float32Array[]` so the rest of the fractal stack can treat vectors
  * uniformly.
  */
-export function rsiBridgeEmbed(bridge: RsiBridge): EmbedInvoker {
-  return async (texts) => {
-    // Generous safety-net timeout (5 min/chunk): real CPU embedding of a chunk
-    // is slow but finite; this only fires if a response is genuinely lost
-    // (the interleaved-stdout deadlock), so the build fails over to FTS5
-    // instead of hanging forever. Not a latency budget.
-    const wire = await bridge.request<number[][]>("embed_text", { texts }, 5 * 60 * 1000);
+export function rsiBridgeEmbed(
+  bridge: RsiBridge,
+  callerTimeoutMs = 5 * 60 * 1000,
+): EmbedInvoker {
+  // Rust's embedding call is blocking and cannot be cancelled once dispatched.
+  // Keep the physical response as the queue tail even after the caller aborts
+  // or times out: a retry may wait, but it can never overlap the still-running
+  // job. This is the hard resource boundary; caller latency is handled by the
+  // abortable wait below.
+  let physicalTail: Promise<void> = Promise.resolve();
+
+  return async (texts, signal) => {
+    throwIfAborted(signal);
+    const queued = {
+      active: true,
+      dispatched: false,
+      reason: undefined as unknown,
+    };
+    const physical = physicalTail.then(() => {
+      if (!queued.active) throw queued.reason;
+      throwIfAborted(signal);
+      queued.dispatched = true;
+      return bridge.request<number[][]>("embed_text", { texts });
+    });
+    physicalTail = physical.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    // Five minutes is a caller-facing safety net, not permission to release
+    // the physical queue. A lost response therefore fails over to FTS5 while
+    // later embeds remain fail-closed until the sidecar is restarted or the
+    // response eventually arrives.
+    const wire = await waitForPhysicalResult(
+      physical,
+      signal,
+      callerTimeoutMs,
+      (reason) => {
+        if (!queued.dispatched) {
+          queued.active = false;
+          queued.reason = reason;
+        }
+      },
+    );
     if (!Array.isArray(wire)) {
       throw new Error(
         `embed_text: expected number[][], got ${typeof wire} from Rust`,
@@ -155,4 +196,51 @@ export function rsiBridgeEmbed(bridge: RsiBridge): EmbedInvoker {
       return new Float32Array(arr);
     });
   };
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
+}
+
+function waitForPhysicalResult<T>(
+  physical: Promise<T>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  onCallerGone: (reason: unknown) => void,
+): Promise<T> {
+  try {
+    throwIfAborted(signal);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (complete: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      complete();
+    };
+    const rejectCaller = (reason: unknown) => {
+      onCallerGone(reason);
+      finish(() => reject(reason));
+    };
+    const onAbort = () => rejectCaller(
+      signal?.reason ?? new DOMException("Aborted", "AbortError"),
+    );
+    const timer = setTimeout(
+      () => rejectCaller(
+        new Error(`rsi_request 'embed_text' timed out after ${timeoutMs}ms`),
+      ),
+      timeoutMs,
+    );
+    signal?.addEventListener("abort", onAbort, { once: true });
+    physical.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+  });
 }
