@@ -1,6 +1,10 @@
 // FeralAgent/tests/rsi-cost.test.ts
 import { describe, it, expect } from "bun:test";
-import { blendedPricePer1kUsd, estimateUsd } from "../src/rsi/infra/rsi-cost.ts";
+import {
+  blendedPricePer1kUsd,
+  estimateUsd,
+  knownPricePer1kUsd,
+} from "../src/rsi/infra/rsi-cost.ts";
 
 describe("rsi-cost", () => {
   it("local (loopback) is always free regardless of model id", () => {
@@ -18,6 +22,12 @@ describe("rsi-cost", () => {
     const unknown = blendedPricePer1kUsd("zzz-unknown", false);
     expect(known).toBeGreaterThan(0);
     expect(known).toBeLessThan(unknown);
+  });
+
+  it("fails closed for autonomous cloud work when the model has no known price", () => {
+    expect(knownPricePer1kUsd("some-unknown-model", false)).toBeNull();
+    expect(knownPricePer1kUsd("gpt-4o", false)).toBeGreaterThan(0);
+    expect(knownPricePer1kUsd("some-unknown-model", true)).toBe(0);
   });
 
   it("estimateUsd scales linearly with tokens", () => {

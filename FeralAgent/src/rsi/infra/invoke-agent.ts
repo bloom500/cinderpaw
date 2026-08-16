@@ -60,6 +60,7 @@
 
 import { stripThinking } from "../../core/strip-thinking.ts";
 import type { InferenceRequest, InferenceResponse } from "../../types.ts";
+import type { InferenceSpendAuthority } from "../../egress/inference-spend-authority.ts";
 import type { GenomeConfig } from "../l1-config/genome.ts";
 import type { GenomeSpec } from "../l1-config/population-manager.ts";
 
@@ -101,6 +102,9 @@ export interface InvokeTool {
 export interface InvokeAgentDeps {
   /** Inference router (production: `InferenceRouter`). */
   router: InvokeRouter;
+  /** One hard USD/cancellation scope shared by every completion in this RSI
+   *  run. Absent for legacy/tests and non-autonomous callers. */
+  spendAuthority?: InferenceSpendAuthority;
   /** System-prompt pool lookup: id → text. Required. */
   getSystemPrompt: (id: number) => string;
   /** Optional recall — when present, the user message is augmented with
@@ -154,6 +158,7 @@ export function makeInvokeAgent(
     }
     return runOnce({
       router: deps.router,
+      spendAuthority: deps.spendAuthority,
       getSystemPrompt: deps.getSystemPrompt,
       recall: deps.recall,
       contextBudget: budget,
@@ -198,6 +203,7 @@ function gradableAnswer(raw: string): string {
 /** Internal: run the actual completion(s) for one (prompt, config) pair. */
 async function runOnce(args: {
   router: InvokeRouter;
+  spendAuthority?: InferenceSpendAuthority;
   getSystemPrompt: (id: number) => string;
   recall: InvokeAgentDeps["recall"];
   contextBudget: number;
@@ -239,6 +245,7 @@ async function runOnce(args: {
     temperature: args.config.temperature,
     cachePrompt: false, // one-shot evals have no stable prefix worth caching
     skipBudgetCheck: false,
+    ...(args.spendAuthority ? { spendAuthority: args.spendAuthority } : {}),
     ...(nativeTools ? { nativeTools: nativeTools as InferenceRequest["nativeTools"] } : {}),
     ...(openAITools ? { openAITools: openAITools as InferenceRequest["openAITools"] } : {}),
   };

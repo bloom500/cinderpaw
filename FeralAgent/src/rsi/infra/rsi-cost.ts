@@ -28,14 +28,18 @@ const PRICE_OVERRIDES: ReadonlyArray<readonly [match: string, pricePer1k: number
   ["minimax", 0.0015],
 ];
 
-/** Blended price per 1k tokens. Loopback (local engine) ⇒ 0 (free). */
-export function blendedPricePer1kUsd(modelId: string, isLoopback: boolean): number {
+export function knownPricePer1kUsd(modelId: string, isLoopback: boolean): number | null {
   if (isLoopback) return 0;
   const id = (modelId ?? "").toLowerCase();
   for (const [match, price] of PRICE_OVERRIDES) {
     if (id.includes(match)) return price;
   }
-  return DEFAULT_CLOUD_PRICE_PER_1K;
+  return null;
+}
+
+/** Blended price per 1k tokens. Loopback (local engine) ⇒ 0 (free). */
+export function blendedPricePer1kUsd(modelId: string, isLoopback: boolean): number {
+  return knownPricePer1kUsd(modelId, isLoopback) ?? DEFAULT_CLOUD_PRICE_PER_1K;
 }
 
 /** Estimated USD for a token count at a given $/1k price. */

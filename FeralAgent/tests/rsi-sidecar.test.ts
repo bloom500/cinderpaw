@@ -23,6 +23,7 @@ import { openDatabase } from "../src/db.ts";
 import { EventBus } from "../src/rsi/infra/event-bus.ts";
 import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
+import type { InferenceRequest } from "../src/types.ts";
 import { resolve } from "node:path";
 
 class FakeRouter implements InvokeRouter {
@@ -35,6 +36,17 @@ class FakeRouter implements InvokeRouter {
       model: "fake",
       usedFallback: false,
     });
+  }
+}
+
+class RecordingRouter extends FakeRouter {
+  readonly calls: InferenceRequest[] = [];
+  readonly firstCall = Promise.withResolvers<InferenceRequest>();
+
+  override complete(req: InferenceRequest): ReturnType<FakeRouter["complete"]> {
+    this.calls.push(req);
+    this.firstCall.resolve(req);
+    return super.complete();
   }
 }
 
@@ -170,6 +182,27 @@ function ratchetAdv(hash: string): RsiResponse {
 }
 
 describe("RsiSidecar — lifecycle", () => {
+  test("threads one USD authority through eval requests and Stop aborts its shared signal", async () => {
+    const bridge = new FakeBridge();
+    const router = new RecordingRouter();
+    const { sidecar } = buildSidecar({ bridge, router });
+
+    await sidecar.start({
+      goal: "bounded cloud run",
+      maxIterations: 1,
+      maxTotalTokens: 1_000,
+      maxTotalCostUsd: 1,
+      concurrency: 1,
+    }, "ack-budget");
+    const request = await router.firstCall.promise;
+
+    expect(request.spendAuthority).toBeDefined();
+    expect(request.spendAuthority!.signal.aborted).toBe(false);
+
+    sidecar.stop();
+    expect(request.spendAuthority!.signal.aborted).toBe(true);
+  });
+
   test("start emits a 'started' ack event", async () => {
     const bridge = new FakeBridge();
     bridge.enqueue(TIER0_RESPONSE); // fetchTier0

@@ -26,6 +26,7 @@ import type {
 import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 import type { GenomeSpec } from "../src/rsi/l1-config/population-manager.ts";
 import type { InferenceRequest } from "../src/types.ts";
+import { InferenceSpendAuthority } from "../src/egress/inference-spend-authority.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,
@@ -153,6 +154,24 @@ describe("makeInvokeAgent — single-call mapping", () => {
     });
     await invoke("x", makeGenome({}, "g42"));
     expect(router.calls[0]!.sessionId).toBe("rsi-eval-g42");
+  });
+
+  test("threads one run-scoped spend authority through every eval completion", async () => {
+    const router = new FakeRouter();
+    const spendAuthority = new InferenceSpendAuthority({
+      maxCostUsd: 1,
+      pricePer1kUsd: () => 0.01,
+    });
+    const invoke = makeInvokeAgent({
+      router,
+      getSystemPrompt: () => "sys",
+      spendAuthority,
+    });
+
+    await invoke("x", makeGenome({ decompositionDepth: 2 }));
+
+    expect(router.calls).not.toHaveLength(0);
+    expect(router.calls.every((call) => call.spendAuthority === spendAuthority)).toBe(true);
   });
 });
 

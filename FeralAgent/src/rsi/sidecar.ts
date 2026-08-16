@@ -51,7 +51,8 @@ import type { GenomeConfig } from "./l1-config/genome.ts";
 import type { EvalKind, EvalExpected } from "./infra/eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./l1-config/strategy-seeds.ts";
 import { PROMPT_STYLE_POOL } from "./l1-config/prompt-pool.ts";
-import { blendedPricePer1kUsd } from "./infra/rsi-cost.ts";
+import { blendedPricePer1kUsd, knownPricePer1kUsd } from "./infra/rsi-cost.ts";
+import { InferenceSpendAuthority } from "../egress/inference-spend-authority.ts";
 import { evaluateGate } from "./infra/confidence.ts";
 import { recentToolCalls, recentFeedback } from "../egress/audit-log.ts";
 import { PbtController, type StrategyGenome } from "./l1-config/pbt-controller.ts";
@@ -191,6 +192,7 @@ export interface RsiSidecarDeps {
   /** Sidecar singleton — one per process. */
 export class RsiSidecar {
   private engine: RsiEngine | null = null;
+  private spendAuthority: InferenceSpendAuthority | null = null;
   private tasteMiner: TasteMiner | null = null;
   private mirrors: Array<() => void> = [];
 
@@ -309,6 +311,7 @@ export class RsiSidecar {
 
       const invokeAgent = makeInvokeAgent({
         router: this.deps.router,
+        ...(this.spendAuthority ? { spendAuthority: this.spendAuthority } : {}),
         contextBudget: this.evalTokenBudget(),
         getSystemPrompt: (id) => this.evalSystemPrompt(id),
         // The module's seam differs between runs; every other seam keeps
@@ -409,6 +412,18 @@ export class RsiSidecar {
     const scoreGenome = makeScoreGenomeAdapter({ bridge: this.deps.bridge, log: this.deps.log });
     const getSpecs = makeGetSpecs({ fetchTier0: this.fetchTier0() });
 
+    // One authority covers the whole run, including concurrent genomes and
+    // decomposition sub-calls. The router snapshots the live primary/fallback
+    // on each request, so a hot-swap cannot inherit a boot-time price. Unknown
+    // cloud models fail closed; loopback is recognized as free by the authority.
+    const spendAuthority = opts.maxTotalCostUsd !== undefined
+      ? new InferenceSpendAuthority({
+          maxCostUsd: opts.maxTotalCostUsd,
+          pricePer1kUsd: (target) => knownPricePer1kUsd(target.model, false),
+        })
+      : undefined;
+    this.spendAuthority = spendAuthority ?? null;
+
     // Empty-response telemetry. A model that returns empty/whitespace
     // content makes every eval score ~0 (validateOutcome fails) while
     // the engine keeps running — a silent "running but learning
@@ -420,6 +435,7 @@ export class RsiSidecar {
     let emptyWarned = false;
     const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
+      ...(spendAuthority ? { spendAuthority } : {}),
       contextBudget: this.evalTokenBudget(),
       getSystemPrompt: (id) => this.evalSystemPrompt(id),
       // L4 planner seam (§1.2): eval decomposition consults the live seam —
@@ -735,6 +751,7 @@ export class RsiSidecar {
         // telemetry append below lands even on the first cold episode.
         writePopulationSnapshot(snapshotPath, engine.pop.snapshot());
         this.engine = null;
+        this.spendAuthority = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
         this.deps.onIdle?.({
@@ -760,6 +777,7 @@ export class RsiSidecar {
           this.deps.log?.(`rsi dream: background episode failed (logged, not surfaced): ${detail}`);
         }
         this.engine = null;
+        this.spendAuthority = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
         this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses });
@@ -778,6 +796,7 @@ export class RsiSidecar {
       return;
     }
     this.engine.gm.stop();
+    this.spendAuthority?.stop("user stopped RSI run");
     // The ack for `stopped` is emitted by the engine's run() promise
     // resolution — we don't double-ack here. But if the host passed an
     // id we surface an early "ack received" hint so a tight UI loop
