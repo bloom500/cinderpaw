@@ -101,6 +101,23 @@ describe("makeRunEval", () => {
     });
     expect(outcomes[1]).toMatchObject({ taskId: "tier1/budget", success: true, errored: false });
   });
+
+  test("an aborted run stops the suite instead of recording the remaining tasks as failures", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const runEval = makeRunEval({
+      getSpecs: async () => [factSpec, budgetSpec],
+      signal: controller.signal,
+      invokeAgent: async () => {
+        calls += 1;
+        controller.abort("UserStopped");
+        throw new DOMException("aborted", "AbortError");
+      },
+    });
+
+    await expect(runEval(GENOME)).rejects.toMatchObject({ name: "RsiRunAbortedError" });
+    expect(calls).toBe(1);
+  });
 });
 
 /** Deterministic clock: returns the supplied timestamps in order. */

@@ -22,6 +22,16 @@
 import { validateOutcome, type EvalSpec } from "./eval-spec.ts";
 import type { EvalOutcome } from "./eval-worker.ts";
 import type { GenomeSpec } from "../l1-config/population-manager.ts";
+import { AutonomousSpendDeniedError } from "../../egress/inference-spend-authority.ts";
+
+/** Control-flow error: the run was deliberately halted, not evaluated and
+ * found bad. EvalWorker must not turn this into a zero-score candidate. */
+export class RsiRunAbortedError extends Error {
+  constructor(readonly reason: unknown) {
+    super(`RSI run aborted: ${reasonText(reason)}`);
+    this.name = "RsiRunAbortedError";
+  }
+}
 
 /** One agent invocation result. `tokens` comes from the InferenceRouter
  *  (the source of truth); latency is measured by the runner. */
@@ -35,6 +45,10 @@ export interface RunEvalDeps {
   getSpecs: () => Promise<EvalSpec[]>;
   /** Drive the agent over one prompt under `genome`'s config. */
   invokeAgent: (prompt: string, genome: GenomeSpec) => Promise<AgentResponse>;
+  /** Run-scoped cancellation. Checked between every suite task. */
+  signal?: AbortSignal;
+  /** Abort sibling evals when this suite discovers a terminal denial. */
+  abort?: (reason: unknown) => void;
   /** Monotonic clock for latency, injectable for tests. Default Date.now. */
   now?: () => number;
   /** Diagnostic sink for failed evals — logs the spec id + a response
@@ -51,9 +65,11 @@ export function makeRunEval(
   const now = deps.now ?? Date.now;
   return async (genome) => {
     const specs = await deps.getSpecs();
+    throwIfRunAborted(deps.signal);
     const outcomes: EvalOutcome[] = [];
     for (const spec of specs) {
-      const outcome = await runOne(spec, genome, deps.invokeAgent, now, deps.log);
+      throwIfRunAborted(deps.signal);
+      const outcome = await runOne(spec, genome, deps.invokeAgent, now, deps.log, deps.signal, deps.abort);
       outcomes.push(outcome);
     }
     return outcomes;
@@ -66,6 +82,8 @@ async function runOne(
   invokeAgent: RunEvalDeps["invokeAgent"],
   now: () => number,
   log?: (msg: string) => void,
+  signal?: AbortSignal,
+  abort?: (reason: unknown) => void,
 ): Promise<EvalOutcome> {
   const start = now();
   try {
@@ -89,6 +107,11 @@ async function runOne(
       answered: response.trim().length > 0,
     };
   } catch (err) {
+    if (signal?.aborted || isTerminalCancellation(err)) {
+      const reason = signal?.aborted ? signal.reason : err;
+      abort?.(reason);
+      throw new RsiRunAbortedError(reason);
+    }
     return {
       taskId: spec.id,
       tier: spec.tier,
@@ -101,4 +124,17 @@ async function runOne(
       answered: false,
     };
   }
+}
+
+function throwIfRunAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new RsiRunAbortedError(signal.reason);
+}
+
+function isTerminalCancellation(err: unknown): boolean {
+  return err instanceof AutonomousSpendDeniedError ||
+    (err instanceof Error && err.name === "AbortError");
+}
+
+function reasonText(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason ?? "cancelled");
 }

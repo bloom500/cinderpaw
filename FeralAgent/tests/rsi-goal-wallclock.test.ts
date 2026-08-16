@@ -14,6 +14,7 @@ import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 import { EvalWorker } from "../src/rsi/infra/eval-worker.ts";
 import { GoalMode, attachPopulationRecorder, type GoalConfig } from "../src/rsi/l1-config/goal-mode.ts";
+import { RsiRunAbortedError } from "../src/rsi/infra/run-eval.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,
@@ -78,5 +79,37 @@ describe("GoalMode wall-clock cap", () => {
     // Without a wall-clock cap, it runs to MaxIterations regardless of the clock.
     expect(res.reason).toBe("MaxIterations");
     expect(res.iterations).toBe(3);
+  });
+
+  test("the real deadline aborts an inference that never resolves on its own", async () => {
+    const bus = new EventBus();
+    const pop = new PopulationManager();
+    pop.add({ id: "hung", generation: 0, lineage: [], config: CFG });
+    attachPopulationRecorder(bus, pop);
+    const controller = new AbortController();
+    const worker = new EvalWorker(bus, {
+      runEval: async () => new Promise((_, reject) => {
+        controller.signal.addEventListener("abort", () => {
+          reject(new RsiRunAbortedError(controller.signal.reason));
+        }, { once: true });
+      }),
+      scoreGenome: async () => ({ score: 50 }),
+    });
+    const gm = new GoalMode(bus, pop, worker, {
+      goal: "x",
+      maxIterations: 100,
+      maxTotalTokens: 1e9,
+      maxWallClockMs: 20,
+      signal: controller.signal,
+      abort: (reason) => controller.abort(reason),
+    });
+    const cleanup = setTimeout(() => {
+      if (!controller.signal.aborted) controller.abort("UserStopped");
+    }, 200);
+
+    const res = await gm.run();
+    clearTimeout(cleanup);
+    expect(res.reason).toBe("WallClockExhausted");
+    expect(res.iterations).toBe(0);
   });
 });

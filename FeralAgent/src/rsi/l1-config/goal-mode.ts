@@ -20,6 +20,8 @@ import type { EventBus, RsiEvent } from "../infra/event-bus.ts";
 import type { EvalWorker } from "../infra/eval-worker.ts";
 import type { BestRecord, PopulationManager } from "./population-manager.ts";
 import { estimateUsd } from "../infra/rsi-cost.ts";
+import { RsiRunAbortedError } from "../infra/run-eval.ts";
+import { AutonomousSpendDeniedError } from "../../egress/inference-spend-authority.ts";
 
 export interface GoalConfig {
   /** Free-text objective (carried for the UI / lineage; not used in control). */
@@ -33,6 +35,9 @@ export interface GoalConfig {
   maxTotalCostUsd?: number;
   /** Blended $/1k tokens for the active model. 0 ⇒ local/free. */
   pricePer1kUsd?: number;
+  /** Authoritative settled spend from the live routing boundary. When
+   * present it supersedes the boot-time blended estimate. */
+  currentCostUsd?: () => number;
   /** Stop early once best-all-time reaches this score. */
   targetScore?: number;
   /** Stop after this many consecutive iterations without an improvement. */
@@ -45,12 +50,16 @@ export interface GoalConfig {
   /** Clock source for the wall-clock cap. Injectable so the cap is
    *  deterministic in tests. Default: Date.now. */
   now?: () => number;
+  /** Shared run cancellation, independent from whether a USD cap exists. */
+  signal?: AbortSignal;
+  abort?: (reason: StopReason | Error) => void;
 }
 
 export type StopReason =
   | "TargetReached"
   | "BudgetExhausted"
   | "CostBudgetExhausted"
+  | "SpendAuthorizationDenied"
   | "MaxIterations"
   | "PlateauPersistent"
   | "WallClockExhausted"
@@ -125,6 +134,7 @@ export class GoalMode {
   /** Request a graceful stop; honoured at the next loop check. */
   stop(): void {
     this.userStopped = true;
+    this.config.abort?.("UserStopped");
   }
 
   /**
@@ -142,11 +152,17 @@ export class GoalMode {
     let iterations = 0;
     let lastBest = -Infinity;
     let sinceImprovement = 0;
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Arm the wall-clock deadline relative to the start of this run, using
     // the injected clock so the cap is deterministic in tests.
     if (this.config.maxWallClockMs != null) {
       this.deadline = (this.config.now ?? Date.now)() + this.config.maxWallClockMs;
+      if (this.config.abort) {
+        deadlineTimer = setTimeout(() => {
+          if (!this.config.signal?.aborted) this.config.abort?.("WallClockExhausted");
+        }, this.config.maxWallClockMs);
+      }
     }
 
     // Event-driven iteration + best-score tracking. Registered here
@@ -166,6 +182,11 @@ export class GoalMode {
     try {
       let stopReason: StopReason | null = null;
       const inFlight = new Set<Promise<void>>();
+      const halt = (reason: StopReason): void => {
+        if (stopReason !== null) return;
+        stopReason = reason;
+        if (!this.config.signal?.aborted) this.config.abort?.(reason);
+      };
 
       // Launch one eval. Returns the promise (added to inFlight) or
       // null if the genome id was stale. The cleanup chain removes
@@ -178,6 +199,7 @@ export class GoalMode {
         const p = this.evalWorker
           .run(genome)
           .catch((err) => {
+            if (err instanceof RsiRunAbortedError) return;
             // The eval worker already catches its own errors and
             // emits a terminal EvalComplete (errored: true); this
             // catch is belt-and-braces for programmer-introduced
@@ -200,13 +222,13 @@ export class GoalMode {
       const refill = (): void => {
         if (stopReason !== null) return;
         if (this.userStopped) {
-          stopReason = "UserStopped";
+          halt("UserStopped");
           return;
         }
         const maxN = Math.max(0, this.pop.concurrency || 1);
         while (inFlight.size < maxN) {
           const reason = this.checkStop(iterations, sinceImprovement);
-          if (reason) { stopReason = reason; return; }
+          if (reason) { halt(reason); return; }
           if (this.queue.length === 0) return; // nothing to launch; pool drains naturally
           const nextId = this.queue.shift()!;
           const p = launch(nextId);
@@ -220,7 +242,7 @@ export class GoalMode {
         // userStopped can flip on the bus thread (a handler called
         // gm.stop()); surface it as stopReason so we exit and drain.
         if (this.userStopped && stopReason === null) {
-          stopReason = "UserStopped";
+          halt("UserStopped");
         }
         if (stopReason !== null) break;
         // Race on whichever in-flight promise resolves next. allSettled
@@ -228,10 +250,8 @@ export class GoalMode {
         await Promise.race(inFlight);
       }
 
-      // Even on stopReason we let in-flight evals drain — they were
-      // already launched; aborting mid-flight risks leaving the sidecar
-      // in an inconsistent state. allSettled absorbs the per-eval
-      // already-handled rejections.
+      // A terminal reason aborts run-scoped inference. Wait only for the
+      // cancellation-aware workers to unwind; they do not emit fake scores.
       if (inFlight.size > 0) await Promise.allSettled(inFlight);
 
       const finalReason: StopReason =
@@ -239,18 +259,20 @@ export class GoalMode {
         (this.queue.length === 0 ? "Converged" : (this.checkStop(iterations, sinceImprovement) ?? "Converged"));
       return this.result(finalReason, iterations);
     } finally {
+      if (deadlineTimer !== null) clearTimeout(deadlineTimer);
       offComplete();
     }
   }
 
   private checkStop(iterations: number, sinceImprovement: number): StopReason | null {
     if (this.userStopped) return "UserStopped";
+    if (this.config.signal?.aborted) return abortStopReason(this.config.signal.reason);
     const best = this.pop.best();
     if (this.config.targetScore != null && best && best.score >= this.config.targetScore) {
       return "TargetReached";
     }
     if (this.totalTokens >= this.config.maxTotalTokens) return "BudgetExhausted";
-    if (costStop(this.totalCostUsd, this.config.maxTotalCostUsd)) return "CostBudgetExhausted";
+    if (costStop(this.currentCostUsd(), this.config.maxTotalCostUsd)) return "CostBudgetExhausted";
     if (this.deadline !== null && (this.config.now ?? Date.now)() >= this.deadline) {
       return "WallClockExhausted";
     }
@@ -267,8 +289,35 @@ export class GoalMode {
       iterations,
       best: this.pop.best(),
       totalTokens: this.totalTokens,
-      totalCostUsd: this.totalCostUsd,
+      totalCostUsd: this.currentCostUsd(),
       errors: this.errors,
     };
   }
+
+  private currentCostUsd(): number {
+    return this.config.currentCostUsd?.() ?? this.totalCostUsd;
+  }
 }
+
+function abortStopReason(reason: unknown): StopReason {
+  if (reason instanceof AutonomousSpendDeniedError) {
+    return reason.reason === "unknown_price" ? "SpendAuthorizationDenied" :
+      reason.reason === "budget" ? "CostBudgetExhausted" : "UserStopped";
+  }
+  if (typeof reason === "string" && STOP_REASONS.has(reason as StopReason)) {
+    return reason as StopReason;
+  }
+  return "UserStopped";
+}
+
+const STOP_REASONS = new Set<StopReason>([
+  "TargetReached",
+  "BudgetExhausted",
+  "CostBudgetExhausted",
+  "SpendAuthorizationDenied",
+  "MaxIterations",
+  "PlateauPersistent",
+  "WallClockExhausted",
+  "UserStopped",
+  "Converged",
+]);

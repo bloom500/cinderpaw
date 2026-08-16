@@ -105,6 +105,8 @@ export interface InvokeAgentDeps {
   /** One hard USD/cancellation scope shared by every completion in this RSI
    *  run. Absent for legacy/tests and non-autonomous callers. */
   spendAuthority?: InferenceSpendAuthority;
+  /** Run-scoped cancellation, including manual/local runs without USD scope. */
+  signal?: AbortSignal;
   /** System-prompt pool lookup: id → text. Required. */
   getSystemPrompt: (id: number) => string;
   /** Optional recall — when present, the user message is augmented with
@@ -159,6 +161,7 @@ export function makeInvokeAgent(
     return runOnce({
       router: deps.router,
       spendAuthority: deps.spendAuthority,
+      signal: deps.signal,
       getSystemPrompt: deps.getSystemPrompt,
       recall: deps.recall,
       contextBudget: budget,
@@ -204,6 +207,7 @@ function gradableAnswer(raw: string): string {
 async function runOnce(args: {
   router: InvokeRouter;
   spendAuthority?: InferenceSpendAuthority;
+  signal?: AbortSignal;
   getSystemPrompt: (id: number) => string;
   recall: InvokeAgentDeps["recall"];
   contextBudget: number;
@@ -246,6 +250,7 @@ async function runOnce(args: {
     cachePrompt: false, // one-shot evals have no stable prefix worth caching
     skipBudgetCheck: false,
     ...(args.spendAuthority ? { spendAuthority: args.spendAuthority } : {}),
+    ...(args.signal ? { signal: args.signal } : {}),
     ...(nativeTools ? { nativeTools: nativeTools as InferenceRequest["nativeTools"] } : {}),
     ...(openAITools ? { openAITools: openAITools as InferenceRequest["openAITools"] } : {}),
   };

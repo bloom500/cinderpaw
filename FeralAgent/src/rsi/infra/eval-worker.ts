@@ -16,6 +16,7 @@
 
 import type { EventBus } from "./event-bus.ts";
 import type { GenomeSpec } from "../l1-config/population-manager.ts";
+import { RsiRunAbortedError } from "./run-eval.ts";
 
 /** One eval-task outcome. Mirrors the Rust `rsi::EvalOutcome` wire shape,
  *  plus two TS-only observability fields (`kind`, `answered`) that never
@@ -78,6 +79,7 @@ export class EvalWorker {
         errored: false,
       });
     } catch (err) {
+      if (err instanceof RsiRunAbortedError) throw err;
       // A crashed eval must never leave the genome in-flight forever:
       // emit a terminal EvalComplete scoring 0 so the ratchet / selection
       // handlers still fire and the population can move on.

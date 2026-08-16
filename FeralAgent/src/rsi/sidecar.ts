@@ -193,6 +193,7 @@ export interface RsiSidecarDeps {
 export class RsiSidecar {
   private engine: RsiEngine | null = null;
   private spendAuthority: InferenceSpendAuthority | null = null;
+  private runAbort: AbortController | null = null;
   private tasteMiner: TasteMiner | null = null;
   private mirrors: Array<() => void> = [];
 
@@ -423,6 +424,8 @@ export class RsiSidecar {
         })
       : undefined;
     this.spendAuthority = spendAuthority ?? null;
+    const runAbort = new AbortController();
+    this.runAbort = runAbort;
 
     // Empty-response telemetry. A model that returns empty/whitespace
     // content makes every eval score ~0 (validateOutcome fails) while
@@ -436,6 +439,7 @@ export class RsiSidecar {
     const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
       ...(spendAuthority ? { spendAuthority } : {}),
+      signal: runAbort.signal,
       contextBudget: this.evalTokenBudget(),
       getSystemPrompt: (id) => this.evalSystemPrompt(id),
       // L4 planner seam (§1.2): eval decomposition consults the live seam —
@@ -468,7 +472,15 @@ export class RsiSidecar {
         throw err;
       }
     };
-    const runEval = makeRunEval({ getSpecs, invokeAgent, log: this.deps.log });
+    const runEval = makeRunEval({
+      getSpecs,
+      invokeAgent,
+      signal: runAbort.signal,
+      abort: (reason) => {
+        if (!runAbort.signal.aborted) runAbort.abort(reason);
+      },
+      log: this.deps.log,
+    });
 
     // ── Crossover wiring (LCA over the bridge) ────────────────────────
     const lca = makeLcaAdapter({ bridge: this.deps.bridge, pop });
@@ -584,6 +596,11 @@ export class RsiSidecar {
         ...(opts.maxTotalCostUsd !== undefined ? { maxTotalCostUsd: opts.maxTotalCostUsd } : {}),
         ...(opts.maxWallClockMs !== undefined ? { maxWallClockMs: opts.maxWallClockMs } : {}),
         ...(opts.plateauIterations !== undefined ? { plateauPatience: opts.plateauIterations } : {}),
+        signal: runAbort.signal,
+        abort: (reason) => {
+          if (!runAbort.signal.aborted) runAbort.abort(reason);
+        },
+        ...(spendAuthority ? { currentCostUsd: () => spendAuthority.spentUsd } : {}),
         pricePer1kUsd,
       },
       evalDeps: { runEval, scoreGenome },
@@ -752,6 +769,7 @@ export class RsiSidecar {
         writePopulationSnapshot(snapshotPath, engine.pop.snapshot());
         this.engine = null;
         this.spendAuthority = null;
+        this.runAbort = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
         this.deps.onIdle?.({
@@ -778,6 +796,7 @@ export class RsiSidecar {
         }
         this.engine = null;
         this.spendAuthority = null;
+        this.runAbort = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
         this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses });
@@ -796,6 +815,7 @@ export class RsiSidecar {
       return;
     }
     this.engine.gm.stop();
+    if (!this.runAbort?.signal.aborted) this.runAbort?.abort("UserStopped");
     this.spendAuthority?.stop("user stopped RSI run");
     // The ack for `stopped` is emitted by the engine's run() promise
     // resolution — we don't double-ack here. But if the host passed an

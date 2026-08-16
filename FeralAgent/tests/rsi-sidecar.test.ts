@@ -231,6 +231,25 @@ describe("RsiSidecar — lifecycle", () => {
     expect(request.spendAuthority!.signal.aborted).toBe(true);
   });
 
+  test("Stop aborts a manual run even when it has no USD authority", async () => {
+    const bridge = new FakeBridge();
+    const router = new RecordingRouter();
+    const { sidecar } = buildSidecar({ bridge, router });
+
+    await sidecar.start({
+      goal: "local manual run",
+      maxIterations: 1,
+      maxTotalTokens: 1_000,
+      concurrency: 1,
+    }, "ack-manual");
+    const request = await router.firstCall.promise;
+
+    expect(request.spendAuthority).toBeUndefined();
+    expect(request.signal?.aborted).toBe(false);
+    sidecar.stop();
+    expect(request.signal?.aborted).toBe(true);
+  });
+
   test("start emits a 'started' ack event", async () => {
     const bridge = new FakeBridge();
     bridge.enqueue(TIER0_RESPONSE); // fetchTier0
