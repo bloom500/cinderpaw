@@ -1343,10 +1343,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const goal = msg.rsiGoal ?? "rsiautomation";
         const maxIterations = msg.rsiMaxIterations ?? 50;
         const maxTotalTokens = msg.rsiMaxTotalTokens ?? 5_000_000;
+        const maxTotalCostUsd = msg.rsiMaxTotalCostUsd;
         const concurrency = msg.rsiConcurrency ?? 1;
-        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} conc=${concurrency}`);
+        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} maxCostUsd=${maxTotalCostUsd ?? "unset"} conc=${concurrency}`);
         await rsiSidecar.start(
-          { goal, maxIterations, maxTotalTokens, concurrency },
+          { goal, maxIterations, maxTotalTokens, maxTotalCostUsd, concurrency },
           msg.id,
         );
         break;

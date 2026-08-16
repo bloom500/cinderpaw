@@ -13,6 +13,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { dispatchMessage } from "../src/dispatch.ts";
+import type { BootContext } from "../src/boot.ts";
 import { RsiBridge, type RsiResponse } from "../src/rsi/infra/bridge.ts";
 import {
   RsiSidecar,
@@ -182,6 +184,32 @@ function ratchetAdv(hash: string): RsiResponse {
 }
 
 describe("RsiSidecar — lifecycle", () => {
+  test("dispatch preserves the explicit USD cap independently of the token cap", async () => {
+    let received: unknown;
+    const ctx = {
+      rsiSidecar: {
+        start: async (options: unknown) => { received = options; },
+      },
+    } as unknown as BootContext;
+
+    await dispatchMessage(ctx, {
+      type: "rsi_start",
+      rsiGoal: "bounded cloud run",
+      rsiMaxIterations: 2,
+      rsiMaxTotalTokens: 700_000,
+      rsiMaxTotalCostUsd: 0.75,
+      rsiConcurrency: 1,
+    });
+
+    expect(received).toEqual({
+      goal: "bounded cloud run",
+      maxIterations: 2,
+      maxTotalTokens: 700_000,
+      maxTotalCostUsd: 0.75,
+      concurrency: 1,
+    });
+  });
+
   test("threads one USD authority through eval requests and Stop aborts its shared signal", async () => {
     const bridge = new FakeBridge();
     const router = new RecordingRouter();

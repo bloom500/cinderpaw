@@ -1194,6 +1194,8 @@ export interface InboundMessage {
   rsiGoal?: string;
   rsiMaxIterations?: number;
   rsiMaxTotalTokens?: number;
+  /** Explicit USD cap for the RSI run; independent from the token cap. */
+  rsiMaxTotalCostUsd?: number;
   rsiConcurrency?: number;
   /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
   rsiNewConcurrency?: number;

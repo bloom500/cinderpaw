@@ -403,20 +403,17 @@ pub async fn rsi_start(
     ensure_initialized(&state)?;
     let request_id = uuid::Uuid::new_v4().to_string();
     // The sidecar (TS) reads `rsiGoal` / `rsiMaxIterations` /
-    // `rsiMaxTotalTokens` / `rsiConcurrency` from the inbound
+    // `rsiMaxTotalTokens` / `rsiMaxTotalCostUsd` / `rsiConcurrency` from the inbound
     // `InboundMessage`. Renaming here without updating both sides
     // would silently fall back to the TS defaults — a real bug we
     // hit during the first manual e2e (the engine ran with
     // hard-coded defaults, not the user's inputs).
     //
-    // budget_usd → maxTotalTokens heuristic: 1 USD ≈ 1M tokens,
-    // conservative for local models (Gemma 4 E4B-it is well under
-    // this). A future phase can wire a proper USD↔tokens rate
-    // for cloud providers; the sidecar's `stopReason: BudgetExhausted`
-    // will still fire correctly because the engine compares
-    // accumulated tokens against `rsiMaxTotalTokens`.
-    let max_total_tokens = ((budget_usd.max(0.1) * 1_000_000.0) as u64).max(100_000);
-    let payload = build_rsi_start_payload(&request_id, &goal, budget_usd, max_iterations, concurrency, max_total_tokens);
+    // USD and token budgets are distinct contracts. The UI currently exposes
+    // only USD, so retain the sidecar's existing defensive token ceiling while
+    // sending the exact USD cap to the network-boundary spend authority.
+    let max_total_tokens = 5_000_000;
+    let payload = build_rsi_start_payload(&request_id, &goal, budget_usd.max(0.0), max_iterations, concurrency, max_total_tokens);
     let payload = payload.to_string();
     wait_for_sidecar_ack(&state, &request_id, &payload).await?;
     Ok(RsiStartAck {
@@ -501,8 +498,8 @@ async fn deliver_to_sidecar(state: &State<'_, AppState>, line: &str) -> Result<(
 ///   id:                 request_id (mirrors back in rsi_engine_event)
 ///   rsiGoal:            string
 ///   rsiMaxIterations:   u32
-///   rsiMaxTotalTokens:  u64 — derived from `budget_usd` × 1M
-///                       (conservative for local models; see rsi_start)
+///   rsiMaxTotalTokens:  u64 — independent defensive token ceiling
+///   rsiMaxTotalCostUsd: f64 — exact user-approved USD ceiling
 ///   rsiConcurrency:     u32
 ///   budgetUsd:          f64 — kept for the live event feed display
 ///   goal / maxIterations / concurrency — kept as legacy camelCase
@@ -521,6 +518,7 @@ fn build_rsi_start_payload(
         "rsiGoal": goal,
         "rsiMaxIterations": max_iterations,
         "rsiMaxTotalTokens": max_total_tokens,
+        "rsiMaxTotalCostUsd": budget_usd,
         "rsiConcurrency": concurrency,
         "goal": goal,
         "budgetUsd": budget_usd,
@@ -1019,35 +1017,27 @@ not json — skipped
             payload.get("rsiConcurrency").and_then(|v| v.as_u64()),
             Some(4),
         );
+        assert_eq!(
+            payload.get("rsiMaxTotalCostUsd").and_then(|v| v.as_f64()),
+            Some(1.0),
+        );
 
         // The legacy camelCase aliases are still present (event feed
         // reads budgetUsd for display).
         assert_eq!(payload.get("budgetUsd").and_then(|v| v.as_f64()), Some(1.0));
     }
 
-    /// `budget_usd → max_total_tokens` heuristic: 1 USD ≈ 1M tokens,
-    /// clamped to a floor of 100k so a $0.05 smoke test still has
-    /// enough budget for a few Tier 0 specs. The cap is defensive —
-    /// the sidecar's `BudgetExhausted` stop reason will still fire
-    /// correctly even if the heuristic drifts for a given model.
+    /// USD authorization and token volume are separate limits. Changing the
+    /// approved USD amount must not silently rewrite the token ceiling.
     #[test]
-    fn rsi_start_payload_converts_budget_usd_to_tokens() {
-        // $1.00 → 1M tokens
+    fn rsi_start_payload_keeps_usd_and_token_budgets_independent() {
+        let payload = build_rsi_start_payload("id", "g", 0.1, 1, 1, 5_000_000);
         assert_eq!(
-            build_rsi_start_payload("id", "g", 1.0, 1, 1, 1_000_000)
-                .get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
-            Some(1_000_000),
+            payload.get("rsiMaxTotalCostUsd").and_then(|v| v.as_f64()),
+            Some(0.1),
         );
-        // $0.10 → 100k (the floor)
         assert_eq!(
-            build_rsi_start_payload("id", "g", 0.1, 1, 1, 100_000)
-                .get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
-            Some(100_000),
-        );
-        // $5.00 → 5M
-        assert_eq!(
-            build_rsi_start_payload("id", "g", 5.0, 1, 1, 5_000_000)
-                .get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
+            payload.get("rsiMaxTotalTokens").and_then(|v| v.as_u64()),
             Some(5_000_000),
         );
     }
