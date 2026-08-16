@@ -1506,9 +1506,12 @@ export async function boot(transportOverride?: Transport) {
   // `rebuildIfStale` is a no-op when init() already loaded a fresh tree from
   // disk, so we don't re-pay the (cloud) summary cost on every boot — it only
   // builds on first run or after the corpus grows materially.
-  const fmsAutoCostRaw = Number(process.env.FERAL_FMS_AUTO_REBUILD_MAX_COST_USD ?? "0");
+  const fmsAutoCostRaw = Number(cfgPath("FERAL_FMS_AUTO_REBUILD_MAX_COST_USD") ?? "0");
   const fmsAutoCostUsd = Number.isFinite(fmsAutoCostRaw) && fmsAutoCostRaw >= 0 ? fmsAutoCostRaw : 0;
-  const fmsAutoGate = autonomousInferenceGate(process.env, {
+  const fmsAutoGate = autonomousInferenceGate({
+    ...process.env,
+    FERAL_FMS_ALLOW_CLOUD: String(cfgBool("FERAL_FMS_ALLOW_CLOUD")),
+  }, {
     allowCloudEnv: "FERAL_FMS_ALLOW_CLOUD",
     maxCostUsd: fmsAutoCostUsd,
     targets: liveAutonomousTargets(),
