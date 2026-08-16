@@ -6,12 +6,28 @@
  */
 
 import { Loader2, WifiOff } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useFeralStore } from '@/stores/feral';
+
+const STARTUP_WARNING_DELAY_MS = 15_000;
 
 export function AgentOfflineBanner() {
   const offline = useFeralStore((s) => s.offline);
   const restarting = useFeralStore((s) => s.restarting);
   const isReady = useFeralStore((s) => s.isReady);
+  const [startupSlow, setStartupSlow] = useState(false);
+
+  useEffect(() => {
+    if (offline || isReady) {
+      setStartupSlow(false);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setStartupSlow(true),
+      STARTUP_WARNING_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [offline, isReady]);
 
   /**
    * The sidecar takes 40–70 seconds to announce itself, and the window is
@@ -24,7 +40,7 @@ export function AgentOfflineBanner() {
    * They are different states and deserve different words. This one is the
    * only one that resolves on its own.
    */
-  if (!offline && !isReady) {
+  if (!offline && !isReady && startupSlow) {
     return (
       <div
         role="status"

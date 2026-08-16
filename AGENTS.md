@@ -10,6 +10,8 @@
 
 - Never work on `main`. One branch per task.
 - No refactoring outside the stated task. No drive-by "improvements".
+- Prefer the smallest measured fix that satisfies acceptance. Do not add abstractions,
+  redesign adjacent systems, or expand scope when a local change and focused test suffice.
 - Do NOT modify unless the task names them explicitly:
   `useCallSession.ts`, `vad.ts`, the Rust audio pipeline, `mcp.json`.
 - Before declaring done, run `./scripts/verify.sh` — FeralAgent tests/typecheck,
