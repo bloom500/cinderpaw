@@ -86,7 +86,7 @@ describe("FractalMemory — fallback when no tree", () => {
 
 describe("FractalMemory — rebuild + semantic serve", () => {
   it("threads one autonomous spend scope through every cluster summary", async () => {
-    const authority = new InferenceSpendAuthority({ maxCostUsd: 0, pricePer1kUsd: () => null });
+    const authority = new InferenceSpendAuthority({ maxCostUsd: 0, price: () => null });
     const controller = new AbortController();
     const scopes: unknown[] = [];
     const fm = new FractalMemory({

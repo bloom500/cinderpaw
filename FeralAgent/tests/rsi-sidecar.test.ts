@@ -327,6 +327,7 @@ describe("RsiSidecar — lifecycle", () => {
   test("onIdle fires after a run ends (passive-supervisor restart hook)", async () => {
     const bridge = new FakeBridge();
     let idleCount = 0;
+    let idleAuthority: unknown;
     const sidecar = new RsiSidecar({
       bridge,
       db: makeDb(),
@@ -334,16 +335,18 @@ describe("RsiSidecar — lifecycle", () => {
       send: () => {},
       championPath: resolve(import.meta.dir, `../.tmp-nochampion-idle-${Math.random()}.json`),
       championTreePath: resolve(import.meta.dir, `../.tmp-tree-idle-${Math.random()}.json`),
-      onIdle: () => {
+      onIdle: (_stats, authority) => {
         idleCount += 1;
+        idleAuthority = authority;
       },
     });
 
-    await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, concurrency: 1 }, "ack");
+    await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, maxTotalCostUsd: 0, concurrency: 1 }, "ack");
     for (let i = 0; i < 50 && idleCount === 0; i++) {
       await new Promise((r) => setTimeout(r, 10));
     }
     expect(idleCount).toBe(1);
+    expect(idleAuthority).toBeDefined();
     expect(sidecar.isRunning()).toBe(false);
   });
 

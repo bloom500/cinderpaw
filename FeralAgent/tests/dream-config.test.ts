@@ -557,11 +557,11 @@ describe("autonomousInferenceGate — live route", () => {
   test("re-evaluating after a local-to-cloud hot swap closes the gate", () => {
     const local = autonomousInferenceGate({}, {
       allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
-      targets: [{ model: "local", baseUrl: "http://127.0.0.1:11435", pricePer1kUsd: null }],
+      targets: [{ model: "local", baseUrl: "http://127.0.0.1:11435", priceKnown: false }],
     });
     const cloud = autonomousInferenceGate({}, {
       allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
-      targets: [{ model: "priced", baseUrl: "https://api.example.test", pricePer1kUsd: 0.01 }],
+      targets: [{ model: "priced", baseUrl: "https://api.example.test", priceKnown: true }],
     });
     expect(local.enabled).toBe(true);
     expect(cloud.enabled).toBe(false);
@@ -572,8 +572,8 @@ describe("autonomousInferenceGate — live route", () => {
       allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
       maxCostUsd: 1,
       targets: [
-        { model: "priced", baseUrl: "https://api.example.test", pricePer1kUsd: 0.01 },
-        { model: "mystery", baseUrl: "https://fallback.example.test", pricePer1kUsd: null },
+        { model: "priced", baseUrl: "https://api.example.test", priceKnown: true },
+        { model: "mystery", baseUrl: "https://fallback.example.test", priceKnown: false },
       ],
     });
     expect(decision.enabled).toBe(false);
@@ -584,7 +584,7 @@ describe("autonomousInferenceGate — live route", () => {
     const decision = autonomousInferenceGate({ FERAL_RSI_ALLOW_CLOUD: "true" }, {
       allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
       maxCostUsd: 0,
-      targets: [{ model: "priced", baseUrl: "https://api.example.test", pricePer1kUsd: 0.01 }],
+      targets: [{ model: "priced", baseUrl: "https://api.example.test", priceKnown: true }],
     });
     expect(decision.enabled).toBe(false);
     expect(decision.reason).toContain("USD budget");

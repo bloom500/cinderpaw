@@ -146,6 +146,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "\"stop\" or \"compress_and_continue\".", security: false },
   { name: "FERAL_RSI_MAX_COST_USD", type: "string", default: null,
     description: "RSI background USD cap (float). Unset = local-only.", security: false },
+  { name: "FERAL_AUTONOMOUS_PRICING_JSON", type: "string", default: null,
+    description: "JSON array of exact provider/model/baseUrl price records for autonomous cloud inference, with inputPerMillionUsd/outputPerMillionUsd and optional cacheReadPerMillionUsd/cacheWritePerMillionUsd. Unknown or malformed routes fail closed.", security: false },
   { name: "FERAL_CLOUD_TRANSCRIPT_BUDGET", type: "int", default: 200_000,
     description: "Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback).", security: false },
 

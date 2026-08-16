@@ -111,7 +111,7 @@ import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
 import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
-import { knownPricePer1kUsd } from "./rsi/infra/rsi-cost.ts";
+import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -1492,14 +1492,18 @@ export async function boot(transportOverride?: Transport) {
   }).catch((e) => {
     log(`migration: unexpected error: ${String(e)}`);
   });
+  const autonomousPrice = priceResolverFromJson(cfgPath("FERAL_AUTONOMOUS_PRICING_JSON"));
   const liveAutonomousTargets = () => {
     const targets = [router.currentModel, router.currentFallback].filter(
       (target): target is NonNullable<typeof target> => target !== null,
     );
-    return targets.map((target) => ({
-      ...target,
-      pricePer1kUsd: knownPricePer1kUsd(target.model, false),
-    }));
+    return targets.map((target) => {
+      const price = autonomousPrice(target);
+      return {
+        ...target,
+        priceKnown: price !== null,
+      };
+    });
   };
 
   // RAPTOR tree build, in the background now that embed() can reach Rust.
@@ -1508,23 +1512,34 @@ export async function boot(transportOverride?: Transport) {
   // builds on first run or after the corpus grows materially.
   const fmsAutoCostRaw = Number(cfgPath("FERAL_FMS_AUTO_REBUILD_MAX_COST_USD") ?? "0");
   const fmsAutoCostUsd = Number.isFinite(fmsAutoCostRaw) && fmsAutoCostRaw >= 0 ? fmsAutoCostRaw : 0;
-  const fmsAutoGate = autonomousInferenceGate({
-    ...process.env,
-    FERAL_FMS_ALLOW_CLOUD: String(cfgBool("FERAL_FMS_ALLOW_CLOUD")),
-  }, {
-    allowCloudEnv: "FERAL_FMS_ALLOW_CLOUD",
-    maxCostUsd: fmsAutoCostUsd,
-    targets: liveAutonomousTargets(),
-  });
-  if (!fmsAutoGate.enabled) {
-    log(`fractal: initial auto-rebuild skipped (${fmsAutoGate.reason})`);
-  } else {
+  const fmsInferenceScope = (): {
+    scope?: import("./memory/fractal/summarize.ts").RouterInferScope;
+    reason: string;
+  } => {
+    const gate = autonomousInferenceGate({
+      ...process.env,
+      FERAL_FMS_ALLOW_CLOUD: String(cfgBool("FERAL_FMS_ALLOW_CLOUD")),
+    }, {
+      allowCloudEnv: "FERAL_FMS_ALLOW_CLOUD",
+      maxCostUsd: fmsAutoCostUsd,
+      targets: liveAutonomousTargets(),
+    });
+    if (!gate.enabled) return { reason: gate.reason };
     const authority = new InferenceSpendAuthority({
       maxCostUsd: fmsAutoCostUsd,
-      pricePer1kUsd: (target) => knownPricePer1kUsd(target.model, false),
+      price: autonomousPrice,
     });
+    return {
+      reason: gate.reason,
+      scope: { spendAuthority: authority, signal: authority.signal },
+    };
+  };
+  const initialFmsScope = fmsInferenceScope();
+  if (!initialFmsScope.scope) {
+    log(`fractal: initial auto-rebuild skipped (${initialFmsScope.reason})`);
+  } else {
     void fractalMemory
-      .rebuildIfStale(1.2, { spendAuthority: authority, signal: authority.signal })
+      .rebuildIfStale(1.2, initialFmsScope.scope)
       .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
   }
   // Dev-only benchmark gate (FERAL_RUN_FRACTAL_BENCH=1). Runs INSIDE the live
@@ -1536,14 +1551,19 @@ export async function boot(transportOverride?: Transport) {
     void (async () => {
       try {
         const fs = require("node:fs") as typeof import("node:fs");
-        await fractalMemory.rebuildIfStale();
+        const authorization = fmsInferenceScope();
+        if (!authorization.scope) {
+          log(`fractal-bench: skipped (${authorization.reason})`);
+          return;
+        }
+        await fractalMemory.rebuildIfStale(1.2, authorization.scope);
         if (!fractalMemory.hasTree) {
           log("fractal-bench: no tree (no embedding model on disk?) — skipping");
           return;
         }
         const queriesPath = process.env.FERAL_FRACTAL_BENCH_QUERIES;
         const report = await fractalMemory.benchmark({
-          infer: routerInfer(router),
+          infer: routerInfer(router, authorization.scope),
           querySetJsonl: queriesPath ? fs.readFileSync(queriesPath, "utf8") : undefined,
           count: Number(process.env.FERAL_FRACTAL_BENCH_COUNT) || 50,
           seed: Number(process.env.FERAL_FRACTAL_BENCH_SEED) || 1,
@@ -1651,9 +1671,13 @@ export async function boot(transportOverride?: Transport) {
   // FERAL_CODE_RSI_REPO (the source monorepo) and a LOCAL primary model
   // (spec §2.5: no network during proposal). At most one round in flight.
   let codeRsiBusy = false;
-  const maybeCodeRsiRound = async (): Promise<void> => {
+  const maybeCodeRsiRound = async (spendAuthority?: InferenceSpendAuthority): Promise<void> => {
     const repoRoot = cfgPath("FERAL_CODE_RSI_REPO");
     if (!repoRoot || codeRsiBusy) return;
+    if (!spendAuthority || spendAuthority.signal.aborted) {
+      log("code-rsi: skipped — no remaining episode spend authority");
+      return;
+    }
     if (!router.isPrimaryLocal) {
       log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5)");
       return;
@@ -1678,6 +1702,8 @@ export async function boot(transportOverride?: Transport) {
             temperature: 0.4,
             cachePrompt: false,
             skipBudgetCheck: false,
+            spendAuthority,
+            signal: spendAuthority.signal,
           });
           return res.content;
         },
@@ -1738,9 +1764,9 @@ export async function boot(transportOverride?: Transport) {
     metaParams: () => metaEvolution.current(),
     // L5: policy gates tighten the promotion gate further (§7).
     policyGates: () => effectiveGates(governancePolicy()),
-    onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
-      dreamCycle.onEpisodeEnd(...args);
-      void maybeCodeRsiRound();
+    onIdle: (stats, spendAuthority) => {
+      dreamCycle.onEpisodeEnd(stats);
+      void maybeCodeRsiRound(spendAuthority);
     },
     // The Crux: a new ratcheted-best config is applied to the LIVE agent
     // (temperature today; the UI Controls override still wins per-session).
@@ -2029,7 +2055,7 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
-    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, fmsInferenceScope, askUser, desktopControl, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path

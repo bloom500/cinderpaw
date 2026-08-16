@@ -84,7 +84,7 @@ export interface AutonomousInferenceGateInput {
   /** Explicit environment knob authorizing cloud use for this subsystem. */
   allowCloudEnv: string;
   /** Every route the router may use for one request (primary + fallback). */
-  targets: Array<{ model: string; baseUrl: string; pricePer1kUsd: number | null }>;
+  targets: Array<{ model: string; baseUrl: string; priceKnown: boolean }>;
   /** Explicit maximum USD authorized for this autonomous scope. */
   maxCostUsd?: number;
 }
@@ -208,7 +208,7 @@ export function autonomousInferenceGate(
       reason: `cloud route present — autonomous inference disabled (set ${input.allowCloudEnv}=true to allow)`,
     };
   }
-  const unknown = cloud.find((target) => target.pricePer1kUsd === null);
+  const unknown = cloud.find((target) => !target.priceKnown);
   if (unknown) {
     return {
       enabled: false,

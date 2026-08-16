@@ -51,8 +51,9 @@ import type { GenomeConfig } from "./l1-config/genome.ts";
 import type { EvalKind, EvalExpected } from "./infra/eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./l1-config/strategy-seeds.ts";
 import { PROMPT_STYLE_POOL } from "./l1-config/prompt-pool.ts";
-import { blendedPricePer1kUsd, knownPricePer1kUsd } from "./infra/rsi-cost.ts";
+import { blendedPricePer1kUsd, priceResolverFromJson } from "./infra/rsi-cost.ts";
 import { InferenceSpendAuthority } from "../egress/inference-spend-authority.ts";
+import { DEFAULT_BUDGET_CAPS } from "./infra/budget.ts";
 import { evaluateGate } from "./infra/confidence.ts";
 import { recentToolCalls, recentFeedback } from "../egress/audit-log.ts";
 import { PbtController, type StrategyGenome } from "./l1-config/pbt-controller.ts";
@@ -156,7 +157,7 @@ export interface RsiSidecarDeps {
    *  engine is torn down. The Dream Cycle scheduler uses this to enter
    *  its sleep/cooldown window; `stats` (present on a normal stop) lets
    *  the host append per-episode telemetry. */
-  onIdle?: (stats?: RsiRunStats) => void;
+  onIdle?: (stats?: RsiRunStats, spendAuthority?: InferenceSpendAuthority) => void;
   /** Optional: called when the engine ratchets a new best genome (the
    *  Crux). The host maps the record's config onto the live agent so
    *  the evolved configuration actually reaches the agent the user
@@ -420,7 +421,7 @@ export class RsiSidecar {
     const spendAuthority = opts.maxTotalCostUsd !== undefined
       ? new InferenceSpendAuthority({
           maxCostUsd: opts.maxTotalCostUsd,
-          pricePer1kUsd: (target) => knownPricePer1kUsd(target.model, false),
+          price: priceResolverFromJson(cfgPath("FERAL_AUTONOMOUS_PRICING_JSON")),
         })
       : undefined;
     this.spendAuthority = spendAuthority ?? null;
@@ -625,6 +626,13 @@ export class RsiSidecar {
           });
         },
         cycleId: () => cycleId,
+        budgetCaps: {
+          ...DEFAULT_BUDGET_CAPS,
+          tokens: opts.maxTotalTokens,
+          wallClockMin: opts.maxWallClockMs !== undefined
+            ? opts.maxWallClockMs / 60_000
+            : DEFAULT_BUDGET_CAPS.wallClockMin,
+        },
         // §2.10 personal fitness: recent tool-call outcomes + thumbs feedback
         // → a real userSatisfaction in each candidate's Journal row. Observed
         // only — the deploy leaf still hands the ratchet the raw score.
@@ -767,6 +775,7 @@ export class RsiSidecar {
         // final evolved state. Also mkdir's ~/.feral/rsi/, so the
         // telemetry append below lands even on the first cold episode.
         writePopulationSnapshot(snapshotPath, engine.pop.snapshot());
+        const completedSpendAuthority = this.spendAuthority ?? undefined;
         this.engine = null;
         this.spendAuthority = null;
         this.runAbort = null;
@@ -780,7 +789,7 @@ export class RsiSidecar {
           confidenceRejections,
           errors: result.errors,
           emptyResponses,
-        });
+        }, completedSpendAuthority);
       },
       (err) => {
         const detail = err instanceof Error ? err.message : String(err);
@@ -794,12 +803,13 @@ export class RsiSidecar {
         } else {
           this.deps.log?.(`rsi dream: background episode failed (logged, not surfaced): ${detail}`);
         }
+        const failedSpendAuthority = this.spendAuthority ?? undefined;
         this.engine = null;
         this.spendAuthority = null;
         this.runAbort = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses });
+        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses }, failedSpendAuthority);
       },
     );
   }

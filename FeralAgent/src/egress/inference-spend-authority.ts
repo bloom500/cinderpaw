@@ -4,6 +4,22 @@ export interface SpendTarget {
   baseUrl: string;
 }
 
+/** Route-specific billing rates. Dollar values are per one million tokens. */
+export interface InferencePrice {
+  inputPerMillionUsd: number;
+  outputPerMillionUsd: number;
+  cacheReadPerMillionUsd?: number;
+  cacheWritePerMillionUsd?: number;
+}
+
+export interface BillableInferenceUsage {
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  freshPromptTokens?: number;
+}
+
 export type AutonomousSpendDeniedReason = "unknown_price" | "budget" | "stopped";
 
 export class AutonomousSpendDeniedError extends Error {
@@ -17,23 +33,23 @@ export class AutonomousSpendDeniedError extends Error {
 }
 
 export interface SpendReservation {
-  settle(actual: { target: SpendTarget; actualBillableTokens: number }): void;
+  settle(actual: { target: SpendTarget; usage: BillableInferenceUsage }): void;
   release(): void;
 }
 
 export class InferenceSpendAuthority {
   readonly #maxCostUsd: number;
-  readonly #pricePer1kUsd: (target: SpendTarget) => number | null;
+  readonly #price: (target: SpendTarget) => InferencePrice | null;
   readonly #abort = new AbortController();
   #spentUsd = 0;
   #reservedUsd = 0;
 
   constructor(options: {
     maxCostUsd: number;
-    pricePer1kUsd: (target: SpendTarget) => number | null;
+    price: (target: SpendTarget) => InferencePrice | null;
   }) {
     this.#maxCostUsd = options.maxCostUsd;
-    this.#pricePer1kUsd = options.pricePer1kUsd;
+    this.#price = options.price;
   }
 
   get spentUsd(): number {
@@ -54,13 +70,14 @@ export class InferenceSpendAuthority {
 
   reserve(request: {
     targets: readonly SpendTarget[];
-    maxBillableTokens: number;
+    maxPromptTokens: number;
+    maxCompletionTokens: number;
   }): SpendReservation {
     if (this.signal.aborted) {
       throw new AutonomousSpendDeniedError("stopped", "autonomous inference scope is stopped");
     }
 
-    let worstPrice = 0;
+    let reserved = 0;
     for (const target of request.targets) {
       const price = this.#priceFor(target);
       if (price === null) {
@@ -69,10 +86,22 @@ export class InferenceSpendAuthority {
           `autonomous inference price is unknown for ${target.provider}/${target.model}`,
         );
       }
-      worstPrice = Math.max(worstPrice, price);
+      // Prompt caching cannot be predicted before the request. Reserve every
+      // prompt token at the most expensive possible input/cache rate and every
+      // generated token at the output rate. This is intentionally an upper
+      // bound, not a blended estimate.
+      const promptRate = Math.max(
+        price.inputPerMillionUsd,
+        price.cacheReadPerMillionUsd ?? price.inputPerMillionUsd,
+        price.cacheWritePerMillionUsd ?? price.inputPerMillionUsd,
+      );
+      reserved = Math.max(
+        reserved,
+        usd(request.maxPromptTokens, promptRate) +
+          usd(request.maxCompletionTokens, price.outputPerMillionUsd),
+      );
     }
 
-    const reserved = (Math.max(0, request.maxBillableTokens) / 1_000) * worstPrice;
     if (this.#spentUsd + this.#reservedUsd + reserved > this.#maxCostUsd) {
       throw new AutonomousSpendDeniedError(
         "budget",
@@ -90,7 +119,7 @@ export class InferenceSpendAuthority {
 
     return {
       release,
-      settle: ({ target, actualBillableTokens }) => {
+      settle: ({ target, usage }) => {
         if (!open) return;
         const actualPrice = this.#priceFor(target);
         release();
@@ -98,7 +127,7 @@ export class InferenceSpendAuthority {
           this.stop(`autonomous inference settled against unknown price for ${target.model}`);
           return;
         }
-        this.#spentUsd += (Math.max(0, actualBillableTokens) / 1_000) * actualPrice;
+        this.#spentUsd += costOfUsage(usage, actualPrice);
         if (this.#spentUsd > this.#maxCostUsd) {
           this.stop("autonomous inference cost cap exhausted");
         }
@@ -106,11 +135,41 @@ export class InferenceSpendAuthority {
     };
   }
 
-  #priceFor(target: SpendTarget): number | null {
-    if (isLoopback(target.baseUrl)) return 0;
-    const price = this.#pricePer1kUsd(target);
-    return price !== null && Number.isFinite(price) && price >= 0 ? price : null;
+  #priceFor(target: SpendTarget): InferencePrice | null {
+    if (isLoopback(target.baseUrl)) {
+      return { inputPerMillionUsd: 0, outputPerMillionUsd: 0 };
+    }
+    const price = this.#price(target);
+    return price !== null && validPrice(price) ? price : null;
   }
+}
+
+function usd(tokens: number, perMillionUsd: number): number {
+  return (Math.max(0, tokens) / 1_000_000) * perMillionUsd;
+}
+
+function validPrice(price: InferencePrice): boolean {
+  return [
+    price.inputPerMillionUsd,
+    price.outputPerMillionUsd,
+    price.cacheReadPerMillionUsd,
+    price.cacheWritePerMillionUsd,
+  ].every((rate) => rate === undefined || (Number.isFinite(rate) && rate >= 0));
+}
+
+function costOfUsage(usage: BillableInferenceUsage, price: InferencePrice): number {
+  const cacheRead = Math.max(0, usage.cacheReadTokens ?? 0);
+  const cacheWrite = Math.max(0, usage.cacheWriteTokens ?? 0);
+  const freshPrompt = Math.max(
+    0,
+    usage.freshPromptTokens ?? usage.promptTokens,
+  );
+  return (
+    usd(freshPrompt, price.inputPerMillionUsd) +
+    usd(cacheRead, price.cacheReadPerMillionUsd ?? price.inputPerMillionUsd) +
+    usd(cacheWrite, price.cacheWritePerMillionUsd ?? price.inputPerMillionUsd) +
+    usd(usage.completionTokens, price.outputPerMillionUsd)
+  );
 }
 
 function isLoopback(baseUrl: string): boolean {

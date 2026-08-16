@@ -195,6 +195,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_BUDGET_DAY` | int | `50_000_000` |  | Per-day token ceiling. |
 | `FERAL_BUDGET_POLICY` | string | `"compress_and_continue"` |  | "stop" or "compress_and_continue". |
 | `FERAL_RSI_MAX_COST_USD` | string | `null` |  | RSI background USD cap (float). Unset = local-only. |
+| `FERAL_AUTONOMOUS_PRICING_JSON` | string | `null` |  | JSON array of exact provider/model/baseUrl price records for autonomous cloud inference, with inputPerMillionUsd/outputPerMillionUsd and optional cacheReadPerMillionUsd/cacheWritePerMillionUsd. Unknown or malformed routes fail closed. |
 | `FERAL_CLOUD_TRANSCRIPT_BUDGET` | int | `200_000` |  | Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback). |
 | `FERAL_TTFT_DEADLINE_MS` | int | `null` |  | Time-to-first-token cap (perf-policy.ts, positive int only). |
 | `FERAL_TOTAL_DEADLINE_MS` | int | `null` |  | Whole-completion cap. |
@@ -298,6 +299,7 @@ FERAL_AGENT_WORKSPACE
 FERAL_API_KEY
 FERAL_ATTACHMENT_MAX_CHARS
 FERAL_AUTONOMOUS
+FERAL_AUTONOMOUS_PRICING_JSON
 FERAL_BASE_URL
 FERAL_BRAIN
 FERAL_BUDGET_CONVERSATION

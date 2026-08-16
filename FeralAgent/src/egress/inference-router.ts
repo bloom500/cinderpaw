@@ -95,6 +95,32 @@ export function isBackgroundSession(sessionId: string): boolean {
   return BACKGROUND_SESSION_PREFIXES.some((p) => sessionId.startsWith(p));
 }
 
+/** Compose abort sources with explicit listener cleanup. */
+function linkedSignal(signals: Array<AbortSignal | undefined>): {
+  signal?: AbortSignal;
+  cleanup: () => void;
+} {
+  const live = signals.filter((signal): signal is AbortSignal => signal !== undefined);
+  if (live.length === 0) return { cleanup: () => {} };
+  const ac = new AbortController();
+  const links: Array<{ signal: AbortSignal; listener: () => void }> = [];
+  for (const signal of live) {
+    if (signal.aborted) {
+      ac.abort(signal.reason);
+      break;
+    }
+    const listener = () => ac.abort(signal.reason);
+    signal.addEventListener("abort", listener, { once: true });
+    links.push({ signal, listener });
+  }
+  return {
+    signal: ac.signal,
+    cleanup: () => {
+      for (const { signal, listener } of links) signal.removeEventListener("abort", listener);
+    },
+  };
+}
+
 /**
  * True when an error means "this target has no model resident", not "your
  * request was bad". The bundled local engine answers `503 {"type":
@@ -462,7 +488,12 @@ export class InferenceRouter {
     // counted so the gate knows when the coast is clear.
     const interactive = !isBackgroundSession(req.sessionId);
     if (!interactive) {
-      await this.#yieldToInteractive();
+      const waitSignal = linkedSignal([req.signal, req.spendAuthority?.signal]);
+      try {
+        await this.#yieldToInteractive(waitSignal.signal);
+      } finally {
+        waitSignal.cleanup();
+      }
     } else {
       this.#interactiveInFlight++;
     }
@@ -486,7 +517,7 @@ export class InferenceRouter {
    *  so a marathon chat session can't starve background work forever —
    *  after the cap the background call proceeds anyway (it will simply
    *  share the provider like before this gate existed). */
-  async #yieldToInteractive(): Promise<void> {
+  async #yieldToInteractive(signal?: AbortSignal): Promise<void> {
     const COOLDOWN_MS = 15_000;
     const MAX_WAIT_MS = 10 * 60_000;
     const start = Date.now();
@@ -495,7 +526,7 @@ export class InferenceRouter {
         Date.now() - this.#lastInteractiveDoneAt < COOLDOWN_MS) &&
       Date.now() - start < MAX_WAIT_MS
     ) {
-      await new Promise((r) => setTimeout(r, 500));
+      await abortableSleep(500, signal);
     }
   }
 
@@ -526,46 +557,43 @@ export class InferenceRouter {
     // across primary + fallback before creating a controller or touching the
     // network, so concurrent requests cannot each believe the same remaining
     // dollars are available. Foreground chat omits the scope and is unchanged.
+    const spendPrompt = JSON.stringify({
+      messages: req.messages,
+      nativeTools: req.nativeTools,
+      openAITools: req.openAITools,
+    });
     const spendReservation = req.spendAuthority?.reserve({
       targets: fallback ? [primary, fallback] : [primary],
-      maxBillableTokens:
-        countTokens(JSON.stringify({
-          messages: req.messages,
-          nativeTools: req.nativeTools,
-          openAITools: req.openAITools,
-        })) + (req.maxTokens ?? 4_096),
+      // UTF-8 bytes are a conservative tokenizer-independent ceiling: a BPE
+      // token cannot consume less than one encoded byte. The JSON envelope also
+      // over-accounts provider chat framing, keeping the pre-request hold above
+      // reported prompt usage across provider dialects.
+      maxPromptTokens: Math.max(
+        countTokens(spendPrompt),
+        new TextEncoder().encode(spendPrompt).byteLength,
+      ),
+      maxCompletionTokens: req.maxTokens ?? 4_096,
     });
 
     // Install a per-session AbortController (P0-#3) so `abort(sessionId)` can
     // actually reach an in-flight fetch. The signal is read by the streaming
     // / non-streaming call paths and combined with their internal timeouts.
     const ac = new AbortController();
+    const abortLinks: Array<{ signal: AbortSignal; listener: () => void }> = [];
+    const linkAbort = (signal: AbortSignal | undefined): void => {
+      if (!signal) return;
+      if (signal.aborted) {
+        ac.abort(signal.reason);
+        return;
+      }
+      const listener = () => ac.abort(signal.reason);
+      signal.addEventListener("abort", listener, { once: true });
+      abortLinks.push({ signal, listener });
+    };
     const existing = this.#sessionControllers.get(req.sessionId);
-    if (existing && !existing.signal.aborted) {
-      existing.signal.addEventListener(
-        "abort",
-        () => ac.abort(existing.signal.reason),
-        { once: true },
-      );
-    }
-    if (req.signal && !req.signal.aborted) {
-      req.signal.addEventListener(
-        "abort",
-        () => ac.abort(req.signal?.reason),
-        { once: true },
-      );
-    } else if (req.signal?.aborted) {
-      ac.abort(req.signal.reason);
-    }
-    if (req.spendAuthority && !req.spendAuthority.signal.aborted) {
-      req.spendAuthority.signal.addEventListener(
-        "abort",
-        () => ac.abort(req.spendAuthority?.signal.reason),
-        { once: true },
-      );
-    } else if (req.spendAuthority?.signal.aborted) {
-      ac.abort(req.spendAuthority.signal.reason);
-    }
+    linkAbort(existing?.signal);
+    linkAbort(req.signal);
+    linkAbort(req.spendAuthority?.signal);
     this.#sessionControllers.set(req.sessionId, ac);
 
     const start = Date.now();
@@ -628,7 +656,7 @@ export class InferenceRouter {
       );
       spendReservation?.settle({
         target: response.usedFallback && fallback ? fallback : primary,
-        actualBillableTokens: response.totalTokens,
+        usage: response,
       });
 
       this.#audit({
@@ -646,6 +674,9 @@ export class InferenceRouter {
       // A failed/aborted request has no provider usage to settle. Release its
       // reservation so later work is not blocked by phantom in-flight spend.
       spendReservation?.release();
+      for (const { signal, listener } of abortLinks) {
+        signal.removeEventListener("abort", listener);
+      }
       // P0-#3: clear the per-session controller on every path so the next
       // call gets a fresh one. Without this, an aborted controller would
       // linger in the map and a later abort() would target a stale signal.

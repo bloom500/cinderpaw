@@ -96,7 +96,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, fmsInferenceScope, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     runHooks,
   } = ctx;
 
@@ -906,6 +906,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           };
           const buildTimeoutMs = 15 * 60 * 1000;
           try {
+            const authorization = fmsInferenceScope();
+            if (!authorization.scope) {
+              sendError(`Benchmark inference is not authorized: ${authorization.reason}`);
+              return;
+            }
             // Phase 1: ensure a tree exists. Bounded by its own wall clock
             // (the rebuild was the previous infinite-spin path: 2.8 s/text
             // × 2695 leaves on CPU = ~2 hours, and looked identical to the
@@ -918,7 +923,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               message: "Building RAPTOR tree…",
             });
             await withTimeout(
-              fractalMemory.rebuildIfStale(),
+              fractalMemory.rebuildIfStale(1.2, authorization.scope),
               buildTimeoutMs,
               "build",
             );
@@ -932,7 +937,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             // Progress is forwarded as a typed `fractal_bench_progress`
             // event; timeout / errors throw and are caught below.
             const report = await fractalMemory.benchmarkWithProgress({
-              infer: routerInfer(router),
+              infer: routerInfer(router, authorization.scope),
               onProgress: (p) => {
                 send({
                   type: "fractal_bench_progress",
