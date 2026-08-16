@@ -306,6 +306,140 @@
   --radius:               0.5rem;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CINEMATIC SHELL — scene + glass material tokens (2026-08-16 spec)
+ *
+ * One continuous visual environment behind every normal route. The document
+ * body owns the decorative scene (see below); pages sit on a milky glass
+ * pane over it, and the scene never remounts across route changes.
+ *
+ * Naming: `--scene-*` is the background environment (base, lights, grain,
+ * vignette); `--glass-*` is the translucent material hierarchy later page
+ * subprojects adopt instead of hard-coding rgba values. `--brand` and the
+ * shadcn `--accent` contract above are untouched.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+:root[data-theme="dark"] {
+  /* Opaque ground, always — nothing translucent may sit on the desktop. */
+  --scene-base:          var(--bg-primary);
+  /* The app's page surface: mostly the theme base, letting the lights and
+     grain show through. Pane, not film — text stays readable. */
+  --scene-surface:       rgba(16, 14, 9, 0.88);
+  /* Diffuse amber key light and restrained blue-violet counterlight. */
+  --scene-key-light:     rgba(196, 132, 58, 0.20);
+  --scene-counter-light: rgba(91, 97, 182, 0.14);
+  /* Grain and vignette strength, tuned per theme. */
+  --scene-grain-opacity: 0.05;
+  --scene-vignette:      rgba(8, 6, 4, var(--scene-vignette-strength));
+  --scene-vignette-strength: 0.5;
+  /* Glass surface levels (1 = nearest the page base). */
+  --glass-1:             rgba(28, 25, 22, 0.62);
+  --glass-2:             rgba(37, 33, 25, 0.55);
+  --glass-3:             rgba(44, 40, 32, 0.50);
+  /* Glass border, upper-edge reflection, drop shadow and amber bloom. */
+  --glass-border:        rgba(240, 230, 211, 0.10);
+  --glass-edge:          rgba(255, 250, 240, 0.14);
+  --glass-shadow:        0 18px 44px rgba(0, 0, 0, 0.38);
+  --glass-bloom:         0 0 0 1px rgba(196, 132, 58, 0.09), 0 10px 36px rgba(196, 132, 58, 0.12);
+}
+
+:root[data-theme="light"] {
+  /* Warm ivory ground, never pure white. */
+  --scene-base:          var(--bg-primary);
+  --scene-surface:       rgba(255, 245, 238, 0.88);
+  /* Amber sunlight and a cool blue-grey shadow light. */
+  --scene-key-light:     rgba(160, 104, 40, 0.14);
+  --scene-counter-light: rgba(96, 104, 180, 0.11);
+  --scene-grain-opacity: 0.04;
+  --scene-vignette:      rgba(92, 64, 36, var(--scene-vignette-strength));
+  --scene-vignette-strength: 0.3;
+  /* Milky glass: enough opacity to keep body text readable. */
+  --glass-1:             rgba(255, 245, 238, 0.72);
+  --glass-2:             rgba(255, 250, 244, 0.60);
+  --glass-3:             rgba(255, 252, 248, 0.52);
+  --glass-border:        rgba(28, 22, 16, 0.12);
+  --glass-edge:          rgba(255, 255, 255, 0.85);
+  --glass-shadow:        0 18px 44px rgba(122, 92, 62, 0.20);
+  --glass-bloom:         0 0 0 1px rgba(160, 104, 40, 0.10), 0 10px 32px rgba(160, 104, 40, 0.12);
+}
+
+/* ── The scene ────────────────────────────────────────────────────────────
+ * Fixed pseudo-elements on the document body, beneath the React root, shared
+ * by every normal route — route changes swap only the Outlet content, so the
+ * animated layers never remount or flash.
+ *
+ * Layer order (bottom → top): opaque base → vignette → atmospheric lights →
+ * grain → React root (the app's glass pane + content) → overlays.
+ *
+ * Performance contract: only `transform`/`opacity` animate, on exactly two
+ * full-screen layers, with an opaque base below everything. No `filter` or
+ * `backdrop-filter` anywhere, no layout/paint work per frame. The grain is a
+ * small repeatable noise tile (inline SVG data URI — CSP `img-src data:`),
+ * not a full-resolution image.
+ *
+ * The voice call overlay is an opaque, full-screen, body-portalled layer
+ * (z-40) that paints over the entire scene — call visuals are untouched, and
+ * no selector below targets `.call-stage`, orb classes or voice descendants.
+ */
+body {
+  background-color: var(--scene-base);
+  background-image: radial-gradient(115% 115% at 50% 42%, transparent 58%, var(--scene-vignette) 100%);
+}
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+}
+/* Atmospheric lights: large soft amber key and blue-violet counterlight,
+   drifting slowly. Radial gradient color stops are naturally soft — no
+   blur filter needed. */
+body::before {
+  inset: -14%;
+  background-image:
+    radial-gradient(closest-side, var(--scene-key-light), transparent 72%),
+    radial-gradient(closest-side, var(--scene-counter-light), transparent 74%);
+  background-position: 26% 18%, 74% 84%;
+  background-repeat: no-repeat;
+  background-size: 64% 64%, 60% 60%;
+  animation: scene-drift 80s ease-in-out infinite alternate;
+  will-change: transform;
+}
+/* Grain: a small repeatable noise tile over everything, shifting subtly so
+   the gradients never read as synthetic paint. */
+body::after {
+  inset: -30%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: var(--scene-grain-opacity);
+  animation: scene-grain-shift 6s steps(8) infinite;
+  will-change: transform;
+}
+@keyframes scene-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(-2.5%, 1.8%, 0) scale(1.05); }
+}
+@keyframes scene-grain-shift {
+  0%   { transform: translate3d(0, 0, 0); }
+  25%  { transform: translate3d(-1.1%, 0.9%, 0); }
+  50%  { transform: translate3d(0.8%, -1.2%, 0); }
+  75%  { transform: translate3d(-0.5%, -0.7%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* The React root paints above the scene; the app's page surface (AppShell's
+   opaque --bg-primary in AppShell.tsx) becomes the milky glass pane so the
+   lights and grain show through instead of being buried. Unlayered, so it
+   wins over the Tailwind utility that paints the same element. */
+#root {
+  position: relative;
+  z-index: 1;
+}
+#root > div {
+  background-color: var(--scene-surface);
+}
+
 /*
  * Semi-transparency escape hatch
  * Palette is hex → Tailwind's bg-card/50 opacity utilities don't work on
