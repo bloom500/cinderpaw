@@ -40,7 +40,7 @@ import {
 import type { BenchReport } from "./bench/runner.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
-import { LeafStore, type LeafSummary } from "./leaf-store.ts";
+import { LeafStore, type LeafRecord, type LeafSummary } from "./leaf-store.ts";
 import type { EvictionPolicy } from "./eviction.ts";
 import type { RouterInferScope } from "./summarize.ts";
 import { appendFileSync } from "node:fs";
@@ -60,6 +60,10 @@ export interface FractalBenchmarkOptions {
   k?: number;
   /** p99 latency budget in ms (default 80). */
   budgetMs?: number;
+  /** Shared cancellation for every model/embedding phase in this run. */
+  signal?: AbortSignal;
+  /** Called before a timed-out phase is drained. */
+  onTimeout?: (error: Error) => void | Promise<void>;
 }
 
 /** Minimal shape of the legacy engine we fall back to (RecallEngine). */
@@ -170,7 +174,7 @@ export function buildGrowActivity(tree: {
   };
 }
 
-type LeafOwner = "episodic" | "reactive";
+export type LeafOwner = "episodic" | "reactive";
 
 interface CatalogLeaf {
   owner: LeafOwner;
@@ -199,6 +203,7 @@ export class FractalMemory {
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
+  #ownersById: Map<number, LeafOwner> | null = null;
   #treeCorpusFingerprint: string | null = null;
   /** Shared promise while a rebuild is in flight; dedupes concurrent callers. */
   #rebuildInFlight: Promise<boolean> | null = null;
@@ -232,13 +237,40 @@ export class FractalMemory {
   }
 
   /**
-   * Stable owner-aware catalog. Tree ids are internal identities; source ids
-   * remain untouched in SQLite/LeafStore and may overlap safely.
+   * Stable owner-aware catalog. Episodic ids remain unchanged. Any legacy
+   * reactive collision is atomically remapped in its owner store above the
+   * occupied range, so every tree id is durable, public, and collision-free.
    */
   #catalogLeaves(): CatalogLeaf[] {
-    const episodic = this.#loadLeaves().map((leaf) => catalogLeaf("episodic", leaf));
-    const reactive = this.#leafStore.all().map((rec) => catalogLeaf("reactive", recordToLeaf(rec)));
+    const episodicLeaves = this.#loadLeaves();
+    const reactiveRecords = this.#remapReactiveCollisions(episodicLeaves);
+    const episodic = episodicLeaves.map((leaf) => catalogLeaf("episodic", leaf));
+    const reactive = reactiveRecords.map((rec) => catalogLeaf("reactive", recordToLeaf(rec)));
     return [...episodic, ...reactive];
+  }
+
+  #remapReactiveCollisions(episodic: Leaf[]): LeafRecord[] {
+    const records = this.#leafStore.all();
+    const occupied = new Set(episodic.map((leaf) => leaf.id));
+    let nextId = Math.max(0, ...occupied, ...records.map((record) => record.id)) + 1;
+    let changed = false;
+    const remapped = records.map((record) => {
+      if (!occupied.has(record.id)) {
+        occupied.add(record.id);
+        return record;
+      }
+      while (occupied.has(nextId)) nextId += 1;
+      const next = { ...record, id: nextId++ };
+      occupied.add(next.id);
+      changed = true;
+      return next;
+    });
+    if (changed) {
+      this.#leafStore.replaceAll(remapped);
+      this.#hydrateReactiveState();
+      this.#log?.("fractal: atomically remapped colliding reactive leaf ids");
+    }
+    return remapped;
   }
 
   /** Deterministic source-fair cap: each non-empty owner gets membership. */
@@ -276,7 +308,7 @@ export class FractalMemory {
 
   /** True once a tree is loaded/built and ready to serve semantic recalls. */
   get hasTree(): boolean {
-    return this.#tree !== null && this.#leavesById !== null;
+    return this.#tree !== null && this.#leavesById !== null && this.#ownersById !== null;
   }
 
   /** Leaves covered by the currently loaded/built tree (0 when none). */
@@ -313,6 +345,7 @@ export class FractalMemory {
     } catch (e) {
       this.#tree = null;
       this.#leavesById = null;
+      this.#ownersById = null;
       this.#log?.(`fractal: failed to adopt persisted tree: ${String(e)}`);
       return false;
     }
@@ -380,7 +413,7 @@ export class FractalMemory {
     this.#log?.(`fractal: rebuild started (${leaves.length} leaves)`);
     try {
       tree = await buildTree(leaves, {
-        embed: this.#embed,
+        embed: (texts) => abortableWork(this.#embed(texts), scope.signal),
         summarize: (items) => this.#summarize(items, scope),
         persistEmbeddings: (rows) => this.#persistOwnedEmbeddings(rows, catalog),
       });
@@ -399,6 +432,7 @@ export class FractalMemory {
     this.#tree = tree;
     this.#treeCorpusFingerprint = corpusFingerprint(leaves);
     this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
+    this.#ownersById = new Map(catalog.map((entry) => [entry.leaf.id, entry.owner]));
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
     this.#emit(buildGrowActivity(tree));
@@ -433,7 +467,7 @@ export class FractalMemory {
           embed: this.#embed,
           ftsSearch: this.#ftsSearch,
           leavesById: this.#leavesById,
-          ftsLeafId: (sourceId) => treeLeafId("episodic", sourceId),
+          ftsLeafId: (sourceId) => sourceId,
         });
         const result = await engine.recall(query, sessionId);
         // A real semantic traversal happened → pulse the organism so breathing
@@ -466,10 +500,11 @@ export class FractalMemory {
     return runFractalBenchmark({
       loadLeaves: () => this.#cappedLeaves().map((l) => ({ id: l.id, text: l.text })),
       ftsSearch: this.#ftsSearch,
+      ftsLeafId: (sourceId) => sourceId,
       tree: this.#tree,
       leavesById: this.#leavesById,
-      embed: this.#embed,
-      infer: opts.infer,
+      embed: (texts) => abortableWork(this.#embed(texts), opts.signal),
+      infer: (prompt) => abortableWork(opts.infer(prompt), opts.signal),
       querySetJsonl: opts.querySetJsonl,
       count: opts.count,
       seed: opts.seed,
@@ -506,10 +541,11 @@ export class FractalMemory {
     return runFractalBenchmarkWithProgress({
       loadLeaves: () => this.#cappedLeaves().map((l) => ({ id: l.id, text: l.text })),
       ftsSearch: this.#ftsSearch,
+      ftsLeafId: (sourceId) => sourceId,
       tree: this.#tree,
       leavesById: this.#leavesById,
-      embed: this.#embed,
-      infer: opts.infer,
+      embed: (texts) => abortableWork(this.#embed(texts), opts.signal),
+      infer: (prompt) => abortableWork(opts.infer(prompt), opts.signal),
       querySetJsonl: opts.querySetJsonl,
       count: opts.count ?? DEFAULT_BENCH_COUNT,
       seed: opts.seed,
@@ -518,6 +554,7 @@ export class FractalMemory {
       timeoutMs: opts.timeoutMs ?? DEFAULT_BENCH_TIMEOUT_MS,
       genConcurrency: opts.genConcurrency ?? DEFAULT_GEN_CONCURRENCY,
       onProgress: opts.onProgress,
+      onTimeout: opts.onTimeout,
     });
   }
 
@@ -541,11 +578,14 @@ export class FractalMemory {
         embed: this.#embed,
         ftsSearch: this.#ftsSearch,
         leavesById,
+        ftsLeafId: (sourceId) => sourceId,
       });
       const ids = await engine.rankedLeafIds(pattern, "", limit);
-      return ids.flatMap((leafId) => {
-        const leaf = leavesById.get(leafId);
-        return leaf ? [{ leafId, text: leaf.text }] : [];
+      return ids.flatMap((treeId) => {
+        const leaf = leavesById.get(treeId);
+        if (!leaf) return [];
+        const owner = this.#ownersById?.get(treeId);
+        return owner ? [{ leafId: treeId, owner, text: leaf.text }] : [];
       });
     } catch (e) {
       this.#log?.(`fractal: query fell back to empty: ${String(e)}`);
@@ -554,24 +594,26 @@ export class FractalMemory {
   }
 
   /**
-   * Cluster drill-down — every episodic id under a top-level cluster, paired
-   * with the leaf metadata the UI shows in the per-cluster card. Returns
+   * Cluster drill-down — every source id under a top-level cluster, paired
+   * with its owner and the leaf metadata the UI shows in the per-cluster card. Returns
    * `[]` when there is no tree or the index is out of range; never throws.
    *
-   * `TreeNode.leafIds` is documented as `every episodic id that sits under
-   * this node (union of children)`, so the cluster's leafIds already gives us
-   * the full membership — no recursion.
+   * TreeNode leaf ids are collision-free catalog identities. Translate them
+   * back to the owner-qualified public identity at this boundary.
    */
-  clusterLeaves(clusterIndex: number): { leafId: number; text: string; ts: number }[] {
-    if (!this.#tree || !this.#leavesById) return [];
+  clusterLeaves(clusterIndex: number): { leafId: number; owner: LeafOwner; text: string; ts: number }[] {
+    if (!this.#tree || !this.#leavesById || !this.#ownersById) return [];
     const tree = this.#tree;
     if (clusterIndex < 0 || clusterIndex >= tree.children.length) return [];
     const root = tree.children[clusterIndex]!;
-    const out: { leafId: number; text: string; ts: number }[] = [];
-    for (const leafId of root.leafIds) {
-      const leaf = this.#leavesById.get(leafId);
+    const out: { leafId: number; owner: LeafOwner; text: string; ts: number }[] = [];
+    for (const treeId of root.leafIds) {
+      const leaf = this.#leavesById.get(treeId);
+      const owner = this.#ownersById.get(treeId);
+      if (!owner) continue;
       out.push({
-        leafId,
+        leafId: treeId,
+        owner,
         text: leaf?.text ?? "",
         ts: leaf?.ts ?? 0,
       });
@@ -596,13 +638,16 @@ export class FractalMemory {
 
   /** Map current episodic rows to `leafId → Leaf`, for the recall engine. */
   #mapLeaves(): Map<number, Leaf> {
-    return new Map(this.#cappedLeaves().map((l) => [l.id, l]));
+    const catalog = this.#cappedCatalog();
+    this.#ownersById = new Map(catalog.map((entry) => [entry.leaf.id, entry.owner]));
+    return new Map(catalog.map((entry) => [entry.leaf.id, entry.leaf]));
   }
 
   /** Membership mutations must never leave removed leaves recallable. */
   #invalidateTree(): void {
     this.#tree = null;
     this.#leavesById = null;
+    this.#ownersById = null;
     this.#treeCorpusFingerprint = null;
   }
 
@@ -933,9 +978,10 @@ export class FractalMemory {
     }
   }
 
-  /** Pick the next stable id inside the reactive owner store. */
+  /** Pick the next globally stable id above both episodic and reactive owners. */
   #nextLeafId(): number {
-    return this.#leafStore.all().reduce((max, record) => Math.max(max, record.id), 0) + 1;
+    const episodicMax = this.#loadLeaves().reduce((max, leaf) => Math.max(max, leaf.id), 0);
+    return this.#leafStore.all().reduce((max, record) => Math.max(max, record.id), episodicMax) + 1;
   }
 
   /** Restore the in-memory reactive index from its durable owner store. */
@@ -980,19 +1026,26 @@ interface LeafProvenance {
   value?: string;
 }
 
-function treeLeafId(owner: LeafOwner, sourceId: number): number {
-  if (!Number.isSafeInteger(sourceId) || sourceId < 0 || sourceId > Number.MAX_SAFE_INTEGER / 2 - 1) {
-    throw new Error(`fractal: invalid ${owner} source id ${sourceId}`);
-  }
-  return sourceId * 2 + (owner === "reactive" ? 1 : 0);
-}
-
 function catalogLeaf(owner: LeafOwner, leaf: Leaf): CatalogLeaf {
   return {
     owner,
     sourceId: leaf.id,
-    leaf: { ...leaf, id: treeLeafId(owner, leaf.id) },
+    leaf: { ...leaf },
   };
+}
+
+function abortableWork<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    work.then(
+      (value) => { cleanup(); resolve(value); },
+      (error) => { cleanup(); reject(error); },
+    );
+  });
 }
 
 function sourceLeaf(entry: CatalogLeaf): Leaf {
@@ -1060,5 +1113,6 @@ function readMergeThreshold(): number {
 /** One structured hit from {@link FractalMemory.query}. */
 export interface FractalQueryHit {
   leafId: number;
+  owner: LeafOwner;
   text: string;
 }

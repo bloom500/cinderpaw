@@ -114,7 +114,7 @@ export interface FractalActivityLine {
 export interface FractalClusterLeavesLine {
   type: 'fractal_cluster_leaves_result';
   id: string;
-  leaves: { leafId: number; text: string; ts: number }[];
+  leaves: { leafId: number; owner: 'episodic' | 'reactive'; text: string; ts: number }[];
 }
 
 /**

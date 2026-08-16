@@ -17,7 +17,7 @@ import { contractDepsFrom } from "../src/rsi/infra/contract-deps.ts";
 import { runContract } from "../src/rsi/infra/contract-runner.ts";
 import { makeInitialState } from "../src/rsi/infra/contract.ts";
 import type { StageHandlerDeps } from "../src/rsi/infra/contract-stages.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
+import { CycleBudgetLedger, DEFAULT_BUDGET_CAPS, zeroSpend } from "../src/rsi/infra/budget.ts";
 import { readJournal } from "../src/rsi/infra/journal.ts";
 import type { PairedSample } from "../src/rsi/infra/confidence.ts";
 import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/l1-config/fitness.ts";
@@ -89,6 +89,18 @@ describe("contractDepsFrom — end-to-end seam", () => {
     const decision = deps.evaluateConfidence([{ candidate: 1, baseline: 0 }]); // 1 < MIN_SAMPLES
     expect(decision.accept).toBe(false);
     expect(decision.reason).toContain("insufficient samples");
+  });
+
+  test("prechecks against the live cycle ledger caps instead of unrelated defaults", () => {
+    const caps = { ...DEFAULT_BUDGET_CAPS, tokens: 2_000_000 };
+    const ledger = new CycleBudgetLedger(caps);
+    ledger.charge({ ...zeroSpend(), tokens: 150_000 });
+    const deps = contractDepsFrom(fakeStageDeps(), {
+      budgetLedger: ledger,
+      estimateStage: () => ({ tokens: 1 }),
+    });
+
+    expect(() => deps.assertBudget("static_analysis", ledger.spent, { tokens: 1 })).not.toThrow();
   });
 
   test("a rejecting gate stops before deploy with a reject Journal row", async () => {

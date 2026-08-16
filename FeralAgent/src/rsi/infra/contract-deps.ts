@@ -80,7 +80,7 @@ export function contractDepsFrom(
   opts: ContractDepsOptions = {},
 ): ContractDeps {
   const journalPath = opts.journalPath ?? (() => defaultJournalPath());
-  const caps = opts.budgetCaps ?? DEFAULT_BUDGET_CAPS;
+  const caps = opts.budgetCaps ?? opts.budgetLedger?.caps ?? DEFAULT_BUDGET_CAPS;
   const evaluateConfidence = opts.evaluateConfidence ?? ((samples) => evaluateGate(samples));
 
   return {

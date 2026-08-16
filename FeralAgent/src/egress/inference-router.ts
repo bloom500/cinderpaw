@@ -46,6 +46,7 @@ import {
   parseRetryAfter,
   type ThrottleWait,
 } from "./rate-limiter.ts";
+import { AutonomousSpendDeniedError } from "./inference-spend-authority.ts";
 
 /**
  * How many times a transient failure is retried before it surfaces.
@@ -553,17 +554,16 @@ export class InferenceRouter {
 
     if (!req.skipBudgetCheck) this.#enforceBudget(req.sessionId);
 
-    // Autonomous callers opt into a hard USD scope. Reserve the worst case
-    // across primary + fallback before creating a controller or touching the
-    // network, so concurrent requests cannot each believe the same remaining
-    // dollars are available. Foreground chat omits the scope and is unchanged.
+    // Autonomous callers opt into a hard USD scope. Compute one conservative
+    // request ceiling here, then reserve it independently for every physical
+    // provider attempt inside #callTarget. A failed/timeout attempt can still
+    // be billable, so fallback and retry may not reuse its hold.
     const spendPrompt = JSON.stringify({
       messages: req.messages,
       nativeTools: req.nativeTools,
       openAITools: req.openAITools,
     });
-    const spendReservation = req.spendAuthority?.reserve({
-      targets: fallback ? [primary, fallback] : [primary],
+    const spendCeiling = {
       // UTF-8 bytes are a conservative tokenizer-independent ceiling: a BPE
       // token cannot consume less than one encoded byte. The JSON envelope also
       // over-accounts provider chat framing, keeping the pre-request hold above
@@ -573,7 +573,7 @@ export class InferenceRouter {
         new TextEncoder().encode(spendPrompt).byteLength,
       ),
       maxCompletionTokens: req.maxTokens ?? 4_096,
-    });
+    };
 
     // Install a per-session AbortController (P0-#3) so `abort(sessionId)` can
     // actually reach an in-flight fetch. The signal is read by the streaming
@@ -607,8 +607,9 @@ export class InferenceRouter {
         // fail over TO. A configured fallback is a healthy second endpoint, and
         // spending three backoffs on a dead primary before trying it is slower
         // and less reliable than switching now.
-        response = await this.#callTarget(primary, reqWithSignal, false, fallback === undefined);
+        response = await this.#callTarget(primary, reqWithSignal, false, fallback === undefined, spendCeiling);
       } catch (primaryErr) {
+        if (primaryErr instanceof AutonomousSpendDeniedError) throw primaryErr;
         if (!fallback) {
           this.#auditFailure(req.sessionId, start, String(primaryErr));
           throw new InferenceError(
@@ -619,8 +620,9 @@ export class InferenceRouter {
         }
         try {
           // The fallback IS the last resort — past here the turn fails.
-          response = await this.#callTarget(fallback, reqWithSignal, true, true);
+          response = await this.#callTarget(fallback, reqWithSignal, true, true, spendCeiling);
         } catch (fallbackErr) {
+          if (fallbackErr instanceof AutonomousSpendDeniedError) throw fallbackErr;
           this.#auditFailure(
             req.sessionId,
             start,
@@ -654,11 +656,6 @@ export class InferenceRouter {
         Date.now() - start,
         req.promptBreakdown,
       );
-      spendReservation?.settle({
-        target: response.usedFallback && fallback ? fallback : primary,
-        usage: response,
-      });
-
       this.#audit({
         timestamp: Date.now(),
         sessionId: req.sessionId,
@@ -671,9 +668,6 @@ export class InferenceRouter {
 
       return response;
     } finally {
-      // A failed/aborted request has no provider usage to settle. Release its
-      // reservation so later work is not blocked by phantom in-flight spend.
-      spendReservation?.release();
       for (const { signal, listener } of abortLinks) {
         signal.removeEventListener("abort", listener);
       }
@@ -959,6 +953,7 @@ export class InferenceRouter {
      * that is the quota gate correcting itself, not an endpoint being unwell.
      */
     retryTransient: boolean,
+    spendCeiling: { maxPromptTokens: number; maxCompletionTokens: number },
   ): Promise<InferenceResponse> {
     if (!this.#trusted.has(normalizeBaseUrl(target.baseUrl))) {
       this.#auditBlocked(
@@ -994,9 +989,19 @@ export class InferenceRouter {
         this.#throttleListener?.({ ...info, sessionId: req.sessionId }),
       );
 
+      const spendReservation = req.spendAuthority?.reserve({
+        targets: [target],
+        ...spendCeiling,
+      });
       try {
-        return await provider.complete(target, req, isFallback);
+        const response = await provider.complete(target, req, isFallback);
+        spendReservation?.settle({ target, usage: response });
+        return response;
       } catch (err) {
+        // Once provider.complete was entered, a transport error or timeout is
+        // indeterminate: the provider may have finished and billed the work.
+        // Charge the full conservative hold before considering retry/fallback.
+        spendReservation?.commitMaximum();
         // The gate is best-effort — our request count is local, so a key used
         // from outside Feral is invisible to it. A 429 is that blind spot
         // showing up, not a bug: respect the provider's Retry-After and go

@@ -267,8 +267,11 @@ describe("runFractalBenchmarkWithProgress — bounded query-generation concurren
 describe("runFractalBenchmarkWithProgress — hard timeout", () => {
   it("rejects with a timeout error when the whole benchmark exceeds the budget", async () => {
     // An embed call that takes 200 ms per call — way past any sensible default.
+    let embedDrained = false;
+    let timeoutCancelled = false;
     const slowEmbed = async (texts: string[]) => {
       await new Promise((r) => setTimeout(r, 200));
+      embedDrained = true;
       return texts.map(() => new Float32Array([1, 0, 0]));
     };
     // Pre-embed batches all queries into one call, so the slowest path now
@@ -280,6 +283,7 @@ describe("runFractalBenchmarkWithProgress — hard timeout", () => {
       runFractalBenchmarkWithProgress({
         loadLeaves: () => LEAVES.map((l) => ({ id: l.id, text: l.text })),
         ftsSearch: () => [],
+        ftsLeafId: (sourceId) => sourceId,
         tree: await tree(),
         leavesById: leavesById(),
         embed: slowEmbed,
@@ -291,9 +295,12 @@ describe("runFractalBenchmarkWithProgress — hard timeout", () => {
         k: 10,
         budgetMs: 80,
         timeoutMs: 100, // tight
+        onTimeout: () => { timeoutCancelled = true; },
         onProgress: (p) => { phase = p.kind; },
       }),
     ).rejects.toThrow(/timeout/i);
+    expect(timeoutCancelled).toBe(true);
+    expect(embedDrained).toBe(true);
     // The exact phase is best-effort: pre-embed is the most likely candidate
     // since that's where the slow call happens now. What matters is that the
     // bench rejects with a labelled timeout error instead of hanging forever.

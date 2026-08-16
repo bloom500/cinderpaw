@@ -24,6 +24,7 @@ describe("InferenceSpendAuthority", () => {
   test("refuses an autonomous request before reserving when any possible cloud route has unknown pricing", () => {
     const authority = new InferenceSpendAuthority({
       maxCostUsd: 1,
+      allowCloud: true,
       price: (target) => target.provider === "known"
         ? { inputPerMillionUsd: 10, outputPerMillionUsd: 20 }
         : null,
@@ -41,6 +42,7 @@ describe("InferenceSpendAuthority", () => {
   test("counts in-flight reservations so concurrent requests cannot oversubscribe the USD cap", () => {
     const authority = new InferenceSpendAuthority({
       maxCostUsd: 0.015,
+      allowCloud: true,
       price: () => ({ inputPerMillionUsd: 10, outputPerMillionUsd: 10 }),
     });
 
@@ -67,6 +69,7 @@ describe("InferenceSpendAuthority", () => {
     const local = { ...known, baseUrl: "http://127.0.0.1:11435" };
     const authority = new InferenceSpendAuthority({
       maxCostUsd: 0,
+      allowCloud: false,
       price: () => null,
     });
 
@@ -84,6 +87,7 @@ describe("InferenceSpendAuthority", () => {
   test("stop aborts the shared signal and rejects every later reservation", () => {
     const authority = new InferenceSpendAuthority({
       maxCostUsd: 1,
+      allowCloud: true,
       price: () => ({ inputPerMillionUsd: 10, outputPerMillionUsd: 10 }),
     });
 
@@ -103,6 +107,7 @@ describe("InferenceSpendAuthority", () => {
     const audit = new AuditLog(db.raw);
     const authority = new InferenceSpendAuthority({
       maxCostUsd: 1,
+      allowCloud: true,
       price: () => null,
     });
     const router = new InferenceRouter({
@@ -133,6 +138,7 @@ describe("InferenceSpendAuthority", () => {
   test("reserves the worst split rate and settles prompt/output/cache categories separately", () => {
     const authority = new InferenceSpendAuthority({
       maxCostUsd: 1,
+      allowCloud: true,
       price: () => ({
         inputPerMillionUsd: 2,
         outputPerMillionUsd: 10,
@@ -159,6 +165,60 @@ describe("InferenceSpendAuthority", () => {
       },
     });
     expect(authority.spentUsd).toBeCloseTo(0.08);
+  });
+
+  test("re-checks cloud opt-in at every reservation so a hot-swapped route cannot inherit local authority", () => {
+    const authority = new InferenceSpendAuthority({
+      maxCostUsd: 1,
+      allowCloud: false,
+      price: () => ({ inputPerMillionUsd: 1, outputPerMillionUsd: 1 }),
+    });
+
+    expect(() => authority.reserve({
+      targets: [known],
+      maxPromptTokens: 1,
+      maxCompletionTokens: 1,
+    })).toThrow(new AutonomousSpendDeniedError(
+      "cloud_not_allowed",
+      "autonomous cloud inference is not authorized for known/priced-model",
+    ));
+  });
+
+  test("charges an indeterminate failed attempt before authorizing fallback", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const primary = { ...known, provider: "openai" };
+    const fallback = { ...primary, model: "fallback", baseUrl: "https://fallback.example.test/v1" };
+    const authority = new InferenceSpendAuthority({
+      maxCostUsd: 0.15,
+      allowCloud: true,
+      price: () => ({ inputPerMillionUsd: 0, outputPerMillionUsd: 1_000 }),
+    });
+    const router = new InferenceRouter({
+      primary,
+      fallback,
+      tokenBudget: { perConversation: 50_000, perDay: 500_000, onExhausted: "stop" },
+    }, audit.logger, db.raw);
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new TypeError("connection reset after request upload");
+    }) as typeof fetch;
+
+    try {
+      await expect(router.complete({
+        sessionId: "rsi-eval-fallback-cap",
+        messages: [{ role: "user", content: "evaluate" }],
+        maxTokens: 100,
+        spendAuthority: authority,
+      })).rejects.toBeInstanceOf(AutonomousSpendDeniedError);
+      expect(calls).toBe(1);
+      expect(authority.spentUsd).toBeCloseTo(0.1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      db.close();
+    }
   });
 
   test("background cancellation interrupts the interactive-priority wait before any network call", async () => {

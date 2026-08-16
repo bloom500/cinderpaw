@@ -160,6 +160,7 @@ describe("makeInvokeAgent — single-call mapping", () => {
     const router = new FakeRouter();
     const spendAuthority = new InferenceSpendAuthority({
       maxCostUsd: 1,
+      allowCloud: true,
       price: () => ({ inputPerMillionUsd: 10, outputPerMillionUsd: 10 }),
     });
     const invoke = makeInvokeAgent({

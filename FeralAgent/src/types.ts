@@ -1655,7 +1655,7 @@ export type OutboundEvent =
   | {
       type: "fractal_cluster_leaves_result";
       id: string;
-      leaves: { leafId: number; text: string; ts: number }[];
+      leaves: { leafId: number; owner: "episodic" | "reactive"; text: string; ts: number }[];
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

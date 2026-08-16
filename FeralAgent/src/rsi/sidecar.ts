@@ -43,7 +43,7 @@ import { makeInvokeAgent, type InvokeRouter } from "./infra/invoke-agent.ts";
 import { builtinPlanSteps, itemsToHits, liveSeamAdapter, repliesToSteps } from "./l4-modules/seam-runtime.ts";
 import { spawnModuleHost } from "./l4-modules/module-host-client.ts";
 import { selectCrossoverPairs } from "./l1-config/crossover-selection.ts";
-import { cfgPath } from "../config.ts";
+import { cfgBool, cfgPath } from "../config.ts";
 import { PopulationManager, type GenomeSpec } from "./l1-config/population-manager.ts";
 import { EventBus } from "./infra/event-bus.ts";
 import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
@@ -421,6 +421,7 @@ export class RsiSidecar {
     const spendAuthority = opts.maxTotalCostUsd !== undefined
       ? new InferenceSpendAuthority({
           maxCostUsd: opts.maxTotalCostUsd,
+          allowCloud: cfgBool("FERAL_RSI_ALLOW_CLOUD"),
           price: priceResolverFromJson(cfgPath("FERAL_AUTONOMOUS_PRICING_JSON")),
         })
       : undefined;

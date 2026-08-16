@@ -20,7 +20,7 @@ export interface BillableInferenceUsage {
   freshPromptTokens?: number;
 }
 
-export type AutonomousSpendDeniedReason = "unknown_price" | "budget" | "stopped";
+export type AutonomousSpendDeniedReason = "cloud_not_allowed" | "unknown_price" | "budget" | "stopped";
 
 export class AutonomousSpendDeniedError extends Error {
   constructor(
@@ -34,11 +34,14 @@ export class AutonomousSpendDeniedError extends Error {
 
 export interface SpendReservation {
   settle(actual: { target: SpendTarget; usage: BillableInferenceUsage }): void;
+  /** Conservatively charge the full hold when provider-side work may be billable. */
+  commitMaximum(): void;
   release(): void;
 }
 
 export class InferenceSpendAuthority {
   readonly #maxCostUsd: number;
+  readonly #allowCloud: boolean;
   readonly #price: (target: SpendTarget) => InferencePrice | null;
   readonly #abort = new AbortController();
   #spentUsd = 0;
@@ -46,9 +49,11 @@ export class InferenceSpendAuthority {
 
   constructor(options: {
     maxCostUsd: number;
+    allowCloud: boolean;
     price: (target: SpendTarget) => InferencePrice | null;
   }) {
     this.#maxCostUsd = options.maxCostUsd;
+    this.#allowCloud = options.allowCloud;
     this.#price = options.price;
   }
 
@@ -79,6 +84,12 @@ export class InferenceSpendAuthority {
 
     let reserved = 0;
     for (const target of request.targets) {
+      if (!isLoopback(target.baseUrl) && !this.#allowCloud) {
+        throw new AutonomousSpendDeniedError(
+          "cloud_not_allowed",
+          `autonomous cloud inference is not authorized for ${target.provider}/${target.model}`,
+        );
+      }
       const price = this.#priceFor(target);
       if (price === null) {
         throw new AutonomousSpendDeniedError(
@@ -119,6 +130,14 @@ export class InferenceSpendAuthority {
 
     return {
       release,
+      commitMaximum: () => {
+        if (!open) return;
+        release();
+        this.#spentUsd += reserved;
+        if (reserved > 0 && this.#spentUsd >= this.#maxCostUsd) {
+          this.stop("autonomous inference cost cap exhausted");
+        }
+      },
       settle: ({ target, usage }) => {
         if (!open) return;
         const actualPrice = this.#priceFor(target);

@@ -96,7 +96,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, fmsInferenceScope, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, fmsBenchmarkInferenceScope, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     runHooks,
   } = ctx;
 
@@ -905,12 +905,17 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             send({ type: "fractal_bench_result", ok: false, error, phase });
           };
           const buildTimeoutMs = 15 * 60 * 1000;
+          let activeScope: ReturnType<typeof fmsBenchmarkInferenceScope>["scope"];
           try {
-            const authorization = fmsInferenceScope();
+            const authorization = fmsBenchmarkInferenceScope();
             if (!authorization.scope) {
               sendError(`Benchmark inference is not authorized: ${authorization.reason}`);
               return;
             }
+            activeScope = authorization.scope;
+            const cancelTimedOutWork = (error: Error): void => {
+              authorization.scope?.spendAuthority?.stop(error);
+            };
             // Phase 1: ensure a tree exists. Bounded by its own wall clock
             // (the rebuild was the previous infinite-spin path: 2.8 s/text
             // × 2695 leaves on CPU = ~2 hours, and looked identical to the
@@ -926,6 +931,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               fractalMemory.rebuildIfStale(1.2, authorization.scope),
               buildTimeoutMs,
               "build",
+              cancelTimedOutWork,
             );
             if (!fractalMemory.hasTree) {
               sendError(
@@ -938,6 +944,8 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             // event; timeout / errors throw and are caught below.
             const report = await fractalMemory.benchmarkWithProgress({
               infer: routerInfer(router, authorization.scope),
+              signal: authorization.scope.signal,
+              onTimeout: cancelTimedOutWork,
               onProgress: (p) => {
                 send({
                   type: "fractal_bench_progress",
@@ -965,6 +973,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               path: outPath,
             });
           } catch (e) {
+            activeScope?.spendAuthority?.stop(e);
             // The orchestrator's timeout errors carry "at <phase>" in the
             // message; surface that so the panel can tell the user which
             // phase was the bottleneck.
@@ -991,7 +1000,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "fractal_cluster_leaves": {
         const id = msg.id ?? "";
         const clusterIndex = msg.clusterIndex ?? 0;
-        let leaves: { leafId: number; text: string; ts: number }[] = [];
+        let leaves: { leafId: number; owner: "episodic" | "reactive"; text: string; ts: number }[] = [];
         try {
           leaves = fractalMemory.clusterLeaves(clusterIndex);
         } catch (e) {

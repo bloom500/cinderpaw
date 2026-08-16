@@ -42,7 +42,7 @@ export interface TreeNode {
   summary: string;
   /** Children — empty for leaves. */
   children: TreeNode[];
-  /** Every episodic id that sits under this node (union of children). */
+  /** Every collision-free catalog id that sits under this node (union of children). */
   leafIds: number[];
 }
 

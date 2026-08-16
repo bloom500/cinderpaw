@@ -28,6 +28,8 @@ export interface FractalBenchDeps {
   loadLeaves: () => GenLeaf[];
   /** FTS5 exact-match search (production: `episodic.search`). */
   ftsSearch: (q: string, limit: number) => EpisodicEvent[];
+  /** Translate episodic SQLite ids into the tree catalog namespace. */
+  ftsLeafId: (sourceId: number) => number;
   /** The RAPTOR tree to evaluate (loaded from disk or freshly rebuilt). */
   tree: TreeNode;
   /** Leaf metadata by id, for the recall engine (same map the live app uses). */
@@ -96,6 +98,7 @@ export async function runFractalBenchmark(deps: FractalBenchDeps): Promise<Bench
     embed: deps.embed,
     ftsSearch: deps.ftsSearch,
     leavesById: deps.leavesById,
+    ftsLeafId: deps.ftsLeafId,
   });
 
   // No session is "current" in a benchmark, so pass "" — real session ids are
@@ -108,7 +111,7 @@ export async function runFractalBenchmark(deps: FractalBenchDeps): Promise<Bench
     return engine.rankedLeafIds(query, "", k);
   };
   const fts = async (query: string) =>
-    deps.ftsSearch(query, k).flatMap((e) => (e.id === undefined ? [] : [e.id]));
+    deps.ftsSearch(query, k).flatMap((e) => (e.id === undefined ? [] : [deps.ftsLeafId(e.id)]));
 
   return runBenchmark({ queries, fts, fractal, k, budgetMs, now, onQuery: deps.onQuery });
 }

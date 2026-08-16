@@ -27,7 +27,7 @@ import type { TreeNode } from "./types.ts";
  * that makes an on-disk tree incompatible. Old trees then load as `null` and
  * are rebuilt.
  */
-export const TREE_STORE_VERSION = 3;
+export const TREE_STORE_VERSION = 4;
 
 /** JSON-safe mirror of `TreeNode` (centroid as plain `number[]`). */
 export interface SerializedNode {

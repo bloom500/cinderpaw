@@ -1512,7 +1512,9 @@ export async function boot(transportOverride?: Transport) {
   // builds on first run or after the corpus grows materially.
   const fmsAutoCostRaw = Number(cfgPath("FERAL_FMS_AUTO_REBUILD_MAX_COST_USD") ?? "0");
   const fmsAutoCostUsd = Number.isFinite(fmsAutoCostRaw) && fmsAutoCostRaw >= 0 ? fmsAutoCostRaw : 0;
-  const fmsInferenceScope = (): {
+  const fmsBenchCostRaw = Number(cfgPath("FERAL_FMS_BENCH_MAX_COST_USD") ?? "0");
+  const fmsBenchCostUsd = Number.isFinite(fmsBenchCostRaw) && fmsBenchCostRaw >= 0 ? fmsBenchCostRaw : 0;
+  const makeFmsInferenceScope = (maxCostUsd: number): {
     scope?: import("./memory/fractal/summarize.ts").RouterInferScope;
     reason: string;
   } => {
@@ -1521,12 +1523,13 @@ export async function boot(transportOverride?: Transport) {
       FERAL_FMS_ALLOW_CLOUD: String(cfgBool("FERAL_FMS_ALLOW_CLOUD")),
     }, {
       allowCloudEnv: "FERAL_FMS_ALLOW_CLOUD",
-      maxCostUsd: fmsAutoCostUsd,
+      maxCostUsd,
       targets: liveAutonomousTargets(),
     });
     if (!gate.enabled) return { reason: gate.reason };
     const authority = new InferenceSpendAuthority({
-      maxCostUsd: fmsAutoCostUsd,
+      maxCostUsd,
+      allowCloud: cfgBool("FERAL_FMS_ALLOW_CLOUD"),
       price: autonomousPrice,
     });
     return {
@@ -1534,6 +1537,8 @@ export async function boot(transportOverride?: Transport) {
       scope: { spendAuthority: authority, signal: authority.signal },
     };
   };
+  const fmsInferenceScope = () => makeFmsInferenceScope(fmsAutoCostUsd);
+  const fmsBenchmarkInferenceScope = () => makeFmsInferenceScope(fmsBenchCostUsd);
   const initialFmsScope = fmsInferenceScope();
   if (!initialFmsScope.scope) {
     log(`fractal: initial auto-rebuild skipped (${initialFmsScope.reason})`);
@@ -1551,7 +1556,7 @@ export async function boot(transportOverride?: Transport) {
     void (async () => {
       try {
         const fs = require("node:fs") as typeof import("node:fs");
-        const authorization = fmsInferenceScope();
+        const authorization = fmsBenchmarkInferenceScope();
         if (!authorization.scope) {
           log(`fractal-bench: skipped (${authorization.reason})`);
           return;
@@ -2055,7 +2060,7 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
-    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, fmsInferenceScope, askUser, desktopControl, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, fmsInferenceScope, fmsBenchmarkInferenceScope, askUser, desktopControl, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path

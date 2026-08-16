@@ -205,8 +205,9 @@ they remain hand-maintained here and are still covered by
 | `FERAL_FMS_DEDUP_SPAN_MS` | int | `30 * 24 * 60 * 60 * 1000` |  | Coalesce leaves whose last touch is within this window. |
 | `FERAL_FMS_MERGE_THRESHOLD` | string | `"0.92"` |  | Cosine threshold (float) above which leaves merge. |
 | `FERAL_FMS_EVICTION` | string | `null` |  | Eviction strategy (e.g. lru). |
-| `FERAL_FMS_ALLOW_CLOUD` | bool | `false` |  | Explicit opt-in for automatic FMS tree rebuilds to use cloud inference. Cloud remains disabled unless this is true and a positive USD cap is configured. |
+| `FERAL_FMS_ALLOW_CLOUD` | bool | `false` |  | Explicit opt-in for automatic FMS rebuilds and explicit FMS benchmarks to use cloud inference. Each path also requires its own positive USD cap. |
 | `FERAL_FMS_AUTO_REBUILD_MAX_COST_USD` | string | `"0"` |  | Maximum cloud spend in USD for one automatic FMS tree rebuild. 0 keeps automatic rebuilds local-only; unknown cloud prices fail closed. |
+| `FERAL_FMS_BENCH_MAX_COST_USD` | string | `"0"` |  | Independent USD cap for an explicit FMS benchmark run. It never inherits the automatic rebuild budget; cloud still requires FERAL_FMS_ALLOW_CLOUD and exact pricing. |
 | `FERAL_MERGE_THRESHOLD` | string | `null` |  | Older name for FERAL_FMS_MERGE_THRESHOLD, read directly (no inheritance in code). |
 | `FERAL_TREE_BRANCH` | int | `null` |  | Branching factor for fractal tree build. |
 | `FERAL_TREE_CLUSTER_MAX_CHARS` | int | `null` |  | Max cluster size in chars. |
@@ -334,6 +335,7 @@ FERAL_FALLBACK_PROVIDER
 FERAL_FETCH_DOMAINS
 FERAL_FMS_ALLOW_CLOUD
 FERAL_FMS_AUTO_REBUILD_MAX_COST_USD
+FERAL_FMS_BENCH_MAX_COST_USD
 FERAL_FMS_DEDUP_SPAN_MS
 FERAL_FMS_EVICTION
 FERAL_FMS_MAX_LEAVES

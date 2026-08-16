@@ -113,7 +113,7 @@ describe("routerInfer — autonomous scope", () => {
         return { content: "summary", totalTokens: 1, promptTokens: 1, completionTokens: 0, model: "local", usedFallback: false };
       },
     } as unknown as InferenceRouter;
-    const authority = new InferenceSpendAuthority({ maxCostUsd: 0, price: () => null });
+    const authority = new InferenceSpendAuthority({ maxCostUsd: 0, allowCloud: false, price: () => null });
     const controller = new AbortController();
 
     await routerInfer(router, { spendAuthority: authority, signal: controller.signal })("prompt");

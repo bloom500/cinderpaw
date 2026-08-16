@@ -66,6 +66,7 @@ describe("runFractalBenchmark — loaded query set", () => {
     const report = await runFractalBenchmark({
       loadLeaves: () => LEAVES.map((l) => ({ id: l.id, text: l.text })),
       ftsSearch: () => [], // FTS5 finds nothing for these paraphrases → recall 0
+      ftsLeafId: (sourceId) => sourceId,
       tree: await tree(),
       leavesById: leavesById(),
       embed: (texts) => { clock.advance(2); return goldEmbed(queryToGold)(texts); },
@@ -91,6 +92,7 @@ describe("runFractalBenchmark — loaded query set", () => {
     const report = await runFractalBenchmark({
       loadLeaves: () => LEAVES.map((l) => ({ id: l.id, text: l.text })),
       ftsSearch: () => [ftsHit],
+      ftsLeafId: (sourceId) => sourceId,
       tree: await tree(),
       leavesById: leavesById(),
       // Query embeds to a far-away vector so semantic doesn't surface id=1...
@@ -118,6 +120,7 @@ describe("runFractalBenchmark — loaded query set", () => {
     const report = await runFractalBenchmark({
       loadLeaves: () => LEAVES.map((l) => ({ id: l.id, text: l.text })),
       ftsSearch: () => [],
+      ftsLeafId: (sourceId) => sourceId,
       tree: await tree(),
       leavesById: leavesById(),
       embed: (texts) => { clock.advance(500); return goldEmbed({ "how to ship a release": 1 })(texts); },
@@ -130,6 +133,30 @@ describe("runFractalBenchmark — loaded query set", () => {
     expect(report.verdict.ship).toBe(false);
     expect(report.verdict.reasons.join(" ")).toMatch(/latency|p99/i);
   });
+
+  it("maps raw FTS ids into the same catalog namespace as gold and hybrid hits", async () => {
+    const remappedLeaf: Leaf = {
+      id: 101,
+      text: "mapped episodic memory",
+      vec: new Float32Array([1, 0]),
+      ts: 1,
+      sessionId: "s1",
+    };
+    const remappedTree = await buildTree([remappedLeaf], { summarize: async () => "cluster" });
+    const report = await runFractalBenchmark({
+      loadLeaves: () => [{ id: 101, text: remappedLeaf.text }],
+      ftsSearch: () => [{ id: 1, sessionId: "s1", timestamp: 1, role: "user", content: remappedLeaf.text }],
+      ftsLeafId: (sourceId) => sourceId + 100,
+      tree: remappedTree,
+      leavesById: new Map([[101, remappedLeaf]]),
+      embed: async (texts) => texts.map(() => new Float32Array([1, 0])),
+      infer: async () => "unused",
+      querySetJsonl: `{"query":"mapped","relevant":[101]}`,
+    });
+
+    expect(report.fts.meanRecallAtK).toBe(1);
+    expect(report.fractal.meanRecallAtK).toBe(1);
+  });
 });
 
 describe("runFractalBenchmark — generated query set", () => {
@@ -138,6 +165,7 @@ describe("runFractalBenchmark — generated query set", () => {
     const report = await runFractalBenchmark({
       loadLeaves: () => LEAVES.map((l) => ({ id: l.id, text: l.text })),
       ftsSearch: () => [],
+      ftsLeafId: (sourceId) => sourceId,
       tree: await tree(),
       leavesById: leavesById(),
       embed: (texts) => { clock.advance(1); return texts.map(() => new Float32Array([1, 0, 0])); },

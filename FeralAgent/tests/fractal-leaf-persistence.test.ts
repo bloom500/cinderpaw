@@ -126,12 +126,18 @@ describe("FractalMemory upsertLeaf → LeafStore write-through", () => {
     expect(fm.leaves()[0]?.id).toBe(1);
     expect(await fm.rebuild()).toBe(true);
     expect(fm.treeLeafCount).toBe(2);
-    expect(fm.treeView().leaves.map((leaf) => leaf.id).sort()).toEqual([2, 3]);
+    expect(fm.treeView().leaves.map((leaf) => leaf.id).sort()).toEqual([1, 2]);
+    const publicLeaves = Array.from({ length: fm.treeLeafCount }, (_unused, index) => fm.clusterLeaves(index)).flat();
+    expect(publicLeaves.map(({ leafId, owner }) => ({ leafId, owner })).sort((a, b) => a.owner.localeCompare(b.owner)))
+      .toEqual([
+        { leafId: 1, owner: "episodic" },
+        { leafId: 2, owner: "reactive" },
+      ]);
     expect(episodicWrites.map((row) => row.id)).toEqual([1]);
 
     const reloaded = new LeafStore(path);
     reloaded.load();
-    expect(reloaded.all()[0]).toMatchObject({ id: 1 });
+    expect(reloaded.all()[0]).toMatchObject({ id: 2 });
     expect(reloaded.all()[0]!.vec).toHaveLength(3);
   });
 

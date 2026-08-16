@@ -59,6 +59,7 @@ export interface RunWithProgressOptions {
   // === Pure deps (mirrors runFractalBenchmark) ===
   loadLeaves: () => GenLeaf[];
   ftsSearch: (q: string, limit: number) => EpisodicEvent[];
+  ftsLeafId: (sourceId: number) => number;
   tree: TreeNode;
   leavesById: Map<number, Leaf>;
   embed: EmbedInvoker;
@@ -81,6 +82,8 @@ export interface RunWithProgressOptions {
   // === UX hardening (orchestrator-only) ===
   /** Wall-clock cap. Default 10 min. On expiry: reject with a labelled Error. */
   timeoutMs?: number;
+  /** Abort the shared inference scope before the timed-out phase is drained. */
+  onTimeout?: (error: Error) => void | Promise<void>;
   /** Inflight cap for `infer` during query generation. Default 4. */
   genConcurrency?: number;
   /** Fires at every progress tick. Optional. Never throw into the bench. */
@@ -115,17 +118,34 @@ async function mapLimit<T, R>(
  * tree-build phase that runs *before* the orchestrator (the rebuild was
  * the previous infinite-spin path on a cold GPU/batch config).
  */
-export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+export async function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+  onTimeout?: (error: Error) => void | Promise<void>,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutError = new Error(`bench timeout after ${ms}ms at ${label}`);
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`bench timeout after ${ms}ms at ${label}`)),
-      ms,
-    );
+    timer = setTimeout(() => reject(timeoutError), ms);
   });
-  return Promise.race([p, timeout]).finally(() => {
+  try {
+    return await Promise.race([p, timeout]);
+  } catch (error) {
+    if (error === timeoutError) {
+      await onTimeout?.(timeoutError);
+      // Give abort-aware workers a bounded chance to unwind before the caller
+      // can launch another benchmark. A non-cooperative dependency cannot keep
+      // the UI blocked forever, but its rejection is still observed.
+      await Promise.race([
+        p.then(() => undefined, () => undefined),
+        new Promise<void>((resolve) => setTimeout(resolve, Math.min(1_000, Math.max(1, ms)))),
+      ]);
+    }
+    throw error;
+  } finally {
     if (timer) clearTimeout(timer);
-  });
+  }
 }
 
 /**
@@ -170,6 +190,7 @@ export async function runFractalBenchmarkWithProgress(
       generateQuerySetWithProgress(picked, opts.infer, genConcurrency, safeProgress),
       timeoutMs,
       "queries",
+      opts.onTimeout,
     );
   }
 
@@ -210,6 +231,7 @@ export async function runFractalBenchmarkWithProgress(
     opts.embed(queryTexts),
     timeoutMs,
     "pre_embed",
+    opts.onTimeout,
   );
   const precomputedEmbeddings = new Map<string, Float32Array>();
   for (let i = 0; i < queryTexts.length; i++) {
@@ -228,6 +250,7 @@ export async function runFractalBenchmarkWithProgress(
     runFractalBenchmark({
       loadLeaves: opts.loadLeaves,
       ftsSearch: opts.ftsSearch,
+      ftsLeafId: opts.ftsLeafId,
       tree: opts.tree,
       leavesById: opts.leavesById,
       embed: opts.embed,
@@ -250,6 +273,7 @@ export async function runFractalBenchmarkWithProgress(
     }),
     timeoutMs,
     "run",
+    opts.onTimeout,
   );
 }
 
