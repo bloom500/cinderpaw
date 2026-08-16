@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FractalMemory } from "../src/memory/fractal/fractal-memory.ts";
 import type { EmbedInvoker } from "../src/memory/fractal/embed.ts";
+import { LeafStore } from "../src/memory/fractal/leaf-store.ts";
 
 const silentFts = { search: () => [] };
 const noopSummarize = async (_items: string[]) => "summary";
@@ -31,6 +32,7 @@ function makeFm(leafStorePath: string) {
     fallback: noopFallback,
     treePath: ":memory:",
     leafStorePath,
+    minLeaves: 1,
   });
 }
 
@@ -54,6 +56,76 @@ describe("FractalMemory upsertLeaf → LeafStore write-through", () => {
     const leaves = b.leaves();
     expect(leaves).toHaveLength(1);
     expect(leaves[0]).toMatchObject({ text: "language: ro", hit_count: 1, first_seen_at: 1000 });
+    expect(await b.rebuild()).toBe(true);
+    expect(b.treeLeafCount).toBe(1);
+    expect(b.treeView().leaves.map((l) => l.summary)).toContain("language: ro");
+  });
+
+  test("dedup writes the aggregated survivor back before removing absorbed rows", async () => {
+    const old = process.env.FERAL_MERGE_THRESHOLD;
+    process.env.FERAL_MERGE_THRESHOLD = "0.92";
+    try {
+      const fm = makeFm(storePath());
+      await fm.upsertLeaf({
+        text: "same fact old",
+        embedding: [1, 0, 0],
+        provenance: { source: "react", first_seen_at: 1, sessionId: "s1", ts: 10 },
+      });
+      await fm.upsertLeaf({
+        text: "same fact new",
+        embedding: [0.8, 0.6, 0],
+        provenance: { source: "react", first_seen_at: 1000, sessionId: "s2", ts: 2000 },
+      });
+      expect((await fm.dedup({ mergeThreshold: 0.7, spanThresholdMs: 100 })).groups).toBe(1);
+      expect(fm.leaves()).toHaveLength(1);
+      expect(fm.leaves()[0]).toMatchObject({ hit_count: 2, last_seen_at: 2000 });
+    } finally {
+      if (old === undefined) delete process.env.FERAL_MERGE_THRESHOLD;
+      else process.env.FERAL_MERGE_THRESHOLD = old;
+    }
+  });
+
+  test("restart migrates legacy id collisions and writes embeddings to each owning store", async () => {
+    const path = storePath();
+    const store = new LeafStore(path);
+    store.upsert({
+      id: 1,
+      text: "reactive fact",
+      vec: [],
+      ts: 2,
+      sessionId: "reactive-session",
+      provenance: { source: "react", first_seen_at: 2, last_seen_at: 2, hit_count: 1 },
+    });
+    const episodic = [{
+      id: 1,
+      text: "episodic event",
+      vec: new Float32Array(0),
+      ts: 1,
+      sessionId: "episodic-session",
+    }];
+    const episodicWrites: { id: number; vec: Float32Array }[] = [];
+    const fm = new FractalMemory({
+      loadLeaves: () => episodic,
+      embed: identityEmbed,
+      summarize: noopSummarize,
+      ftsSearch: silentFts,
+      fallback: noopFallback,
+      treePath: join(dir, "tree.json"),
+      leafStorePath: path,
+      minLeaves: 2,
+      persistEmbeddings: (rows) => episodicWrites.push(...rows),
+    });
+
+    fm.init();
+    expect(fm.leaves()[0]?.id).toBe(2);
+    expect(await fm.rebuild()).toBe(true);
+    expect(fm.treeLeafCount).toBe(2);
+    expect(episodicWrites.map((row) => row.id)).toEqual([1]);
+
+    const reloaded = new LeafStore(path);
+    reloaded.load();
+    expect(reloaded.all()[0]).toMatchObject({ id: 2 });
+    expect(reloaded.all()[0]!.vec).toHaveLength(3);
   });
 
   test("merge bumps hit_count + last_seen_at in the store", async () => {

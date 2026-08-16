@@ -14,6 +14,7 @@
  * we truncate so the tree builder never blows the prompt budget.
  */
 import type { InferenceRouter } from "../../egress/inference-router.ts";
+import type { InferenceSpendAuthority } from "../../egress/inference-spend-authority.ts";
 import { stripThinking } from "../../core/agent-loop.ts";
 
 /**
@@ -108,7 +109,12 @@ export async function summarizeCluster(
  * abort). `cachePrompt: false` because every call's items are different
  * (no stable prefix worth caching).
  */
-export function routerInfer(router: InferenceRouter): InferFn {
+export interface RouterInferScope {
+  spendAuthority?: InferenceSpendAuthority;
+  signal?: AbortSignal;
+}
+
+export function routerInfer(router: InferenceRouter, scope: RouterInferScope = {}): InferFn {
   return async (prompt) => {
     if (!router.isPrimaryLocal) {
       // ponytail: warn each call; deduplicate in logs if noise — local-first means users should know
@@ -124,6 +130,8 @@ export function routerInfer(router: InferenceRouter): InferFn {
       maxTokens: GEN_MAX_TOKENS,
       temperature: 0.1,
       cachePrompt: false,
+      ...(scope.spendAuthority ? { spendAuthority: scope.spendAuthority } : {}),
+      ...(scope.signal ? { signal: scope.signal } : {}),
     });
     // Reasoning models wrap their answer in `<think>…</think>` (often the
     // whole budget). Strip it so callers get the actual question/summary, not
@@ -141,7 +149,6 @@ export function routerInfer(router: InferenceRouter): InferFn {
  */
 export function summarizeFromRouter(
   router: InferenceRouter,
-): (items: string[]) => Promise<string> {
-  const infer = routerInfer(router);
-  return (items) => summarizeCluster(items, infer);
+): (items: string[], scope?: RouterInferScope) => Promise<string> {
+  return (items, scope) => summarizeCluster(items, routerInfer(router, scope));
 }

@@ -12,8 +12,12 @@
 import { describe, it, expect } from "bun:test";
 import {
   summarizeCluster,
+  routerInfer,
   type InferFn,
 } from "../src/memory/fractal/summarize.ts";
+import { InferenceSpendAuthority } from "../src/egress/inference-spend-authority.ts";
+import type { InferenceRouter } from "../src/egress/inference-router.ts";
+import type { InferenceRequest } from "../src/types.ts";
 
 /** Helper: a deterministic mock `InferFn` that records the prompt it received. */
 function mockInfer(respond: (prompt: string) => string): InferFn & {
@@ -95,5 +99,26 @@ describe("summarizeCluster — empty input", () => {
     const inf = mockInfer(() => "should not be called");
     await expect(summarizeCluster([], inf)).rejects.toThrow(/empty/i);
     expect(inf.prompts).toHaveLength(0);
+  });
+});
+
+describe("routerInfer — autonomous scope", () => {
+  it("threads the rebuild spend authority and cancellation signal to the router", async () => {
+    let request: InferenceRequest | undefined;
+    const router = {
+      isPrimaryLocal: true,
+      currentModel: { provider: "local", model: "local", baseUrl: "http://127.0.0.1:11435" },
+      complete: async (req: InferenceRequest) => {
+        request = req;
+        return { content: "summary", totalTokens: 1, promptTokens: 1, completionTokens: 0, model: "local", usedFallback: false };
+      },
+    } as unknown as InferenceRouter;
+    const authority = new InferenceSpendAuthority({ maxCostUsd: 0, pricePer1kUsd: () => null });
+    const controller = new AbortController();
+
+    await routerInfer(router, { spendAuthority: authority, signal: controller.signal })("prompt");
+
+    expect(request?.spendAuthority).toBe(authority);
+    expect(request?.signal).toBe(controller.signal);
   });
 });

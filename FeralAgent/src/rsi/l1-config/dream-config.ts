@@ -80,6 +80,15 @@ export interface DreamGateDecision {
   reason: string;
 }
 
+export interface AutonomousInferenceGateInput {
+  /** Explicit environment knob authorizing cloud use for this subsystem. */
+  allowCloudEnv: string;
+  /** Every route the router may use for one request (primary + fallback). */
+  targets: Array<{ model: string; baseUrl: string; pricePer1kUsd: number | null }>;
+  /** Explicit maximum USD authorized for this autonomous scope. */
+  maxCostUsd?: number;
+}
+
 /** Local env-parsing helpers — copied verbatim from `episode-options.ts`
  *  so the two files feel like siblings. `positive` accepts strictly
  *  positive finite numbers (0, negatives, NaN, Infinity, "" all fall
@@ -181,4 +190,48 @@ export function dreamCloudGate(
     reason:
       "cloud model — auto-dream disabled (set FERAL_RSI_ALLOW_CLOUD=true to allow)",
   };
+}
+
+/** Gate evaluated against the live router immediately before autonomous work.
+ * Any possible cloud route requires explicit opt-in and known pricing. */
+export function autonomousInferenceGate(
+  env: Record<string, string | undefined>,
+  input: AutonomousInferenceGateInput,
+): DreamGateDecision {
+  const cloud = input.targets.filter((target) => !isLoopback(target.baseUrl));
+  if (cloud.length === 0) {
+    return { enabled: true, reason: "all possible routes are local loopback" };
+  }
+  if (!truthy(env[input.allowCloudEnv])) {
+    return {
+      enabled: false,
+      reason: `cloud route present — autonomous inference disabled (set ${input.allowCloudEnv}=true to allow)`,
+    };
+  }
+  const unknown = cloud.find((target) => target.pricePer1kUsd === null);
+  if (unknown) {
+    return {
+      enabled: false,
+      reason: `cloud route ${unknown.model} has unknown price — autonomous inference denied`,
+    };
+  }
+  if (!(input.maxCostUsd !== undefined && Number.isFinite(input.maxCostUsd) && input.maxCostUsd > 0)) {
+    return {
+      enabled: false,
+      reason: "cloud route has no positive autonomous USD budget — inference denied",
+    };
+  }
+  return {
+    enabled: true,
+    reason: `cloud inference explicitly authorized by ${input.allowCloudEnv} with known pricing`,
+  };
+}
+
+function isLoopback(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname;
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  } catch {
+    return baseUrl === "";
+  }
 }

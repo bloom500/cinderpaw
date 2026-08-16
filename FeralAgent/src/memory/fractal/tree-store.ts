@@ -27,7 +27,7 @@ import type { TreeNode } from "./types.ts";
  * that makes an on-disk tree incompatible. Old trees then load as `null` and
  * are rebuilt.
  */
-export const TREE_STORE_VERSION = 1;
+export const TREE_STORE_VERSION = 2;
 
 /** JSON-safe mirror of `TreeNode` (centroid as plain `number[]`). */
 export interface SerializedNode {
@@ -46,6 +46,8 @@ export interface PersistedTree {
   builtAt: number;
   /** Number of distinct episodic leaves under the root (root.leafIds.length). */
   leafCount: number;
+  /** Exact identity of the capped canonical corpus used for this build. */
+  corpusFingerprint: string;
   tree: TreeNode;
 }
 
@@ -78,11 +80,12 @@ export function deserializeTree(node: SerializedNode): TreeNode {
  * Throws on I/O failure — callers that build trees should surface that;
  * read-side failures are the ones we swallow (see `loadTree`).
  */
-export function saveTree(path: string, tree: TreeNode): void {
+export function saveTree(path: string, tree: TreeNode, corpusFingerprint = ""): void {
   const envelope = {
     version: TREE_STORE_VERSION,
     builtAt: Date.now(),
     leafCount: tree.leafIds.length,
+    corpusFingerprint,
     tree: serializeTree(tree),
   };
   mkdirSync(dirname(path), { recursive: true });
@@ -118,12 +121,14 @@ export function loadTree(path: string): PersistedTree | null {
     version: number;
     builtAt?: number;
     leafCount?: number;
+    corpusFingerprint?: string;
     tree: SerializedNode;
   };
   return {
     version: env.version,
     builtAt: env.builtAt ?? 0,
     leafCount: env.leafCount ?? 0,
+    corpusFingerprint: env.corpusFingerprint ?? "",
     tree: deserializeTree(env.tree),
   };
 }

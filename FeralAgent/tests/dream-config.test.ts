@@ -26,6 +26,7 @@ import { describe, expect, test } from "bun:test";
 import {
   resolveDreamConfig,
   dreamCloudGate,
+  autonomousInferenceGate,
 } from "../src/rsi/l1-config/dream-config.ts";
 
 describe("resolveDreamConfig — defaults", () => {
@@ -549,5 +550,43 @@ describe("dreamCloudGate — cloud + not opted-in branch (the refusal)", () => {
       { isLoopback: false },
     );
     expect(refused.reason).not.toBe(optedIn.reason);
+  });
+});
+
+describe("autonomousInferenceGate — live route", () => {
+  test("re-evaluating after a local-to-cloud hot swap closes the gate", () => {
+    const local = autonomousInferenceGate({}, {
+      allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
+      targets: [{ model: "local", baseUrl: "http://127.0.0.1:11435", pricePer1kUsd: null }],
+    });
+    const cloud = autonomousInferenceGate({}, {
+      allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
+      targets: [{ model: "priced", baseUrl: "https://api.example.test", pricePer1kUsd: 0.01 }],
+    });
+    expect(local.enabled).toBe(true);
+    expect(cloud.enabled).toBe(false);
+  });
+
+  test("cloud opt-in still fails closed when any possible route has unknown pricing", () => {
+    const decision = autonomousInferenceGate({ FERAL_RSI_ALLOW_CLOUD: "true" }, {
+      allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
+      maxCostUsd: 1,
+      targets: [
+        { model: "priced", baseUrl: "https://api.example.test", pricePer1kUsd: 0.01 },
+        { model: "mystery", baseUrl: "https://fallback.example.test", pricePer1kUsd: null },
+      ],
+    });
+    expect(decision.enabled).toBe(false);
+    expect(decision.reason).toContain("unknown price");
+  });
+
+  test("cloud requires a positive explicit autonomous USD budget", () => {
+    const decision = autonomousInferenceGate({ FERAL_RSI_ALLOW_CLOUD: "true" }, {
+      allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
+      maxCostUsd: 0,
+      targets: [{ model: "priced", baseUrl: "https://api.example.test", pricePer1kUsd: 0.01 }],
+    });
+    expect(decision.enabled).toBe(false);
+    expect(decision.reason).toContain("USD budget");
   });
 });

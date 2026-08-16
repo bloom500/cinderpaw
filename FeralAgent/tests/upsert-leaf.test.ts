@@ -123,14 +123,28 @@ describe("FractalMemory.upsertLeaf", () => {
     expect(result.kind).toBe("grow");
     expect(activities).toHaveLength(1);
     expect(activities[0]?.kind).toBe("grow");
-    // Embedding was persisted with the leaf id returned.
-    if (result.kind === "grow") {
-      expect(persisted.find((p) => p.id === result.leafId)).toBeDefined();
-    }
+    // Reactive embeddings belong to LeafStore, never the episodic SQLite row
+    // writer (numeric ids may overlap across those stores).
+    expect(persisted).toHaveLength(0);
     // The new leaf is in the pending set (next rebuild picks it up).
     const pending = fm.pendingLeaves();
     expect(pending).toHaveLength(1);
     expect(pending[0]?.text).toBe("language: ro");
+  });
+
+  test("allocates a reactive id that cannot collide with episodic rows even before a tree exists", async () => {
+    const persisted: { id: number; vec: Float32Array }[] = [];
+    const { fm } = makeMemory({
+      leaves: [{ id: 1, text: "episodic", vec: vec([1, 0, 0]), ts: 1, sessionId: "s0" }],
+      persistEmbeddings: (rows) => persisted.push(...rows),
+    });
+    const result = await fm.upsertLeaf({
+      text: "reactive",
+      embedding: [0, 1, 0],
+      provenance: { source: "react", first_seen_at: 2, sessionId: "s1", ts: 2 },
+    });
+    expect(result).toEqual({ kind: "grow", leafId: 2 });
+    expect(persisted).toHaveLength(0);
   });
 
   test("merges (no new leaf) when cosine >= MERGE_THRESHOLD", async () => {

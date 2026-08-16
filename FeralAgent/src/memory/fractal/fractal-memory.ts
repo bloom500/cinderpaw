@@ -42,6 +42,7 @@ import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
 import { LeafStore, type LeafSummary } from "./leaf-store.ts";
 import type { EvictionPolicy } from "./eviction.ts";
+import type { RouterInferScope } from "./summarize.ts";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -95,7 +96,7 @@ export interface FractalMemoryDeps {
   /** Embedder (production wires the bridge → Rust; tests pass a fake). */
   embed: EmbedInvoker;
   /** Cluster summarizer (production binds the InferenceRouter). */
-  summarize: (items: string[]) => Promise<string>;
+  summarize: (items: string[], scope?: RouterInferScope) => Promise<string>;
   /** FTS5 exact-match search (production passes `episodic.search`). */
   ftsSearch: FtsSearch;
   /** The legacy recall path — always available, used whenever fractal can't. */
@@ -173,7 +174,7 @@ export function buildGrowActivity(tree: {
 export class FractalMemory {
   readonly #loadLeaves: () => Leaf[];
   readonly #embed: EmbedInvoker;
-  readonly #summarize: (items: string[]) => Promise<string>;
+  readonly #summarize: (items: string[], scope?: RouterInferScope) => Promise<string>;
   readonly #ftsSearch: FtsSearch;
   readonly #fallback: RecallFallback;
   readonly #treePath: string;
@@ -190,6 +191,7 @@ export class FractalMemory {
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
+  #treeCorpusFingerprint: string | null = null;
   /** Shared promise while a rebuild is in flight; dedupes concurrent callers. */
   #rebuildInFlight: Promise<boolean> | null = null;
 
@@ -218,11 +220,21 @@ export class FractalMemory {
    * comparison would be meaningless.
    */
   #cappedLeaves(): Leaf[] {
-    const all = this.#loadLeaves();
+    const all = this.#canonicalLeaves();
     if (this.#maxLeaves && all.length > this.#maxLeaves) {
       return all.slice(0, this.#maxLeaves);
     }
     return all;
+  }
+
+  /** One corpus for build, recall metadata, staleness and benchmarking. */
+  #canonicalLeaves(): Leaf[] {
+    const episodic = this.#loadLeaves();
+    const taken = new Set(episodic.map((leaf) => leaf.id));
+    const reactive = this.#leafStore.all()
+      .filter((rec) => !taken.has(rec.id))
+      .map(recordToLeaf);
+    return [...episodic, ...reactive];
   }
 
   /** Emit an organism pulse; a throwing/absent sink is never fatal. */
@@ -257,10 +269,18 @@ export class FractalMemory {
     if (loaded.loaded > 0 || loaded.skipped > 0) {
       this.#log?.(`fractal: loaded ${loaded.loaded} reactive leaf(s) from store (${loaded.skipped} skipped)`);
     }
+    this.#migrateReactiveIdCollisions();
+    this.#hydrateReactiveState();
     const persisted = loadTree(this.#treePath);
     if (!persisted) return false;
     try {
+      const fingerprint = corpusFingerprint(this.#cappedLeaves());
+      if (persisted.corpusFingerprint !== fingerprint) {
+        this.#log?.("fractal: persisted tree corpus changed; forcing rebuild");
+        return false;
+      }
       this.#tree = persisted.tree;
+      this.#treeCorpusFingerprint = fingerprint;
       this.#leavesById = this.#mapLeaves();
       this.#log?.(`fractal: loaded tree (${persisted.leafCount} leaves) from disk`);
       return true;
@@ -278,7 +298,7 @@ export class FractalMemory {
    * below `minLeaves`, or an embedding failure (no model yet), just returns
    * false and leaves the previous tree (and the fallback) untouched.
    */
-  async rebuild(): Promise<boolean> {
+  async rebuild(scope: RouterInferScope = {}): Promise<boolean> {
     // Concurrency guard: the facade is rebuilt from several places (startup,
     // the bench env path, the bench IPC handler, the Settings button). Without
     // this latch they raced into parallel `buildTree` runs over the same
@@ -289,13 +309,13 @@ export class FractalMemory {
       this.#log?.("fractal: rebuild already in flight — joining existing build");
       return this.#rebuildInFlight;
     }
-    this.#rebuildInFlight = this.#doRebuild().finally(() => {
+    this.#rebuildInFlight = this.#doRebuild(scope).finally(() => {
       this.#rebuildInFlight = null;
     });
     return this.#rebuildInFlight;
   }
 
-  async #doRebuild(): Promise<boolean> {
+  async #doRebuild(scope: RouterInferScope): Promise<boolean> {
     let leaves = this.#cappedLeaves();
     if (leaves.length < this.#minLeaves) {
       this.#log?.(`fractal: ${leaves.length} leaves < min ${this.#minLeaves}; using FTS5 only`);
@@ -314,7 +334,7 @@ export class FractalMemory {
         const probe = await this.#embed(["dimension probe"]);
         const currentDim = probe[0]?.length ?? 0;
         if (currentDim > 0 && currentDim !== storedDim) {
-          const cleared = this.#clearEmbeddings();
+          const cleared = this.#clearEmbeddings() + this.#leafStore.clearEmbeddings();
           this.#log?.(
             `fractal: embedding dimension changed (${storedDim} → ${currentDim}); ` +
               `cleared ${cleared} stale vector(s), re-embedding the corpus from scratch`,
@@ -333,21 +353,22 @@ export class FractalMemory {
     try {
       tree = await buildTree(leaves, {
         embed: this.#embed,
-        summarize: this.#summarize,
-        persistEmbeddings: (rows) => this.#persistEmbeddings?.(rows),
+        summarize: (items) => this.#summarize(items, scope),
+        persistEmbeddings: (rows) => this.#persistOwnedEmbeddings(rows),
       });
     } catch (e) {
       this.#log?.(`fractal: tree build failed (embeddings unavailable?): ${String(e)}`);
       return false;
     }
     try {
-      saveTree(this.#treePath, tree);
+      saveTree(this.#treePath, tree, corpusFingerprint(leaves));
     } catch (e) {
       // Persistence failure is non-fatal: serve the in-memory tree anyway, it
       // just won't survive a restart.
       this.#log?.(`fractal: tree persist failed (serving in-memory): ${String(e)}`);
     }
     this.#tree = tree;
+    this.#treeCorpusFingerprint = corpusFingerprint(leaves);
     this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
@@ -360,16 +381,14 @@ export class FractalMemory {
    * `growthRatio`× the tree's current coverage. Avoids re-paying the (cloud)
    * summary cost on every boot when the loaded tree is already fresh.
    */
-  async rebuildIfStale(growthRatio = 1.2): Promise<boolean> {
-    const covered = this.treeLeafCount;
-    if (covered > 0) {
-      const corpus = this.#cappedLeaves().length;
-      if (corpus < covered * growthRatio) {
-        this.#log?.(`fractal: tree fresh (${covered} covered, ${corpus} corpus); skip rebuild`);
-        return false;
-      }
+  async rebuildIfStale(_growthRatio = 1.2, scope: RouterInferScope = {}): Promise<boolean> {
+    const leaves = this.#cappedLeaves();
+    const currentFingerprint = corpusFingerprint(leaves);
+    if (this.#tree && this.#treeCorpusFingerprint === currentFingerprint) {
+      this.#log?.(`fractal: tree fresh (${this.treeLeafCount} covered, ${leaves.length} corpus); skip rebuild`);
+      return false;
     }
-    return this.rebuild();
+    return this.rebuild(scope);
   }
 
   /**
@@ -670,6 +689,19 @@ export class FractalMemory {
       now: Date.now(),
     });
     if (groups.length === 0) return { groups: 0 };
+    for (const group of groups) {
+      const record = records.find((r) => r.id === group.survivor.id);
+      if (!record) continue;
+      this.#leafStore.upsert({
+        ...record,
+        provenance: {
+          ...record.provenance,
+          first_seen_at: group.survivor.first_seen_at,
+          last_seen_at: group.survivor.last_seen_at,
+          hit_count: group.survivor.hit_count,
+        },
+      });
+    }
     const absorbedIds = groups.flatMap((g) => g.absorbed.map((l) => l.id));
     this.#leafStore.remove(absorbedIds);
     for (const id of absorbedIds) {
@@ -800,13 +832,6 @@ export class FractalMemory {
       },
     });
 
-    // Persist the embedding so the next rebuild can skip the embed roundtrip.
-    try {
-      this.#persistEmbeddings?.([{ id: newId, vec: embeddingVec }]);
-    } catch (e) {
-      this.#log?.(`fractal: persistEmbeddings failed (idempotent retry on next call): ${String(e)}`);
-    }
-
     this.#mutationSeq++;
     this.#emit({
       kind: "grow",
@@ -883,9 +908,48 @@ export class FractalMemory {
     const taken = new Set<number>();
     for (const id of this.#pendingLeaves.keys()) taken.add(id);
     if (this.#leavesById) for (const id of this.#leavesById.keys()) taken.add(id);
+    for (const leaf of this.#loadLeaves()) taken.add(leaf.id);
+    for (const record of this.#leafStore.all()) taken.add(record.id);
     let candidate = 1;
     while (taken.has(candidate)) candidate++;
     return candidate;
+  }
+
+  /** Move legacy reactive rows away from episodic numeric ids. */
+  #migrateReactiveIdCollisions(): void {
+    const episodicIds = new Set(this.#loadLeaves().map((leaf) => leaf.id));
+    const reactiveIds = new Set(this.#leafStore.all().map((rec) => rec.id));
+    const taken = new Set([...episodicIds, ...reactiveIds]);
+    for (const rec of this.#leafStore.all()) {
+      if (!episodicIds.has(rec.id)) continue;
+      let next = 1;
+      while (taken.has(next)) next++;
+      taken.add(next);
+      this.#leafStore.remove([rec.id]);
+      this.#leafStore.upsert({ ...rec, id: next });
+      this.#log?.(`fractal: migrated reactive leaf id ${rec.id} -> ${next} (episodic collision)`);
+    }
+  }
+
+  /** Restore the in-memory reactive index from its durable owner store. */
+  #hydrateReactiveState(): void {
+    this.#pendingLeaves.clear();
+    this.#provenance.clear();
+    this.#provenanceKeys.clear();
+    for (const rec of this.#leafStore.all()) {
+      this.#pendingLeaves.set(rec.id, recordToLeaf(rec));
+      this.#provenance.set(rec.id, { ...rec.provenance });
+      this.#provenanceKeys.add(provenanceKey(rec.text, rec.provenance.first_seen_at));
+    }
+  }
+
+  /** Route embedding write-back to the row's real owner. */
+  #persistOwnedEmbeddings(rows: { id: number; vec: Float32Array }[]): void {
+    const reactiveIds = new Set(this.#leafStore.all().map((rec) => rec.id));
+    const reactive = rows.filter((row) => reactiveIds.has(row.id));
+    const episodic = rows.filter((row) => !reactiveIds.has(row.id));
+    this.#leafStore.setEmbeddings(reactive);
+    if (episodic.length > 0) this.#persistEmbeddings?.(episodic);
   }
 }
 
@@ -897,6 +961,29 @@ interface LeafProvenance {
   source: string;
   key?: string;
   value?: string;
+}
+
+function recordToLeaf(rec: import("./leaf-store.ts").LeafRecord): Leaf {
+  return {
+    id: rec.id,
+    text: rec.text,
+    vec: new Float32Array(rec.vec),
+    ts: rec.ts,
+    sessionId: rec.sessionId,
+  };
+}
+
+/** FNV-1a over identity-bearing fields; vectors are derived and excluded. */
+function corpusFingerprint(leaves: Leaf[]): string {
+  let h = 0x811c9dc5;
+  const canonical = leaves
+    .map((leaf) => `${leaf.id}\u0000${leaf.ts}\u0000${leaf.sessionId}\u0000${leaf.text}`)
+    .join("\u0001");
+  for (let i = 0; i < canonical.length; i++) {
+    h ^= canonical.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${leaves.length}:${h.toString(16)}`;
 }
 
 /** Compute the dedup key for a leaf insertion. Stable across runs. */

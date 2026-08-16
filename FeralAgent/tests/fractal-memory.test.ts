@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { FractalMemory, type RecallFallback } from "../src/memory/fractal/fractal-memory.ts";
 import type { Leaf } from "../src/memory/fractal/types.ts";
 import type { EpisodicEvent } from "../../src/types.ts";
+import { InferenceSpendAuthority } from "../src/egress/inference-spend-authority.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -84,6 +85,29 @@ describe("FractalMemory — fallback when no tree", () => {
 });
 
 describe("FractalMemory — rebuild + semantic serve", () => {
+  it("threads one autonomous spend scope through every cluster summary", async () => {
+    const authority = new InferenceSpendAuthority({ maxCostUsd: 0, pricePer1kUsd: () => null });
+    const controller = new AbortController();
+    const scopes: unknown[] = [];
+    const fm = new FractalMemory({
+      loadLeaves: leaves,
+      embed: fakeEmbed(),
+      summarize: async (items, scope) => {
+        scopes.push(scope);
+        return `summary(${items.length})`;
+      },
+      ftsSearch: noFts,
+      fallback,
+      treePath: treePath(),
+    });
+    expect(await fm.rebuild({ spendAuthority: authority, signal: controller.signal })).toBe(true);
+    expect(scopes.length).toBeGreaterThan(0);
+    expect(scopes.every((scope) => (
+      (scope as { spendAuthority?: unknown }).spendAuthority === authority &&
+      (scope as { signal?: unknown }).signal === controller.signal
+    ))).toBe(true);
+  });
+
   it("rebuild builds a tree and recall then uses the semantic path", async () => {
     const fm = new FractalMemory({
       loadLeaves: leaves,
@@ -146,6 +170,18 @@ describe("FractalMemory — rebuild + semantic serve", () => {
     expect(await fm.rebuildIfStale()).toBe(true); // grown → rebuild
   });
 
+  it("rebuildIfStale rebuilds after a live corpus shrink", async () => {
+    let current = leaves();
+    const fm = new FractalMemory({
+      loadLeaves: () => current, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(), minLeaves: 1,
+    });
+    expect(await fm.rebuild()).toBe(true);
+    current = current.slice(0, 8);
+    expect(await fm.rebuildIfStale()).toBe(true);
+    expect(fm.treeLeafCount).toBe(8);
+  });
+
   it("a persisted tree is adopted by a fresh instance via init()", async () => {
     const path = treePath();
     const a = new FractalMemory({
@@ -160,6 +196,36 @@ describe("FractalMemory — rebuild + semantic serve", () => {
     });
     expect(b.init()).toBe(true);
     expect(b.hasTree).toBe(true);
+  });
+
+  it("rejects a persisted tree when the canonical corpus shrank", async () => {
+    const path = treePath();
+    const a = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: path,
+    });
+    expect(await a.rebuild()).toBe(true);
+    const b = new FractalMemory({
+      loadLeaves: () => leaves().slice(0, 8), embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: path,
+    });
+    expect(b.init()).toBe(false);
+    expect(b.hasTree).toBe(false);
+  });
+
+  it("rejects a persisted tree when corpus membership changes at the same count", async () => {
+    const path = treePath();
+    const a = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: path,
+    });
+    expect(await a.rebuild()).toBe(true);
+    const changed = leaves().map((l, i) => i === 0 ? { ...l, text: "replacement s-a" } : l);
+    const b = new FractalMemory({
+      loadLeaves: () => changed, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: path,
+    });
+    expect(b.init()).toBe(false);
   });
 });
 

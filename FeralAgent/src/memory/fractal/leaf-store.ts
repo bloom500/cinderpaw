@@ -94,6 +94,33 @@ export class LeafStore {
     this.#persist();
   }
 
+  /** Insert/replace several records with one atomic rewrite. */
+  upsertMany(records: LeafRecord[]): void {
+    if (records.length === 0) return;
+    for (const rec of records) this.#records.set(rec.id, rec);
+    this.#persist();
+  }
+
+  /** Replace stored vectors while retaining owner/provenance metadata. */
+  setEmbeddings(rows: { id: number; vec: Float32Array }[]): number {
+    const changed: LeafRecord[] = [];
+    for (const row of rows) {
+      const rec = this.#records.get(row.id);
+      if (rec) changed.push({ ...rec, vec: Array.from(row.vec) });
+    }
+    this.upsertMany(changed);
+    return changed.length;
+  }
+
+  /** Clear reactive vectors during an embedding-model migration. */
+  clearEmbeddings(): number {
+    const changed = this.all()
+      .filter((rec) => rec.vec.length > 0)
+      .map((rec) => ({ ...rec, vec: [] }));
+    this.upsertMany(changed);
+    return changed.length;
+  }
+
   /** Drop the given ids and persist (only when something changed). */
   remove(ids: number[]): void {
     let changed = false;

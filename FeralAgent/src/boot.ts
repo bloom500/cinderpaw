@@ -19,6 +19,7 @@ import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
+import { InferenceSpendAuthority } from "./egress/inference-spend-authority.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
 import { SemanticMemory, memoryScope } from "./memory/semantic.ts";
@@ -109,7 +110,8 @@ import { shouldAutostartPassive, isPlaceholderModel } from "./rsi/l1-config/pass
 import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
 import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
-import { resolveDreamConfig, dreamCloudGate } from "./rsi/l1-config/dream-config.ts";
+import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
+import { knownPricePer1kUsd } from "./rsi/infra/rsi-cost.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -1490,13 +1492,38 @@ export async function boot(transportOverride?: Transport) {
   }).catch((e) => {
     log(`migration: unexpected error: ${String(e)}`);
   });
+  const liveAutonomousTargets = () => {
+    const targets = [router.currentModel, router.currentFallback].filter(
+      (target): target is NonNullable<typeof target> => target !== null,
+    );
+    return targets.map((target) => ({
+      ...target,
+      pricePer1kUsd: knownPricePer1kUsd(target.model, false),
+    }));
+  };
+
   // RAPTOR tree build, in the background now that embed() can reach Rust.
   // `rebuildIfStale` is a no-op when init() already loaded a fresh tree from
   // disk, so we don't re-pay the (cloud) summary cost on every boot — it only
   // builds on first run or after the corpus grows materially.
-  void fractalMemory
-    .rebuildIfStale()
-    .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
+  const fmsAutoCostRaw = Number(process.env.FERAL_FMS_AUTO_REBUILD_MAX_COST_USD ?? "0");
+  const fmsAutoCostUsd = Number.isFinite(fmsAutoCostRaw) && fmsAutoCostRaw >= 0 ? fmsAutoCostRaw : 0;
+  const fmsAutoGate = autonomousInferenceGate(process.env, {
+    allowCloudEnv: "FERAL_FMS_ALLOW_CLOUD",
+    maxCostUsd: fmsAutoCostUsd,
+    targets: liveAutonomousTargets(),
+  });
+  if (!fmsAutoGate.enabled) {
+    log(`fractal: initial auto-rebuild skipped (${fmsAutoGate.reason})`);
+  } else {
+    const authority = new InferenceSpendAuthority({
+      maxCostUsd: fmsAutoCostUsd,
+      pricePer1kUsd: (target) => knownPricePer1kUsd(target.model, false),
+    });
+    void fractalMemory
+      .rebuildIfStale(1.2, { spendAuthority: authority, signal: authority.signal })
+      .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
+  }
   // Dev-only benchmark gate (FERAL_RUN_FRACTAL_BENCH=1). Runs INSIDE the live
   // sidecar because embeddings only work here (the embed bridge needs Rust).
   // Builds the tree if needed, scores flat FTS5 vs the fractal hybrid on a
@@ -1599,7 +1626,14 @@ export async function boot(transportOverride?: Transport) {
     hasModel: async () => {
       try {
         const r = await rsiBridge.request<{ ready?: boolean }>("rsi_model_ready", {});
-        return r?.ready === true;
+        if (r?.ready !== true) return false;
+        const gate = autonomousInferenceGate(process.env, {
+          allowCloudEnv: "FERAL_RSI_ALLOW_CLOUD",
+          maxCostUsd: episodeOpts.maxTotalCostUsd,
+          targets: liveAutonomousTargets(),
+        });
+        if (!gate.enabled) log(`rsi dream: wake refused (${gate.reason})`);
+        return gate.enabled;
       } catch (err) {
         log(`dream: model-ready probe failed (${String(err)}) — treating as no model`);
         return false;
@@ -2074,29 +2108,14 @@ export async function boot(transportOverride?: Transport) {
     // Dream Cycle: arm the event-driven scheduler when a real model is
     // configured. Off when FERAL_RSI_PASSIVE=false or only a placeholder
     // model is present (avoids spinning on empty responses). On a cloud
-    // (non-loopback) endpoint, dreaming is additionally refused unless
-    // FERAL_RSI_ALLOW_CLOUD is explicitly set (anti-burn). `start()` only
-    // arms the trigger poll — it does NOT launch an episode immediately.
+    // `hasModel` re-evaluates the live primary/fallback, cloud opt-in, known
+    // pricing and USD cap on every wake. `start()` only arms the trigger poll.
     const decision = shouldAutostartPassive(process.env);
     if (!decision.enabled) {
       log(`rsi dream: not arming scheduler (${decision.reason})`);
     } else {
-      const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
-      let isLoopback = baseUrl === "";
-      try {
-        const h = new URL(baseUrl).hostname;
-        isLoopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
-      } catch {
-        // Unparseable/empty baseUrl → keep the `baseUrl === ""` default
-        // (empty means the in-process loopback default).
-      }
-      const gate = dreamCloudGate(process.env, { isLoopback });
-      if (!gate.enabled) {
-        log(`rsi dream: not arming scheduler (${gate.reason})`);
-      } else {
-        log(`rsi dream: arming event-driven scheduler (${decision.reason}; ${gate.reason})`);
-        dream?.start();
-      }
+      log(`rsi dream: arming event-driven scheduler (${decision.reason}; live spend gate runs on every wake)`);
+      dream?.start();
     }
   });
 
@@ -2143,4 +2162,3 @@ export async function boot(transportOverride?: Transport) {
 
 /** Everything dispatchMessage() needs from the boot sequence — see ctx above. */
 export type BootContext = Awaited<ReturnType<typeof boot>>;
-
