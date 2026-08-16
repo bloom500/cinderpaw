@@ -130,6 +130,29 @@ const DEFAULT_MODEL: &str = "gemini-2.5-flash-native-audio-latest";
 /// keyed by session would imply otherwise.
 pub type LiveCallSlot = Arc<Mutex<Option<mpsc::Sender<LiveCommand>>>>;
 
+/// Build a fresh Live session without optional provider-specific voice fields.
+///
+/// Some Live models accept `speechConfig` during setup and reject it only after
+/// the call has been running for several minutes.  Because setup completion
+/// cannot prove support, optional voice pinning must be explicitly enabled by a
+/// future capability check rather than optimistically sent on every provider.
+fn fresh_session_config(
+    api_key: String,
+    model: String,
+    voice: Option<String>,
+    system_instruction: Option<String>,
+) -> live::SessionConfig {
+    live::SessionConfig {
+        api_key,
+        model,
+        system_instruction,
+        tools: bridge::declarations(),
+        resume: None,
+        voice,
+        pin_voice: false,
+    }
+}
+
 /// Start a call. Returns once the model has accepted the session, so a caller
 /// that gets `Ok` can open the microphone immediately.
 ///
@@ -153,15 +176,12 @@ pub(crate) async fn start_live_call(
     // Everything the model gets to know, said once. The session is stateful, so
     // it is not re-sent per turn.
     let brief = live::Briefing { current_task, workspace, context };
-    let cfg = live::SessionConfig {
+    let cfg = fresh_session_config(
         api_key,
-        model: model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
-        system_instruction: Some(live::system_instruction(&brief)),
-        tools: bridge::declarations(),
-        resume: None,
+        model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
         voice,
-        pin_voice: true,
-    };
+        Some(live::system_instruction(&brief)),
+    );
     let handle = live::connect(cfg.clone()).await.map_err(|e| e.to_string())?;
 
     // Replacing a live slot ends the previous call: dropping its sender closes
@@ -869,6 +889,27 @@ pub(crate) async fn end_live_call(state: State<'_, AppState>) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_sessions_do_not_send_optional_voice_configuration() {
+        for model in [
+            "gemini-2.5-flash-native-audio-latest",
+            "gemini-3.1-flash-live-preview",
+            "future-provider-live-model",
+        ] {
+            let cfg = fresh_session_config(
+                "test-key".to_string(),
+                model.to_string(),
+                Some("Puck".to_string()),
+                None,
+            );
+
+            assert!(
+                !cfg.pin_voice,
+                "optional voice configuration must be opt-in for {model}"
+            );
+        }
+    }
 
     /// The bug this pins is not "does the string match" — it is that the close
     /// carrying this sentence arrives with NO resumption handle, and every
