@@ -38,6 +38,7 @@ import {
   zeroSpend,
   DEFAULT_BUDGET_CAPS,
   type BudgetCaps,
+  type CycleBudgetLedger,
   type BudgetSpend,
   type PhaseEstimate,
 } from "./budget.ts";
@@ -65,6 +66,8 @@ export interface ContractDepsOptions {
     result: StageResult,
     elapsedMs: number,
   ) => BudgetSpend;
+  /** Cycle-owned ledger shared by all candidate contracts in that cycle. */
+  budgetLedger?: CycleBudgetLedger;
 }
 
 /**
@@ -91,6 +94,7 @@ export function contractDepsFrom(
     monitoring: stageMonitoring(stage),
 
     estimateBudget: opts.estimateStage ?? (() => null),
+    ...(opts.budgetLedger ? { budgetLedger: opts.budgetLedger } : {}),
 
     // I5 — per-phase precheck against the runner's accumulated ledger.
     assertBudget: (phase, spent, estimate) => assertCanSpend(caps, spent, phase, estimate),

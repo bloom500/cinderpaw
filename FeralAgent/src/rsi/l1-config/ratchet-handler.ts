@@ -29,7 +29,7 @@ import {
   type CandidateContext,
   type CandidateRun,
 } from "../infra/contract-leaves.ts";
-import { DEFAULT_BUDGET_CAPS, zeroSpend } from "../infra/budget.ts";
+import { CycleBudgetLedger, DEFAULT_BUDGET_CAPS, zeroSpend, type BudgetCaps } from "../infra/budget.ts";
 
 // Re-exported from their new home so existing importers/tests keep working.
 export { tier0FloorBreach, buildPairedSamples } from "../infra/contract-leaves.ts";
@@ -71,6 +71,8 @@ export interface RatchetDeps {
    *  Optional: absent → `userSatisfaction` stays the neutral 0.5. Observed
    *  + journaled only — never an input to the promotion decision. */
   readRecentAudit?: () => import("../l2-adapt/personal-fitness.ts").AuditEntryLike[];
+  /** The same cycle caps enforced by GoalMode for this episode. */
+  budgetCaps?: BudgetCaps;
 }
 
 export class RatchetHandler {
@@ -93,6 +95,7 @@ export class RatchetHandler {
    *  bypasses the gate. Not persisted across restarts in v1 — a fresh
    *  process re-bootstraps its baseline on the first ratchet. */
   private lastChampionOutcomes?: readonly EvalOutcome[];
+  private readonly cycleLedgers = new Map<string, CycleBudgetLedger>();
 
   private async onEvalComplete(event: RsiEvent): Promise<void> {
     if (event.errored === true) return; // never ratchet a crashed eval
@@ -101,6 +104,16 @@ export class RatchetHandler {
     const score = event.score as number;
     const outcomes = event.outcomes as EvalOutcome[] | undefined;
     const tokenCost = (event.tokenCost as number) ?? 0;
+    const cycleId = this.deps.cycleId?.() ?? "c-live";
+    let budgetLedger = this.cycleLedgers.get(cycleId);
+    if (!budgetLedger) {
+      budgetLedger = new CycleBudgetLedger(this.deps.budgetCaps ?? DEFAULT_BUDGET_CAPS);
+      this.cycleLedgers.set(cycleId, budgetLedger);
+      if (this.cycleLedgers.size > 8) {
+        const oldest = this.cycleLedgers.keys().next().value;
+        if (oldest !== undefined) this.cycleLedgers.delete(oldest);
+      }
+    }
 
     const ctx: CandidateContext = {
       genomeId,
@@ -125,26 +138,28 @@ export class RatchetHandler {
     };
 
     const run: CandidateRun = {};
+    budgetLedger.charge({
+      ...zeroSpend(),
+      tokens: ctx.tokenCost,
+      wallClockMin: ctx.durationMs / 60_000,
+    });
     const contractDeps = contractDepsFrom(contractLeavesFromRatchet(this.deps, ctx, run), {
       evaluateConfidence: gateForCandidate(this.deps, ctx),
+      budgetLedger,
       estimateStage: (stage) =>
         stage === "sandbox_apply" || stage === "deploy"
           ? { wallClockMin: 0.5 }
-          : {},
+          : { unmetered: true },
       ...(this.deps.journalPath ? { journalPath: this.deps.journalPath } : {}),
     });
 
     const final = await runContract(
       makeInitialState({
-        cycleId: this.deps.cycleId?.() ?? "c-live",
+        cycleId,
         candidateId: genomeId,
         layer: "L1", // Configuration Evolution (BRSI §5) — config-RSI candidates
-        budgetCaps: DEFAULT_BUDGET_CAPS,
-        initialSpend: {
-          ...zeroSpend(),
-          tokens: ctx.tokenCost,
-          wallClockMin: ctx.durationMs / 60_000,
-        },
+        budgetCaps: budgetLedger.caps,
+        initialSpend: budgetLedger.spent,
       }),
       contractDeps,
     );

@@ -190,7 +190,7 @@ export async function runCodeCandidate(args: CodeCandidateArgs): Promise<CodeCan
       if (["static_analysis", "benchmark", "safety_checks", "deploy"].includes(stage)) {
         return { wallClockMin: 0.5 };
       }
-      return {};
+      return { unmetered: true };
     },
     ...(args.journalPath ? { journalPath: args.journalPath } : {}),
   });

@@ -33,6 +33,7 @@
 import type {
   BudgetDecision,
   BudgetSpend,
+  CycleBudgetLedger,
   CyclePhase,
   PhaseEstimate,
 } from "./budget.ts";
@@ -168,6 +169,8 @@ export interface ContractDeps {
   estimateBudget: (stage: ContractStage, state: ContractState) => PhaseEstimate | null;
   /** Budget assertion against the accumulated ledger, called before stage. */
   assertBudget: (phase: CyclePhase, spent: BudgetSpend, estimate: PhaseEstimate) => BudgetDecision;
+  /** Shared across every candidate carrying the same cycleId. */
+  budgetLedger?: CycleBudgetLedger;
   /** Actual resource delta recorded after the stage returns. */
   measureSpend: (
     stage: ContractStage,

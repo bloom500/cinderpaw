@@ -41,7 +41,7 @@ import {
   type StageFn,
   type StageResult,
 } from "./contract.ts";
-import { applySpend, remaining, type BudgetSpend, type CyclePhase } from "./budget.ts";
+import { CycleBudgetLedger, remaining, type BudgetSpend, type CyclePhase } from "./budget.ts";
 import type { PairedSample } from "./confidence.ts";
 import type {
   BudgetRemaining,
@@ -92,7 +92,8 @@ function handlerFor(deps: ContractDeps, stage: RunStage): StageFn {
  * fail a candidate).
  */
 export const runContract: RunContract = async (initial, deps) => {
-  let state = initial;
+  const ledger = deps.budgetLedger ?? new CycleBudgetLedger(initial.budgetCaps, initial.budgetSpent);
+  let state = { ...initial, budgetCaps: ledger.caps, budgetSpent: ledger.spent };
 
   for (const stage of STAGE_ORDER) {
     if (stage === "candidate_proposed") continue; // entry state, no handler
@@ -107,11 +108,21 @@ export const runContract: RunContract = async (initial, deps) => {
         stage: phase,
       });
     }
-    const budget = deps.assertBudget(phase, state.budgetSpent, estimate);
+    const budget = deps.assertBudget(phase, ledger.projectedSpend(), estimate);
     if (!budget.allow) {
+      state = { ...state, budgetSpent: ledger.spent };
       return terminal(state, deps, stage, {
         action: "halt",
         reason: budget.reason,
+        stage: phase,
+      });
+    }
+    const held = ledger.reserve(phase, estimate);
+    if (!held.decision.allow || !held.reservation) {
+      state = { ...state, budgetSpent: ledger.spent };
+      return terminal(state, deps, stage, {
+        action: "halt",
+        reason: held.decision.reason,
         stage: phase,
       });
     }
@@ -122,6 +133,7 @@ export const runContract: RunContract = async (initial, deps) => {
       const gate = deps.evaluateConfidence(benchmarkSamples(state));
       state = { ...state, confidence: gate, bootstrap: gate.bootstrap };
       if (!gate.accept) {
+        held.reservation.release();
         return terminal(state, deps, stage, {
           action: "reject",
           reason: gate.reason,
@@ -131,10 +143,17 @@ export const runContract: RunContract = async (initial, deps) => {
     }
 
     const stageStartedAt = Date.now();
-    const result = await handlerFor(deps, stage)(state);
+    let result: StageResult;
+    try {
+      result = await handlerFor(deps, stage)(state);
+    } catch (error) {
+      held.reservation.release();
+      throw error;
+    }
     const measured = deps.measureSpend(stage, state, result, Date.now() - stageStartedAt);
+    held.reservation.settle(measured);
     state = withHistory(state, stage, result);
-    state = { ...state, budgetSpent: applySpend(state.budgetSpent, measured) };
+    state = { ...state, budgetSpent: ledger.spent };
 
     if (!result.ok) {
       return terminal(state, deps, stage, verdictFor(result, phase));

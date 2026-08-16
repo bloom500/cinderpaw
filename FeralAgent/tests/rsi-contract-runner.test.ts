@@ -22,7 +22,7 @@ import {
   type ContractStage,
   type StageResult,
 } from "../src/rsi/infra/contract.ts";
-import { assertCanSpend, DEFAULT_BUDGET_CAPS, zeroSpend } from "../src/rsi/infra/budget.ts";
+import { assertCanSpend, CycleBudgetLedger, DEFAULT_BUDGET_CAPS, zeroSpend } from "../src/rsi/infra/budget.ts";
 import type { GateDecision, PairedSample } from "../src/rsi/infra/confidence.ts";
 import type { JournalEntry } from "../src/rsi/infra/journal.ts";
 import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/l1-config/fitness.ts";
@@ -61,7 +61,7 @@ function makeDeps(over: Partial<ContractDeps> = {}): { deps: ContractDeps; journ
     regression: stageFn("regression"),
     deploy: stageFn("deploy"),
     monitoring: stageFn("monitoring"),
-    estimateBudget: () => ({}),
+    estimateBudget: () => ({ unmetered: true }),
     assertBudget: () => ({ allow: true, breaches: [], reason: "within budget" }),
     measureSpend: () => zeroSpend(),
     evaluateConfidence: () => okGate,
@@ -131,6 +131,55 @@ describe("runContract — I5 budget precheck", () => {
     expect(CALLS).toEqual([]);
     expect(final.decided).toMatchObject({ action: "halt" });
     expect(final.decided?.reason).toContain("missing budget estimate");
+  });
+
+  test("an empty estimate is not treated as free work", async () => {
+    CALLS.length = 0;
+    const { deps } = makeDeps({ estimateBudget: () => ({}) });
+    const final = await runContract(freshState(), deps);
+    expect(CALLS).toEqual([]);
+    expect(final.decided).toMatchObject({ action: "halt" });
+    expect(final.decided?.reason).toContain("empty budget estimate");
+  });
+
+  test("one cycle ledger reserves and settles across candidate contracts", async () => {
+    const caps = { ...DEFAULT_BUDGET_CAPS, tokens: 15 };
+    const ledger = new CycleBudgetLedger(caps);
+    CALLS.length = 0;
+    const first = makeDeps({
+      budgetLedger: ledger,
+      estimateBudget: () => ({ tokens: 10 }),
+      measureSpend: () => ({ ...zeroSpend(), tokens: 10 }),
+      staticAnalysis: async () => ({
+        ok: false,
+        stage: "static_analysis",
+        reason: "candidate rejected",
+        halt: false,
+        recoverable: true,
+      }),
+    }).deps;
+    await runContract(
+      makeInitialState({ cycleId: "shared", candidateId: "a", layer: "L1", budgetCaps: caps }),
+      first,
+    );
+    expect(ledger.spent.tokens).toBe(10);
+
+    const secondCalls: string[] = [];
+    const second = makeDeps({
+      budgetLedger: ledger,
+      estimateBudget: () => ({ tokens: 6 }),
+      staticAnalysis: async () => {
+        secondCalls.push("ran");
+        return pass("static_analysis");
+      },
+    }).deps;
+    const final = await runContract(
+      makeInitialState({ cycleId: "shared", candidateId: "b", layer: "L1", budgetCaps: caps }),
+      second,
+    );
+    expect(secondCalls).toEqual([]);
+    expect(final.decided).toMatchObject({ action: "halt" });
+    expect(final.budgetSpent.tokens).toBe(10);
   });
 });
 

@@ -66,7 +66,7 @@ afterEach(() => {
 describe("contractDepsFrom — end-to-end seam", () => {
   test("happy path accepts and writes exactly one real Journal row", async () => {
     const path = tempJournalPath();
-    const deps = contractDepsFrom(fakeStageDeps(), { journalPath: () => path, estimateStage: () => ({}) });
+    const deps = contractDepsFrom(fakeStageDeps(), { journalPath: () => path, estimateStage: () => ({ unmetered: true }) });
 
     const final = await runContract(freshState(), deps);
 
@@ -85,7 +85,7 @@ describe("contractDepsFrom — end-to-end seam", () => {
   });
 
   test("evaluateConfidence delegates to the real gate (rejects too-few samples)", () => {
-    const deps = contractDepsFrom(fakeStageDeps(), { estimateStage: () => ({}) });
+    const deps = contractDepsFrom(fakeStageDeps(), { estimateStage: () => ({ unmetered: true }) });
     const decision = deps.evaluateConfidence([{ candidate: 1, baseline: 0 }]); // 1 < MIN_SAMPLES
     expect(decision.accept).toBe(false);
     expect(decision.reason).toContain("insufficient samples");
@@ -95,7 +95,7 @@ describe("contractDepsFrom — end-to-end seam", () => {
     const path = tempJournalPath();
     const deps = contractDepsFrom(fakeStageDeps(), {
       journalPath: () => path,
-      estimateStage: () => ({}),
+      estimateStage: () => ({ unmetered: true }),
       evaluateConfidence: () => ({
         accept: false,
         reason: "stubbed reject",

@@ -415,7 +415,7 @@ export class ModuleLifecycle {
       monitoring: ok,
       // This FSM only classifies evidence already collected by module-eval;
       // it performs no additional metered work.
-      estimateBudget: () => ({}),
+      estimateBudget: () => ({ unmetered: true }),
       assertBudget: () => ({ allow: true, breaches: [], reason: "l4 evidence classification is unmetered" }),
       measureSpend: () => zeroSpend(),
       evaluateConfidence: (samples) => evaluateGate(samples, thresholds),

@@ -114,4 +114,31 @@ describe("RSI ratchet handler", () => {
     expect(attempts).toBe(0);
     expect(advanced.length).toBe(0);
   });
+
+  test("candidates in one cycle share the evaluation token ledger", async () => {
+    const bus = new EventBus();
+    let commits = 0;
+    new RatchetHandler(bus, {
+      commitGenome: async () => {
+        commits += 1;
+        return { commitHash: "d".repeat(40) };
+      },
+      ratchetAttempt: async () => ({ advanced: false, previousBest: 0 }),
+      cycleId: () => "shared-cycle",
+      budgetCaps: {
+        wallClockMin: 30,
+        cpuPct: 50,
+        ramMb: 2048,
+        tokens: 1500,
+        energyKwh: 1,
+        diskMb: 5120,
+      },
+      journalPath,
+    });
+
+    await bus.emit({ type: "EvalComplete", genomeId: "a", score: 1, tokenCost: 1000, errored: false });
+    await bus.emit({ type: "EvalComplete", genomeId: "b", score: 2, tokenCost: 1000, errored: false });
+
+    expect(commits).toBe(1);
+  });
 });
