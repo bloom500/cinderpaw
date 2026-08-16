@@ -25,8 +25,10 @@ pub const SELF_SRC_DIR: &str = "self-src";
 
 /// Locate the bundled source tree under the host-supplied resource dirs:
 /// a directory containing `FeralAgent/package.json`. Tauri flattens
-/// `../` resource paths under `_up_/`, so we search a few levels deep
-/// instead of hardcoding the nesting.
+/// `../` resource paths under `_up_/`, so those two documented layouts are
+/// checked directly. Never recurse from a resource directory: in a Tauri dev
+/// run it can be `target/debug`, whose Cargo artifact tree contains thousands
+/// of directories and used to delay the sidecar spawn by minutes.
 ///
 /// Beyond the host-supplied dirs, two exe-relative locations are always
 /// probed so pure-CLI installs (no Tauri resource_dir) get code-RSI too:
@@ -43,25 +45,11 @@ pub fn find_bundled_src(search_dirs: &[PathBuf]) -> Option<PathBuf> {
 }
 
 fn find_in_dirs(search_dirs: &[PathBuf]) -> Option<PathBuf> {
-    fn probe(dir: &Path, depth: u8) -> Option<PathBuf> {
-        if dir.join("FeralAgent").join("package.json").exists() {
-            return Some(dir.to_path_buf());
-        }
-        if depth == 0 {
-            return None;
-        }
-        let entries = std::fs::read_dir(dir).ok()?;
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                if let Some(hit) = probe(&p, depth - 1) {
-                    return Some(hit);
-                }
-            }
-        }
-        None
-    }
-    search_dirs.iter().find_map(|d| probe(d, 3))
+    search_dirs.iter().find_map(|dir| {
+        [dir.clone(), dir.join("_up_")]
+            .into_iter()
+            .find(|root| root.join("FeralAgent").join("package.json").is_file())
+    })
 }
 
 /// Read `"version"` out of a package.json without a JSON dependency walk.
@@ -183,6 +171,25 @@ mod tests {
         // Nothing there → None.
         let empty = tempfile::tempdir().unwrap();
         assert!(find_bundled_src(&[empty.path().to_path_buf()]).is_none());
+    }
+
+    #[test]
+    fn bundled_src_lookup_never_crawls_unrelated_build_trees() {
+        let tmp = tempfile::tempdir().unwrap();
+        // `resource_dir` is target/debug in a Tauri dev run. Descending from
+        // there walks thousands of Cargo artifact directories before the
+        // sidecar can even spawn. Only documented resource layouts belong in
+        // this lookup; an arbitrary nested match must be ignored.
+        write(
+            &tmp.path()
+                .join("build")
+                .join("dependency")
+                .join("FeralAgent")
+                .join("package.json"),
+            "{\"version\":\"1.2.3\"}",
+        );
+
+        assert!(find_in_dirs(&[tmp.path().to_path_buf()]).is_none());
     }
 
     #[test]
