@@ -102,7 +102,7 @@ export function CallTranscript({ text, fallback }: { text: string; fallback: str
             <span
               key={`${text.length}-${fresh}`}
               data-testid="call-transcript-new"
-              className="inline-block animate-in fade-in-0 slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none"
+              className="inline-block animate-in fade-in-0 slide-in-from-bottom-1 duration-[20ms] ease-out motion-reduce:animate-none"
             >
               {fresh}
             </span>

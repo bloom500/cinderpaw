@@ -30,7 +30,7 @@ describe('CallTranscript', () => {
 
     expect(screen.getByTestId('call-transcript')).toHaveTextContent('“Bună lume”');
     expect(screen.getByTestId('call-transcript-new')).toHaveTextContent('lume');
-    expect(screen.getByTestId('call-transcript-new')).toHaveClass('duration-150');
+    expect(screen.getByTestId('call-transcript-new')).toHaveClass('duration-[20ms]');
   });
 
   it('bounds visible text to three lines but keeps the full accessible transcript', () => {

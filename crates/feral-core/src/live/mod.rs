@@ -134,6 +134,9 @@ pub struct Setup {
     pub input_audio_transcription: Option<AudioTranscriptionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_audio_transcription: Option<AudioTranscriptionConfig>,
+    /// Server-side speech endpointing. Keeping this explicit prevents Gemini's
+    /// default from holding a completed spoken turn for many seconds.
+    pub realtime_input_config: RealtimeInputConfig,
     /// Ask for a resumption handle, or hand one back to continue an earlier call.
     ///
     /// This is the documented answer to the wall that actually exists. Measured:
@@ -184,6 +187,12 @@ impl Setup {
             },
             input_audio_transcription: Some(AudioTranscriptionConfig {}),
             output_audio_transcription: Some(AudioTranscriptionConfig {}),
+            realtime_input_config: RealtimeInputConfig {
+                automatic_activity_detection: AutomaticActivityDetection {
+                    disabled: false,
+                    silence_duration_ms: 700,
+                },
+            },
             // Always requested. A handle costs nothing to be given and is the
             // only thing that makes the duration wall survivable.
             //
@@ -230,6 +239,19 @@ impl Setup {
         self.system_instruction = Some(Content::text(text));
         self
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeInputConfig {
+    pub automatic_activity_detection: AutomaticActivityDetection,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomaticActivityDetection {
+    pub disabled: bool,
+    pub silence_duration_ms: u32,
 }
 
 /// Generation settings. Only the parts a voice call needs are modelled.
@@ -503,6 +525,17 @@ mod tests {
         // opposite, which is how a fix that reproduced its own symptom stayed
         // in — the test pinned the remedy, never the outcome.
         assert!(v["setup"].get("contextWindowCompression").is_none());
+    }
+
+    #[test]
+    fn a_spoken_setup_commits_the_turn_after_a_short_silence() {
+        // Leaving this implicit produced measured 11-15.2 second gaps between
+        // the last rendered transcript and Gemini closing the user's turn.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        let detection = &v["setup"]["realtimeInputConfig"]["automaticActivityDetection"];
+
+        assert_eq!(detection["disabled"], false);
+        assert_eq!(detection["silenceDurationMs"], 700);
     }
 
     #[test]
