@@ -440,6 +440,32 @@ body::after {
   background-color: var(--scene-surface);
 }
 
+/* Reduced motion: the whole static lighting composition stays visible, only
+   the ambient drift stops. Route-level state is untouched — this matches the
+   OS preference and nothing else. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after {
+    animation: none;
+  }
+}
+
+/* No blur support: the base scene still provides hierarchy, and the glass
+   levels fall back to near-opaque materials so text never sits on a see-
+   through surface. (The scene itself uses no backdrop-filter at all.) */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-theme="dark"] {
+    --glass-1: rgba(28, 25, 22, 0.96);
+    --glass-2: rgba(37, 33, 25, 0.95);
+    --glass-3: rgba(44, 40, 32, 0.94);
+  }
+  :root[data-theme="light"] {
+    --glass-1: rgba(255, 245, 238, 0.97);
+    --glass-2: rgba(255, 250, 244, 0.96);
+    --glass-3: rgba(255, 252, 248, 0.95);
+  }
+}
+
 /*
  * Semi-transparency escape hatch
  * Palette is hex → Tailwind's bg-card/50 opacity utilities don't work on
