@@ -522,6 +522,20 @@ export class InferenceRouter {
 
     if (!req.skipBudgetCheck) this.#enforceBudget(req.sessionId);
 
+    // Autonomous callers opt into a hard USD scope. Reserve the worst case
+    // across primary + fallback before creating a controller or touching the
+    // network, so concurrent requests cannot each believe the same remaining
+    // dollars are available. Foreground chat omits the scope and is unchanged.
+    const spendReservation = req.spendAuthority?.reserve({
+      targets: fallback ? [primary, fallback] : [primary],
+      maxBillableTokens:
+        countTokens(JSON.stringify({
+          messages: req.messages,
+          nativeTools: req.nativeTools,
+          openAITools: req.openAITools,
+        })) + (req.maxTokens ?? 4_096),
+    });
+
     // Install a per-session AbortController (P0-#3) so `abort(sessionId)` can
     // actually reach an in-flight fetch. The signal is read by the streaming
     // / non-streaming call paths and combined with their internal timeouts.
@@ -542,6 +556,15 @@ export class InferenceRouter {
       );
     } else if (req.signal?.aborted) {
       ac.abort(req.signal.reason);
+    }
+    if (req.spendAuthority && !req.spendAuthority.signal.aborted) {
+      req.spendAuthority.signal.addEventListener(
+        "abort",
+        () => ac.abort(req.spendAuthority?.signal.reason),
+        { once: true },
+      );
+    } else if (req.spendAuthority?.signal.aborted) {
+      ac.abort(req.spendAuthority.signal.reason);
     }
     this.#sessionControllers.set(req.sessionId, ac);
 
@@ -603,6 +626,10 @@ export class InferenceRouter {
         Date.now() - start,
         req.promptBreakdown,
       );
+      spendReservation?.settle({
+        target: response.usedFallback && fallback ? fallback : primary,
+        actualBillableTokens: response.totalTokens,
+      });
 
       this.#audit({
         timestamp: Date.now(),
@@ -616,6 +643,9 @@ export class InferenceRouter {
 
       return response;
     } finally {
+      // A failed/aborted request has no provider usage to settle. Release its
+      // reservation so later work is not blocked by phantom in-flight spend.
+      spendReservation?.release();
       // P0-#3: clear the per-session controller on every path so the next
       // call gets a fresh one. Without this, an aborted controller would
       // linger in the map and a later abort() would target a stale signal.

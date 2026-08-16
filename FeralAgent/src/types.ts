@@ -566,6 +566,13 @@ export interface InferenceRequest {
    */
   signal?: AbortSignal;
   /**
+   * Hard pre-request USD authority for autonomous/background inference.
+   * Foreground chat leaves this absent. The router reserves against every
+   * possible target before fetch, settles provider-reported usage afterward,
+   * and combines the authority's AbortSignal with the request signal.
+   */
+  spendAuthority?: import("./egress/inference-spend-authority.ts").InferenceSpendAuthority;
+  /**
    * When provided, the router streams tokens from the provider and calls this
    * callback for each partial token as it arrives. The full assembled content
    * is still returned in InferenceResponse at the end.

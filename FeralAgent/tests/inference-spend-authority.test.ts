@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { openDatabase } from "../src/db.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
 import {
   AutonomousSpendDeniedError,
   InferenceSpendAuthority,
@@ -87,4 +90,37 @@ describe("InferenceSpendAuthority", () => {
       maxBillableTokens: 1,
     })).toThrow(AutonomousSpendDeniedError);
   });
+
+  test("the router reserves before fetch and blocks an unknown-price autonomous route at the network boundary", async () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const authority = new InferenceSpendAuthority({
+      maxCostUsd: 1,
+      pricePer1kUsd: () => null,
+    });
+    const router = new InferenceRouter({
+      primary: known,
+      tokenBudget: { perConversation: 50_000, perDay: 500_000, onExhausted: "stop" },
+    }, audit.logger, db.raw);
+    const originalFetch = globalThis.fetch;
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      throw new Error("network must not be reached");
+    }) as typeof fetch;
+
+    try {
+      await expect(router.complete({
+        sessionId: "rsi-eval-g1",
+        messages: [{ role: "user", content: "evaluate" }],
+        maxTokens: 100,
+        spendAuthority: authority,
+      })).rejects.toBeInstanceOf(AutonomousSpendDeniedError);
+      expect(calls).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      db.close();
+    }
+  });
+
 });
