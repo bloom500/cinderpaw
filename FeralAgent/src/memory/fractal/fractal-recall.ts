@@ -86,6 +86,8 @@ export interface FractalRecallDeps {
    * inline.
    */
   leavesById: Map<number, Leaf>;
+  /** Map an episodic SQLite id into the tree's internal catalog id. */
+  ftsLeafId?: (sourceId: number) => number;
 }
 
 /** RecallResult mirrors `src/memory/recall.ts` so this is a drop-in. */
@@ -126,12 +128,14 @@ export class FractalRecallEngine {
   readonly #embed: EmbedInvoker;
   readonly #ftsSearch: FtsSearch;
   readonly #leavesById: Map<number, Leaf>;
+  readonly #ftsLeafId: (sourceId: number) => number;
 
   constructor(deps: FractalRecallDeps) {
     this.#tree = deps.tree;
     this.#embed = deps.embed;
     this.#ftsSearch = deps.ftsSearch;
     this.#leavesById = deps.leavesById;
+    this.#ftsLeafId = deps.ftsLeafId ?? ((sourceId) => sourceId);
   }
 
   /**
@@ -189,7 +193,8 @@ export class FractalRecallEngine {
     }
     for (const ev of ftsEvents) {
       if (ev.id === undefined) continue;
-      const existing = merged.get(ev.id);
+      const treeId = this.#ftsLeafId(ev.id);
+      const existing = merged.get(treeId);
       if (existing) {
         existing.fts = true;
         // FTS5 wins on text/sessionId/ts/role (it's the source of truth).
@@ -198,8 +203,8 @@ export class FractalRecallEngine {
         existing.ts = ev.timestamp;
         existing.role = ev.role;
       } else {
-        merged.set(ev.id, {
-          id: ev.id,
+        merged.set(treeId, {
+          id: treeId,
           score: 0,
           fts: true,
           text: ev.content,

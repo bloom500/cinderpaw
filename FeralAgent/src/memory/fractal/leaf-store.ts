@@ -101,6 +101,13 @@ export class LeafStore {
     this.#persist();
   }
 
+  /** Replace the complete owner store with one atomic rewrite. */
+  replaceAll(records: LeafRecord[]): void {
+    this.#records.clear();
+    for (const rec of records) this.#records.set(rec.id, rec);
+    this.#persist();
+  }
+
   /** Replace stored vectors while retaining owner/provenance metadata. */
   setEmbeddings(rows: { id: number; vec: Float32Array }[]): number {
     const changed: LeafRecord[] = [];

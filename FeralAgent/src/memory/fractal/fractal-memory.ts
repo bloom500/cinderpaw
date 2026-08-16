@@ -19,11 +19,11 @@
  *     call (startup, a periodic tick, or after ingest) — never inside
  *     `recall`, which only ever reads + embeds the single query vector.
  *
- * Why `leavesById` is rebuilt from episodic, not loaded from disk: the
+ * Why `leavesById` is rebuilt from the owner-aware catalog, not loaded from disk: the
  * persisted tree stores only ids + centroids + summaries (see tree-store), not
  * leaf text/session/timestamp. `FractalRecallEngine` needs those to format the
  * block and to apply the current-session filter, so we map them from the live
- * episodic rows each time we (re)load a tree.
+ * live SQLite + LeafStore rows each time we (re)load a tree.
  */
 import { buildTree } from "./tree-builder.ts";
 import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
@@ -74,8 +74,7 @@ export interface RecallFallback {
  *   - `grow`   — a rebuild grew the tree → filaments extend
  *   - `seed`   — a single memory was written → a fine impulse so the
  *                organism feels alive per-iteration, not only on the next
- *                big rebuild (which is gated by `rebuildIfStale` at 1.2x and
- *                would otherwise miss the +1-memory case).
+ *                next full rebuild.
  */
 export type FractalActivity =
   | { kind: "recall"; hits: number }
@@ -117,7 +116,7 @@ export interface FractalMemoryDeps {
    * When set, the corpus is capped to the first `maxLeaves` rows EVERYWHERE the
    * facade reads leaves — tree build, staleness check, recall metadata, and the
    * benchmark's query generation — so the gate measures a self-consistent
-   * subset. Production leaves this unset (the live tree covers the whole
+   * owner-fair subset. Production leaves this unset (the live tree covers the whole
    * corpus); the Fractal Memory benchmark wires it from
    * `FERAL_FRACTAL_BENCH_MAX_LEAVES` to get real numbers in minutes on CPU
    * instead of hours over the full corpus. Unset/0 = no cap.
@@ -171,6 +170,15 @@ export function buildGrowActivity(tree: {
   };
 }
 
+type LeafOwner = "episodic" | "reactive";
+
+interface CatalogLeaf {
+  owner: LeafOwner;
+  sourceId: number;
+  /** Tree-facing leaf whose id is stable and collision-free across owners. */
+  leaf: Leaf;
+}
+
 export class FractalMemory {
   readonly #loadLeaves: () => Leaf[];
   readonly #embed: EmbedInvoker;
@@ -220,21 +228,40 @@ export class FractalMemory {
    * comparison would be meaningless.
    */
   #cappedLeaves(): Leaf[] {
-    const all = this.#canonicalLeaves();
-    if (this.#maxLeaves && all.length > this.#maxLeaves) {
-      return all.slice(0, this.#maxLeaves);
-    }
-    return all;
+    return this.#cappedCatalog().map((entry) => entry.leaf);
   }
 
-  /** One corpus for build, recall metadata, staleness and benchmarking. */
-  #canonicalLeaves(): Leaf[] {
-    const episodic = this.#loadLeaves();
-    const taken = new Set(episodic.map((leaf) => leaf.id));
-    const reactive = this.#leafStore.all()
-      .filter((rec) => !taken.has(rec.id))
-      .map(recordToLeaf);
+  /**
+   * Stable owner-aware catalog. Tree ids are internal identities; source ids
+   * remain untouched in SQLite/LeafStore and may overlap safely.
+   */
+  #catalogLeaves(): CatalogLeaf[] {
+    const episodic = this.#loadLeaves().map((leaf) => catalogLeaf("episodic", leaf));
+    const reactive = this.#leafStore.all().map((rec) => catalogLeaf("reactive", recordToLeaf(rec)));
     return [...episodic, ...reactive];
+  }
+
+  /** Deterministic source-fair cap: each non-empty owner gets membership. */
+  #cappedCatalog(): CatalogLeaf[] {
+    const all = this.#catalogLeaves();
+    if (!this.#maxLeaves || all.length <= this.#maxLeaves) return all;
+    const episodic = all.filter((entry) => entry.owner === "episodic");
+    const reactive = all.filter((entry) => entry.owner === "reactive");
+    if (episodic.length === 0 || reactive.length === 0 || this.#maxLeaves === 1) {
+      return all.slice(0, this.#maxLeaves);
+    }
+    const usable = this.#maxLeaves - 2;
+    const episodicExtra = Math.min(
+      episodic.length - 1,
+      Math.floor(usable * episodic.length / all.length),
+    );
+    const episodicCount = 1 + episodicExtra;
+    const reactiveCount = Math.min(reactive.length, this.#maxLeaves - episodicCount);
+    const filledEpisodicCount = this.#maxLeaves - reactiveCount;
+    return [
+      ...episodic.slice(0, filledEpisodicCount),
+      ...reactive.slice(0, reactiveCount),
+    ];
   }
 
   /** Emit an organism pulse; a throwing/absent sink is never fatal. */
@@ -269,7 +296,6 @@ export class FractalMemory {
     if (loaded.loaded > 0 || loaded.skipped > 0) {
       this.#log?.(`fractal: loaded ${loaded.loaded} reactive leaf(s) from store (${loaded.skipped} skipped)`);
     }
-    this.#migrateReactiveIdCollisions();
     this.#hydrateReactiveState();
     const persisted = loadTree(this.#treePath);
     if (!persisted) return false;
@@ -316,7 +342,8 @@ export class FractalMemory {
   }
 
   async #doRebuild(scope: RouterInferScope): Promise<boolean> {
-    let leaves = this.#cappedLeaves();
+    let catalog = this.#cappedCatalog();
+    let leaves = catalog.map((entry) => entry.leaf);
     if (leaves.length < this.#minLeaves) {
       this.#log?.(`fractal: ${leaves.length} leaves < min ${this.#minLeaves}; using FTS5 only`);
       return false;
@@ -339,7 +366,8 @@ export class FractalMemory {
             `fractal: embedding dimension changed (${storedDim} → ${currentDim}); ` +
               `cleared ${cleared} stale vector(s), re-embedding the corpus from scratch`,
           );
-          leaves = this.#cappedLeaves(); // reload without the stale vectors
+          catalog = this.#cappedCatalog();
+          leaves = catalog.map((entry) => entry.leaf); // reload without stale vectors
         }
       } catch (e) {
         // Probe failed (no model on disk) — buildTree will fail the same way
@@ -354,9 +382,10 @@ export class FractalMemory {
       tree = await buildTree(leaves, {
         embed: this.#embed,
         summarize: (items) => this.#summarize(items, scope),
-        persistEmbeddings: (rows) => this.#persistOwnedEmbeddings(rows),
+        persistEmbeddings: (rows) => this.#persistOwnedEmbeddings(rows, catalog),
       });
     } catch (e) {
+      scope.spendAuthority?.stop(e);
       this.#log?.(`fractal: tree build failed (embeddings unavailable?): ${String(e)}`);
       return false;
     }
@@ -377,9 +406,9 @@ export class FractalMemory {
   }
 
   /**
-   * Rebuild only when worthwhile: no tree yet, or the corpus has grown past
-   * `growthRatio`× the tree's current coverage. Avoids re-paying the (cloud)
-   * summary cost on every boot when the loaded tree is already fresh.
+   * Rebuild only when the exact catalog fingerprint changed. Avoids re-paying
+   * the summary cost on an unchanged boot while detecting growth, shrinkage,
+   * replacement, and owner-membership changes at the same count.
    */
   async rebuildIfStale(_growthRatio = 1.2, scope: RouterInferScope = {}): Promise<boolean> {
     const leaves = this.#cappedLeaves();
@@ -404,6 +433,7 @@ export class FractalMemory {
           embed: this.#embed,
           ftsSearch: this.#ftsSearch,
           leavesById: this.#leavesById,
+          ftsLeafId: (sourceId) => treeLeafId("episodic", sourceId),
         });
         const result = await engine.recall(query, sessionId);
         // A real semantic traversal happened → pulse the organism so breathing
@@ -552,12 +582,10 @@ export class FractalMemory {
   /**
    * Notify the organism that a single leaf was just written to episodic
    * memory. Cheap (no rebuild — `rebuildIfStale` still gates the actual
-   * tree regrowth at 1.2× coverage), so it can fire on every turn without
+   * tree regrowth), so it can fire on every turn without
    * any LLM cost. Without this, +1 memory on top of 2700 leaves is
-   * invisible to the organism until the next 1.2× rebuild threshold —
-   * which on a corpus of 2700 means ~540 more memories must accumulate
-   * before anything visible happens. The vision is "a fine impulse at
-   * every iteration", not "a giant warp every 540 writes", so this
+   * invisible to the organism until the next rebuild. The vision is "a fine impulse at
+   * every iteration", so this
    * carries the per-write signal.
    *
    * Best-effort: a missing or throwing sink never breaks the write.
@@ -569,6 +597,13 @@ export class FractalMemory {
   /** Map current episodic rows to `leafId → Leaf`, for the recall engine. */
   #mapLeaves(): Map<number, Leaf> {
     return new Map(this.#cappedLeaves().map((l) => [l.id, l]));
+  }
+
+  /** Membership mutations must never leave removed leaves recallable. */
+  #invalidateTree(): void {
+    this.#tree = null;
+    this.#leavesById = null;
+    this.#treeCorpusFingerprint = null;
   }
 
   // -------------------------------------------------------------------------
@@ -612,10 +647,8 @@ export class FractalMemory {
   /**
    * Read-only view of leaves inserted via upsertLeaf since the last
    * full rebuild. Used by the Reconciler (Task 4) to drive graph
-   * reconcile; useful for tests too. The next `rebuild()` will pick
-   * these up via `loadLeaves()` once the production wiring merges
-   * pending leaves into the episodic source (or via a side-table
-   * merge — design choice deferred to Task 4 or a later plan).
+   * reconcile; useful for tests too. The durable LeafStore is already part of
+   * the canonical catalog, so the next rebuild picks these up directly.
    */
   pendingLeaves(): Leaf[] {
     return Array.from(this.#pendingLeaves.values());
@@ -642,11 +675,8 @@ export class FractalMemory {
     const ids = policy.select(this.#leafStore.summaries(), now);
     if (ids.length === 0) return { evicted: [] };
     this.#leafStore.remove(ids);
-    // Keep the in-boot caches consistent with the durable store.
-    for (const id of ids) {
-      this.#pendingLeaves.delete(id);
-      this.#provenance.delete(id);
-    }
+    this.#hydrateReactiveState();
+    this.#invalidateTree();
     this.#appendEvicted(ids, now, policy.name);
     this.#emit({ kind: "prune", evictedLeafIds: ids, ts: now });
     return { evicted: ids };
@@ -689,25 +719,27 @@ export class FractalMemory {
       now: Date.now(),
     });
     if (groups.length === 0) return { groups: 0 };
+    const nextRecords = new Map(records.map((record) => [record.id, record]));
     for (const group of groups) {
       const record = records.find((r) => r.id === group.survivor.id);
       if (!record) continue;
-      this.#leafStore.upsert({
+      const provenance = {
+        ...record.provenance,
+        first_seen_at: group.survivor.first_seen_at,
+        last_seen_at: group.survivor.last_seen_at,
+        hit_count: group.survivor.hit_count,
+      };
+      nextRecords.set(record.id, {
         ...record,
-        provenance: {
-          ...record.provenance,
-          first_seen_at: group.survivor.first_seen_at,
-          last_seen_at: group.survivor.last_seen_at,
-          hit_count: group.survivor.hit_count,
-        },
+        provenance,
       });
+      this.#provenance.set(record.id, { ...provenance });
+      for (const absorbed of group.absorbed) nextRecords.delete(absorbed.id);
     }
     const absorbedIds = groups.flatMap((g) => g.absorbed.map((l) => l.id));
-    this.#leafStore.remove(absorbedIds);
-    for (const id of absorbedIds) {
-      this.#pendingLeaves.delete(id);
-      this.#provenance.delete(id);
-    }
+    this.#leafStore.replaceAll([...nextRecords.values()]);
+    this.#hydrateReactiveState();
+    this.#invalidateTree();
     this.#appendEvicted(absorbedIds, Date.now(), "dedup");
     this.#emit({ kind: "prune", evictedLeafIds: absorbedIds, ts: Date.now() });
     return { groups: groups.length };
@@ -739,7 +771,6 @@ export class FractalMemory {
       seen.add(l.id);
       leaves.push({ id: l.id, summary: l.text.slice(0, 80) });
     };
-    for (const l of this.#pendingLeaves.values()) collect(l);
     for (const l of this.#cappedLeaves()) collect(l);
     return { clusters, leaves };
   }
@@ -778,18 +809,19 @@ export class FractalMemory {
     // 2. Near-duplicate scan: nearest existing leaf by cosine.
     const nearest = this.#nearestByCosine(opts.embedding);
     if (nearest && nearest.sim >= threshold) {
-      this.#mergeInto(nearest.leaf, opts.provenance);
+      this.#mergeInto(nearest.entry, opts.provenance);
       this.#emit({
         kind: "seed",
-        leafId: nearest.leaf.id,
+        leafId: nearest.entry.sourceId,
         sessionId: opts.provenance.sessionId,
         ts: opts.provenance.ts,
       });
-      return { kind: "seed", leafId: nearest.leaf.id };
+      return { kind: "seed", leafId: nearest.entry.sourceId };
     }
 
-    // 3. Insert path — needs a leaf id; pick the smallest positive int
-    //    not already used (avoids colliding with episodic row ids).
+    // 3. Insert path — allocate inside the reactive owner namespace. The tree
+    //    catalog maps it to a distinct internal id even if SQLite uses the same
+    //    numeric source id.
     const embeddingVec = embeddingAsFloat32(opts.embedding);
     if (embeddingVec.length === 0) {
       // No model — degrade gracefully. Same return shape; no pulse, no bump.
@@ -843,36 +875,34 @@ export class FractalMemory {
   }
 
   /** Scan pending + fresh loadLeaves() for the nearest cosine. */
-  #nearestByCosine(embedding: number[]): { leaf: Leaf; sim: number } | null {
+  #nearestByCosine(embedding: number[]): { entry: CatalogLeaf; sim: number } | null {
     const target = embeddingAsFloat32(embedding);
     if (target.length === 0) return null;
 
-    const candidates: Leaf[] = [];
-    // Pending leaves (inserted via upsertLeaf since the last rebuild).
-    for (const l of this.#pendingLeaves.values()) candidates.push(l);
-    // Fresh loadLeaves() snapshot — reads from episodic, the source
-    // of truth. Cached #leavesById is NOT consulted because it goes
-    // stale between rebuilds.
-    for (const l of this.#cappedLeaves()) candidates.push(l);
+    const candidates = this.#cappedCatalog();
     if (candidates.length === 0) return null;
 
-    let best: { leaf: Leaf; sim: number } | null = null;
-    for (const c of candidates) {
-      if (c.vec.length !== target.length) continue;
-      const sim = cosineSafe(target, c.vec);
-      if (best === null || sim > best.sim) best = { leaf: c, sim };
+    let best: { entry: CatalogLeaf; sim: number } | null = null;
+    for (const entry of candidates) {
+      if (entry.leaf.vec.length !== target.length) continue;
+      const sim = cosineSafe(target, entry.leaf.vec);
+      if (best === null || sim > best.sim) best = { entry, sim };
     }
     return best;
   }
 
   /** Bump hit_count + last_seen_at on a merged leaf. */
-  #mergeInto(leaf: Leaf, provenance: { ts: number; source: string; key?: string; value?: string; first_seen_at: number }): void {
-    const existing = this.#provenance.get(leaf.id);
+  #mergeInto(entry: CatalogLeaf, provenance: { ts: number; source: string; key?: string; value?: string; first_seen_at: number }): void {
+    // Episodic ownership stays in SQLite. A reactive observation may match an
+    // episodic row, but must never manufacture a same-id LeafStore record.
+    if (entry.owner === "episodic") return;
+    const leaf = sourceLeaf(entry);
+    const existing = this.#provenance.get(entry.sourceId);
     if (existing) {
       existing.hit_count++;
       existing.last_seen_at = Math.max(existing.last_seen_at, provenance.ts);
     } else {
-      this.#provenance.set(leaf.id, {
+      this.#provenance.set(entry.sourceId, {
         first_seen_at: provenance.first_seen_at,
         last_seen_at: provenance.ts,
         hit_count: 2, // existing leaf had 1, this merge is the 2nd hit
@@ -883,10 +913,10 @@ export class FractalMemory {
     }
     // Mirror the bumped provenance into the durable store (PR-C C.0) so
     // eviction/dedup see the current hit_count / last_seen_at.
-    const prov = this.#provenance.get(leaf.id);
+    const prov = this.#provenance.get(entry.sourceId);
     if (prov) {
       this.#leafStore.upsert({
-        id: leaf.id,
+        id: entry.sourceId,
         text: leaf.text,
         vec: Array.from(leaf.vec),
         ts: leaf.ts,
@@ -903,32 +933,9 @@ export class FractalMemory {
     }
   }
 
-  /** Pick the next positive int not used by any pending or loaded leaf. */
+  /** Pick the next stable id inside the reactive owner store. */
   #nextLeafId(): number {
-    const taken = new Set<number>();
-    for (const id of this.#pendingLeaves.keys()) taken.add(id);
-    if (this.#leavesById) for (const id of this.#leavesById.keys()) taken.add(id);
-    for (const leaf of this.#loadLeaves()) taken.add(leaf.id);
-    for (const record of this.#leafStore.all()) taken.add(record.id);
-    let candidate = 1;
-    while (taken.has(candidate)) candidate++;
-    return candidate;
-  }
-
-  /** Move legacy reactive rows away from episodic numeric ids. */
-  #migrateReactiveIdCollisions(): void {
-    const episodicIds = new Set(this.#loadLeaves().map((leaf) => leaf.id));
-    const reactiveIds = new Set(this.#leafStore.all().map((rec) => rec.id));
-    const taken = new Set([...episodicIds, ...reactiveIds]);
-    for (const rec of this.#leafStore.all()) {
-      if (!episodicIds.has(rec.id)) continue;
-      let next = 1;
-      while (taken.has(next)) next++;
-      taken.add(next);
-      this.#leafStore.remove([rec.id]);
-      this.#leafStore.upsert({ ...rec, id: next });
-      this.#log?.(`fractal: migrated reactive leaf id ${rec.id} -> ${next} (episodic collision)`);
-    }
+    return this.#leafStore.all().reduce((max, record) => Math.max(max, record.id), 0) + 1;
   }
 
   /** Restore the in-memory reactive index from its durable owner store. */
@@ -944,10 +951,20 @@ export class FractalMemory {
   }
 
   /** Route embedding write-back to the row's real owner. */
-  #persistOwnedEmbeddings(rows: { id: number; vec: Float32Array }[]): void {
-    const reactiveIds = new Set(this.#leafStore.all().map((rec) => rec.id));
-    const reactive = rows.filter((row) => reactiveIds.has(row.id));
-    const episodic = rows.filter((row) => !reactiveIds.has(row.id));
+  #persistOwnedEmbeddings(
+    rows: { id: number; vec: Float32Array }[],
+    catalog: CatalogLeaf[],
+  ): void {
+    const owners = new Map(catalog.map((entry) => [entry.leaf.id, entry]));
+    const reactive: { id: number; vec: Float32Array }[] = [];
+    const episodic: { id: number; vec: Float32Array }[] = [];
+    for (const row of rows) {
+      const owner = owners.get(row.id);
+      if (!owner) continue;
+      const owned = { id: owner.sourceId, vec: row.vec };
+      if (owner.owner === "reactive") reactive.push(owned);
+      else episodic.push(owned);
+    }
     this.#leafStore.setEmbeddings(reactive);
     if (episodic.length > 0) this.#persistEmbeddings?.(episodic);
   }
@@ -961,6 +978,25 @@ interface LeafProvenance {
   source: string;
   key?: string;
   value?: string;
+}
+
+function treeLeafId(owner: LeafOwner, sourceId: number): number {
+  if (!Number.isSafeInteger(sourceId) || sourceId < 0 || sourceId > Number.MAX_SAFE_INTEGER / 2 - 1) {
+    throw new Error(`fractal: invalid ${owner} source id ${sourceId}`);
+  }
+  return sourceId * 2 + (owner === "reactive" ? 1 : 0);
+}
+
+function catalogLeaf(owner: LeafOwner, leaf: Leaf): CatalogLeaf {
+  return {
+    owner,
+    sourceId: leaf.id,
+    leaf: { ...leaf, id: treeLeafId(owner, leaf.id) },
+  };
+}
+
+function sourceLeaf(entry: CatalogLeaf): Leaf {
+  return { ...entry.leaf, id: entry.sourceId };
 }
 
 function recordToLeaf(rec: import("./leaf-store.ts").LeafRecord): Leaf {
