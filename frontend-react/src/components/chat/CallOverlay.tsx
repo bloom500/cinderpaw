@@ -1,7 +1,7 @@
 // Aliased: the bare name would shadow the DOM `KeyboardEvent` that the Escape
 // listener below is typed against.
 import {
-  useCallback, useEffect, useRef, useState, useSyncExternalStore,
+  useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -59,6 +59,60 @@ import { LIVE_ENGINE_ID } from '@/hooks/useLiveCallSession';
  * second key to enter and no way for the two to disagree about which is current.
  */
 const LIVE_KEY_PROVIDER = 'google';
+
+export function compactCallTranscript(text: string, maxChars = 280): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxChars) return normalized;
+  if (maxChars <= 1) return '…'.slice(0, Math.max(0, maxChars));
+  const tail = normalized.slice(-(maxChars - 2));
+  const boundary = tail.indexOf(' ');
+  if (boundary < 0) return '…';
+  const completeTail = tail.slice(boundary + 1).trim();
+  return completeTail ? `… ${completeTail}` : '…';
+}
+
+/** The transcript itself is synchronous; only the newly appended vendor piece
+ * gets a short entrance, so motion never becomes another queue. */
+export function CallTranscript({ text, fallback }: { text: string; fallback: string }) {
+  const previousRef = useRef('');
+  const visible = compactCallTranscript(text);
+  const previous = previousRef.current;
+  const appended = text.startsWith(previous)
+    ? text.slice(previous.length).replace(/\s+/g, ' ').trim()
+    : '';
+  const fresh = appended && visible.endsWith(appended)
+    ? appended
+    : previous ? '' : visible;
+  const stable = fresh ? visible.slice(0, -fresh.length) : visible;
+
+  useLayoutEffect(() => {
+    previousRef.current = text;
+  }, [text]);
+
+  return (
+    <p
+      data-testid="call-transcript"
+      aria-label={text || undefined}
+      className="line-clamp-3 max-h-[4.5rem] max-w-xl overflow-hidden break-words text-lg font-light leading-6 text-text-muted"
+    >
+      {text ? (
+        <>
+          “{stable}
+          {fresh && (
+            <span
+              key={`${text.length}-${fresh}`}
+              data-testid="call-transcript-new"
+              className="inline-block animate-in fade-in-0 slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none"
+            >
+              {fresh}
+            </span>
+          )}
+          ”
+        </>
+      ) : fallback}
+    </p>
+  );
+}
 
 export function CallOverlay({
   phase,
@@ -400,9 +454,10 @@ export function CallOverlay({
         <div className="relative flex max-w-xl flex-col items-center gap-2 text-center">
           <p className="text-2xl font-light tracking-tight text-text-primary">{title}</p>
           {/* What it heard, or the invitation when it has heard nothing yet. */}
-          <p className="text-lg font-light text-text-muted">
-            {heard && phase !== 'ready' ? `“${heard}”` : t('call.prompt')}
-          </p>
+          <CallTranscript
+            text={phase !== 'ready' ? heard : ''}
+            fallback={t('call.prompt')}
+          />
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-[var(--warning)]">{notice}</p>}
         </div>
