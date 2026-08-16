@@ -120,7 +120,7 @@ const en = {
   // kind of stale text, because someone acts on it.
   'call.liveNote': 'One model hears you and answers in its own voice. It decides when your turn ended, so it can be interrupted mid-sentence. Each turn is saved to the chat as it finishes.',
   'call.liveNoKey': 'No Google API key stored. The same AI Studio key the chat side uses — paste it below.',
-  'call.liveClosed': 'The call was dropped. Press call to reconnect.',
+  'call.liveClosed': 'Disconnected. Press call to reconnect.',
   'call.liveConnecting': 'Connecting…',
   // The work panel — what Feral is doing while the call waits.
   'call.toolSearching': 'searching…',
@@ -240,7 +240,7 @@ const ro: Strings = {
   'call.liveEngine': 'Gemini Live',
   'call.liveNote': 'Un singur model te aude și îți răspunde cu vocea lui. El decide când ai terminat de vorbit, deci poate fi întrerupt la mijlocul frazei. Fiecare tură se salvează în chat pe măsură ce se termină.',
   'call.liveNoKey': 'Nu e salvată nicio cheie Google. E aceeași cheie AI Studio pe care o folosește și chatul — lipește-o mai jos.',
-  'call.liveClosed': 'Apelul a căzut. Apasă pe apel ca să reconectezi.',
+  'call.liveClosed': 'Deconectat. Apasă pe apel ca să reconectezi.',
   'call.liveConnecting': 'Se conectează…',
   'call.toolSearching': 'caută…',
   'call.toolDone': 'gata',

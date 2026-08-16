@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { tauri } from '@/lib/tauri';
@@ -8,6 +8,7 @@ import { TARGET_RATE } from '@/lib/audio';
 import { forSpeech } from '@/lib/speechText';
 import { useSpeechPlayer } from './useSpeechPlayer';
 import { LEVEL_CEILING, type CallPhase } from './useCallSession';
+import { SPEECH_RMS } from '@/lib/vad';
 
 /**
  * Hard ceiling on un-sent microphone audio, in samples — four seconds at 16 kHz.
@@ -36,6 +37,9 @@ import { t } from '@/lib/i18n';
 /** How long a `heard` line lingers after the model finishes answering, so a
  *  question does not vanish from the screen the instant it is answered. */
 const HEARD_LINGER_MS = 1_500;
+/** A voiced frame can precede the vendor's first transcript piece. Past this
+ *  short grace period the honest visible state is transcribing, not silence. */
+const TRANSCRIPT_WAIT_MS = 250;
 
 /**
  * The key the Live engine's chosen voice is stored under.
@@ -99,6 +103,7 @@ export function useLiveCallSession() {
   const [heard, setHeard] = useState('');
   const [level, setLevel] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
   const { beginSpeech, stop: stopSpeech } = useSpeechPlayer(sessionId);
 
   /** Bumped by every open/hang-up; an async step that finds it changed gives up. */
@@ -156,12 +161,54 @@ export function useLiveCallSession() {
   /** The next input transcript starts a new question rather than continuing the
    *  last one. Set when the model finishes a turn. */
   const freshRef = useRef(true);
+  /** Transcript cadence, per turn. See the `inputTranscript` case. */
+  const lastPieceAtRef = useRef(0);
+  const worstGapRef = useRef(0);
+  const turnsRef = useRef(0);
+  const pieceRef = useRef(0);
+  const lastTranscriptAtRef = useRef(0);
+  const heardTimerRef = useRef<number | null>(null);
+
+  const clearHeardTimer = useCallback(() => {
+    if (heardTimerRef.current !== null) window.clearTimeout(heardTimerRef.current);
+    heardTimerRef.current = null;
+  }, []);
+
+  const resetTransient = useCallback(() => {
+    clearHeardTimer();
+    micQueue.current = [];
+    micBusy.current = false;
+    heardRef.current = '';
+    saidRef.current = '';
+    freshRef.current = true;
+    lastPieceAtRef.current = 0;
+    worstGapRef.current = 0;
+    pieceRef.current = 0;
+    lastTranscriptAtRef.current = 0;
+    setTranscribing(false);
+    setHeard('');
+    setLevel(0);
+  }, [clearHeardTimer]);
+
+  // Timestamped after React has committed the accumulated transcript to the
+  // DOM. Paired with Rust's ingress trace, this identifies a growing render
+  // queue without extending the production event protocol for diagnostics.
+  useLayoutEffect(() => {
+    if (!import.meta.env.DEV || !heard || pieceRef.current === 0) return;
+    void tauri.raw
+      .uiLog(
+        'live-render',
+        `turn=${turnsRef.current + 1} piece=${pieceRef.current} ` +
+          `chars=${heard.length} renderedAt=${Date.now()}`,
+      )
+      .catch(() => {});
+  }, [heard]);
 
   const closeMic = useCallback(() => {
     stopMicRef.current?.();
     stopMicRef.current = null;
-    setLevel(0);
-  }, []);
+    resetTransient();
+  }, [resetTransient]);
 
   // Attached for the hook's whole life, not per call: `listen` is async, and a
   // status that lands between starting the call and registering the listener
@@ -175,12 +222,30 @@ export function useLiveCallSession() {
         const { sessionId: id, kind, text } = event.payload;
         if (id !== sessionId) return;
         switch (kind) {
-          case 'inputTranscript':
+          case 'inputTranscript': {
             // The model's transcription of what it heard, arriving in pieces.
+            //
+            // Timed on THIS side of the bridge as well as in Rust, because the
+            // reported symptom grows with use — fine for a sentence or two,
+            // half a minute behind after four — and a delay that grows is a
+            // queue filling up somewhere, not a server deciding to answer late.
+            // Rust says whether the words were slow to arrive; this says whether
+            // they were slow to be drawn once they had. Only the two together
+            // name the side.
+            const now = performance.now();
+            if (lastPieceAtRef.current > 0) {
+              const gap = now - lastPieceAtRef.current;
+              if (gap > worstGapRef.current) worstGapRef.current = gap;
+            }
+            lastPieceAtRef.current = now;
+            lastTranscriptAtRef.current = now;
+            pieceRef.current += 1;
             heardRef.current = freshRef.current ? text : heardRef.current + text;
             setHeard(heardRef.current);
+            setTranscribing(false);
             freshRef.current = false;
             break;
+          }
           case 'outputTranscript':
             // Audio and its transcript arrive together, so this is also the only
             // signal that the reply has started coming back.
@@ -194,6 +259,7 @@ export function useLiveCallSession() {
             // `stop` disarms it to keep stragglers out.
             stopSpeech();
             void beginSpeech();
+            setTranscribing(false);
             setPhase('listening');
             break;
           case 'turnComplete': {
@@ -206,6 +272,23 @@ export function useLiveCallSession() {
             // there was no scrollback, nothing to copy, and no way to check
             // what it heard. Two records of one exchange, for two different
             // readers.
+            // One line per turn, and the number that matters is the worst gap:
+            // the server sends 1-6 characters every 130-200 ms, so anything past
+            // a second is a stall on this side of the bridge, and a figure that
+            // climbs turn after turn is the queue nobody is draining.
+            void tauri.raw
+              .uiLog(
+                'live',
+                `turn ${++turnsRef.current}: worst gap between transcript pieces ` +
+                  `${Math.round(worstGapRef.current)}ms`,
+              )
+              .catch(() => {});
+            worstGapRef.current = 0;
+            lastPieceAtRef.current = 0;
+            lastTranscriptAtRef.current = 0;
+            pieceRef.current = 0;
+            setTranscribing(false);
+
             const said = saidRef.current.trim();
             const asked = heardRef.current.trim();
             const now = Date.now();
@@ -224,7 +307,9 @@ export function useLiveCallSession() {
 
             setPhase('listening');
             freshRef.current = true;
-            window.setTimeout(() => {
+            clearHeardTimer();
+            heardTimerRef.current = window.setTimeout(() => {
+              heardTimerRef.current = null;
               if (freshRef.current) setHeard('');
             }, HEARD_LINGER_MS);
             break;
@@ -248,16 +333,16 @@ export function useLiveCallSession() {
       cancelled = true;
       unlisten?.();
     };
-  }, [sessionId, beginSpeech, stopSpeech, closeMic]);
+  }, [sessionId, beginSpeech, stopSpeech, closeMic, clearHeardTimer]);
 
   /** Open the overlay. No microphone and no socket yet — the pre-call screen is
    *  where the user is told the call leaves the device. */
   const open = useCallback(() => {
     callRef.current += 1;
-    setHeard('');
+    resetTransient();
     setNotice(null);
     setPhase('ready');
-  }, []);
+  }, [resetTransient]);
 
   /** Accept: connect first, then open the microphone. In that order, because
    *  `start_live_call` resolves only once the model has accepted the session —
@@ -265,9 +350,8 @@ export function useLiveCallSession() {
    *  open. */
   const begin = useCallback(async () => {
     const call = (callRef.current += 1);
+    resetTransient();
     setNotice(null);
-    setHeard('');
-    freshRef.current = true;
     setPhase('thinking'); // connecting; the orb's fastest tempo is the honest one
 
     try {
@@ -292,6 +376,13 @@ export function useLiveCallSession() {
       stopMicRef.current = await captureMicPcm((frame, loudness) => {
         if (callRef.current !== call) return;
         setLevel(Math.min(1, loudness / LEVEL_CEILING));
+        const now = performance.now();
+        if (
+          loudness >= SPEECH_RMS &&
+          (lastTranscriptAtRef.current === 0 || now - lastTranscriptAtRef.current >= TRANSCRIPT_WAIT_MS)
+        ) {
+          setTranscribing(true);
+        }
         micQueue.current.push(frame);
         // Bound the backlog. Coalescing keeps it at one or two frames in normal
         // conditions; this only matters if the bridge stalls for seconds, and
@@ -317,7 +408,7 @@ export function useLiveCallSession() {
       return;
     }
     setPhase('listening');
-  }, [sessionId, beginSpeech, closeMic]);
+  }, [sessionId, beginSpeech, closeMic, resetTransient]);
 
   const hangUp = useCallback(() => {
     callRef.current += 1;
@@ -340,8 +431,9 @@ export function useLiveCallSession() {
     callRef.current += 1;
     stopMicRef.current?.();
     stopMicRef.current = null;
+    resetTransient();
     void tauri.raw.endLiveCall().catch(() => {});
-  }, []);
+  }, [resetTransient]);
 
   /**
    * Type instead of speaking, mid-call.
@@ -365,5 +457,5 @@ export function useLiveCallSession() {
     setPhase('thinking');
   }, [beginSpeech, stopSpeech]);
 
-  return { phase, heard, level, notice, open, begin, hangUp, interrupt, say };
+  return { phase, heard, level, notice, transcribing, open, begin, hangUp, interrupt, say };
 }
