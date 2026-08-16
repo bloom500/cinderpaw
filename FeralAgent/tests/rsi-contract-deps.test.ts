@@ -66,7 +66,7 @@ afterEach(() => {
 describe("contractDepsFrom — end-to-end seam", () => {
   test("happy path accepts and writes exactly one real Journal row", async () => {
     const path = tempJournalPath();
-    const deps = contractDepsFrom(fakeStageDeps(), { journalPath: () => path });
+    const deps = contractDepsFrom(fakeStageDeps(), { journalPath: () => path, estimateStage: () => ({}) });
 
     const final = await runContract(freshState(), deps);
 
@@ -77,15 +77,15 @@ describe("contractDepsFrom — end-to-end seam", () => {
     expect(rows[0]!.experimented.candidateId).toBe("cand-1");
   });
 
-  test("assertBudget fail-opens on a null estimate (I5)", () => {
+  test("missing estimates fail closed (I5)", async () => {
     const deps = contractDepsFrom(fakeStageDeps());
-    const decision = deps.assertBudget("evaluate", null);
-    expect(decision.allow).toBe(true);
-    expect(decision.reason).toContain("fail-open");
+    const final = await runContract(freshState(), deps);
+    expect(final.decided).toMatchObject({ action: "halt" });
+    expect(final.decided?.reason).toContain("missing budget estimate");
   });
 
   test("evaluateConfidence delegates to the real gate (rejects too-few samples)", () => {
-    const deps = contractDepsFrom(fakeStageDeps());
+    const deps = contractDepsFrom(fakeStageDeps(), { estimateStage: () => ({}) });
     const decision = deps.evaluateConfidence([{ candidate: 1, baseline: 0 }]); // 1 < MIN_SAMPLES
     expect(decision.accept).toBe(false);
     expect(decision.reason).toContain("insufficient samples");
@@ -95,6 +95,7 @@ describe("contractDepsFrom — end-to-end seam", () => {
     const path = tempJournalPath();
     const deps = contractDepsFrom(fakeStageDeps(), {
       journalPath: () => path,
+      estimateStage: () => ({}),
       evaluateConfidence: () => ({
         accept: false,
         reason: "stubbed reject",

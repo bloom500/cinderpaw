@@ -29,7 +29,7 @@ import {
   type CandidateContext,
   type CandidateRun,
 } from "../infra/contract-leaves.ts";
-import { DEFAULT_BUDGET_CAPS } from "../infra/budget.ts";
+import { DEFAULT_BUDGET_CAPS, zeroSpend } from "../infra/budget.ts";
 
 // Re-exported from their new home so existing importers/tests keep working.
 export { tier0FloorBreach, buildPairedSamples } from "../infra/contract-leaves.ts";
@@ -127,6 +127,10 @@ export class RatchetHandler {
     const run: CandidateRun = {};
     const contractDeps = contractDepsFrom(contractLeavesFromRatchet(this.deps, ctx, run), {
       evaluateConfidence: gateForCandidate(this.deps, ctx),
+      estimateStage: (stage) =>
+        stage === "sandbox_apply" || stage === "deploy"
+          ? { wallClockMin: 0.5 }
+          : {},
       ...(this.deps.journalPath ? { journalPath: this.deps.journalPath } : {}),
     });
 
@@ -136,6 +140,11 @@ export class RatchetHandler {
         candidateId: genomeId,
         layer: "L1", // Configuration Evolution (BRSI §5) — config-RSI candidates
         budgetCaps: DEFAULT_BUDGET_CAPS,
+        initialSpend: {
+          ...zeroSpend(),
+          tokens: ctx.tokenCost,
+          wallClockMin: ctx.durationMs / 60_000,
+        },
       }),
       contractDeps,
     );

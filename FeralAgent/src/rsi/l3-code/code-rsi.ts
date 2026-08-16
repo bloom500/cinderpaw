@@ -183,6 +183,15 @@ export async function runCodeCandidate(args: CodeCandidateArgs): Promise<CodeCan
   const leaves = contractLeavesForCodePatch(args.deps, args.genome, args.genomeId, run);
   const contractDeps = contractDepsFrom(leaves, {
     evaluateConfidence: codeGateBypass(),
+    // Grounded in the existing hard timeouts: the disposable worktree may
+    // consume up to 29 minutes; bridge-bound stages each have a 30s cap.
+    estimateStage: (stage) => {
+      if (stage === "sandbox_apply") return { wallClockMin: 29 };
+      if (["static_analysis", "benchmark", "safety_checks", "deploy"].includes(stage)) {
+        return { wallClockMin: 0.5 };
+      }
+      return {};
+    },
     ...(args.journalPath ? { journalPath: args.journalPath } : {}),
   });
 

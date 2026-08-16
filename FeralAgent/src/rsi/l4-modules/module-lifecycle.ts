@@ -26,7 +26,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_BUDGET_CAPS } from "../infra/budget.ts";
+import { DEFAULT_BUDGET_CAPS, zeroSpend } from "../infra/budget.ts";
 import { evaluateGate } from "../infra/confidence.ts";
 import { makeInitialState, type ContractDeps } from "../infra/contract.ts";
 import { runContract } from "../infra/contract-runner.ts";
@@ -413,7 +413,11 @@ export class ModuleLifecycle {
       ),
       deploy: ok, // promotion itself is human-gated AFTER the FSM (§6.4)
       monitoring: ok,
-      assertBudget: () => ({ allow: true, breaches: [], reason: "l4 eval ran inside dream budget" }),
+      // This FSM only classifies evidence already collected by module-eval;
+      // it performs no additional metered work.
+      estimateBudget: () => ({}),
+      assertBudget: () => ({ allow: true, breaches: [], reason: "l4 evidence classification is unmetered" }),
+      measureSpend: () => zeroSpend(),
       evaluateConfidence: (samples) => evaluateGate(samples, thresholds),
       writeJournal: (entry) => appendJournal(this.journalPath(), entry),
     };

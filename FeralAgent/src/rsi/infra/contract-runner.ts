@@ -8,10 +8,8 @@
  * frozen contract below).
  *
  * ── What the runner guarantees ──────────────────────────────────────────────
- *   I5  Budget precheck BEFORE each stage. `assertBudget(phase, estimate)` runs
- *       first; an explicit-estimate breach → HALT. (Estimate is `null` today —
- *       fail-open — until an estimator is wired; the breach branch is still live
- *       whenever `assertBudget` denies, which is what the test exercises.)
+ *   I5  Budget precheck BEFORE each stage. Missing estimates fail closed;
+ *       explicit estimates are checked against accumulated measured spend.
  *   I6  Confidence gate AFTER regression, BEFORE deploy. If the gate rejects,
  *       the pipeline stops before deploy and the decision is `reject` (the
  *       candidate WAS evaluated, just not promoted).
@@ -43,7 +41,7 @@ import {
   type StageFn,
   type StageResult,
 } from "./contract.ts";
-import { remaining, DEFAULT_BUDGET_CAPS, type BudgetSpend, type CyclePhase } from "./budget.ts";
+import { applySpend, remaining, type BudgetSpend, type CyclePhase } from "./budget.ts";
 import type { PairedSample } from "./confidence.ts";
 import type {
   BudgetRemaining,
@@ -58,9 +56,7 @@ import type {
 type RunStage = Exclude<ContractStage, "candidate_proposed">;
 
 /** Which dream-cycle phase a contract stage bills its budget against. The
- *  candidate pipeline lives inside the Dream Cycle's Evaluate/Remember phases;
- *  the map only affects the budget-breach `reason` string today (estimate is
- *  null → fail-open), so a coarse-but-honest attribution is enough. */
+ *  candidate pipeline lives inside the Dream Cycle's Evaluate/Remember phases. */
 const STAGE_TO_PHASE: Record<ContractStage, CyclePhase> = {
   candidate_proposed: "dream",
   static_analysis: "evaluate",
@@ -102,10 +98,16 @@ export const runContract: RunContract = async (initial, deps) => {
     if (stage === "candidate_proposed") continue; // entry state, no handler
     const phase = STAGE_TO_PHASE[stage];
 
-    // I5 — budget precheck BEFORE the stage runs.
-    // ponytail: estimate is null (fail-open) until a per-stage estimator exists;
-    // wire one through a future ADR-gated ContractDeps field when it does.
-    const budget = deps.assertBudget(phase, null);
+    // I5 — a stage without an explicit estimate is not authorized to start.
+    const estimate = deps.estimateBudget(stage, state);
+    if (estimate === null) {
+      return terminal(state, deps, stage, {
+        action: "halt",
+        reason: `stage ${stage}: missing budget estimate (fail-closed)`,
+        stage: phase,
+      });
+    }
+    const budget = deps.assertBudget(phase, state.budgetSpent, estimate);
     if (!budget.allow) {
       return terminal(state, deps, stage, {
         action: "halt",
@@ -128,8 +130,11 @@ export const runContract: RunContract = async (initial, deps) => {
       }
     }
 
+    const stageStartedAt = Date.now();
     const result = await handlerFor(deps, stage)(state);
+    const measured = deps.measureSpend(stage, state, result, Date.now() - stageStartedAt);
     state = withHistory(state, stage, result);
+    state = { ...state, budgetSpent: applySpend(state.budgetSpent, measured) };
 
     if (!result.ok) {
       return terminal(state, deps, stage, verdictFor(result, phase));
@@ -249,7 +254,7 @@ function toJournalEntry(state: ContractState): JournalEntry {
         }
       : null,
     decided: state.decided ?? { action: "halt", reason: "no decision recorded", stage: "evaluate" },
-    budgetRemaining: budgetRemaining(state.budgetSpent),
+    budgetRemaining: budgetRemaining(state.budgetCaps, state.budgetSpent),
   };
 }
 
@@ -259,11 +264,9 @@ function toExperimentLayer(layer: ContractState["layer"]): ExperimentLayer {
   return layer === "L6" ? "L5" : layer;
 }
 
-/** Remaining budget for the Journal row (drops energyKwh — never a hard cap).
- *  ponytail: uses DEFAULT_BUDGET_CAPS; thread the live SandboxBounds caps
- *  through when `makeInitialState` starts storing them on the state. */
-function budgetRemaining(spent: BudgetSpend): BudgetRemaining {
-  const r = remaining(DEFAULT_BUDGET_CAPS, spent);
+/** Remaining budget for the Journal row (drops energyKwh — never a hard cap). */
+function budgetRemaining(caps: ContractState["budgetCaps"], spent: BudgetSpend): BudgetRemaining {
+  const r = remaining(caps, spent);
   return {
     wallClockMin: r.wallClockMin,
     tokens: r.tokens,

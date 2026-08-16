@@ -22,7 +22,7 @@ import {
   type ContractStage,
   type StageResult,
 } from "../src/rsi/infra/contract.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
+import { assertCanSpend, DEFAULT_BUDGET_CAPS, zeroSpend } from "../src/rsi/infra/budget.ts";
 import type { GateDecision, PairedSample } from "../src/rsi/infra/confidence.ts";
 import type { JournalEntry } from "../src/rsi/infra/journal.ts";
 import { fitnessVector, fitnessVectorAggregate } from "../src/rsi/l1-config/fitness.ts";
@@ -61,7 +61,9 @@ function makeDeps(over: Partial<ContractDeps> = {}): { deps: ContractDeps; journ
     regression: stageFn("regression"),
     deploy: stageFn("deploy"),
     monitoring: stageFn("monitoring"),
+    estimateBudget: () => ({}),
     assertBudget: () => ({ allow: true, breaches: [], reason: "within budget" }),
+    measureSpend: () => zeroSpend(),
     evaluateConfidence: () => okGate,
     writeJournal: (e) => journal.push(e),
     ...over,
@@ -103,6 +105,32 @@ describe("runContract — I5 budget precheck", () => {
     expect(final.decided).toMatchObject({ action: "halt", reason: "phase evaluate: tokens breach" });
     expect(journal).toHaveLength(1);
     expect(journal[0]!.decided.action).toBe("halt");
+  });
+
+  test("accumulates measured spend and refuses a later stage before it starts", async () => {
+    CALLS.length = 0;
+    const caps = { ...DEFAULT_BUDGET_CAPS, tokens: 15 };
+    const { deps } = makeDeps({
+      estimateBudget: () => ({ tokens: 10 }),
+      assertBudget: (phase, spent, estimate) => assertCanSpend(caps, spent, phase, estimate),
+      measureSpend: () => ({ ...zeroSpend(), tokens: 10 }),
+    });
+    const final = await runContract(
+      makeInitialState({ cycleId: "c-1", candidateId: "cand-1", layer: "L1", budgetCaps: caps }),
+      deps,
+    );
+    expect(CALLS).toEqual(["static_analysis"]);
+    expect(final.budgetSpent.tokens).toBe(10);
+    expect(final.decided).toMatchObject({ action: "halt" });
+  });
+
+  test("missing stage estimate fails closed before the handler", async () => {
+    CALLS.length = 0;
+    const { deps } = makeDeps({ estimateBudget: () => null });
+    const final = await runContract(freshState(), deps);
+    expect(CALLS).toEqual([]);
+    expect(final.decided).toMatchObject({ action: "halt" });
+    expect(final.decided?.reason).toContain("missing budget estimate");
   });
 });
 
