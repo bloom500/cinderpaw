@@ -4,9 +4,101 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Feral</title>
+    <!--
+      Cinematic shell startup: a blocking, same-origin pre-paint script runs
+      before the React module (CSP `script-src 'self'` — no inline JS). It
+      reads the persisted `feral-ui` theme and stamps `data-theme` before the
+      first paint, so a cold start never shows the old white frame. The inline
+      style below is allowed by the CSP's `style-src 'unsafe-inline'`.
+    -->
+    <script src="/feral-prepaint.js"></script>
+    <style>
+      /* Theme-correct opaque base before external CSS/JS arrive. Values mirror
+         globals.css --bg-primary per theme; no data-theme means dark, which is
+         also the store default. */
+      html { background-color: #100E09; }
+      html[data-theme="light"] { background-color: #FFF5EE; }
+      body { margin: 0; background-color: #100E09; }
+      html[data-theme="light"] body { background-color: #FFF5EE; }
+
+      /* Startup surface: wordmark + amber light + loading label, all rendered
+         statically so the first paint is the product, not a blank page. */
+      #feral-startup {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        overflow: hidden;
+        transition: opacity 0.45s ease;
+      }
+      .feral-startup-light {
+        position: absolute;
+        top: -18%;
+        left: -12%;
+        width: 70%;
+        height: 80%;
+        pointer-events: none;
+        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.20), transparent 70%);
+      }
+      html[data-theme="light"] .feral-startup-light {
+        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.16), transparent 70%);
+      }
+      .feral-startup-wordmark {
+        font-family: 'Inter Variable', Inter, system-ui, sans-serif;
+        font-size: clamp(46px, 10vw, 84px);
+        font-weight: 600;
+        letter-spacing: 0.42em;
+        text-indent: 0.42em;
+        color: rgba(240, 230, 211, 0.12);
+      }
+      html[data-theme="light"] .feral-startup-wordmark {
+        color: rgba(28, 22, 16, 0.14);
+      }
+      .feral-startup-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: 'Inter Variable', Inter, system-ui, sans-serif;
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(184, 172, 149, 0.85);
+      }
+      html[data-theme="light"] .feral-startup-status {
+        color: rgba(74, 63, 50, 0.85);
+      }
+      .feral-startup-status::before {
+        content: '';
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(196, 132, 58, 0.28);
+        border-top-color: rgba(196, 132, 58, 0.9);
+        animation: feral-startup-spin 0.9s linear infinite;
+      }
+      html[data-theme="light"] .feral-startup-status::before {
+        border-color: rgba(160, 104, 40, 0.28);
+        border-top-color: rgba(160, 104, 40, 0.9);
+      }
+      @keyframes feral-startup-spin { to { transform: rotate(360deg); } }
+
+      /* React mounted: the pre-paint script adds `feral-ready`, CSS fades the
+         surface out, and the script removes it from the DOM (accessibility +
+         pointer flow) once the fade completes. */
+      html.feral-ready #feral-startup { opacity: 0; pointer-events: none; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="feral-startup">
+      <div class="feral-startup-light" aria-hidden="true"></div>
+      <div class="feral-startup-wordmark" aria-hidden="true">FERAL</div>
+      <div class="feral-startup-status" role="status">Starting Feral</div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
