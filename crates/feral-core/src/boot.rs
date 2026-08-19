@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use crate::api;
 use crate::feral_agent;
-use crate::host::{CapabilityHandler, DesktopControlHandler, HostEvents};
+use crate::host::{AdminHandler, CapabilityHandler, DesktopControlHandler, HostEvents};
 use crate::inference::ModelManager;
 use crate::paths;
 use crate::rsi::{self, audit::SandboxBoundsAudit, sandbox_bounds::SandboxBounds};
@@ -94,13 +94,16 @@ pub async fn start(
     // trust checks; `None` on the headless gateway, where a capability
     // request is answered "not available" rather than left hanging.
     capabilities: Option<CapabilityHandler>,
+    // The act half of what the CLI can do — update, switch model. `None` on a
+    // headless host, which has no updater and no model UI to keep in step.
+    admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) {
     fragile_amd_embed_guard();
     bootstrap_rsi_substrate(&runtime);
     export_settings_env(&runtime.settings);
     spawn_api_server_if_enabled(&runtime).await;
-    feral_agent::supervise(runtime, events, desktop_control, capabilities, extra_bin_dirs);
+    feral_agent::supervise(runtime, events, desktop_control, capabilities, admin, extra_bin_dirs);
 }
 
 // ── Section helpers ───────────────────────────────────────────────────────

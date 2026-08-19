@@ -2,6 +2,7 @@ mod agents;
 mod commands;
 mod connectors;
 mod conversations;
+mod admin_bridge;
 mod desktop_control;
 mod disk_encryption;
 mod events;
@@ -516,6 +517,22 @@ pub fn run() {
                     });
                 Some(cap)
             };
+            // Admin bridge — update and model switching, so the person does
+            // not have to open a terminal for the things they set Feral up to
+            // handle. Captures the AppHandle because both need it: the updater
+            // plugin lives on it, and model switching goes through the same
+            // command the UI uses so the two never disagree about what is
+            // loaded.
+            let admin: Option<feral_core::host::AdminHandler> = {
+                let handle = app.handle().clone();
+                let adm: feral_core::host::AdminHandler = Arc::new(move |action, params| {
+                    let handle = handle.clone();
+                    Box::pin(async move {
+                        crate::admin_bridge::handle(handle, &action, &params).await
+                    })
+                });
+                Some(adm)
+            };
             let extra_bin_dirs: Vec<PathBuf> = vec![app.path().resource_dir().ok()]
                 .into_iter()
                 .flatten()
@@ -526,6 +543,7 @@ pub fn run() {
                     events,
                     desktop_control,
                     capabilities,
+                    admin,
                     extra_bin_dirs,
                 )
                 .await;

@@ -153,6 +153,7 @@ const INBOUND_TYPES = [
   "cron_list",
   "desktop_control_response",
   "capability_response",
+  "admin_response",
   "connectors_reload",
   // PROVISIONAL — temporary Settings button for the benchmark gate.
   "fractal_benchmark",

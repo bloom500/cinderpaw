@@ -34,6 +34,7 @@ import type {
   AskUserBridge,
   DesktopControlBridge,
   CapabilityBridge,
+  AdminBridge,
   ProcessSandbox,
   Tool,
   ToolCallOptions,
@@ -56,6 +57,7 @@ export class ToolRegistry {
   readonly #askUser: AskUserBridge | null;
   readonly #desktopControl: DesktopControlBridge | null;
   readonly #capabilities: CapabilityBridge | null;
+  readonly #admin: AdminBridge | null;
   /**
    * Per-tool circuit breaker (P2-#2). Tracks consecutive failures and
    * short-circuits calls to tools that are clearly sick. Saves LLM
@@ -81,6 +83,7 @@ export class ToolRegistry {
     hooks?: import("../core/hook-registry.ts").HookRegistry,
     desktopControl?: DesktopControlBridge,
     capabilities?: CapabilityBridge,
+    admin?: AdminBridge,
   ) {
     this.#egress = egress;
     this.#audit = audit;
@@ -91,6 +94,7 @@ export class ToolRegistry {
     this.#hooks = hooks ?? null;
     this.#desktopControl = desktopControl ?? null;
     this.#capabilities = capabilities ?? null;
+    this.#admin = admin ?? null;
   }
 
 
@@ -372,6 +376,7 @@ export class ToolRegistry {
       askUser: this.#askUser ?? undefined,
       desktopControl: this.#desktopControl ?? undefined,
       capabilities: this.#capabilities ?? undefined,
+      admin: this.#admin ?? undefined,
       progress: opts.onProgress
         ? (event) => {
             const full: ToolProgressEvent = {

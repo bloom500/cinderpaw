@@ -83,6 +83,7 @@ import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
 import { createCapabilityTools } from "./tools/builtin/capability.ts";
+import { createFeralAdminTools } from "./tools/builtin/feral-admin.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
@@ -649,6 +650,14 @@ export async function boot(transportOverride?: Transport) {
     "capability",
     60_000,
   );
+  // 180s: applying an update downloads an installer. A timeout that fires
+  // mid-download reports failure for something the host is still doing, and
+  // the user then tries again on top of a running install.
+  const adminBridge = new RequestBridge(
+    (e) => sendHolder.current(e),
+    "admin",
+    180_000,
+  );
 
   // --- P0-4: hook registry. Shared singleton that every layer can
   // emit into and any plugin / future tool can subscribe to. The
@@ -686,7 +695,7 @@ export async function boot(transportOverride?: Transport) {
   // never lifted into the reactive tree and semantic recall silently stayed
   // FTS5-only. It now runs immediately after the invoker is wired; see below.
 
-  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl, capabilityBridge);
+  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl, capabilityBridge, adminBridge);
 
   // R5: the sidecar is the single owner of live MCP connections (see
   // sandbox/mcp-manager.ts). Boot reconcile runs in the background — a
@@ -768,6 +777,9 @@ export async function boot(transportOverride?: Transport) {
   // rather than vanishing, so a model that reasonably expects to be able to
   // install something gets an answer instead of silence.
   for (const t of createCapabilityTools()) registry.register(t);
+  // The act half of the CLI — update, switch model. Registered alongside the
+  // read-only self_* family so the agent has one obvious place to look.
+  for (const t of createFeralAdminTools()) registry.register(t);
   // product_info: bundled PRODUCT.md — the agent's factual reference about
   // Feral itself (setup, connectors, commands). Zero permissions.
   registry.register(createProductInfoTool());
@@ -2030,7 +2042,7 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
-    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path
@@ -2163,6 +2175,7 @@ export async function boot(transportOverride?: Transport) {
     try {
       desktopControl.cancelAll("shutdown");
       capabilityBridge.cancelAll("shutdown");
+      adminBridge.cancelAll("shutdown");
     } catch {
       // ignore — bridge may already be empty
     }

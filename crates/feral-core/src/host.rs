@@ -89,6 +89,16 @@ pub type CapabilityHandler = Arc<
     dyn Fn(String, Value) -> BoxFuture<'static, Result<Value, String>> + Send + Sync,
 >;
 
+/// Host-supplied closure that runs one `admin_request` from the sidecar: the
+/// commands a person would otherwise open a terminal for — update, switch
+/// model. Injected for the same reason as the capability handler: the decision
+/// about what an action means, and whether it is permitted, belongs on the
+/// host side of the wire. `None` on a headless host, where every admin request
+/// is answered "not available" rather than left hanging.
+pub type AdminHandler = Arc<
+    dyn Fn(String, Value) -> BoxFuture<'static, Result<Value, String>> + Send + Sync,
+>;
+
 #[cfg(test)]
 mod tests {
     use super::*;

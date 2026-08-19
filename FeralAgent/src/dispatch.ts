@@ -96,7 +96,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     runHooks,
   } = ctx;
 
@@ -1045,6 +1045,15 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           capabilityBridge.resolve(msg.id, msg.ok === true, msg.data, msg.error);
         } else {
           log(`capability_response: missing id — ignored`);
+        }
+        break;
+      }
+
+      case "admin_response": {
+        if (msg.id) {
+          adminBridge.resolve(msg.id, msg.ok === true, msg.data, msg.error);
+        } else {
+          log(`admin_response: missing id — ignored`);
         }
         break;
       }

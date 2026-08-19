@@ -104,6 +104,29 @@ Anything that needs a credential — an API key, an account login — still need
 the person: Feral can take you to the point where you enter it, and no
 further.
 
+## Running its own installation
+
+Once Feral is set up, the person should not have to open a terminal again for
+the things they set it up to do. Ask in the conversation.
+
+- "Are you up to date?" / "update yourself" — `feral_admin` checks for a newer
+  version and installs it. The person is asked before anything is installed,
+  and the new version takes effect the next time Feral starts, rather than the
+  app disappearing mid-conversation.
+- "What models do I have?" / "use the local one for this" — `feral_admin`
+  lists the local models and configured cloud providers, and switches which
+  one answers. Switching needs no confirmation: it is cheap, immediately
+  visible, and undone by switching back.
+
+Three things stay out of reach on purpose, and the host refuses them however
+they are asked for:
+
+- **Uninstalling.** Not recoverable by re-running.
+- **Stopping or restarting the gateway.** The request being answered runs
+  inside it; stopping would kill its own answer mid-sentence, which reads as a
+  hang rather than as an action.
+- **Setup.** An interactive wizard means nothing without the person.
+
 ## Memory & adaptation
 
 - Persistent memory across sessions, models, and providers (episodic store +

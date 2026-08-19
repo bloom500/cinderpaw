@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::host::{CapabilityHandler, DesktopControlHandler, HostEvents};
+use crate::host::{AdminHandler, CapabilityHandler, DesktopControlHandler, HostEvents};
 use crate::paths;
 use crate::rsi::runtime::{RsiEngineState, RsiRequestRegistry};
 use crate::runtime::{PlannedExit, PlannedExitSlot, RuntimeState};
@@ -302,6 +302,7 @@ pub async fn spawn(
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
     capabilities: Option<CapabilityHandler>,
+    admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) -> Result<tokio::process::Child, String> {
     let api_port = runtime.settings.api_port;
@@ -569,6 +570,7 @@ pub async fn spawn(
         events.clone(),
         desktop_control,
         capabilities,
+        admin,
         stdout,
         runtime.rsi_request_registry.clone(),
         runtime.rsi_engine.clone(),
@@ -610,6 +612,7 @@ pub fn supervise(
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
     capabilities: Option<CapabilityHandler>,
+    admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) {
     const MAX_QUICK_FAILURES: u32 = 5;
@@ -627,6 +630,7 @@ pub fn supervise(
                 events.clone(),
                 desktop_control.clone(),
                 capabilities.clone(),
+                admin.clone(),
                 extra_bin_dirs.clone(),
             )
             .await
@@ -805,6 +809,7 @@ async fn stdout_reader(
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
     capabilities: Option<CapabilityHandler>,
+    admin: Option<AdminHandler>,
     stdout: tokio::process::ChildStdout,
     rsi_registry: RsiRequestRegistry,
     rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
@@ -864,6 +869,12 @@ async fn stdout_reader(
                     let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
                     let caps = capabilities.clone();
                     tokio::spawn(async move { handle_capability_request(v, caps, tx).await });
+                    continue;
+                }
+                Some("admin_request") => {
+                    let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
+                    let adm = admin.clone();
+                    tokio::spawn(async move { handle_admin_request(v, adm, tx).await });
                     continue;
                 }
                 Some("rsi_request") => {
@@ -1242,6 +1253,41 @@ async fn handle_capability_request(
     if tx.send(response.to_string()).await.is_err() {
         tracing::warn!("feral-agent: failed to deliver capability_response (sidecar gone?)");
     }
+}
+
+/// Serve one `admin_request` from the sidecar and answer it.
+async fn handle_admin_request(
+    req: serde_json::Value,
+    admin: Option<AdminHandler>,
+    tx: mpsc::Sender<String>,
+) {
+    let id = req.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let action = req.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+
+    let response = match admin {
+        Some(handler) => match handler(action, params).await {
+            Ok(data) => json_ok("admin_response", &id, data),
+            Err(message) => json_err("admin_response", &id, &message),
+        },
+        None => json_err(
+            "admin_response",
+            &id,
+            "administrative commands are not available in this host",
+        ),
+    };
+
+    if tx.send(response.to_string()).await.is_err() {
+        tracing::warn!("feral-agent: failed to deliver admin_response (sidecar gone?)");
+    }
+}
+
+fn json_ok(kind: &str, id: &str, data: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "type": kind, "id": id, "ok": true, "data": data })
+}
+
+fn json_err(kind: &str, id: &str, message: &str) -> serde_json::Value {
+    serde_json::json!({ "type": kind, "id": id, "ok": false, "error": message })
 }
 
 /// Run a single `rsi_request` from the sidecar and write a matching
