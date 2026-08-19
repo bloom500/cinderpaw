@@ -12,6 +12,7 @@ pub mod byok;
 #[cfg(target_os = "linux")]
 pub mod byok_file_store;
 pub mod connectors;
+pub mod connector_secrets;
 pub mod db_key;
 pub mod feral_agent;
 pub mod gpu_detect;
