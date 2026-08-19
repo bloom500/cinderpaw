@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
@@ -95,6 +96,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
   const isUser = message.role === 'user';
   const reasoningMode = useUI((s) => s.reasoningMode);
   const t = useT();
+  const navigate = useNavigate();
 
   if (isUser) {
     // Voice message: render the playable audio bubble + transcript instead of
@@ -196,6 +198,24 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             <span className="font-medium">{t('chat.truncated.title')}</span>{' '}
             {t('chat.truncated.body')} ({message.truncatedReason ?? 'length'}).
           </div>
+        </div>
+      )}
+      {/* Actions attached by the product (not the model) — currently only the
+          zero-model reply, which offers the two real ways forward instead of
+          leaving the user at a dead end. */}
+      {message.actions && message.actions.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          {message.actions.map((a) => (
+            <button
+              key={a.route}
+              type="button"
+              onClick={() => navigate(a.route)}
+              className="px-3 py-1.5 rounded-full border border-border-default bg-bg-surface
+                         hover:bg-bg-hover text-sm text-text-secondary transition-colors"
+            >
+              {a.label}
+            </button>
+          ))}
         </div>
       )}
       {/* Footer — only on a finished, non-empty reply, and not while a question

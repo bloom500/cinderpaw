@@ -9,7 +9,7 @@ import { useAgent } from '@/stores/agent';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
-import { NoModelEmptyState, NewChatEmptyState } from '@/components/chat/EmptyStates';
+import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
@@ -22,7 +22,6 @@ import { useFeralStore } from '@/stores/feral';
 export function ChatPage() {
   const { id } = useParams();
   const loaded      = useModel((s) => s.loaded);
-  const cloudModel  = useModel((s) => s.cloudModel);
   const messages    = useChat((s) => s.messages);
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
@@ -32,9 +31,12 @@ export function ChatPage() {
   const feralSend    = useFeralSendMessage(sessionId);
   const isAgentMode  = inputMode === 'agent';
 
-  const hasModel  = !!loaded || !!cloudModel;
-  const canInput  = hasModel || isAgentMode;
-  const isEmpty   = messages.length === 0 && canInput;
+  // The composer is always live. Feral used to gate the whole screen on
+  // `hasModel`, which meant a fresh install — the one machine that has no
+  // model by definition — met a dead end instead of a product. When there
+  // is no model, ChatInput answers the first message itself and offers the
+  // two ways forward.
+  const isEmpty   = messages.length === 0;
 
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
@@ -181,8 +183,6 @@ export function ChatPage() {
         {/* Content: messages, no-model state, or empty overlay */}
         {messages.length > 0 ? (
           <MessageList />
-        ) : !canInput ? (
-          <NoModelEmptyState />
         ) : (
           <NewChatEmptyState isEmpty={isEmpty} onSuggestion={handleSuggestion} />
         )}

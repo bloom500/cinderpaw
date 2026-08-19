@@ -29,11 +29,14 @@
  * the rest of the brain stack.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { BrainConfig } from "./brain-stack.ts";
 import type { Mode } from "./brain-stack.ts";
+import type { ModelTarget } from "../types.ts";
+import type { BrainModel } from "./capability-registry.ts";
+import { profileFor } from "./model-profiles.ts";
 import { feralHome } from "../config.ts";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
@@ -43,12 +46,35 @@ const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
 ]);
 
 /**
+ * Mode used when Brain is derived rather than configured. `balanced` —
+ * capability weighted by cost — is the only defensible default: `budget`
+ * silently prefers the weaker local model for work it will fail, and
+ * `quality` spends the user's money without being asked.
+ */
+const DEFAULT_MODE: Mode = "balanced";
+
+/**
  * Default location for brain.json: `$FERAL_HOME/brain.json` if set,
  * else `~/.feral/brain.json`. Exported so callers (and tests) can
  * discover the same path the loader would use.
  */
 export function defaultBrainPath(): string {
   return join(feralHome(), "brain.json");
+}
+
+/**
+ * Does a brain.json exist at all?
+ *
+ * `loadBrainConfig()` returns `null` for two different situations — "no
+ * file" and "file says enabled: false" — and the caller must not treat
+ * them the same. Deriving a default config over a user who deliberately
+ * turned Brain off would override an explicit decision; deriving one when
+ * there is simply no file is the whole point of Phase 1.
+ */
+export function brainConfigFileExists(
+  opts: LoadBrainConfigOptions = {},
+): boolean {
+  return existsSync(opts.brainPath ?? defaultBrainPath());
 }
 
 /** Options for {@link loadBrainConfig}. Tests pass `brainPath` to point
@@ -113,6 +139,55 @@ export function loadBrainConfig(
     return null;
   }
   return cfg;
+}
+
+/**
+ * Build a Brain config from the model targets the inference router is
+ * already configured with, so Brain works on a machine that has never
+ * seen a `brain.json`.
+ *
+ * Why this exists: before Phase 1, `loadBrainConfig()` returning `null`
+ * was the ONLY outcome on a normal installation — nothing in the product
+ * ever wrote the file, so every shipped copy of Feral ran with model
+ * routing absent, not degraded (docs/ui/2026-08-19-brain-current-state.md
+ * §3, §10). `brain.example.json` even claimed `feral setup` would write
+ * it; nothing did.
+ *
+ * Scope: the sidecar knows at most two targets — the router's `#primary`
+ * and `#fallback` (egress/inference-router.ts:157). There is no inventory
+ * of every installed local model inside this process. Handing Brain the
+ * full list needs host→sidecar plumbing and is a later slice; this
+ * function is the single seam that slice replaces.
+ *
+ * Two targets is not a token gesture: local + cloud is exactly the case
+ * where routing earns its keep (local for `simple`/`speed`, cloud for
+ * `reasoning`/`vision`). One target degenerates to "pick the only model",
+ * which is correct, honest, and still better than no Brain at all.
+ *
+ * Returns `null` when there is nothing to route to — with zero usable
+ * targets the caller has no model at all, which is a different problem
+ * with a different answer (the UI's zero-model reply), not a routing one.
+ */
+export function deriveDefaultConfig(
+  targets: ReadonlyArray<ModelTarget | undefined>,
+): BrainConfig | null {
+  const registry: BrainModel[] = [];
+  const seen = new Set<string>();
+
+  for (const target of targets) {
+    if (!target) continue;
+    // The registry must not contain duplicate ids — CapabilityRegistry
+    // throws on them, and primary/fallback are frequently the same model
+    // pointed at two endpoints.
+    const id = `${target.provider}:${target.model}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    registry.push({ id, target, ...profileFor(target) });
+  }
+
+  if (registry.length === 0) return null;
+
+  return { enabled: true, mode: DEFAULT_MODE, registry };
 }
 
 /**

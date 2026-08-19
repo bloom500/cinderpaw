@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Info, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { useResumeTask, formatRelative } from '@/components/shell/WelcomeBack';
 import { getRandomSuggestions } from '@/lib/suggestions';
 import { useT } from '@/lib/i18n';
@@ -28,7 +27,7 @@ function AgentByokNote() {
       <Info size={14} className="shrink-0 mt-0.5 text-text-muted" />
       <p className="text-xs leading-relaxed">
         Local models need significant compute. For smoother performance we
-        recommend a cloud model —{' '}
+        recommend a cloud model:{' '}
         <button
           type="button"
           onClick={() => navigate('/settings')}
@@ -57,25 +56,6 @@ const GREETING_KEYS = [
   'empty.greeting.4',
   'empty.greeting.5',
 ] as const;
-
-export function NoModelEmptyState() {
-  const navigate = useNavigate();
-  const t = useT();
-  return (
-    <div className="h-full flex flex-col items-center justify-center text-text-muted px-6">
-      <h2 className="text-xl text-text-secondary mb-2">{t('empty.noModel.title')}</h2>
-      <p className="mb-6 text-center">{t('empty.noModel.body')}</p>
-      <div className="flex gap-3">
-        <Button variant="outline" onClick={() => navigate('/models')}>
-          {t('empty.noModel.openModels')}
-        </Button>
-        <Button variant="outline" onClick={() => navigate('/settings')}>
-          {t('empty.noModel.cloudKeys')}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 interface NewChatEmptyStateProps {
   isEmpty: boolean;

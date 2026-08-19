@@ -573,6 +573,20 @@ export type FeralAgentEvent =
     }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
+  // Which model answered this turn, and why that one. Emitted on the
+  // success AND the failure path: automatic model selection used to fail
+  // into a console warning and a silent switch to the default target, so a
+  // user whose routing broke got a different model with no explanation
+  // anywhere on their screen.
+  | {
+      type: 'model_routed';
+      sessionId: string;
+      provider: string;
+      model: string;
+      reason: 'brain' | 'only_candidate' | 'fallback';
+      category?: string;
+      detail?: string;
+    }
   | { type: 'model_error'; message: string }
   | { type: 'pong' }
   | { type: 'error';       id?: string; message: string }

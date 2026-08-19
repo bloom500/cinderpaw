@@ -45,9 +45,9 @@ const REASONING_CONFIG: Record<ReasoningMode, {
   dot: string;
   description: string;
 }> = {
-  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400',      dot: 'bg-sky-400',     description: 'Auto — detect from model name' },
-  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400', dot: 'bg-emerald-400', description: 'On — always enable thinking' },
-  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off — suppress thinking blocks' },
+  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400',      dot: 'bg-sky-400',     description: 'Auto: detect from model name' },
+  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400', dot: 'bg-emerald-400', description: 'On: always enable thinking' },
+  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off: suppress thinking blocks' },
 };
 
 export interface ChatInputHandle {
@@ -267,7 +267,52 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     agentPhase,
     isUserTyping: text.trim().length > 0,
   });
-  const disabled = alwaysEnabled ? false : (!loaded && !cloudModel);
+  /**
+   * No local model loaded and no cloud key configured.
+   *
+   * This used to disable the composer outright (and ChatPage replaced the
+   * whole screen with a "No model selected" card), so the first thing a new
+   * user typed was refused by a dead text box that told them to go
+   * configure something. The composer now stays live and `trySend` answers
+   * the message instead — see `noModelReply`.
+   */
+  const noModel = !alwaysEnabled && !loaded && !cloudModel;
+  /**
+   * Answer a message when there is no model to answer it with.
+   *
+   * This reply is written by the product, not generated — you cannot ask a
+   * model to explain that there is no model. It is deliberately phrased as
+   * Feral speaking, because from the user's side that is what happened:
+   * they asked for something and got an answer plus the two real ways
+   * forward, instead of a disabled box pointing at Settings.
+   */
+  const noModelReply = (asked: string | null) => {
+    const now = Date.now();
+    // `null` means the user's turn is already on screen (the voice path adds
+    // its bubble optimistically before transcription finishes).
+    if (asked !== null) {
+      useChat.getState().addMessage({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: asked,
+        createdAt: now,
+      });
+    }
+    useChat.getState().addMessage({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: t('chat.noModel.reply'),
+      createdAt: now + 1,
+      completedAt: now + 1,
+      actions: [
+        { label: t('chat.noModel.download'), route: '/models' },
+        { label: t('chat.noModel.addKey'), route: '/settings' },
+      ],
+    });
+  };
+  // Kept as a name because several controls read it; nothing sets it from
+  // model state any more. Sending is gated by `noModel` in trySend.
+  const disabled = false;
 
   const trySend = async () => {
     // Voice path: a recorded preview is pending — transcribe + send it instead
@@ -301,8 +346,19 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         // instead of adding a duplicate. Previously voice always used the chat
         // pipeline, so in agent mode it hit the (unloaded) local model → "no
         // model loaded" while the agent's own model sat idle.
-        if (sendFn) await sendFn(body, undefined, { voice, existingUserId: userId });
-        else await send(body, [], { voice, existingUserId: userId });
+        if (noModel) {
+          // The recording is transcribed and kept — whisper is local and had
+          // nothing to do with the missing chat model — but there is nobody
+          // to answer it, so the same reply the typed path gives lands here.
+          // Dropping it silently would be the worse dead end: the user speaks
+          // and nothing at all happens.
+          useChat.getState().patchMessage(userId, { voice, voicePending: false });
+          noModelReply(null);
+        } else if (sendFn) {
+          await sendFn(body, undefined, { voice, existingUserId: userId });
+        } else {
+          await send(body, [], { voice, existingUserId: userId });
+        }
       } catch (err) {
         console.error('[voice] sendVoice FAILED', err);
         // Drop the optimistic bubble — transcription failed before any reply.
@@ -319,6 +375,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0) || isStreaming || disabled) return;
+    if (noModel) {
+      noModelReply(text);
+      setText('');
+      setAttachedFiles([]);
+      return;
+    }
     const content = text;
     const files = attachedFiles;
     setText('');
@@ -389,11 +451,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder={
-              alwaysEnabled
-                ? t('chat.placeholder.agent')
-                : disabled
-                  ? t('chat.placeholder.noModel')
-                  : t('chat.placeholder')
+              alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')
             }
             disabled={disabled}
             rows={1}
@@ -522,9 +580,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             </div>
           </div>
         </div>
-        {disabled && !isEmpty && !alwaysEnabled && (
-          <p className="text-xs text-text-muted mt-2">{t('chat.noModelHint')}</p>
-        )}
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />
       {/* Picking a voice flows straight into the call it was blocking. */}

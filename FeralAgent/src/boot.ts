@@ -132,7 +132,11 @@ import { createScheduleMeetingTool } from "./tools/builtin/schedule-meeting.ts";
 import type { InferenceConfig, ModelTarget, Transport } from "./types.ts";
 import { CircuitBreaker } from "./egress/circuit-breaker.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
-import { loadBrainConfig } from "./brain/brain-config.ts";
+import {
+  brainConfigFileExists,
+  deriveDefaultConfig,
+  loadBrainConfig,
+} from "./brain/brain-config.ts";
 
 interface AppConfig {
   transport: "tauri";
@@ -979,12 +983,30 @@ export async function boot(transportOverride?: Transport) {
   extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---
-  // S5: Brain Stack wiring. Opt-in — loadBrainConfig() returns null when
-  // brain.json is absent (and FERAL_BRAIN is unset), so production runs
-  // with no brain.json see no behavior change. Each BrainStack owns its
-  // own CircuitBreaker instance — tool-health and model-health live in
-  // separate namespaces until S6 generalises the breaker key.
-  const brainCfg = loadBrainConfig();
+  // Brain Stack wiring. A hand-written brain.json still wins — including
+  // `enabled: false`, which stays the documented way to keep routing off.
+  // When there is no file we DERIVE a config from the targets the router
+  // is already configured with, so a fresh machine routes too.
+  //
+  // Until Phase 1 this line was `brainCfg ? … : null` with nothing in the
+  // product ever writing brain.json, so every shipped copy of Feral ran
+  // with model routing absent rather than degraded — and the only trace
+  // was a comment in this file (see
+  // docs/ui/2026-08-19-brain-current-state.md §3).
+  //
+  // Each BrainStack owns its own CircuitBreaker instance — tool-health and
+  // model-health live in separate namespaces until S6 generalises the key.
+  // `loadBrainConfig()` returns null for BOTH "no file" and "file says
+  // enabled: false". Only the first may fall through to derivation — the
+  // second is a decision the user made and we do not overrule it.
+  const brainCfg =
+    loadBrainConfig() ??
+    (brainConfigFileExists()
+      ? null
+      : deriveDefaultConfig([
+          config.inference.primary,
+          config.inference.fallback,
+        ]));
   const brain = brainCfg ? new BrainStack(brainCfg, new CircuitBreaker()) : null;
   const agent = new AgentLoop(
     router, registry, episodic,

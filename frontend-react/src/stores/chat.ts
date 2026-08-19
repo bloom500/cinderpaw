@@ -64,6 +64,19 @@ export interface ChatMessage {
    * drives the "transcribing…" placeholder in between.
    */
   voicePending?: boolean;
+  /**
+   * Actions offered under a reply the PRODUCT wrote, not the model.
+   *
+   * There is one situation the model can never answer: when there is no
+   * model. Feral used to handle that by replacing the composer with a
+   * "No model selected" screen, so the first thing a new user typed was
+   * refused by a disabled text box. Now the message is accepted and this
+   * reply answers it, carrying the two ways out.
+   *
+   * Deliberately not a general button system — `route` is an in-app path
+   * and nothing else. If a second use case ever needs more, widen it then.
+   */
+  actions?: Array<{ label: string; route: string }>;
 }
 
 interface ChatStore {

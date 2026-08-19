@@ -12,6 +12,7 @@ import { useModel } from '@/stores/model';
 import { useUI } from '@/stores/ui';
 import { useFeralStore } from '@/stores/feral';
 import { useNotifications } from '@/stores/notifications';
+import { useT } from '@/lib/i18n';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { BackendBadge } from '@/components/BackendBadge';
 
@@ -112,6 +113,8 @@ export function ModelPickerPopover() {
     }
   };
 
+  const t = useT();
+
   // Agent-mode cloud switches go through the sidecar and can fail (sidecar
   // offline, provider disabled, missing key…). A discarded promise meant the
   // user clicked a model and nothing visibly happened — surface the error.
@@ -125,23 +128,35 @@ export function ModelPickerPopover() {
     }
   };
 
+  const hasLocal = localModels.length > 0;
+  const hasCloud = cloudProviders.length > 0;
+
+  /**
+   * What the trigger says when no model is explicitly pinned.
+   *
+   * It used to say "No model selected", which was wrong twice over: it read
+   * as an error the user had to go fix, and it stopped being true the moment
+   * Brain Stack started choosing a model per turn on its own. Picking a model
+   * by hand is now an override, not a prerequisite — so with models around,
+   * the honest label is that the choice is automatic. With nothing installed
+   * at all it becomes an invitation rather than a verdict.
+   */
+  const unpinnedLabel = hasLocal || hasCloud ? t('model.automatic') : t('model.add');
+
   let label: string;
   if (isAgentMode) {
     label = feralSwitching
       ? 'Switching…'
       : isLoading
         ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
-        : feralConfig?.display_name ?? loaded?.name ?? 'No model selected';
+        : feralConfig?.display_name ?? loaded?.name ?? unpinnedLabel;
   } else if (isLoading) {
     label = `Loading ${progress?.percentage.toFixed(0) ?? 0}%`;
   } else if (cloudModel) {
     label = `${cloudModel.modelId} · ${cloudModel.providerName}`;
   } else {
-    label = loaded?.name ?? 'No model selected';
+    label = loaded?.name ?? unpinnedLabel;
   }
-
-  const hasLocal = localModels.length > 0;
-  const hasCloud = cloudProviders.length > 0;
 
   return (
     <DropdownMenu onOpenChange={setOpen}>
@@ -234,7 +249,7 @@ export function ModelPickerPopover() {
         )}
         {!hasLocal && !hasCloud && (
           <DropdownMenuItem disabled>
-            No models found — download one or add a cloud key
+            No models found. Download one or add a cloud key
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

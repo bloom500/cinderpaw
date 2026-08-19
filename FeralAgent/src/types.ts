@@ -1365,6 +1365,34 @@ export type OutboundEvent =
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }
+  /**
+   * Which model this turn is being answered by, and why that one.
+   *
+   * Emitted on BOTH the success and the failure path, which is the point:
+   * automatic model selection used to fail into a `console.warn` and a
+   * silent switch to the router's defaults, so a user whose routing broke
+   * saw a different model answer with no explanation available anywhere on
+   * their screen. Same reasoning as `rate_limited` below — a change the
+   * user can feel must be a change the user can read.
+   *
+   * `reason`:
+   *   - `brain`          — Brain scored the candidates and chose this one
+   *   - `only_candidate` — exactly one usable model existed
+   *   - `fallback`       — routing failed; the router's default was used.
+   *                        `detail` carries the real cause for the UI's
+   *                        progressive-disclosure "Why?" affordance and is
+   *                        never shown in the primary line.
+   */
+  | {
+      type: "model_routed";
+      sessionId: string;
+      provider: string;
+      model: string;
+      reason: "brain" | "only_candidate" | "fallback";
+      category?: string;
+      detail?: string;
+      traceId?: string;
+    }
   | { type: "pong" }
   | { type: "error"; id?: string; message: string; traceId?: string }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }

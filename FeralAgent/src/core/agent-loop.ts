@@ -1154,9 +1154,12 @@ export class AgentLoop {
     // S5: Brain Stack routing — compute ONCE per user turn (NOT per tool
     // iteration). The chosen {primary, fallback} pair is used for every
     // router call inside the loop in #run (main completion + budget-
-    // recovery retry). A BrainError here falls back to the default path
-    // silently — a misconfigured Brain must not break a turn.
-    const routeTargets = this.#brain ? this.#routeForTurn(userText, images) : null;
+    // recovery retry). A BrainError here falls back to the default path —
+    // a misconfigured Brain must not break a turn — but the fallback is
+    // announced via `model_routed`, never silent.
+    const routeTargets = this.#brain
+      ? this.#routeForTurn(userText, images, ctx, sessionId, traceId)
+      : null;
 
     try {
       // Self-terminating loop: no limit computation needed. #run() returns
@@ -2224,6 +2227,9 @@ export class AgentLoop {
   #routeForTurn(
     userText: string,
     images: string[] | undefined,
+    ctx: SessionRunContext,
+    sessionId: string,
+    traceId: string,
   ): { primary: ModelTarget; fallback?: ModelTarget } | null {
     if (!this.#brain) return null;
     try {
@@ -2234,14 +2240,38 @@ export class AgentLoop {
         hasImages: images !== undefined && images.length > 0,
         offline,
       });
+      ctx.emit({
+        type: "model_routed",
+        sessionId,
+        provider: result.primary.provider,
+        model: result.primary.model,
+        reason: result.fallback ? "brain" : "only_candidate",
+        category: result.classification.category,
+        traceId,
+      });
       return { primary: result.primary, fallback: result.fallback };
     } catch (err) {
-      // BrainError (no candidates) or any other routing failure: log
-      // and fall through to the default path. The router will surface
-      // its own InferenceError if no model is actually configured.
-      console.warn(
-        `[brain] route failed, falling back to router defaults: ${String(err)}`,
-      );
+      // BrainError (no candidates) or any other routing failure: fall
+      // through to the default path. The router will surface its own
+      // InferenceError if no model is actually configured.
+      //
+      // The fallback is ANNOUNCED, not silent. This used to be a bare
+      // console.warn: the turn was answered by a different model than the
+      // one routing chose, and the only explanation lived in a log file
+      // the user does not have open. A fallback is allowed; a hidden one
+      // is not.
+      const detail = String(err);
+      console.warn(`[brain] route failed, falling back to router defaults: ${detail}`);
+      const current = this.#router.currentModel;
+      ctx.emit({
+        type: "model_routed",
+        sessionId,
+        provider: current.provider,
+        model: current.model,
+        reason: "fallback",
+        detail,
+        traceId,
+      });
       return null;
     }
   }

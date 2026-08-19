@@ -15,6 +15,7 @@ import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useFeralStore } from '@/stores/feral';
 import { useNotifications } from '@/stores/notifications';
+import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
 import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
@@ -511,6 +512,16 @@ export function useFeralGlobal() {
 
         if (parsed.type === 'model_set') {
           void fetchConfig();
+        } else if (parsed.type === 'model_routed') {
+          // Only the fallback is worth interrupting for. A successful route
+          // is the normal case and must not produce a toast per turn — but
+          // a fallback changes which model answered, so it gets said out
+          // loud, with the real cause as the "why" underneath.
+          if (parsed.reason === 'fallback') {
+            useNotifications
+              .getState()
+              .push('info', t('chat.routed.fallback'), parsed.detail);
+          }
         } else if (parsed.type === 'model_error') {
           setModelError(parsed.message);
         } else if (parsed.type === 'cron_fired') {
