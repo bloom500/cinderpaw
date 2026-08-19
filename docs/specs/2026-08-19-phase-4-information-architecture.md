@@ -85,10 +85,23 @@ keeping:
 Search rows carry the same actions as of this slice, which is what makes S1's
 result list a real home rather than a read-only index.
 
-### S3 — Downloads and version leave the rail
+### S3 — Downloads and version leave the rail ✅
 
 Download progress becomes a top-level status affordance; the version string
 moves to Settings → About, where the rest of the build information already is.
+
+Shipped as `components/layout/DownloadStatus.tsx`, rendered by `AppShell` in
+the window-chrome strip beside the window controls:
+
+- **It only exists while there is something to say.** Idle, it renders nothing.
+  A permanent download icon on an app that is not downloading is chrome
+  pretending to be information, and there is no download history behind it to
+  open. Success and failure both persist until dismissed, so a finished or
+  failed download is never lost to a glance away.
+- **This also fixes an existing hole**: the sidebar rendered the button only
+  when expanded, so collapsing the rail hid a running download entirely.
+- **The version needed no new home.** Settings → About already prints it; the
+  sidebar footer was a second copy, so it was deleted rather than moved.
 
 ### S4 — Recent work on Home
 

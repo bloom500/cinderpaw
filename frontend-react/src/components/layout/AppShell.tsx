@@ -8,6 +8,7 @@ import { useUpdater } from '@/stores/updater';
 import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
 import { useDreamCycle } from '@/hooks/useDreamCycle';
 import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
+import { DownloadStatus } from './DownloadStatus';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
 import { Toasts } from '@/components/Toasts';
@@ -79,7 +80,11 @@ export function AppShell() {
           voice-call overlay and got buried by it, leaving a frameless window with
           no way to minimize, maximize or close it. Window chrome is the one layer
           a page must never be able to cover. */}
+      {/* Download status rides in the same strip: it is transient application
+          state, like the toasts below it, and the sidebar it used to live in
+          hid it whenever the rail was collapsed. */}
       <div className="fixed top-0 right-0 z-[200] flex items-center">
+        <DownloadStatus />
         <WinControls />
       </div>
       {searchOpen && <SearchOverlay />}
