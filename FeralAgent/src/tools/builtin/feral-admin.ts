@@ -13,30 +13,41 @@
  * lives in the Rust host (`src-tauri/src/admin_bridge.rs`). Nothing here
  * decides anything.
  *
- * Three CLI commands are deliberately unreachable, and the host refuses them
- * independently of this file:
+ * Stopping and restarting work, but not instantly: the turn being served runs
+ * inside the process that goes away, so the host schedules the exit a few
+ * seconds out and answers immediately. The reply reaches the person first;
+ * the process goes down after.
  *
- *   - `uninstall` — not recoverable by re-running, and no phrasing of a user's
- *     request should be able to reach it.
- *   - `gateway stop` / `restart` — the turn being served runs inside the thing
- *     that would be stopped; it would kill its own answer mid-sentence, which
- *     reads as a hang rather than as an action.
+ * Two CLI commands stay unreachable, and the host refuses them independently
+ * of this file:
+ *
+ *   - `uninstall` — `update` overwrites in place, so removing the install is
+ *     never the way to fix anything, and it is not recoverable by re-running.
  *   - `setup` — an interactive wizard means nothing without the person.
  *
- * Applying an update is confirmed. Switching a model is not: it is cheap,
- * immediately visible, and undone by switching back — a confirmation there
- * would be a habit-forming click that teaches people to stop reading them.
+ * Confirmation is drawn where the consequence is. An update replaces the
+ * running application, and a stop leaves Feral off until a person starts it
+ * again — the agent cannot undo either, because after both it is not there.
+ * A restart and a model switch are not confirmed: both come back on their own.
  */
 
 import type { Tool, ToolResult } from "../../types.ts";
 
-type Action = "update_check" | "update_apply" | "model_list" | "model_switch";
+type Action =
+  | "update_check"
+  | "update_apply"
+  | "model_list"
+  | "model_switch"
+  | "gateway_restart"
+  | "gateway_stop";
 
 const ACTIONS: readonly Action[] = [
   "update_check",
   "update_apply",
   "model_list",
   "model_switch",
+  "gateway_restart",
+  "gateway_stop",
 ];
 
 export const feralAdminTool: Tool = {
@@ -46,8 +57,11 @@ export const feralAdminTool: Tool = {
       "Run Feral's own administrative commands. `update_check` reports whether " +
       "a newer version exists; `update_apply` installs it (the person is asked " +
       "first). `model_list` shows which local models and cloud providers are " +
-      "set up; `model_switch` changes which one answers. Use these instead of " +
-      "telling the person to open a terminal or a settings screen.",
+      "set up; `model_switch` changes which one answers. `gateway_restart` " +
+      "restarts you — useful after a change that needs a fresh start; it also " +
+      "interrupts anything running in the background. `gateway_stop` shuts you " +
+      "down until a person starts you again. Use these instead of telling the " +
+      "person to open a terminal or a settings screen.",
     // No sandbox permissions: this tool performs no fs, network or process
     // work. It only round-trips to the host, where the actions actually run.
     permissions: [],
@@ -57,7 +71,8 @@ export const feralAdminTool: Tool = {
     action: {
       type: "string",
       description:
-        "One of: 'update_check', 'update_apply', 'model_list', 'model_switch'.",
+          "One of: 'update_check', 'update_apply', 'model_list', 'model_switch', " +
+        "'gateway_restart', 'gateway_stop'.",
       required: true,
     },
     source: {
@@ -104,6 +119,63 @@ export const feralAdminTool: Tool = {
       };
     }
 
+    /**
+     * Ask, and treat everything that is not a clear yes as a no.
+     *
+     * forceEscalate on both: an unattended run answers its own questions so a
+     * long task is not blocked, but neither "replace yourself" nor "switch
+     * yourself off" is a decision the thing being replaced or switched off
+     * should get to make.
+     */
+    const confirm = async (
+      question: string,
+      yes: string,
+      yesDesc: string,
+      noDesc: string,
+    ): Promise<ToolResult | null> => {
+      if (!ctx?.askUser) {
+        return {
+          ok: false,
+          content: `That needs the person's confirmation and there is no way to ask here, so nothing happened.`,
+          error: "confirmation_unavailable",
+        };
+      }
+      let chose = "";
+      try {
+        const answers = await ctx.askUser.ask(
+          [
+            {
+              question,
+              header: yes,
+              multiSelect: false,
+              options: [
+                { label: yes, description: yesDesc },
+                { label: "Not now", description: noDesc },
+              ],
+              forceEscalate: true,
+            },
+          ],
+          ctx.sessionId,
+        );
+        chose = answers?.[0]?.selected?.[0] ?? "";
+      } catch {
+        return { ok: false, content: "Nobody confirmed, so nothing happened.", error: "not_confirmed" };
+      }
+      return chose === yes ? null : { ok: false, content: "The person declined.", error: "declined" };
+    };
+
+    // Shutting down leaves Feral off until a person starts it again — and the
+    // agent cannot undo it, because afterwards it is not there to try.
+    if (action === "gateway_stop") {
+      const refused = await confirm(
+        "Shut Feral down? It stays off until you start it again.",
+        "Shut down",
+        "Feral stops running.",
+        "Feral keeps running.",
+      );
+      if (refused) return refused;
+    }
+
     // Installing a new version replaces the running application. Same posture
     // as install_capability: confirmed, forceEscalate so an unattended run
     // cannot answer it, and failing closed on every route that is not a clear
@@ -120,44 +192,13 @@ export const feralAdminTool: Tool = {
           content: `Feral is already up to date (${check?.current ?? "current version"}).`,
         };
       }
-      if (!ctx?.askUser) {
-        return {
-          ok: false,
-          content:
-            "Updating needs the person's confirmation and there is no way to ask " +
-            "here, so nothing was installed.",
-          error: "confirmation_unavailable",
-        };
-      }
-
-      let chose = "";
-      try {
-        const answers = await ctx.askUser.ask(
-          [
-            {
-              question: `Update Feral to ${check.version}? It is on ${check.current} now.`,
-              header: "Update",
-              multiSelect: false,
-              options: [
-                { label: "Update", description: "Downloads and installs the new version." },
-                { label: "Not now", description: "Nothing changes." },
-              ],
-              forceEscalate: true,
-            },
-          ],
-          ctx.sessionId,
-        );
-        chose = answers?.[0]?.selected?.[0] ?? "";
-      } catch {
-        return {
-          ok: false,
-          content: "Nobody confirmed, so Feral was not updated.",
-          error: "not_confirmed",
-        };
-      }
-      if (chose !== "Update") {
-        return { ok: false, content: "The person declined the update.", error: "declined" };
-      }
+      const refused = await confirm(
+        `Update Feral to ${check.version}? It is on ${check.current} now.`,
+        "Update",
+        "Downloads and installs the new version.",
+        "Nothing changes.",
+      );
+      if (refused) return refused;
     }
 
     if (action === "model_switch") {
@@ -208,6 +249,12 @@ function summarize(action: Action, data: unknown): string {
     }
     case "model_switch":
       return `Now using ${String(d.model)}${d.provider_id ? ` via ${String(d.provider_id)}` : ""}.`;
+    case "gateway_restart":
+      // Say the delay out loud. A restart that has been agreed to but has not
+      // visibly happened yet looks like the request was ignored.
+      return `Restarting in about ${String(d.in_seconds ?? 6)} seconds. Anything running in the background stops; I will be back on my own.`;
+    case "gateway_stop":
+      return `Shutting down in about ${String(d.in_seconds ?? 6)} seconds. I will not come back until you start Feral again.`;
   }
 }
 

@@ -125,6 +125,76 @@ describe("feral_admin — updating", () => {
   });
 });
 
+describe("feral_admin — stopping and restarting", () => {
+  test("restart is scheduled, not immediate, and says so", async () => {
+    // The turn being served runs inside the process that goes away. Killing it
+    // in the handler means the answer never arrives — a hang, not an action.
+    const { bridge, calls } = bridgeWith({
+      gateway_restart: { scheduled: true, restarting: true, in_seconds: 6 },
+    });
+    const res = await feralAdminTool.execute(
+      { action: "gateway_restart" },
+      { admin: bridge } as never,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.content).toContain("6 seconds");
+    expect(res.content).toContain("back on my own");
+    expect(calls.some((c) => c.action === "gateway_restart")).toBe(true);
+  });
+
+  test("restart needs no confirmation — it comes back by itself", async () => {
+    const { bridge } = bridgeWith({
+      gateway_restart: { scheduled: true, restarting: true, in_seconds: 6 },
+    });
+    const seen: AskUserQuestion[] = [];
+    const ask = asker("Shut down", seen);
+    await feralAdminTool.execute(
+      { action: "gateway_restart" },
+      { admin: bridge, askUser: ask.bridge } as never,
+    );
+    expect(seen).toHaveLength(0);
+  });
+
+  test("stop IS confirmed — the agent cannot undo it afterwards", async () => {
+    const { bridge, calls } = bridgeWith({
+      gateway_stop: { scheduled: true, restarting: false, in_seconds: 6 },
+    });
+    const seen: AskUserQuestion[] = [];
+    const ask = asker("Shut down", seen);
+    const res = await feralAdminTool.execute(
+      { action: "gateway_stop" },
+      { admin: bridge, askUser: ask.bridge } as never,
+    );
+    expect(res.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.forceEscalate).toBe(true);
+    expect(res.content).toContain("start Feral again");
+    expect(calls.some((c) => c.action === "gateway_stop")).toBe(true);
+  });
+
+  test("declining the stop leaves Feral running", async () => {
+    const { bridge, calls } = bridgeWith({ gateway_stop: {} });
+    const ask = asker("Not now");
+    const res = await feralAdminTool.execute(
+      { action: "gateway_stop" },
+      { admin: bridge, askUser: ask.bridge } as never,
+    );
+    expect(res.ok).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("no way to ask → stop fails closed", async () => {
+    const { bridge, calls } = bridgeWith({ gateway_stop: {} });
+    const res = await feralAdminTool.execute(
+      { action: "gateway_stop" },
+      { admin: bridge } as never,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("confirmation_unavailable");
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe("feral_admin — models", () => {
   test("switching needs no confirmation — it is cheap and reversible", async () => {
     const { bridge, calls } = bridgeWith({

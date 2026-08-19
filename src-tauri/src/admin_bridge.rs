@@ -11,15 +11,17 @@
 //! what that action means, and whether it is allowed, is made here on the host
 //! side.
 //!
+//! Stopping and restarting need care rather than exclusion. The turn being
+//! served runs INSIDE the process that would go away, so killing it from
+//! inside the handler means the answer never reaches anyone — a hang, not an
+//! action. Both actions therefore return immediately and schedule the exit
+//! after a grace period, so the reply is delivered first.
+//!
 //! What is deliberately NOT here, and why:
 //!
-//!   * `uninstall` — destroying the installation on an agent's judgement is
-//!     not a recoverable mistake, and no phrasing of a user's request should
-//!     be able to reach it.
-//!   * `gateway stop` / `restart` — the request being served is running inside
-//!     the thing that would be stopped. It would kill its own answer mid
-//!     sentence and report nothing, which is indistinguishable from a hang.
-//!     Restarting is the host's job, after an update, not an errand.
+//!   * `uninstall` — `update` overwrites in place, so removing the install is
+//!     never the way to fix something, and it is not recoverable by
+//!     re-running.
 //!   * `setup` — an interactive wizard has no meaning without the person.
 
 use serde_json::{json, Value};
@@ -34,6 +36,8 @@ pub async fn handle(app: AppHandle, action: &str, params: &Value) -> Result<Valu
         "update_apply" => update_apply(&app).await,
         "model_list" => model_list(&app),
         "model_switch" => model_switch(&app, params).await,
+        "gateway_restart" => gateway_exit(&app, feral_core::runtime::PlannedExit::Restart),
+        "gateway_stop" => gateway_exit(&app, feral_core::runtime::PlannedExit::Shutdown),
         other => Err(format!("unknown admin action '{other}'")),
     }
 }
@@ -144,4 +148,51 @@ async fn model_switch(app: &AppHandle, params: &Value) -> Result<Value, String> 
     .await?;
 
     Ok(json!({ "switched": true, "source": source, "model": model, "provider_id": provider_id }))
+}
+
+// ── gateway lifecycle ───────────────────────────────────────────────────────
+
+/// How long to wait before pulling the process down.
+///
+/// The tool result still has to travel back to the sidecar, be handed to the
+/// model, and become a sentence the person can read. Killing the process the
+/// instant the handler returns would land the exit in the middle of that, and
+/// the user would see the request vanish rather than be answered.
+///
+/// ponytail: a fixed grace, not a handshake. If a slow model ever loses its
+/// reply to this, the fix is a turn-ended signal from the sidecar, not a
+/// bigger number.
+const EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
+
+fn gateway_exit(
+    app: &AppHandle,
+    planned: feral_core::runtime::PlannedExit,
+) -> Result<Value, String> {
+    let app = app.clone();
+    let restarting = matches!(planned, feral_core::runtime::PlannedExit::Restart);
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(EXIT_GRACE).await;
+        let state = app.state::<AppState>();
+        // Mark the exit as PLANNED first. Without this the supervisor counts
+        // it as a crash, which feeds both the quick-failure backoff and the
+        // watchdog that auto-reverts an RSI patch — an intentional restart
+        // must not look like the code broke.
+        *state.feral_agent_planned_exit.lock() = Some(planned);
+        {
+            let mut guard = state.feral_agent_process.lock();
+            if let Some(ref mut child) = *guard {
+                let _ = child.start_kill();
+            }
+        }
+        // Invalidate the stdin channel so an in-flight send fails fast rather
+        // than writing into a dead pipe.
+        *state.feral_agent_tx.lock() = None;
+    });
+
+    Ok(json!({
+        "scheduled": true,
+        "restarting": restarting,
+        "in_seconds": EXIT_GRACE.as_secs(),
+    }))
 }

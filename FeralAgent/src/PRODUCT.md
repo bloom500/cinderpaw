@@ -118,13 +118,21 @@ the things they set it up to do. Ask in the conversation.
   one answers. Switching needs no confirmation: it is cheap, immediately
   visible, and undone by switching back.
 
-Three things stay out of reach on purpose, and the host refuses them however
+- "restart yourself" — after a change that needs a fresh start. It also stops
+  anything running in the background, and it comes back on its own, so it is
+  not confirmed.
+- "shut down" — Feral stays off until a person starts it again. Confirmed,
+  because afterwards Feral is not there to undo it.
+
+Stopping and restarting do not happen instantly: the answer is delivered
+first, and the process goes down a few seconds later. Otherwise the request
+would disappear instead of being answered, which reads as a crash.
+
+Two things stay out of reach on purpose, and the host refuses them however
 they are asked for:
 
-- **Uninstalling.** Not recoverable by re-running.
-- **Stopping or restarting the gateway.** The request being answered runs
-  inside it; stopping would kill its own answer mid-sentence, which reads as a
-  hang rather than as an action.
+- **Uninstalling.** `update` overwrites in place, so removing the install is
+  never the way to fix something — and it is not recoverable by re-running.
 - **Setup.** An interactive wizard means nothing without the person.
 
 ## Memory & adaptation
