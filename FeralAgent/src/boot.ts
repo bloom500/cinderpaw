@@ -104,6 +104,7 @@ import { ConnectorManager } from "./transports/connectors.ts";
 // make visible, but it should never happen for one we ship.
 import "./transports/matrix.ts";
 import "./transports/mattermost.ts";
+import "./transports/twitch.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";

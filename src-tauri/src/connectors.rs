@@ -475,6 +475,29 @@ impl feral_core::oauth_device::TokenHttp for ReqwestHttp {
     }
 }
 
+/// The login name a granted Twitch token belongs to. `None` on any failure —
+/// pairing has already succeeded at this point, and losing a display name is
+/// not a reason to tell someone their connection failed.
+async fn twitch_login_for(client_id: &str, access: &str) -> Option<String> {
+    let resp = reqwest::Client::new()
+        .get("https://api.twitch.tv/helix/users")
+        .header("Client-Id", client_id)
+        .bearer_auth(access)
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    body.get("data")?
+        .as_array()?
+        .first()?
+        .get("login")?
+        .as_str()
+        .map(str::to_string)
+}
+
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -598,6 +621,7 @@ pub async fn connector_pair_poll(
         expires_at,
     };
     let handle = tokio::runtime::Handle::current();
+    let client_id = def.client_id.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         let http = ReqwestHttp { handle };
         feral_core::oauth_device::poll_once(&http, &def, &code, now_secs())
@@ -620,6 +644,22 @@ pub async fn connector_pair_poll(
             account.secret_ref = Some(feral_core::connector_secrets::secret_ref(&id, ACCESS_KEY));
             account.expires_at = Some(tokens.expires_at);
             account.auth_state = None;
+            // Which account did they just connect? Two reasons it matters, and
+            // neither is cosmetic: the card says "as <name>" so somebody with
+            // two accounts can tell which one this is, and the Twitch
+            // transport cannot log in to IRC without the login name matching
+            // the token. Learned once, here, where the client id lives —
+            // asking the person to type their own username again would be
+            // asking them for something we already know.
+            if let Some(login) = twitch_login_for(&client_id, &tokens.access).await {
+                account.display_name = Some(login.clone());
+                account.metadata.insert("TWITCH_LOGIN".into(), login.clone());
+                let mut rows = feral_core::connectors::load_connector_configs();
+                if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
+                    row.metadata.insert("TWITCH_LOGIN".into(), login);
+                    let _ = feral_core::connectors::save_connector_configs(&rows);
+                }
+            }
         }
         PollOutcome::Denied => {
             account.status = AccountStatus::Revoked;

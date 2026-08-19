@@ -387,7 +387,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 client_id: "d6y2kpxx5lphmk55t1989ddc9p4cqn".into(),
                 scopes: vec!["chat:read".into(), "chat:edit".into()],
             }),
-            coming_soon: true,
+            coming_soon: false,
             console_url: Some("https://dev.twitch.tv/console/apps".into()),
             free_tier_note: None,
             validate_endpoint: Some("https://id.twitch.tv/oauth2/validate".into()),
@@ -457,6 +457,11 @@ pub struct ConnectorConfig {
     /// Optional tool whitelist for the persona. Absent = full owner toolset.
     #[serde(default, rename = "personaTools", skip_serializing_if = "Option::is_none")]
     pub persona_tools: Option<Vec<String>>,
+    /// Settings that are REQUIRED but not secret, and so belong in the config
+    /// rather than the vault: a Matrix homeserver address, the Twitch login a
+    /// granted token belongs to. Written by pairing as often as by the person.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -472,6 +477,7 @@ pub fn blank_connector_config(id: &str) -> ConnectorConfig {
     ConnectorConfig {
         id: id.to_string(),
         enabled: false,
+        metadata: HashMap::new(),
         secrets: HashMap::new(),
         allowlist: Vec::new(),
         channels: Vec::new(),

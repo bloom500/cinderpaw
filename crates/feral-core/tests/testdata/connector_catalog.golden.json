@@ -144,7 +144,7 @@
     "logo_url": "https://cdn.simpleicons.org/twitch",
     "pairing_fields": [],
     "pairing_method": "oauth_device",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://dev.twitch.tv/console/apps",
     "validate_endpoint": "https://id.twitch.tv/oauth2/validate",
     "oauth_scopes": [

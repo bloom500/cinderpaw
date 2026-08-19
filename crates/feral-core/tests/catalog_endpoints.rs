@@ -655,7 +655,8 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(!url.secret, "a server URL is configuration, not a credential");
             }
             "twitch" => {
-                assert!(entry.coming_soon, "twitch is coming_soon until its transport lands");
+                // Landed 2026-08-20: `FeralAgent/src/transports/twitch.ts`.
+                assert!(!entry.coming_soon, "twitch's transport has landed — the card must not still say soon");
                 assert!(entry.console_url.is_some(), "twitch must point at the dev console");
                 assert!(
                     entry.pairing_fields.is_empty(),
