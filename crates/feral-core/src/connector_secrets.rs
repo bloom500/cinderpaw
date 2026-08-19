@@ -30,8 +30,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn secret_ref_is_stable_and_readable_back() {
+    fn secret_ref_format_is_stable() {
         assert_eq!(secret_ref("matrix", "MATRIX_TOKEN"), "connector:matrix:MATRIX_TOKEN");
+    }
+
+    #[test]
+    fn read_returns_none_for_empty_string() {
+        assert_eq!(read(""), None);
+    }
+
+    #[test]
+    fn read_returns_none_for_wrong_prefix() {
+        assert_eq!(read("wrong:matrix:TOKEN"), None);
+    }
+
+    #[test]
+    fn read_returns_none_for_missing_field_segment() {
+        assert_eq!(read("connector:matrix"), None);
+    }
+
+    #[test]
+    fn put_and_read_with_colon_in_ids() {
+        if put("test:conn", "TEST:TOKEN", "s3cret").is_err() {
+            eprintln!("no secret backend available; skipping");
+            return;
+        }
+        let r = secret_ref("test:conn", "TEST:TOKEN");
+        assert_eq!(read(&r).as_deref(), Some("s3cret"));
+        forget("test:conn", "TEST:TOKEN").expect("forget");
+        assert_eq!(read(&r), None);
     }
 
     #[test]
