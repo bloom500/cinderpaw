@@ -78,91 +78,53 @@ pub struct ConnectorCatalogEntry {
     pub coming_soon: bool,
 }
 
-/// Internal catalog with field keys as &'static str (cheap for lookups).
-struct CatalogDef {
-    id: &'static str,
-    name: &'static str,
-    description: &'static str,
-    icon: &'static str,
-    logo: Option<&'static str>,
-    fields: Vec<FieldDef>,
-    auth_kind: &'static str,
-    coming_soon: bool,
-}
-
-struct FieldDef {
-    key: &'static str,
-    label: &'static str,
-    secret: bool,
-}
-
-fn catalog_def() -> Vec<CatalogDef> {
-    let f = |key, label, secret| FieldDef { key, label, secret };
-    vec![
-        CatalogDef {
-            id: "discord",
-            name: "Discord",
-            description: "Chat with your assistant from Discord — DMs, @mentions, or a dedicated channel. Only people you allow can reach it.",
-            icon: "🎮",
-            logo: Some("https://cdn.simpleicons.org/discord"),
-            fields: vec![f("DISCORD_TOKEN", "Discord bot token", true)],
-            auth_kind: "token",
-            coming_soon: false,
-        },
-        CatalogDef {
-            id: "slack",
-            name: "Slack",
-            description: "Talk to your assistant from a Slack workspace via Socket Mode. Needs an app-level token and a bot token.",
-            icon: "💬",
-            logo: Some("https://a.slack-edge.com/80588/marketing/img/meta/slack_hash_128.png"),
-            fields: vec![
-                f("SLACK_APP_TOKEN", "App-level token (xapp-…)", true),
-                f("SLACK_BOT_TOKEN", "Bot token (xoxb-…)", true),
-            ],
-            auth_kind: "token",
-            coming_soon: false,
-        },
-        CatalogDef {
-            id: "whatsapp",
-            name: "WhatsApp",
-            description: "Reach your assistant on WhatsApp. Turn it on, then scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.",
-            icon: "💚",
-            logo: Some("https://cdn.simpleicons.org/whatsapp"),
-            fields: vec![],
-            auth_kind: "qr",
-            coming_soon: false,
-        },
-        CatalogDef {
-            id: "telegram",
-            name: "Telegram",
-            description: "Message your assistant from Telegram.",
-            icon: "✈️",
-            logo: Some("https://cdn.simpleicons.org/telegram"),
-            fields: vec![f("TELEGRAM_BOT_TOKEN", "Telegram bot token", true)],
-            auth_kind: "token",
-            coming_soon: true,
-        },
-    ]
-}
-
+/// The desktop catalog is a PROJECTION of the one in `feral-core`, not a
+/// second list.
+///
+/// It used to be a hand-written copy: the same four connectors, entered twice,
+/// in two shapes, with the code itself admitting they were "unrelated" and
+/// kept "their own shape for the existing UI". Adding a connector meant
+/// remembering both, and only one of them is what the user sees. With ~120
+/// connectors as the target, that is the whole budget.
+///
+/// The view types below stay exactly as they were, because the frontend
+/// already renders them — this changes where the data comes from, not what
+/// crosses the boundary.
 fn catalog() -> Vec<ConnectorCatalogEntry> {
-    catalog_def()
+    feral_core::connectors::connectors_catalog()
         .into_iter()
-        .map(|d| ConnectorCatalogEntry {
-            id: d.id.into(),
-            name: d.name.into(),
-            description: d.description.into(),
-            icon: d.icon.into(),
-            logo_url: d.logo.map(Into::into),
-            fields: d
-                .fields
-                .iter()
-                .map(|f| ConnectorField { key: f.key.into(), label: f.label.into(), secret: f.secret })
+        .map(|c| ConnectorCatalogEntry {
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            icon: c.icon,
+            logo_url: c.logo_url,
+            fields: c
+                .pairing_fields
+                .into_iter()
+                .map(|f| ConnectorField { key: f.key, label: f.label, secret: f.secret })
                 .collect(),
-            auth_kind: d.auth_kind.into(),
-            coming_soon: d.coming_soon,
+            auth_kind: auth_kind_of(c.pairing_method),
+            coming_soon: c.coming_soon,
         })
         .collect()
+}
+
+/// What the card has to DO, which is coarser than how the connector pairs.
+///
+/// The UI branches on this string; today it asks one question — "is this a QR
+/// card or a form?" — so every pairing method that ends in the user supplying
+/// values is "token". `oauth_device` is neither: nothing is typed here, the
+/// code is typed on the provider's site. It gets its own kind rather than
+/// being mislabelled as a form the user would then look for and not find.
+fn auth_kind_of(method: feral_core::connectors::PairingMethod) -> String {
+    use feral_core::connectors::PairingMethod as P;
+    match method {
+        P::Qr => "qr",
+        P::OauthDevice => "device",
+        P::BotToken | P::Oauth | P::InstanceToken => "token",
+    }
+    .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +212,17 @@ fn is_ready(cfg: &ConnectorConfig) -> bool {
     if entry.auth_kind == "qr" {
         return true; // QR connectors link on first connect — nothing to pre-fill.
     }
-    // token auth: every secret field must be present.
+    if entry.auth_kind == "device" {
+        // A device-flow connector has NO fields, and "every field is filled"
+        // is vacuously true of an empty list — which would report a connector
+        // with no credential whatsoever as ready to run. Readiness here means
+        // "an account finished pairing", which is the account model's answer,
+        // not this function's. Until it is wired, the honest answer is no.
+        return false;
+    }
+    // Every declared field must be present. Not just the secret ones: a Matrix
+    // homeserver URL is required to connect at all, and a connector missing it
+    // is no more ready than one missing its token.
     entry
         .fields
         .iter()
@@ -445,4 +417,64 @@ pub async fn connectors_remove(
     save_connector_configs(&connectors)?;
     notify_sidecar(&state).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod catalog_projection {
+    /// The failure this guards against: someone adds a connector to
+    /// `feral-core` and the desktop never shows it, because the desktop kept
+    /// its own hand-written list. That is how the two drifted before.
+    #[test]
+    fn the_desktop_catalog_is_a_projection_of_the_core_one() {
+        let core: Vec<String> = feral_core::connectors::connectors_catalog()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        let desktop: Vec<String> = super::catalog().into_iter().map(|c| c.id).collect();
+        assert_eq!(core, desktop, "two catalogs have drifted — there must be one list");
+    }
+
+    /// The frontend branches on `auth_kind`, so the mapping is a contract.
+    #[test]
+    fn auth_kind_says_what_the_card_must_do() {
+        let by_id = |id: &str| {
+            super::catalog()
+                .into_iter()
+                .find(|c| c.id == id)
+                .unwrap_or_else(|| panic!("{id} missing from the desktop catalog"))
+        };
+        assert_eq!(by_id("discord").auth_kind, "token", "a bot token is typed into a form");
+        assert_eq!(by_id("whatsapp").auth_kind, "qr", "WhatsApp is scanned, not typed");
+        assert_eq!(
+            by_id("matrix").auth_kind,
+            "token",
+            "an instance URL plus a credential is still a form"
+        );
+        assert_eq!(
+            by_id("twitch").auth_kind,
+            "device",
+            "nothing is typed here — the code goes on the provider's site"
+        );
+    }
+
+    /// A connector that pairs by device code has no fields at all, and
+    /// "all of nothing is filled" must not read as "ready".
+    #[test]
+    fn a_device_flow_connector_is_not_ready_just_because_it_has_no_fields() {
+        let cfg = feral_core::connectors::blank_connector_config("twitch");
+        assert!(!super::is_ready(&cfg), "twitch reported ready with no credential at all");
+    }
+
+    /// A field that is required but not secret is the case the desktop view
+    /// had never carried, and the one Matrix exists to prove.
+    #[test]
+    fn a_non_secret_field_survives_the_projection() {
+        let matrix = super::catalog().into_iter().find(|c| c.id == "matrix").unwrap();
+        let url = matrix
+            .fields
+            .iter()
+            .find(|f| f.key == "MATRIX_HOMESERVER")
+            .expect("the homeserver field reaches the desktop");
+        assert!(!url.secret);
+    }
 }
