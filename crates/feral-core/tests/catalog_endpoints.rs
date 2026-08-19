@@ -628,7 +628,11 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(entry.coming_soon, "telegram is coming_soon (sidecar transport not wired)");
             }
             "matrix" => {
-                assert!(entry.coming_soon, "matrix is coming_soon until its transport lands");
+                // Landed 2026-08-20: `FeralAgent/src/transports/matrix.ts`,
+                // registered with the transport registry and imported at boot.
+                // A card that says "soon" for something that works is its own
+                // kind of lie, so this flipped with the transport.
+                assert!(!entry.coming_soon, "matrix's transport has landed — the card must not still say soon");
                 assert!(entry.console_url.is_some(), "matrix must point somewhere for the token");
                 // The homeserver URL is the field that is required and NOT a
                 // credential — the case the catalog had never carried.

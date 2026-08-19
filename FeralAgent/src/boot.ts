@@ -98,6 +98,11 @@ import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
+// Imported for the side effect: each transport module registers itself with
+// the registry at load. Without the import the catalog offers a connector
+// this build cannot start — which is exactly what the registry exists to
+// make visible, but it should never happen for one we ship.
+import "./transports/matrix.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";

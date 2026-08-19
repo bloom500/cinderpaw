@@ -1438,6 +1438,11 @@ export interface ConnectorRow {
   id: string;
   enabled?: boolean;
   secrets?: Record<string, string>;
+  /** Settings that are REQUIRED but not secret — a Matrix homeserver address
+   *  being the case that forced it. They used to have nowhere to live but
+   *  `secrets`, which put a public URL into the OS keychain and hid it from
+   *  the person who typed it. */
+  metadata?: Record<string, string>;
   allowlist?: string[];
   channels?: string[];
   /** Legacy single-token field (pre-multi-secret configs); Discord fallback. */

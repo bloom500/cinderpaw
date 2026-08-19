@@ -100,7 +100,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://matrix.org/docs/guides/client-server-api"
   },
   {

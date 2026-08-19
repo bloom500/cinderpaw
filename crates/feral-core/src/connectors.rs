@@ -322,7 +322,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: InstanceToken,
-            coming_soon: true,
+            coming_soon: false,
             console_url: Some("https://matrix.org/docs/guides/client-server-api".into()),
             free_tier_note: None,
             validate_endpoint: None,
