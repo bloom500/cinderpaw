@@ -33,6 +33,7 @@ import { validateManifest } from "../egress/tool-permissions.ts";
 import type {
   AskUserBridge,
   DesktopControlBridge,
+  CapabilityBridge,
   ProcessSandbox,
   Tool,
   ToolCallOptions,
@@ -54,6 +55,7 @@ export class ToolRegistry {
   readonly #observations: ToolObservationLog | null;
   readonly #askUser: AskUserBridge | null;
   readonly #desktopControl: DesktopControlBridge | null;
+  readonly #capabilities: CapabilityBridge | null;
   /**
    * Per-tool circuit breaker (P2-#2). Tracks consecutive failures and
    * short-circuits calls to tools that are clearly sick. Saves LLM
@@ -78,6 +80,7 @@ export class ToolRegistry {
     breaker?: CircuitBreaker,
     hooks?: import("../core/hook-registry.ts").HookRegistry,
     desktopControl?: DesktopControlBridge,
+    capabilities?: CapabilityBridge,
   ) {
     this.#egress = egress;
     this.#audit = audit;
@@ -87,6 +90,7 @@ export class ToolRegistry {
     this.#breaker = breaker ?? new CircuitBreaker();
     this.#hooks = hooks ?? null;
     this.#desktopControl = desktopControl ?? null;
+    this.#capabilities = capabilities ?? null;
   }
 
 
@@ -367,6 +371,7 @@ export class ToolRegistry {
       // and refuses to run otherwise.
       askUser: this.#askUser ?? undefined,
       desktopControl: this.#desktopControl ?? undefined,
+      capabilities: this.#capabilities ?? undefined,
       progress: opts.onProgress
         ? (event) => {
             const full: ToolProgressEvent = {

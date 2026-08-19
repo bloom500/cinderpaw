@@ -96,7 +96,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     runHooks,
   } = ctx;
 
@@ -1034,6 +1034,17 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           desktopControl.resolve(msg.id, msg.ok === true, msg.data, msg.error);
         } else {
           log(`desktop_control_response: missing id — ignored`);
+        }
+        break;
+      }
+
+      case "capability_response": {
+        // Result of a host-side capability list/inspect/install. Settle the
+        // matching pending request so the tool's awaited Promise resolves.
+        if (msg.id) {
+          capabilityBridge.resolve(msg.id, msg.ok === true, msg.data, msg.error);
+        } else {
+          log(`capability_response: missing id — ignored`);
         }
         break;
       }

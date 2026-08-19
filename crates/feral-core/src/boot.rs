@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use crate::api;
 use crate::feral_agent;
-use crate::host::{DesktopControlHandler, HostEvents};
+use crate::host::{CapabilityHandler, DesktopControlHandler, HostEvents};
 use crate::inference::ModelManager;
 use crate::paths;
 use crate::rsi::{self, audit::SandboxBoundsAudit, sandbox_bounds::SandboxBounds};
@@ -90,13 +90,17 @@ pub async fn start(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    // `Some` on the desktop host, which owns the skill catalogue and the
+    // trust checks; `None` on the headless gateway, where a capability
+    // request is answered "not available" rather than left hanging.
+    capabilities: Option<CapabilityHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) {
     fragile_amd_embed_guard();
     bootstrap_rsi_substrate(&runtime);
     export_settings_env(&runtime.settings);
     spawn_api_server_if_enabled(&runtime).await;
-    feral_agent::supervise(runtime, events, desktop_control, extra_bin_dirs);
+    feral_agent::supervise(runtime, events, desktop_control, capabilities, extra_bin_dirs);
 }
 
 // ── Section helpers ───────────────────────────────────────────────────────
@@ -267,6 +271,21 @@ fn export_settings_env(settings: &Settings) {
         Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", format!("{n}")),
         None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
     }
+    // Cloud dreaming. Written on every export, both ways, because the toggle
+    // has to be able to turn the loop OFF again — and this function runs more
+    // than once per process, so "only set it when true" would make the first
+    // switch-on permanent for the session.
+    //
+    // An externally supplied `FERAL_RSI_ALLOW_CLOUD` still wins: that is how
+    // CI and `FERAL_RSI_ALLOW_CLOUD=true feral` have always worked, and the
+    // value is captured once, before we overwrite it with our own.
+    static EXTERNAL_ALLOW_CLOUD: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let external = EXTERNAL_ALLOW_CLOUD.get_or_init(|| std::env::var("FERAL_RSI_ALLOW_CLOUD").ok());
+    let value = match external {
+        Some(v) => v.clone(),
+        None => if settings.rsi_allow_cloud_dreams { "true" } else { "false" }.to_string(),
+    };
+    std::env::set_var("FERAL_RSI_ALLOW_CLOUD", value);
 }
 
 /// Spawn the OpenAI-compatible API server on `runtime.settings.api_port`.

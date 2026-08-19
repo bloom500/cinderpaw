@@ -40,6 +40,14 @@ export function SkillHubDrawer() {
 
   // Import tab state
   const [importInput, setImportInput]   = useState('');
+  /**
+   * Where the currently-selected skill came from. The install command differs
+   * per source because the host, not this drawer, now fetches the content —
+   * the old single `install_skill(meta, content, overwrite)` let the caller
+   * hand over the file body and its trust label together, which is exactly
+   * the shape that could not be given to the agent.
+   */
+  const [origin, setOrigin] = useState<{ kind: 'catalogue' } | { kind: 'url'; url: string } | { kind: 'file'; path: string } | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError]   = useState<string | null>(null);
 
@@ -107,11 +115,16 @@ export function SkillHubDrawer() {
   // Fetch a bundled local SKILL.md via browser fetch (public/ dir, no backend needed)
   async function fetchBundledContent(localPath: string): Promise<string> {
     const r = await fetch(localPath);
-    if (!r.ok) throw new Error(`HTTP ${r.status} — skill content not found`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}: skill content not found`);
     return r.text();
   }
 
-  function openDetail(skill: SkillMeta, getContent: () => Promise<string>) {
+  function openDetail(
+    skill: SkillMeta,
+    getContent: () => Promise<string>,
+    from: { kind: 'catalogue' } | { kind: 'url'; url: string } | { kind: 'file'; path: string } = { kind: 'catalogue' },
+  ) {
+    setOrigin(from);
     setSelected(skill);
     setContent(null);
     setContentError(null);
@@ -124,6 +137,7 @@ export function SkillHubDrawer() {
   }
 
   function closeDetail() {
+    setOrigin(null);
     setSelected(null);
     setContent(null);
     setContentError(null);
@@ -133,10 +147,16 @@ export function SkillHubDrawer() {
   }
 
   async function doInstall(overwrite: boolean) {
-    if (!selected || content === null) return;
+    if (!selected || !origin) return;
     setInstalling(true);
     try {
-      await tauri.skills.install(selected, content, overwrite);
+      if (origin.kind === 'url') {
+        await tauri.skills.installFromUrl(origin.url, overwrite);
+      } else if (origin.kind === 'file') {
+        await tauri.skills.installFromFile(origin.path, overwrite);
+      } else {
+        await tauri.skills.installFromCatalogue(selected.id);
+      }
       setInstalling(false);
       setOverwritePending(false);
       setSelected(prev => prev ? { ...prev, install_status: 'installed' } : null);
@@ -182,12 +202,17 @@ export function SkillHubDrawer() {
     setImportLoading(true);
     setImportError(null);
     try {
-      const preview: SkillPreview = input.startsWith('https://')
+      const isUrl = input.startsWith('https://');
+      const preview: SkillPreview = isUrl
         ? await tauri.skills.previewRemote(input)
         : await tauri.skills.previewLocal(input);
       setImportInput('');
       setImportError(null);
-      openDetail(preview.meta, async () => preview.content);
+      openDetail(
+        preview.meta,
+        async () => preview.content,
+        isUrl ? { kind: 'url', url: input } : { kind: 'file', path: input },
+      );
     } catch (e: unknown) {
       setImportError(String(e));
     } finally {

@@ -82,6 +82,7 @@ import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
+import { createCapabilityTools } from "./tools/builtin/capability.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
@@ -124,6 +125,7 @@ import { loadUserConfig } from "./core/user-loader.ts";
 import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
+import { RequestBridge } from "./core/request-bridge.ts";
 import { createControlAppTool } from "./tools/builtin/control-app.ts";
 import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
@@ -638,6 +640,15 @@ export async function boot(transportOverride?: Transport) {
   // FERAL_ENABLE_DESKTOP_CONTROL); the bridge itself is always created so the
   // response-routing wiring is unconditional.
   const desktopControl = new DesktopControlBridgeImpl((e) => sendHolder.current(e));
+  // Capability bridge. 60s rather than the desktop bridge's 30: an install
+  // fetches a manifest and then a file over the network, and a timeout that
+  // fires mid-download would leave the user staring at a failure for a request
+  // the host is still happily servicing.
+  const capabilityBridge = new RequestBridge(
+    (e) => sendHolder.current(e),
+    "capability",
+    60_000,
+  );
 
   // --- P0-4: hook registry. Shared singleton that every layer can
   // emit into and any plugin / future tool can subscribe to. The
@@ -675,7 +686,7 @@ export async function boot(transportOverride?: Transport) {
   // never lifted into the reactive tree and semantic recall silently stayed
   // FTS5-only. It now runs immediately after the invoker is wired; see below.
 
-  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
+  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl, capabilityBridge);
 
   // R5: the sidecar is the single owner of live MCP connections (see
   // sandbox/mcp-manager.ts). Boot reconcile runs in the background — a
@@ -752,6 +763,11 @@ export async function boot(transportOverride?: Transport) {
   // list_skills: the drawer index. Skills are no longer dumped into every
   // prompt; the model calls this to discover ids, then read_skill to load one.
   registry.register(createListSkillsTool(join(FERAL_HOME, "skills")));
+  // Capability acquisition. Registered unconditionally: the tools check for
+  // the host bridge themselves and report "not available on this transport"
+  // rather than vanishing, so a model that reasonably expects to be able to
+  // install something gets an answer instead of silence.
+  for (const t of createCapabilityTools()) registry.register(t);
   // product_info: bundled PRODUCT.md — the agent's factual reference about
   // Feral itself (setup, connectors, commands). Zero permissions.
   registry.register(createProductInfoTool());
@@ -2014,7 +2030,7 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
-    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path
@@ -2146,6 +2162,7 @@ export async function boot(transportOverride?: Transport) {
     }
     try {
       desktopControl.cancelAll("shutdown");
+      capabilityBridge.cancelAll("shutdown");
     } catch {
       // ignore — bridge may already be empty
     }

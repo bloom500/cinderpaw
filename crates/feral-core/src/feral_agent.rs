@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::host::{DesktopControlHandler, HostEvents};
+use crate::host::{CapabilityHandler, DesktopControlHandler, HostEvents};
 use crate::paths;
 use crate::rsi::runtime::{RsiEngineState, RsiRequestRegistry};
 use crate::runtime::{PlannedExit, PlannedExitSlot, RuntimeState};
@@ -301,6 +301,7 @@ pub async fn spawn(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    capabilities: Option<CapabilityHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) -> Result<tokio::process::Child, String> {
     let api_port = runtime.settings.api_port;
@@ -567,6 +568,7 @@ pub async fn spawn(
         runtime.clone(),
         events.clone(),
         desktop_control,
+        capabilities,
         stdout,
         runtime.rsi_request_registry.clone(),
         runtime.rsi_engine.clone(),
@@ -607,6 +609,7 @@ pub fn supervise(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    capabilities: Option<CapabilityHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) {
     const MAX_QUICK_FAILURES: u32 = 5;
@@ -623,6 +626,7 @@ pub fn supervise(
                 runtime.clone(),
                 events.clone(),
                 desktop_control.clone(),
+                capabilities.clone(),
                 extra_bin_dirs.clone(),
             )
             .await
@@ -800,6 +804,7 @@ async fn stdout_reader(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    capabilities: Option<CapabilityHandler>,
     stdout: tokio::process::ChildStdout,
     rsi_registry: RsiRequestRegistry,
     rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
@@ -853,6 +858,12 @@ async fn stdout_reader(
                     let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
                     let dc = desktop_control.clone();
                     tokio::spawn(async move { handle_desktop_control_request(v, dc, tx).await });
+                    continue;
+                }
+                Some("capability_request") => {
+                    let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
+                    let caps = capabilities.clone();
+                    tokio::spawn(async move { handle_capability_request(v, caps, tx).await });
                     continue;
                 }
                 Some("rsi_request") => {
@@ -1192,6 +1203,44 @@ async fn handle_desktop_control_request(
 
     if tx.send(response.to_string()).await.is_err() {
         tracing::warn!("feral-agent: failed to deliver desktop_control_response (sidecar gone?)");
+    }
+}
+
+/// Serve a `capability_request` from the sidecar: list, inspect or install a
+/// skill, and write back a matching `capability_response`.
+///
+/// This is the trust boundary. The sidecar sends a NAME and nothing else — no
+/// content, no metadata, no trust label. Everything about what that name means
+/// is resolved here, against manifests this process fetched itself. The agent
+/// can ask for a capability; it cannot vouch for one.
+async fn handle_capability_request(
+    req: serde_json::Value,
+    capabilities: Option<CapabilityHandler>,
+    tx: mpsc::Sender<String>,
+) {
+    let id = req.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let action = req.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+
+    let response = match capabilities {
+        Some(handler) => match handler(action, params).await {
+            Ok(data) => serde_json::json!({
+                "type": "capability_response", "id": id, "ok": true, "data": data,
+            }),
+            Err(message) => serde_json::json!({
+                "type": "capability_response", "id": id, "ok": false, "error": message,
+            }),
+        },
+        None => serde_json::json!({
+            "type": "capability_response",
+            "id": id,
+            "ok": false,
+            "error": "capability installation is not available in this host",
+        }),
+    };
+
+    if tx.send(response.to_string()).await.is_err() {
+        tracing::warn!("feral-agent: failed to deliver capability_response (sidecar gone?)");
     }
 }
 

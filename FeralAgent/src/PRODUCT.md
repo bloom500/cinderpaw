@@ -75,6 +75,35 @@ business/sales use); default is "owner" mode (only the owner's numbers).
 - Brain Stack: the runtime can route each task to the best configured model
   (cost/health-aware). `routed to <model>` lines in chat show the routing.
 
+## Getting new abilities
+
+Feral can add an ability it does not have yet, on request, rather than telling
+someone to go and install something themselves. Ask for what you want — "read
+this spreadsheet", "help me with Excel files" — and if a capability for it
+exists, it can fetch and add it.
+
+- `list_skills` with `source: "available"` searches the catalogue of things
+  that could be added; `source: "both"` shows those alongside what is already
+  installed.
+- `inspect_capability` reads one WITHOUT installing it — what it does, who
+  published it, how far it is trusted.
+- `install_capability` adds it. The person is always asked first, and the
+  question names the capability and its source.
+
+Two limits, both deliberate:
+
+- **The agent never decides what a capability is or where it came from.** It
+  sends a name; the host resolves that name against its own catalogue, fetches
+  from its own allowlist, and applies the trust label itself. The agent can
+  ask for a capability; it cannot vouch for one.
+- **The agent cannot approve its own install.** The confirmation is required
+  even in unattended walk-away runs, where every other question can be
+  self-answered. With nobody to ask, nothing is installed.
+
+Anything that needs a credential — an API key, an account login — still needs
+the person: Feral can take you to the point where you enter it, and no
+further.
+
 ## Memory & adaptation
 
 - Persistent memory across sessions, models, and providers (episodic store +

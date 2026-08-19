@@ -683,8 +683,16 @@ const raw = {
   previewRemoteSkill:       (url: string) => invoke<SkillPreview>('preview_remote_skill', { url }),
   previewLocalSkill:        (path: string) => invoke<SkillPreview>('preview_local_skill', { path }),
   skillExistsCmd:           (id: string) => invoke<boolean>('skill_exists_cmd', { id }),
-  installSkill:             (meta: SkillMeta, content: string, overwrite: boolean) =>
-    invoke<void>('install_skill', { meta, content, overwrite }),
+  // The old `install_skill(meta, content, overwrite)` is gone. It let the
+  // CALLER supply the file body, the metadata and the trust label, and the
+  // host checked only that the id was a safe slug. Each of these instead
+  // names a source and lets the host fetch it.
+  installCapability:        (id: string) => invoke<SkillMeta>('install_capability', { id }),
+  inspectCapability:        (id: string) => invoke<SkillPreview>('inspect_capability', { id }),
+  installSkillFromUrl:      (url: string, overwrite: boolean) =>
+    invoke<SkillMeta>('install_skill_from_url', { url, overwrite }),
+  installSkillFromFile:     (path: string, overwrite: boolean) =>
+    invoke<SkillMeta>('install_skill_from_file', { path, overwrite }),
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
   feralSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
     invoke<string>('feral_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
@@ -970,8 +978,11 @@ export const tauri = {
     previewRemote:      async (url: string) => raw.previewRemoteSkill(url),
     previewLocal:       async (path: string) => raw.previewLocalSkill(path),
     exists:             async (id: string) => raw.skillExistsCmd(id),
-    install:            async (meta: SkillMeta, content: string, overwrite: boolean) =>
-      raw.installSkill(meta, content, overwrite),
+    installFromCatalogue: async (id: string) => raw.installCapability(id),
+    installFromUrl:       async (url: string, overwrite: boolean) =>
+      raw.installSkillFromUrl(url, overwrite),
+    installFromFile:      async (path: string, overwrite: boolean) =>
+      raw.installSkillFromFile(path, overwrite),
     remove:             async (id: string) => raw.removeSkill(id),
   },
 

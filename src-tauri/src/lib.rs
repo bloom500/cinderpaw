@@ -340,6 +340,7 @@ pub fn run() {
             set_desktop_control_yolo,
             set_token_budget_conversation,
             set_rsi_budget,
+            set_rsi_allow_cloud_dreams,
             search_hf_models,
             get_hf_model_detail,
             get_model_size_info,
@@ -364,7 +365,10 @@ pub fn run() {
             skills::preview_remote_skill,
             skills::preview_local_skill,
             skills::skill_exists_cmd,
-            skills::install_skill,
+            skills::install_capability,
+            skills::inspect_capability,
+            skills::install_skill_from_url,
+            skills::install_skill_from_file,
             skills::remove_skill,
             feral_send_message,
             feral_agent_status,
@@ -498,12 +502,33 @@ pub fn run() {
                     });
                 Some(dc)
             };
+            // Capability bridge. The sidecar sends a NAME; everything that
+            // name means — which catalogue it came from, how far it is
+            // trusted, what bytes land on disk — is decided here, on the host
+            // side of the boundary. The agent can ask for a capability; it
+            // cannot vouch for one, and it cannot hand us content to write.
+            let capabilities: Option<feral_core::host::CapabilityHandler> = {
+                let cap: feral_core::host::CapabilityHandler =
+                    Arc::new(|action, params| {
+                        Box::pin(async move {
+                            crate::skills::handle_capability_request(&action, &params).await
+                        })
+                    });
+                Some(cap)
+            };
             let extra_bin_dirs: Vec<PathBuf> = vec![app.path().resource_dir().ok()]
                 .into_iter()
                 .flatten()
                 .collect();
             tauri::async_runtime::spawn(async move {
-                feral_core::boot::start(runtime, events, desktop_control, extra_bin_dirs).await;
+                feral_core::boot::start(
+                    runtime,
+                    events,
+                    desktop_control,
+                    capabilities,
+                    extra_bin_dirs,
+                )
+                .await;
             });
 
             // MCP extensions: no host-side reconnect anymore (R5). The

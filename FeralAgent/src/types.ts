@@ -198,6 +198,14 @@ export interface ToolContext {
    * `control_app` tool refuses to run without it.
    */
   desktopControl?: DesktopControlBridge;
+
+  /**
+   * Capability bridge — list / inspect / install skills through the host's
+   * own catalogue. Present only when the transport is the Tauri host; the
+   * capability tools refuse to run without it rather than falling back to
+   * anything, because there is no safe fallback for "install software".
+   */
+  capabilities?: CapabilityBridge;
 }
 
 /**
@@ -208,6 +216,20 @@ export interface ToolContext {
  * the bridge is a thin, transport-level RPC.
  */
 export interface DesktopControlBridge {
+  request(
+    action: string,
+    params: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown>;
+}
+
+/**
+ * Bridge to the host's capability catalogue. `request` emits a
+ * `capability_request` and resolves with the host's `data`, or rejects with
+ * its message. Present only on the Tauri host; the `install_capability` tool
+ * refuses to run without it.
+ */
+export interface CapabilityBridge {
   request(
     action: string,
     params: Record<string, unknown>,
@@ -1088,7 +1110,7 @@ export interface InboundMessage {
   type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
-    | "desktop_control_response" | "connectors_reload"
+    | "desktop_control_response" | "capability_response" | "connectors_reload"
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
     // benchmark gate on demand. Remove with the button after the ship/hold call.
     | "fractal_benchmark"
@@ -1465,6 +1487,15 @@ export type OutboundEvent =
   // matching `rsi_response` inbound line. Rust's `handle_rsi_request`
   // dispatcher writes the response back on stdin.
   | { type: "rsi_request"; id: string; method: string; params: unknown }
+  // Capability bridge request — list / inspect / install a capability.
+  // Handled in the Rust host, never in the React UI.
+  //
+  // Note what this event cannot carry: content, metadata, or a trust label.
+  // The sidecar sends a NAME. What that name means — which catalogue it came
+  // from, how far it is trusted, what bytes reach the disk — is decided on the
+  // host side. The agent may request a capability; it may not vouch for one,
+  // and it may not authorize its own install.
+  | { type: "capability_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> }
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }

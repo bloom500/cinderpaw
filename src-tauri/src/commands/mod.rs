@@ -66,7 +66,16 @@ mod command_count_test {
     // 146 = + send_live_text + live_voices (typing into a live call, and the
     // prebuilt voices it can be pinned to — the model's voice is the one thing
     // a spoken call must not re-roll per session).
-    const EXPECTED_COMMAND_COUNT: usize = 146;
+    // 147 = + set_rsi_allow_cloud_dreams (let the dream cycle run on a paid
+    // cloud model — off by default, and until now that default had no switch
+    // and no explanation anywhere the user could see it).
+    // 150 = - install_skill, + install_capability + inspect_capability
+    // + install_skill_from_url + install_skill_from_file. One command that
+    // took the file body, the metadata AND the trust label from its caller
+    // becomes four that each name a SOURCE and let the host fetch it — the
+    // split exists so the agent can ask for a capability without also being
+    // the thing that vouches for where it came from.
+    const EXPECTED_COMMAND_COUNT: usize = 150;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
