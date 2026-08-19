@@ -146,7 +146,7 @@ export async function runChatCommand(
   }
 }
 
-type Log = (message: string) => void;
+export type Log = (message: string) => void;
 
 /**
  * Public ("business") connector mode: a stranger who messages the linked
