@@ -1,14 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, Folder } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { useProjects, type Project } from '@/stores/projects';
 import { tauri, type Conversation } from '@/lib/tauri';
 
-interface SearchResult {
-  conv: ConversationSummary;
-  snippet: string | null;
-}
+/**
+ * One row. Two kinds, because Search is where the sidebar's conversation list
+ * and project tree are both moving — a field that finds only chats cannot be
+ * the thing that replaces a rail containing both.
+ *
+ * They stay one FLAT array despite being rendered in groups, so arrow keys and
+ * Enter keep working across the whole list without a second index to reconcile.
+ */
+type SearchResult =
+  | { kind: 'project'; project: Project; chatCount: number }
+  | { kind: 'conversation'; conv: ConversationSummary; snippet: string | null };
 
 function highlight(text: string, query: string): React.ReactNode {
   const lower = text.toLowerCase();
@@ -42,11 +50,14 @@ export function SearchOverlay() {
   const navigate    = useNavigate();
   const convOpen    = useConversations((s) => s.open);
   const allConvs    = useConversations((s) => s.list);
+  const allProjects = useProjects((s) => s.list);
 
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   // #21: index of the keyboard-highlighted result (-1 = none).
   const [activeIdx, setActiveIdx] = useState(-1);
+  // Non-null while results are narrowed to one project.
+  const [scope, setScope] = useState<Project | null>(null);
   const inputRef              = useRef<HTMLInputElement>(null);
   const cacheRef              = useRef<Map<string, Conversation>>(new Map());
   const debounceRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,11 +84,21 @@ export function SearchOverlay() {
     if (!q.trim()) { setResults([]); return; }
     const lower = q.toLowerCase();
 
+    // Projects first: a project is the coarser answer, so it belongs above the
+    // individual chats inside it.
+    const projectMatches = allProjects
+      .filter((p) => p.name.toLowerCase().includes(lower))
+      .map((p): SearchResult => ({
+        kind: 'project',
+        project: p,
+        chatCount: p.conversation_ids.length,
+      }));
+
     // Immediate title matches
     const titleMatches = allConvs
       .filter((c) => c.title.toLowerCase().includes(lower))
-      .map((c): SearchResult => ({ conv: c, snippet: null }));
-    setResults(titleMatches);
+      .map((c) => ({ kind: 'conversation' as const, conv: c, snippet: null }));
+    setResults([...projectMatches, ...titleMatches]);
 
     // Load uncached full conversations in background
     const uncached = allConvs.filter((c) => !cacheRef.current.has(c.id));
@@ -92,7 +113,7 @@ export function SearchOverlay() {
 
     // Re-run with full content
     const titleMatchIds = new Set(titleMatches.map((r) => r.conv.id));
-    const final: SearchResult[] = [...titleMatches];
+    const final: SearchResult[] = [...projectMatches, ...titleMatches];
 
     for (const c of allConvs) {
       if (titleMatchIds.has(c.id)) continue;
@@ -106,13 +127,23 @@ export function SearchOverlay() {
           const snip  = (start > 0 ? '…' : '') +
             msg.content.slice(start, end) +
             (end < msg.content.length ? '…' : '');
-          final.push({ conv: c, snippet: snip });
+          final.push({ kind: 'conversation', conv: c, snippet: snip });
           break;
         }
       }
     }
     setResults(final);
-  }, [allConvs]);
+  }, [allConvs, allProjects]);
+
+  /**
+   * Results actually rendered. Inside a project scope only its conversations
+   * survive, and project rows are dropped — you are already in one.
+   */
+  const visible = scope
+    ? results.filter(
+        (r) => r.kind === 'conversation' && scope.conversation_ids.includes(r.conv.id),
+      )
+    : results;
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -120,17 +151,30 @@ export function SearchOverlay() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, runSearch]);
 
-  const handleSelect = async (convId: string) => {
+  /**
+   * Selecting a project SCOPES the search to it rather than navigating.
+   *
+   * There is no project page to navigate to, and opening a project's newest
+   * chat would be a guess dressed up as an answer. A project is a container,
+   * so the honest response to picking one is to show what is inside it.
+   */
+  const handleSelect = async (r: SearchResult) => {
+    if (r.kind === 'project') {
+      setScope(r.project);
+      setActiveIdx(-1);
+      inputRef.current?.focus();
+      return;
+    }
     closeSearch();
     navigate('/chat');
-    await convOpen(convId);
+    await convOpen(r.conv.id);
   };
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Search conversations"
+      aria-label="Search chats and projects"
       className="fixed inset-0 z-50 flex flex-col items-center pt-[15vh] backdrop-blur-md bg-black/40"
       onClick={closeSearch}
     >
@@ -148,23 +192,29 @@ export function SearchOverlay() {
             // #21: arrow keys move through results, Enter opens the
             // highlighted one (or the first when none is highlighted).
             onKeyDown={(e) => {
-              if (e.key === 'Escape') closeSearch();
+              // Escape backs out of a project before closing the whole
+              // overlay — otherwise narrowing to a project is a one-way door
+              // and the only way out is to reopen search.
+              if (e.key === 'Escape') {
+                if (scope) { setScope(null); setActiveIdx(-1); }
+                else closeSearch();
+              }
               else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setActiveIdx((i) => Math.min(i + 1, results.length - 1));
+                setActiveIdx((i) => Math.min(i + 1, visible.length - 1));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setActiveIdx((i) => Math.max(i - 1, -1));
-              } else if (e.key === 'Enter' && results.length > 0) {
+              } else if (e.key === 'Enter' && visible.length > 0) {
                 e.preventDefault();
-                void handleSelect(results[Math.max(activeIdx, 0)].conv.id);
+                void handleSelect(visible[Math.max(activeIdx, 0)]);
               }
             }}
             role="combobox"
             aria-expanded={query.trim().length > 0}
             aria-controls="search-results"
             aria-activedescendant={activeIdx >= 0 ? `search-result-${activeIdx}` : undefined}
-            placeholder="Search conversations…"
+            placeholder={scope ? `Search in ${scope.name}…` : 'Search chats and projects…'}
             className="flex-1 bg-transparent text-text-primary text-sm outline-none placeholder:text-text-muted"
           />
           <button
@@ -176,39 +226,75 @@ export function SearchOverlay() {
           </button>
         </div>
 
+        {/* Scope chip — a filter you cannot see is a filter you cannot undo. */}
+        {scope && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-text-muted">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-bg-surface px-2.5 py-1">
+              <Folder size={11} aria-hidden />
+              <span className="text-text-secondary">{scope.name}</span>
+              <button
+                type="button"
+                onClick={() => { setScope(null); setActiveIdx(-1); }}
+                aria-label={`Search everything instead of ${scope.name}`}
+                className="ml-0.5 rounded-full p-0.5 hover:bg-bg-hover hover:text-text-secondary"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          </div>
+        )}
+
         {/* Results */}
-        {query.trim() && (
+        {(query.trim() || scope) && (
           <div
             id="search-results"
             role="listbox"
             className="mt-2 bg-bg-surface border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto"
           >
-            {results.length === 0 ? (
+            {visible.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-text-disabled">
-                No matches found
+                {/* Name what was searched. "No matches" alone leaves the user
+                    guessing whether the thing they want is even searchable. */}
+                {scope
+                  ? `Nothing in ${scope.name} matches.`
+                  : 'No conversations or projects match.'}
               </div>
             ) : (
-              results.map((r, i) => (
+              visible.map((r, i) => (
                 <button
-                  key={r.conv.id}
+                  key={r.kind === 'project' ? `p:${r.project.id}` : `c:${r.conv.id}`}
                   id={`search-result-${i}`}
                   type="button"
                   role="option"
                   aria-selected={i === activeIdx}
-                  onClick={() => { void handleSelect(r.conv.id); }}
+                  onClick={() => { void handleSelect(r); }}
                   className={`w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors border-b border-bg-hover last:border-0 ${i === activeIdx ? 'bg-bg-hover' : ''}`}
                 >
-                  <div className="text-sm font-medium text-text-primary truncate">
-                    {highlight(r.conv.title, query)}
-                  </div>
-                  {r.snippet && (
-                    <div className="text-xs text-text-muted mt-0.5 line-clamp-2">
-                      {highlight(r.snippet, query)}
-                    </div>
+                  {r.kind === 'project' ? (
+                    <>
+                      <div className="flex items-center gap-2 text-sm font-medium text-text-primary truncate">
+                        <Folder size={14} className="shrink-0 text-text-muted" aria-hidden />
+                        {highlight(r.project.name, query)}
+                      </div>
+                      <div className="text-[11px] text-text-disabled mt-0.5">
+                        Project · {r.chatCount} {r.chatCount === 1 ? 'chat' : 'chats'}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-sm font-medium text-text-primary truncate">
+                        {highlight(r.conv.title, query)}
+                      </div>
+                      {r.snippet && (
+                        <div className="text-xs text-text-muted mt-0.5 line-clamp-2">
+                          {highlight(r.snippet, query)}
+                        </div>
+                      )}
+                      <div className="text-[11px] text-text-disabled mt-0.5">
+                        {relativeTime(r.conv.updated_at)}
+                      </div>
+                    </>
                   )}
-                  <div className="text-[11px] text-text-disabled mt-0.5">
-                    {relativeTime(r.conv.updated_at)}
-                  </div>
                 </button>
               ))
             )}
