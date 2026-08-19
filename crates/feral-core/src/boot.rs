@@ -58,6 +58,12 @@ use crate::settings::{self, Settings};
 pub fn build_runtime() -> Arc<RuntimeState> {
     let _ = paths::ensure_dirs();
 
+    // Move any plaintext connector secrets left in `connectors.json` (pre-vault
+    // installs) into the OS keychain before anything reads that file. No user
+    // interaction; a crash mid-migration is safe to retry on the next start
+    // (see `connector_secrets::migrate_plaintext_secrets`).
+    let _ = crate::connector_secrets::migrate_plaintext_secrets_at_startup();
+
     let settings = build_settings();
     let manager = Arc::new(ModelManager::new());
     let local_api_token = build_and_persist_api_token();

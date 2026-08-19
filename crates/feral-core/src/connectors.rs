@@ -358,7 +358,14 @@ pub fn load_connector_configs() -> Vec<ConnectorConfig> {
 pub fn save_connector_configs(connectors: &[ConnectorConfig]) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(&ConnectorConfigFile { connectors: connectors.to_vec() })
         .map_err(|e| e.to_string())?;
-    std::fs::write(config_path(), raw).map_err(|e| format!("Couldn't save connector settings: {e}"))
+    let path = config_path();
+    // Temp-file + rename: `std::fs::write` truncates before writing, so a
+    // crash mid-write would lose the whole file. The rename is atomic on
+    // both Windows and Unix, so a killed process leaves either the old file
+    // intact or the new one fully written — never a half-written one.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, raw).map_err(|e| format!("Couldn't save connector settings: {e}"))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("Couldn't save connector settings: {e}"))
 }
 
 pub fn load_connector_config(id: &str) -> Option<ConnectorConfig> {
