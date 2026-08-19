@@ -25,6 +25,9 @@
   var FALLBACK_THEME = 'dark';
   /* Must stay >= the `transition: opacity` duration in index.html. */
   var FADE_MS = 500;
+  /* Safety-net poll interval; the MutationObserver normally wins long
+   * before the first tick. */
+  var POLL_MS = 250;
 
   function readThemePref() {
     try {
@@ -50,30 +53,76 @@
   /* Native widgets (selects, checkboxes, scrollbars) follow the theme too. */
   rootEl.style.colorScheme = resolved;
 
-  var startup = document.getElementById('feral-startup');
-  var appRoot = document.getElementById('root');
-  if (!startup || !appRoot) return;
+  /* Everything below needs the DOM. This script is a BLOCKING script in
+   * <head> — by design, so `data-theme` above is stamped before the first
+   * paint — which means <body> has not been parsed yet and both lookups
+   * return null at this point.
+   *
+   * That is exactly how this shipped broken: the original code looked the
+   * elements up here and bailed on `if (!startup || !appRoot) return;`. The
+   * theme still applied (it runs earlier), so there was no white flash and
+   * the bug looked like success — but the observer was never attached, the
+   * startup surface was never dismissed, and it sat on top of the mounted
+   * app swallowing every click, including the window controls. The app was
+   * unusable and could not even be closed.
+   */
+  function watchForMount() {
+    var startup = document.getElementById('feral-startup');
+    var appRoot = document.getElementById('root');
+    /* Not parsed yet. Report failure so the caller keeps waiting instead of
+     * giving up — giving up here is precisely the bug this file is fixing. */
+    if (!startup || !appRoot) return false;
 
-  var dismissed = false;
-  function dismissStartup() {
-    if (dismissed) return;
-    dismissed = true;
-    startup.setAttribute('aria-hidden', 'true');
-    rootEl.classList.add('feral-ready');
-    window.setTimeout(function () {
-      if (startup.parentNode) startup.parentNode.removeChild(startup);
-    }, FADE_MS);
-  }
+    var poll = 0;
+    var dismissed = false;
+    function dismissStartup() {
+      if (dismissed) return;
+      dismissed = true;
+      if (poll) window.clearInterval(poll);
+      startup.setAttribute('aria-hidden', 'true');
+      rootEl.classList.add('feral-ready');
+      window.setTimeout(function () {
+        if (startup.parentNode) startup.parentNode.removeChild(startup);
+      }, FADE_MS);
+    }
 
-  if (appRoot.childElementCount > 0) {
-    dismissStartup();
-  } else {
+    function mounted() {
+      return appRoot.childElementCount > 0;
+    }
+
+    if (mounted()) {
+      dismissStartup();
+      return true;
+    }
+
     var observer = new MutationObserver(function () {
-      if (appRoot.childElementCount > 0) {
+      if (mounted()) {
         observer.disconnect();
         dismissStartup();
       }
     });
     observer.observe(appRoot, { childList: true });
+
+    /* Belt and braces. The observer is the fast path; this is the promise
+     * that a mounted app can NEVER be left under an unclickable overlay,
+     * whatever goes wrong with the event. It checks the same condition, so
+     * the deliberate behaviour is preserved: if React never mounts, the
+     * startup surface stays up rather than revealing a blank window. */
+    poll = window.setInterval(function () {
+      if (mounted()) {
+        observer.disconnect();
+        dismissStartup();
+      }
+    }, POLL_MS);
+    return true;
+  }
+
+  /* Try now, and if the document is not ready, try again when it is.
+   * Deliberately NOT keyed on `document.readyState`: this script's whole
+   * job is to run before the document exists, and any single moment we pick
+   * can be the wrong one. Missing that moment used to leave the startup
+   * surface permanently on top of the app, so the retry is unconditional. */
+  if (!watchForMount()) {
+    document.addEventListener('DOMContentLoaded', watchForMount);
   }
 })();

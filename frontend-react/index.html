@@ -21,82 +21,177 @@
       body { margin: 0; background-color: #100E09; }
       html[data-theme="light"] body { background-color: #FFF5EE; }
 
-      /* Startup surface: wordmark + amber light + loading label, all rendered
-         statically so the first paint is the product, not a blank page. */
+      /* Startup surface: hero wordmark + amber key light + shimmer line, all
+         rendered statically so the first paint is the product, not a blank
+         page. Layer order mirrors the app scene (globals.css): vignette →
+         key light → grain → content. */
       #feral-startup {
         position: fixed;
         inset: 0;
-        z-index: 0;
+        z-index: 50;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 22px;
         overflow: hidden;
-        transition: opacity 0.45s ease;
+        transition: opacity 0.45s ease, transform 0.45s ease;
       }
+      /* Vignette + grain mirror the shell tokens (globals.css --scene-vignette,
+         --scene-grain-opacity) — hardcoded here because this style block is
+         parsed before that stylesheet exists. */
+      #feral-startup::before,
+      #feral-startup::after {
+        content: '';
+        position: absolute;
+        pointer-events: none;
+      }
+      #feral-startup::before {
+        inset: 0;
+        z-index: 1;
+        background: radial-gradient(115% 115% at 50% 42%, transparent 58%, rgba(8, 6, 4, 0.5) 100%);
+      }
+      html[data-theme="light"] #feral-startup::before {
+        background: radial-gradient(115% 115% at 50% 42%, transparent 58%, rgba(92, 64, 36, 0.3) 100%);
+      }
+      #feral-startup::after {
+        inset: -30%;
+        z-index: 3;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+        background-repeat: repeat;
+        opacity: 0.05;
+      }
+      html[data-theme="light"] #feral-startup::after { opacity: 0.04; }
+      /* One large amber key light: a slow one-shot breath/sweep while loading
+         (transform/opacity only), resting warm when it finishes. */
       .feral-startup-light {
         position: absolute;
-        top: -18%;
-        left: -12%;
-        width: 70%;
-        height: 80%;
+        top: -10%;
+        left: -10%;
+        width: 120%;
+        height: 120%;
+        z-index: 2;
         pointer-events: none;
-        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.20), transparent 70%);
+        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.22), transparent 70%);
+        animation: feral-startup-sweep 7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        will-change: transform, opacity;
       }
       html[data-theme="light"] .feral-startup-light {
-        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.16), transparent 70%);
+        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.18), transparent 70%);
       }
+      @keyframes feral-startup-sweep {
+        0%   { transform: translate3d(-30%, 0, 0) scale(0.96); opacity: 0; }
+        18%  { opacity: 1; }
+        70%  { transform: translate3d(22%, 0, 0) scale(1.05); opacity: 0.85; }
+        100% { transform: translate3d(32%, 0, 0) scale(1.07); opacity: 0.55; }
+      }
+      /* Hero wordmark: --watermark size (globals.css token, mirrored), low
+         graphite-on-graphite contrast with a faint top edge light, offset and
+         cropped by the container's overflow for drama. */
       .feral-startup-wordmark {
+        position: relative;
+        z-index: 4;
         font-family: 'Inter Variable', Inter, system-ui, sans-serif;
-        font-size: clamp(46px, 10vw, 84px);
+        font-size: clamp(120px, 22vw, 300px);
         font-weight: 600;
-        letter-spacing: 0.42em;
-        text-indent: 0.42em;
-        color: rgba(240, 230, 211, 0.12);
+        line-height: 0.9;
+        letter-spacing: 0.14em;
+        text-indent: 0.14em;
+        color: rgba(240, 230, 211, 0.05);
+        /* A hairline of light on the top edge is what makes the letters read
+           as CUT OUT of the surface rather than printed on it. */
+        text-shadow: 0 -1px 0 rgba(255, 250, 240, 0.07);
       }
       html[data-theme="light"] .feral-startup-wordmark {
-        color: rgba(28, 22, 16, 0.14);
+        color: rgba(28, 22, 16, 0.06);
+        text-shadow: 0 -1px 0 rgba(255, 255, 255, 0.6);
       }
+      /* The spotlight. A second copy of the word sits exactly on top of the
+         first, painted with a narrow moving highlight and clipped to the
+         glyphs — so the light rakes ACROSS the letters instead of washing the
+         whole screen. Only background-position animates, which the compositor
+         handles without a repaint of the text itself. */
+      .feral-startup-wordmark::after {
+        content: attr(data-word);
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(
+          105deg,
+          transparent 38%,
+          rgba(255, 238, 210, 0.34) 47%,
+          rgba(255, 246, 228, 0.66) 50%,
+          rgba(255, 238, 210, 0.34) 53%,
+          transparent 62%
+        );
+        background-size: 260% 100%;
+        background-repeat: no-repeat;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: feral-startup-sweep-light 3.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+      }
+      html[data-theme="light"] .feral-startup-wordmark::after {
+        background-image: linear-gradient(
+          105deg,
+          transparent 38%,
+          rgba(120, 78, 30, 0.22) 47%,
+          rgba(96, 60, 20, 0.42) 50%,
+          rgba(120, 78, 30, 0.22) 53%,
+          transparent 62%
+        );
+      }
+      @keyframes feral-startup-sweep-light {
+        0%        { background-position: 175% 0; }
+        /* Rest between passes so it reads as a sweep, not a strobe. */
+        55%, 100% { background-position: -75% 0; }
+      }
+      /* Screen-reader only. The startup screen is deliberately just the
+         wordmark — but "nothing else" must not mean "nothing announced":
+         someone using a screen reader still needs to hear that the app is
+         starting. Visually hidden, not removed. */
       .feral-startup-status {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-family: 'Inter Variable', Inter, system-ui, sans-serif;
-        font-size: 12px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: rgba(184, 172, 149, 0.85);
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
       }
-      html[data-theme="light"] .feral-startup-status {
-        color: rgba(74, 63, 50, 0.85);
+      /* React mounted: the pre-paint script adds `feral-ready`; the surface
+         does an exposure fade (opacity + slight scale) out into the app scene,
+         and the script removes it from the DOM (accessibility + pointer flow)
+         once the fade completes. React-fail → the surface stays. */
+      html.feral-ready #feral-startup {
+        opacity: 0;
+        transform: scale(1.02);
+        pointer-events: none;
       }
-      .feral-startup-status::before {
-        content: '';
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        border: 1.5px solid rgba(196, 132, 58, 0.28);
-        border-top-color: rgba(196, 132, 58, 0.9);
-        animation: feral-startup-spin 0.9s linear infinite;
+      /* Reduced motion: full static composition — no sweep, no shimmer; the
+         handoff keeps a plain opacity fade (no scale). */
+      @media (prefers-reduced-motion: reduce) {
+        /* Full static composition: the key light rests warm and the
+           spotlight parks mid-word, so the letters still read as lit rather
+           than flat. No motion at all. */
+        .feral-startup-light { animation: none; opacity: 0.55; }
+        .feral-startup-wordmark::after {
+          animation: none;
+          background-position: 50% 0;
+        }
+        #feral-startup { transition: opacity 0.45s ease; }
+        html.feral-ready #feral-startup { transform: none; }
       }
-      html[data-theme="light"] .feral-startup-status::before {
-        border-color: rgba(160, 104, 40, 0.28);
-        border-top-color: rgba(160, 104, 40, 0.9);
-      }
-      @keyframes feral-startup-spin { to { transform: rotate(360deg); } }
-
-      /* React mounted: the pre-paint script adds `feral-ready`, CSS fades the
-         surface out, and the script removes it from the DOM (accessibility +
-         pointer flow) once the fade completes. */
-      html.feral-ready #feral-startup { opacity: 0; pointer-events: none; }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <div id="feral-startup">
       <div class="feral-startup-light" aria-hidden="true"></div>
-      <div class="feral-startup-wordmark" aria-hidden="true">FERAL</div>
+      <!-- data-word feeds the ::after copy that carries the moving spotlight;
+           both layers must show the same letters. -->
+      <div class="feral-startup-wordmark" data-word="FERAL" aria-hidden="true">FERAL</div>
       <div class="feral-startup-status" role="status">Starting Feral</div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
