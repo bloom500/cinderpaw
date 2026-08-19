@@ -23,11 +23,37 @@ fn second_provider(primary: &str) -> Option<serde_json::Value> {
     let settings = feral_core::settings::load();
     let byok = feral_core::byok::load(&settings);
     let catalog = feral_core::byok::provider_catalog();
+    pick_second_provider(primary, &byok.providers, &catalog, &|id| {
+        feral_core::byok::byok_get(id)
+    })
+}
 
-    let mut candidates: Vec<_> = byok
-        .providers
+/// The choosing half, with the world passed in so it can be tested.
+///
+/// Two rules that were learned the hard way, both from one user whose Gemini
+/// turn died with "no fallback configured" while five providers sat configured:
+///
+///   * **Only providers in the LLM catalog are candidates.** `byok.providers`
+///     also holds speech services — Azure, Fish, Piper — which are enabled,
+///     have keys, and have a `default_model` that is a VOICE. Nothing stopped
+///     one being handed to the inference router as a chat model.
+///   * **A candidate that cannot be resolved is skipped, not fatal.** The old
+///     code used `?` on the model and base URL lookups inside the loop, which
+///     returns from the whole function: the first unusable entry — alphabetically
+///     `azure`, for that user — ended the search and every later, perfectly good
+///     provider was never considered. A fallback that silently does not exist is
+///     the failure this function was added to prevent.
+fn pick_second_provider(
+    primary: &str,
+    providers: &std::collections::HashMap<String, feral_core::byok::ProviderConfig>,
+    catalog: &[feral_core::byok::ProviderCatalogEntry],
+    key_of: &dyn Fn(&str) -> Option<String>,
+) -> Option<serde_json::Value> {
+    let mut candidates: Vec<_> = providers
         .iter()
         .filter(|(id, cfg)| id.as_str() != primary && cfg.enabled)
+        // A speech provider is not somewhere to send a conversation.
+        .filter(|(id, _)| catalog.iter().any(|e| &e.id == *id))
         .collect();
     candidates.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -35,18 +61,24 @@ fn second_provider(primary: &str) -> Option<serde_json::Value> {
         // The key lives in the keychain, not in the record — an entry without
         // one is a provider the user started configuring and never finished,
         // and failing over to it would turn a rate limit into an auth error.
-        let Some(key) = feral_core::byok::byok_get(id).filter(|k| !k.trim().is_empty()) else {
+        let Some(key) = key_of(id).filter(|k| !k.trim().is_empty()) else {
             continue;
         };
         let entry = catalog.iter().find(|e| &e.id == id);
-        let model = cfg
+        let Some(model) = cfg
             .default_model
             .clone()
-            .or_else(|| entry.map(|e| e.default_model.clone()))?;
-        let base_url = cfg
+            .or_else(|| entry.map(|e| e.default_model.clone()))
+        else {
+            continue;
+        };
+        let Some(base_url) = cfg
             .base_url
             .clone()
-            .or_else(|| entry.map(|e| e.default_base_url.clone()))?;
+            .or_else(|| entry.map(|e| e.default_base_url.clone()))
+        else {
+            continue;
+        };
         return Some(serde_json::json!({
             "provider": id,
             "model": model,
@@ -1000,5 +1032,94 @@ mod deser_default_tests {
 
         let missing: Row = serde_json::from_str(r#"{}"#).unwrap();
         assert_eq!(missing.downloads, 0);
+    }
+}
+
+#[cfg(test)]
+mod second_provider_tests {
+    use super::pick_second_provider;
+    use feral_core::byok::{provider_catalog, ProviderConfig};
+    use std::collections::HashMap;
+
+    fn cfg(enabled: bool, base_url: Option<&str>, model: Option<&str>) -> ProviderConfig {
+        ProviderConfig {
+            enabled,
+            api_key: String::new(),
+            base_url: base_url.map(str::to_string),
+            default_model: model.map(str::to_string),
+        }
+    }
+
+    fn everyone_has_a_key(_id: &str) -> Option<String> {
+        Some("key".to_string())
+    }
+
+    #[test]
+    fn a_speech_provider_is_never_an_inference_fallback() {
+        // Azure sits in the same map as the chat providers, is enabled, has a
+        // key, and its default_model is a VOICE. Handing it to the inference
+        // router would answer a user's question with a text-to-speech endpoint.
+        let mut providers = HashMap::new();
+        // A base_url is given on purpose: without one the old code rejected
+        // azure for an unrelated reason and this test passed while proving
+        // nothing. With one, only the catalog filter keeps it out.
+        providers.insert(
+            "azure".to_string(),
+            cfg(true, Some("https://x.cognitiveservices.azure.com"), Some("en-US-EmmaNeural")),
+        );
+        let chosen = pick_second_provider("google", &providers, &provider_catalog(), &everyone_has_a_key);
+        assert!(chosen.is_none(), "a TTS provider was offered as a chat fallback: {chosen:?}");
+    }
+
+    #[test]
+    fn an_unresolvable_candidate_does_not_end_the_search() {
+        // The bug this test exists for: `?` inside the loop returned from the
+        // whole function, so the first candidate that could not be resolved
+        // hid every provider after it in alphabetical order.
+        let mut providers = HashMap::new();
+        // "custom" has no catalog default_base_url and none configured.
+        providers.insert("custom".to_string(), cfg(true, None, Some("some-model")));
+        providers.insert(
+            "openrouter".to_string(),
+            cfg(true, Some("https://openrouter.ai/api/v1"), Some("x/y")),
+        );
+
+        let chosen = pick_second_provider("google", &providers, &provider_catalog(), &everyone_has_a_key)
+            .expect("openrouter should have been found after custom was skipped");
+        assert_eq!(chosen["provider"], "openrouter");
+    }
+
+    #[test]
+    fn the_failing_provider_is_never_its_own_fallback() {
+        let mut providers = HashMap::new();
+        providers.insert(
+            "openrouter".to_string(),
+            cfg(true, Some("https://openrouter.ai/api/v1"), Some("x/y")),
+        );
+        assert!(pick_second_provider("openrouter", &providers, &provider_catalog(), &everyone_has_a_key).is_none());
+    }
+
+    #[test]
+    fn a_provider_without_a_key_is_skipped_for_the_next_one() {
+        let mut providers = HashMap::new();
+        providers.insert("groq".to_string(), cfg(true, None, Some("llama-3.3-70b")));
+        providers.insert(
+            "openrouter".to_string(),
+            cfg(true, Some("https://openrouter.ai/api/v1"), Some("x/y")),
+        );
+        let only_openrouter = |id: &str| (id == "openrouter").then(|| "key".to_string());
+        let chosen = pick_second_provider("google", &providers, &provider_catalog(), &only_openrouter)
+            .expect("openrouter has a key");
+        assert_eq!(chosen["provider"], "openrouter");
+    }
+
+    #[test]
+    fn a_disabled_provider_is_not_a_candidate() {
+        let mut providers = HashMap::new();
+        providers.insert(
+            "openrouter".to_string(),
+            cfg(false, Some("https://openrouter.ai/api/v1"), Some("x/y")),
+        );
+        assert!(pick_second_provider("google", &providers, &provider_catalog(), &everyone_has_a_key).is_none());
     }
 }
