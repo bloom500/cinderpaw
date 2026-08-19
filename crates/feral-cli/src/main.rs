@@ -351,8 +351,15 @@ fn run_gateway() -> i32 {
         // logged). It still logs, so gateway stderr is unchanged.
         let events: Arc<dyn feral_core::host::HostEvents> =
             Arc::new(feral_core::host::BroadcastEvents::new(runtime.events_tx.clone()));
-        // Desktop control is a desktop-host feature; the gateway declines it.
-        feral_core::boot::start(runtime.clone(), events, None, Vec::new()).await;
+        // Desktop control, capabilities and admin are all desktop-host
+        // features: the gateway has no window to drive, no skill catalogue to
+        // vouch for and no updater. `None` makes each request answer "not
+        // available here" instead of hanging, which is the shape the boot
+        // signature exists to force. (This call had not been updated since
+        // `capabilities` and `admin` were added, so the gateway binary did not
+        // compile at all — caught by `scripts/verify.sh`, which is what it is
+        // for.)
+        feral_core::boot::start(runtime.clone(), events, None, None, None, Vec::new()).await;
         tracing::info!(port, "feral gateway up — model API + sidecar supervised");
 
         // Stop on Ctrl+C (interactive) or a `POST /runtime/shutdown`

@@ -410,6 +410,7 @@ pub fn run() {
             connectors::connector_accounts_list,
             connectors::connector_pair_start,
             connectors::connector_pair_poll,
+            connectors::connector_refresh_expired,
             memory_graph::get_memory_graph,
             memory_graph::add_memory_facts,
             memory_resume::get_last_task,

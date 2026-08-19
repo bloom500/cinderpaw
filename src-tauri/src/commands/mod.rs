@@ -75,7 +75,11 @@ mod command_count_test {
     // becomes four that each name a SOURCE and let the host fetch it — the
     // split exists so the agent can ask for a capability without also being
     // the thing that vouches for where it came from.
-    const EXPECTED_COMMAND_COUNT: usize = 150;
+    // 154 = + connector_accounts_list + connector_pair_start
+    // + connector_pair_poll + connector_refresh_expired. Phase 3: an account
+    // is a thing with a status and a lifetime, so listing, pairing, polling
+    // and renewing are four different questions rather than one flag.
+    const EXPECTED_COMMAND_COUNT: usize = 154;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

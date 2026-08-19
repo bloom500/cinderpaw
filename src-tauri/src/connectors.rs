@@ -244,6 +244,10 @@ fn seed_discord(cfg: &mut ConnectorConfig) {
 
 /// Tell the sidecar to reconcile its live connectors after a config change.
 async fn notify_sidecar(state: &crate::AppState) {
+    // Renew anything that ran out BEFORE handing credentials over: the
+    // sidecar would otherwise be given a token it cannot use and would report
+    // a healthy-looking connector that answers nobody.
+    refresh_expired_accounts().await;
     let tx = { state.feral_agent_tx.lock().clone() };
     if let Some(tx) = tx {
         // The rows travel WITH their secrets, resolved from the vault. The
@@ -510,6 +514,83 @@ fn device_flow_for(id: &str) -> Result<feral_core::connectors::DeviceFlowDef, St
         .ok_or_else(|| format!("no connector called {id}"))?
         .device_flow
         .ok_or_else(|| "this connector is not paired with a code".to_string())
+}
+
+/// Renew every credential that has run out, before anything tries to use it.
+///
+/// Twitch access tokens die in four hours. Without this, a connector that was
+/// working when the person closed the laptop is dead when they open it, and
+/// the only cure on offer would be pairing again — for a credential that never
+/// actually went away. The transport cannot do this itself: the vault and the
+/// client id are on this side of the process boundary.
+///
+/// A refresh that fails transiently is left alone to be retried; only the
+/// provider saying `invalid_grant` marks the account revoked, because that is
+/// the only answer that means "this will never work again".
+pub async fn refresh_expired_accounts() {
+    use feral_core::connector_accounts::{effective_status, AccountStatus};
+    use feral_core::oauth_device::RefreshError;
+
+    for mut account in feral_core::connector_accounts::load_accounts() {
+        let now = now_secs();
+        if !matches!(effective_status(&account, now), AccountStatus::Expired) {
+            continue;
+        }
+        let Ok(def) = device_flow_for(&account.connector_id) else {
+            continue;
+        };
+        let Some(refresh_token) = feral_core::connector_secrets::read(
+            &feral_core::connector_secrets::secret_ref(&account.connector_id, REFRESH_KEY),
+        ) else {
+            // Expired with nothing to renew from. Saying so beats a silent
+            // "disconnected" the person cannot explain.
+            account.status = AccountStatus::Error("this connection ran out and cannot renew itself — connect again".into());
+            let _ = feral_core::connector_accounts::save_account(&account);
+            continue;
+        };
+
+        let handle = tokio::runtime::Handle::current();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let http = ReqwestHttp { handle };
+            feral_core::oauth_device::refresh(&http, &def, &refresh_token, now_secs())
+        })
+        .await;
+        let Ok(outcome) = outcome else { continue };
+
+        match outcome {
+            Ok(tokens) => {
+                if feral_core::connector_secrets::put(&account.connector_id, ACCESS_KEY, &tokens.access).is_err() {
+                    continue;
+                }
+                // The NEW refresh token replaces the old one. Twitch's are
+                // single use: keeping the old one makes the next renewal fail
+                // and reports a revoked account to someone whose account is
+                // perfectly fine.
+                if let Some(refresh) = tokens.refresh.as_deref() {
+                    let _ = feral_core::connector_secrets::put(&account.connector_id, REFRESH_KEY, refresh);
+                }
+                account.status = AccountStatus::Connected;
+                account.expires_at = Some(tokens.expires_at);
+                let _ = feral_core::connector_accounts::save_account(&account);
+            }
+            Err(RefreshError::Revoked) => {
+                account.status = AccountStatus::Revoked;
+                let _ = feral_core::connector_accounts::save_account(&account);
+            }
+            Err(RefreshError::Transient(_)) => {
+                // An outage is not a revoked account. Left exactly as it was,
+                // to be tried again next time.
+            }
+        }
+    }
+}
+
+/// Renew now, because the user is looking at the screen.
+#[tauri::command]
+#[specta::specta]
+pub async fn connector_refresh_expired() -> Vec<feral_core::connector_accounts::ConnectorAccount> {
+    refresh_expired_accounts().await;
+    connector_accounts_list()
 }
 
 /// Every account the machine knows about, with the status the UI should show.

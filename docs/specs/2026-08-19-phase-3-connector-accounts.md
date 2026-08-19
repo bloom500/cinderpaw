@@ -1,6 +1,6 @@
 # Phase 3 — Connector Accounts
 
-**Date:** 2026-08-19 · **Type:** implementation spec · **Status:** approved, not started
+**Date:** 2026-08-19 · **Type:** implementation spec · **Status:** complete (2026-08-20, branch `feat/connector-accounts`)
 
 **UX contract:** `docs/ui/2026-08-19-ux-contract.md`
 **Precedents:** `docs/specs/2026-08-19-phase-2-capability-lifecycle.md` (host owns the
@@ -357,3 +357,47 @@ the connector is merged.
 - **Twitch's 30-day single-use refresh** means a long-idle machine will show
   `Revoked`. That is correct behaviour, not a bug, and the copy has to say so
   plainly rather than looking like a failure.
+
+---
+
+## What turned out differently (closed 2026-08-20)
+
+Five things the design did not foresee. Each is in the code with a test.
+
+**The migration switched the product off.** Task 3 deletes every connector
+secret from `connectors.json` — the point of it — but the sidecar, the process
+that actually holds the connections, only ever read that file. The first start
+after migrating would have brought EVERY connector up blank on a machine where
+nothing was wrong the day before. Closed by `resolved_connector_configs()`:
+the rows now travel with their secrets over the same `connectors_reload` poke.
+Found while writing Task 13, not by any of the tests written for Task 3.
+
+**Matrix ids contain colons.** `matrix:<room>:<user>` split on `:` gives five
+pieces and a room that does not exist. Both halves are percent-encoded.
+
+**A homeserver that ignores the sync timeout makes a hot loop.** The spec is
+that `/sync` is held open; not every server honours it, and the difference
+between "polling" and "pinning a core" is a 250 ms floor.
+
+**Twitch's IRC refuses a NICK that does not match the token.** Rather than ask
+someone to retype a username Feral already knows, `pair_poll` asks Helix once
+at grant time and stores it — which also gives the card "as <name>" for anyone
+with two accounts.
+
+**Refresh cannot live in the transport.** The plan had Task 13 call `refresh()`
+before connecting. The vault and the client id are in Rust and the transport is
+Bun, so the transport reports "needs renewing" and the host renews before
+handing credentials over (`refresh_expired_accounts`).
+
+### Left open, deliberately
+
+- `boot.rs` still discards the `MigrationReport` (`let _ = …`). If the vault is
+  unavailable, secrets stay in plaintext and the only sign is a log line. The
+  account card is per-account and has nowhere to say it; this needs a surface
+  of its own.
+- Nothing drives `connector_pair_poll` on an interval yet — the commands and
+  the card exist and are tested, the Connectors page that ties them together
+  does not.
+- Renewal happens on a reload, not on a timer. A machine left running for a
+  day renews at the next config change or restart, not the moment a token
+  expires.
