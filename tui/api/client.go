@@ -943,7 +943,7 @@ const ProviderCatalogVersionExpected = 1
 // The shared CatalogVersionExpected constant was split because the
 // two catalogs track independent schema versions (a byok-side bump
 // does NOT also require a connector-side bump and vice versa).
-const ConnectorCatalogVersionExpected = 2
+const ConnectorCatalogVersionExpected = 3
 
 // fetchCatalog is the shared GET-with-version-header helper for the
 // two catalog endpoints. On a non-2xx it returns a typed

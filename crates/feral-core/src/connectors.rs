@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 /// v2 (2026-07-07) — added `qr_setup_endpoint`. QR-paired connectors only;
 /// returns the gateway endpoint the wizard POSTs to in order to obtain a
 /// fresh QR payload to render on screen.
-pub const CONNECTORS_CATALOG_VERSION: u32 = 2;
+pub const CONNECTORS_CATALOG_VERSION: u32 = 3;
 
 /// Pairing flow for a connector. Decision D settles three distinct flows:
 ///
@@ -38,12 +38,44 @@ pub const CONNECTORS_CATALOG_VERSION: u32 = 2;
 ///     on demand (`GET /runtime/connectors/:id/pair/start` returns
 ///     `qr_payload`) which the user scans to complete pairing on their
 ///     phone.
+///   * `"instance_token"` — the user names WHICH server they mean (a Matrix
+///     homeserver, a Mattermost install) and supplies a credential for it.
+///     The instance URL is a required field that is NOT a secret, which is
+///     why `PairingFieldDef::secret` finally earns its existence.
+///   * `"oauth_device"` — RFC 8628 device authorization grant: Feral shows a
+///     code, the user types it on the provider's site, Feral polls. The only
+///     flow a client that cannot hold a secret may use on providers like
+///     Twitch, and the only one that needs no local HTTP server — so it works
+///     on the headless gateway too.
+///
+/// Stays a plain string on the wire. A struct variant would have serialised
+/// `pairing_method` as an object and broken every client that decodes it as a
+/// string — the Go TUI does exactly that, and said so loudly. The device
+/// flow's endpoints ride in a sibling field instead (`device_flow`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum PairingMethod {
     BotToken,
     Oauth,
     Qr,
+    InstanceToken,
+    OauthDevice,
+}
+
+/// Where an `OauthDevice` connector's flow lives. Absent for every other
+/// pairing method, and omitted from the JSON entirely when absent, so the
+/// shape older clients already parse is unchanged.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, specta::Type)]
+pub struct DeviceFlowDef {
+    /// Where the flow starts; returns the user code and verification URL.
+    pub device_url: String,
+    /// Polled for the token, and later used to refresh it.
+    pub token_url: String,
+    /// Public by definition — shipping it in the catalog leaks nothing.
+    /// Empty until an application is registered with the provider, which is
+    /// why such a connector must stay `coming_soon`.
+    pub client_id: String,
+    pub scopes: Vec<String>,
 }
 
 /// Secret fields a connector requires when `PairingMethod::BotToken` or
@@ -85,6 +117,14 @@ pub struct OAuthClientIDSource {
 pub struct ConnectorCatalogEntry {
     /// Stable id stored on disk in `connectors.json`.
     pub id: String,
+    /// Device-flow endpoints, when `pairing_method` is `oauth_device`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_flow: Option<DeviceFlowDef>,
+    /// Which `LiveConnector` implementation runs this connector in the
+    /// sidecar. Separate from `pairing_method` because the two vary
+    /// independently: Matrix and Mattermost share a pairing shape and share
+    /// no wire protocol at all.
+    pub transport: String,
     /// Display name shown in the picker card.
     pub name: String,
     /// Long-form description shown beneath the card name. Drives wizard
@@ -148,6 +188,8 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
     vec![
         ConnectorCatalogEntry {
             id: "discord".into(),
+            transport: "discord".into(),
+            device_flow: None,
             name: "Discord".into(),
             description: "Chat with your assistant from Discord — DMs, @mentions, or a dedicated channel. Only people you allow can reach it.".into(),
             icon: "🎮".into(),
@@ -168,6 +210,8 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
         },
         ConnectorCatalogEntry {
             id: "slack".into(),
+            transport: "slack".into(),
+            device_flow: None,
             name: "Slack".into(),
             description: "Talk to your assistant from a Slack workspace via Socket Mode. Needs an app-level token and a bot token.".into(),
             icon: "💬".into(),
@@ -204,6 +248,8 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
         },
         ConnectorCatalogEntry {
             id: "whatsapp".into(),
+            transport: "whatsapp".into(),
+            device_flow: None,
             name: "WhatsApp".into(),
             description: "Reach your assistant on WhatsApp. Turn it on, then scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.".into(),
             icon: "💚".into(),
@@ -224,6 +270,8 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
         },
         ConnectorCatalogEntry {
             id: "telegram".into(),
+            transport: "telegram".into(),
+            device_flow: None,
             name: "Telegram".into(),
             description: "Message your assistant from Telegram.".into(),
             icon: "✈️".into(),
@@ -243,6 +291,102 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             // Telegram's `getMe` endpoint is the canonical probe.
             validate_endpoint: Some("https://api.telegram.org/bot{TOKEN}/getMe".into()),
             oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        // ── The three witnesses (Phase 3) ────────────────────────────────
+        // Each forces something the engine has never had to handle. They
+        // stay `coming_soon` until their transports land, so a card never
+        // promises a connection the sidecar cannot make.
+        ConnectorCatalogEntry {
+            id: "matrix".into(),
+            transport: "matrix".into(),
+            device_flow: None,
+            name: "Matrix".into(),
+            description: "Talk to your assistant from any Matrix homeserver — yours, or one you already have an account on.".into(),
+            icon: "🌐".into(),
+            logo_url: Some("https://cdn.simpleicons.org/matrix".into()),
+            pairing_fields: vec![
+                // The reason Matrix is here: a homeserver URL is REQUIRED and
+                // is not a credential. It belongs in the config file, not the
+                // vault, and every field before this one was a secret.
+                PairingFieldDef {
+                    key: "MATRIX_HOMESERVER".into(),
+                    label: "Homeserver URL (e.g. https://matrix.org)".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "MATRIX_ACCESS_TOKEN".into(),
+                    label: "Access token".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: InstanceToken,
+            coming_soon: true,
+            console_url: Some("https://matrix.org/docs/guides/client-server-api".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "mattermost".into(),
+            transport: "mattermost".into(),
+            device_flow: None,
+            name: "Mattermost".into(),
+            description: "Connect a self-hosted Mattermost. Uses a personal access token, which does not expire.".into(),
+            icon: "💬".into(),
+            logo_url: Some("https://cdn.simpleicons.org/mattermost".into()),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "MATTERMOST_URL".into(),
+                    label: "Server URL (e.g. https://chat.example.com)".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "MATTERMOST_TOKEN".into(),
+                    label: "Personal access token".into(),
+                    secret: true,
+                },
+            ],
+            // Same pairing shape as Matrix, entirely different wire protocol.
+            // That is the pair that proves pairing and transport are two axes.
+            pairing_method: InstanceToken,
+            coming_soon: true,
+            console_url: Some("https://developers.mattermost.com/integrate/reference/personal-access-token/".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "twitch".into(),
+            transport: "twitch".into(),
+            name: "Twitch".into(),
+            description: "Let your assistant read and answer in your Twitch chat. You approve it with a code on twitch.tv — no password, no token to copy.".into(),
+            icon: "🟣".into(),
+            logo_url: Some("https://cdn.simpleicons.org/twitch".into()),
+            // Nothing to paste: the device flow produces the credential.
+            pairing_fields: Vec::new(),
+            // Twitch public clients may use ONLY the device grant — no
+            // loopback authorization code, no client secret. Their refresh
+            // tokens are single-use and lapse after 30 idle days, which is
+            // why an account can legitimately end up revoked with nobody at
+            // fault.
+            pairing_method: OauthDevice,
+            device_flow: Some(DeviceFlowDef {
+                device_url: "https://id.twitch.tv/oauth2/device".into(),
+                token_url: "https://id.twitch.tv/oauth2/token".into(),
+                client_id: String::new(),
+                scopes: vec!["chat:read".into(), "chat:edit".into()],
+            }),
+            coming_soon: true,
+            console_url: Some("https://dev.twitch.tv/console/apps".into()),
+            free_tier_note: None,
+            validate_endpoint: Some("https://id.twitch.tv/oauth2/validate".into()),
+            oauth_scopes: vec!["chat:read".into(), "chat:edit".into()],
             oauth_client_id_source: None,
             qr_setup_endpoint: None,
         },
