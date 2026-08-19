@@ -3,17 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, FolderPlus, Search, Box, Settings, Sparkles, Bot, Puzzle, Plug,
   Download, PanelLeftClose, PanelLeftOpen, Lock, Folder,
-  ChevronDown, ChevronRight, MoreHorizontal, Trash2, FolderInput, FolderMinus,
+  ChevronDown, ChevronRight,
   X, CheckCircle, AlertCircle, Loader2, Brain,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub,
-  DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
+import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
@@ -25,8 +22,6 @@ export const SIDEBAR_W = 240;
 export const SIDEBAR_COLLAPSED_W = 56;
 
 type MenuAction = 'newChat' | 'newProject' | 'search' | 'models' | 'settings' | 'skills' | 'extensions' | 'connectors' | 'memoryLayers';
-
-type DeleteTarget = { kind: 'chat' | 'project'; id: string; name: string };
 
 interface MenuItem {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
@@ -171,15 +166,10 @@ export function Sidebar() {
   const openSearch    = useUI((s) => s.openSearch);
   const appVersion    = useAppVersion();
 
+  // Only creating a project lives here now. Renaming and deleting belong to the
+  // item they act on, so they travel with it — see components/items/ItemActions.
   const [newProjectOpen, setNewProjectOpen]     = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
-  const [renameTarget, setRenameTarget]         = useState<Project | null>(null);
-  const [renameDraft, setRenameDraft]           = useState('');
-  // Single confirm dialog for both chat + project deletion, lifted to root like
-  // renameTarget so we don't scatter Dialog state across every row instance.
-  const [deleteTarget, setDeleteTarget]         = useState<DeleteTarget | null>(null);
-  const [deleting, setDeleting]                 = useState(false);
-  const [deleteError, setDeleteError]           = useState<string | null>(null);
 
   const handleMenuAction = (action: MenuAction) => {
     if (action === 'newProject') {
@@ -197,31 +187,6 @@ export function Sidebar() {
     if (!name) return;
     await useProjects.getState().create(name);
     setNewProjectOpen(false);
-  };
-
-  const handleRenameProject = async () => {
-    const name = renameDraft.trim();
-    if (!name || !renameTarget) return;
-    await useProjects.getState().rename(renameTarget.id, name);
-    setRenameTarget(null);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    setDeleteError(null);
-    try {
-      if (deleteTarget.kind === 'project') {
-        await useProjects.getState().delete(deleteTarget.id);
-      } else {
-        await useConversations.getState().delete(deleteTarget.id);
-      }
-      setDeleteTarget(null);
-    } catch (err) {
-      setDeleteError(String(err));
-    } finally {
-      setDeleting(false);
-    }
   };
 
   return (
@@ -263,15 +228,7 @@ export function Sidebar() {
         {/* Recent conversations + projects */}
         <div className="flex-1 overflow-y-auto px-2 pt-2 min-h-0 scrollbar-hide">
           <AnimatePresence>
-            {!collapsed && (
-              <RecentSection
-                onRenameProject={(p) => {
-                  setRenameDraft(p.name);
-                  setRenameTarget(p);
-                }}
-                onRequestDelete={setDeleteTarget}
-              />
-            )}
+            {!collapsed && <RecentSection />}
           </AnimatePresence>
         </div>
 
@@ -321,83 +278,6 @@ export function Sidebar() {
               className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
             >
               Create
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation (chat or project) */}
-      <Dialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => { if (!open && !deleting) { setDeleteTarget(null); setDeleteError(null); } }}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {deleteTarget?.kind === 'project' ? 'Delete this project?' : 'Delete this chat?'}
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-text-secondary">
-            {deleteTarget?.kind === 'project'
-              ? <>This permanently deletes <span className="text-text-primary">{deleteTarget?.name || 'the project'}</span> and every conversation inside it. This can't be undone.</>
-              : <>This permanently deletes <span className="text-text-primary">{deleteTarget?.name || 'this chat'}</span>. This can't be undone.</>}
-          </p>
-          {deleteError && (
-            <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
-              <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-              <p className="text-sm text-red-400">{deleteError}</p>
-            </div>
-          )}
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
-              disabled={deleting}
-              className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleConfirmDelete()}
-              disabled={deleting}
-              className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
-            >
-              {deleting ? 'Deleting…' : 'Delete'}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rename Project dialog */}
-      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) { setRenameTarget(null); setRenameDraft(''); } }}>
-        <DialogContent
-          className="sm:max-w-sm"
-          onOpenAutoFocus={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>('input')?.focus(); }}
-        >
-          <DialogHeader>
-            <DialogTitle>Rename Project</DialogTitle>
-          </DialogHeader>
-          <input
-            value={renameDraft}
-            onChange={(e) => setRenameDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleRenameProject(); }}
-            placeholder="Project name"
-            className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
-          />
-          <DialogFooter>
-            <button
-              onClick={() => setRenameTarget(null)}
-              className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void handleRenameProject()}
-              disabled={!renameDraft.trim()}
-              className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
-            >
-              Save
             </button>
           </DialogFooter>
         </DialogContent>
@@ -504,10 +384,7 @@ function MenuRow({
 
 // ── RecentSection ──────────────────────────────────────────────────────────────
 
-function RecentSection({ onRenameProject, onRequestDelete }: {
-  onRenameProject: (p: Project) => void;
-  onRequestDelete: (t: DeleteTarget) => void;
-}) {
+function RecentSection() {
   const list         = useConversations((s) => s.list);
   const currentId    = useConversations((s) => s.currentId);
   const streamingIds = useConversations((s) => s.streamingIds);
@@ -536,9 +413,6 @@ function RecentSection({ onRenameProject, onRequestDelete }: {
           project={project}
           allConvs={list ?? []}
           currentId={currentId}
-          onRename={onRenameProject}
-          onRequestDelete={onRequestDelete}
-          projects={projects}
           isStreaming={isStreaming}
         />
       ))}
@@ -552,9 +426,6 @@ function RecentSection({ onRenameProject, onRequestDelete }: {
             key={c.id}
             conv={c}
             currentId={currentId}
-            projectId={null}
-            projects={projects}
-            onRequestDelete={onRequestDelete}
             isStreaming={isStreaming(c.id)}
           />
         ))}
@@ -566,14 +437,11 @@ function RecentSection({ onRenameProject, onRequestDelete }: {
 // ── ProjectRow ─────────────────────────────────────────────────────────────────
 
 function ProjectRow({
-  project, allConvs, currentId, onRename, onRequestDelete, projects, isStreaming,
+  project, allConvs, currentId, isStreaming,
 }: {
   project: Project;
   allConvs: ConversationSummary[];
   currentId: string | null;
-  onRename: (p: Project) => void;
-  onRequestDelete: (t: DeleteTarget) => void;
-  projects: Project[];
   isStreaming: (id: string) => boolean;
 }) {
   // Collapsed by default: a fresh app launch should show a tidy list of folder
@@ -599,30 +467,7 @@ function ProjectRow({
           <span className="truncate">{project.name}</span>
         </button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Project options"
-              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary shrink-0"
-            >
-              <MoreHorizontal size={14} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="right" align="start">
-            <DropdownMenuItem onClick={() => onRename(project)}>
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => onRequestDelete({ kind: 'project', id: project.id, name: project.name })}
-              className="text-red-400 focus:text-red-400"
-            >
-              <Trash2 size={13} />
-              Delete project
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ProjectActions project={project} className="p-0.5" />
       </div>
 
       {expanded && (
@@ -635,9 +480,6 @@ function ProjectRow({
               key={c.id}
               conv={c}
               currentId={currentId}
-              projectId={project.id}
-              projects={projects}
-              onRequestDelete={onRequestDelete}
               isStreaming={isStreaming(c.id)}
             />
           ))}
@@ -650,27 +492,15 @@ function ProjectRow({
 // ── RecentRow ──────────────────────────────────────────────────────────────────
 
 function RecentRow({
-  conv, currentId, projectId, projects, onRequestDelete, isStreaming = false,
+  conv, currentId, isStreaming = false,
 }: {
   conv: ConversationSummary;
   currentId: string | null;
-  projectId: string | null;
-  projects: Project[];
-  onRequestDelete: (t: DeleteTarget) => void;
   isStreaming?: boolean;
 }) {
   const navigate = useNavigate();
   const isActive = conv.id === currentId;
   const isAgentConv = !!conv.agent_id;
-
-  const handleAddToProject = async (pid: string) => {
-    await useProjects.getState().addChat(pid, conv.id);
-  };
-
-  const handleRemoveFromProject = async () => {
-    if (!projectId) return;
-    await useProjects.getState().removeChat(projectId, conv.id);
-  };
 
   return (
     <div className={cn('group flex items-center rounded transition-colors', isActive ? 'bg-bg-active' : 'hover:bg-bg-hover')}>
@@ -699,48 +529,7 @@ function RecentRow({
         <span className="truncate">{conv.title}</span>
       </button>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="Chat options"
-            className="opacity-0 group-hover:opacity-100 p-1 mr-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-secondary shrink-0"
-          >
-            <MoreHorizontal size={13} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="right" align="start">
-          {projectId ? (
-            <DropdownMenuItem onClick={() => void handleRemoveFromProject().catch(console.error)}>
-              <FolderMinus size={13} />
-              Remove from project
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={projects.length === 0}>
-                <FolderInput size={13} />
-                {projects.length === 0 ? 'No projects yet' : 'Add to project'}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {projects.map((p) => (
-                  <DropdownMenuItem key={p.id} onClick={() => void handleAddToProject(p.id).catch(console.error)}>
-                    <Folder size={13} />
-                    {p.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => onRequestDelete({ kind: 'chat', id: conv.id, name: conv.title })}
-            className="text-red-400 focus:text-red-400"
-          >
-            <Trash2 size={13} />
-            Delete chat
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ConversationActions conv={conv} className="mr-1" />
     </div>
   );
 }

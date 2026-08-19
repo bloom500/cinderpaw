@@ -62,12 +62,28 @@ has to hold more than it does.
 Files are deliberately not in S1: there is no file index to search, and
 building one is not an information-architecture move.
 
-### S2 — Rename / delete / move become item-level actions
+### S2 — Rename / delete / move become item-level actions ✅
 
 Extract the context menus out of `Sidebar.tsx` into a component that takes a
 conversation or project and renders the same actions. The sidebar then uses
 that component instead of its inline copies, so the behaviour has one
 definition before it has two homes.
+
+Shipped as `components/items/ItemActions.tsx`, with two decisions worth
+keeping:
+
+- **The dialogs travel with the menu.** The sidebar kept rename and delete
+  confirmation at its own root. Extracting only the menu would have left every
+  future host — Search, Home, a project page — rebuilding both dialogs, so each
+  component owns trigger, menu, and dialogs together. A host renders one
+  element and gets the whole behaviour.
+- **The containing project is looked up, not passed.** Search and Home have no
+  project tree to tell a row where it lives, and "Remove from project" has to
+  work there too, or a chat can get stuck in a container only the sidebar could
+  open.
+
+Search rows carry the same actions as of this slice, which is what makes S1's
+result list a real home rather than a read-only index.
 
 ### S3 — Downloads and version leave the rail
 

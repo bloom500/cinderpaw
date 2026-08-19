@@ -5,6 +5,7 @@ import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
 import { useProjects, type Project } from '@/stores/projects';
 import { tauri, type Conversation } from '@/lib/tauri';
+import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 
 /**
  * One row. Two kinds, because Search is where the sidebar's conversation list
@@ -261,14 +262,20 @@ export function SearchOverlay() {
               </div>
             ) : (
               visible.map((r, i) => (
-                <button
+                <div
                   key={r.kind === 'project' ? `p:${r.project.id}` : `c:${r.conv.id}`}
+                  // Presentational so the option stays the listbox's child as
+                  // far as assistive tech is concerned; the row is only layout.
+                  role="presentation"
+                  className={`group flex items-center gap-1 pr-2 hover:bg-bg-hover transition-colors border-b border-bg-hover last:border-0 ${i === activeIdx ? 'bg-bg-hover' : ''}`}
+                >
+                <button
                   id={`search-result-${i}`}
                   type="button"
                   role="option"
                   aria-selected={i === activeIdx}
                   onClick={() => { void handleSelect(r); }}
-                  className={`w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors border-b border-bg-hover last:border-0 ${i === activeIdx ? 'bg-bg-hover' : ''}`}
+                  className="flex-1 min-w-0 text-left px-4 py-3"
                 >
                   {r.kind === 'project' ? (
                     <>
@@ -296,6 +303,14 @@ export function SearchOverlay() {
                     </>
                   )}
                 </button>
+
+                  {/* Same actions as the sidebar row, on the same item. A chat
+                      you can find but not rename, move, or delete would make
+                      Search a weaker home than the rail it replaces. */}
+                  {r.kind === 'project'
+                    ? <ProjectActions project={r.project} side="bottom" align="end" />
+                    : <ConversationActions conv={r.conv} side="bottom" align="end" />}
+                </div>
               ))
             )}
           </div>
