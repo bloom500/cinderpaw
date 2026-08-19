@@ -90,6 +90,26 @@ describe("validateOutcome — json_format", () => {
     expect(validateOutcome(s, "not json", 50, 100)).toBe(false);
     expect(validateOutcome(s, "[1,2,3]", 50, 100)).toBe(false);
   });
+
+  // Three of the thirteen Tier 0 tasks are json_format, and the recorded L4
+  // report on this install (2026-07-09) shows all three failing for the
+  // candidate AND the incumbent — the signature of a grader, not a model. A
+  // fence the prompt asked the model not to use is still a correct answer.
+  test("reads the object out of a code fence or out of prose", () => {
+    expect(
+      validateOutcome(s, '```json\n{"title":"t","summary":"s"}\n```', 50, 100),
+    ).toBe(true);
+    expect(
+      validateOutcome(s, 'Here is the JSON:\n{"title":"t","summary":"s"}', 50, 100),
+    ).toBe(true);
+  });
+
+  test("tolerating the wrapper does not tolerate a wrong answer", () => {
+    // Key still missing — the fence buys nothing.
+    expect(validateOutcome(s, '```json\n{"title":"t"}\n```', 50, 100)).toBe(false);
+    // Prose that only talks about the keys, with no object in it.
+    expect(validateOutcome(s, "The title and summary are both fine.", 50, 100)).toBe(false);
+  });
 });
 
 describe("validateOutcome — token_budget / latency are upper bounds", () => {

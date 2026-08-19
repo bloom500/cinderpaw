@@ -13,10 +13,18 @@
 #![allow(dead_code)]
 // `validate_outcome` and its kind-specific helpers (`json_format_ok`,
 // `fact_lookup_ok`, `normalise`) are the Rust-side mirror of the
-// sidecar's TS validators. The engine drives them through the
-// Rust-side `rsi_score` dispatcher today; the public re-export
-// is for a future Faza 4 command (`rsi_replay_tier0`). Allow
-// keeps the build clean until that lands.
+// sidecar's TS validators, kept for a future Faza 4 command
+// (`rsi_replay_tier0`). Allow keeps the build clean until that lands.
+//
+// NOTHING CALLS THEM TODAY, and the header used to claim the opposite
+// ("the engine drives them through the rsi_score dispatcher") — verified
+// false 2026-08-15: the only item consumed outside this file is
+// `TIER0_SPECS`, which the host ships to the sidecar, and the sidecar
+// grades every live eval in `eval-spec.ts`. Believing the claim costs
+// real time when a grading bug is being hunted. Two graders for one
+// suite is a trap either way, so when they are edited they are edited
+// together: the fence tolerance and the NFKC fold below both exist on
+// the TS side for reasons written up there.
 //! from disk at boot — Tier 0 is hardcoded here because changing it is
 //! a SAFETY event, not a tuning event.
 //!
@@ -152,7 +160,10 @@ fn json_format_ok(
     required_keys: &[String],
     required_non_empty_array_keys: &[String],
 ) -> bool {
-    let parsed: serde_json::Value = match serde_json::from_str(response) {
+    let Some(body) = extract_json_object(response) else {
+        return false;
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(_) => return false,
     };
@@ -213,8 +224,48 @@ fn token_budget_ok(
     true
 }
 
+/// The object inside a ```` ```json ```` fence, else the span from the first
+/// `{` to the last `}`. Mirrors `extractJsonObject` in `eval-spec.ts`: a model
+/// that fences its answer, or opens with "Here is the JSON:", has still
+/// answered, and three of the thirteen Tier 0 tasks are `json_format`.
+fn extract_json_object(response: &str) -> Option<&str> {
+    // The fence body if there is one, otherwise the whole response. No regex
+    // crate here: find the opening fence, skip its (optional) language tag to
+    // the end of that line, and take up to the closing fence.
+    let src = match response.find("```") {
+        Some(open) => {
+            let after = &response[open + 3..];
+            let body = match after.find('\n') {
+                Some(nl) => &after[nl + 1..],
+                None => after,
+            };
+            match body.find("```") {
+                Some(close) => &body[..close],
+                None => response,
+            }
+        }
+        None => response,
+    };
+    let start = src.find('{')?;
+    let end = src.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    Some(&src[start..=end])
+}
+
+/// Collapse whitespace, fold compatibility forms, lowercase.
+///
+/// The fold is not cosmetic: asked for the chemical formula of water the model
+/// answers `H₂O` with a Unicode subscript while the frozen spec expects `h2o`,
+/// and Tier 0 is an absolute floor, so one typographic flourish blocked every
+/// promotion. NFKC maps subscripts, superscripts and fullwidth Latin to ASCII;
+/// it cannot turn a wrong answer into a right one.
 fn normalise(s: &str) -> String {
-    s.split_whitespace()
+    use unicode_normalization::UnicodeNormalization;
+    s.nfkc()
+        .collect::<String>()
+        .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
@@ -442,6 +493,26 @@ mod tests {
         assert!(validate_outcome(s, "The answer is Paris.", 50, 100));
         assert!(validate_outcome(s, "PARIS", 50, 100));
         assert!(!validate_outcome(s, "London", 50, 100));
+    }
+
+    /// The two ways a right answer was being graded wrong. Both fixes exist on
+    /// the TS side (`eval-spec.ts`), which is what actually grades a live run;
+    /// these pin the mirror so the pair cannot drift apart again.
+    #[test]
+    fn a_correct_answer_written_differently_still_passes() {
+        // A fence the prompt asked the model not to use, and prose around it.
+        let json = spec_by_id("tier0/json_format");
+        assert!(validate_outcome(json, "```json\n{\"answer\": 7}\n```", 50, 100));
+        assert!(validate_outcome(json, "Here it is: {\"answer\": 7}", 50, 100));
+        // Tolerance for the wrapper is not tolerance for a wrong answer.
+        assert!(!validate_outcome(json, "```json\n{\"foo\": 7}\n```", 50, 100));
+        assert!(!validate_outcome(json, "The answer key is seven.", 50, 100));
+
+        // H₂O with a Unicode subscript is the formula, spelled the way a
+        // chemist spells it.
+        let water = spec_by_id("tier0/fact_water_formula");
+        assert!(validate_outcome(water, "H₂O", 50, 100));
+        assert!(!validate_outcome(water, "CO₂", 50, 100));
     }
 
     #[test]

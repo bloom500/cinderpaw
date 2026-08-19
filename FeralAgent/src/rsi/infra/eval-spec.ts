@@ -140,10 +140,29 @@ function extractJsonObject(response: string): string | null {
   return src.slice(start, end + 1);
 }
 
+/**
+ * Same failure as `normalise`, one shape up: the answer is right and the
+ * grader cannot read it.
+ *
+ * This used to `JSON.parse` the whole response, so a model that wrapped its
+ * object in a ```json fence, or opened with "Here is the JSON:", failed a
+ * task it had actually done. Three of the thirteen Tier 0 tasks are
+ * `json_format`, and the recorded L4 evaluation on this install (2026-07-09)
+ * shows all three failing for the CANDIDATE and the INCUMBENT alike — the
+ * signature of a grader, not of a model. Tier 0 is an absolute floor, so
+ * three unreadable answers froze every promotion on every install.
+ *
+ * `extractJsonObject` already exists in this file for `tool_call` and is the
+ * same tolerance the rest of the codebase applies to model JSON. It cannot
+ * make a wrong object right: the keys are still checked, and prose with no
+ * object in it still fails.
+ */
 function jsonFormatOk(response: string, requiredKeys: string[]): boolean {
+  const body = extractJsonObject(response);
+  if (body === null) return false;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(response);
+    parsed = JSON.parse(body);
   } catch {
     return false;
   }

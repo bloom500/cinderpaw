@@ -20,6 +20,9 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 json5 = "0.4"
 base64 = "0.22"
+# Tier 0 grading: fold H₂O → h2o before comparing. Already in the lockfile via
+# the HTTP stack, so this costs a line, not a download.
+unicode-normalization = "0.1"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
