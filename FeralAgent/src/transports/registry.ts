@@ -23,6 +23,7 @@ import type {
   Log,
 } from "./connectors.ts";
 import type { ChannelAskRouter } from "../core/ask-user-channel.ts";
+import type { LeadDesk } from "../core/lead-desk.ts";
 
 /** Everything a transport needs to run, assembled by the host. */
 export interface ConnectorContext {
@@ -39,6 +40,10 @@ export interface ConnectorContext {
   runs: ConnectorRunHooks | null;
   askRouter: ChannelAskRouter;
   personaProfileId?: string;
+  /** Host service a transport may use if it wants it (WhatsApp's public mode
+   *  hands strangers to it). One optional field beats an abstraction: a
+   *  transport that does not want it never reads it. */
+  leadDesk?: LeadDesk;
 }
 
 export interface LiveConnector {
