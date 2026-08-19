@@ -343,7 +343,10 @@ export class AgentLoop {
    * {primary, fallback} targets. When null, today's path is preserved
    * (router.complete() with #primary/#fallback) — no behavior change.
    */
-  readonly #brain: BrainStack | null;
+  /** Not readonly: `setBrain` swaps it when the host switches models — a
+   *  brain left pointing at the previous provider routes turns to an endpoint
+   *  the router no longer trusts. */
+  #brain: BrainStack | null;
   readonly #config: AgentLoopConfig;
   /** Owner system prompt. Rebuilt by `#syncTools()` when the registry changes. */
   #systemPrompt!: string;
@@ -619,6 +622,19 @@ export class AgentLoop {
         baseUrl: info.baseUrl,
       });
     });
+  }
+
+  /**
+   * Swap the Brain Stack after the host switches models.
+   *
+   * The registry the brain routes over is derived from the router's targets at
+   * boot. When `set_model` repoints the router, a brain still holding the old
+   * targets routes to a provider the user has left — which the router's trust
+   * check then refuses, ending every turn until restart. The brain has to
+   * follow the router.
+   */
+  setBrain(brain: BrainStack | null): void {
+    this.#brain = brain;
   }
 
   /**

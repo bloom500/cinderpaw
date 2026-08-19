@@ -28,6 +28,8 @@ import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
 import { parseResponse } from "./core/agent-loop.ts";
+import { BrainStack } from "./brain/brain-stack.ts";
+import { rebuildDerivedBrain } from "./brain/brain-config.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -98,6 +100,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
   const {
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     runHooks,
+    brainDerived, brainBreaker,
   } = ctx;
 
   switch (msg.type) {
@@ -1099,6 +1102,14 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             : (cloudFallback ??
                (msg.localFallbackAvailable === false ? undefined : localFallbackTarget));
           router.reconfigure(primary, fallback);
+          // The router now trusts only the new targets. A brain still holding
+          // the old ones would route the next turn to an endpoint the router
+          // refuses — which is how a model switch used to end every turn with
+          // "refusing to contact untrusted inference endpoint", naming the
+          // provider the user had just left. Refusing was right; routing there
+          // at all was the fault.
+          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback);
+          if (nextBrain) agent.setBrain(new BrainStack(nextBrain, brainBreaker));
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past
           // the old 8192); cloud models send none and use the cloud budget.

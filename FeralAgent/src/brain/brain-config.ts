@@ -191,6 +191,32 @@ export function deriveDefaultConfig(
 }
 
 /**
+ * Rebuild a DERIVED brain config when the host switches models.
+ *
+ * `set_model` rebuilds the router's trusted-URL set from the new targets and
+ * drops the old ones. The Brain Stack used to be built once at boot and never
+ * again, so after a switch it kept routing to the previous provider — which
+ * the trust check then refused, ending every turn with "refusing to contact
+ * untrusted inference endpoint" naming an endpoint the user had just left.
+ *
+ * The refusal was the symptom. Routing to a provider the user switched away
+ * from is the fault: it sends the conversation, and the key, somewhere they
+ * stopped choosing.
+ *
+ * Returns `null` when the brain was NOT derived — a hand-written brain.json is
+ * a deliberate choice of models, and a model switch is not permission to
+ * overwrite it. The caller keeps the brain it has.
+ */
+export function rebuildDerivedBrain(
+  wasDerived: boolean,
+  primary: ModelTarget,
+  fallback: ModelTarget | undefined,
+): BrainConfig | null {
+  if (!wasDerived) return null;
+  return deriveDefaultConfig([primary, fallback]);
+}
+
+/**
  * Ship alongside the sidecar in `FeralAgent/brain.example.json`. Documents
  * the shape for users who want to write their own by hand before the
  * wizard lands.

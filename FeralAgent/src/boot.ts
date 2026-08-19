@@ -1035,7 +1035,14 @@ export async function boot(transportOverride?: Transport) {
           config.inference.primary,
           config.inference.fallback,
         ]));
-  const brain = brainCfg ? new BrainStack(brainCfg, new CircuitBreaker()) : null;
+  // Whether the config came from us or from the user. A model switch may
+  // rebuild a DERIVED brain (see rebuildDerivedBrain); a hand-written
+  // brain.json is a deliberate choice of models and is never overwritten.
+  const brainDerived = brainCfg !== null && !brainConfigFileExists();
+  // One breaker for the brain's lifetime, so a model switch does not also
+  // reset what we have learned about which endpoints are unwell.
+  const brainBreaker = new CircuitBreaker();
+  const brain = brainCfg ? new BrainStack(brainCfg, brainBreaker) : null;
   const agent = new AgentLoop(
     router, registry, episodic,
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
@@ -2049,6 +2056,8 @@ export async function boot(transportOverride?: Transport) {
     // running without a stall guard or a completion check.
     runHooks,
     moduleEvalBusy, loraTrainBusy,
+    // set_model needs both to keep a derived brain pointed where the router is.
+    brainDerived, brainBreaker,
   };
   transport.onMessage((msg) => {
     void dispatchMessage(ctx, msg);
