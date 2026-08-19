@@ -107,9 +107,17 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "ping":
         transport.send({ type: "pong" });
         break;
-      case "connectors_reload":
-        void connectors.reload();
+      case "connectors_reload": {
+        // The host sends the rows WITH their secrets, read out of the vault.
+        // Reading connectors.json ourselves stopped being enough the moment
+        // the migration emptied that file of credentials: every connector on
+        // the machine would have come back up blank. The file path stays as
+        // the fallback for a host that has not been updated.
+        const rows = (msg as { connectors?: unknown }).connectors;
+        if (Array.isArray(rows)) void connectors.applyRows(rows as never);
+        else void connectors.reload();
         break;
+      }
       // Thumbs 👍/👎 on an assistant message → one audit "feedback" row, the
       // wired source of the §2.10 `acceptance` personal-fitness signal. 👍 is
       // recorded as result "success", 👎 as "error"; the rated message id

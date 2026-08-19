@@ -1069,7 +1069,7 @@ async fn runtime_connectors_save(
     }
     let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
     if let Some(tx) = tx {
-        let _ = tx.send(json!({ "type": "connectors_reload" }).to_string()).await;
+        let _ = tx.send(json!({ "type": "connectors_reload", "connectors": crate::connectors::resolved_connector_configs() }).to_string()).await;
     }
     Json(connector_catalog::redact_for_frontend(&cfg)).into_response()
 }
@@ -1081,7 +1081,7 @@ async fn runtime_connectors_reload(State(state): State<ApiState>) -> impl IntoRe
     let tx = { state.runtime.feral_agent_tx.lock().as_ref().cloned() };
     match tx {
         Some(tx) => {
-            if tx.send(json!({ "type": "connectors_reload" }).to_string()).await.is_err() {
+            if tx.send(json!({ "type": "connectors_reload", "connectors": crate::connectors::resolved_connector_configs() }).to_string()).await.is_err() {
                 return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
                     .into_response();
             }

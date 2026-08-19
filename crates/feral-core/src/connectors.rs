@@ -485,6 +485,66 @@ pub fn blank_connector_config(id: &str) -> ConnectorConfig {
 
 /// Load every persisted connector config, migrating the legacy single-`token`
 /// field into `secrets` under the connector's primary field key.
+/// Field keys that exist without appearing in `pairing_fields`: a device-flow
+/// connector has no form to fill in, but it still ends up with credentials.
+const GRANTED_KEYS: [&str; 2] = ["OAUTH_ACCESS", "OAUTH_REFRESH"];
+
+/// Configs with the vault's values folded back in, for handing to the sidecar.
+///
+/// This closes the hole the plaintext migration opened. The migration moves
+/// every connector secret out of `connectors.json` and deletes it from the
+/// file — which is the point — but the sidecar, which is the process that
+/// actually holds the connections, only ever read that file. On the first
+/// start after migrating, every connector on the machine would have come up
+/// with an empty secret and stopped: a security improvement that silently
+/// switched off the product.
+///
+/// The values ride the stdin pipe to the child process rather than sitting on
+/// disk, which is where a credential a subprocess needs has to travel anyway.
+/// A row's own plaintext value still wins when one is present, so a config
+/// that has not been migrated yet behaves exactly as before.
+pub fn resolved_connector_configs() -> Vec<ConnectorConfig> {
+    let mut rows = load_connector_configs();
+    resolve_secrets_into(&mut rows, &|reference| {
+        crate::connector_secrets::read(reference)
+    });
+    rows
+}
+
+/// The folding itself, with the vault injected.
+///
+/// Split out because the vault is the OS keychain — process-global, shared
+/// with whatever the developer has actually paired — so a test that called the
+/// real one would pass or fail depending on whose machine it ran on. This is
+/// the part with the rules in it, and it is testable.
+pub fn resolve_secrets_into(
+    rows: &mut [ConnectorConfig],
+    read: &dyn Fn(&str) -> Option<String>,
+) {
+    for row in rows.iter_mut() {
+        let mut keys: Vec<String> = connector_by_id(&row.id)
+            .map(|entry| entry.pairing_fields.into_iter().map(|f| f.key).collect())
+            .unwrap_or_default();
+        keys.extend(GRANTED_KEYS.iter().map(|k| (*k).to_string()));
+        for key in keys {
+            // A value already in the file wins: an install that has not been
+            // migrated yet must behave exactly as it did before.
+            if row.secrets.get(&key).is_some_and(|v| !v.trim().is_empty()) {
+                continue;
+            }
+            let reference = crate::connector_secrets::secret_ref(&row.id, &key);
+            if let Some(value) = read(&reference) {
+                // An empty vault entry is not a credential. Inserting "" would
+                // turn "no token, here is which one you need" into "token
+                // rejected", which sends the person looking in the wrong place.
+                if !value.trim().is_empty() {
+                    row.secrets.insert(key, value);
+                }
+            }
+        }
+    }
+}
+
 pub fn load_connector_configs() -> Vec<ConnectorConfig> {
     let mut cfg: ConnectorConfigFile = match std::fs::read_to_string(config_path()) {
         Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),

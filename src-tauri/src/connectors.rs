@@ -246,7 +246,14 @@ fn seed_discord(cfg: &mut ConnectorConfig) {
 async fn notify_sidecar(state: &crate::AppState) {
     let tx = { state.feral_agent_tx.lock().clone() };
     if let Some(tx) = tx {
-        let _ = tx.send("{\"type\":\"connectors_reload\"}".to_string()).await;
+        // The rows travel WITH their secrets, resolved from the vault. The
+        // sidecar used to read connectors.json itself, which stopped working
+        // the moment the migration emptied that file of credentials — every
+        // connector on the machine would have come up blank. The pipe is
+        // where a credential a subprocess needs belongs; the disk is not.
+        let rows = feral_core::connectors::resolved_connector_configs();
+        let payload = serde_json::json!({ "type": "connectors_reload", "connectors": rows });
+        let _ = tx.send(payload.to_string()).await;
     }
 }
 
