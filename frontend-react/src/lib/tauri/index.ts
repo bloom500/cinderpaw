@@ -130,6 +130,35 @@ export interface McpToolView { name: string; description: string }
 // new field is optional. The richer surface lands when the Connectors
 // tab lands as part of Phase 2.
 export interface ConnectorField { key: string; label: string; secret: boolean }
+
+/** A pairing in flight. Public values only — what to type and where. The
+ *  device code is a credential and never crosses this boundary. */
+export type ConnectorAuthState = {
+  kind: 'waiting_for_user';
+  user_code: string;
+  verification_uri: string;
+  expires_at: number;
+};
+
+/** Status is a value derived from the credential, never "enabled in a file".
+ *  `error` carries its own words because the person needs them. */
+export type ConnectorAccountStatus =
+  | 'disconnected'
+  | 'pairing'
+  | 'connected'
+  | 'expired'
+  | 'revoked'
+  | { error: string };
+
+export interface ConnectorAccount {
+  connector_id: string;
+  display_name?: string | null;
+  status: ConnectorAccountStatus;
+  metadata: Record<string, string>;
+  auth_state?: ConnectorAuthState | null;
+  secret_ref?: string | null;
+  expires_at?: number | null;
+}
 export interface ConnectorCatalogEntry {
   id: string;
   name: string;
@@ -735,6 +764,9 @@ const raw = {
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
   connectorsWhatsappQr:     () => invoke<WhatsappQr | null>('connectors_whatsapp_qr'),
+  connectorAccounts:        () => invoke<ConnectorAccount[]>('connector_accounts_list'),
+  connectorPairStart:       (id: string) => invoke<ConnectorAccount>('connector_pair_start', { id }),
+  connectorPairPoll:        (id: string) => invoke<ConnectorAccount>('connector_pair_poll', { id }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),

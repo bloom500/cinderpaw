@@ -23,7 +23,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountStatus {
     /// No credential, or the user disconnected. The first-run state.
@@ -45,7 +45,26 @@ impl Default for AccountStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// What a pairing in flight is waiting on.
+///
+/// Internally tagged (`{"kind":"waiting_for_user", ...}`) so the frontend can
+/// switch on `kind` and so a future second flow adds a variant rather than a
+/// parallel set of nullable fields. Safe to do here where it was NOT safe for
+/// `pairing_method`: that one ships in the catalog the Go TUI decodes as a
+/// string, this file is new in this phase and nothing else reads it yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AuthState {
+    /// The code is on screen and we are polling. `expires_at` is unix seconds:
+    /// past it, the person starts again — nobody refused anything.
+    WaitingForUser {
+        user_code: String,
+        verification_uri: String,
+        expires_at: i64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, specta::Type)]
 pub struct ConnectorAccount {
     pub connector_id: String,
     /// What the provider calls this account (`feral_bot`), for the user to
@@ -57,11 +76,10 @@ pub struct ConnectorAccount {
     /// Required-but-not-secret connector settings (e.g. `MATRIX_HOMESERVER`).
     #[serde(default)]
     pub metadata: HashMap<String, String>,
-    /// In-flight pairing bookkeeping (a device-code poll interval, a user code
-    /// to display). A *reference* or a public value — never a token.
-    // ponytail: an opaque string until a second flow needs structure.
+    /// In-flight pairing. Public values only — what the person must type and
+    /// where — never the device code, which is a credential.
     #[serde(default)]
-    pub auth_state: Option<String>,
+    pub auth_state: Option<AuthState>,
     /// Vault address of the credential, e.g. `connector:twitch:TWITCH_ACCESS`.
     #[serde(default)]
     pub secret_ref: Option<String>,

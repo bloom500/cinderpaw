@@ -45,6 +45,27 @@ fn a_non_secret_setting_has_a_home_outside_the_vault() {
 }
 
 #[test]
+fn a_pairing_in_flight_carries_what_to_type_and_never_the_device_code() {
+    let mut a = sample();
+    a.status = AccountStatus::Pairing;
+    a.auth_state = Some(AuthState::WaitingForUser {
+        user_code: "ABCD-1234".into(),
+        verification_uri: "https://twitch.tv/activate".into(),
+        expires_at: 1_800_001_800,
+    });
+    let json = serde_json::to_string(&a).unwrap();
+    // The frontend switches on `kind`.
+    assert!(json.contains("\"kind\":\"waiting_for_user\""), "{json}");
+    assert!(json.contains("ABCD-1234"));
+    // The device code is OUR half of the handshake — a credential. There is
+    // no field for it here, and this pins that there never is one.
+    assert!(!json.contains("device_code"), "a credential reached the account record");
+
+    let back: ConnectorAccount = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.auth_state, a.auth_state);
+}
+
+#[test]
 fn an_expired_credential_reports_expired_not_connected() {
     let now = 1_800_000_000_i64;
     let a = ConnectorAccount {

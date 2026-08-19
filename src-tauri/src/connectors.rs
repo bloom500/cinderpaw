@@ -419,6 +419,223 @@ pub async fn connectors_remove(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Device pairing (RFC 8628) — the desktop half.
+//
+// The state machine lives in `feral_core::oauth_device` and is pure. This is
+// the part that has a network, a clock and a disk: it runs the machine, keeps
+// the credentials in the vault, and writes down what the person should see.
+// ---------------------------------------------------------------------------
+
+/// The device code is OUR half of the handshake — a credential. It lives in
+/// the vault while a pairing is in flight, never in the account record, which
+/// is a file the UI reads.
+const PAIRING_DEVICE_CODE: &str = "PAIRING_DEVICE_CODE";
+/// Where the granted credentials land.
+const ACCESS_KEY: &str = "OAUTH_ACCESS";
+const REFRESH_KEY: &str = "OAUTH_REFRESH";
+
+/// `TokenHttp` over reqwest.
+///
+/// The state machine is synchronous on purpose (that is what makes it testable
+/// with no runtime), so the whole run happens on a blocking thread and each
+/// request is driven through a captured runtime handle. `spawn_blocking`
+/// rather than `block_in_place` because the latter panics on a current-thread
+/// runtime, and which flavour Tauri hands us is not this module's business.
+struct ReqwestHttp {
+    handle: tokio::runtime::Handle,
+}
+
+impl feral_core::oauth_device::TokenHttp for ReqwestHttp {
+    fn post_form(&self, url: &str, form: &[(&str, &str)]) -> Result<(u16, String), String> {
+        let url = url.to_string();
+        let form: Vec<(String, String)> = form
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        self.handle.block_on(async move {
+            let client = reqwest::Client::new();
+            let resp = client
+                .post(&url)
+                .form(&form)
+                .send()
+                .await
+                .map_err(|e| format!("could not reach the provider: {e}"))?;
+            let status = resp.status().as_u16();
+            let body = resp.text().await.map_err(|e| e.to_string())?;
+            Ok((status, body))
+        })
+    }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn device_flow_for(id: &str) -> Result<feral_core::connectors::DeviceFlowDef, String> {
+    feral_core::connectors::connector_by_id(id)
+        .ok_or_else(|| format!("no connector called {id}"))?
+        .device_flow
+        .ok_or_else(|| "this connector is not paired with a code".to_string())
+}
+
+/// Every account the machine knows about, with the status the UI should show.
+/// A machine that has never paired anything returns an empty list — the honest
+/// first-run answer rather than an error.
+#[tauri::command]
+#[specta::specta]
+pub fn connector_accounts_list() -> Vec<feral_core::connector_accounts::ConnectorAccount> {
+    let now = now_secs();
+    feral_core::connector_accounts::load_accounts()
+        .into_iter()
+        .map(|mut a| {
+            a.status = feral_core::connector_accounts::effective_status(&a, now);
+            a
+        })
+        .collect()
+}
+
+/// Begin pairing: ask the provider for a code, write down what the person has
+/// to type and where, and hand back the account so the card can render it.
+#[tauri::command]
+#[specta::specta]
+pub async fn connector_pair_start(
+    id: String,
+) -> Result<feral_core::connector_accounts::ConnectorAccount, String> {
+    use feral_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
+
+    let def = device_flow_for(&id)?;
+    let handle = tokio::runtime::Handle::current();
+    let label = id.clone();
+    let started = tokio::task::spawn_blocking(move || {
+        let http = ReqwestHttp { handle };
+        feral_core::oauth_device::start_device_flow(&http, &def, now_secs())
+            .map_err(|e| format!("{label}: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // The device code is a credential: vault, not the account file.
+    feral_core::connector_secrets::put(&id, PAIRING_DEVICE_CODE, &started.device_code)
+        .map_err(|e| e.to_string())?;
+
+    let mut account = feral_core::connector_accounts::load_accounts()
+        .into_iter()
+        .find(|a| a.connector_id == id)
+        .unwrap_or_else(|| ConnectorAccount {
+            connector_id: id.clone(),
+            ..Default::default()
+        });
+    account.status = AccountStatus::Pairing;
+    account.auth_state = Some(AuthState::WaitingForUser {
+        user_code: started.user_code,
+        verification_uri: started.verification_uri,
+        expires_at: started.expires_at,
+    });
+    feral_core::connector_accounts::save_account(&account)?;
+    Ok(account)
+}
+
+/// Ask once whether the person has finished. Called on the interval the
+/// provider asked for; every answer is a state the card can render, including
+/// the ones that are not failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn connector_pair_poll(
+    id: String,
+) -> Result<feral_core::connector_accounts::ConnectorAccount, String> {
+    use feral_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
+    use feral_core::oauth_device::{DeviceCode, PollOutcome};
+
+    let def = device_flow_for(&id)?;
+    let mut account = feral_core::connector_accounts::load_accounts()
+        .into_iter()
+        .find(|a| a.connector_id == id)
+        .unwrap_or_else(|| ConnectorAccount {
+            connector_id: id.clone(),
+            ..Default::default()
+        });
+
+    let Some(AuthState::WaitingForUser {
+        user_code,
+        verification_uri,
+        expires_at,
+    }) = account.auth_state.clone()
+    else {
+        // Nothing in flight. Not an error — the caller polled a card that had
+        // already finished, and the state it is in IS the answer.
+        return Ok(account);
+    };
+
+    let device_code = feral_core::connector_secrets::read(
+        &feral_core::connector_secrets::secret_ref(&id, PAIRING_DEVICE_CODE),
+    )
+    .unwrap_or_default();
+    if device_code.is_empty() {
+        // The vault lost it, or another machine started the flow. Say so, and
+        // leave the card in a state that has a way forward.
+        account.status = AccountStatus::Error("pairing was interrupted — start again".into());
+        account.auth_state = None;
+        feral_core::connector_accounts::save_account(&account)?;
+        return Ok(account);
+    }
+
+    let code = DeviceCode {
+        user_code,
+        verification_uri,
+        device_code,
+        interval_secs: 5,
+        expires_at,
+    };
+    let handle = tokio::runtime::Handle::current();
+    let outcome = tokio::task::spawn_blocking(move || {
+        let http = ReqwestHttp { handle };
+        feral_core::oauth_device::poll_once(&http, &def, &code, now_secs())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match outcome {
+        // Still waiting. The card keeps showing the code it already has.
+        PollOutcome::Pending | PollOutcome::SlowDown => return Ok(account),
+        PollOutcome::Granted(tokens) => {
+            feral_core::connector_secrets::put(&id, ACCESS_KEY, &tokens.access)
+                .map_err(|e| e.to_string())?;
+            if let Some(refresh) = tokens.refresh.as_deref() {
+                // Single-use on Twitch: the NEW one replaces the old, always.
+                feral_core::connector_secrets::put(&id, REFRESH_KEY, refresh)
+                    .map_err(|e| e.to_string())?;
+            }
+            account.status = AccountStatus::Connected;
+            account.secret_ref = Some(feral_core::connector_secrets::secret_ref(&id, ACCESS_KEY));
+            account.expires_at = Some(tokens.expires_at);
+            account.auth_state = None;
+        }
+        PollOutcome::Denied => {
+            account.status = AccountStatus::Revoked;
+            account.auth_state = None;
+        }
+        PollOutcome::Expired => {
+            // Nobody refused anything — the code simply ran out of time.
+            account.status = AccountStatus::Disconnected;
+            account.auth_state = None;
+        }
+        PollOutcome::Error(e) => {
+            account.status = AccountStatus::Error(e);
+            account.auth_state = None;
+        }
+    }
+
+    // The pairing code has done its job either way; it is not a credential
+    // worth leaving lying around.
+    let _ = feral_core::connector_secrets::forget(&id, PAIRING_DEVICE_CODE);
+    feral_core::connector_accounts::save_account(&account)?;
+    Ok(account)
+}
+
 #[cfg(test)]
 mod catalog_projection {
     /// The failure this guards against: someone adds a connector to
