@@ -211,8 +211,20 @@ impl ByokSettings {
             .collect()
     }
 
-    /// Update config for a specific provider
-    pub fn update_provider(&mut self, id: &str, config: ProviderConfig) {
+    /// Update config for a specific provider.
+    ///
+    /// Text fields are trimmed on the way in. A base URL is nearly always
+    /// pasted, and a paste carries whatever came with it — a Gemini endpoint
+    /// arrived here once as `" https://…/v1beta/openai"`, which worked only
+    /// because the process that happened to send the request tolerated the
+    /// space. Whether a provider works should not depend on that.
+    ///
+    /// A field trimmed to nothing becomes `None`, not `Some("")`: an empty box
+    /// is the user saying "use the normal one", and storing the empty string
+    /// makes every later reader build a request against nothing.
+    pub fn update_provider(&mut self, id: &str, mut config: ProviderConfig) {
+        config.base_url = config.base_url.and_then(clean);
+        config.default_model = config.default_model.and_then(clean);
         self.providers.insert(id.to_string(), config);
     }
 
@@ -220,6 +232,12 @@ impl ByokSettings {
     pub fn get_provider(&self, id: &str) -> Option<&ProviderConfig> {
         self.providers.get(id)
     }
+}
+
+/// Trim a user-entered field; `None` when nothing is left.
+fn clean(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Provider info for the frontend
