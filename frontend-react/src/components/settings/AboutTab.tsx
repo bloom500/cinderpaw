@@ -24,7 +24,7 @@ export function AboutTab() {
             whether they can use Feral at work — so it states the real terms and
             the date they change. */}
         <p className="text-xs text-text-muted">
-          Built by <span className="font-medium text-text-secondary">Bloom Lab</span> · Business Source License 1.1
+          Built by <span className="font-medium text-text-secondary">Bloom Media</span> · Business Source License 1.1
         </p>
         <p className="text-xs text-text-muted">
           Source-available: use, modify and redistribute it, including in production, as long
