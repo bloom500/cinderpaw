@@ -121,6 +121,41 @@ describe("runModuleEval (spec §5, AC5)", () => {
     expect(report.reason).toContain("Tier 0");
   });
 
+  // The gate that kept L4 empty. Tier 0 carries latency and token-budget
+  // tasks — properties of the ROUTE, not of the module — and on this install
+  // the only module ever built died on 2026-07-09 as "Tier 0 floor breached:
+  // 5 frozen sanity task(s) failed", which is exactly the count of environment
+  // tasks in the suite. The incumbent is the seam's champion, so it decides:
+  // a limit the incumbent also misses is the machine, not a regression.
+  test("an environment task the incumbent also fails does not veto — one it passes does", async () => {
+    const s = specs();
+    // Tier 0 task-1 becomes an environment check. `run-eval.ts` copies the
+    // spec's `kind` onto every outcome; the helper above does not, so tag it
+    // here — an untagged outcome is treated as capability and vetoes.
+    s[1] = { ...s[1]!, kind: "latency", expected: { type: "latency", max_ms: 1500 } };
+    const tag = (o: EvalOutcome[]): EvalOutcome[] => o.map((x, i) => ({ ...x, kind: s[i]!.kind }));
+
+    // Both miss the deadline; the candidate is better at everything else.
+    const slowIncumbent = tag(outcomes(s, (_spec, i) => i !== 1 && (i < 2 || i % 2 === 0)));
+    const slowCandidate = tag(outcomes(s, (_spec, i) => i !== 1));
+    const excused = await runModuleEval(
+      IDS,
+      deps(s, { incumbent: slowIncumbent, candidate: slowCandidate }),
+    );
+    expect(excused.tier0Breach).toBeNull();
+    expect(excused.accept).toBe(true);
+
+    // Same candidate, but now the incumbent made the deadline: a real
+    // regression on this machine, and the floor must still veto it.
+    const fastIncumbent = tag(outcomes(s, (_spec, i) => i < 2 || i % 2 === 0));
+    const regressed = await runModuleEval(
+      IDS,
+      deps(s, { incumbent: fastIncumbent, candidate: slowCandidate }),
+    );
+    expect(regressed.tier0Breach).toContain("Tier 0 floor breached");
+    expect(regressed.accept).toBe(false);
+  });
+
   test("latency floor: candidate mean > 1.5× incumbent → rejected", async () => {
     const s = specs();
     const incumbent = outcomes(s, (_spec, i) => i < 2 || i % 2 === 0, () => 100);

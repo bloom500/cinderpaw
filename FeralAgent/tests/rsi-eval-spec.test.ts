@@ -39,6 +39,28 @@ describe("validateOutcome — fact_lookup", () => {
     expect(validateOutcome(s, "PARIS", 50, 100)).toBe(true);
   });
 
+  test("a correct answer typed with Unicode is not marked wrong", () => {
+    // Measured 2026-08-14: asked for the chemical formula of water, the model
+    // answered "H₂O" with a subscript. The frozen Tier 0 spec expects "h2o", so
+    // a right answer failed — and being Tier 0, that one flourish breached the
+    // sanity floor and blocked every promotion on the machine.
+    const water = spec({ kind: "fact_lookup", expected: { type: "fact_lookup", answer: "h2o" } });
+    expect(validateOutcome(water, "H₂O", 50, 100)).toBe(true);
+    expect(validateOutcome(water, "The formula is H₂O.", 50, 100)).toBe(true);
+    // Fullwidth forms are the same story in another alphabet.
+    const pi = spec({ kind: "fact_lookup", expected: { type: "fact_lookup", answer: "3.14" } });
+    expect(validateOutcome(pi, "３.１４", 50, 100)).toBe(true);
+  });
+
+  test("folding does not make a wrong answer right", () => {
+    // The guard on the guard: NFKC removes ways of writing the SAME answer, and
+    // must never widen what counts as the answer.
+    const water = spec({ kind: "fact_lookup", expected: { type: "fact_lookup", answer: "h2o" } });
+    expect(validateOutcome(water, "H₃O", 50, 100)).toBe(false);
+    expect(validateOutcome(water, "water", 50, 100)).toBe(false);
+    expect(validateOutcome(water, "", 50, 100)).toBe(false);
+  });
+
   test("rejects a wrong answer", () => {
     expect(validateOutcome(s, "London", 50, 100)).toBe(false);
   });
@@ -67,6 +89,26 @@ describe("validateOutcome — json_format", () => {
   test("rejects non-JSON and non-objects", () => {
     expect(validateOutcome(s, "not json", 50, 100)).toBe(false);
     expect(validateOutcome(s, "[1,2,3]", 50, 100)).toBe(false);
+  });
+
+  // Three of the thirteen Tier 0 tasks are json_format, and the recorded L4
+  // report on this install (2026-07-09) shows all three failing for the
+  // candidate AND the incumbent — the signature of a grader, not a model. A
+  // fence the prompt asked the model not to use is still a correct answer.
+  test("reads the object out of a code fence or out of prose", () => {
+    expect(
+      validateOutcome(s, '```json\n{"title":"t","summary":"s"}\n```', 50, 100),
+    ).toBe(true);
+    expect(
+      validateOutcome(s, 'Here is the JSON:\n{"title":"t","summary":"s"}', 50, 100),
+    ).toBe(true);
+  });
+
+  test("tolerating the wrapper does not tolerate a wrong answer", () => {
+    // Key still missing — the fence buys nothing.
+    expect(validateOutcome(s, '```json\n{"title":"t"}\n```', 50, 100)).toBe(false);
+    // Prose that only talks about the keys, with no object in it.
+    expect(validateOutcome(s, "The title and summary are both fine.", 50, 100)).toBe(false);
   });
 });
 
