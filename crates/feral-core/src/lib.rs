@@ -22,6 +22,7 @@ pub mod inference;
 pub mod live;
 pub mod migrate;
 pub mod models;
+pub mod oauth_device;
 pub mod paths;
 pub mod perf_policy;
 pub mod rsi;
