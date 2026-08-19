@@ -131,7 +131,7 @@
     "device_flow": {
       "device_url": "https://id.twitch.tv/oauth2/device",
       "token_url": "https://id.twitch.tv/oauth2/token",
-      "client_id": "",
+      "client_id": "d6y2kpxx5lphmk55t1989ddc9p4cqn",
       "scopes": [
         "chat:read",
         "chat:edit"

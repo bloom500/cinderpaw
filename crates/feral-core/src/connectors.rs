@@ -379,7 +379,12 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             device_flow: Some(DeviceFlowDef {
                 device_url: "https://id.twitch.tv/oauth2/device".into(),
                 token_url: "https://id.twitch.tv/oauth2/token".into(),
-                client_id: String::new(),
+                // Registered Twitch application (public client), 2026-08-19.
+                // A client id is public by design: it identifies the app on
+                // the consent screen and ships in every client. A public
+                // client has no secret at all, which is the point — a desktop
+                // app cannot keep one.
+                client_id: "d6y2kpxx5lphmk55t1989ddc9p4cqn".into(),
                 scopes: vec!["chat:read".into(), "chat:edit".into()],
             }),
             coming_soon: true,
