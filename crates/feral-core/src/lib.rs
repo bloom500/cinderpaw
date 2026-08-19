@@ -24,6 +24,7 @@ pub mod paths;
 pub mod perf_policy;
 pub mod rsi;
 pub mod runtime;
+pub mod secret_store;
 pub mod settings;
 pub mod tts;
 pub mod setup;
