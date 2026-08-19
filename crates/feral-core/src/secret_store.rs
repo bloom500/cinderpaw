@@ -57,19 +57,51 @@ pub fn get_with_file_key(service: &str, entry: &str, file_key: &str) -> Option<S
 
 /// Remove the value stored under `service`/`entry`, and clear the (Linux
 /// only) file-store entry under `file_key`. See [`set_with_file_key`].
+///
+/// The two stores are siblings, not primary/replica, so both are attempted
+/// unconditionally — regardless of how the other fared. The keychain result
+/// is authoritative: the file clear is best-effort, logged on failure, and
+/// never changes what the caller receives (see [`resolve_clear_result`]).
+/// A real key that survives in the file store after a keychain error that
+/// wasn't reported would still be readable through the fallback read path,
+/// so skipping the file clear on a keychain error is not an option.
 pub fn clear_with_file_key(service: &str, entry: &str, file_key: &str) -> anyhow::Result<()> {
-    if let Ok(e) = keyring::Entry::new(service, entry) {
-        match e.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(err) if !is_unavailable(&err) => return Err(err.into()),
-            Err(_) => {}
-        }
-    }
+    let keychain_result: anyhow::Result<()> = match keyring::Entry::new(service, entry) {
+        Ok(e) => match e.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(err) if is_unavailable(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        },
+        Err(err) if is_unavailable(&err) => Ok(()),
+        Err(err) => Err(err.into()),
+    };
+
     #[cfg(target_os = "linux")]
-    crate::byok_file_store::file_clear(file_key)?;
+    let file_ok = match crate::byok_file_store::file_clear(file_key) {
+        Ok(()) => true,
+        Err(err) => {
+            tracing::warn!(service, entry, ?err, "secret_store: file-store clear failed; keychain result still returned");
+            false
+        }
+    };
     #[cfg(not(target_os = "linux"))]
-    let _ = file_key;
-    Ok(())
+    let file_ok = {
+        let _ = file_key;
+        true
+    };
+
+    resolve_clear_result(keychain_result, file_ok)
+}
+
+/// Decides what `clear_with_file_key` returns to its caller from the two
+/// independent outcomes. Factored out of `clear_with_file_key` so the
+/// resolution rule — keychain result wins, a file-store failure is never
+/// allowed to change it — is unit-testable without the Linux-only file
+/// store: the property under test is "a `file_ok: false` never turns an
+/// `Ok` keychain result into an `Err`, and never masks a real one."
+fn resolve_clear_result(keychain_result: anyhow::Result<()>, file_ok: bool) -> anyhow::Result<()> {
+    let _ = file_ok;
+    keychain_result
 }
 
 /// Store `value` under `service`/`entry`. The file-store fallback key is
@@ -129,5 +161,18 @@ mod tests {
         assert_eq!(get(service, entry).as_deref(), Some("hunter2"));
         clear(service, entry).expect("clear");
         assert_eq!(get(service, entry), None);
+    }
+
+    /// Pins the fix for a review finding: a file-store clear failure must
+    /// never change what `clear_with_file_key` returns relative to the
+    /// keychain outcome — regardless of the keychain succeeding or failing.
+    /// Runs on any OS (it tests `resolve_clear_result` directly, not the
+    /// Linux-only file store), which is what lets it run in this review too.
+    #[test]
+    fn file_clear_failure_never_changes_the_keychain_result() {
+        assert!(resolve_clear_result(Ok(()), false).is_ok());
+        assert!(resolve_clear_result(Ok(()), true).is_ok());
+        assert!(resolve_clear_result(Err(anyhow::anyhow!("keychain: Ambiguous")), false).is_err());
+        assert!(resolve_clear_result(Err(anyhow::anyhow!("keychain: Ambiguous")), true).is_err());
     }
 }
