@@ -181,6 +181,7 @@ function foldArtifact(
     const next = { ...state };
     if (isFitnessVector(data.fitnessVector)) next.fitnessVector = data.fitnessVector;
     if (typeof data.aggregate === "number") next.fitnessAggregate = data.aggregate;
+    if (Array.isArray(data.unmeasured)) next.fitnessUnmeasured = data.unmeasured as string[];
     return next;
   }
   if (stage === "sandbox_apply" && typeof data.rollbackTarget === "string") {
@@ -243,6 +244,9 @@ function toJournalEntry(state: ContractState): JournalEntry {
       ? {
           fitnessVector: state.fitnessVector,
           aggregate: state.fitnessAggregate ?? 0,
+          // Absent on rows written before this field existed; `[]` means
+          // everything in the vector was observed.
+          unmeasured: state.fitnessUnmeasured ?? [],
           confidence: state.confidence ? 1 - state.confidence.bootstrap.pValue : 0,
           tier0: stagePassed(state, "tests") ? "passed" : "failed",
           tier1: stagePassed(state, "regression") ? "no_regression" : "regression",

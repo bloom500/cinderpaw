@@ -118,6 +118,12 @@ export interface JournalEntry {
   result: {
     fitnessVector: FitnessVector;
     aggregate: number;
+    /** Fitness components that were NOT observed — they carry the neutral
+     *  0.5 placeholder, which is otherwise indistinguishable from a real
+     *  measurement of 0.5. The full key list means this candidate was never
+     *  evaluated against anything: the row is bookkeeping, not evidence.
+     *  Optional because rows written before this field existed have none. */
+    unmeasured?: string[];
     /** Confidence-gate verdict in [0, 1]. */
     confidence: number;
     tier0: "passed" | "failed";
