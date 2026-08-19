@@ -103,6 +103,7 @@ import { ConnectorManager } from "./transports/connectors.ts";
 // this build cannot start — which is exactly what the registry exists to
 // make visible, but it should never happen for one we ship.
 import "./transports/matrix.ts";
+import "./transports/mattermost.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";

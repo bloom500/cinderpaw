@@ -353,7 +353,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             // Same pairing shape as Matrix, entirely different wire protocol.
             // That is the pair that proves pairing and transport are two axes.
             pairing_method: InstanceToken,
-            coming_soon: true,
+            coming_soon: false,
             console_url: Some("https://developers.mattermost.com/integrate/reference/personal-access-token/".into()),
             free_tier_note: None,
             validate_endpoint: None,

@@ -123,7 +123,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://developers.mattermost.com/integrate/reference/personal-access-token/"
   },
   {

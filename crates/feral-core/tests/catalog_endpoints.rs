@@ -644,7 +644,8 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(!url.secret, "a homeserver URL is configuration, not a credential");
             }
             "mattermost" => {
-                assert!(entry.coming_soon, "mattermost is coming_soon until its transport lands");
+                // Landed 2026-08-20: `FeralAgent/src/transports/mattermost.ts`.
+                assert!(!entry.coming_soon, "mattermost's transport has landed — the card must not still say soon");
                 assert!(entry.console_url.is_some(), "mattermost must point somewhere for the token");
                 let url = entry
                     .pairing_fields
