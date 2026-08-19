@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Info, X } from 'lucide-react';
 import { useResumeTask, formatRelative } from '@/components/shell/WelcomeBack';
+import { RecentWork, useRecentWork } from '@/components/shell/RecentWork';
 import { getRandomSuggestions } from '@/lib/suggestions';
 import { useT } from '@/lib/i18n';
 import { useUI } from '@/stores/ui';
@@ -69,6 +70,9 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
   const [suggestions] = useState(() => getRandomSuggestions(3));
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [greetingVisible, setGreetingVisible] = useState(true);
+  // Extra room above the composer only when the cards are actually there; a
+  // fresh install keeps the greeting exactly where it has always been.
+  const hasRecent = useRecentWork() !== null;
 
   useEffect(() => {
     // Memory Resume takes the hero slot — no greeting rotation.
@@ -91,7 +95,10 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
       )}
     >
       {/* Greeting + pills as one column, pushed above the centered input */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pb-72">
+      <div className={cn(
+        'absolute inset-0 flex flex-col items-center justify-center',
+        hasRecent ? 'pb-[26rem]' : 'pb-72',
+      )}>
         {resume ? (
           <>
             <h1 className="text-2xl font-semibold text-text-primary select-none">
@@ -129,6 +136,11 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
             </button>
           ))}
         </div>
+
+        {/* Where you left off, for the launch where the question is "what was
+            I doing" rather than "find me that thing". Renders nothing on a
+            fresh install. */}
+        <RecentWork />
 
         {isAgentMode && <AgentByokNote />}
       </div>

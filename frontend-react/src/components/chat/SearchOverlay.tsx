@@ -57,8 +57,12 @@ export function SearchOverlay() {
   const [results, setResults] = useState<SearchResult[]>([]);
   // #21: index of the keyboard-highlighted result (-1 = none).
   const [activeIdx, setActiveIdx] = useState(-1);
-  // Non-null while results are narrowed to one project.
-  const [scope, setScope] = useState<Project | null>(null);
+  // Non-null while results are narrowed to one project. It can start narrowed:
+  // opening search from a Home project card means the project is already the
+  // question, so re-picking it would be busywork.
+  const [scope, setScope] = useState<Project | null>(
+    () => useProjects.getState().list.find((p) => p.id === useUI.getState().searchScopeId) ?? null,
+  );
   const inputRef              = useRef<HTMLInputElement>(null);
   const cacheRef              = useRef<Map<string, Conversation>>(new Map());
   const debounceRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,11 +144,22 @@ export function SearchOverlay() {
    * Results actually rendered. Inside a project scope only its conversations
    * survive, and project rows are dropped — you are already in one.
    */
-  const visible = scope
-    ? results.filter(
-        (r) => r.kind === 'conversation' && scope.conversation_ids.includes(r.conv.id),
-      )
-    : results;
+  const visible = (() => {
+    if (!scope) return results;
+    // Inside a project with nothing typed yet, the answer is what the project
+    // CONTAINS. Filtering an empty search would report "nothing matches" about
+    // a question the user never asked — which is how opening a project from
+    // Home used to greet them.
+    if (!query.trim()) {
+      return allConvs
+        .filter((c) => scope.conversation_ids.includes(c.id))
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .map((conv): SearchResult => ({ kind: 'conversation', conv, snippet: null }));
+    }
+    return results.filter(
+      (r) => r.kind === 'conversation' && scope.conversation_ids.includes(r.conv.id),
+    );
+  })();
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -257,7 +272,9 @@ export function SearchOverlay() {
                 {/* Name what was searched. "No matches" alone leaves the user
                     guessing whether the thing they want is even searchable. */}
                 {scope
-                  ? `Nothing in ${scope.name} matches.`
+                  ? (query.trim()
+                      ? `Nothing in ${scope.name} matches.`
+                      : `${scope.name} has no conversations yet.`)
                   : 'No conversations or projects match.'}
               </div>
             ) : (

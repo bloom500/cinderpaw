@@ -28,7 +28,13 @@ interface UIStore {
   setReasoningMode: (m: ReasoningMode) => void;
   toggleTool: (id: ToolId) => void;
   searchOpen:  boolean;
-  openSearch:  () => void;
+  /**
+   * Project the search should open narrowed to, when it was opened from
+   * something that already names one (a Home card). Null means search
+   * everything, which is what ⌘K and the menu item do.
+   */
+  searchScopeId: string | null;
+  openSearch:  (projectId?: string) => void;
   closeSearch: () => void;
   skillsOpen:  boolean;
   openSkills:  () => void;
@@ -117,8 +123,9 @@ export const useUI = create<UIStore>()(
             : [...s.enabledTools, id],
         })),
       searchOpen: false,
-      openSearch:  () => set({ searchOpen: true }),
-      closeSearch: () => set({ searchOpen: false }),
+      searchScopeId: null,
+      openSearch:  (projectId) => set({ searchOpen: true, searchScopeId: projectId ?? null }),
+      closeSearch: () => set({ searchOpen: false, searchScopeId: null }),
       skillsOpen:  false,
       openSkills:  () => set({ skillsOpen: true }),
       closeSkills: () => set({ skillsOpen: false }),

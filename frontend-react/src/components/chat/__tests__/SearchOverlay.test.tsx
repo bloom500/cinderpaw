@@ -139,3 +139,23 @@ describe('SearchOverlay', () => {
     );
   });
 });
+
+describe('opened already narrowed to a project', () => {
+  it('lists what the project contains instead of reporting no matches', async () => {
+    useConversations.setState({
+      list: [
+        { id: 'c1', title: 'Route planning', updated_at: new Date().toISOString() },
+        { id: 'c2', title: 'Unrelated chat', updated_at: new Date().toISOString() },
+      ],
+    });
+    useProjects.setState({ list: [{ id: 'p1', name: 'Routier', conversation_ids: ['c1'] }] });
+    // How a Home project card opens it: scoped, with nothing typed.
+    useUI.setState({ searchOpen: true, searchScopeId: 'p1' });
+
+    render(<MemoryRouter><SearchOverlay /></MemoryRouter>);
+
+    const listed = await rows();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toContain('Route planning');
+  });
+});

@@ -1,6 +1,6 @@
 # Phase 4 — Information Architecture Migration
 
-**Date:** 2026-08-19 · **Type:** implementation spec · **Status:** in progress
+**Date:** 2026-08-19 · **Type:** implementation spec · **Status:** complete — all four slices shipped; the sidebar has no functions left that live only in it
 
 **Audit baseline:** `docs/ui/2026-08-19-brief-audit.md` §B4, §C
 **UX contract:** `docs/ui/2026-08-19-ux-contract.md`
@@ -103,10 +103,28 @@ the window-chrome strip beside the window controls:
 - **The version needed no new home.** Settings → About already prints it; the
   sidebar footer was a second copy, so it was deleted rather than moved.
 
-### S4 — Recent work on Home
+### S4 — Recent work on Home ✅
 
 The two Home cards the contract allows, fed by conversations and projects, so
 "where was I" does not depend on the rail.
+
+Shipped as `components/shell/RecentWork.tsx`:
+
+- **Exactly one chat and one project, never a list.** Search answers "where is
+  that thing I remember"; Home answers "what was I doing". Anything more turns
+  Home into the sidebar lying down, which is the failure mode this whole phase
+  exists to avoid.
+- **A project has no timestamp of its own**, so its recency is the newest
+  conversation inside it. An empty project has no activity to report and is
+  skipped rather than shown with a blank date.
+- **Opening a project card narrows Search to it** (`openSearch(projectId)`),
+  the same answer that picking a project result gives.
+- **Space above the composer is reserved only when the cards exist**, so a
+  fresh install keeps the greeting exactly where it was.
+
+Found and fixed on the way: opening Search already narrowed, with nothing
+typed, reported "Nothing in X matches" — an answer to a question the user never
+asked. A scope with an empty query now lists what the project contains.
 
 ## Acceptance criteria
 
