@@ -1274,6 +1274,47 @@ mod backend {
     /// the user's chosen window from Hardware settings; it takes precedence over
     /// the FERAL_MAX_CONTEXT env and the conservative 8192 default. The active
     /// context is always clamped to the model's real `n_ctx_train`.
+    /// Turn llama.cpp's silence into a sentence someone can act on.
+    ///
+    /// The library reports a failed load as `null result from llama cpp`, which is
+    /// what a user sees when a model will not open. It names no cause and offers no
+    /// next step, so every one of the three real reasons — a truncated download, a
+    /// file that is not a GGUF at all, and an architecture newer than this build
+    /// can parse — arrives looking identical and looking like a broken app.
+    ///
+    /// The first two are cheap to tell apart from the bytes on disk. The third is
+    /// what is left, and saying so plainly is more useful than saying "null".
+    pub(super) fn explain_load_failure(path: &std::path::Path, raw: &str) -> String {
+        use std::io::Read;
+
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("the model");
+
+        let meta = std::fs::metadata(path).ok();
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        if size == 0 {
+            return format!("{name} is empty — the download did not finish. Remove it and download it again.");
+        }
+
+        let mut magic = [0u8; 4];
+        let read_ok = std::fs::File::open(path)
+            .and_then(|mut f| f.read_exact(&mut magic))
+            .is_ok();
+        if !read_ok {
+            return format!("{name} could not be read from disk ({raw}).");
+        }
+        if &magic != b"GGUF" {
+            return format!(
+                "{name} is not a GGUF model file — the download may have saved an error page              instead of the model. Remove it and download it again."
+            );
+        }
+
+        // A GGUF whose header is fine but which llama.cpp refuses is, in practice,
+        // an architecture this build predates. Say that, and say what to do.
+        format!(
+            "{name} is a valid GGUF file that this build of Feral cannot open. Its architecture is          most likely newer than the inference engine shipped here — update Feral, or pick a          model with an architecture this version knows. (engine said: {raw})"
+        )
+    }
+
     pub fn load(path: &Path, n_gpu_layers: i32, max_context: Option<u32>) -> Result<(u32, u32)> {
         let backend = BACKEND.get_or_try_init(|| {
             LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
@@ -1332,6 +1373,7 @@ mod backend {
                     .filter(|v| *v >= 512)
             });
 
+
         // One load attempt at a given GPU-layer count: load weights, size the
         // context to the model (capped), and eagerly create the first pooled
         // context. The model is shared via Arc (read-only during inference; see
@@ -1364,7 +1406,7 @@ mod backend {
             };
             let model = Arc::new(
                 LlamaModel::load_from_file(backend, path, &params)
-                    .map_err(|e| anyhow!("load weights: {}", e))?,
+                    .map_err(|e| anyhow!("{}", explain_load_failure(path, &e.to_string())))?,
             );
             let lora = staged_lora
                 .as_ref()
@@ -1907,6 +1949,41 @@ mod backend {
 
             Ok(())
         }
+}
+
+#[cfg(test)]
+#[cfg(feature = "inference")]
+mod load_failure_tests {
+    use super::backend::explain_load_failure;
+    use std::io::Write;
+
+    /// Every one of these used to reach the user as "null result from llama cpp".
+    #[test]
+    fn explains_the_three_reasons_a_model_will_not_open() {
+        let dir = std::env::temp_dir().join("feral-load-explain");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let empty = dir.join("empty.gguf");
+        std::fs::File::create(&empty).unwrap();
+        let msg = explain_load_failure(&empty, "null result from llama cpp");
+        assert!(msg.contains("did not finish"), "{msg}");
+
+        let html = dir.join("notamodel.gguf");
+        std::fs::File::create(&html).unwrap().write_all(b"<!DOCTYPE html>").unwrap();
+        let msg = explain_load_failure(&html, "null result from llama cpp");
+        assert!(msg.contains("not a GGUF"), "{msg}");
+
+        // A well-formed header that the engine still refuses: the remaining
+        // cause is an architecture this build predates, and the message has to
+        // say what to do about it rather than quoting a null.
+        let good = dir.join("newarch.gguf");
+        std::fs::File::create(&good).unwrap().write_all(b"GGUF   ").unwrap();
+        let msg = explain_load_failure(&good, "null result from llama cpp");
+        assert!(msg.contains("newer than the inference engine"), "{msg}");
+        assert!(msg.contains("update Feral"), "{msg}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

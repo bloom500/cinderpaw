@@ -2240,6 +2240,34 @@ export class AgentLoop {
    * (cloud is reachable when primary OR fallback is on a non-loopback
    * host — see `InferenceRouter.cloudReachable`).
    */
+  /**
+   * Roughly how big this turn's prompt will be, so routing can rule out a
+   * model that cannot hold it.
+   *
+   * An estimate on purpose. The real prompt is assembled inside `#run`, after
+   * the model has already been chosen — waiting for the exact number would
+   * mean choosing first and measuring afterwards, which is the order that
+   * produced the failure this guards against. The three parts that dominate
+   * are known here: the system prompt, the advertised tool schemas, and the
+   * conversation so far.
+   *
+   * Erring high is the safe direction: it moves a borderline turn to a bigger
+   * model, and the cost of that is money. The cost of erring low is a reply
+   * made of repeated bytes.
+   */
+  #estimateTurnTokens(userText: string, sessionId: string): number {
+    let total = countTokens(this.#systemPrompt) + countTokens(userText);
+    // The tool schemas, measured the same way the cost log measures them.
+    total += countTokens(
+      JSON.stringify(this.#openAITools.filter((t) => isCoreTool(t.function.name))),
+    );
+    const memory = this.#sessions.get(sessionId)?.memory;
+    if (memory !== undefined) {
+      for (const turn of memory.turns) total += countTokens(turn.content ?? "");
+    }
+    return total;
+  }
+
   #routeForTurn(
     userText: string,
     images: string[] | undefined,
@@ -2255,6 +2283,7 @@ export class AgentLoop {
         text: userText,
         hasImages: images !== undefined && images.length > 0,
         offline,
+        promptTokens: this.#estimateTurnTokens(userText, sessionId),
       });
       ctx.emit({
         type: "model_routed",
