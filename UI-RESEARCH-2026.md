@@ -477,3 +477,231 @@ Un blog post decent să scrii post-refactor: **"How we adopted Claude's artifact
 ## 8. Living document
 
 Update quarterly cu new industry patterns observed. Trackable diff between industry state și Cinderpaw progress.
+
+---
+
+## 9. Revisions based on REAL Cinderpaw screenshot (2026-08-20)
+
+User a trimis screenshot real al UI-ului Cinderpaw la entry state (empty new chat, boot phase). Anterior analizam bazat pe cod + mockup generat. Real screenshot arată câteva diferențe importante față de assumptions.
+
+### 9.1 — Recomandări GREȘITE (retract)
+
+**R3 — Model selector în composer bottom-right — INVALID, already implemented**
+
+Anterior recomandam mut ModelPill din header în composer. Real screenshot arată: **"Add a model ▼" dropdown este DEJA în composer bottom-left**, exact cum recommandam. Nu-i header-mounted ModelPill în empty state.
+
+Retract R3. Cinderpaw was already at industry parity on this pattern.
+
+**Partial retract R2 — Composer elevation este OK**
+
+Anterior semnalam că composer e "flat" fără shadow-elevation. Real screenshot arată composer container cu **background mai deschis decât main area + subtle rounded corners** — semnalează elevation visual chiar dacă nu-i explicit box-shadow. Design intent achievable cu current implementation.
+
+Keep R2 (breadcrumb top-left instead of ChatHeader) — nu s-a văzut ChatHeader în empty state, dar din code știu că apare când conv activă. Recommend valid pentru non-empty states.
+
+### 9.2 — Recomandări CONFIRMATE valid
+
+**R1 slim sidebar** — puternic confirmat. Sidebar-ul actual ~220px cu Primary menu 5 items + section "Routier" + Recent list cu 15+ conversații românești truncate ("Bun, UI nou e in place, mai...", "Am gresit bro, am scos sid...", etc.) + Settings jos. Recent list-ul e main consumer de space și înghite mult vertical. Slim mode + hover expand ar libera 15-20% ecran.
+
+**R4 contrast + hover fixes** — confirmat. "Good evening" text greeting pare low-contrast pe warm-dark background la ochiul rapid.
+
+**R6, R7** — can't verify from empty state, presume valid.
+
+### 9.3 — Recomandări NOI descoperite din screenshot
+
+**R12 — Boot banner "Feral is starting" prea prominent**
+
+Screenshot arată banner full-width sus cu text lung:
+> "Feral is starting — it loads its memory first, which takes a moment on a large workspace. Messages sent now will fail until it is up."
+
+Cu spinner + explanation text ~2 rânduri. Ocupă full width, competes cu greeting central. Boot e transient (câteva secunde), dar banner e visually loud.
+
+**Fix**: mut la top-center pill discret similar `<EmbeddingDownloadBanner>` din App.tsx:
+```tsx
+<div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full
+                border border-border-subtle bg-bg-surface/85 px-3 py-1.5 text-xs
+                text-text-secondary backdrop-blur shadow-lg">
+  <Loader2 size={13} className="text-brand animate-spin" />
+  <span>Starting up — loading memory…</span>
+</div>
+```
+
+Impact: greeting stays focal, boot indicator discret dar visible.
+
+**R13 — Composer icons cu meaning unclear**
+
+Real composer are 7 controls dar 3 sunt semantic-opaque:
+- Paperclip → obvious (attach)
+- Mic → obvious (voice)
+- **Brain cu badge "5"** → cu ce e "5"? Reasoning depth? Count of enabled tools? Unclear.
+- **Globe cu "A" în interior** → translate? Language? Auto-detect? Complet cryptic.
+- **Phone icon** dreapta lângă Agent/Chat → live voice call? Dial into agent? Neclar.
+- Agent/Chat toggle → clear din context.
+- Send → clear.
+
+3 din 7 icons necesită hover pentru tooltip. Discovery friction real.
+
+**Fix opțiuni:**
+- **Option A**: adaugă text mic sub icon când space permite. Ex. `[🧠 5]` = `[Brain] Auto` cu badge.
+- **Option B**: consolidate — mut brain reasoning + globe (translate?) într-un unified "Modes" popover cu preview curent state.
+- **Option C**: onboarding tooltip first-time (shown once, dismiss forever): "5 = tools enabled, A = auto-language".
+
+Recommend Option B — clean composer, complex settings behind single expandable button.
+
+**R14 — Sidebar "Routier" section — clarify or remove**
+
+Sidebar arată o secțiune între Primary menu și Recent conversations numită "Routier" cu un folder-icon single item. Semantic complet neclar în screenshot. E un test project? Un preset folder? Un routing config?
+
+Fără context UI, e visual noise. Utilizatorul nu știe dacă să click.
+
+**Fix**:
+- Dacă "Routier" e o functionalitate valid, adaugă label/description under name (secondary text muted).
+- Dacă e un test/development artifact, remove din production build.
+- Dacă e un feature nou (routing rules?), needs onboarding tooltip.
+
+**R15 — Zero indicator model curent activ**
+
+"Add a model ▼" în composer implies neither loaded. Dar din code știu că `useModel.loaded` sau `cloudModel` pot fi active. Screenshot poate fi fresh start where truly no model loaded, dar user nu vede clear signal "currently using X" în UI persistent.
+
+Compare cu Claude: "Sonnet 4.6 Low" în composer. Compare cu Cursor: model name pill în composer permanent.
+
+**Fix**: model dropdown label reflect current state:
+- Nothing loaded: "Add a model" (as is).
+- Model X active: "Claude Sonnet 4.6 ▼" sau "Local Qwen 7B ▼".
+
+Small UI change (~5 lines TSX), high user clarity.
+
+**R16 — Recent list benefit de grouping temporal**
+
+15+ chat items flat list ordered chronologically. Utilizator vrea "the one I had yesterday about async race conditions". Trebuie scroll + hunt.
+
+Pattern Claude/ChatGPT: **grupare implicite Today / Yesterday / Last 7 days / Last 30 days / Older**. Sub-header discret per grupă.
+
+**Fix**:
+```tsx
+// Sidebar.tsx RecentSection refactor
+const grouped = groupByRecency(flatList);
+return (
+  <>
+    {grouped.today.length > 0 && (
+      <>
+        <div className="px-2 mb-1 text-[10px] uppercase tracking-wider text-text-muted/60">Today</div>
+        {grouped.today.map(row => <RecentRow ... />)}
+      </>
+    )}
+    // etc.
+  </>
+);
+```
+
+Impact: chats findable în seconds vs. scroll & squint.
+
+**R17 — Preset pills "Research | Create | Analyze | Automate" cu icons**
+
+4 pills sub composer arată text-only. Text OK dar icons boost recognition considerabil (Fitts's Law — visual + text > text alone).
+
+**Fix**:
+```tsx
+const PRESETS = [
+  { label: 'Research',  icon: <Search size={12} />,     prompt: 'Research this topic: ' },
+  { label: 'Create',    icon: <Sparkles size={12} />,  prompt: 'Help me create: ' },
+  { label: 'Analyze',   icon: <BarChart size={12} />,  prompt: 'Analyze the following: ' },
+  { label: 'Automate',  icon: <Zap size={12} />,       prompt: 'Automate this workflow: ' },
+];
+```
+
+Small visual boost, faster user discovery.
+
+**R18 — Mascot wave gesture la boot**
+
+Real screenshot arată mascota pixel small (~32px) perched top-left al composer în state idle. Cute dar easy-to-miss.
+
+Existing mascot has `state="wave"` frame. Recommend: la app boot (first render post-splash), mascot plays `wave` animation 2 seconds, apoi trece la idle. Same la new chat creation.
+
+Impact: micro-moment de personality la entry. "Cinderpaw sees you" feeling.
+
+### 9.4 — Confirmed strengths visible în screenshot
+
+Din real UI, features unde Cinderpaw e already GOOD:
+
+- **S1** — Centered greeting empty state "Good evening" + "What can I help you with?" cu composer central vertically = Claude/ChatGPT pattern classic. Well-executed.
+- **S2** — Composer glow / elevation subtle: container mai deschis decât background + rounded-3xl = elevation visual chiar fără explicit shadow.
+- **S3** — Preset action pills existente (Research/Create/Analyze/Automate) = category-of-intent pattern. Cursor + ChatGPT both do this. Cinderpaw at parity.
+- **S4** — Model selector în composer: "Add a model ▼" bottom-left = R3 already achieved.
+- **S5** — Warm palette + mascot = distinct differentiator confirmed.
+- **S6** — Windows-native controls top-right consistent cu OS.
+
+### 9.5 — Revised priority list bazat pe screenshot real
+
+**Priority 1 (immediate, 1-3 zile):**
+- R12 boot banner discret (visual noise reduction)
+- R13 composer icons meaning (Option B: consolidate în Modes popover)
+- R15 model indicator când active
+- R17 preset pills cu icons
+- R4 contrast fixes (from earlier audit)
+
+**Priority 2 (1-2 săptămâni):**
+- R1 slim sidebar 56px default + hover expand
+- R16 sidebar Recent grouping temporal
+- R14 Routier section clarify sau remove
+- R5 ArtifactPanel (still cel mai important design change)
+
+**Priority 3 (polish):**
+- R2 breadcrumb (după rebrand Faza A)
+- R18 mascot wave la boot
+- R6 context AI, R7 streaming labels
+
+### 9.6 — Retracted / softened language
+
+Anterior am scris cu confidence ridicat că Cinderpaw e "2 ani în urmă" pe density și artifact patterns. Cu real screenshot văzut, revizuiesc:
+
+**Cinderpaw e la industry parity pe:**
+- Composer patterns (elevation, model selector integrated, mode toggle)
+- Empty state centering + greeting
+- Preset action pills
+- Warm distinct branding
+
+**Cinderpaw e ~1-2 ani înapoia pe:**
+- Sidebar density (24× wider than Claude default)
+- Artifact panel separation (major gap)
+- Structured streaming labels (unverified but likely gap)
+- Context-aware AI (unverified but likely gap)
+
+Diferența nu-i uniform — e specific pe features. Nu "UI-ul e slab", ci "câteva features specifice lipsă/needs polish". Correction important pentru accurate expectations.
+
+### 9.7 — Bottom line post-screenshot
+
+Cinderpaw UI ESTE deja frumoasă și well-designed. Warm palette + centered empty state + mascot + composer floating = professional, distinct, non-corporate.
+
+Ce needs polish e **discovery friction** (icons unclear, sidebar heavy) și **artifact pattern** (major architectural addition).
+
+Nu-i un rescriere. E ajustare de 20-30% cu focus pe:
+1. Reducing composer semantic-opacity (R13)
+2. Slim sidebar (R1)
+3. Artifact panel (R5)
+4. Recent list grouping (R16)
+
+Restul e polish incremental.
+
+---
+
+## 10. Blog post material din UI research
+
+Pattern-uri consumable pentru content (Steinberger playbook din COMMUNITY-STRATEGY):
+
+**Post idea 1**: "Cinderpaw UI vs. Claude UI: an honest side-by-side"
+- Screenshots real ambele.
+- Density comparison numbers.
+- Where each wins/loses.
+- Publishable when redesign R1+R5 landed.
+
+**Post idea 2**: "Why we're keeping our warm palette in a sea of Claude clones"
+- Design philosophy.
+- Why differentiation matters more than uniformity.
+- Trust-building content pentru brand identity.
+
+**Post idea 3**: "Adopting artifact patterns without losing local-first identity"
+- Technical writeup pe ArtifactPanel implementation.
+- Reference back la ADR-0016 Multi Agents R3 handoff pattern.
+- Community-attracting content pentru dev audience.
+
+Toate 3 fit COMMUNITY-STRATEGY Part 9 content pillars. Amortize research investment în content pipeline.
