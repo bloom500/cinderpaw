@@ -15,6 +15,10 @@ export type SttProvider = 'local' | 'groq';
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
 interface UIStore {
+  /** Navigation chrome only. Nothing about the agent or the runtime lives
+   *  here — the rail answers "where do I want to go" and nothing else. */
+  navCollapsed: boolean;
+  toggleNav: () => void;
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
@@ -92,6 +96,8 @@ const applyTheme = (resolved: ResolvedTheme) =>
 export const useUI = create<UIStore>()(
   persist(
     (set) => ({
+      navCollapsed: false,
+      toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
       theme: 'dark',
       resolvedTheme: 'dark',
       language: 'en',
@@ -144,6 +150,7 @@ export const useUI = create<UIStore>()(
     {
       name: 'feral-ui',
       partialize: (s) => ({
+        navCollapsed: s.navCollapsed,
         theme: s.theme,
         language: s.language,
         reasoningMode: s.reasoningMode,

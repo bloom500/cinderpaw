@@ -8,6 +8,8 @@ import { ChatPage } from '@/pages/ChatPage';
 // Chat is the landing page and stays statically imported. The Suspense
 // fallback is empty: these chunks load from local disk in single-digit ms,
 // a spinner would only flash.
+const ChatsPage       = lazy(() => import('@/pages/ChatsPage').then((m) => ({ default: m.ChatsPage })));
+const ProjectsPage    = lazy(() => import('@/pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
 const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -21,6 +23,8 @@ export const router = createMemoryRouter([
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat',     element: <ChatPage /> },
       { path: 'chat/:id', element: <ChatPage /> },
+      { path: 'chats',    element: lazyPage(<ChatsPage />) },
+      { path: 'projects', element: lazyPage(<ProjectsPage />) },
       { path: 'models',     element: lazyPage(<ModelsPage />) },
       { path: 'settings', element: lazyPage(<SettingsPage />) },
       // Phase 5 S1. These three were top-level pages whose ONLY entry point was

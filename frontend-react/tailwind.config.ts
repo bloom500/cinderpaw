@@ -1,5 +1,23 @@
 import type { Config } from 'tailwindcss';
 
+/**
+ * A theme token that also works with Tailwind's `/opacity` modifier.
+ *
+ * The tokens are hex strings in a CSS variable, and Tailwind cannot split a
+ * hex out of a var into channels — so `bg-bg-surface/70` was compiling to a
+ * colour the browser could not parse and every one of those surfaces was
+ * rendering FULLY TRANSPARENT. Silently: no console error, nothing in the
+ * build, just a panel that looked like the page behind it. Measured on the
+ * sidebar, which reported `backgroundColor: rgba(0, 0, 0, 0)` while claiming
+ * `bg-bg-elevated/80`; 26 call sites across the app had the same bug,
+ * including the tool cards that appear over a voice call.
+ *
+ * `color-mix` does the split for us and leaves plain `var(--x)` usage in CSS
+ * files untouched.
+ */
+const token = (name: string) =>
+  `color-mix(in srgb, var(--${name}) calc(<alpha-value> * 100%), transparent)`;
+
 export default {
   darkMode: ['class', '[data-theme="dark"]'],
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -8,23 +26,23 @@ export default {
       colors: {
         // ── Our semantic palette ──────────────────────────────────────────
         // Use these in app components: bg-bg-surface, text-text-muted, etc.
-        'bg-primary':     'var(--bg-primary)',
-        'bg-surface':     'var(--bg-surface)',
-        'bg-elevated':    'var(--bg-elevated)',
-        'bg-hover':       'var(--bg-hover)',
-        'bg-active':      'var(--bg-active)',
-        'border-subtle':  'var(--border-subtle)',
-        'border-default': 'var(--border-default)',
-        'text-primary':   'var(--text-primary)',
-        'text-secondary': 'var(--text-secondary)',
-        'text-muted':     'var(--text-muted)',
-        'text-disabled':  'var(--text-disabled)',
-        'brand':          'var(--brand)',
-        'brand-hover':    'var(--brand-hover)',
-        'brand-muted':    'var(--brand-muted)',
-        'error':          'var(--error)',
-        'success':        'var(--success)',
-        'warning':        'var(--warning)',
+        'bg-primary':     token('bg-primary'),
+        'bg-surface':     token('bg-surface'),
+        'bg-elevated':    token('bg-elevated'),
+        'bg-hover':       token('bg-hover'),
+        'bg-active':      token('bg-active'),
+        'border-subtle':  token('border-subtle'),
+        'border-default': token('border-default'),
+        'text-primary':   token('text-primary'),
+        'text-secondary': token('text-secondary'),
+        'text-muted':     token('text-muted'),
+        'text-disabled':  token('text-disabled'),
+        'brand':          token('brand'),
+        'brand-hover':    token('brand-hover'),
+        'brand-muted':    token('brand-muted'),
+        'error':          token('error'),
+        'success':        token('success'),
+        'warning':        token('warning'),
 
         // ── shadcn aliases ────────────────────────────────────────────────
         // Use ONLY inside shadcn primitives. Do NOT use bg-accent/text-accent
