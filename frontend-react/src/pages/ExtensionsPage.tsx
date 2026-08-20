@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert, ArrowUpRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   tauri,
@@ -20,6 +20,7 @@ import {
   type McpToolView,
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+import { useUI } from '@/stores/ui';
 
 // Communication channels live in the dedicated Connectors section now, never
 // in Extensions — hide them here even if an old install lingers in mcp.json.
@@ -31,6 +32,7 @@ export function ExtensionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState<string>('All');
+  const openSkills = useUI((s) => s.openSkills);
 
   const load = () => {
     setError(null);
@@ -57,14 +59,33 @@ export function ExtensionsPage() {
       <div className="flex-1 overflow-y-auto scrollbar-hide">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Hero */}
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-              Extensions <span aria-hidden="true">🧩</span>
+              Capabilities <span aria-hidden="true">✦</span>
             </h1>
             <p className="text-sm text-text-muted mt-1">
-              Give your assistant new superpowers. Install with one click, switch off anytime.
+              What your assistant can do. Install with one click, switch off anytime.
             </p>
           </div>
+
+          {/* Skills live in a drawer, and the sidebar was the only thing that
+              ever opened it. Phase 5 removes the sidebar, so the door moves
+              here — skills and extensions are two subsystems to us and one
+              question to a user: what can it do? */}
+          <button
+            type="button"
+            onClick={openSkills}
+            className="mb-8 w-full text-left rounded-xl border border-border-default bg-bg-surface hover:bg-bg-hover transition-colors p-4 flex items-center gap-3"
+          >
+            <span aria-hidden="true" className="text-lg">✨</span>
+            <span className="flex-1">
+              <span className="block text-sm font-medium text-text-primary">Skills</span>
+              <span className="block text-xs text-text-muted mt-0.5">
+                Written instructions your assistant follows for a particular kind of job.
+              </span>
+            </span>
+            <ArrowUpRight size={15} className="text-text-muted shrink-0" />
+          </button>
 
           {loading && (
             <div className="grid grid-cols-2 gap-3">

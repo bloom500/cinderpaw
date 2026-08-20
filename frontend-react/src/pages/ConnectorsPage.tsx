@@ -50,7 +50,7 @@ export function ConnectorsPage() {
           {/* Hero */}
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-              Connectors <span aria-hidden="true">🔌</span>
+              Accounts <span aria-hidden="true">⚯</span>
             </h1>
             <p className="text-sm text-text-muted mt-1">
               Talk to your assistant from the apps you already use. It stays on this machine, with your model and your tools.
