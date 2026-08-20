@@ -4,6 +4,7 @@ import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
+import { BubbleTail } from './BubbleTail';
 import { ThinkingBlock } from './ThinkingBlock';
 import { AskUserCard } from './AskUserCard';
 import { VoiceBubble } from './VoiceBubble';
@@ -123,7 +124,17 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
       // The reply carried a time and the question did not, which read as an
       // oversight because it was one.
       <div className="flex flex-col items-end gap-1">
-        <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-bg-elevated border border-border-default">
+        {/* The bubble and its tail are one shape in two elements, so they
+            share one fill and no border: a stroke would have to be drawn
+            around the join as well, and the join is the whole illusion. */}
+        {/* Brand fill, not another shade of the background. The first version
+            used `bg-bg-elevated`, which on this scene is a step away from the
+            page — the bubble was legible only as a faint rectangle and its
+            tail not at all. Apple's user bubble is the accent colour for
+            exactly this reason: the shape has to read before the tail can
+            mean anything. */}
+        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand text-bg-primary shadow-md">
+          <BubbleTail className="absolute right-[-11px] bottom-0 text-brand" />
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (
@@ -139,7 +150,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             </div>
           )}
           {visibleText && (
-            <p className="text-sm text-text-primary whitespace-pre-wrap break-words leading-relaxed">
+            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
               {visibleText}
             </p>
           )}
