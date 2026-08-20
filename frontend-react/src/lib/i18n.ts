@@ -46,6 +46,18 @@ const en = {
   'empty.greeting.4': 'What would you like to explore?',
   'empty.greeting.5': 'What can I help you build?',
   'empty.welcomeBack': 'Welcome back to',
+  // Home: the time of day, then the one question. Fixed, not rotating — a
+  // greeting that changes every four seconds is a screensaver, not a greeting.
+  'home.morning': 'Good morning',
+  'home.afternoon': 'Good afternoon',
+  'home.evening': 'Good evening',
+  'home.ask': 'What can I help you with?',
+  // The four intents. A statement about what the product is, so they are fixed
+  // and in this order — they are not suggestions and they are not shuffled.
+  'home.intent.research': 'Research',
+  'home.intent.create': 'Create',
+  'home.intent.analyze': 'Analyze',
+  'home.intent.automate': 'Automate',
   // Truncated-response banner
   'chat.truncated.title': 'Response truncated.',
   'chat.truncated.body': 'The model hit its token limit before finishing',
@@ -184,6 +196,14 @@ const ro: Strings = {
   'empty.greeting.3': 'Cum te pot ajuta azi?',
   'empty.greeting.4': 'Ce ai vrea să explorezi?',
   'empty.greeting.5': 'Ce construim împreună?',
+  'home.morning': 'Bună dimineața',
+  'home.afternoon': 'Bună ziua',
+  'home.evening': 'Bună seara',
+  'home.ask': 'Cu ce te pot ajuta?',
+  'home.intent.research': 'Caută',
+  'home.intent.create': 'Creează',
+  'home.intent.analyze': 'Analizează',
+  'home.intent.automate': 'Automatizează',
   'empty.welcomeBack': 'Bine ai revenit la',
   'chat.truncated.title': 'Răspuns trunchiat.',
   'chat.truncated.body': 'Modelul a atins limita de tokeni înainte să termine',

@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Info, X } from 'lucide-react';
 import { useResumeTask, formatRelative } from '@/components/shell/WelcomeBack';
-import { RecentWork, useRecentWork } from '@/components/shell/RecentWork';
-import { getRandomSuggestions } from '@/lib/suggestions';
 import { useT } from '@/lib/i18n';
 import { useUI } from '@/stores/ui';
 import { cn } from '@/lib/utils';
@@ -50,42 +48,21 @@ function AgentByokNote() {
   );
 }
 
-const GREETING_KEYS = [
-  'empty.greeting.1',
-  'empty.greeting.2',
-  'empty.greeting.3',
-  'empty.greeting.4',
-  'empty.greeting.5',
-] as const;
+/** Local wall-clock hour, so the greeting matches the room the user is in. */
+function greetingKey(hour = new Date().getHours()) {
+  if (hour < 12) return 'home.morning';
+  if (hour < 18) return 'home.afternoon';
+  return 'home.evening';
+}
 
 interface NewChatEmptyStateProps {
   isEmpty: boolean;
-  onSuggestion: (text: string) => void;
 }
 
-export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStateProps) {
+export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
   const t = useT();
   const resume = useResumeTask();
-  const [suggestions] = useState(() => getRandomSuggestions(3));
-  const [greetingIndex, setGreetingIndex] = useState(0);
-  const [greetingVisible, setGreetingVisible] = useState(true);
-  // Extra room above the composer only when the cards are actually there; a
-  // fresh install keeps the greeting exactly where it has always been.
-  const hasRecent = useRecentWork() !== null;
-
-  useEffect(() => {
-    // Memory Resume takes the hero slot — no greeting rotation.
-    if (!isEmpty || resume) return;
-    const id = setInterval(() => {
-      setGreetingVisible(false);
-      setTimeout(() => {
-        setGreetingIndex((i) => (i + 1) % GREETING_KEYS.length);
-        setGreetingVisible(true);
-      }, 350);
-    }, 4000);
-    return () => clearInterval(id);
-  }, [isEmpty, resume]);
 
   return (
     <div
@@ -94,11 +71,10 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
         isEmpty ? 'opacity-100' : 'opacity-0',
       )}
     >
-      {/* Greeting + pills as one column, pushed above the centered input */}
-      <div className={cn(
-        'absolute inset-0 flex flex-col items-center justify-center',
-        hasRecent ? 'pb-[26rem]' : 'pb-72',
-      )}>
+      {/* The greeting sits above the centred composer. The intents used to be
+          here too; they are under the composer now, where you read them after
+          the field rather than instead of it. */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center pb-72">
         {resume ? (
           <>
             <h1 className="text-2xl font-semibold text-text-primary select-none">
@@ -116,31 +92,15 @@ export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStatePr
             </span>
           </>
         ) : (
-          <h1
-            className="text-2xl font-semibold text-text-primary select-none transition-opacity duration-300"
-            style={{ opacity: greetingVisible ? 1 : 0 }}
-          >
-            {t(GREETING_KEYS[greetingIndex])}
-          </h1>
+          <>
+            <h1 className="text-[28px] leading-tight font-semibold text-text-primary select-none">
+              {t(greetingKey())}
+            </h1>
+            <p className="text-[28px] leading-tight font-semibold text-text-secondary select-none">
+              {t('home.ask')}
+            </p>
+          </>
         )}
-
-        <div className="mt-5 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => onSuggestion(s)}
-              className="px-4 py-1.5 rounded-full border border-border-default bg-bg-surface hover:bg-bg-hover text-sm text-text-secondary transition-colors cursor-pointer"
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {/* Where you left off, for the launch where the question is "what was
-            I doing" rather than "find me that thing". Renders nothing on a
-            fresh install. */}
-        <RecentWork />
 
         {isAgentMode && <AgentByokNote />}
       </div>

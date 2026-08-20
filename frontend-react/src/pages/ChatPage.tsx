@@ -7,6 +7,8 @@ import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
 import { ChatHeader } from '@/components/chat/ChatHeader';
+import { HomeIntents } from '@/components/shell/HomeIntents';
+import { RecentWork } from '@/components/shell/RecentWork';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
@@ -184,7 +186,18 @@ export function ChatPage() {
         {messages.length > 0 ? (
           <MessageList />
         ) : (
-          <NewChatEmptyState isEmpty={isEmpty} onSuggestion={handleSuggestion} />
+          <NewChatEmptyState isEmpty={isEmpty} />
+        )}
+
+        {/* Where you left off, along the bottom edge, for the launch where the
+            question is "what was I doing" rather than "find me that thing". A
+            fresh install has nothing to continue and renders nothing at all. */}
+        {isEmpty && !showAgentOnboarding && (
+          <div className="absolute inset-x-0 bottom-6 z-10 flex justify-center px-6 pointer-events-none">
+            <div className="pointer-events-auto">
+              <RecentWork />
+            </div>
+          </div>
         )}
 
         {/* Input — always visible so the toggle is accessible even without a
@@ -205,6 +218,12 @@ export function ChatPage() {
             sendFn={isAgentMode ? feralSend : undefined}
             alwaysEnabled={isAgentMode}
           />
+          {/* Inside the composer's wrapper, not floating near it: the wrapper
+              is what gets centred, and its measured height is what the centring
+              uses. Anything placed outside it would need the composer's height
+              guessed a second time, and would drift the first time the field
+              grew a line. */}
+          {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
         </div>
       </div>
     </div>
