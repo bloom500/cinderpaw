@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, Info, X } from 'lucide-react';
-import { useResumeTask, formatRelative } from '@/components/shell/WelcomeBack';
+import { Info, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { useUI } from '@/stores/ui';
 import { cn } from '@/lib/utils';
@@ -62,7 +61,6 @@ interface NewChatEmptyStateProps {
 export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
   const t = useT();
-  const resume = useResumeTask();
 
   return (
     <div
@@ -74,33 +72,19 @@ export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
       {/* The greeting sits above the centred composer. The intents used to be
           here too; they are under the composer now, where you read them after
           the field rather than instead of it. */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pb-72">
-        {resume ? (
-          <>
-            <h1 className="text-2xl font-semibold text-text-primary select-none">
-              {t('empty.welcomeBack')} <span className="text-brand">{resume.title}</span>
-            </h1>
-            <span className="mt-1.5 flex items-center gap-1 text-xs text-text-muted select-none">
-              {resume.workspaceName && (
-                <>
-                  <FolderOpen size={11} aria-hidden />
-                  <span>in {resume.workspaceName}</span>
-                  <span aria-hidden>·</span>
-                </>
-              )}
-              <span>{formatRelative(resume.ts)}</span>
-            </span>
-          </>
-        ) : (
-          <>
-            <h1 className="text-[28px] leading-tight font-semibold text-text-primary select-none">
-              {t(greetingKey())}
-            </h1>
-            <p className="text-[28px] leading-tight font-semibold text-text-secondary select-none">
-              {t('home.ask')}
-            </p>
-          </>
-        )}
+      {/* The greeting, and only the greeting. The resume line used to take this
+          slot whenever there was something to continue — which is always, after
+          the first day — so the product's first frame was the title of an old
+          conversation, and the sentence written for it was never seen. That
+          continuation is already on screen: it is the CONTINUE card at the
+          bottom. One thing, one place. */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center pb-64">
+        <h1 className="text-[40px] leading-[1.15] font-semibold text-text-primary select-none">
+          {t(greetingKey())}
+        </h1>
+        <p className="mt-1 text-[40px] leading-[1.15] font-semibold text-text-muted select-none">
+          {t('home.ask')}
+        </p>
 
         {isAgentMode && <AgentByokNote />}
       </div>

@@ -455,9 +455,15 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             }
             disabled={disabled}
             rows={1}
-            className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 pt-4 scrollbar-hide"
+            // Roomier on Home, where the field IS the screen and the reference
+            // it is measured against gives the question air. In a running
+            // conversation the transcript is the subject, so it stays compact.
+            className={cn(
+              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 scrollbar-hide',
+              isEmpty ? 'pt-5 min-h-[76px]' : 'pt-4',
+            )}
           />
-          <div className="flex items-center justify-between px-4 pb-3">
+          <div className={cn('flex items-center justify-between px-4', isEmpty ? 'pb-4' : 'pb-3')}>
             <div className="flex gap-1">
               <FileAttachButton onFilesSelected={addFiles} />
               {!isStreaming && (

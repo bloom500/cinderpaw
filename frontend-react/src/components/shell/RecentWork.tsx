@@ -33,13 +33,13 @@ function Card({
     <button
       type="button"
       onClick={onClick}
-      className="group w-64 text-left rounded-xl border border-border-subtle bg-bg-surface/60 hover:bg-bg-hover hover:border-border-default px-4 py-3 transition-colors pointer-events-auto"
+      className="group flex-1 min-w-0 max-w-[340px] text-left rounded-xl border border-border-subtle bg-bg-surface/60 hover:bg-bg-hover hover:border-border-default px-5 py-4 transition-colors pointer-events-auto"
     >
       <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-text-muted">
         <Icon size={11} className="shrink-0" />
         {label}
       </span>
-      <span className="mt-1 block text-sm text-text-primary truncate">{title}</span>
+      <span className="mt-1.5 block text-[15px] text-text-primary truncate">{title}</span>
       <span className="mt-0.5 block text-[11px] text-text-muted truncate">{meta}</span>
     </button>
   );
@@ -98,7 +98,7 @@ export function RecentWork() {
   const { lastConv, lastProject } = items;
 
   return (
-    <div className="mt-6 flex flex-wrap justify-center gap-3 px-6">
+    <div className="flex w-full max-w-[1060px] justify-center gap-4">
       {lastConv && (
         <Card
           icon={MessageSquare}

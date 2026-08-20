@@ -193,10 +193,8 @@ export function ChatPage() {
             question is "what was I doing" rather than "find me that thing". A
             fresh install has nothing to continue and renders nothing at all. */}
         {isEmpty && !showAgentOnboarding && (
-          <div className="absolute inset-x-0 bottom-6 z-10 flex justify-center px-6 pointer-events-none">
-            <div className="pointer-events-auto">
-              <RecentWork />
-            </div>
+          <div className="absolute inset-x-0 bottom-8 z-10 flex justify-center px-8 pointer-events-none">
+            <RecentWork />
           </div>
         )}
 
