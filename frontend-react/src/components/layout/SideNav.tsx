@@ -228,7 +228,13 @@ export function SideNav() {
           // hole and its rounded corners vanish with it — which is what the
           // first two attempts here looked like. Theme tokens rather than
           // hand-rolled rgba, so light mode gets the same treatment for free.
-          'rounded-2xl border border-border-default bg-bg-elevated/80 backdrop-blur-xl shadow-xl',
+          'rounded-2xl border border-white/[0.07] bg-bg-elevated/70 shadow-xl',
+          'backdrop-blur-xl backdrop-saturate-150',
+          // A hairline of light along the top edge. Real glass catches the
+          // light source above it; a flat border says "rectangle", and that
+          // one line is most of the difference between the two.
+          'before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px',
+          'before:bg-gradient-to-r before:from-transparent before:via-white/[0.14] before:to-transparent',
         )}
       >
         <div className="h-12 px-3 flex items-center justify-between shrink-0">

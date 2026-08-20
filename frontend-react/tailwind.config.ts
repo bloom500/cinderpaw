@@ -122,5 +122,12 @@ export default {
     },
   },
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  plugins: [require('@tailwindcss/typography')],
+  // `tailwindcss-animate` is not decoration: 42 of its classes were already
+  // written across the shadcn primitives — `animate-in`, `fade-in-0`,
+  // `zoom-in-95`, `slide-in-from-top-2` — and every one of them was dead CSS
+  // because the plugin that defines them was never registered. Dialogs,
+  // popovers, dropdowns and tooltips have been appearing and vanishing
+  // instantly this whole time while their markup asked for a transition.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  plugins: [require('@tailwindcss/typography'), require('tailwindcss-animate')],
 } satisfies Config;
