@@ -9,7 +9,6 @@ import { useAgent } from '@/stores/agent';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { HomeGreeting } from '@/components/shell/HomeGreeting';
 import { HomeIntents } from '@/components/shell/HomeIntents';
-import { RecentWork } from '@/components/shell/RecentWork';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
@@ -188,15 +187,6 @@ export function ChatPage() {
           <MessageList />
         ) : (
           <NewChatEmptyState isEmpty={isEmpty} />
-        )}
-
-        {/* Where you left off, along the bottom edge, for the launch where the
-            question is "what was I doing" rather than "find me that thing". A
-            fresh install has nothing to continue and renders nothing at all. */}
-        {isEmpty && !showAgentOnboarding && (
-          <div className="absolute inset-x-0 bottom-8 z-10 flex justify-center px-8 pointer-events-none">
-            <RecentWork />
-          </div>
         )}
 
         {/* Input — always visible so the toggle is accessible even without a

@@ -217,13 +217,27 @@ list lives in the content area, where there is room to read it and where it
 costs no width on every frame. That is where the current-conversation highlight
 and the generating dot return.
 
-### Recent, capped at five
+### The library: everything, flat
 
-Under the seven rows, at most **five** recent conversations, flat, no nesting,
-no grouping. Decided deliberately, with the risk stated: this block is the road
-the old rail walked to nine items and 746 lines. The cap is therefore a
-constant with a test on it, not a style choice — if a later change raises it,
-the test fails and says why.
+**Amended the same day the cap shipped.** The rail carries *all* projects and
+*all* conversations in one scrolling column, projects first, chats after,
+newest first.
+
+The five-item cap was the wrong trade. Browsing your own history should not
+require knowing what you are looking for, and a person with two hundred chats
+scrolls a column the way they scroll every other app they own. What the cap was
+really protecting against was not length but **shape** — a tree. So that is
+what the test pins instead: the list stays flat, no project expands into its
+chats here. Opening a project goes to the Projects page, where its contents have
+room to be read.
+
+No section headings either: "Projects" and "Chats" are already two of the
+navigation rows just above, and a 216px column that says each word twice reads
+as a form rather than a list.
+
+Home therefore carries **no** continue/project cards. With the whole history one
+glance to the left, a card repeating the top of it is the same thing twice, and
+the greeting and the field get the screen back.
 
 ### Shape
 
@@ -238,7 +252,8 @@ redirects, and the connector pairing loop.
 
 ## Acceptance criteria (revised)
 
-1. Primary navigation is exactly seven rows plus at most five recent chats.
+1. Primary navigation is exactly seven rows, plus a flat library of projects
+   and chats that never nests.
 2. None of the banned words appears in it.
 3. The open conversation is visibly the open one, and a generating one says so.
 4. Fresh install: every row is present and none is an empty box without a line

@@ -11,6 +11,7 @@ import {
 import { NewProjectDialog } from '@/components/items/NewProjectDialog';
 import { useUI } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
+import { useProjects } from '@/stores/projects';
 import { cn } from '@/lib/utils';
 
 /**
@@ -27,16 +28,6 @@ import { cn } from '@/lib/utils';
 
 export const NAV_W = 216;
 export const NAV_COLLAPSED_W = 60;
-
-/**
- * How many recent chats the rail will ever show.
- *
- * Five, and it is a constant with a test on it because this block is the exact
- * road the old rail walked: a list in the navigation grows until it is the
- * navigation. Everything past five lives on the Chats page, which has room to
- * read it and costs no width on a screen where nobody is looking for it.
- */
-export const RECENT_LIMIT = 5;
 
 const NAV = [
   { to: '/chats',    icon: MessageSquare, label: 'Chats' },
@@ -93,47 +84,87 @@ function Row({
 }
 
 /**
- * The five most recent chats, flat. No grouping by date, no nesting under
- * projects, no counts — a project's chats are the project page's job.
+ * Everything you have, in one scrolling column: projects first, then chats.
+ *
+ * Flat on purpose. Projects do not expand into their chats here — opening one
+ * goes to the Projects page, where the contents have room to be read. A tree in
+ * a 216px column is how the component this replaces reached 746 lines.
+ *
+ * The list is not capped. That is a deliberate reversal of the five-item cap
+ * this file shipped with: browsing your own history should not require knowing
+ * what you are looking for, and a person with two hundred chats scrolls a
+ * column the same way they scroll every other app they use.
  */
-function Recent({ collapsed }: { collapsed: boolean }) {
+function Library({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
   const list = useConversations((s) => s.list);
+  const loaded = useConversations((s) => s.loaded);
   const currentId = useConversations((s) => s.currentId);
   const streamingIds = useConversations((s) => s.streamingIds);
+  const projects = useProjects((s) => s.list);
   if (collapsed) return null;
 
-  const recent = (list ?? [])
+  const chats = (list ?? [])
     .slice()
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-    .slice(0, RECENT_LIMIT);
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+  const rowBase = 'w-full flex items-center gap-2 h-8 px-3 rounded-lg text-[13px] text-left transition-colors cursor-pointer';
 
   return (
-    <div className="mt-4 min-h-0 flex flex-col">
-      <span className="px-3 pb-1 text-[11px] uppercase tracking-wider text-text-disabled select-none">
-        Recent
-      </span>
-      {recent.length === 0 ? (
-        // Not an empty box: a fresh install says why there is nothing here.
-        <span className="px-3 py-1 text-xs text-text-disabled">
+    <div className="mt-4 min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
+      {projects.length > 0 && (
+        <>
+          {/* No section headings. "Projects" and "Chats" are already two of the
+              navigation rows just above, and a 216px column that says each word
+              twice reads as a form, not as a list. The folder icon is the only
+              distinction the two kinds of row need. */}
+          <div className="space-y-0.5 mb-3">
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => navigate('/projects')}
+                className={cn(rowBase, 'text-text-muted hover:bg-bg-hover hover:text-text-secondary')}
+              >
+                <Folder size={13} className="shrink-0" aria-hidden />
+                <span className="truncate">{p.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!loaded ? (
+        // "Empty" and "not read yet" are the same value in the store, so the
+        // rail must not answer with the fresh-install sentence before it knows.
+        <div className="space-y-1.5 px-3 py-1" aria-hidden>
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-3 rounded bg-bg-hover animate-pulse"
+              style={{ width: `${62 + ((i * 41) % 30)}%` }}
+            />
+          ))}
+        </div>
+      ) : chats.length === 0 ? (
+        <span className="block px-3 py-1 text-xs text-text-disabled">
           Nothing yet. Ask Feral something.
         </span>
       ) : (
-        <div className="space-y-0.5 overflow-y-auto scrollbar-hide">
-          {recent.map((c) => (
+        <div className="space-y-0.5">
+          {chats.map((c) => (
             <button
               key={c.id}
               type="button"
               onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
               className={cn(
-                'w-full flex items-center gap-2 h-8 px-3 rounded-lg text-[13px] text-left transition-colors cursor-pointer',
+                rowBase,
                 c.id === currentId
                   ? 'bg-bg-active text-text-primary'
                   : 'text-text-muted hover:bg-bg-hover hover:text-text-secondary',
               )}
             >
-              {/* The dot the old rail had and nothing has had since: a chat can
-                  be generating while you are looking at another one. */}
+              {/* A chat can be generating while you are looking at another one. */}
               {streamingIds[c.id] && (
                 <Loader2 size={11} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
               )}
@@ -229,8 +260,8 @@ export function SideNav() {
           ))}
         </div>
 
-        <div className="flex-1 min-h-0 px-2">
-          <Recent collapsed={collapsed} />
+        <div className="flex-1 min-h-0 px-2 flex flex-col">
+          <Library collapsed={collapsed} />
         </div>
 
         <div className="px-2 pb-2 shrink-0">

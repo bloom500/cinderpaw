@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { SideNav, RECENT_LIMIT } from '../SideNav';
+import { SideNav } from '../SideNav';
 import { useUI } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
 
@@ -37,21 +37,29 @@ describe('SideNav', () => {
     }
   });
 
-  it('shows at most five recent chats, newest first', () => {
+  it('lists every chat, newest first — no cap', () => {
     useConversations.setState({
+      loaded: true,
       list: Array.from({ length: 9 }, (_, i) => conv(`c${i}`, i)) as never,
     });
     mount();
-    for (let i = 0; i < RECENT_LIMIT; i++) expect(screen.getByText(`c${i}`)).toBeTruthy();
-    // The cap is the whole design: a list in the navigation grows until it IS
-    // the navigation, which is how the component this replaces reached 746
-    // lines. Everything past it belongs on the Chats page.
-    expect(screen.queryByText(`c${RECENT_LIMIT}`)).toBeNull();
-    expect(RECENT_LIMIT).toBe(5);
+    // Deliberately uncapped, reversing the five-item limit this file shipped
+    // with: browsing your own history should not require knowing what you are
+    // looking for. The risk that made the cap tempting is still real, so what
+    // is pinned instead is that the list stays FLAT — no project expands into
+    // its chats here, which is the shape that grew the old rail to 746 lines.
+    for (let i = 0; i < 9; i++) expect(screen.getByText(`c${i}`)).toBeTruthy();
+  });
+
+  it('does not claim the list is empty before it has been read', () => {
+    useConversations.setState({ loaded: false, list: [] as never });
+    mount();
+    expect(screen.queryByText(/Nothing yet/i)).toBeNull();
   });
 
   it('says which chat is open and which one is generating', () => {
     useConversations.setState({
+      loaded: true,
       list: [conv('a', 1), conv('b', 2)] as never,
       currentId: 'a',
       streamingIds: { b: true } as never,
@@ -64,6 +72,7 @@ describe('SideNav', () => {
   });
 
   it('a fresh install explains the empty list instead of showing a blank strip', () => {
+    useConversations.setState({ loaded: true } as never);
     mount();
     expect(screen.getByText(/Nothing yet/i)).toBeTruthy();
   });
@@ -78,7 +87,7 @@ describe('SideNav', () => {
 
   it('collapsing hides the labels and the recent list, not the navigation', async () => {
     const user = userEvent.setup();
-    useConversations.setState({ list: [conv('a', 1)] as never });
+    useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
     mount();
     await user.click(screen.getByLabelText('Collapse navigation'));
     expect(useUI.getState().navCollapsed).toBe(true);
