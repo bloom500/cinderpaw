@@ -9,6 +9,7 @@ import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
 import { useDreamCycle } from '@/hooks/useDreamCycle';
 import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
 import { DownloadStatus } from './DownloadStatus';
+import { TopNav } from './TopNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
 import { Toasts } from '@/components/Toasts';
@@ -68,10 +69,26 @@ export function AppShell() {
   return (
     <div className="h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <Sidebar />
+      {/* The nav is a sibling of the page, not a child of it: an absolutely
+          positioned child is placed against the PADDING box, so it starts at
+          x=0 and lands on top of the rail rather than beside it. It rides the
+          same width the rail animates to, and when S4 deletes the rail this
+          whole wrapper collapses to a plain `left-2`. */}
+      <motion.div
+        animate={{ left: (collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W) + 16 }}
+        transition={{ duration: 0.22, ease: 'easeInOut' }}
+        className="fixed top-2 z-30"
+      >
+        <TopNav />
+      </motion.div>
+      {/* pt-14 on main clears the floating nav. The nav is translucent and sits
+          over the page by design, but "over" must not mean "on top of the chat
+          title": the page starts below it, so what shows through the glass is
+          the page's own background rather than text the nav is covering. */}
       <motion.main
         animate={{ paddingLeft: (collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W) + 16 }}
         transition={{ duration: 0.22, ease: 'easeInOut' }}
-        className="absolute inset-0 flex flex-col overflow-hidden"
+        className="absolute inset-0 flex flex-col overflow-hidden pt-14"
       >
         <Outlet />
       </motion.main>

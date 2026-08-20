@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
+import { NewProjectDialog } from '@/components/items/NewProjectDialog';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
@@ -49,25 +49,16 @@ export function Sidebar() {
 
   // Only creating a project lives here now. Renaming and deleting belong to the
   // item they act on, so they travel with it — see components/items/ItemActions.
-  const [newProjectOpen, setNewProjectOpen]     = useState(false);
-  const [projectNameDraft, setProjectNameDraft] = useState('');
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
 
   const handleMenuAction = (action: MenuAction) => {
     if (action === 'newProject') {
-      setProjectNameDraft('');
       setNewProjectOpen(true);
     } else if (action === 'search') {
       openSearch();
     } else if (action === 'skills') {
       useUI.getState().openSkills();
     }
-  };
-
-  const handleCreateProject = async () => {
-    const name = projectNameDraft.trim();
-    if (!name) return;
-    await useProjects.getState().create(name);
-    setNewProjectOpen(false);
   };
 
   return (
@@ -113,39 +104,7 @@ export function Sidebar() {
         </div>
       </motion.aside>
 
-      {/* New Project dialog */}
-      <Dialog open={newProjectOpen} onOpenChange={setNewProjectOpen}>
-        <DialogContent
-          className="sm:max-w-sm"
-          onOpenAutoFocus={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>('input')?.focus(); }}
-        >
-          <DialogHeader>
-            <DialogTitle>New Project</DialogTitle>
-          </DialogHeader>
-          <input
-            value={projectNameDraft}
-            onChange={(e) => setProjectNameDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateProject(); }}
-            placeholder="Project name"
-            className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
-          />
-          <DialogFooter>
-            <button
-              onClick={() => setNewProjectOpen(false)}
-              className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void handleCreateProject()}
-              disabled={!projectNameDraft.trim()}
-              className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
-            >
-              Create
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} />
     </TooltipProvider>
   );
 }
