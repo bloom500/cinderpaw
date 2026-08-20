@@ -1,4 +1,5 @@
 import { useT } from '@/lib/i18n';
+import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
 
 /**
  * The time of day, then the one question.
@@ -21,15 +22,24 @@ export function greetingKey(hour = new Date().getHours()) {
 export function HomeGreeting() {
   const t = useT();
   return (
-    // mb-10 is not padding for looks: the mascot perches on the composer's top
-    // edge and needs somewhere to sit that is not on top of a word.
-    <div className="mb-10 text-center select-none">
-      <h1 className="text-[40px] leading-[1.15] font-semibold text-text-primary">
-        {t(greetingKey())}
-      </h1>
-      <p className="text-[40px] leading-[1.15] font-semibold text-text-primary/70">
+    // Three tiers, not two lines of the same size. Every ai-chat home screen
+    // worth copying does this: a mark, a quiet line that says WHO is being
+    // greeted, and one big line that says what to do next. Two equal lines read
+    // as a paragraph, and a paragraph is not an invitation.
+    //
+    // The mascot is that mark. It used to perch on the composer's top edge,
+    // where it read as a sticker stuck on the field; centred above the
+    // greeting it is the brand mark the layout was missing. It still walks the
+    // composer edge during a conversation, which is where its job — showing
+    // what is running — actually exists.
+    <div className="mb-8 flex flex-col items-center text-center select-none">
+      <div className="mb-5">
+        <FeralMascot state="idle" />
+      </div>
+      <p className="text-[15px] text-text-muted">{t(greetingKey())}</p>
+      <h1 className="mt-1 text-[32px] leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
         {t('home.ask')}
-      </p>
+      </h1>
     </div>
   );
 }

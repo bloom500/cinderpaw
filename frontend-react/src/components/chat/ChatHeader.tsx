@@ -13,7 +13,11 @@ export function ChatHeader() {
         data-tauri-drag-region
         className="text-sm text-text-muted/50 truncate flex-1 min-w-0 cursor-move"
       >
-        {current?.title ?? 'New chat'}
+        {/* No fallback title. On Home there is no conversation to name, and
+            "New chat" in the corner labels a thing that does not exist yet —
+            noise above a screen whose whole job is one question. The strip
+            stays: a frameless window still has to be draggable. */}
+        {current?.title ?? ''}
       </span>
     </div>
   );
