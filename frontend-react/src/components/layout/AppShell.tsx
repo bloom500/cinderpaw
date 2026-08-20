@@ -1,13 +1,11 @@
 import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUI, useSystemThemeSync } from '@/stores/ui';
 import { useUpdater } from '@/stores/updater';
 import { useGlobalHotkeys } from '@/hooks/useGlobalHotkeys';
 import { useDreamCycle } from '@/hooks/useDreamCycle';
-import { Sidebar, SIDEBAR_W, SIDEBAR_COLLAPSED_W } from './Sidebar';
 import { DownloadStatus } from './DownloadStatus';
 import { TopNav } from './TopNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
@@ -56,8 +54,7 @@ export function AppShell() {
   useGlobalHotkeys();
   useDreamCycle();
 
-  const collapsed   = useUI((s) => s.sidebarCollapsed);
-  const searchOpen  = useUI((s) => s.searchOpen);
+  const searchOpen = useUI((s) => s.searchOpen);
 
   // Silent update check once on startup; the toast appears only if one is available.
   // Opt-out via Settings → General (privacy: the check contacts GitHub Releases).
@@ -68,30 +65,19 @@ export function AppShell() {
 
   return (
     <div className="h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
-      <Sidebar />
-      {/* The nav is a sibling of the page, not a child of it: an absolutely
-          positioned child is placed against the PADDING box, so it starts at
-          x=0 and lands on top of the rail rather than beside it. It rides the
-          same width the rail animates to, and when S4 deletes the rail this
-          whole wrapper collapses to a plain `left-2`. */}
-      <motion.div
-        animate={{ left: (collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W) + 16 }}
-        transition={{ duration: 0.22, ease: 'easeInOut' }}
-        className="fixed top-2 z-30"
-      >
+      {/* Centred, and a sibling of the page rather than a child: an absolutely
+          positioned child is placed against the padding box, which put it at
+          x=0 and on top of whatever the page draws there. */}
+      <div className="fixed top-2 left-1/2 -translate-x-1/2 z-30">
         <TopNav />
-      </motion.div>
+      </div>
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is
           the page's own background rather than text the nav is covering. */}
-      <motion.main
-        animate={{ paddingLeft: (collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W) + 16 }}
-        transition={{ duration: 0.22, ease: 'easeInOut' }}
-        className="absolute inset-0 flex flex-col overflow-hidden pt-14"
-      >
+      <main className="absolute inset-0 flex flex-col overflow-hidden pt-14 px-4">
         <Outlet />
-      </motion.main>
+      </main>
       {/* Window controls — fixed top-right, above EVERYTHING including
           full-screen overlays and modals. These used to share z-40 with the
           voice-call overlay and got buried by it, leaving a frameless window with

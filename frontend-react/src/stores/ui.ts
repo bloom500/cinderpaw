@@ -15,13 +15,11 @@ export type SttProvider = 'local' | 'groq';
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
 interface UIStore {
-  sidebarCollapsed: boolean;
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
-  toggleSidebar: () => void;
   setTheme: (t: ThemePref) => void;
   setLanguage: (l: LangPref) => void;
   cycleReasoningMode: () => void;
@@ -94,13 +92,11 @@ const applyTheme = (resolved: ResolvedTheme) =>
 export const useUI = create<UIStore>()(
   persist(
     (set) => ({
-      sidebarCollapsed: false,
       theme: 'dark',
       resolvedTheme: 'dark',
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
-      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setLanguage: (language) => {
         document.documentElement.lang = language;
         set({ language });
@@ -148,7 +144,6 @@ export const useUI = create<UIStore>()(
     {
       name: 'feral-ui',
       partialize: (s) => ({
-        sidebarCollapsed: s.sidebarCollapsed,
         theme: s.theme,
         language: s.language,
         reasoningMode: s.reasoningMode,
