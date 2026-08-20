@@ -1159,3 +1159,1070 @@ Priorități HIGH pentru fix înainte de rebrand launch:
 7. **§F5** (autoscroll UX bug high-frequency)
 
 Restul MEDIUM/LOW — remediable în cursul refactor rebrand.
+
+---
+
+# Runda 2 — mai deep pe UI/UX + rebranding surface + responsive + a11y
+
+Continuare audit după cererea "mai analizează UI/UX". Focus zone rămase: OnboardingWizard (934 linii), MascotPerch (225 linii — mascotă complexă), SearchOverlay, ModelsPage (fit score, cards), MemoryLayersPage, ThinkingBlock, StreamingIndicator, ContextRing, plus revizuire rebrand-blockers și responsive.
+
+---
+
+## §F31 — OnboardingWizard: `PersonalizeStep` "You can leave 'Feral' or pick something else" — nume hardcoded în hint text, agent auto-personalize la Feral chiar dacă app este LittleBeast
+
+`OnboardingWizard.tsx:230-236`:
+```tsx
+<Field
+  label="What should you call me?"
+  hint={'You can leave "Feral" or pick something else.'}
+>
+  <input
+    ...
+    placeholder="Feral"
+    maxLength={40}
+    ...
+  />
+</Field>
+```
+
+Post-rebrand:
+- Placeholder `"Feral"` → user care lasă blank moștenește nume Feral pentru un agent-ul LittleBeast.
+- Hint "leave 'Feral'" → confuzie.
+- `Preview` component (line 272): `const safeAgent = agentName.trim() || 'Feral';` — same fallback.
+- `DoneStep` (line 812): `const safeAgent = agentName.trim() || 'Feral';`
+
+**Fix**: centralize brand pe un constant + configuration:
+
+```ts
+// lib/brand.ts
+export const APP_NAME = 'LittleBeast';           // OR 'Feral' pre-rebrand
+export const AGENT_DEFAULT_NAME = APP_NAME;
+```
+
+Apoi:
+```tsx
+hint={`You can leave "${AGENT_DEFAULT_NAME}" or pick something else.`}
+placeholder={AGENT_DEFAULT_NAME}
+...
+const safeAgent = agentName.trim() || AGENT_DEFAULT_NAME;
+```
+
+Aceasta pave the way pentru rebrand cu un singur `.ts` edit. Fits `<AppName>` component recommendation din §F16.
+
+---
+
+## §F32 — OnboardingWizard `WelcomeStep` — "Welcome to Feral" hardcoded + subtitle "local AI agent" too narrow (misses BYOK majority use case)
+
+`OnboardingWizard.tsx:181-190`:
+```tsx
+<h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
+  Welcome to Feral
+</h1>
+<p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
+  A local AI agent that helps you with your files, projects, and tasks,
+  without sending your data to the cloud.
+</p>
+```
+
+Problems:
+1. "Feral" hardcoded — §F16 duplicate.
+2. Description says *"A local AI agent... without sending your data to the cloud"* — dar CloudBranch (line 634+) și `ProviderStep` (line 419+) oferă direct BYOK cloud keys (OpenAI, Anthropic, Google, OpenRouter). User citește promise "no cloud", 30 seconds later pune un OpenAI key. Contradiction pe screen.
+
+**Fix**:
+```tsx
+<h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
+  Welcome to {APP_NAME}
+</h1>
+<p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
+  An AI agent that lives on your machine — runs local models, or plugs into
+  cloud models with your own key. Your data stays under your control.
+</p>
+```
+
+Honest despre BYOK. Nu vinde privacy pe care app-ul nu o promite absolutely.
+
+---
+
+## §F33 — OnboardingWizard `DoneStep`: emoji `🎉` (line 819) — invisible pe Windows sub Segoe UI Emoji versions vechi, plus tone inconsistent cu warm palette
+
+`OnboardingWizard.tsx:817-828`:
+```tsx
+<motion.div ... className="text-6xl" aria-hidden>
+  🎉
+</motion.div>
+```
+
+Font-size 6xl = ~60px. Depinde de font-family și version emoji font. Windows 10 pre-2018 Segoe UI Emoji nu are `🎉` completely rendered (partial glyph). Fallback tofu box.
+
+Plus tonally: warm brown/orange palette + rustic mascot vibe vs 🎉 = generic party emoji, feel deconectat.
+
+**Fix**: folosește FeralMascot state `celebrate` (deja există per `EXPRESSIVE = ['wave', 'love', 'cool', 'surprised', 'celebrate']` în `MascotPerch.tsx:20`):
+
+```tsx
+<motion.div
+  initial={{ scale: 0, rotate: -90 }}
+  animate={{ scale: 1, rotate: 0 }}
+  transition={{ type: 'spring', duration: 0.6, delay: 0.1 }}
+  className="flex justify-center [&_canvas]:w-20 [&_canvas]:h-20 [&_canvas]:[image-rendering:pixelated]"
+  aria-hidden
+>
+  <FeralMascot state="celebrate" />
+</motion.div>
+```
+
+Brand consistency. Elimină emoji cross-platform inconsistency.
+
+---
+
+## §F34 — OnboardingWizard `defer()` vs `finish()` — un user care apasă "Browse other models" în LocalBranch defer-uiește wizard, dar cel care apasă "Skip" în header face `finish()` cu completed=true → **inconsistent onboarding replay**
+
+`OnboardingWizard.tsx:614-624`:
+```tsx
+<button
+  type="button"
+  onClick={() => { defer(); navigate('/models'); }}
+  className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+>
+  Browse other models <ChevronRight size={12} />
+</button>
+```
+
+vs `OnboardingWizard.tsx:70` (Skip button):
+```tsx
+onClick={skip}
+```
+
+Deci:
+- User apasă "Browse other models" → `defer()` → wizard hidden this session dar re-appears next launch (per comment line 619-621).
+- User apasă "Skip" → `skip()` → probably `finish()`-like persistence → wizard NEVER re-appears.
+
+Comentariul (line 617-621) argumentează defer în LocalBranch pentru "download-in-progress continues". Fine. Dar CloudBranch's "More providers in Settings" (line 720-726):
+
+```tsx
+onClick={() => { defer(); navigate('/settings'); }}
+```
+
+Also `defer()`. Deci defer 2×, skip 1× — inconsistent user mental model.
+
+**Recomandare UX**: dacă user avansează prin wizard (chiar și cu defer pe LocalBranch), completion e implicit. Doar top-right `Skip` X → explicit skip, restul deferă.
+
+Sau: adaugă un checkbox "Don't show again" în defer scenarios. Clear intent.
+
+---
+
+## §F35 — ProgressDots (`OnboardingWizard.tsx:114-127`) — active dot `w-8` vs inactive `w-1.5` = 5× width discrepancy → touch target sub 24×24px WCAG failure
+
+```tsx
+<div className={cn(
+  'h-1.5 rounded-full transition-all duration-300',
+  i === step ? 'w-8 bg-brand' : i < step ? 'w-1.5 bg-brand/50' : 'w-1.5 bg-border-default',
+)} />
+```
+
+`h-1.5` = 6px, `w-1.5` = 6px inactive → dot 6×6px. Chiar și `w-8 h-1.5` = 32×6 = active pill dar tot 6px height.
+
+WCAG 2.5.5 (Target Size Level AAA) cere 44×44px. Level AA (2.5.8, 2.1) cere 24×24px. Aceste dots sub AA cerință.
+
+**Aparent OK** — dots sunt informational, nu interactive. Dar comentariul + `role` lipsesc → screen reader nu știe "6 out of 6 steps". `aria-label="Step X of Y"` există pe parent (line 116), OK.
+
+**Real bug**: dots-urile decorate NU-s butoane clickable pentru navigation. Utilizator la step 4 care vrea să revină la step 1 trebuie să apese Back 3×. UX nefluid.
+
+**Fix**: fă dots interactive (unde permis — nu poți sări forward peste required fields):
+
+```tsx
+{Array.from({ length: total }, (_, i) => (
+  <button
+    key={i}
+    type="button"
+    disabled={i > step}
+    onClick={() => i <= step && goToStep(i)}
+    aria-label={`Go to step ${i + 1}`}
+    aria-current={i === step ? 'step' : undefined}
+    className={cn(
+      'h-6 min-w-6 flex items-center justify-center rounded-full transition-all duration-300',
+      i === step ? 'w-10 bg-brand' : i < step ? 'w-6 bg-brand/50 hover:bg-brand/70' : 'w-6 bg-border-default cursor-not-allowed',
+    )}
+  >
+    <span className="w-1.5 h-1.5 rounded-full bg-current opacity-0 group-hover:opacity-100" />
+  </button>
+))}
+```
+
+Larger touch target + jump-to-previous-step UX.
+
+---
+
+## §F36 — OnboardingWizard `<AnimatePresence mode="wait">` cu `key={step}` — la exit precedent + enter următor, textul poate să fie mid-fade cu next-step content overlaid ~180ms
+
+`OnboardingWizard.tsx:78-93`:
+```tsx
+<AnimatePresence mode="wait">
+  <motion.div
+    key={step}
+    variants={stepVariants}
+    initial="enter"
+    animate="center"
+    exit="exit"
+    transition={{ duration: 0.18, ease: 'easeOut' }}
+  >
+    {step === 0 && <WelcomeStep />}
+    ...
+```
+
+`mode="wait"` = așteaptă exit înainte de enter. Bun. Dar 180ms × 2 = 360ms total tranziție per step change. User care apasă Next rapid (multi-clicks) → animation queue up → jarring.
+
+Testat manual imposibil (fără dev-server), dar visual code pattern:
+- User click Continue → button disabled? NU explicit. `disabled={!canProceed}` doar pentru personalize (line 158).
+- Multiple rapid clicks pe Continue → multiple `next()` calls → step advances repede fără render intermediate — dar `mode="wait"` blochează renders → stack.
+
+**Fix**: disable Continue button pe durata animation:
+
+```tsx
+const [transitioning, setTransitioning] = useState(false);
+
+const handleNext = () => {
+  setTransitioning(true);
+  next();
+  setTimeout(() => setTransitioning(false), 250);
+};
+
+<button ... disabled={!canProceed || transitioning} onClick={handleNext}>
+```
+
+Sau folosește AnimatePresence's `initial={false}` + track animating via onAnimationComplete.
+
+---
+
+## §F37 — OnboardingWizard `LocalBranch::TIER_MODELS` — pinned model repos `bartowski/Qwen_Qwen3.5-*` — dacă repo redenumite/deprecated pe HF, download eșuează → wizard blocked
+
+`OnboardingWizard.tsx:349-355`:
+```tsx
+const TIER_MODELS: Record<string, ...> = {
+  '1–2B':   { repoId: 'bartowski/Qwen_Qwen3.5-2B-GGUF',  filename: 'Qwen_Qwen3.5-2B-Q4_K_M.gguf',  ... },
+  '3–4B':   { repoId: 'bartowski/Qwen_Qwen3.5-4B-GGUF',  ... },
+  '7–8B':   { repoId: 'bartowski/Qwen_Qwen3.5-9B-GGUF',  ... },
+  '13–14B': { repoId: 'bartowski/Qwen_Qwen3.5-27B-GGUF', ... },
+};
+```
+
+Comentariul (line 341-347) admite: *"Calibration knob — re-verify these repos/files resolve on Hugging Face before each release; swap when a better small model ships. An unresolvable repo makes the one-click download fail."*
+
+Dependency externă TARE. HuggingFace repos pot fi:
+- Redenumite de autor.
+- Deprecated (autor scoate versiuni vechi).
+- Yanked pentru safety issues.
+- Rate-limited pentru HF anonymous (401/403).
+
+Un download fail pe onboarding = user experience oribil. `LocalBranch` (line 626) arată "Download failed: {error}" — dar user nu poate face rien alt decât Skip.
+
+**Fix**:
+1. **Server-side manifest**: în loc de hardcoded, fetch de la `https://littlebeast.ai/onboarding-manifest.json` care returnează current recommended models per tier. Actualizabil fără releasu Feral nou.
+2. **Fallback la Ollama detection**: dacă HF fail, check if Ollama installed (`http://localhost:11434/api/tags`) și oferă un default model de acolo.
+3. **Multiple candidates per tier**: dacă primul repo fail, încearcă al doilea automat.
+
+Currently: single point of failure pe HF availability.
+
+---
+
+## §F38 — OnboardingWizard `ProviderStep::CURATED_PROVIDERS` — verbose steps ("Copy the key now (it's shown only once)") îngroapă flow — user care abandonează pe step 3 e cel mai frecvent drop-off
+
+Line 358-416 — 4 providers × ~4 fields fiecare = 60+ linii de text. `steps` per provider = 3 pași instrucționali:
+
+```ts
+steps: [
+  'Sign in at platform.openai.com',
+  'Settings → API keys → "Create new secret key"',
+  'Copy the key now (it\'s shown only once) and paste it below',
+],
+```
+
+Rendered ca `<ol list-decimal>`. User citește 3 pași × 4 providers dacă face compare = 12 pași = intimidating.
+
+**Recomandare UX**: 
+1. Doar arată steps ALE providerului SELECTED (deja e case în code — line 767-772). OK.
+2. Dar steps sunt pretty verbose. Truncate la 2 essential:
+   - "Get key at {URL}"
+   - "Paste below"
+3. "Details" collapsible pentru steps 1-3 detaliate.
+
+Aparent minor, dar drop-off UX at onboarding step 3 is universally #1 loss point în SaaS onboarding.
+
+---
+
+## §F39 — OnboardingWizard `CloudProviderForm` password input mask + no reveal button → user nu poate verifica dacă a paste-uit corect
+
+`OnboardingWizard.tsx:774-781`:
+```tsx
+<input
+  type="password"
+  value={apiKey}
+  onChange={(e) => setApiKey(e.target.value)}
+  placeholder={def.keyPlaceholder}
+  className="w-full px-3 py-2 rounded-lg border border-border-default bg-bg-primary text-sm text-text-primary font-mono placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+  aria-label={`${def.name} API key`}
+/>
+```
+
+`type="password"` maschează. Dar user paste-uiește un key lung de 100+ chars, vede doar `••••••••`, apasă Test → "invalid key". Nu poate verifica dacă a paste-uit `sk-xxx` sau `sk-xxx  ` cu spații trailing.
+
+**Fix**: add reveal toggle:
+
+```tsx
+const [reveal, setReveal] = useState(false);
+<div className="relative">
+  <input type={reveal ? 'text' : 'password'} ... />
+  <button
+    type="button"
+    onClick={() => setReveal(!reveal)}
+    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-muted"
+    aria-label={reveal ? 'Hide key' : 'Show key'}
+  >
+    {reveal ? <EyeOff size={14} /> : <Eye size={14} />}
+  </button>
+</div>
+```
+
+Standard pattern (GitHub, Stripe, Vercel toate au reveal button).
+
+---
+
+## §F40 — OnboardingWizard `handleTest` + `handleSave` NU trim whitespace pe apiKey → user paste cu `\n` trailing → save cu newline → next API call 401 unexplained
+
+`OnboardingWizard.tsx:735-749`:
+```tsx
+const [apiKey, setApiKey] = useState('');
+...
+const handleTest = async () => {
+  ...
+  const r = await testByokProvider({ providerId: def.id, apiKey, baseUrl: null });
+```
+
+`apiKey` este direct din `<input>`. Un user copy-paste de la browser (double-click select în URL bar sau textarea) prinde adesea whitespace trailing. `.trim()` lipsă → key saved cu spații → `Bearer sk-xxx\n` header → server 401.
+
+**Fix**:
+```tsx
+const handleTest = async () => {
+  const trimmedKey = apiKey.trim();
+  if (!trimmedKey) { setMsg({ ok: false, text: 'Enter a key first' }); return; }
+  setBusy(true); setMsg(null);
+  try {
+    const r = await testByokProvider({ providerId: def.id, apiKey: trimmedKey, baseUrl: null });
+    ...
+```
+
+Similar `handleSave`. Trim standard defensiv.
+
+---
+
+## §F41 — MascotPerch `startIdleSequence` — timer stack DEEP nested cu callbacks care fire după unmount
+
+`MascotPerch.tsx:99-160`:
+```tsx
+const startIdleSequence = () => {
+  if (idleCycleCount.current >= GAMING_TRIGGER_CYCLES) {
+    idleCycleCount.current = 0;
+    setRenderState('gaming');
+    timers.current.push(window.setTimeout(() => {
+      setRenderState('idle');
+      startGamingSequence();
+    }, GAMING_MS));
+    return;
+  }
+
+  timers.current.push(window.setTimeout(() => {
+    setRenderState('curious');
+    timers.current.push(window.setTimeout(() => {
+      // Step 3
+      timers.current.push(window.setTimeout(() => {
+        // Step 4
+        timers.current.push(window.setTimeout(() => {
+          // Step 5
+          timers.current.push(window.setTimeout(() => {
+            // Step 6
+            timers.current.push(window.setTimeout(() => {
+              startIdleSequence();  // ← RECURSIVE
+            }, EXPRESSIVE_MS));
+          }, STRETCHING_MS));
+        }, SLEEP_AFTER_RUN_MS));
+      }, LEG_MS));
+    }, LEG_MS));
+  }, CURIOUS_DELAY_MS));
+};
+```
+
+`clearTimers` cleanup din useEffect (line 78-81) elimină `timers.current` — dar dacă un timer INTERMEDIAR firește ÎN TIMPUL cleanup-ului (edge case timer fires, callback runs, adaugă noi timers la `timers.current` care e deja rulat), noi timers escapă.
+
+Actual `clearTimers()` face `timers.current.forEach(clearTimeout); timers.current = []`. După cleanup, dacă timer's callback runs (rare race), `timers.current.push(...)` adaugă în new empty array — dar effect cleanup deja completed → array escapes → next render creates new effect → orphan timers running.
+
+**Fix**: guard cu `mounted` flag:
+
+```tsx
+const mountedRef = useRef(true);
+useEffect(() => () => { mountedRef.current = false; }, []);
+
+const startIdleSequence = () => {
+  if (!mountedRef.current) return;
+  ...
+  timers.current.push(window.setTimeout(() => {
+    if (!mountedRef.current) return;
+    setRenderState('curious');
+    // etc.
+```
+
+Alternativ: unified state machine cu single-timer approach:
+
+```tsx
+type Phase = 'idle' | 'curious' | 'running_right' | 'running_left' | 'sleeping' | 'stretching' | 'expressive' | 'gaming';
+const PHASE_DURATION: Record<Phase, number> = { idle: 8000, curious: 10000, ... };
+
+useEffect(() => {
+  const [phase, setPhase] = useState<Phase>('idle');
+  const next = getNextPhase(phase);
+  const t = setTimeout(() => setPhase(next), PHASE_DURATION[phase]);
+  return () => clearTimeout(t);
+}, [phase]);
+```
+
+Simpler + more robust.
+
+---
+
+## §F42 — MascotPerch `MASCOT_W = 48` hardcoded, but `DISPLAY` size în FeralMascot may differ → mascot goes off-screen or overlaps input
+
+`MascotPerch.tsx:23`:
+```tsx
+const MASCOT_W = 48; // keep in sync with DISPLAY in FeralMascot
+```
+
+Comentariul admite fragility. Un `DISPLAY = 64` în FeralMascot fără update aici → travel bounds calc greșit → mascot travels 16px too far dreapta → sub margin sau peste input controls.
+
+**Fix**: expose from FeralMascot:
+
+```tsx
+// FeralMascot.tsx
+export const DISPLAY_WIDTH = 48;
+
+// MascotPerch.tsx
+import { DISPLAY_WIDTH as MASCOT_W } from './FeralMascot';
+```
+
+Sau: measure DOM element cu `useRef` + `getBoundingClientRect`:
+
+```tsx
+const mascotRef = useRef<HTMLDivElement>(null);
+useEffect(() => {
+  const el = mascotRef.current;
+  if (el) mascotWidthRef.current = el.getBoundingClientRect().width;
+}, []);
+```
+
+Dinamic, robust.
+
+---
+
+## §F43 — MascotPerch `DustPuff` — inline styles + hardcoded `zIndex: 9` → conflict cu ToolCallBubble z-20 sau altele
+
+Line 27-52:
+```tsx
+function DustPuff({ x }: { x: number }) {
+  ...
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        top: 8,
+        ...
+        zIndex: 9,
+```
+
+z-index 9. `MascotPerch` container are `z-10` (line 211). ToolCallStack are `z-20` (per `ToolCallStack.tsx:27`).
+
+Stack: mascot container z-10 > DustPuff z-9 (INSIDE mascot container — dar z-9 pe puff face-l invisibil sub even the mascot canvas dacă mascot canvas render pe z-auto (0)).
+
+Actually z-index e relative la stacking context. DustPuff cu z-9 relative la mascot container. FeralMascot canvas fără explicit z → z-auto. In stacking context defined by MascotPerch's `z-10`, DustPuff cu z-9 > canvas cu z-auto? Depinde de order în DOM. In JSX, DustPuffs come BEFORE mascot wrapper (line 200-201). Deci DustPuffs mai devreme in DOM, dar cu z-9 explicit > auto → puffs OVER mascot.
+
+Vibe design intent: puffs UNDER mascot (pe pardoseală). Currently poate OVER.
+
+**Fix**: z-index puffs sub mascot:
+
+```tsx
+style={{ ..., zIndex: -1 }}  // sub mascot
+```
+
+Sau explicit z pe mascot canvas.
+
+---
+
+## §F44 — SearchOverlay: `restoreFocus` prin `document.activeElement` — dacă originator element demonated până when overlay close, focus lost în null → keyboard trap
+
+`SearchOverlay.tsx:55-59`:
+```tsx
+useEffect(() => {
+  const prev = document.activeElement as HTMLElement | null;
+  inputRef.current?.focus();
+  return () => prev?.focus?.();
+}, []);
+```
+
+`prev` capturat la mount. Overlay open 30s while user searches. User navigates via Escape → overlay closes → restore focus la `prev`. Dar dacă `prev` was inside a component demontat între open + close (rare), focus fails → tab starts from body → keyboard user lost.
+
+**Fix**: verify element still in DOM:
+
+```tsx
+return () => {
+  if (prev && document.body.contains(prev)) {
+    prev.focus?.();
+  }
+};
+```
+
+Micro but proper.
+
+---
+
+## §F45 — SearchOverlay: `runSearch` iterates through ALL conversations + full content per query char → performance cliff pe user cu 500+ conversații
+
+`SearchOverlay.tsx:71-115`:
+```tsx
+const runSearch = useCallback(async (q: string) => {
+  ...
+  // Immediate title matches
+  const titleMatches = allConvs.filter(...);
+  setResults(titleMatches);
+
+  // Load uncached full conversations in background
+  const uncached = allConvs.filter((c) => !cacheRef.current.has(c.id));
+  await Promise.all(
+    uncached.map(async (c) => {
+      try {
+        const full = await tauri.conversations.load(c.id);
+        cacheRef.current.set(c.id, full);
+      } catch { /* skip unloadable convs */ }
+    }),
+  );
+  ...
+}, [allConvs]);
+```
+
+Debounce 150ms. Prima query char → load ALL uncached conversations (poate 500 fișiere JSON). RAM spike + IPC storm.
+
+Cache ajută pentru queries subsequent. Dar FIRST query = latency + potential OOM pe user cu 5000 conversations.
+
+**Fix**: incremental loading + display results as they come:
+
+```tsx
+const runSearch = useCallback(async (q: string) => {
+  if (!q.trim()) { setResults([]); return; }
+  const lower = q.toLowerCase();
+  const results: SearchResult[] = [];
+
+  // 1. Immediate title matches — cheap, all in memory.
+  for (const c of allConvs) {
+    if (c.title.toLowerCase().includes(lower)) {
+      results.push({ conv: c, snippet: null });
+    }
+  }
+  setResults([...results]);
+  if (results.length >= 20) return;   // enough — user rarely scrolls past 20
+
+  // 2. Content search — but stream results as they load.
+  const CONCURRENCY = 5;
+  const chunks: ConversationSummary[][] = [];
+  for (let i = 0; i < allConvs.length; i += CONCURRENCY) {
+    chunks.push(allConvs.slice(i, i + CONCURRENCY));
+  }
+  for (const chunk of chunks) {
+    await Promise.all(chunk.map(async (c) => {
+      // ... load + search + push to results
+    }));
+    setResults([...results]);   // progressive update
+    if (results.length >= 50) return;   // hard cap
+  }
+}, [allConvs]);
+```
+
+Sau, better: server-side full-text search via `tauri.conversations.searchFTS(q)` care folosește SQLite FTS5 (deja există per `db.ts:496`).
+
+---
+
+## §F46 — SearchOverlay: `highlight` function nu escape `query` — nu-i security issue (React auto-escape), dar visual bug: query cu `<` sau `>` char nu highlighteaza
+
+`SearchOverlay.tsx:12-26`:
+```tsx
+function highlight(text: string, query: string): React.ReactNode {
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-brand/30 text-text-primary rounded-sm not-italic">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+```
+
+Only highlights first match. Un query `use` în text "How do I use useEffect?" — highlightează primul `use` doar. Următoarele apariții invisible.
+
+**Fix**: multi-match:
+
+```tsx
+function highlight(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const q = query.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let idx = 0;
+  const lower = text.toLowerCase();
+  let match: number;
+  while ((match = lower.indexOf(q, idx)) !== -1) {
+    if (match > idx) parts.push(text.slice(idx, match));
+    parts.push(
+      <mark key={match} className="bg-brand/30 text-text-primary rounded-sm not-italic">
+        {text.slice(match, match + query.length)}
+      </mark>
+    );
+    idx = match + query.length;
+  }
+  if (idx < text.length) parts.push(text.slice(idx));
+  return <>{parts}</>;
+}
+```
+
+---
+
+## §F47 — StreamingIndicator: 2 event subscribers, `unlistens.forEach((u) => u())` fires SYNCHRONOUSLY dar unlistens are async-populated
+
+`StreamingIndicator.tsx:52-59`:
+```tsx
+useEffect(() => {
+  const unlistens: Array<() => void> = [];
+  const set = (e: StreamProgressEvent) => setProgress(e);
+  events.streamProgressEvent.listen((e) => set(e.payload)).then((fn) => unlistens.push(fn));
+  events.onStreamProgress.listen(set).then((fn) => unlistens.push(fn));
+  return () => { unlistens.forEach((u) => u()); setProgress(null); };
+}, []);
+```
+
+Same pattern §235/§148 din runde anterioare. Effect cleanup runs sincron. Dacă cleanup fires înainte de `.then` (component unmount rapid), `unlistens = []` → nu cleanup nimic → listeners register-uite după cleanup → **leak**.
+
+Component `StreamingIndicator` render conditional în `MessageList`:
+```tsx
+{status === 'streaming' && messages[messages.length - 1]?.content === '' && (
+  <StreamingIndicator ... />
+)}
+```
+
+Mount doar când content === ''. Fiecare token deconvertește condition → unmount. Deci re-mount rapid = leak-uri accumulate.
+
+**Fix** identic §148:
+```tsx
+useEffect(() => {
+  let cancelled = false;
+  const unlisteners: Array<() => void> = [];
+  const set = (e: StreamProgressEvent) => setProgress(e);
+  Promise.all([
+    events.streamProgressEvent.listen((e) => set(e.payload)),
+    events.onStreamProgress.listen(set),
+  ]).then((fns) => {
+    if (cancelled) { fns.forEach((f) => f()); return; }
+    unlisteners.push(...fns);
+  });
+  return () => {
+    cancelled = true;
+    unlisteners.forEach((u) => u());
+    setProgress(null);
+  };
+}, []);
+```
+
+---
+
+## §F48 — ThinkingBlock `Spinner` — border-current-color hardcoded, dar `text-text-muted` schimbă cu theme → spinner OK. Dar `border-t-transparent` NU cover partial states — mid-transition color
+
+`ThinkingBlock.tsx:12-16`:
+```tsx
+function Spinner() {
+  return (
+    <span className="inline-block w-3 h-3 border-2 border-text-muted border-t-transparent rounded-full animate-spin" />
+  );
+}
+```
+
+`border-t-transparent` doar top-side transparent → spinner arată ca `⌒` open ring rotating. Standard.
+
+Nu-i bug. Skip.
+
+Dar `border-text-muted` folosește `--text-muted` = `#8C7E6A` — pe fundal `bg-bg-surface` = `#1C1916` → contrast 3.86 (per audit precedent §F1 error was 3.84, similar range) — spinner subtle dar visible. OK.
+
+**Skip §F48** — no bug.
+
+---
+
+## §F49 — ThinkingBlock content afișat `whitespace-pre-wrap font-mono` DAR fără max-height → mesaj thinking gigantic (deepseek-r1 poate genera 10k+ chars thinking) rupe layout chat
+
+`ThinkingBlock.tsx:56-59`:
+```tsx
+<div className="mt-2 pl-3 border-l border-border-subtle text-sm text-text-muted whitespace-pre-wrap font-mono">
+  {content}
+</div>
+```
+
+Fără `max-h` sau `overflow-y-auto`. Un thinking block cu 500 linii ocupă întreg viewport. User trebuie să scroll manual prin gânduri modelului să găsească răspuns real.
+
+**Fix**: cap înălțime + scroll interior:
+```tsx
+<div className="mt-2 pl-3 border-l border-border-subtle text-sm text-text-muted whitespace-pre-wrap font-mono max-h-96 overflow-y-auto">
+  {content}
+</div>
+```
+
+Sau: prima N chars + "Show more" button.
+
+---
+
+## §F50 — ContextRing `ringColor` folosește CSS vars `var(--c-red, #ef4444)` care NU-s definite în globals.css
+
+`ContextRing.tsx:47-50`:
+```tsx
+const ringColor =
+  pct >= 0.9 ? 'var(--c-red, #ef4444)'
+  : pct >= 0.75 ? '#f59e0b'
+  : 'var(--color-text-muted, #888)';
+```
+
+`--c-red` NU în globals.css. `--color-text-muted` NU în globals.css (real var e `--text-muted`).
+
+Fallback values kick in:
+- 90%+ → `#ef4444` (Tailwind red-500) — NOT palette-aware.
+- 75-90% → `#f59e0b` (Tailwind amber-500) — hardcoded.
+- Sub 75% → `#888` gray — hardcoded.
+
+Rezultat: ring colors HARDCODED, nu respectă theme. Palette warm brown → ring cu red-500 = jarring, out of place.
+
+**Fix**: use existing palette vars:
+```tsx
+const ringColor =
+  pct >= 0.9 ? 'var(--error)'
+  : pct >= 0.75 ? 'var(--warning)'
+  : 'var(--text-muted)';
+```
+
+`--error`, `--warning`, `--text-muted` toate definite pentru dark + light. Theme-aware.
+
+---
+
+## §F51 — ContextRing division by zero când `ctxWindow = 0` (edge case: no model loaded dar messages > 0)
+
+`ContextRing.tsx:41`:
+```tsx
+const pct = Math.min(1, used / ctxWindow);
+```
+
+Dacă `ctxWindow === 0` (model not loaded, but `messages.length > 0` — un edge case dacă user avea chat cu model care s-a unloaded silent), `used / 0 = Infinity` → `Math.min(1, Infinity) = 1` → ring FULL red.
+
+Nu-i crash, dar misleading — "context full" când context necunoscut.
+
+**Fix**:
+```tsx
+const pct = ctxWindow > 0 ? Math.min(1, used / ctxWindow) : 0;
+```
+
+Ring empty când no model. Meaningful state.
+
+---
+
+## §F52 — MemoryLayersPage folosește `formatClock` care doesn't respect user locale time format (12h vs 24h)
+
+`MemoryLayersPage.tsx:54-59`:
+```tsx
+function formatClock(ts: number): string {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+```
+
+Hardcoded 24-hour format `HH:MM`. Users US default 12h AM/PM.
+
+**Fix**: use `toLocaleTimeString`:
+```tsx
+function formatClock(ts: number, locale?: string): string {
+  return new Date(ts).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+}
+```
+
+Similar `MessageItem.tsx:253` — deja face `toLocaleTimeString(undefined, {...})`. Consistent OK acolo, aici hardcoded — divergență.
+
+---
+
+## §F53 — Sidebar `<Sidebar>` header `"Feral"` label + `SkillHubDrawer`, `OnboardingOrchestrator` — rebrand blockers cataloged
+
+Deja parte din §F16, dar completing catalog:
+
+Hardcoded "Feral" în UI-facing text:
+1. `Sidebar.tsx:240` — logo text.
+2. `AppearanceTab.tsx:50` — "Pick how Feral looks".
+3. `OnboardingWizard.tsx:183` — "Welcome to Feral".
+4. `OnboardingWizard.tsx:230` — hint "leave 'Feral'".
+5. `OnboardingWizard.tsx:236` — placeholder "Feral".
+6. `OnboardingWizard.tsx:269, 812` — fallback `'Feral'`.
+7. `useFeral.ts:469` — notification "Feral Agent stopped".
+8. `MemoryLayersPage.tsx:23, 197` — "Feral's Dreams", "Feral is exploring".
+9. `FeralDreamsPanel.tsx:590-591, 747` — text în panel.
+10. `EmptyStates.tsx:11` — `BYOK_DISCLAIMER_KEY = 'feral.agentByokDismissed'`.
+11. Component names: `FeralMascot`, `FeralModelSelector`, `FeralGlobalMount`, `FeralDreamsPanel`, `useFeral`, `useFeralStore`.
+
+**Recomandare rebrand pattern**:
+```ts
+// lib/brand.ts
+export const APP_NAME = 'LittleBeast' as const;
+export const APP_NAME_LOWER = 'littlebeast' as const;
+export const AGENT_DEFAULT_NAME = APP_NAME;
+
+// Migration table for stored values
+export const LEGACY_BRAND_NAMES = ['Feral', 'feral'] as const;
+```
+
+Toate `'Feral'` string-uri UI-facing → `{APP_NAME}` sau `${APP_NAME}`. Doar 1 loc de update la rebrand.
+
+Component names păstrate (`FeralMascot` etc) pentru compat internal, sau bulk rename într-un PR separate.
+
+---
+
+## §F54 — Zero responsive design — 23 apeluri Tailwind size prefixes total (`sm:/md:/lg:/xl:`) pe TOT frontend-ul, doar 1 folosit pentru grid layout
+
+Grep results:
+- Total `sm:/md:/lg:/xl:` in components/pages: **23 hits**.
+- Doar 1 în chat/pages care e non-trivial: `MemoryLayersPage.tsx:332` `grid-cols-2 sm:grid-cols-4`.
+- ChatPage, Sidebar, Settings, Onboarding — TOATE fixed layouts (max-w-2xl, max-w-3xl, etc.).
+
+**Impact**: Tauri desktop app default 1000×700 window. User resize la 400×600 (split-screen sau half-monitor): 
+- Sidebar 240px + main padding 16px + content 400-256 = 144px width pentru content.
+- Chat max-w-2xl = 672px → chat content overflow → horizontal scroll.
+- Onboarding wizard max-w-2xl → same issue.
+- Message bubbles max-w-[75%] = tiny on narrow window.
+
+Nu-i mobile app, dar user with narrow window has broken UX.
+
+**Fix**: min window size în `tauri.conf.json`:
+```json
+"windows": [{
+  "minWidth": 800,
+  "minHeight": 600,
+  ...
+}]
+```
+
+Simplu. Prevents user din a resize sub un breakpoint.
+
+Sau: responsive fallback în CSS pentru narrow — sidebar auto-collapses la <768px:
+```tsx
+// În useUI store:
+const isNarrow = window.innerWidth < 768;
+useEffect(() => {
+  if (isNarrow && !sidebarCollapsed) setSidebarCollapsed(true);
+}, [isNarrow]);
+```
+
+---
+
+## §F55 — Toate `<img>` din ConnectorsPage/ExtensionsPage folosesc `alt=""` — decorative pattern, dar logo-ul e informational nu decorative
+
+`ConnectorsPage.tsx:288`, `ExtensionsPage.tsx:217`, `ExtensionsPage.tsx:363`:
+```tsx
+<img
+  src={entry.logo_url}
+  alt=""       // ← empty alt = decorative
+  ...
+/>
+```
+
+`alt=""` = image decorative, screen reader skip. Dar aceste imagini sunt logo-uri de connectors/extensions:
+- "Discord" logo — informational pentru user care distinguish între connectors.
+- "OpenAI" logo — same.
+
+Fără alt text, screen reader user vede doar `entry.name` (text alături) — inadequate context. Ar trebui `alt={entry.name + ' logo'}` sau `alt={entry.name}`.
+
+`AttachedFileChip.tsx:42` — `alt={file.name}` — correct pattern for images.
+
+**Fix**: 
+```tsx
+<img src={entry.logo_url} alt={`${entry.name} logo`} ... />
+```
+
+---
+
+## §F56 — Icon-buttons cu `aria-label` dar tooltip missing → screen reader spune "Minimize" dar mouse user hover 3 sec fără feedback
+
+WinControls (`AppShell.tsx:20-49`) și DownloadButton (`Sidebar.tsx:64-70`) au `aria-label` dar NU tooltip vizual.
+
+Mouse user hoveră "≡" icon din WinControls — fără tooltip nu știe ce e (unless intuit de layout top-right = window controls).
+
+**Fix**: wrap cu Tooltip:
+```tsx
+<Tooltip>
+  <TooltipTrigger asChild>
+    <button aria-label="Minimize" onClick={...}>
+      <Minus size={13} />
+    </button>
+  </TooltipTrigger>
+  <TooltipContent>Minimize</TooltipContent>
+</Tooltip>
+```
+
+Consistent cu Sidebar menu rows care AU Tooltip. Pattern inconsistent — some places tooltip, others no.
+
+---
+
+## §F57 — `main.tsx` — `JSON.parse(localStorage.getItem('feral-ui') || '{}')` — corrupt localStorage value crash app pe boot
+
+`main.tsx:11`:
+```tsx
+const stored = JSON.parse(localStorage.getItem('feral-ui') || '{}');
+```
+
+Dacă `'feral-ui'` key contains invalid JSON (extension breaks it, user tampering, storage quota exceeded), `JSON.parse` throws → uncaught in `main.tsx` → app fails to boot → white screen.
+
+Zustand persist-uite states — dacă persist storage corrupted, no recovery UI.
+
+**Fix**: try/catch cu reset fallback:
+```tsx
+let stored: unknown = {};
+try {
+  stored = JSON.parse(localStorage.getItem('feral-ui') || '{}');
+} catch (err) {
+  console.error('[boot] corrupted feral-ui localStorage, resetting:', err);
+  localStorage.removeItem('feral-ui');
+  stored = {};
+}
+```
+
+Same for other Zustand persist keys.
+
+---
+
+## §F58 — SearchOverlay `.line-clamp-2` (line 208) pe snippet — dar snippet include highlight `<mark>` care poate să nu render în clamp corect pe Firefox
+
+`SearchOverlay.tsx:206-211`:
+```tsx
+{r.snippet && (
+  <div className="text-xs text-text-muted mt-0.5 line-clamp-2">
+    {highlight(r.snippet, query)}
+  </div>
+)}
+```
+
+`-webkit-line-clamp: 2` cu inline `<mark>` child works în WebKit/Blink OK. Firefox implemented line-clamp cu different bug — mark elements poate strip visual.
+
+Tauri = WebKit (macOS) / WebView2 = Chromium (Windows) / WebKitGTK (Linux). Line-clamp support consistent aici. OK pe Tauri stack. Skip.
+
+---
+
+## §F59 — Delete confirmation în Sidebar (`Sidebar.tsx:365-378`) folosește `bg-red-500` hardcoded → nu respectă theme error color
+
+Line 375:
+```tsx
+<button
+  ...
+  className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+>
+  {deleting ? 'Deleting…' : 'Delete'}
+</button>
+```
+
+`bg-red-500 #ef4444` = Tailwind default. Palette warm brown/orange defined `--error #C0472A` (per globals.css). Delete button jarring color choice — inconsistent cu restul UI-ului warm.
+
+Similar `text-red-400` folosit în multe locuri (`Sidebar.tsx:349, 380, 726`, `MessageItem.tsx:xxx`, etc.) — hardcoded Tailwind red în loc de `text-error`.
+
+**Fix**: unificați:
+```tsx
+className="px-3 py-1.5 text-sm rounded bg-error text-white hover:bg-error/90"
+```
+
+Sau creează `<Button variant="destructive">` — shadcn's Button.tsx already has this variant. Use consistent primitives.
+
+---
+
+## §F60 — MISCELANEE
+
+**§F60a** — `Sidebar.tsx::DownloadButton` popover deschide cu `align="end"` dar în collapsed state (sidebar 56px wide), popover-ul de 288px trece off-screen la stânga. Test: colapsat sidebar → click download → popover peste marginea window.
+
+**§F60b** — `MascotPerch::wrapRef?.current?.offsetParent as HTMLElement | null` (line 105) — depinde de position:relative pe ChatInput's parent. Dacă cineva schimbă positioning la ChatInput în viitor, offsetParent poate returna wrong element → mascot travel bounds greșite.
+
+**§F60c** — `AttachedFileChip` (line 42) — `<img src={file.dataUrl}>` fără size cap. Un file de 10MB data URL ca image → 10MB base64 în DOM. Multiple thumbnails × 5 files = 50MB in DOM strings. Fix: resize thumbnail via `<canvas>` la 40×40 înainte de display.
+
+**§F60d** — `OnboardingWizard::DiskEncryptionNotice` (line 833-880) render doar în DoneStep. Dacă user Skip la step 0, notice nu se afișează niciodată → user cu encryption off nu-i notificat. Fix: prompt separat post-onboarding dacă disk unencrypted.
+
+**§F60e** — `FeralModelSelector.tsx:23` — `LOCAL_PROVIDER_ID = 'feral-local'` — rebrand blocker. Depending on backend, poate să fie hardcoded și în Rust `src-tauri/src/commands/*`.
+
+**§F60f** — `useOrganismImpulse` (mentionat runda §165 din audit-ul precedent) — testat pentru mascot dar folosit generic în alte animații. Aceleași issues acolo.
+
+**§F60g** — Toast component (Toasts.tsx) — nu inspected, dar dacă folosește `dangerouslySetInnerHTML` pentru markdown în toasts, XSS via cron_fired content (§246 din runda 9 anterioară). Verify separat.
+
+**§F60h** — Route splitting cu `lazy()` (router.tsx:11-15) — nu are `errorElement` per route. Dacă lazy chunk fails să încarce (network hiccup, deployment mid-download), user vede blank pagina fără fallback. Adaugă `errorElement={<PageLoadError />}` per route.
+
+**§F60i** — `SettingsPage::CATS` (line 16-24) — 8 tabs, all rendered as buttons in aside sidebar. La window height mic (600px), 8 × ~34px per row = 272px + drag strip + padding = ~320px. OK pe 600px+ windows. Dar layout nu are scroll indicator dacă tabs overflow.
+
+**§F60j** — `useAppVersion` hook returns string | null. Se fetchează async din Tauri. Sidebar footer arată `v${appVersion}` (line 297) — dar dacă `appVersion === "0.1.0"`, arată `v0.1.0`. Dacă `appVersion === null` (fetch fail), arată empty. Cu fallback fix propus §F20 → `v—`. Small consistency.
+
+**§F60k** — `MemoryLayersPage` — nu are error state când `tauri.raw.rsiStatus()` fails (network, sidecar down). Component render empty. User confuz.
+
+**§F60l** — `ThinkingBlock::Spinner` — border 2px pe 12×12 span → visually chunky. Better border-1 pentru small spinner.
+
+**§F60m** — `OnboardingWizard::StepNavigation` bottom bar Back + Continue buttons — `disabled={step === 0}` pe Back când primul step. OK. Dar utilizator ATRAS de "Back" button vede-l disabled → doesn't know why. Add tooltip: "First step — no previous".
+
+**§F60n** — `MessageList::pb-48` (line 38) padding bottom 12rem = 192px hardcoded pentru a lăsa loc chat input-ului. Dacă input înălțime schimbă (attached files chips add height), overlap. Măsură dinamic:
+
+```tsx
+const [inputH, setInputH] = useState(96);   // default
+useEffect(() => {
+  const input = document.querySelector('[data-chat-input]');
+  if (input) {
+    const ro = new ResizeObserver(() => setInputH(input.clientHeight));
+    ro.observe(input);
+    return () => ro.disconnect();
+  }
+}, []);
+
+<div style={{ paddingBottom: inputH + 24 }}>
+```
+
+**§F60o** — `AppShell::UpdateToast + Toasts` (line 88-92) — `pointer-events-none` pe container plus `pointer-events-auto` pe children implicit. Dacă child NU set explicit → click passes through în app UI dedesubt. Verify că `UpdateToast` și `Toast` interne fac `pointer-events-auto`.
+
+**§F60p** — `ChatInput::onMic` — `if (rec.error === 'denied')` check DUPĂ `await rec.start()` (line 106-108). Dar `rec.error` este `useState` din useVoiceRecorder → un update state e async. `await rec.start()` termina, dar `rec.error` din current closure poate NOT reflect noul error state. Race — error toast may or may not fire.
+
+---
+
+## Summary total (round 1 + round 2)
+
+**~60 findings total** frontend audit (§F1-§F60 + subsections).
+
+**Runda 2 adăugări (30 findings §F31-§F60):**
+- **Rebrand surface**: §F31, §F32, §F53, §F60e (localStorage keys + hardcoded "Feral" strings — 11 catalogued locations)
+- **Onboarding UX**: §F34 (skip vs defer confusion), §F35 (progress dots size + interactivity), §F36 (rapid-click animation stack), §F37 (HF repo dependency fragile), §F38 (verbose provider steps), §F39 (no password reveal), §F40 (whitespace trim missing)
+- **MascotPerch complexity**: §F41 (deep-nested timer cleanup), §F42 (MASCOT_W hardcoded sync fragility), §F43 (DustPuff z-index conflict)
+- **Search bugs**: §F44 (focus restore null check), §F45 (perf cliff 500+ conversations), §F46 (single-match highlight)
+- **Streaming**: §F47 (unlistens race pattern — repeat §148 pattern), §F49 (ThinkingBlock unbounded height)
+- **ContextRing**: §F50 (CSS vars nonexistent), §F51 (div by zero)
+- **Cross-platform**: §F52 (24h locale not respected), §F55 (empty alt on informational logos)
+- **Responsive**: §F54 (0 responsive design — need min window size in tauri.conf.json)
+- **Delete UX**: §F59 (bg-red-500 hardcoded, ignores palette)
+- **Boot safety**: §F57 (corrupt localStorage crashes on parse)
+- **Misc**: §F60a-p (16 sub-findings)
+
+**Prioritate suplimentară pentru fix pre-rebrand:**
+1. **§F31, §F32, §F53** — hardcoded "Feral" + centralize în `lib/brand.ts` (foundation pentru rebrand painless).
+2. **§F57** — localStorage corrupt crashes boot — high blast radius bug.
+3. **§F50** — ContextRing colors ignore theme.
+4. **§F54** — set min window size în tauri.conf.json (5-min fix, prevents 100% of narrow-window layout breakage).
+5. **§F41** — MascotPerch timer cleanup + state machine refactor.
+6. **§F47** — StreamingIndicator listener leak.
+7. **§F37** — Onboarding HF repo dependency — needs server-side manifest.
+8. **§F45** — Search performance cliff.
+9. **§F49** — Thinking block unbounded — clip cu max-h.
+10. **§F39, §F40** — Password reveal + trim — quick UX wins.
