@@ -1,7 +1,12 @@
 /* highlight.js themes must come before @tailwind to satisfy CSS @import order */
 @import 'highlight.js/styles/atom-one-dark.css';
-/* Inter — the app typeface, bundled locally (no CDN requests). */
-@import '@fontsource-variable/inter';
+/* Geist — the app typeface, bundled locally (no CDN requests, and none can be
+   made: the app runs under a CSP that blocks external hosts).
+   Replaces Inter. Both are workhorse UI faces; Geist is drawn with slightly
+   tighter defaults and a squarer bowl, which is the difference people read as
+   "made recently". The type scale in tailwind.config already carries the
+   negative tracking the display sizes need. */
+@import '@fontsource-variable/geist';
 
 @tailwind base;
 @tailwind components;
@@ -9,7 +14,7 @@
 
 @layer base {
   html {
-    font-family: 'Inter Variable', Inter, system-ui, sans-serif;
+    font-family: 'Geist Variable', Geist, system-ui, sans-serif;
   }
 }
 
