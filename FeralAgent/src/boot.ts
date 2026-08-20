@@ -2146,9 +2146,9 @@ export async function boot(transportOverride?: Transport) {
     // An exact marker, printed once, at the point where the transport is up
     // and the tools are live. Match it exactly on the other side.
     //
-    // Not spelled FERAL_SOMETHING: the env-var documentation check scans the
-    // source for that shape and would demand this be documented as a setting,
-    // which it is not.
+    // Deliberately not shaped like an environment variable: the env-var
+    // documentation check scans the source for that shape and would demand
+    // this be documented as a setting, which it is not.
     log(READY_MARKER);
     // Start any enabled inbound connectors (Discord, …) now that the agent and
     // its tools are live. Best-effort: failures log to stderr, never crash.

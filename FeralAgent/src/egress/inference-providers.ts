@@ -603,6 +603,20 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     // the trailing non-whitespace run of reasoning until we see what follows:
     // more reasoning → it was reasoning, flush it; a lowercase word-char in
     // content with no space → it continues the word, move it into the answer.
+    // Unicode, not ASCII. These two tests used to be /\w$/ and /^[a-z0-9]/,
+    // which are ASCII-only in JavaScript — so a Romanian word split across the
+    // seam never healed: "stăte" + "ăm" failed the second test on the "ă",
+    // and the answer began mid-word with the rest stranded inside <think>.
+    // Every language whose letters live outside A-Z had the same problem, on
+    // every provider that streams reasoning separately.
+    // Unicode, not ASCII. These two tests were /w$/ and /^[a-z0-9]/, which
+    // are ASCII-only in JavaScript — so a Romanian word split across the seam
+    // never healed: "stăte" + "ăm" fails the second test on the "ă", and the
+    // answer begins mid-word with the rest stranded inside <think>. Every
+    // language whose letters live outside A-Z had the same problem, on every
+    // provider that streams reasoning separately from content.
+    const SEAM_TAIL_END = /[\p{L}\p{N}]$/u;
+    const SEAM_HEAD_CONT = /^[\p{Ll}\p{N}]/u;
     let reasoningTail = "";
     const flushReasoningTail = (): void => {
       if (reasoningTail) { emitPiece(reasoningTail); reasoningTail = ""; }
@@ -661,7 +675,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
             // ponytail: heuristic seam heal. A held tail ending in a word char
             // followed by a lowercase word-char with no space is a split word
             // → move the tail into the answer. Otherwise it was real reasoning.
-            if (reasoningTail && /\w$/.test(reasoningTail) && /^[a-z0-9]/.test(token)) {
+            if (reasoningTail && SEAM_TAIL_END.test(reasoningTail) && SEAM_HEAD_CONT.test(token)) {
               closeReasoning();
               emitPiece(reasoningTail);
               reasoningTail = "";
