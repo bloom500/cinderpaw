@@ -424,11 +424,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             dragOver ? 'border-brand border-dashed bg-bg-hover' : 'border-border-default',
           )}
         >
-          {/* Only in a conversation. The perch exists to show what is running
-              — it walks the edge and carries the tool-call stack — and on an
-              empty Home nothing is running, so it was a sprite stuck to a field
-              for no reason. Home shows it centred above the greeting instead. */}
-          {!isEmpty && <MascotPerch baseState={mascotState} />}
+          {/* Always. The perch is not decoration: it walks the composer's edge
+              and carries the tool-call stack, so it is how a person sees WHAT
+              is running. Hiding it on Home removed a working feature to fix a
+              spacing complaint — the fix was room above the composer, which the
+              greeting now leaves. */}
+          <MascotPerch baseState={mascotState} />
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
               {attachedFiles.map((f) => (

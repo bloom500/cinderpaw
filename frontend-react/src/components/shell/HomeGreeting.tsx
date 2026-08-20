@@ -1,5 +1,4 @@
 import { useT } from '@/lib/i18n';
-import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
 
 /**
  * The time of day, then the one question.
@@ -27,15 +26,10 @@ export function HomeGreeting() {
     // greeted, and one big line that says what to do next. Two equal lines read
     // as a paragraph, and a paragraph is not an invitation.
     //
-    // The mascot is that mark. It used to perch on the composer's top edge,
-    // where it read as a sticker stuck on the field; centred above the
-    // greeting it is the brand mark the layout was missing. It still walks the
-    // composer edge during a conversation, which is where its job — showing
-    // what is running — actually exists.
+    // The mascot stays on the composer, where it belongs: it walks that edge
+    // and carries the tool-call stack, which is how anyone sees what is
+    // running. What it needed was air above the field, not a new home.
     <div className="mb-8 flex flex-col items-center text-center select-none">
-      <div className="mb-5">
-        <FeralMascot state="idle" />
-      </div>
       <p className="text-base text-text-muted">{t(greetingKey())}</p>
       <h1 className="mt-1 text-3xl leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
         {t('home.ask')}

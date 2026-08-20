@@ -73,7 +73,8 @@ export function AppShell() {
           title": the page starts below it, so what shows through the glass is
           the page's own background rather than text the nav is covering. */}
       <motion.main
-        animate={{ paddingLeft: (navCollapsed ? NAV_COLLAPSED_W : NAV_W) + 24 }}
+        // Collapsed leaves only room for the button that brings it back.
+        animate={{ paddingLeft: navCollapsed ? NAV_COLLAPSED_W + 60 : NAV_W + 24 }}
         transition={{ duration: 0.22, ease: 'easeInOut' }}
         className="absolute inset-0 flex flex-col overflow-hidden pt-3 pr-4"
       >

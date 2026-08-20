@@ -85,11 +85,19 @@ describe('SideNav', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it('collapsing hides the labels and the recent list, not the navigation', async () => {
+  it('collapsing removes the navigation entirely, leaving one way back', async () => {
     const user = userEvent.setup();
     useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
-    mount();
+    const view = mount();
     await user.click(screen.getByLabelText('Collapse navigation'));
     expect(useUI.getState().navCollapsed).toBe(true);
+
+    view.rerender(<MemoryRouter><SideNav /></MemoryRouter>);
+    // Not an icon rail: an unlabelled column of glyphs still costs width and
+    // still has to be decoded. Gone means gone.
+    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(screen.queryByText('Chats')).toBeNull();
+    // ...but never a dead end: something has to bring it back.
+    expect(screen.getByLabelText('Expand navigation')).toBeTruthy();
   });
 });

@@ -91,6 +91,25 @@ function mediaStream() {
   };
 }
 
+/**
+ * A note on the three tests below that still sleep for real.
+ *
+ * `await new Promise((r) => setTimeout(r, 500))` before raising `analyserLevel`
+ * is the same construct that made "rejects playback residue" flaky: the
+ * listening loop is a `setInterval` stamping frames with `Date.now()`, and how
+ * many frames land inside a real half-second depends on machine load.
+ *
+ * They are left alone because they are a milder case — the level they raise to
+ * is 0.24 rather than 0.08, well clear of the trigger, and the waiting is done
+ * by `waitFor` with a 2s budget rather than by the sleep itself. None of them
+ * failed across the runs that caught the other one repeatedly.
+ *
+ * If one ever does: the fix is the recipe in that test — `vi.useFakeTimers()`
+ * for the whole body, a `tick(ms)` helper wrapping `advanceTimersByTimeAsync`
+ * in `act`, and assertions instead of `waitFor`. Fake timers must be on before
+ * the interval is scheduled, so the setup has to be inlined rather than taken
+ * from `startTypedTurn`.
+ */
 async function startTypedTurn(send: (text: string) => Promise<void>) {
   const mic = mediaStream();
   vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce(mic.stream);
@@ -322,27 +341,65 @@ describe('useCallSession turn generation', () => {
     }
   });
 
+  /**
+   * Fake timers throughout, and not as a speed trick.
+   *
+   * This test used to set the analyser hot, sleep 400 REAL milliseconds, then
+   * set it quiet. The listening loop is a `setInterval` that reads the level
+   * and stamps it with `Date.now()`, and the barge-in detector needs a majority
+   * of a window of frames before it trips. How many frames arrive inside 400
+   * real milliseconds depends on what else the machine is doing — so on a busy
+   * box the window never filled, no utterance was ever started, and the test
+   * failed on a 2s timeout. It failed roughly one run in three here while a dev
+   * server and a browser were running, which is exactly the load a CI box has.
+   *
+   * Driving the clock instead makes the frame count exact: the same number of
+   * intervals fire, stamped with the same times, on any machine.
+   */
   it('rejects playback residue captured by the next recording', async () => {
-    const reply = 'Playback residue phrase from the speaker.';
-    transcribeVoiceBlob.mockResolvedValueOnce(reply);
-    const send = vi.fn(async () => {
-      useChat.setState({
-        messages: [{ id: 'assistant-1', role: 'assistant', content: reply, createdAt: Date.now() }],
-        streamStatus: 'done',
+    vi.useFakeTimers();
+    try {
+      const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+      const reply = 'Playback residue phrase from the speaker.';
+      transcribeVoiceBlob.mockResolvedValueOnce(reply);
+      const send = vi.fn(async () => {
+        useChat.setState({
+          messages: [{ id: 'assistant-1', role: 'assistant', content: reply, createdAt: Date.now() }],
+          streamStatus: 'done',
+        });
       });
-    });
-    const { result, unmount } = await startTypedTurn(send);
-    await waitFor(() => expect(speech.endSpeech).toHaveBeenCalledOnce());
-    await waitFor(() => expect(result.current.phase).toBe('listening'));
 
-    analyserLevel = 0.08;
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    analyserLevel = 0;
-    await waitFor(() => expect(transcribeVoiceBlob).toHaveBeenCalledOnce(), { timeout: 2_000 });
-    await waitFor(() => expect(result.current.phase).toBe('listening'));
+      const mic = mediaStream();
+      vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce(mic.stream);
+      const { result, unmount } = renderHook(() => useCallSession(send));
 
-    expect(send).toHaveBeenCalledOnce();
-    act(() => result.current.hangUp());
-    unmount();
+      act(() => result.current.open());
+      await act(async () => { await result.current.begin(); });
+      await tick(200);
+      expect(result.current.phase).toBe('listening');
+
+      act(() => result.current.say('first turn'));
+      await tick(500);
+      expect(speech.endSpeech).toHaveBeenCalledOnce();
+      expect(result.current.phase).toBe('listening');
+
+      // Speech, then silence. The residue the recorder picks up is the reply
+      // that was just spoken aloud, and the point of the test is that it does
+      // NOT come back as a new user turn.
+      analyserLevel = 0.08;
+      await tick(400);
+      analyserLevel = 0;
+      await tick(2_000);
+
+      expect(transcribeVoiceBlob).toHaveBeenCalledOnce();
+      expect(result.current.phase).toBe('listening');
+      expect(send).toHaveBeenCalledOnce();
+
+      act(() => result.current.hangUp());
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -27,7 +27,15 @@ import { cn } from '@/lib/utils';
  */
 
 export const NAV_W = 216;
-export const NAV_COLLAPSED_W = 60;
+/**
+ * Collapsed means gone, not narrow.
+ *
+ * An icon-only rail is the worst of both: it still costs width, and a column of
+ * unlabelled glyphs is a quiz. If someone asks for the navigation to go away,
+ * the honest answer is that it goes away — and one button, in the corner it
+ * left from, brings it back.
+ */
+export const NAV_COLLAPSED_W = 0;
 
 const NAV = [
   { to: '/chats',    icon: MessageSquare, label: 'Chats' },
@@ -189,6 +197,25 @@ export function SideNav() {
     window.dispatchEvent(new CustomEvent('feral:new-chat'));
   };
 
+  // Gone entirely, with one way back. Rendering it at width 0 would leave a
+  // focusable, screen-reader-visible navigation nobody can see.
+  if (collapsed) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="Expand navigation"
+          title="Expand navigation"
+          className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
+        >
+          <PanelLeftOpen size={19} />
+        </button>
+        <NewProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
+      </>
+    );
+  }
+
   return (
     <>
       <motion.nav
@@ -213,13 +240,11 @@ export function SideNav() {
           <button
             type="button"
             onClick={toggle}
-            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-            className={cn(
-              'p-1.5 rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-secondary cursor-pointer',
-              collapsed && 'mx-auto',
-            )}
+            aria-label="Collapse navigation"
+            title="Collapse navigation"
+            className="h-9 w-9 grid place-items-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer"
           >
-            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+            <PanelLeftClose size={19} />
           </button>
         </div>
 
