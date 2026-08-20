@@ -11,7 +11,7 @@ export function ChatHeader() {
     <div className="h-12 px-3 flex items-center gap-3 shrink-0 select-none">
       <span
         data-tauri-drag-region
-        className="text-sm text-text-muted/50 truncate flex-1 min-w-0 cursor-move"
+        className="text-sm text-text-muted truncate flex-1 min-w-0 cursor-move"
       >
         {/* No fallback title. On Home there is no conversation to name, and
             "New chat" in the corner labels a thing that does not exist yet —

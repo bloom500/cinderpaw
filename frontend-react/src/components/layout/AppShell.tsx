@@ -16,13 +16,18 @@ import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
 import { cn } from '@/lib/utils';
 
+// The `/40` these three carried never actually rendered: an opacity modifier on
+// a hex-in-a-var compiled to an unparseable colour, the declaration was dropped,
+// and they inherited full-strength text instead. Fixing the tokens made the 40%
+// real and turned the minimise / maximise / close controls into ghosts. Window
+// chrome is the one thing that must always be findable.
 function WinControls() {
   return (
     <div className="flex items-center shrink-0">
       <button
         type="button"
         onClick={() => void getCurrentWindow().minimize()}
-        className="h-8 w-10 flex items-center justify-center text-text-muted/40 hover:text-text-muted hover:bg-white/5 transition-colors"
+        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
         aria-label="Minimize"
       >
         <Minus size={13} strokeWidth={1.5} />
@@ -30,7 +35,7 @@ function WinControls() {
       <button
         type="button"
         onClick={() => void getCurrentWindow().toggleMaximize()}
-        className="h-8 w-10 flex items-center justify-center text-text-muted/40 hover:text-text-muted hover:bg-white/5 transition-colors"
+        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
         aria-label="Maximize"
       >
         <Square size={11} strokeWidth={1.5} />
@@ -39,7 +44,7 @@ function WinControls() {
         type="button"
         onClick={() => void getCurrentWindow().close()}
         className={cn(
-          'h-8 w-10 flex items-center justify-center text-text-muted/40 transition-colors',
+          'h-8 w-10 flex items-center justify-center text-text-muted/70 transition-colors',
           'hover:text-white hover:bg-red-500/80',
         )}
         aria-label="Close"

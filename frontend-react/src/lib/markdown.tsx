@@ -19,7 +19,7 @@ export function Markdown({ children, animateWords }: { children: string; animate
     ? [rehypeHighlight, rehypeWordFade]
     : [rehypeHighlight];
   return (
-    <div className="prose dark:prose-invert max-w-none text-text-primary prose-headings:text-text-primary prose-strong:text-text-primary prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none prose-a:text-brand prose-li:text-text-primary prose-p:text-text-primary">
+    <div className="prose dark:prose-invert max-w-none break-words [overflow-wrap:anywhere] text-text-primary prose-headings:text-text-primary prose-strong:text-text-primary prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none prose-a:text-brand prose-li:text-text-primary prose-p:text-text-primary">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins}
