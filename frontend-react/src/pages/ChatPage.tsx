@@ -6,6 +6,7 @@ import { useModel } from '@/stores/model';
 import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
+import { cn } from '@/lib/utils';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { HomeGreeting } from '@/components/shell/HomeGreeting';
 import { HomeIntents } from '@/components/shell/HomeIntents';
@@ -197,7 +198,14 @@ export function ChatPage() {
             transform: `translateY(${translateY}px)`,
             transition: 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
+          className={cn(
+            'absolute inset-x-0 bottom-0 z-20 pt-8',
+            // The fade exists to let a transcript slide out of sight behind the
+            // composer. On Home there is no transcript, and the gradient's
+            // opaque half became a hard horizontal seam across the scene the
+            // moment the theme tokens started honouring opacity at all.
+            !isEmpty && 'bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent',
+          )}
         >
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* #10: humanized inference errors with a fix-it action */}

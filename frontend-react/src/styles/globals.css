@@ -336,6 +336,8 @@
   /* Diffuse amber key light and restrained blue-violet counterlight. */
   --scene-key-light:     rgba(196, 132, 58, 0.50);
   --scene-counter-light: rgba(91, 97, 182, 0.38);
+  /* A third, wider wash so the middle of the canvas is lit too. */
+  --scene-fill-light:    rgba(140, 92, 176, 0.20);
   /* Grain and vignette strength, tuned per theme. */
   --scene-grain-opacity: 0.05;
   --scene-vignette:      rgba(8, 6, 4, var(--scene-vignette-strength));
@@ -354,10 +356,15 @@
 :root[data-theme="light"] {
   /* Warm ivory ground, never pure white. */
   --scene-base:          var(--bg-primary);
-  --scene-surface:       rgba(255, 245, 238, 0.70);
-  /* Amber sunlight and a cool blue-grey shadow light. */
-  --scene-key-light:     rgba(160, 104, 40, 0.30);
-  --scene-counter-light: rgba(96, 104, 180, 0.24);
+  /* Light mode had been left behind twice: first at 0.88, where no scene showed
+     through at all, then at 0.70 with lights half the strength of dark's. It
+     gets the same treatment now — a thinner pane and lights strong enough to
+     see, warmed for daylight rather than recoloured. */
+  --scene-surface:       rgba(255, 245, 238, 0.55);
+  /* Amber sunlight, a cool blue-grey shadow light, and a rose fill. */
+  --scene-key-light:     rgba(232, 168, 92, 0.55);
+  --scene-counter-light: rgba(128, 142, 214, 0.40);
+  --scene-fill-light:    rgba(214, 150, 190, 0.30);
   --scene-grain-opacity: 0.04;
   --scene-vignette:      rgba(92, 64, 36, var(--scene-vignette-strength));
   --scene-vignette-strength: 0.3;
@@ -404,14 +411,21 @@ body::after {
    drifting slowly. Radial gradient color stops are naturally soft — no
    blur filter needed. */
 body::before {
-  inset: -14%;
+  /* Generous overscan: the layer is transformed, and a light that reaches the
+     edge of the viewport must still have colour beyond it or the drift exposes
+     a hard boundary. */
+  inset: -30%;
   background-image:
-    radial-gradient(closest-side, var(--scene-key-light), transparent 72%),
-    radial-gradient(closest-side, var(--scene-counter-light), transparent 74%);
-  background-position: 26% 18%, 74% 84%;
+    radial-gradient(closest-side, var(--scene-key-light), transparent 78%),
+    radial-gradient(closest-side, var(--scene-counter-light), transparent 80%),
+    radial-gradient(closest-side, var(--scene-fill-light), transparent 82%);
+  background-position: 18% 12%, 82% 88%, 62% 34%;
   background-repeat: no-repeat;
-  background-size: 64% 64%, 60% 60%;
-  animation: scene-drift 80s ease-in-out infinite alternate;
+  /* Each light is bigger than the viewport. Two 64% blobs left most of the
+     canvas as flat base colour, which is what made this read as "a stain in
+     the corner" rather than as lighting. */
+  background-size: 125% 125%, 115% 115%, 100% 100%;
+  animation: scene-drift 34s ease-in-out infinite alternate;
   will-change: transform;
 }
 /* Grain: a small repeatable noise tile over everything, shifting subtly so
@@ -424,9 +438,14 @@ body::after {
   animation: scene-grain-shift 6s steps(8) infinite;
   will-change: transform;
 }
+/* A 2.5% move over 80 seconds is motion nobody will ever see: the eye reads it
+   as a still image, which is exactly what a scene meant to feel alive must not
+   be. Bigger travel, and a third of the duration. Still transform-only, still
+   one layer, so the cost per frame is unchanged. */
 @keyframes scene-drift {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to   { transform: translate3d(-2.5%, 1.8%, 0) scale(1.05); }
+  from { transform: translate3d(-4%, -3%, 0) scale(1.06) rotate(0deg); }
+  50%  { transform: translate3d(3%, 2%, 0) scale(1.14) rotate(1.5deg); }
+  to   { transform: translate3d(5%, -2%, 0) scale(1.08) rotate(-1deg); }
 }
 @keyframes scene-grain-shift {
   0%   { transform: translate3d(0, 0, 0); }
