@@ -80,7 +80,7 @@ export function ToolCallBubble({
         'bg-bg-elevated border border-border-default',
         'border-l-2',
         STATUS_BORDER[status],
-        'text-[11px] text-text-primary shadow-sm',
+        'text-2xs text-text-primary shadow-sm',
         expandable && 'pointer-events-auto cursor-pointer',
       )}
       onClick={expandable ? () => setExpanded((v) => !v) : undefined}
@@ -100,7 +100,7 @@ export function ToolCallBubble({
       </span>
       {/* #18: live retry/backoff/fallback note while the tool is running */}
       {status === 'running' && progressNote && (
-        <span className="text-[10px] text-text-muted mt-0.5 max-w-[16rem] truncate">
+        <span className="text-micro text-text-muted mt-0.5 max-w-[16rem] truncate">
           {progressNote}
         </span>
       )}
@@ -108,7 +108,7 @@ export function ToolCallBubble({
         <pre
           className={cn(
             'mt-1 max-w-[20rem] max-h-32 overflow-auto whitespace-pre-wrap break-words',
-            'rounded bg-bg-surface border border-border-subtle px-1.5 py-1 text-[10px]',
+            'rounded bg-bg-surface border border-border-subtle px-1.5 py-1 text-micro',
             errorMessage ? 'text-red-400' : 'text-text-muted',
           )}
           onClick={(e) => e.stopPropagation()}

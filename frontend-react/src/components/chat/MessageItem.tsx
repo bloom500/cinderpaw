@@ -279,7 +279,7 @@ function MessageMeta({ message }: { message: ChatMessage }) {
   const scratch = scratchLabel(message.scratch);
   if (scratch) parts.push(scratch);
   return (
-    <div className="text-[11px] text-text-muted tabular-nums select-none">{parts.join(' · ')}</div>
+    <div className="text-2xs text-text-muted tabular-nums select-none">{parts.join(' · ')}</div>
   );
 }
 

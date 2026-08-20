@@ -126,7 +126,7 @@ export function AgentSettingsTab() {
                       {a.name}
                     </h4>
                     {isActive && (
-                      <span className="text-[10px] uppercase tracking-wider text-brand font-semibold">
+                      <span className="text-micro uppercase tracking-wider text-brand font-semibold">
                         Active
                       </span>
                     )}
@@ -141,7 +141,7 @@ export function AgentSettingsTab() {
                       {a.tools.map((t) => (
                         <span
                           key={t}
-                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-hover text-text-muted border border-border-subtle"
+                          className="text-micro px-1.5 py-0.5 rounded-full bg-bg-hover text-text-muted border border-border-subtle"
                         >
                           {TOOL_LABELS[t]?.label ?? t}
                         </span>
@@ -154,7 +154,7 @@ export function AgentSettingsTab() {
                     <button
                       type="button"
                       onClick={() => setCurrent(a.id!)}
-                      className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+                      className="text-2xs text-text-muted hover:text-text-secondary transition-colors"
                     >
                       Make active
                     </button>
@@ -162,7 +162,7 @@ export function AgentSettingsTab() {
                   <button
                     type="button"
                     onClick={() => setConfirmId(a.id ?? null)}
-                    className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-red-400 transition-colors"
+                    className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-red-400 transition-colors"
                     aria-label={`Delete ${a.name}`}
                   >
                     <Trash2 size={11} />
@@ -370,7 +370,7 @@ function TokenBudgetToggle() {
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-text-muted">
+          <p className="text-2xs text-text-muted">
             Tokens per conversation. When reached, the agent stops and lets you decide whether to continue.
           </p>
         </div>
@@ -474,7 +474,7 @@ function DesktopControlToggle() {
               YOLO: no prompts
             </button>
           </div>
-          <p className="text-[11px] text-text-muted">
+          <p className="text-2xs text-text-muted">
             {yolo
               ? 'YOLO: the agent clicks, types and sends without asking. Launching apps still confirms.'
               : 'Safe: the agent asks you before any click, type or send.'}
@@ -482,7 +482,7 @@ function DesktopControlToggle() {
         </div>
       )}
 
-      <p className="text-[11px] text-text-muted flex items-center gap-1.5">
+      <p className="text-2xs text-text-muted flex items-center gap-1.5">
         <AlertCircle size={11} className="shrink-0" />
         {busy || yoloBusy
           ? 'Restarting the agent…'

@@ -107,7 +107,7 @@ function TierPanel({
             {nodes.length} {nodes.length === 1 ? 'memory' : 'memories'}
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="text-micro uppercase tracking-wide text-text-muted">
           {share.toFixed(0)}% of all
         </span>
       </header>
@@ -133,7 +133,7 @@ function TierPanel({
                 </div>
                 <div className="mt-1 text-xs text-text-primary">{n.label}</div>
                 {expanded && (
-                  <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px] text-text-muted">
+                  <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro text-text-muted">
                     <span>type</span><span>{n.type}</span>
                     <span>id</span><span className="font-mono">{n.id}</span>
                   </div>
@@ -158,7 +158,7 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
         </span>
         <span className="text-text-muted">{formatTimeAgo(now, ep.startedAt)}</span>
       </div>
-      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-[10px] text-text-secondary">
+      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-micro text-text-secondary">
         <span className="text-text-muted">trigger</span><span>{ep.trigger}</span>
         <span className="text-text-muted">stop</span><span>{describeStop(ep.stopReason)}</span>
         <span className="text-text-muted">tokens</span><span>{ep.tokens}</span>
@@ -202,7 +202,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
       ? `last ratchet ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
       : 'no ratchets yet';
   return (
-    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-[11px] backdrop-blur ${tone}`}>
+    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-2xs backdrop-blur ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       <Brain size={11} className="opacity-70" />
       <span className="font-medium uppercase tracking-wide">RSI · {label}</span>
@@ -337,7 +337,7 @@ export default function MemoryLayersPage() {
               ['This Month', stats.month],
             ] as const).map(([label, value]) => (
               <div key={label} className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3">
-                <div className="text-[10px] uppercase tracking-wide text-text-muted">{label}</div>
+                <div className="text-micro uppercase tracking-wide text-text-muted">{label}</div>
                 <div className="mt-1 text-2xl font-semibold leading-none text-text-primary">
                   {value}
                 </div>

@@ -676,7 +676,7 @@ function CloudBranch() {
             )}
           >
             <span>{p.name}</span>
-            {p.free && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {p.free && <span className="text-micro px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
           </button>
         ))}
         {genericOnly.map((c) => (
@@ -690,7 +690,7 @@ function CloudBranch() {
             )}
           >
             <span>{c.name}</span>
-            {c.free_tier_note && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {c.free_tier_note && <span className="text-micro px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
           </button>
         ))}
       </div>

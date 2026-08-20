@@ -48,7 +48,7 @@ export function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
           the moment the user learns Feral orchestrates rather than making one
           call — so it is said plainly, and never when it would be a lie. */}
       {running > 1 && (
-        <div className="tw-rise flex items-center gap-2 self-start rounded-full border border-border-subtle bg-bg-surface/90 px-3 py-1 text-[11px] text-text-secondary backdrop-blur">
+        <div className="tw-rise flex items-center gap-2 self-start rounded-full border border-border-subtle bg-bg-surface/90 px-3 py-1 text-2xs text-text-secondary backdrop-blur">
           <Loader2 size={11} className="animate-spin text-brand" />
           {running} {t('call.toolsRunning')}
         </div>
@@ -98,7 +98,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
           </span>
           <span className="flex min-w-0 items-center gap-1.5 rounded-t-md bg-bg-elevated px-2 py-1">
             <EngineMark size={10} />
-            <span className="truncate text-[10px] text-text-secondary">DuckDuckGo</span>
+            <span className="truncate text-micro text-text-secondary">DuckDuckGo</span>
             <X size={9} className="shrink-0 text-text-muted/50" />
           </span>
           <Plus size={10} className="shrink-0 text-text-muted/50" />
@@ -113,7 +113,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
       ) : (
         <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
           <Icon size={13} className={cn('shrink-0', tint)} />
-          <span className="shrink-0 text-[11px] font-medium text-text-secondary">{a.tool}</span>
+          <span className="shrink-0 text-2xs font-medium text-text-secondary">{a.tool}</span>
           <State a={a} className="ml-auto" />
         </header>
       )}
@@ -122,7 +122,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
         {a.error ? (
           // A failure says so. A search that failed and a search that found
           // nothing look identical otherwise, and one of them is a bug.
-          <p className="text-[11px] text-[var(--warning)]" title={a.error}>
+          <p className="text-2xs text-[var(--warning)]" title={a.error}>
             {a.error}
           </p>
         ) : a.kind === 'agent' ? (
@@ -141,7 +141,7 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
 
         {/* A progress line from a tool that reports one — real, when present. */}
         {running && a.note && (
-          <p className="mt-1.5 truncate text-[11px] text-text-muted">{a.note}</p>
+          <p className="mt-1.5 truncate text-2xs text-text-muted">{a.note}</p>
         )}
       </div>
     </div>
@@ -208,7 +208,7 @@ function State({ a, className }: { a: ToolActivity; className?: string }) {
  */
 function AgentBody({ a }: { a: ToolActivity }) {
   return (
-    <p className="text-[11px] leading-relaxed text-text-secondary">
+    <p className="text-2xs leading-relaxed text-text-secondary">
       <span className="line-clamp-3">{a.subject}</span>
     </p>
   );
@@ -248,7 +248,7 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
               it — it is what identifies the bar before a single word is read. */}
           <EngineMark size={12} />
           <Search size={10} className="shrink-0 text-text-muted" />
-          <span className="min-w-0 flex-1 truncate text-[11px] text-text-primary" title={a.subject}>
+          <span className="min-w-0 flex-1 truncate text-2xs text-text-primary" title={a.subject}>
             {/* Typed in, not printed. The string is exactly what the agent sent;
                 revealing it progressively is what makes a still panel read as
                 happening rather than happened. */}
@@ -274,7 +274,7 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
                 <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-bg-elevated">
                   <Globe size={8} className="text-text-muted" />
                 </span>
-                <span className="truncate text-[10px] text-text-muted">
+                <span className="truncate text-micro text-text-muted">
                   {h.host}
                   {h.crumbs && <span className="text-text-muted/70"> › {h.crumbs}</span>}
                 </span>
@@ -288,19 +288,19 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
                 type="button"
                 onClick={() => void open(h.url)}
                 title={h.url}
-                className="mt-0.5 block w-full truncate text-left text-[12px] leading-snug text-[var(--result-link)] hover:underline"
+                className="mt-0.5 block w-full truncate text-left text-xs leading-snug text-[var(--result-link)] hover:underline"
               >
                 {h.title}
               </button>
               {h.snippet && (
-                <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-text-muted">
+                <p className="mt-0.5 line-clamp-2 text-micro leading-snug text-text-muted">
                   {h.snippet}
                 </p>
               )}
             </li>
           ))}
           {a.hits.length > 3 && (
-            <li className="text-[10px] text-text-muted">+{a.hits.length - 3} more results</li>
+            <li className="text-micro text-text-muted">+{a.hits.length - 3} more results</li>
           )}
         </ul>
       )}
@@ -326,18 +326,18 @@ function FilesBody({ a }: { a: ToolActivity }) {
           >
             <FileText size={11} className="shrink-0 text-amber-400/70" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[11px] text-text-secondary" title={f.path}>
+              <span className="block truncate text-2xs text-text-secondary" title={f.path}>
                 {name}
               </span>
-              {dir && <span className="block truncate text-[10px] text-text-muted">{dir}</span>}
+              {dir && <span className="block truncate text-micro text-text-muted">{dir}</span>}
             </span>
             {f.lines !== null && (
-              <span className="shrink-0 tabular-nums text-[10px] text-text-muted">{f.lines}L</span>
+              <span className="shrink-0 tabular-nums text-micro text-text-muted">{f.lines}L</span>
             )}
           </li>
         );
       })}
-      {rows.length > 5 && <li className="pl-5 text-[10px] text-text-muted">+{rows.length - 5}</li>}
+      {rows.length > 5 && <li className="pl-5 text-micro text-text-muted">+{rows.length - 5}</li>}
     </ul>
   );
 }
@@ -375,7 +375,7 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
             window is Terminal.app's; pretending the shell underneath it is zsh
             on a machine running PowerShell would make the one panel whose worth
             is that it does not lie into a costume. */}
-        <span className="pointer-events-none absolute inset-x-0 truncate text-center text-[9px] font-medium text-white/70">
+        <span className="pointer-events-none absolute inset-x-0 truncate text-center text-micro font-medium text-white/70">
           {folder} · pwsh · 80×24
         </span>
         {/* State on the title bar, where a window puts its own status — the card
@@ -384,7 +384,7 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
       </div>
 
       <div
-        className="bg-[#1E1E1E] px-2.5 py-2 text-[10.5px] leading-[1.5]"
+        className="bg-[#1E1E1E] px-2.5 py-2 text-micro leading-[1.5]"
         // SF Mono then Menlo: Terminal.app's own faces, in its own order. Named
         // so the widget uses the real thing where it exists instead of whatever
         // generic monospace the browser would pick.
@@ -424,7 +424,7 @@ function MemoryBody({ a }: { a: ToolActivity }) {
   return (
     <>
       {a.subject && (
-        <p className="truncate text-[11px] text-text-muted" title={a.subject}>
+        <p className="truncate text-2xs text-text-muted" title={a.subject}>
           “{a.subject}”
         </p>
       )}
@@ -433,14 +433,14 @@ function MemoryBody({ a }: { a: ToolActivity }) {
           {a.facts.slice(0, 4).map((f, i) => (
             <li
               key={i}
-              className="tw-row rounded-md border border-violet-400/20 bg-violet-400/5 px-2 py-1 text-[11px] text-text-secondary"
+              className="tw-row rounded-md border border-violet-400/20 bg-violet-400/5 px-2 py-1 text-2xs text-text-secondary"
               style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
             >
               <span className="line-clamp-2">{f}</span>
             </li>
           ))}
           {a.facts.length > 4 && (
-            <li className="text-[10px] text-text-muted">+{a.facts.length - 4}</li>
+            <li className="text-micro text-text-muted">+{a.facts.length - 4}</li>
           )}
         </ul>
       )}
@@ -451,7 +451,7 @@ function MemoryBody({ a }: { a: ToolActivity }) {
 /** Everything unclassified: the argument, and nothing invented around it. */
 function GenericBody({ a, running, t }: { a: ToolActivity; running: boolean; t: (k: 'call.toolSearching') => string }) {
   return (
-    <p className="truncate text-[11px] text-text-muted" title={a.subject}>
+    <p className="truncate text-2xs text-text-muted" title={a.subject}>
       {a.subject || (running ? t('call.toolSearching') : '')}
     </p>
   );
@@ -477,5 +477,5 @@ function Elapsed({ since }: { since: number }) {
   }, []);
   const ms = now - since;
   if (ms < TIMER_AFTER_MS) return null;
-  return <span className="tabular-nums text-[10px] text-text-muted">{Math.floor(ms / 1000)}s</span>;
+  return <span className="tabular-nums text-micro text-text-muted">{Math.floor(ms / 1000)}s</span>;
 }

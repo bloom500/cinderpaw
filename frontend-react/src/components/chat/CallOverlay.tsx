@@ -1367,7 +1367,7 @@ function VoicePicker({
             {/* The shortlist is a cut, and saying so is cheaper than a hundred rows
                 — the id field below stays the way to reach any of the rest. */}
             <div className="px-2 py-1.5">
-              <p className="mb-1.5 text-[10px] text-text-muted">{t('call.voiceMore')}</p>
+              <p className="mb-1.5 text-micro text-text-muted">{t('call.voiceMore')}</p>
               <Input
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
@@ -1494,7 +1494,7 @@ function EngineLine({
           vanishes on a light background; the edge is what keeps it a badge. */}
       <span
         className={cn(
-          'flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium',
+          'flex items-center gap-1 rounded border px-1.5 py-0.5 text-micro font-medium',
           local
             ? 'border-[var(--badge-ok-br)] bg-[var(--badge-ok-bg)] text-[var(--badge-ok-fg)]'
             : 'border-[var(--badge-warn-br)] bg-[var(--badge-warn-bg)] text-[var(--badge-warn-fg)]',

@@ -73,10 +73,10 @@ function Card({ a }: { a: ToolActivity }) {
     <div className="rounded-lg border border-border-subtle bg-bg-elevated/50 p-2.5">
       <div className="flex items-center gap-2">
         <Icon size={12} className="shrink-0 text-text-muted" />
-        <span className="truncate text-[11px] text-text-secondary" title={a.subject}>
+        <span className="truncate text-2xs text-text-secondary" title={a.subject}>
           {a.subject || a.tool}
         </span>
-        <span className="ml-auto shrink-0 tabular-nums text-[10px] text-text-muted">
+        <span className="ml-auto shrink-0 tabular-nums text-micro text-text-muted">
           {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
@@ -94,10 +94,10 @@ function Card({ a }: { a: ToolActivity }) {
                 title={h.url}
                 className="block w-full text-left"
               >
-                <span className="block truncate text-[11px] text-[var(--result-link)] hover:underline">
+                <span className="block truncate text-2xs text-[var(--result-link)] hover:underline">
                   {h.title}
                 </span>
-                <span className="block truncate text-[10px] text-text-muted">{h.host}</span>
+                <span className="block truncate text-micro text-text-muted">{h.host}</span>
               </button>
             </li>
           ))}
@@ -107,7 +107,7 @@ function Card({ a }: { a: ToolActivity }) {
       {a.facts.length > 0 && (
         <ul className="mt-2 space-y-1">
           {a.facts.map((f, i) => (
-            <li key={i} className="rounded border border-violet-400/20 bg-violet-400/5 px-2 py-1 text-[10.5px] text-text-secondary">
+            <li key={i} className="rounded border border-violet-400/20 bg-violet-400/5 px-2 py-1 text-micro text-text-secondary">
               {f}
             </li>
           ))}
@@ -117,7 +117,7 @@ function Card({ a }: { a: ToolActivity }) {
       {a.files.length > 0 && (
         <ul className="mt-2 space-y-0.5">
           {a.files.map((f) => (
-            <li key={f.path} className="truncate text-[10.5px] text-text-muted" title={f.path}>
+            <li key={f.path} className="truncate text-micro text-text-muted" title={f.path}>
               {f.path}
             </li>
           ))}

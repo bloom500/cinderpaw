@@ -107,7 +107,7 @@ export function ChatsPage() {
                       )}
                       <span className="text-sm text-text-primary truncate">{c.title}</span>
                     </span>
-                    <span className="block mt-0.5 text-[11px] text-text-disabled">
+                    <span className="block mt-0.5 text-2xs text-text-disabled">
                       {relative(c.updated_at)}
                     </span>
                   </button>

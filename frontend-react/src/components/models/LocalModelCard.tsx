@@ -118,7 +118,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
         <div className="flex items-center gap-1.5 shrink-0">
           {fit && fitStyle && (
             <span className={cn(
-              'text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
+              'text-micro font-semibold px-1.5 py-0.5 rounded-full',
               fitStyle.pill,
             )}>
               {fitStyle.label}
@@ -135,7 +135,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
         <span>{sizeStr}</span>
         <span>·</span>
         <span>{quality}</span>
-        <span className={cn('ml-auto text-[10px] px-1.5 py-0.5 rounded', badgeClass[variant])}>
+        <span className={cn('ml-auto text-micro px-1.5 py-0.5 rounded', badgeClass[variant])}>
           {badgeLabel}
         </span>
       </div>
@@ -155,12 +155,12 @@ export function LocalModelCard({ model, onDelete }: Props) {
                 </div>
 
                 {/* Score number */}
-                <span className="text-[11px] font-mono text-text-muted w-6 text-right tabular-nums">
+                <span className="text-2xs font-mono text-text-muted w-6 text-right tabular-nums">
                   {fit.score}
                 </span>
 
                 {/* Run mode + tok/s */}
-                <span className="text-[10px] text-text-muted shrink-0">
+                <span className="text-micro text-text-muted shrink-0">
                   {RUN_MODE_LABEL[fit.runMode]}
                   {fit.estimatedTokPerSec !== null && (
                     <> · ~{fit.estimatedTokPerSec} t/s</>
@@ -184,16 +184,16 @@ export function LocalModelCard({ model, onDelete }: Props) {
                   ] as const
                 ).map(({ key, label, value }) => (
                   <div key={key} className="flex items-center gap-2">
-                    <span className="text-[10px] text-text-muted w-16 shrink-0">{label}</span>
+                    <span className="text-micro text-text-muted w-16 shrink-0">{label}</span>
                     <MiniBar value={value} color={fitStyle.bar} />
-                    <span className="text-[10px] font-mono text-text-secondary w-6 text-right tabular-nums">
+                    <span className="text-micro font-mono text-text-secondary w-6 text-right tabular-nums">
                       {value}
                     </span>
                   </div>
                 ))}
 
                 {/* Memory detail */}
-                <div className="pt-1 border-t border-border-subtle text-[10px] text-text-muted space-y-0.5">
+                <div className="pt-1 border-t border-border-subtle text-micro text-text-muted space-y-0.5">
                   <div>
                     {fit.memUsedGb} GB / {fit.memAvailGb} GB
                     {' '}({fit.utilizationPct}% utilization)

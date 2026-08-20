@@ -43,7 +43,7 @@ export function PresetCard({ preset, selected, onSelect }: Props) {
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-semibold text-text-primary">{name}</span>
             {selected && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-brand text-white shrink-0">
+              <span className="text-2xs px-2 py-0.5 rounded-full bg-brand text-white shrink-0">
                 ✓ Selected
               </span>
             )}
@@ -54,7 +54,7 @@ export function PresetCard({ preset, selected, onSelect }: Props) {
               {tools.map((t) => (
                 <span
                   key={t}
-                  className="text-[11px] px-2 py-0.5 rounded-full bg-bg-hover text-text-muted border border-border-subtle"
+                  className="text-2xs px-2 py-0.5 rounded-full bg-bg-hover text-text-muted border border-border-subtle"
                 >
                   {TOOL_LABELS[t]?.label ?? t}
                 </span>

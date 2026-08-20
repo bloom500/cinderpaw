@@ -137,7 +137,7 @@ export function ExtensionsPage() {
                         type="button"
                         onClick={() => setCategory(c)}
                         className={cn(
-                          'px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap',
+                          'px-2.5 py-1 rounded-full text-2xs font-medium transition-colors whitespace-nowrap',
                           category === c
                             ? 'bg-brand text-white'
                             : 'bg-bg-hover text-text-muted hover:text-text-secondary',
@@ -281,7 +281,7 @@ function InstalledCard({
       </div>
 
       {err && (
-        <p className="text-[11px] text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
+        <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
           {err}
         </p>
       )}
@@ -291,7 +291,7 @@ function InstalledCard({
           type="button"
           onClick={() => void showTools()}
           disabled={!server.running}
-          className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+          className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-text-secondary disabled:opacity-40"
         >
           What can it do? {toolsOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
         </button>
@@ -300,7 +300,7 @@ function InstalledCard({
           onClick={() => void remove()}
           onBlur={() => setRemoveArmed(false)}
           className={cn(
-            'inline-flex items-center gap-1 text-[11px]',
+            'inline-flex items-center gap-1 text-2xs',
             removeArmed ? 'text-rose-400 font-medium' : 'text-text-muted hover:text-rose-400',
           )}
         >
@@ -310,17 +310,17 @@ function InstalledCard({
 
       {toolsOpen && (
         <div className="mt-2 space-y-1.5">
-          {tools === null && <p className="text-[11px] text-text-muted">Loading…</p>}
+          {tools === null && <p className="text-2xs text-text-muted">Loading…</p>}
           {tools?.map((t) => (
             <div key={t.name}>
-              <p className="text-[11px] font-medium text-text-secondary">{prettyToolName(t.name)}</p>
+              <p className="text-2xs font-medium text-text-secondary">{prettyToolName(t.name)}</p>
               {t.description && (
-                <p className="text-[10px] text-text-muted line-clamp-2">{t.description}</p>
+                <p className="text-micro text-text-muted line-clamp-2">{t.description}</p>
               )}
             </div>
           ))}
           {tools?.length === 0 && (
-            <p className="text-[11px] text-text-muted">This extension hasn't shared its abilities yet.</p>
+            <p className="text-2xs text-text-muted">This extension hasn't shared its abilities yet.</p>
           )}
         </div>
       )}
@@ -397,7 +397,7 @@ function CatalogCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-text-primary truncate">{entry.name}</p>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
+            <span className="text-micro px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
               {entry.category}
             </span>
           </div>
@@ -409,7 +409,7 @@ function CatalogCard({
         <div className="mt-3 space-y-2">
           {entry.fields.map((f) => (
             <label key={f.key} className="block">
-              <span className="text-[11px] text-text-secondary">
+              <span className="text-2xs text-text-secondary">
                 {f.label}
                 {f.optional && <span className="text-text-muted"> (optional)</span>}
               </span>
@@ -425,7 +425,7 @@ function CatalogCard({
       )}
 
       {err && (
-        <p className="text-[11px] text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
+        <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
           {err}
         </p>
       )}

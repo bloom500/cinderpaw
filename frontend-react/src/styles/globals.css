@@ -231,8 +231,14 @@
   --border-default:  #3A342B;
   --text-primary:    #F0E6D3;
   --text-secondary:  #B8AC95;
-  --text-muted:      #8C7E6A;
-  --text-disabled:   #4A4035;
+  /* `muted` and `disabled` were tuned against flat #100E09. Over a lit scene
+     they lost the little contrast they had: #4A4035 on this ground is about
+     2:1, which is below the threshold for text of any size, and it is what the
+     rail's "Nothing yet" line was set in — a sentence written to explain an
+     empty screen, itself too faint to read. Both step up; the hierarchy between
+     the four is unchanged. */
+  --text-muted:      #9A8B75;
+  --text-disabled:   #6B6053;
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
   --brand-muted:     #6B4820;

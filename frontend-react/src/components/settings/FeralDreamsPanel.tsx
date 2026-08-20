@@ -22,7 +22,7 @@ const STAGE_STEPS: { key: DreamStage; label: string }[] = [
 function DreamStageStepper({ stage }: { stage: DreamStage | null }) {
   const activeIdx = STAGE_STEPS.findIndex((s) => s.key === stage);
   return (
-    <div className="flex items-center gap-1.5 text-[10px]" aria-label="Dream cycle stage">
+    <div className="flex items-center gap-1.5 text-micro" aria-label="Dream cycle stage">
       {STAGE_STEPS.map((s, i) => {
         const state = activeIdx < 0 ? 'idle' : i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'todo';
         return (
@@ -415,7 +415,7 @@ export function FeralDreamsPanel() {
       <header className="flex items-center gap-2">
         <Moon size={13} className="text-brand" />
         <span className="text-sm font-medium text-text-primary">Feral&apos;s Dreams</span>
-        <span className="text-[11px] text-text-muted">self-improvement while you&apos;re idle</span>
+        <span className="text-2xs text-text-muted">self-improvement while you&apos;re idle</span>
         <button
           type="button"
           onClick={dreamNow}
@@ -425,7 +425,7 @@ export function FeralDreamsPanel() {
               ? 'Asleep. Turn on dreaming for cloud models first'
               : 'Run one dream episode now (bypasses the idle wait)'
           }
-          className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+          className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-2xs text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
         >
           {dreaming ? 'Dreaming…' : requested ? 'Queued, starts after the current cycle' : 'Dream now'}
         </button>
@@ -435,7 +435,7 @@ export function FeralDreamsPanel() {
         <div className="space-y-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-2">
           <div className="flex items-start gap-2">
             <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
-            <p className="text-[11px] text-text-secondary">
+            <p className="text-2xs text-text-secondary">
               <span className="font-medium text-text-primary">Feral isn&apos;t dreaming.</span>{' '}
               Your model runs in the cloud, so every dream costs money. Feral won&apos;t
               spend it behind your back. Turn this on and it improves itself while
@@ -453,7 +453,7 @@ export function FeralDreamsPanel() {
               } catch { /* the store already rolled the toggle back */ }
               setAllowBusy(false);
             }}
-            className="ml-5 rounded border border-amber-500/40 px-2 py-0.5 text-[11px] text-text-primary hover:border-amber-500 disabled:opacity-60"
+            className="ml-5 rounded border border-amber-500/40 px-2 py-0.5 text-2xs text-text-primary hover:border-amber-500 disabled:opacity-60"
           >
             {allowBusy ? 'Waking Feral…' : 'Let Feral dream on this model'}
           </button>
@@ -468,18 +468,18 @@ export function FeralDreamsPanel() {
       )}
 
       {error ? (
-        <p className="text-[11px] text-text-muted">Couldn&apos;t read dream history ({error}).</p>
+        <p className="text-2xs text-text-muted">Couldn&apos;t read dream history ({error}).</p>
       ) : summary === null ? (
-        <p className="text-[11px] text-text-muted">Loading…</p>
+        <p className="text-2xs text-text-muted">Loading…</p>
       ) : summary.episodes === 0 ? (
-        <p className="text-[11px] text-text-muted">
+        <p className="text-2xs text-text-muted">
           {dreamsAsleep
             ? 'No dreams yet. Dreaming is off for cloud models, see above.'
             : 'No dreams yet. Feral dreams when you step away for a while.'}
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-[11px]">
+          <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-2xs">
             <Stat label="Dreams" value={summary.episodes.toLocaleString()} />
             <Stat
               label="Improvements"
@@ -492,7 +492,7 @@ export function FeralDreamsPanel() {
           <RatchetSparkline episodes={summary.last} />
 
           {summary.last[0] && (
-            <p className="flex items-center gap-1.5 text-[11px] text-text-secondary">
+            <p className="flex items-center gap-1.5 text-2xs text-text-secondary">
               <Sparkles size={11} className="text-brand" />
               Last dream: {summary.last[0].trigger}-triggered ·{' '}
               {summary.last[0].ratchets > 0
@@ -585,13 +585,13 @@ function GovernanceCard({
     <section className="space-y-1.5 border-t border-border-subtle pt-2">
       <header className="flex items-center gap-1.5">
         <Shield size={11} className="text-brand" />
-        <span className="text-[11px] font-medium text-text-primary">Safety rules</span>
-        <span className="text-[10px] text-text-muted">
+        <span className="text-2xs font-medium text-text-primary">Safety rules</span>
+        <span className="text-micro text-text-muted">
           the guardrails Feral follows while improving itself
         </span>
         {verify && (
           <span
-            className="ml-auto flex items-center gap-1 text-[10px]"
+            className="ml-auto flex items-center gap-1 text-micro"
             title={
               verify.ok
                 ? 'Every change to the rules is on record, and nothing has been altered.'
@@ -609,13 +609,13 @@ function GovernanceCard({
       </header>
 
       {status.failClosed ? (
-        <p className="flex items-center gap-1.5 text-[10px] text-amber-500">
+        <p className="flex items-center gap-1.5 text-micro text-amber-500">
           <AlertTriangle size={10} />
           The rulebook couldn&apos;t be read, so Feral switched to its strictest built-in
           rules and paused all self-improvement until it&apos;s fixed.
         </p>
       ) : (
-        <p className="text-[10px] text-text-muted">
+        <p className="text-micro text-text-muted">
           {paused.length === 0
             ? 'All self-improvement systems are allowed to run.'
             : `Paused right now: ${paused.join(', ')}.`}
@@ -627,7 +627,7 @@ function GovernanceCard({
           {pending.map((p) => {
             const needsOk = p.requiredApproval;
             return (
-              <li key={p.policyId} className="space-y-1 text-[11px]">
+              <li key={p.policyId} className="space-y-1 text-2xs">
                 <div className="flex items-center gap-1.5">
                   {needsOk ? (
                     <AlertTriangle size={10} className="shrink-0 text-amber-500" />
@@ -639,7 +639,7 @@ function GovernanceCard({
                       ? 'Feral asks to loosen its rules. Nothing changes without your OK.'
                       : 'Feral is making its own rules stricter, and this applies on its own.'}
                   </span>
-                  <span className="ml-auto font-mono text-[10px] text-text-muted">{p.policyId}</span>
+                  <span className="ml-auto font-mono text-micro text-text-muted">{p.policyId}</span>
                 </div>
                 {needsOk && (
                   <div className="flex items-center gap-1.5 pl-4">
@@ -647,7 +647,7 @@ function GovernanceCard({
                       type="button"
                       disabled={resolving.has(p.policyId)}
                       onClick={() => onResolve(p.policyId, 'approve')}
-                      className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10px] text-brand hover:border-brand disabled:opacity-50"
+                      className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-micro text-brand hover:border-brand disabled:opacity-50"
                     >
                       <Check size={10} className="inline -mt-px mr-0.5" />
                       Allow it
@@ -656,7 +656,7 @@ function GovernanceCard({
                       type="button"
                       disabled={resolving.has(p.policyId)}
                       onClick={() => onResolve(p.policyId, 'reject')}
-                      className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                      className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary disabled:opacity-50"
                     >
                       <X size={10} className="inline -mt-px mr-0.5" />
                       Keep things as they are
@@ -670,7 +670,7 @@ function GovernanceCard({
       )}
 
       {note && (
-        <p className="flex items-center gap-1 text-[10px] text-text-muted">
+        <p className="flex items-center gap-1 text-micro text-text-muted">
           <AlertTriangle size={10} className="text-brand" />
           {note}
         </p>
@@ -717,14 +717,14 @@ function ArchitectureCard({
     <section className="space-y-1.5 border-t border-border-subtle pt-2">
       <header className="flex items-center gap-1.5">
         <GitMerge size={11} className="text-brand" />
-        <span className="text-[11px] font-medium text-text-primary">Architecture</span>
-        <span className="text-[10px] text-text-muted">
+        <span className="text-2xs font-medium text-text-primary">Architecture</span>
+        <span className="text-micro text-text-muted">
           replacement parts Feral built for itself
         </span>
       </header>
 
       {allBuiltin ? (
-        <p className="text-[10px] text-text-muted">
+        <p className="text-micro text-text-muted">
           Every part runs the original. No replacements active or waiting.
         </p>
       ) : (
@@ -732,7 +732,7 @@ function ArchitectureCard({
           {active.map((m) => {
             const chip = SEAM_LABELS[m.seam] ?? m.seam;
             return (
-              <div key={m.id} className="flex items-center gap-1.5 text-[11px]">
+              <div key={m.id} className="flex items-center gap-1.5 text-2xs">
                 <Check size={10} className="shrink-0 text-brand" />
                 <span className="text-text-secondary">
                   {chip} runs a part Feral built: {m.displayName}
@@ -742,7 +742,7 @@ function ArchitectureCard({
                   disabled={resolving.has(m.seam)}
                   onClick={() => onResolve('demote', { seam: m.seam })}
                   title="Instantly switch this part back to the original"
-                  className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                  className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary disabled:opacity-50"
                 >
                   <Undo2 size={10} className="inline -mt-px mr-0.5" />
                   Use the original
@@ -753,7 +753,7 @@ function ArchitectureCard({
           {pending.map((m) => {
             const chip = SEAM_LABELS[m.seam] ?? m.seam;
             return (
-              <div key={m.id} className="space-y-1 text-[11px]">
+              <div key={m.id} className="space-y-1 text-2xs">
                 <div className="flex items-center gap-1.5">
                   <AlertTriangle size={10} className="shrink-0 text-amber-500" />
                   <span className="text-text-secondary">
@@ -762,14 +762,14 @@ function ArchitectureCard({
                   </span>
                 </div>
                 {m.eval && (
-                  <p className="pl-4 text-[10px] text-text-muted">{m.eval.reason}</p>
+                  <p className="pl-4 text-micro text-text-muted">{m.eval.reason}</p>
                 )}
                 <div className="flex items-center gap-1.5 pl-4">
                   <button
                     type="button"
                     disabled={resolving.has(m.id)}
                     onClick={() => onResolve('approve', { moduleId: m.id })}
-                    className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10px] text-brand hover:border-brand disabled:opacity-50"
+                    className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-micro text-brand hover:border-brand disabled:opacity-50"
                   >
                     <Check size={10} className="inline -mt-px mr-0.5" />
                     Let it take over
@@ -778,7 +778,7 @@ function ArchitectureCard({
                     type="button"
                     disabled={resolving.has(m.id)}
                     onClick={() => onResolve('reject', { moduleId: m.id })}
-                    className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                    className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary disabled:opacity-50"
                   >
                     <X size={10} className="inline -mt-px mr-0.5" />
                     Keep the original
@@ -791,7 +791,7 @@ function ArchitectureCard({
       )}
 
       {seams.length > 0 && !allBuiltin && (
-        <p className="text-[10px] text-text-muted">
+        <p className="text-micro text-text-muted">
           {seams
             .map(([seam, e]) => `${SEAM_LABELS[seam] ?? seam}: ${e.active === 'builtin' ? 'original' : 'Feral-built'}`)
             .join(' · ')}
@@ -799,7 +799,7 @@ function ArchitectureCard({
       )}
 
       {note && (
-        <p className="flex items-center gap-1 text-[10px] text-text-muted">
+        <p className="flex items-center gap-1 text-micro text-text-muted">
           <AlertTriangle size={10} className="text-brand" />
           {note}
         </p>
@@ -830,8 +830,8 @@ function MetaEvolutionCard({
     <section className="space-y-1.5 border-t border-border-subtle pt-2">
       <header className="flex items-center gap-1.5">
         <Brain size={11} className="text-brand" />
-        <span className="text-[11px] font-medium text-text-primary">Meta Evolution</span>
-        <span className="text-[10px] text-text-muted">
+        <span className="text-2xs font-medium text-text-primary">Meta Evolution</span>
+        <span className="text-micro text-text-muted">
           generation {status.generation ?? 0}
           {status.pendingCandidate ? ' · candidate pending' : ''}
         </span>
@@ -842,7 +842,7 @@ function MetaEvolutionCard({
               onClick={() => onAction('rollback')}
               disabled={busy}
               title="Drop the pending candidate and return to its baseline"
-              className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+              className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
             >
               <Undo2 size={10} className="mr-1 inline" />
               Rollback
@@ -853,19 +853,19 @@ function MetaEvolutionCard({
             onClick={() => onAction('evolve')}
             disabled={busy}
             title="Settle the pending candidate against its baseline, then propose the next one"
-            className="rounded border border-border-subtle px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+            className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
           >
             {busy ? 'Working…' : 'Evolve'}
           </button>
         </span>
       </header>
-      <p className="text-[10px] text-text-muted">
+      <p className="text-micro text-text-muted">
         {fitness
           ? `fitness ${fitness.score.toFixed(4)} over ${fitness.cycles} cycles`
           : 'fitness: needs more dream cycles under this genome'}
       </p>
       {status.genome && (
-        <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-[10px]">
+        <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-micro">
           {Object.entries(status.genome).map(([k, v]) => (
             <span key={k} className="flex justify-between gap-2">
               <span className="text-text-muted">{k}</span>
@@ -875,7 +875,7 @@ function MetaEvolutionCard({
         </div>
       )}
       {note && (
-        <p className="flex items-center gap-1 text-[10px] text-text-muted">
+        <p className="flex items-center gap-1 text-micro text-text-muted">
           <AlertTriangle size={10} className="text-brand" />
           {note}
         </p>
@@ -910,21 +910,21 @@ function LoraReviews({
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
         <Brain size={11} className="text-brand" />
-        <span className="text-[11px] font-medium text-text-secondary">Personal adaptation</span>
-        <span className="text-text-muted text-[11px]">LoRA · learns how you work</span>
+        <span className="text-2xs font-medium text-text-secondary">Personal adaptation</span>
+        <span className="text-text-muted text-2xs">LoRA · learns how you work</span>
         <button
           type="button"
           onClick={onTrain}
           disabled={training}
           title="Mine your conversations into a dataset, train a candidate adapter, and evaluate it against the champion"
-          className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
+          className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-2xs text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
         >
           {training ? 'Training…' : 'Train now'}
         </button>
       </div>
-      {note && <p className="text-[11px] text-amber-500">{note}</p>}
+      {note && <p className="text-2xs text-amber-500">{note}</p>}
       {payload && payload.stats.adapters > 0 && (
-        <div className="grid grid-cols-4 gap-x-4 gap-y-1.5 text-[11px]">
+        <div className="grid grid-cols-4 gap-x-4 gap-y-1.5 text-2xs">
           <Stat label="Adapters" value={String(payload.stats.adapters)} />
           <Stat
             label="Accepted"
@@ -957,23 +957,23 @@ function LoraReviews({
       {champions.length > 0 && (
         <ul className="space-y-0.5">
           {champions.map((c) => (
-            <li key={c.domain} className="flex items-center gap-2 text-[11px]">
+            <li key={c.domain} className="flex items-center gap-2 text-2xs">
               <Check size={10} className="text-brand" />
               <span className="text-text-secondary">{c.domain}</span>
-              <span className="ml-auto font-mono text-[10px] text-text-muted">{c.id}</span>
+              <span className="ml-auto font-mono text-micro text-text-muted">{c.id}</span>
             </li>
           ))}
         </ul>
       )}
       {reviews.length === 0 ? (
-        <p className="text-[11px] text-text-muted">
+        <p className="text-2xs text-text-muted">
           No adapters under review. Train one and Feral starts adapting to you. Every
           promotion needs your explicit approval.
         </p>
       ) : (
         <ul className="space-y-2">
           {reviews.map((r) => (
-            <li key={r.id} className="text-[11px] space-y-1">
+            <li key={r.id} className="text-2xs space-y-1">
               <div className="flex items-center gap-1.5">
                 <LoraVerdictBadge status={r.status} verdict={r.verdict} />
                 <span className="text-text-secondary">{r.domain}</span>
@@ -1043,12 +1043,12 @@ function ChampionsByNiche({ rows }: { rows: ChampionTreeRow[] }) {
   if (rows.length === 0) return null;
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
-      <span className="text-[11px] font-medium text-text-secondary">
+      <span className="text-2xs font-medium text-text-secondary">
         Champions by niche <span className="text-text-muted">({rows.length})</span>
       </span>
       <ul className="space-y-1">
         {rows.map((c) => (
-          <li key={c.niche} className="flex items-center gap-2 text-[11px]">
+          <li key={c.niche} className="flex items-center gap-2 text-2xs">
             <span className="font-mono text-text-muted">{c.niche}</span>
             <span className="ml-auto tabular-nums text-text-secondary">{c.score.toFixed(1)}</span>
           </li>
@@ -1066,12 +1066,12 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
   if (rows.length === 0) return null;
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
-      <span className="text-[11px] font-medium text-text-secondary">Receipts</span>
+      <span className="text-2xs font-medium text-text-secondary">Receipts</span>
       <ul className="space-y-2">
         {rows.map((r, i) => (
           // Per-candidate Contract rows share the episode's cycleId, so the
           // key needs the index to stay unique.
-          <li key={`${r.cycleId}:${i}`} className="text-[11px]">
+          <li key={`${r.cycleId}:${i}`} className="text-2xs">
             <div className="flex items-center gap-1.5">
               <DecisionBadge action={r.decided.action} />
               <span className="text-text-muted tabular-nums">
@@ -1141,18 +1141,18 @@ function PendingPatches({
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
         <Code2 size={11} className="text-brand" />
-        <span className="text-[11px] font-medium text-text-secondary">
+        <span className="text-2xs font-medium text-text-secondary">
           Pending patches
         </span>
-        <span className="text-text-muted text-[11px]">({patches.length})</span>
+        <span className="text-text-muted text-2xs">({patches.length})</span>
         {showWindow && (
-          <span className="ml-auto text-[11px] text-text-muted tabular-nums">
+          <span className="ml-auto text-2xs text-text-muted tabular-nums">
             {payload.appliedCount}/10 manual approvals until auto-apply unlocks
           </span>
         )}
       </div>
       {patches.length === 0 ? (
-        <p className="text-[11px] text-text-muted">No pending code patches.</p>
+        <p className="text-2xs text-text-muted">No pending code patches.</p>
       ) : (
         <ul className="space-y-2">
           {patches.map((p) => (
@@ -1180,7 +1180,7 @@ function PatchRow({
   onResolve: (id: string, action: 'approve' | 'reject') => void;
 }) {
   return (
-    <li className="text-[11px] space-y-1">
+    <li className="text-2xs space-y-1">
       <div className="flex items-center gap-1.5">
         <PatchStatusBadge status={patch.status} />
         <span className="font-mono text-text-muted">{patch.id.slice(0, 8)}</span>
@@ -1196,7 +1196,7 @@ function PatchRow({
           {patch.affectedFiles.map((f) => (
             <li
               key={f}
-              className="font-mono text-[10px] rounded border border-border-subtle px-1 py-px"
+              className="font-mono text-micro rounded border border-border-subtle px-1 py-px"
             >
               {f}
             </li>
@@ -1214,7 +1214,7 @@ function PatchRow({
           <FileText size={10} className="inline -mt-px mr-1" />
           Show diff
         </summary>
-        <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-[10px] text-text-secondary border-t border-border-subtle">
+        <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-micro text-text-secondary border-t border-border-subtle">
           {patch.patch}
         </pre>
       </details>

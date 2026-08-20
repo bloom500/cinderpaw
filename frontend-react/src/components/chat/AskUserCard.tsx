@@ -119,7 +119,7 @@ export function AskUserCard({
       role="group"
       aria-label="Agent question"
     >
-      <div className="text-[11px] uppercase tracking-wider text-text-muted font-medium">
+      <div className="text-2xs uppercase tracking-wider text-text-muted font-medium">
         Feral needs your input
         {questions.length > 1 && (
           <span className="ml-2 font-mono text-text-muted/70 normal-case tracking-normal">
@@ -263,7 +263,7 @@ function QuestionBlock({
     >
       <div className="flex items-baseline gap-2">
         {question.header && (
-          <span className="text-[10px] uppercase tracking-wider text-text-muted font-mono">
+          <span className="text-micro uppercase tracking-wider text-text-muted font-mono">
             {question.header}
           </span>
         )}
@@ -317,14 +317,14 @@ function QuestionBlock({
                       <Circle size={14} />
                     )
                   ) : (
-                    <span className="text-[10px] font-mono">{i + 1}</span>
+                    <span className="text-micro font-mono">{i + 1}</span>
                   )}
                 </span>
                 <span className="flex-1">
                   <span className="flex items-center gap-1.5">
                     <span className="text-sm text-text-primary">{opt.label}</span>
                     {opt.recommended && (
-                      <span className="text-[10px] uppercase tracking-wider text-green-600 dark:text-green-400 font-medium">
+                      <span className="text-micro uppercase tracking-wider text-green-600 dark:text-green-400 font-medium">
                         recommended
                       </span>
                     )}

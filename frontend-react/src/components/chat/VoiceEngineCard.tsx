@@ -361,7 +361,7 @@ export function VoiceEngineCard({
                       {e.label}
                       {active && e.available && <Check size={14} className="text-brand" />}
                       {!e.available && (
-                        <span className="rounded bg-bg-active px-1.5 py-0.5 text-[10px] text-text-muted">
+                        <span className="rounded bg-bg-active px-1.5 py-0.5 text-micro text-text-muted">
                           {t('engine.soon')}
                         </span>
                       )}
@@ -369,7 +369,7 @@ export function VoiceEngineCard({
                     <span className="mt-0.5 block text-xs text-text-muted">{e.note}</span>
                     <span
                       className={cn(
-                        'mt-1 inline-block rounded px-1.5 py-0.5 text-[10px]',
+                        'mt-1 inline-block rounded px-1.5 py-0.5 text-micro',
                         e.isLocal
                           ? 'bg-emerald-500/15 text-emerald-400'
                           : 'bg-amber-500/15 text-amber-400',
@@ -443,7 +443,7 @@ export function VoiceEngineCard({
                                 type="button"
                                 onClick={() => setModel(v.id)}
                                 className={cn(
-                                  'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                                  'rounded-full border px-2.5 py-1 text-2xs transition-colors',
                                   active
                                     ? 'border-brand bg-brand/10 text-brand'
                                     : 'border-border-default text-text-secondary hover:text-text-primary',
@@ -457,7 +457,7 @@ export function VoiceEngineCard({
                         {/* A licence that requires credit gets it here, beside
                             the voices it covers. */}
                         {voicesFor(e.id, lang)?.credit && (
-                          <p className="text-[10px] text-text-muted">{voicesFor(e.id, lang)!.credit}</p>
+                          <p className="text-micro text-text-muted">{voicesFor(e.id, lang)!.credit}</p>
                         )}
                       </div>
                     )}

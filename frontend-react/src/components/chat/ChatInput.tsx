@@ -420,7 +420,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       )}>
         <div
           className={cn(
-            'relative rounded-[24px] border bg-bg-surface focus-within:border-brand transition-colors',
+            'relative rounded-2xl border bg-bg-surface focus-within:border-brand transition-colors',
             dragOver ? 'border-brand border-dashed bg-bg-hover' : 'border-border-default',
           )}
         >
@@ -467,7 +467,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             // single row (min-h-11) that grows, not a tall empty box with the
             // placeholder stranded at the top of it.
             className={cn(
-              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-[15px] min-h-11 scrollbar-hide',
+              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-base min-h-11 scrollbar-hide',
             )}
           />
           <div className="flex items-center justify-between px-2.5 pb-2.5 pt-1">
@@ -498,7 +498,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                     <Brain size={16} />
                     <span
                       className={cn(
-                        'absolute -bottom-0.5 -right-0.5 rounded px-[3px] text-[8px] font-bold leading-[11px]',
+                        'absolute -bottom-0.5 -right-0.5 rounded px-[3px] text-micro font-bold leading-[11px]',
                         rc.badgeClass,
                       )}
                     >
@@ -534,7 +534,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   aria-label="Switch to Agent mode"
                   aria-pressed={inputMode === 'agent'}
                   className={cn(
-                    'px-2.5 text-[11px] font-medium transition-colors',
+                    'px-2.5 text-2xs font-medium transition-colors',
                     inputMode === 'agent'
                       ? 'bg-bg-hover text-text-primary'
                       : 'text-text-muted hover:text-text-secondary',
@@ -548,7 +548,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   aria-label="Switch to Chat mode"
                   aria-pressed={inputMode === 'chat'}
                   className={cn(
-                    'px-2.5 text-[11px] font-medium transition-colors',
+                    'px-2.5 text-2xs font-medium transition-colors',
                     inputMode === 'chat'
                       ? 'bg-bg-hover text-text-primary'
                       : 'text-text-muted hover:text-text-secondary',

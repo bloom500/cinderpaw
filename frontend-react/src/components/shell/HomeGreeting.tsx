@@ -36,8 +36,8 @@ export function HomeGreeting() {
       <div className="mb-5">
         <FeralMascot state="idle" />
       </div>
-      <p className="text-[15px] text-text-muted">{t(greetingKey())}</p>
-      <h1 className="mt-1 text-[32px] leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
+      <p className="text-base text-text-muted">{t(greetingKey())}</p>
+      <h1 className="mt-1 text-3xl leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
         {t('home.ask')}
       </h1>
     </div>

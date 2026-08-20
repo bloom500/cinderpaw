@@ -36,7 +36,7 @@ export function ToolsPopover() {
         >
           <Wrench size={16} />
           {activeCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-brand text-[8px] font-bold text-white leading-none">
+            <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-brand text-micro font-bold text-white leading-none">
               {activeCount}
             </span>
           )}

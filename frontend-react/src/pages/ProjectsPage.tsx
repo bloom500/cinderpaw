@@ -111,7 +111,7 @@ export function ProjectsPage() {
                           <Folder size={14} className="shrink-0 text-text-muted" aria-hidden />
                           {p.name}
                         </span>
-                        <span className="block mt-1 text-[11px] text-text-disabled">
+                        <span className="block mt-1 text-2xs text-text-disabled">
                           {p.conversation_ids.length} {p.conversation_ids.length === 1 ? 'chat' : 'chats'}
                         </span>
                       </button>

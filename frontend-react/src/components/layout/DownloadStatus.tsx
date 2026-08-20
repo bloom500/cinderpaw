@@ -75,7 +75,7 @@ export function DownloadStatus() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-text-primary truncate">{active.filename}</p>
-                      <p className="text-[11px] text-text-muted truncate">{active.repoId}</p>
+                      <p className="text-2xs text-text-muted truncate">{active.repoId}</p>
                     </div>
                     <button
                       type="button"
@@ -87,7 +87,7 @@ export function DownloadStatus() {
                     </button>
                   </div>
                   <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-text-muted">
+                    <div className="flex justify-between text-2xs text-text-muted">
                       <span>Downloading…</span>
                       <span>{progress}%</span>
                     </div>
@@ -109,7 +109,7 @@ export function DownloadStatus() {
                   <button
                     type="button"
                     onClick={() => useDownload.getState().reset()}
-                    className="ml-auto text-[11px] text-text-muted hover:text-text-secondary"
+                    className="ml-auto text-2xs text-text-muted hover:text-text-secondary"
                   >
                     Dismiss
                   </button>
@@ -122,11 +122,11 @@ export function DownloadStatus() {
                     <AlertCircle size={14} />
                     <span>Download failed</span>
                   </div>
-                  <p className="text-[11px] text-text-muted break-all">{error}</p>
+                  <p className="text-2xs text-text-muted break-all">{error}</p>
                   <button
                     type="button"
                     onClick={() => useDownload.getState().reset()}
-                    className="text-[11px] text-text-muted hover:text-text-secondary mt-1"
+                    className="text-2xs text-text-muted hover:text-text-secondary mt-1"
                   >
                     Dismiss
                   </button>

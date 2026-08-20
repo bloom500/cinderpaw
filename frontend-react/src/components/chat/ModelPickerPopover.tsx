@@ -161,7 +161,7 @@ export function ModelPickerPopover() {
   return (
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 h-full pl-2.5 pr-2 text-[12.5px] text-text-muted hover:text-text-secondary transition-colors outline-none">
+        <button className="flex items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-muted hover:text-text-secondary transition-colors outline-none">
           <span className="truncate max-w-[150px]">{label}</span>
           {/* Only meaningful for a local model — BackendBadge renders nothing
               when none is loaded, so a cloud route stays clean. */}
@@ -216,7 +216,7 @@ export function ModelPickerPopover() {
                   >
                     <span className="flex items-center gap-1.5 text-text-secondary">
                       {p.name}
-                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">
+                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-micro text-amber-400">
                         off
                       </span>
                     </span>

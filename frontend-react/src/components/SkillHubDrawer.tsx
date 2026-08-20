@@ -277,7 +277,7 @@ export function SkillHubDrawer() {
                       if (t === 'discover') fetchRemote();
                       if (t === 'community') fetchCommunity();
                     }}
-                    className={`flex-1 py-2.5 text-[11px] font-medium capitalize transition-colors border-b-2 -mb-px ${
+                    className={`flex-1 py-2.5 text-2xs font-medium capitalize transition-colors border-b-2 -mb-px ${
                       tab === t
                         ? 'border-brand text-text-primary'
                         : 'border-transparent text-text-muted hover:text-text-secondary'
@@ -306,13 +306,13 @@ export function SkillHubDrawer() {
 
                   <div className="flex items-start justify-between gap-2">
                     <span className="font-bold text-sm text-text-primary">{selected.name}</span>
-                    <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[selected.trust_label] ?? badgeColor.unknown}`}>
+                    <span className={`text-micro font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[selected.trust_label] ?? badgeColor.unknown}`}>
                       {selected.trust_label}
                     </span>
                   </div>
 
                   {/* Metadata */}
-                  <div className="flex gap-3 flex-wrap text-[11px] text-text-muted">
+                  <div className="flex gap-3 flex-wrap text-2xs text-text-muted">
                     {selected.author && <span>{selected.author}</span>}
                     {selected.version && selected.version !== '0.0.0' && <span>v{selected.version}</span>}
                     {selected.license && <span>{selected.license}</span>}
@@ -322,7 +322,7 @@ export function SkillHubDrawer() {
                   {selected.tags.length > 0 && (
                     <div className="flex gap-1.5 flex-wrap">
                       {selected.tags.map(t => (
-                        <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">{t}</span>
+                        <span key={t} className="text-2xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">{t}</span>
                       ))}
                     </div>
                   )}
@@ -333,7 +333,7 @@ export function SkillHubDrawer() {
                       href={selected.source_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1 text-[11px] text-brand hover:underline w-fit"
+                      className="flex items-center gap-1 text-2xs text-brand hover:underline w-fit"
                     >
                       View source <ArrowUpRight size={11} />
                     </a>
@@ -350,7 +350,7 @@ export function SkillHubDrawer() {
                       </p>
                     )}
                     {content && !contentLoading && !contentError && (
-                      <pre className="text-[11px] leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
+                      <pre className="text-2xs leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
                     )}
                   </div>
 
@@ -456,7 +456,7 @@ export function SkillHubDrawer() {
                   <EmptyState message="No community skills found." hint="Check your connection or try again." />
                 ) : (
                   <>
-                    <p className="text-[11px] text-text-muted px-1 pb-1">
+                    <p className="text-2xs text-text-muted px-1 pb-1">
                       Community skills are contributed by third-party authors and are not vetted or maintained by Feral.
                       Preview before installing.
                     </p>
@@ -534,15 +534,15 @@ function SkillCard({
     <div className="bg-bg-elevated border border-border-subtle rounded-xl p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-text-primary truncate">{skill.name}</span>
-        <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[skill.trust_label] ?? badgeColor.unknown}`}>
+        <span className={`text-micro font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[skill.trust_label] ?? badgeColor.unknown}`}>
           {skill.trust_label}
         </span>
       </div>
       {showAuthor && (skill.author || skill.source_provider) && (
-        <div className="flex items-center gap-2 text-[11px] text-text-muted">
+        <div className="flex items-center gap-2 text-2xs text-text-muted">
           {skill.author && <span>by {skill.author}</span>}
           {skill.source_provider && (
-            <span className="px-1.5 py-px rounded bg-bg-hover text-[10px]">
+            <span className="px-1.5 py-px rounded bg-bg-hover text-micro">
               {providerLabel[skill.source_provider] ?? skill.source_provider}
             </span>
           )}

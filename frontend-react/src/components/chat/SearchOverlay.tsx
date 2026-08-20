@@ -287,7 +287,7 @@ export function SearchOverlay() {
             className="mt-2 bg-bg-surface border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto"
           >
             {!scope && !query.trim() && visible.length > 0 && (
-              <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide text-text-disabled">
+              <div className="px-4 pt-3 pb-1 text-2xs uppercase tracking-wide text-text-disabled">
                 Recent
               </div>
             )}
@@ -326,7 +326,7 @@ export function SearchOverlay() {
                         <Folder size={14} className="shrink-0 text-text-muted" aria-hidden />
                         {highlight(r.project.name, query)}
                       </div>
-                      <div className="text-[11px] text-text-disabled mt-0.5">
+                      <div className="text-2xs text-text-disabled mt-0.5">
                         Project · {r.chatCount} {r.chatCount === 1 ? 'chat' : 'chats'}
                       </div>
                     </>
@@ -340,7 +340,7 @@ export function SearchOverlay() {
                           {highlight(r.snippet, query)}
                         </div>
                       )}
-                      <div className="text-[11px] text-text-disabled mt-0.5">
+                      <div className="text-2xs text-text-disabled mt-0.5">
                         {relativeTime(r.conv.updated_at)}
                       </div>
                     </>

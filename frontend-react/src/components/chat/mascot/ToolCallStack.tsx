@@ -54,7 +54,7 @@ export function ToolCallStack({ events, active }: ToolCallStackProps) {
               role="status"
               aria-live="polite"
               className="pointer-events-none select-none
-                         px-2 py-1 rounded-md text-[10px]
+                         px-2 py-1 rounded-md text-micro
                          bg-bg-elevated border border-border-default
                          text-text-muted whitespace-nowrap"
             >

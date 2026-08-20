@@ -108,7 +108,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
     .slice()
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
-  const rowBase = 'w-full flex items-center gap-2 h-8 px-3 rounded-lg text-[13px] text-left transition-colors cursor-pointer';
+  const rowBase = 'w-full flex items-center gap-2 h-8 px-3 rounded-lg text-sm text-left transition-colors cursor-pointer';
 
   return (
     <div className="mt-4 min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
@@ -245,7 +245,7 @@ export function SideNav() {
               <DropdownMenuItem onSelect={newChat} className="gap-2">
                 <MessageSquare size={14} />
                 New chat
-                <span className="ml-auto text-[11px] text-text-muted">⌘N</span>
+                <span className="ml-auto text-2xs text-text-muted">⌘N</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setProjectOpen(true)} className="gap-2">
                 <FolderPlus size={14} />
