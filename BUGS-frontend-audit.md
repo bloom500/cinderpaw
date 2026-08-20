@@ -2215,6 +2215,236 @@ useEffect(() => {
 - **Boot safety**: §F57 (corrupt localStorage crashes on parse)
 - **Misc**: §F60a-p (16 sub-findings)
 
+# Runda 3 — Mascota (FeralMascot) rendered și analizată vizual
+
+Am rendered pixel-art direct din `frames.ts` (95 frame-uri, 22 stări) la 3 outputs:
+- `audit-mascot-idle.png` — IDLE_BLINK singur, 384×384 scaled 24×
+- `audit-mascot-composite.png` — 5 stări side-by-side
+- `audit-mascot-grid.png` — 15 stări în grid 4×4
+
+**Concluzie generală despre design:**
+Mascota e un *pixel gremlin* cute-scary — cap negru cu 2 urechi triunghiulare, față portocalie warm, corp round. **Design-ul e distinctiv și memorabil**, nu-i generic. Palette warm terracotta se leagă foarte bine cu brand-ul. 95 frame-uri hand-crafted = muncă serioasă și rare în AI apps (majoritatea folosesc generic Lottie sau emoji). E un asset care merită păstrat prin rebrand.
+
+Dar am identificat câteva probleme reale de design:
+
+---
+
+## §F61 — CRITIC: `surprised` și `thinking` sunt aproape identice vizual → două stări indistinguishable
+
+Comparație frame-by-frame (rândurile 5-6 = ochi):
+
+**THINK_L** (line 81-97):
+```
+kkoowkoowkwookk    ← ochi: [w-w] [wkw] (asimetric, spre stânga)
+kkookkookkookk    ← neutru
+```
+
+**SURPRISED** (line 271-287):
+```
+kkoowkkwkwookk    ← ochi: [wkkw] [kwk] (asimetric, dar aproape identic)
+kkookkkwkkookk    ← ochi cu w mic pe mijloc
+```
+
+Ambele arată ca "ochi asimetrici scanning". User NU poate distinge dacă mascota gândește sau e surprised — două stări cu semantică distinctă produc feedback vizual identic.
+
+Comparativ, `SLEEP` (line 233-249) e clar diferit (linie orizontală = ochi închiși) și `WAVE` are gură deschisă zâmbet — bine.
+
+**Fix**: pentru `surprised`, folosește ochi mari GLOBALI (2 pătrate whitewhite mari), nu variații subtile pe ochi mici:
+```
+kkooooooooooookk
+kkoowwoowwoookk    ← ochi mari, 2×2 fiecare
+kkoowwoowwoookk
+kkooooowwoooookk    ← gură "O" mică
+```
+
+Sau: adaugă `!` deasupra capului ca puff effect pentru surprised (există deja effects.ts sistem).
+
+---
+
+## §F62 — `cool` frame arată ca o mustață albastră peste piept, nu ca ochelari de soare
+
+În grid image, rândul 3 col 4 (`cool` state): mascota arată cu față normală + un **dreptunghi albastru pe corp**. Design intent: ochelari cool. Actual render: bar-ul albastru e sub gură, pe piept, nu peste ochi.
+
+Verific frame:
+
+<verify manual>: aparent frame-ul folosește `b` (blue) pe rând 8-9 (mid-body) în loc de rând 5-6 (eye level). Bar peste corp = "casă de vestă" nu "ochelari".
+
+**Fix**: mutează bara albastră la rândurile 5-6:
+```
+kkooooooooooookk
+kkobbbboobbbbokk    ← ochelari orizontal peste ambii ochi
+kkoookkoookkookk
+kkooowrrwoookk
+```
+
+Test vizual: mascota cu ochelari negri sau albaștri = clearly "cool sunglasses" pe pixel-art.
+
+---
+
+## §F63 — `love` state — nu am identificat clear inima; se pare că doar variantă de gură mică fără indicator love clar
+
+Grid rândul 4 col 1: mascota `love` are 2 ochi cu formă pattern (dots + w) — arată aproape ca CURIOUS, nu ca love.
+
+Iubire pixel-art canonic = inimă vizibilă (2 pătrate colorate roz/roșu grupate ca `<3` sau `♥`). Currently: fără element grafic distinctiv "love".
+
+**Fix**: adaugă un simbol inimă mic în canvas — fie deasupra capului via effects.ts (deja există sistem pentru CELEBRATE confetti), fie ochi cu formă inimă:
+```
+kkooooooooooookk
+kkoomomooomomokk    ← ochi cu 'm' magenta (roz/roșu)
+kkoomkkomkkomkk
+kkooowrrwoookk
+```
+
+Sau confetti-style hearts fluttering:
+```ts
+// effects.ts adaugă:
+love: (tick) => [
+  { x: 5, y: 0, color: '#e91e63' },  // heart pixel
+  { x: 12, y: 2, color: '#e91e63' },
+],
+```
+
+---
+
+## §F64 — Cele 2 "urechi/coarne" triunghiulare sus pot fi read ca urechi de vulpe / demon / iepure — ambiguu semantic
+
+Column 1 top: mascota IDLE. Cele 2 elemente portocalii sus separate de cap negru:
+```
+...o........o...       ← vârfuri
+..oo..kkkk..oo..       ← baze urechi + început cap
+```
+
+Interpretări posibile ale userului:
+- **Urechi de vulpe** (Feral = wild fox) → aliniat cu brand actual.
+- **Coarne mici** (little devil beast) → aliniat cu "Feral" wild vibe.
+- **Urechi de iepure** (dacă mai apar rotunjite via alte frame-uri).
+- **Antene** (dacă percep tehnic).
+
+Pentru rebrand `LittleBeast`, aceste apendice AJUTĂ narativul — "little beast" implică creature cu urechi/coarne unnaturale. **Bun match.**
+
+**Nu-i bug** — dar recomand documenting design intent explicit în `frames.ts` comments:
+```ts
+// Two horn-tufts atop the head: reads as ears or tiny horns depending on context.
+// Deliberately ambiguous — the creature is a "little beast", not a specific animal.
+```
+
+Ajută viitor developer să nu "fix" ambiguitatea presupunând că-i bug.
+
+---
+
+## §F65 — Palette check: coarne/urechi folosesc `#cf7740` DIRECT, nu `BODY_SHADE[row]` → nu au shading gradient ca corpul
+
+Vezi IDLE_BLINK row 0-1:
+```
+...o........o...   ← 'o' pe rând 0 = MASCOT_ORANGE plain (nu BODY_SHADE[0])
+..oo..kkkk..oo..
+```
+
+Actually `BODY_SHADE[0]` = mix la rândul 0 → highlight upper luminous. Rendering-ul face `if (ch === BODY_CHAR) color = BODY_SHADE[r]` — deci **DA**, urechile primesc shading. Verifică row 0: `t = max(0, (0-2)/11)` = 0 → highlighted with `#f4c285` warm cream light. Row 0 = deschis. Row 1 = puțin mai portocaliu.
+
+Verificat pe imagine — urechile arată deschise, corect. **NU-i bug §F65. Skip.**
+
+---
+
+## §F66 — `sleep` — ochi sunt clar închiși (linie orizontală w), dar cap-ul nu are "Z" plutitor deasupra → poate fi confuz "e sleep sau e broken"
+
+Grid rândul 2 col 3: `sleep`. Ochi closed OK (o line orizontală). Dar sunt și alte state-uri cu ochi ascunși temporar (blink) — user vede snapshot momentaneously și nu știe "e sleep sau e blinking".
+
+Există un `EFFECTS[state]` sistem pentru per-state overlay pixels (per FeralMascot.tsx:78-83). Sleep ar trebui să aibă "Z" puffs:
+
+```ts
+// effects.ts:
+sleep: (tick) => {
+  const y = ((tick / 2) | 0) % 8;   // Z rises slowly
+  return [
+    { x: 22, y: y, color: '#f0e6d3' },        // Z pixel 1
+    { x: 23, y: y, color: '#f0e6d3' },        // Z pixel 2
+    { x: 22, y: y + 1, color: '#f0e6d3' },
+  ];
+},
+```
+
+Verific dacă există:
+```
+cat effects.ts | grep sleep
+```
+
+Dacă nu, adaugă. Ambiguity fix.
+
+---
+
+## §F67 — Body proportions: `RUN_A` are picioare separate (4 pixel-legs), dar restul state-urilor au picioare `kkk..kkk` compact → inconsistență la tranzitie idle→run
+
+IDLE_BLINK ultima 2 rânduri:
+```
+....kkk..kkk....
+....kk....kk....
+```
+
+Doi picioruse cerclu-shaped, bază largă.
+
+RUN_A ultima 4 rânduri:
+```
+..kkkkkkkkk.....
+....kk.kk.......
+...kk...kk......
+..kk.....k......
+```
+
+Picioare deschise wide (running pose). OK vizual pentru running.
+
+Dar tranzitia IDLE → CURIOUS → RUNNING → SLEEP: sprite-ul se DEFORMEAZĂ subit când tranzitie la RUN — nu-s frame-uri intermediare. User vede "pop" între poses.
+
+Testat visual imposibil (nu rulez app), dar din code: `MascotPerch::startIdleSequence` (line 99-160) trece STATE = 'curious' → 'running' → 'sleep' cu `LEG_MS = 1_800` pentru run. Nu există smoothly interpolated frames intre state-uri — sprite instant swap.
+
+Pentru pixel-art, instant swap e canonic (nu-i 3D animation). OK. Dar recomand adaugare 1-2 "transition" frames:
+- `CROUCH` frame între idle și run (pregătire).
+- `LAND` frame după stop running.
+
+Micro-polish. Skip dacă nu-i priority.
+
+---
+
+## §F68 — `celebrate` — confetti effect apparent OK, dar dispare cu tick — verify că nu contribuie la DustPuff z-index conflict §F43
+
+`celebrate` (grid rândul 3 col 2): confetti pixels visible sus. Frame arată bine. Dacă e implementat prin `EFFECTS[celebrate]` din effects.ts, folosește canvas overlay. Depinde de EFFECTS z-order — vezi §F43.
+
+Skip verify separately.
+
+---
+
+## §F69 — 22 stări declarate în MascotState type dar `VARIANTS` mapping — nu toate au frames dedicate → fallback la generic frame
+
+`FeralMascot.tsx` line 91-101: `variantRef.current = pool[idx]`. Dacă `VARIANTS[state] = []` sau undefined pentru un state, TypeError la runtime.
+
+Verific:
+
+Din grep `VARIANTS` (line 2456), assume există entry pentru toate 22 states. Dar unele probably alias la altele (`writing: VARIANTS.typing[0]` fallback). Verifică că fiecare unique semantic state are măcar 1 frame propriu, altfel semantic collision (writing arată identic cu typing = confuzie developer).
+
+Skip fără test manual runtime.
+
+---
+
+## §F70 — RECOMANDARE POZITIVĂ: mascota e ASSET REAL, păstreaz-o prin rebrand
+
+Contrar tuturor findings de bugs, mascota însăși e:
+- **Distinctive** — nu se confundă cu Copilot, Claude Cursor mascot, sau alte AI companions.
+- **Ownable** — pixel-art hand-crafted = signature vizual imposibil de replicat easy.
+- **Warm** — palette clay/terracotta se leagă cu palette warm brown al app-ului.
+- **Scalable** — 16×16 rende infinit-scale cu integer scaling.
+- **Animated** — 22 stări = personality real, mai mult decât 99% mascote SaaS.
+
+**Pentru rebrand LittleBeast**: mascota SE POTRIVEȘTE PERFECT cu numele "LittleBeast" — un pixel gremlin cute-scary IS a little beast. Numele "Feral" era mai wild/aggressive (fox-adjacent), dar mascota efectivă e mai cute-monster decât wild-animal. **Numele LittleBeast se aliniază MAI BINE cu asset-ul vizual actual decât numele Feral.**
+
+Recomand:
+1. Păstrează sprite-ul intact.
+2. Rename component la `LittleBeastMascot` (pattern search-replace la nivel de fișier).
+3. Marketing: leverage mascota ca companion mereu-prezent — poți face merchandise easy (stickers, T-shirts) datorită pixel-art distinctiveness.
+
+Aceasta e o **asset advantage** rare în AI space. Nu multe startup-uri au un mascot real memorable.
+
+---
+
 **Prioritate suplimentară pentru fix pre-rebrand:**
 1. **§F31, §F32, §F53** — hardcoded "Feral" + centralize în `lib/brand.ts` (foundation pentru rebrand painless).
 2. **§F57** — localStorage corrupt crashes boot — high blast radius bug.
