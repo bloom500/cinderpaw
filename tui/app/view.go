@@ -1597,7 +1597,7 @@ func renderWizWelcome(w *WizardState, width int) string {
 	}
 	b.WriteByte('\n')
 	// Security note as body copy (not a step).
-	b.WriteString(wizLine("  Feral can run tools and connect to services you enable. You approve"))
+	b.WriteString(wizLine("  Cinderpaw can run tools and connect to services you enable. You approve"))
 	b.WriteByte('\n')
 	b.WriteString(wizLine("  each connector. Nothing leaves this machine unless you add a cloud key."))
 	b.WriteByte('\n')

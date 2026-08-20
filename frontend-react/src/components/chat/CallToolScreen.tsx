@@ -9,7 +9,7 @@ import { useT } from '@/lib/i18n';
 import type { ToolActivity, ToolKind } from '@/hooks/useLiveToolActivity';
 
 /**
- * A screen in the corner of a call, showing what Feral is actually doing.
+ * A screen in the corner of a call, showing what Cinderpaw is actually doing.
  *
  * Four widgets, one per CATEGORY of work — not one per tool. Forty-three tools
  * would be forty-three components nobody maintains; a browser, an explorer, a
@@ -45,7 +45,7 @@ export function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
       aria-live="polite"
     >
       {/* The group header, and only when there is a group. Two tools at once is
-          the moment the user learns Feral orchestrates rather than making one
+          the moment the user learns Cinderpaw orchestrates rather than making one
           call — so it is said plainly, and never when it would be a lie. */}
       {running > 1 && (
         <div className="tw-rise flex items-center gap-2 self-start rounded-full border border-border-subtle bg-bg-surface/90 px-3 py-1 text-2xs text-text-secondary backdrop-blur">
@@ -200,7 +200,7 @@ function State({ a, className }: { a: ToolActivity; className?: string }) {
 }
 
 /**
- * The outer task: what the call handed to Feral, in its own words.
+ * The outer task: what the call handed to Cinderpaw, in its own words.
  *
  * Always present for the whole wait, which is the point — the agent often
  * answers from what it already knows and runs no tool at all, and every one of

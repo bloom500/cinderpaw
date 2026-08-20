@@ -20,7 +20,7 @@
 //!     commands themselves additionally refuse to run unless the same flag is
 //!     set, so the React UI can't reach them by accident either.
 //!   * **Hard denylist.** Security-sensitive targets can NEVER be driven,
-//!     regardless of any allowlist: Feral itself (no self-manipulation /
+//!     regardless of any allowlist: Cinderpaw itself (no self-manipulation /
 //!     confused-deputy), the Windows UAC/consent + credential UIs, the OS
 //!     keychain, and well-known password managers. Reads and writes against
 //!     these are blocked.
@@ -152,7 +152,7 @@ pub mod security {
     /// `consent.exe`, `Consent`, etc. all match. Keep this list conservative
     /// and additive — when in doubt, block.
     pub const HARD_DENY: &[&str] = &[
-        // Feral itself — no confused-deputy / self-manipulation.
+        // Cinderpaw itself — no confused-deputy / self-manipulation.
         "feral",
         // Windows UAC / consent / credential surfaces.
         "consent",
@@ -472,7 +472,7 @@ fn is_chromium_app(basename: &str) -> bool {
     CHROMIUM_STEMS.contains(&stem)
 }
 
-/// Spawn a GUI app detached from Feral. Cross-platform: `open -a` on macOS,
+/// Spawn a GUI app detached from Cinderpaw. Cross-platform: `open -a` on macOS,
 /// direct exec elsewhere (PATH-resolved). No shell, no agent-supplied arguments
 /// — the only flag ever added is the constant `--force-renderer-accessibility`
 /// for known Chromium/Electron apps (see [`is_chromium_app`]), which carries no
@@ -539,10 +539,10 @@ where
 // Sidecar bridge dispatch
 // ---------------------------------------------------------------------------
 
-/// Dispatch a `desktop_control_request` coming from the Feral Agent sidecar.
+/// Dispatch a `desktop_control_request` coming from the Cinderpaw Agent sidecar.
 /// `action` + `params` mirror the `control_app` tool's input. Returns a JSON
 /// value on success or an error string. This is the single entry point the
-/// `feral_agent` stdout reader calls, so all gating lives in the command
+/// `cinderpaw_agent` stdout reader calls, so all gating lives in the command
 /// wrappers above which this re-uses.
 pub async fn handle_request(
     action: &str,

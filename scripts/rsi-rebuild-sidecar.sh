@@ -4,7 +4,7 @@
 #
 #   1. repo root = $1, or this script's parent directory.
 #   2. `bun` missing → exit 2 ("rebuild unavailable", not fatal).
-#   3. `bun run build` in <root>/FeralAgent; failure → exit 1.
+#   3. `bun run build` in <root>/CinderpawAgent; failure → exit 1.
 #   4. copy dist/feral-agent over every Tauri externalBin target
 #      (src-tauri/binaries/feral-agent-<triple>) already present — the
 #      dev machine's existing file names the triple, so no rustc probe.
@@ -12,7 +12,7 @@
 set -u
 
 REPO_ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
-AGENT_DIR="$REPO_ROOT/FeralAgent"
+AGENT_DIR="$REPO_ROOT/CinderpawAgent"
 DIST_BIN="$AGENT_DIR/dist/feral-agent"
 BIN_DIR="$REPO_ROOT/src-tauri/binaries"
 
@@ -23,7 +23,7 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 2
 fi
 if [ ! -d "$AGENT_DIR" ]; then
-  status "FATAL: FeralAgent/ not found at $AGENT_DIR. Repo root looks wrong."
+  status "FATAL: CinderpawAgent/ not found at $AGENT_DIR. Repo root looks wrong."
   exit 1
 fi
 

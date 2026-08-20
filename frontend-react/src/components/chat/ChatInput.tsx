@@ -60,7 +60,7 @@ export interface ChatInputProps {
   isEmpty?: boolean;
   /**
    * When provided, overrides the default useSendMessage routing.
-   * Used by the Agents tab to route through the Feral Agent sidecar.
+   * Used by the Agents tab to route through the Cinderpaw Agent sidecar.
    * `images` carries attachment data URLs for vision-capable models.
    */
   sendFn?: (
@@ -75,7 +75,7 @@ export interface ChatInputProps {
   ) => Promise<void>;
   /**
    * When true, the input is always enabled regardless of whether a local
-   * model or cloud key is active. Used by the Agents tab (Feral Agent
+   * model or cloud key is active. Used by the Agents tab (Cinderpaw Agent
    * provides its own Ollama-backed inference).
    */
   alwaysEnabled?: boolean;
@@ -108,7 +108,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const micHeldRef = useRef(false);
 
   // A call turn is routed exactly like a typed or recorded one: through the
-  // Feral Agent sidecar in agent mode, the chat pipeline otherwise. Without this
+  // Cinderpaw Agent sidecar in agent mode, the chat pipeline otherwise. Without this
   // the call would hit the (unloaded) local model in agent mode — the same bug
   // the voice path already had.
   const pipelineCall = useCallSession(async (text: string) => {
@@ -122,7 +122,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // hook conditionally, which React does not allow.
   //
   // They each own a speech player, and both players listen to the same
-  // `feral://tts-chunk` event for the same session — but a player only schedules
+  // `cinderpaw://tts-chunk` event for the same session — but a player only schedules
   // audio between `beginSpeech` and its stop, and only the loop taking the call
   // ever calls that. The idle one drops every chunk, which is the same guard that
   // already keeps a straggler from an interrupted utterance out.
@@ -288,7 +288,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
    *
    * This reply is written by the product, not generated — you cannot ask a
    * model to explain that there is no model. It is deliberately phrased as
-   * Feral speaking, because from the user's side that is what happened:
+   * Cinderpaw speaking, because from the user's side that is what happened:
    * they asked for something and got an answer plus the two real ways
    * forward, instead of a disabled box pointing at Settings.
    */
@@ -346,7 +346,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         const transcript = await transcribeVoiceBlob(blob, audioPath);
         const body = transcript || '(unintelligible)';
         const voice = { audioPath, durationMs, transcript, peaks };
-        // Route the transcript exactly like a typed message: through the Feral
+        // Route the transcript exactly like a typed message: through the Cinderpaw
         // Agent sidecar in agent mode (sendFn), or the local/cloud chat
         // pipeline otherwise. `existingUserId` fills in the optimistic bubble
         // instead of adding a duplicate. Previously voice always used the chat

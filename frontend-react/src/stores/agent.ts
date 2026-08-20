@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { tauri, type AgentConfig } from '@/lib/tauri';
 
-const STORAGE_KEY = 'feral_active_agent_id';
+const STORAGE_KEY = 'cinderpaw_active_agent_id';
 
 interface AgentStore {
   list: AgentConfig[];

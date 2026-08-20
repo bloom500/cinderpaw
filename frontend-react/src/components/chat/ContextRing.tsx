@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useModel } from '@/stores/model';
-import { useFeralStore } from '@/stores/feral';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow, estimateTokens, estimateRemaining } from '@/lib/contextWindow';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Separator } from '@/components/ui/separator';
@@ -18,7 +18,7 @@ export function ContextRing() {
   const isAgentMode         = useUI((s) => s.inputMode) === 'agent';
   const loaded              = useModel((s) => s.loaded);
   const cloudModel          = useModel((s) => s.cloudModel);
-  const feralConfig         = useFeralStore((s) => s.modelConfig);
+  const feralConfig         = useCinderpawStore((s) => s.modelConfig);
 
   const { used, ctxWindow, pct, modelName, remaining, isLive } = useMemo(() => {
     const { model, ctxWindow } = activeContextWindow({

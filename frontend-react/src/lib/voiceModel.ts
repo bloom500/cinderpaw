@@ -3,7 +3,7 @@ import { tauri } from '@/lib/tauri';
 /**
  * Ensure the whisper ggml model for `size` is on disk. Returns `'ready'` if it
  * is already present, otherwise kicks off a dedicated whisper download (into the
- * whisper dir, progress over `feral://whisper-download-*`) and returns
+ * whisper dir, progress over `cinderpaw://whisper-download-*`) and returns
  * `'downloading-started'`.
  *
  * NOTE: this must NOT reuse the LLM `download_model` command — that writes to

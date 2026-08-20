@@ -3,7 +3,7 @@ package:   D:\FeralLocalAI\src-tauri\Cargo.toml
 workspace: D:\FeralLocalAI\Cargo.toml
    Compiling feral v0.1.3 (D:\FeralLocalAI\src-tauri)
 warning: unused import: `std::os::windows::process::CommandExt`
-   --> src-tauri\src\feral_agent.rs:104:13
+   --> src-tauri\src\cinderpaw_agent.rs:104:13
     |
 104 |         use std::os::windows::process::CommandExt;
     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

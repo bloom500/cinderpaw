@@ -1,11 +1,11 @@
 //! Connectors — the "Connector Surface" backend.
 //!
-//! A connector is an *inbound* messaging surface over the LOCAL Feral agent:
+//! A connector is an *inbound* messaging surface over the LOCAL Cinderpaw agent:
 //! you message the agent from Discord / Slack / WhatsApp and it replies there,
 //! driven by the same local runtime, model and tools as the desktop app. This
 //! module owns only the *configuration* (which connectors are enabled, their
 //! secrets, allowlist, channels). The live connections run inside the Bun
-//! sidecar (`FeralAgent/src/transports/connectors.ts`); on every change here we
+//! sidecar (`CinderpawAgent/src/transports/connectors.ts`); on every change here we
 //! poke the sidecar to reconcile via a `connectors_reload` stdin message.
 //!
 //! Auth differs per platform:
@@ -24,12 +24,12 @@ use serde::Serialize;
 use crate::paths;
 
 // R6: persisted config (ConnectorConfig, load/save, legacy-token migration)
-// moved to `feral_core::connectors` so the headless gateway + CLI can read/
+// moved to `cinderpaw_core::connectors` so the headless gateway + CLI can read/
 // write `~/.feral/connectors.json` without a Tauri command. Re-export the
 // type so the rest of this file (and any external caller) keeps working
 // unchanged.
-pub use feral_core::connectors::ConnectorConfig;
-use feral_core::connectors::{
+pub use cinderpaw_core::connectors::ConnectorConfig;
+use cinderpaw_core::connectors::{
     blank_connector_config, load_connector_configs, save_connector_configs,
 };
 
@@ -78,7 +78,7 @@ pub struct ConnectorCatalogEntry {
     pub coming_soon: bool,
 }
 
-/// The desktop catalog is a PROJECTION of the one in `feral-core`, not a
+/// The desktop catalog is a PROJECTION of the one in `cinderpaw-core`, not a
 /// second list.
 ///
 /// It used to be a hand-written copy: the same four connectors, entered twice,
@@ -91,7 +91,7 @@ pub struct ConnectorCatalogEntry {
 /// already renders them — this changes where the data comes from, not what
 /// crosses the boundary.
 fn catalog() -> Vec<ConnectorCatalogEntry> {
-    feral_core::connectors::connectors_catalog()
+    cinderpaw_core::connectors::connectors_catalog()
         .into_iter()
         .map(|c| ConnectorCatalogEntry {
             id: c.id,
@@ -117,8 +117,8 @@ fn catalog() -> Vec<ConnectorCatalogEntry> {
 /// values is "token". `oauth_device` is neither: nothing is typed here, the
 /// code is typed on the provider's site. It gets its own kind rather than
 /// being mislabelled as a form the user would then look for and not find.
-fn auth_kind_of(method: feral_core::connectors::PairingMethod) -> String {
-    use feral_core::connectors::PairingMethod as P;
+fn auth_kind_of(method: cinderpaw_core::connectors::PairingMethod) -> String {
+    use cinderpaw_core::connectors::PairingMethod as P;
     match method {
         P::Qr => "qr",
         P::OauthDevice => "device",
@@ -248,14 +248,14 @@ async fn notify_sidecar(state: &crate::AppState) {
     // sidecar would otherwise be given a token it cannot use and would report
     // a healthy-looking connector that answers nobody.
     refresh_expired_accounts().await;
-    let tx = { state.feral_agent_tx.lock().clone() };
+    let tx = { state.cinderpaw_agent_tx.lock().clone() };
     if let Some(tx) = tx {
         // The rows travel WITH their secrets, resolved from the vault. The
         // sidecar used to read connectors.json itself, which stopped working
         // the moment the migration emptied that file of credentials — every
         // connector on the machine would have come up blank. The pipe is
         // where a credential a subprocess needs belongs; the disk is not.
-        let rows = feral_core::connectors::resolved_connector_configs();
+        let rows = cinderpaw_core::connectors::resolved_connector_configs();
         let payload = serde_json::json!({ "type": "connectors_reload", "connectors": rows });
         let _ = tx.send(payload.to_string()).await;
     }
@@ -433,7 +433,7 @@ pub async fn connectors_remove(
 // ---------------------------------------------------------------------------
 // Device pairing (RFC 8628) — the desktop half.
 //
-// The state machine lives in `feral_core::oauth_device` and is pure. This is
+// The state machine lives in `cinderpaw_core::oauth_device` and is pure. This is
 // the part that has a network, a clock and a disk: it runs the machine, keeps
 // the credentials in the vault, and writes down what the person should see.
 // ---------------------------------------------------------------------------
@@ -457,7 +457,7 @@ struct ReqwestHttp {
     handle: tokio::runtime::Handle,
 }
 
-impl feral_core::oauth_device::TokenHttp for ReqwestHttp {
+impl cinderpaw_core::oauth_device::TokenHttp for ReqwestHttp {
     fn post_form(&self, url: &str, form: &[(&str, &str)]) -> Result<(u16, String), String> {
         let url = url.to_string();
         let form: Vec<(String, String)> = form
@@ -509,8 +509,8 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-fn device_flow_for(id: &str) -> Result<feral_core::connectors::DeviceFlowDef, String> {
-    feral_core::connectors::connector_by_id(id)
+fn device_flow_for(id: &str) -> Result<cinderpaw_core::connectors::DeviceFlowDef, String> {
+    cinderpaw_core::connectors::connector_by_id(id)
         .ok_or_else(|| format!("no connector called {id}"))?
         .device_flow
         .ok_or_else(|| "this connector is not paired with a code".to_string())
@@ -528,10 +528,10 @@ fn device_flow_for(id: &str) -> Result<feral_core::connectors::DeviceFlowDef, St
 /// provider saying `invalid_grant` marks the account revoked, because that is
 /// the only answer that means "this will never work again".
 pub async fn refresh_expired_accounts() {
-    use feral_core::connector_accounts::{effective_status, AccountStatus};
-    use feral_core::oauth_device::RefreshError;
+    use cinderpaw_core::connector_accounts::{effective_status, AccountStatus};
+    use cinderpaw_core::oauth_device::RefreshError;
 
-    for mut account in feral_core::connector_accounts::load_accounts() {
+    for mut account in cinderpaw_core::connector_accounts::load_accounts() {
         let now = now_secs();
         if !matches!(effective_status(&account, now), AccountStatus::Expired) {
             continue;
@@ -539,27 +539,27 @@ pub async fn refresh_expired_accounts() {
         let Ok(def) = device_flow_for(&account.connector_id) else {
             continue;
         };
-        let Some(refresh_token) = feral_core::connector_secrets::read(
-            &feral_core::connector_secrets::secret_ref(&account.connector_id, REFRESH_KEY),
+        let Some(refresh_token) = cinderpaw_core::connector_secrets::read(
+            &cinderpaw_core::connector_secrets::secret_ref(&account.connector_id, REFRESH_KEY),
         ) else {
             // Expired with nothing to renew from. Saying so beats a silent
             // "disconnected" the person cannot explain.
             account.status = AccountStatus::Error("this connection ran out and cannot renew itself — connect again".into());
-            let _ = feral_core::connector_accounts::save_account(&account);
+            let _ = cinderpaw_core::connector_accounts::save_account(&account);
             continue;
         };
 
         let handle = tokio::runtime::Handle::current();
         let outcome = tokio::task::spawn_blocking(move || {
             let http = ReqwestHttp { handle };
-            feral_core::oauth_device::refresh(&http, &def, &refresh_token, now_secs())
+            cinderpaw_core::oauth_device::refresh(&http, &def, &refresh_token, now_secs())
         })
         .await;
         let Ok(outcome) = outcome else { continue };
 
         match outcome {
             Ok(tokens) => {
-                if feral_core::connector_secrets::put(&account.connector_id, ACCESS_KEY, &tokens.access).is_err() {
+                if cinderpaw_core::connector_secrets::put(&account.connector_id, ACCESS_KEY, &tokens.access).is_err() {
                     continue;
                 }
                 // The NEW refresh token replaces the old one. Twitch's are
@@ -567,15 +567,15 @@ pub async fn refresh_expired_accounts() {
                 // and reports a revoked account to someone whose account is
                 // perfectly fine.
                 if let Some(refresh) = tokens.refresh.as_deref() {
-                    let _ = feral_core::connector_secrets::put(&account.connector_id, REFRESH_KEY, refresh);
+                    let _ = cinderpaw_core::connector_secrets::put(&account.connector_id, REFRESH_KEY, refresh);
                 }
                 account.status = AccountStatus::Connected;
                 account.expires_at = Some(tokens.expires_at);
-                let _ = feral_core::connector_accounts::save_account(&account);
+                let _ = cinderpaw_core::connector_accounts::save_account(&account);
             }
             Err(RefreshError::Revoked) => {
                 account.status = AccountStatus::Revoked;
-                let _ = feral_core::connector_accounts::save_account(&account);
+                let _ = cinderpaw_core::connector_accounts::save_account(&account);
             }
             Err(RefreshError::Transient(_)) => {
                 // An outage is not a revoked account. Left exactly as it was,
@@ -588,7 +588,7 @@ pub async fn refresh_expired_accounts() {
 /// Renew now, because the user is looking at the screen.
 #[tauri::command]
 #[specta::specta]
-pub async fn connector_refresh_expired() -> Vec<feral_core::connector_accounts::ConnectorAccount> {
+pub async fn connector_refresh_expired() -> Vec<cinderpaw_core::connector_accounts::ConnectorAccount> {
     refresh_expired_accounts().await;
     connector_accounts_list()
 }
@@ -598,12 +598,12 @@ pub async fn connector_refresh_expired() -> Vec<feral_core::connector_accounts::
 /// first-run answer rather than an error.
 #[tauri::command]
 #[specta::specta]
-pub fn connector_accounts_list() -> Vec<feral_core::connector_accounts::ConnectorAccount> {
+pub fn connector_accounts_list() -> Vec<cinderpaw_core::connector_accounts::ConnectorAccount> {
     let now = now_secs();
-    feral_core::connector_accounts::load_accounts()
+    cinderpaw_core::connector_accounts::load_accounts()
         .into_iter()
         .map(|mut a| {
-            a.status = feral_core::connector_accounts::effective_status(&a, now);
+            a.status = cinderpaw_core::connector_accounts::effective_status(&a, now);
             a
         })
         .collect()
@@ -615,25 +615,25 @@ pub fn connector_accounts_list() -> Vec<feral_core::connector_accounts::Connecto
 #[specta::specta]
 pub async fn connector_pair_start(
     id: String,
-) -> Result<feral_core::connector_accounts::ConnectorAccount, String> {
-    use feral_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
+) -> Result<cinderpaw_core::connector_accounts::ConnectorAccount, String> {
+    use cinderpaw_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
 
     let def = device_flow_for(&id)?;
     let handle = tokio::runtime::Handle::current();
     let label = id.clone();
     let started = tokio::task::spawn_blocking(move || {
         let http = ReqwestHttp { handle };
-        feral_core::oauth_device::start_device_flow(&http, &def, now_secs())
+        cinderpaw_core::oauth_device::start_device_flow(&http, &def, now_secs())
             .map_err(|e| format!("{label}: {e}"))
     })
     .await
     .map_err(|e| e.to_string())??;
 
     // The device code is a credential: vault, not the account file.
-    feral_core::connector_secrets::put(&id, PAIRING_DEVICE_CODE, &started.device_code)
+    cinderpaw_core::connector_secrets::put(&id, PAIRING_DEVICE_CODE, &started.device_code)
         .map_err(|e| e.to_string())?;
 
-    let mut account = feral_core::connector_accounts::load_accounts()
+    let mut account = cinderpaw_core::connector_accounts::load_accounts()
         .into_iter()
         .find(|a| a.connector_id == id)
         .unwrap_or_else(|| ConnectorAccount {
@@ -646,7 +646,7 @@ pub async fn connector_pair_start(
         verification_uri: started.verification_uri,
         expires_at: started.expires_at,
     });
-    feral_core::connector_accounts::save_account(&account)?;
+    cinderpaw_core::connector_accounts::save_account(&account)?;
     Ok(account)
 }
 
@@ -657,12 +657,12 @@ pub async fn connector_pair_start(
 #[specta::specta]
 pub async fn connector_pair_poll(
     id: String,
-) -> Result<feral_core::connector_accounts::ConnectorAccount, String> {
-    use feral_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
-    use feral_core::oauth_device::{DeviceCode, PollOutcome};
+) -> Result<cinderpaw_core::connector_accounts::ConnectorAccount, String> {
+    use cinderpaw_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
+    use cinderpaw_core::oauth_device::{DeviceCode, PollOutcome};
 
     let def = device_flow_for(&id)?;
-    let mut account = feral_core::connector_accounts::load_accounts()
+    let mut account = cinderpaw_core::connector_accounts::load_accounts()
         .into_iter()
         .find(|a| a.connector_id == id)
         .unwrap_or_else(|| ConnectorAccount {
@@ -681,8 +681,8 @@ pub async fn connector_pair_poll(
         return Ok(account);
     };
 
-    let device_code = feral_core::connector_secrets::read(
-        &feral_core::connector_secrets::secret_ref(&id, PAIRING_DEVICE_CODE),
+    let device_code = cinderpaw_core::connector_secrets::read(
+        &cinderpaw_core::connector_secrets::secret_ref(&id, PAIRING_DEVICE_CODE),
     )
     .unwrap_or_default();
     if device_code.is_empty() {
@@ -690,7 +690,7 @@ pub async fn connector_pair_poll(
         // leave the card in a state that has a way forward.
         account.status = AccountStatus::Error("pairing was interrupted — start again".into());
         account.auth_state = None;
-        feral_core::connector_accounts::save_account(&account)?;
+        cinderpaw_core::connector_accounts::save_account(&account)?;
         return Ok(account);
     }
 
@@ -705,7 +705,7 @@ pub async fn connector_pair_poll(
     let client_id = def.client_id.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         let http = ReqwestHttp { handle };
-        feral_core::oauth_device::poll_once(&http, &def, &code, now_secs())
+        cinderpaw_core::oauth_device::poll_once(&http, &def, &code, now_secs())
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -714,15 +714,15 @@ pub async fn connector_pair_poll(
         // Still waiting. The card keeps showing the code it already has.
         PollOutcome::Pending | PollOutcome::SlowDown => return Ok(account),
         PollOutcome::Granted(tokens) => {
-            feral_core::connector_secrets::put(&id, ACCESS_KEY, &tokens.access)
+            cinderpaw_core::connector_secrets::put(&id, ACCESS_KEY, &tokens.access)
                 .map_err(|e| e.to_string())?;
             if let Some(refresh) = tokens.refresh.as_deref() {
                 // Single-use on Twitch: the NEW one replaces the old, always.
-                feral_core::connector_secrets::put(&id, REFRESH_KEY, refresh)
+                cinderpaw_core::connector_secrets::put(&id, REFRESH_KEY, refresh)
                     .map_err(|e| e.to_string())?;
             }
             account.status = AccountStatus::Connected;
-            account.secret_ref = Some(feral_core::connector_secrets::secret_ref(&id, ACCESS_KEY));
+            account.secret_ref = Some(cinderpaw_core::connector_secrets::secret_ref(&id, ACCESS_KEY));
             account.expires_at = Some(tokens.expires_at);
             account.auth_state = None;
             // Which account did they just connect? Two reasons it matters, and
@@ -735,10 +735,10 @@ pub async fn connector_pair_poll(
             if let Some(login) = twitch_login_for(&client_id, &tokens.access).await {
                 account.display_name = Some(login.clone());
                 account.metadata.insert("TWITCH_LOGIN".into(), login.clone());
-                let mut rows = feral_core::connectors::load_connector_configs();
+                let mut rows = cinderpaw_core::connectors::load_connector_configs();
                 if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
                     row.metadata.insert("TWITCH_LOGIN".into(), login);
-                    let _ = feral_core::connectors::save_connector_configs(&rows);
+                    let _ = cinderpaw_core::connectors::save_connector_configs(&rows);
                 }
             }
         }
@@ -759,19 +759,19 @@ pub async fn connector_pair_poll(
 
     // The pairing code has done its job either way; it is not a credential
     // worth leaving lying around.
-    let _ = feral_core::connector_secrets::forget(&id, PAIRING_DEVICE_CODE);
-    feral_core::connector_accounts::save_account(&account)?;
+    let _ = cinderpaw_core::connector_secrets::forget(&id, PAIRING_DEVICE_CODE);
+    cinderpaw_core::connector_accounts::save_account(&account)?;
     Ok(account)
 }
 
 #[cfg(test)]
 mod catalog_projection {
     /// The failure this guards against: someone adds a connector to
-    /// `feral-core` and the desktop never shows it, because the desktop kept
+    /// `cinderpaw-core` and the desktop never shows it, because the desktop kept
     /// its own hand-written list. That is how the two drifted before.
     #[test]
     fn the_desktop_catalog_is_a_projection_of_the_core_one() {
-        let core: Vec<String> = feral_core::connectors::connectors_catalog()
+        let core: Vec<String> = cinderpaw_core::connectors::connectors_catalog()
             .into_iter()
             .map(|c| c.id)
             .collect();
@@ -806,7 +806,7 @@ mod catalog_projection {
     /// "all of nothing is filled" must not read as "ready".
     #[test]
     fn a_device_flow_connector_is_not_ready_just_because_it_has_no_fields() {
-        let cfg = feral_core::connectors::blank_connector_config("twitch");
+        let cfg = cinderpaw_core::connectors::blank_connector_config("twitch");
         assert!(!super::is_ready(&cfg), "twitch reported ready with no credential at all");
     }
 

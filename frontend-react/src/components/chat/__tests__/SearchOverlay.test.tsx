@@ -48,7 +48,7 @@ const CONVS = [
 
 const PROJECTS = [
   { id: 'p1', name: 'Bloom Media', conversation_ids: ['c1'] },
-  { id: 'p2', name: 'Feral', conversation_ids: [] },
+  { id: 'p2', name: 'Cinderpaw', conversation_ids: [] },
 ];
 
 function setup() {
@@ -88,7 +88,7 @@ describe('SearchOverlay', () => {
   it('lists projects above conversations', async () => {
     // A project is the coarser answer — the container before its contents.
     useConversations.setState({
-      list: [{ id: 'c9', title: 'Feral notes', updated_at: new Date().toISOString() }] as never,
+      list: [{ id: 'c9', title: 'Cinderpaw notes', updated_at: new Date().toISOString() }] as never,
       open: vi.fn() as never,
     });
     useProjects.setState({ list: PROJECTS as never });
@@ -99,10 +99,10 @@ describe('SearchOverlay', () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByRole('combobox'), 'feral');
+    await userEvent.type(screen.getByRole('combobox'), 'cinderpaw');
     await waitFor(async () => expect((await rows()).length).toBeGreaterThan(1));
     const [first] = await rows();
-    expect(first).toContain('Feral');
+    expect(first).toContain('Cinderpaw');
     expect(first).toContain('Project');
   });
 
@@ -154,7 +154,7 @@ describe('with nothing typed', () => {
     setup();
     expect(await rows()).toEqual([
       expect.stringContaining('Bloom Media'),
-      expect.stringContaining('Feral'),
+      expect.stringContaining('Cinderpaw'),
       expect.stringContaining('Refactor the router'),
       expect.stringContaining('Dinner ideas'),
     ]);

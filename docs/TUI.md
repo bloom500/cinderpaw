@@ -1,4 +1,4 @@
-# Feral TUI — terminal chat
+# Cinderpaw TUI — terminal chat
 
 The TUI is the full-screen terminal chat client (Go + Bubble Tea). It talks to
 the same gateway, sessions, memory and models as the desktop app — installing

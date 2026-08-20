@@ -3,7 +3,7 @@
  * build-sidecar.mjs — rebuild the Feral Agent sidecar and copy it to
  * src-tauri/binaries/ for the Tauri dev/build step to pick up.
  *
- * D1 fix: previously every TypeScript change in FeralAgent/ required a
+ * D1 fix: previously every TypeScript change in CinderpawAgent/ required a
  * manual `bun run build` + cp to `src-tauri/binaries/`. `cargo tauri dev`
  * did not rebuild it, so first-day contributors lost hours to stale
  * binaries. This script is wired into `tauri.conf.json`'s
@@ -12,7 +12,7 @@
  *
  * Cross-platform (Windows / macOS / Linux) — uses node:fs and node:child_process
  * only, no shell-specific syntax. The Tauri `externalBin` config expects
- * the binary to be named `feral-agent-<target-triple>.<ext>`, where the
+ * the binary to be named `cinderpaw-agent-<target-triple>.<ext>`, where the
  * triple is derived from process.platform / process.arch.
  *
  * Usage (invoked by Tauri's beforeDevCommand / beforeBuildCommand):
@@ -40,10 +40,10 @@ import { spawnSync } from "node:child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// src-tauri/scripts → src-tauri/ (then ../FeralAgent)
+// src-tauri/scripts → src-tauri/ (then ../CinderpawAgent)
 const TAURI_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(TAURI_DIR, "..");
-const FERAL_AGENT_DIR = join(REPO_ROOT, "FeralAgent");
+const FERAL_AGENT_DIR = join(REPO_ROOT, "CinderpawAgent");
 const DIST_DIR = join(FERAL_AGENT_DIR, "dist");
 const BINARIES_DIR = join(TAURI_DIR, "binaries");
 
@@ -89,9 +89,9 @@ const IS_WINDOWS_TARGET = TRIPLE.includes("windows");
 
 // Tauri's externalBin appends the triple, and `.exe` on Windows.
 const suffix = IS_WINDOWS_TARGET ? `${TRIPLE}.exe` : TRIPLE;
-const sidecarName = `feral-agent-${suffix}`;
+const sidecarName = `cinderpaw-agent-${suffix}`;
 
-const distBinaryName = IS_WINDOWS_TARGET ? "feral-agent.exe" : "feral-agent";
+const distBinaryName = IS_WINDOWS_TARGET ? "cinderpaw-agent.exe" : "cinderpaw-agent";
 const distBinaryPath = join(DIST_DIR, distBinaryName);
 const targetBinaryPath = join(BINARIES_DIR, sidecarName);
 
@@ -128,7 +128,7 @@ function main() {
   }
 
   if (!existsSync(FERAL_AGENT_DIR)) {
-    log(`FATAL: FeralAgent/ not found at ${FERAL_AGENT_DIR}`);
+    log(`FATAL: CinderpawAgent/ not found at ${FERAL_AGENT_DIR}`);
     process.exit(1);
   }
 
@@ -142,7 +142,7 @@ function main() {
   }
 
   // Skip the bun build if the dist binary is already newer than every
-  // FeralAgent source file. `FERAL_FORCE_SIDECAR_BUILD=1` overrides.
+  // CinderpawAgent source file. `FERAL_FORCE_SIDECAR_BUILD=1` overrides.
   //
   // A cross-build always rebuilds: a dist binary left over from a native build
   // is the WRONG ARCHITECTURE, and mtime cannot see that. Shipping it would
@@ -150,11 +150,11 @@ function main() {
   // for — and the failure would only show up on a user's Intel Mac.
   let needBuild = process.env.FERAL_FORCE_SIDECAR_BUILD === "1" || CROSS;
   if (!needBuild && existsSync(distBinaryPath)) {
-    // Cheap heuristic: if FeralAgent/src has any .ts file newer than the
+    // Cheap heuristic: if CinderpawAgent/src has any .ts file newer than the
     // dist binary, rebuild. We only walk one level deep — this is good
     // enough for the typical "I just edited a TS file" trigger.
     const distMtime = statSync(distBinaryPath).mtimeMs;
-    // Glob the FeralAgent source tree via a tiny shell-free walk.
+    // Glob the CinderpawAgent source tree via a tiny shell-free walk.
     const srcRoot = join(FERAL_AGENT_DIR, "src");
     const isStale = walkIsStale(srcRoot, distMtime);
     if (isStale) {
@@ -171,7 +171,7 @@ function main() {
       log(`cross-compiling sidecar: ${HOST_TRIPLE} → ${TRIPLE} (${BUN_TARGET})`);
     }
     // Spelled out rather than `bun run build` so the target can be passed. The
-    // flags mirror FeralAgent/package.json's "build" script; keep them in step.
+    // flags mirror CinderpawAgent/package.json's "build" script; keep them in step.
     run(
       "bun",
       [
@@ -207,10 +207,10 @@ function main() {
   log(`copied → ${targetBinaryPath}`);
 
   // Also copy next to the gateway exe (target/{release,debug}/) so dev
-  // builds (`cargo build -p feral-cli` from the repo root, or
+  // builds (`cargo build -p cinderpaw-cli` from the repo root, or
   // `cargo tauri dev`) don't get stuck on a stale sidecar sitting there.
   // `find_binary()` probes next to `current_exe` FIRST and matches the
-  // plain name `feral-agent.exe` over the triple-suffixed copy under
+  // plain name `cinderpaw-agent.exe` over the triple-suffixed copy under
   // `src-tauri/binaries/`, so any stale plain-named copy wins and
   // shadows the fresh build. Keeping the target dir in sync on every
   // rebuild closes that gap. See the B7 smoke

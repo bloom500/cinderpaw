@@ -47,7 +47,7 @@ export function AppearanceTab() {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-text-primary">Theme</p>
-          <p className="text-xs text-text-muted mt-0.5">Pick how Feral looks</p>
+          <p className="text-xs text-text-muted mt-0.5">Pick how Cinderpaw looks</p>
         </div>
         <div className="flex rounded-md border border-border-subtle overflow-hidden">
           {THEMES.map(({ value, label }) => (

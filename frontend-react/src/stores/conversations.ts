@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/tauri';
-import { rehydrateLiveSession } from '@/lib/feralLiveSession';
+import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { useChat, type ChatMessage } from './chat';
 
@@ -61,7 +61,7 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
 }
 
 function toPersisted(m: ChatMessage): PersistedMessage {
-  // Every save path must carry `scratch`, not just the one in useFeral: this one
+  // Every save path must carry `scratch`, not just the one in useCinderpaw: this one
   // runs on rename and on delete-a-message, and dropping the field there would
   // erase the trace on an edit that has nothing to do with it.
   return {

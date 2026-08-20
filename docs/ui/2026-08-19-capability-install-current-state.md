@@ -15,7 +15,7 @@ this file to match later design decisions.
 |---|---|---|---|
 | Skill | `skills::install_skill` (`src-tauri/src/skills.rs:459`) | **id, metadata, trust label, and the whole file body** | only the target directory |
 | MCP extension | `mcp::mcp_install` (`src-tauri/src/mcp.rs:923`) | an id, plus user-filled field values | the catalogue entry, the command, the args |
-| Connector | `connectors_manage` tool (`FeralAgent/src/tools/builtin/connectors-manage.ts`) | provider id + secret values | the field schema per provider |
+| Connector | `connectors_manage` tool (`CinderpawAgent/src/tools/builtin/connectors-manage.ts`) | provider id + secret values | the field schema per provider |
 
 The two host-side commands have **opposite shapes**, and this is the central
 fact of this document.
@@ -37,7 +37,7 @@ const ALLOWED_CONTENT_HOSTS: &[&str] = &[
 fn validate_content_url(url: &str) -> Result<()> { … }
 ```
 
-**Curated manifests served from the Feral repository** — `skills.rs:6-10`
+**Curated manifests served from the Cinderpaw repository** — `skills.rs:6-10`
 `GITHUB_MANIFEST_URL` and `COMMUNITY_MANIFEST_URL` both point at
 `raw.githubusercontent.com/bloom500/feral/main/skills/…`.
 
@@ -107,7 +107,7 @@ codebase, in the same style.
 
 ## 5. What the agent can and cannot do
 
-Agent tools relating to capabilities (`FeralAgent/src/tools/builtin/`):
+Agent tools relating to capabilities (`CinderpawAgent/src/tools/builtin/`):
 
 | Tool | Capability |
 |---|---|
@@ -119,7 +119,7 @@ Agent tools relating to capabilities (`FeralAgent/src/tools/builtin/`):
 
 There is **no agent tool that installs a skill or an MCP extension**. Searched:
 `install_skill` and `mcp_install` appear only in `src-tauri/` and in
-`frontend-react/`, never in `FeralAgent/src/`.
+`frontend-react/`, never in `CinderpawAgent/src/`.
 
 `connectors-manage.ts` is the one place where the agent already changes the
 machine's capability state. Its own header states the intent
@@ -145,7 +145,7 @@ for anything remote, `Local` for a skill already on disk, and `Unknown` for a
 file the user imports by hand. `Bundled`, `Verified` and `Experimental` are
 declared, matched against in types, and never produced by any code path.
 
-Notably, the *official* Feral manifest and the *community* manifest both
+Notably, the *official* Cinderpaw manifest and the *community* manifest both
 produce `Community`. The distinction the two URLs exist to make is erased
 before it reaches the UI.
 

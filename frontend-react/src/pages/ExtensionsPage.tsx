@@ -354,7 +354,7 @@ function CatalogCard({
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Install gate: catalog extensions run third-party code on the user's machine
-  // outside Feral's sandbox (S1 supply-chain). Make that an informed, conscious
+  // outside Cinderpaw's sandbox (S1 supply-chain). Make that an informed, conscious
   // choice — never a silent one-click — before the install actually spawns it.
   const install = async () => {
     // Needs config the user hasn't provided yet → expand the inline form.
@@ -478,7 +478,7 @@ function CatalogCard({
             <p>
               This extension runs third-party software made by its publisher on your
               computer to do its job. It runs with your account’s access, outside
-              Feral’s protected area.
+              Cinderpaw’s protected area.
             </p>
             {/* Said BEFORE the install starts, not after. A browser window
                 opening by itself looks like something went wrong, and the

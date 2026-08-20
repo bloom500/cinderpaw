@@ -1,7 +1,7 @@
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 
 /**
- * What Feral did during calls, kept after the widgets have faded.
+ * What Cinderpaw did during calls, kept after the widgets have faded.
  *
  * The panel is a live indicator: rows age out six seconds after they finish,
  * because a call screen showing everything that ever happened is a log, not an
@@ -25,7 +25,7 @@ import type { ToolActivity } from '@/hooks/useLiveToolActivity';
  *  drawer rather than a database. */
 const MAX = 40;
 
-const KEY = 'feral-call-artifacts';
+const KEY = 'cinderpaw-call-artifacts';
 
 /**
  * Read what previous sessions left.

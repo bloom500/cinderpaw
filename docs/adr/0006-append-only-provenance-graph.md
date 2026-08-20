@@ -27,7 +27,7 @@ Provenance is an **append-only graph**:
    hashes. Iteration metadata in the commit body identifies the
    lineage.
 2. **Non-code artifacts** (LoRA / demo / eval_task): typed envelopes
-   (`ArtifactEnvelope` in `FeralAgent/src/rsi/provenance.ts`) with
+   (`ArtifactEnvelope` in `CinderpawAgent/src/rsi/provenance.ts`) with
    `parents: string[]`. Storage: `~/.feral/rsi/envelopes/<id>.json`
    (deferred to Step 6 of BRSI refactor sequence).
 3. **No node deletion.** A retired champion is `ChampionRetired`,
@@ -59,7 +59,7 @@ Provenance is an **append-only graph**:
 
 ## Related
 
-- `FeralAgent/src/rsi/provenance.ts` (the read-side graph)
+- `CinderpawAgent/src/rsi/provenance.ts` (the read-side graph)
 - `src-tauri/src/rsi/repo.rs` (git substrate)
 - INVARIANTS.md I2 (rollback always possible), I12 (graph acyclic)
 - `docs/brsi-spec.md` §2.6, §4.6

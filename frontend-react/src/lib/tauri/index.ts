@@ -457,7 +457,7 @@ export interface ChampionTreeRow {
 }
 
 // ── Code-patch approval gate (Faza 2 Slice 5) ───────────────────────────────
-// Frozen wire shape from FeralAgent/src/types.ts (OutboundEvent `code_patches`
+// Frozen wire shape from CinderpawAgent/src/types.ts (OutboundEvent `code_patches`
 // + `code_patch_resolved`). The Dreams panel renders this list and resolves
 // patches; the trust boundary + sidecar disk live behind the Tauri command.
 
@@ -576,10 +576,10 @@ export interface AgentConfig {
   params?: Record<string, unknown> | null;
 }
 
-// ── Feral Agent ─────────────────────────────────────────────────────────────
+// ── Cinderpaw Agent ─────────────────────────────────────────────────────────────
 
-/** Parsed output event from the Feral Agent sidecar. */
-export type FeralAgentEvent =
+/** Parsed output event from the Cinderpaw Agent sidecar. */
+export type CinderpawAgentEvent =
   | { type: 'chunk';       id: string; content: string }
   | { type: 'done';        id: string; content: string; stopped: boolean }
   | { type: 'tool_start';  id: string; callId: string; tool: string; args: Record<string, unknown> }
@@ -628,7 +628,7 @@ export type FeralAgentEvent =
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string };
 
-/** Display-safe snapshot of the Feral Agent's active LLM — no API keys. */
+/** Display-safe snapshot of the Cinderpaw Agent's active LLM — no API keys. */
 export interface FeralModelConfigView {
   provider: string;
   model: string;
@@ -636,7 +636,7 @@ export interface FeralModelConfigView {
   display_name: string;
 }
 
-/** What React sends to Rust when changing the Feral model. */
+/** What React sends to Rust when changing the Cinderpaw model. */
 export type FeralModelSelection =
   | { source: 'ollama';            model: string; baseUrl: string }
   | { source: 'byok';              providerId: string; model: string }
@@ -725,7 +725,7 @@ const raw = {
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
   feralSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
     invoke<string>('feral_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
-  feralAgentStatus:         () => invoke<boolean>('feral_agent_status'),
+  feralAgentStatus:         () => invoke<boolean>('cinderpaw_agent_status'),
   feralStopGeneration:      (sessionId?: string | null) =>
     invoke<void>('feral_stop_generation', { sessionId: sessionId ?? null }),
   feralSubmitFeedback:      (sessionId: string, messageId: string, value: 'up' | 'down') =>
@@ -859,11 +859,11 @@ const raw = {
   ttsVoicePresent:          (engine: string, voice: string) =>
     invoke<boolean>('tts_voice_present', { engine, voice }),
   // Idempotent — returns immediately if everything the engine needs is already
-  // on disk. Progress streams over `feral://tts-download-*`.
+  // on disk. Progress streams over `cinderpaw://tts-download-*`.
   downloadTtsVoice:         (engine: string, voice: string) =>
     invoke<string>('download_tts_voice', { engine, voice }),
   // Resolves when SYNTHESIS ends (with the PCM byte count), not when playback
-  // does — audio arrives on `feral://tts-chunk` and the webview owns the clock.
+  // does — audio arrives on `cinderpaw://tts-chunk` and the webview owns the clock.
   speakText:                (sessionId: string, text: string, provider?: string, voice?: string) =>
     invoke<number>('speak_text', { sessionId, text, provider: provider ?? null, voice: voice ?? null }),
   stopSpeaking:             (sessionId: string) =>
@@ -875,8 +875,8 @@ const raw = {
   // the moment this returns. Rejects with `live-no-key` when no Google key is
   // stored — the same AI Studio key the chat side already uses.
   //
-  // Audio comes back on `feral://tts-chunk` like every other engine's, at the
-  // rate carried in the event; everything else arrives on `feral://live-status`.
+  // Audio comes back on `cinderpaw://tts-chunk` like every other engine's, at the
+  // rate carried in the event; everything else arrives on `cinderpaw://live-status`.
   startLiveCall:            (sessionId: string, brief?: { model?: string; voice?: string; currentTask?: string; workspace?: string; context?: string }) =>
     invoke<void>('start_live_call', {
       sessionId,
@@ -899,7 +899,7 @@ const raw = {
   endLiveCall:              () => invoke<void>('end_live_call'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
-  // fire on startup. Progress streams over `feral://embedding-download-*`.
+  // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.
   downloadEmbeddingModel:   () =>
     invoke<string>('download_embedding_model'),
 };

@@ -39,7 +39,7 @@ unreachable — the Phase 4 mistake, one phase later.
 
 The vocabulary ban decides the names. `skill`, `extension` and `connector` may
 not appear in the primary interface, so the two new Settings tabs are
-**Capabilities** (what Feral can do) and **Accounts** (things Feral is connected
+**Capabilities** (what Cinderpaw can do) and **Accounts** (things Cinderpaw is connected
 to). The banned words stay legal inside those tabs, which are behind
 progressive disclosure by definition.
 
@@ -64,7 +64,7 @@ and is only allowed to land after S1 is on screen.**
 Two new Settings categories and one move:
 
 - **Capabilities** — the Skill Hub content and the Extensions page, one tab,
-  two sections. Both answer "what can Feral do"; they are one question to a
+  two sections. Both answer "what can Cinderpaw do"; they are one question to a
   user and two subsystems only to us.
 - **Accounts** — the Connectors page, which after Phase 3 is a list of
   `AccountCard`s. This is also where Phase 3's open thread lands: nothing polls
@@ -154,11 +154,11 @@ becomes the full window with the nav floating over it.
 ## What changed and why
 
 Removing the rail entirely was too aggressive. Being different from
-ChatGPT / Copilot / Grok is not the goal; keeping Feral's complexity behind the
+ChatGPT / Copilot / Grok is not the goal; keeping Cinderpaw's complexity behind the
 agent is. A permanent, *minimal* navigation layer costs little and is what
 people already know how to read.
 
-The goal the contract still holds: the user thinks "I tell Feral what I want",
+The goal the contract still holds: the user thinks "I tell Cinderpaw what I want",
 never "I need to understand agents, MCP, skills, connectors, runtimes".
 
 **The sidebar answers one question: where do I want to go.**

@@ -3,7 +3,7 @@ import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useModel, type InferParamsUI } from '@/stores/model';
 import { useUI } from '@/stores/ui';
-import { useFeralStore } from '@/stores/feral';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow } from '@/lib/contextWindow';
 
 function ParamRow({
@@ -165,7 +165,7 @@ export function ControlsPopover() {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
-  const feralConfig = useFeralStore((s) => s.modelConfig);
+  const feralConfig = useCinderpawStore((s) => s.modelConfig);
   const { isLocal } = activeContextWindow({ isAgentMode, feralConfig, cloudModel, loaded });
   const isLocalActive = isLocal && !!loaded;
 

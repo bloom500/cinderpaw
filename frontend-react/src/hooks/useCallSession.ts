@@ -239,7 +239,7 @@ function settled(): Promise<void> {
  * Resolves with the reply when the current turn stops streaming.
  *
  * Watching the store rather than the send call is what makes one loop serve both
- * pipelines: the chat path awaits its own stream, the Feral Agent path returns
+ * pipelines: the chat path awaits its own stream, the Cinderpaw Agent path returns
  * as soon as the sidecar has the message. `streamStatus` leaving `streaming` is
  * true for both, and it covers a stopped or failed turn too — the loop must keep
  * the line open when a reply fails, not hang waiting for words that never come.
@@ -709,7 +709,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
            * the last assistant message is still the PREVIOUS turn's reply, so an
            * offset of zero reads it as new and speaks the last answer again (it did:
            * the same 135 characters synthesised twice, four seconds apart). And
-           * mid-turn `useFeral` clears the streamed content when a tool call starts,
+           * mid-turn `useCinderpaw` clears the streamed content when a tool call starts,
            * so the text can SHRINK — after which any saved offset points into the
            * middle of different words.
            */

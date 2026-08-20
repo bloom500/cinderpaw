@@ -1,7 +1,7 @@
 /**
  * Reverse of buildUserContent(): pulls the inlined attachment blocks back out
  * of a persisted user message so the chat bubble can render compact file chips
- * (e.g. "Feral.pdf") instead of dumping the whole extracted file content.
+ * (e.g. "Cinderpaw.pdf") instead of dumping the whole extracted file content.
  *
  * Marker formats produced by buildUserContent (keep in sync):
  *   - text file:   [File: NAME]\n<content>\n[/File: NAME]

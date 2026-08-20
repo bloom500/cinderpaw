@@ -301,7 +301,7 @@ export function SearchOverlay() {
                       : `${scope.name} has no conversations yet.`)
                   : query.trim()
                     ? 'No conversations or projects match.'
-                    : 'No conversations yet. Ask Feral something and it will show up here.'}
+                    : 'No conversations yet. Ask Cinderpaw something and it will show up here.'}
               </div>
             ) : (
               visible.map((r, i) => (

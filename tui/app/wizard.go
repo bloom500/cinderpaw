@@ -242,7 +242,7 @@ func wizardDonePath() (string, error) {
 	return filepath.Join(home, ".wizard-done"), nil
 }
 
-// hasExistingConfig reports whether a previous Feral run left state on disk.
+// hasExistingConfig reports whether a previous Cinderpaw run left state on disk.
 // The wizard shows the "Keep / Review / Reset" config-handling screen when
 // this is true.
 func hasExistingConfig() bool {
@@ -670,7 +670,7 @@ type WizardState struct {
 	SearchQuery string
 
 	// F2 / spec §CREDENTIAL STORAGE OPTION: KeyStorageMode picks between
-	// "Enter directly" (the key is stored in Feral config) and
+	// "Enter directly" (the key is stored in Cinderpaw config) and
 	// "Use external secret provider" (env var, placeholder for future).
 	KeyStorageMode int
 

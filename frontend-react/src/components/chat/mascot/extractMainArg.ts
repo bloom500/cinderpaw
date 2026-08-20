@@ -2,7 +2,7 @@
  * Single source of truth for "what to show in the bubble for this tool call".
  *
  * The switch is exhaustive over the tools currently registered in
- * `FeralAgent/src/index.ts`. When a new tool is added there, add a case
+ * `CinderpawAgent/src/index.ts`. When a new tool is added there, add a case
  * here — and add a test in `extractMainArg.test.ts`.
  */
 

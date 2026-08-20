@@ -1,0 +1,35 @@
+[package]
+name = "cinderpaw-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cinderpaw-cli"
+path = "src/main.rs"
+
+[dependencies]
+cinderpaw-core = { path = "../cinderpaw-core", default-features = false }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = "1"
+# `feral chat` TUI: stream /runtime/chat SSE + read /runtime/status.
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+futures-util = "0.3"
+# CLI surface (Slice 4b): subcommands, --json/--no-color/-V, shell completion.
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+
+[dev-dependencies]
+# `feral migrate` tests build fake OpenClaw/Hermes installs on disk.
+tempfile = "3"
+
+[features]
+default = ["inference"]
+inference        = ["cinderpaw-core/inference"]
+inference-cuda   = ["cinderpaw-core/inference-cuda"]
+inference-vulkan = ["cinderpaw-core/inference-vulkan"]
+inference-metal  = ["cinderpaw-core/inference-metal"]
+whisper          = ["cinderpaw-core/whisper"]

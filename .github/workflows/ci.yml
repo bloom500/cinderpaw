@@ -14,8 +14,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         step:
-          - name: feral-agent
-            workdir: FeralAgent
+          - name: cinderpaw-agent
+            workdir: CinderpawAgent
             install: bun install
             typecheck: bun run typecheck
             test: bun test
@@ -144,10 +144,10 @@ jobs:
         uses: swatinem/rust-cache@v2
 
       - name: Install sidecar dependencies
-        working-directory: FeralAgent
+        working-directory: CinderpawAgent
         run: bun install
 
-      # Produces src-tauri/binaries/feral-agent-<target-triple> (externalBin).
+      # Produces src-tauri/binaries/cinderpaw-agent-<target-triple> (externalBin).
       - name: Build sidecar
         working-directory: src-tauri
         run: node scripts/build-sidecar.mjs
@@ -160,7 +160,7 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
-  # The headless/server build (`cargo build -p feral-cli --no-default-features`)
+  # The headless/server build (`cargo build -p cinderpaw-cli --no-default-features`)
   # compiles the cfg(not(feature = "inference")) stubs that no other job
   # touches — this check exists because that path shipped broken once
   # (E0271 in the stream_chat stub). Cheap: no llama.cpp, no GUI deps.
@@ -183,7 +183,7 @@ jobs:
         uses: swatinem/rust-cache@v2
 
       - name: cargo check (headless CLI)
-        run: cargo check --release -p feral-cli --no-default-features
+        run: cargo check --release -p cinderpaw-cli --no-default-features
 
   # Dependency vulnerability scanning (M-3). Fails the build on known
   # advisories so a vulnerable transitive dep can't slip into a release.
@@ -236,6 +236,6 @@ jobs:
         run: node scripts/audit-gate.mjs
 
       # Sidecar (bun) — same high+ gate against the bun lockfile.
-      - name: bun audit (FeralAgent)
-        working-directory: FeralAgent
+      - name: bun audit (CinderpawAgent)
+        working-directory: CinderpawAgent
         run: bun audit --audit-level=high

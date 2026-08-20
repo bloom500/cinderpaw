@@ -44,7 +44,7 @@ const binaryPath = join(
 if (!existsSync(binaryPath)) {
   console.error(
     `✗ sidecar binary not found at ${binaryPath}\n` +
-      `  Run: cd FeralAgent && bun run build && cp dist/feral-agent.exe ` +
+      `  Run: cd CinderpawAgent && bun run build && cp dist/feral-agent.exe ` +
       `${binaryPath}`,
   );
   process.exit(2);

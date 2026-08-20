@@ -120,7 +120,7 @@ export function AskUserCard({
       aria-label="Agent question"
     >
       <div className="text-2xs uppercase tracking-wider text-text-muted font-medium">
-        Feral needs your input
+        Cinderpaw needs your input
         {questions.length > 1 && (
           <span className="ml-2 font-mono text-text-muted/70 normal-case tracking-normal">
             {answers.filter((a) => a !== null).length} / {questions.length}

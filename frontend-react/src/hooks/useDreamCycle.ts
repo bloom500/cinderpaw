@@ -19,7 +19,7 @@ export function useDreamCycle(): void {
         useDream.getState().setDreaming(true);
         useNotifications.getState().push(
           'info',
-          '💤 Feral is dreaming',
+          '💤 Cinderpaw is dreaming',
           'Evolving its own configuration in the background while you’re idle.',
         );
       } else {

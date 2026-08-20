@@ -42,7 +42,7 @@ export function GeneralTab() {
   };
 
   const [autoUpdateCheck, setAutoUpdateCheck] = useState(
-    localStorage.getItem('feral.autoUpdateCheck') !== 'off',
+    localStorage.getItem('cinderpaw.autoUpdateCheck') !== 'off',
   );
   const updateStatus = useUpdater((s) => s.status);
   const updateError  = useUpdater((s) => s.error);
@@ -101,7 +101,7 @@ export function GeneralTab() {
           checked={autoUpdateCheck}
           onChange={(e) => {
             setAutoUpdateCheck(e.target.checked);
-            localStorage.setItem('feral.autoUpdateCheck', e.target.checked ? 'on' : 'off');
+            localStorage.setItem('cinderpaw.autoUpdateCheck', e.target.checked ? 'on' : 'off');
           }}
           className="h-4 w-4 accent-orange-500 shrink-0"
         />

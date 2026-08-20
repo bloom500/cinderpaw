@@ -69,8 +69,8 @@ pub(crate) fn whisper_model_present(model_size: String) -> bool {
 }
 
 /// Download the whisper ggml model for `model_size` into the whisper dir.
-/// Streams over `feral://whisper-download-progress`; completion/failure over
-/// `feral://whisper-download-complete` / `-error`. Distinct from `download_model`
+/// Streams over `cinderpaw://whisper-download-progress`; completion/failure over
+/// `cinderpaw://whisper-download-complete` / `-error`. Distinct from `download_model`
 /// so the LLM auto-load listener never tries to load a whisper model as a llama.
 #[tauri::command]
 #[specta::specta]
@@ -113,7 +113,7 @@ pub(crate) async fn download_whisper_model(
         tokio::spawn(async move {
             while let Some(p) = rx.recv().await {
                 let _ = app.emit(
-                    "feral://whisper-download-progress",
+                    "cinderpaw://whisper-download-progress",
                     events::DownloadProgressEvent {
                         repo_id: "whisper".into(),
                         filename: file.clone(),
@@ -154,7 +154,7 @@ pub(crate) async fn download_whisper_model(
         match result {
             Ok(path) => {
                 let _ = app_for_task.emit(
-                    "feral://whisper-download-complete",
+                    "cinderpaw://whisper-download-complete",
                     events::DownloadCompleteEvent {
                         repo_id: "whisper".into(),
                         filename: file_for_task.clone(),
@@ -165,7 +165,7 @@ pub(crate) async fn download_whisper_model(
             Err(e) => {
                 let cancelled = cancel_for_task.load(Ordering::Relaxed);
                 let _ = app_for_task.emit(
-                    "feral://whisper-download-error",
+                    "cinderpaw://whisper-download-error",
                     events::DownloadErrorEvent {
                         repo_id: "whisper".into(),
                         filename: file_for_task.clone(),
@@ -221,7 +221,7 @@ pub(crate) fn ui_log(scope: String, message: String) {
 ///
 /// Kept short deliberately: the hint biases decoding, so a long list of words the
 /// user never says would start pulling ordinary speech toward them.
-const PROPER_NOUNS: &str = "Feral, Cubby, Bloom, Darius, Piper, Kokoro.";
+const PROPER_NOUNS: &str = "Cinderpaw, Cubby, Bloom, Darius, Piper, Kokoro.";
 
 /// The language the last long-enough transcript came back in, kept for one
 /// reason: telling a flip apart from a steady state.
@@ -266,7 +266,7 @@ fn iso_code_of(language_name: &str) -> Option<&'static str> {
 /// `whisper` feature. Errors: "stt-no-key" | "stt-cloud-failed".
 ///
 /// `language` is an ISO-639-1 hint ("ro", "en"). Without it Groq guesses per
-/// request, and guessing the language of two words is a coin flip: "Salut, Feral"
+/// request, and guessing the language of two words is a coin flip: "Salut, Cinderpaw"
 /// came back as "Salut, Mouth!" and near-silence came back as Japanese. The app
 /// already knows which language the user speaks, so it says so.
 #[tauri::command]
@@ -307,7 +307,7 @@ pub(crate) async fn transcribe_audio_cloud(
     // fails closed when the voice dir does not exist yet.
     let voice_dir = paths::voice_dir();
     if !matches!(
-        feral_core::rsi::paths::is_under(&voice_dir, std::path::Path::new(&audio_path)),
+        cinderpaw_core::rsi::paths::is_under(&voice_dir, std::path::Path::new(&audio_path)),
         Ok(true)
     ) {
         tracing::warn!(
@@ -343,7 +343,7 @@ pub(crate) async fn transcribe_audio_cloud(
         // answer is the input to the next request's hint.
         .text("response_format", "verbose_json")
         // Proper nouns Whisper has never seen, so it approximates them phonetically:
-        // "Feral" came back as Mouth, Molaus, Paula and Mose across one evening of
+        // "Cinderpaw" came back as Mouth, Molaus, Paula and Mose across one evening of
         // testing, and each miss became a message the agent had to answer as if it
         // were a different word. The prompt field is a vocabulary hint, not an
         // instruction — it biases decoding toward these spellings when the audio is
@@ -428,7 +428,7 @@ pub(crate) async fn transcribe_audio_cloud(
 
 /// Every voice engine the picker offers, built or not.
 ///
-/// The catalog lives in `feral_core::tts` rather than in the React component so
+/// The catalog lives in `cinderpaw_core::tts` rather than in the React component so
 /// that "does audio leave the machine" and "is this engine actually built" have
 /// exactly one source. A picker that infers either from the id will eventually
 /// infer wrong, and the failure mode is telling someone their voice stayed home
@@ -520,7 +520,7 @@ pub(crate) fn tts_voice_present(engine: String, voice: String) -> bool {
 /// Download everything a local engine needs to speak in `voice`.
 ///
 /// One progress stream per download, whatever the engine: streams over
-/// `feral://tts-download-progress`, ends on `feral://tts-download-complete` /
+/// `cinderpaw://tts-download-progress`, ends on `cinderpaw://tts-download-complete` /
 /// `-error`, matching the whisper channels. The engine id rides along as
 /// `repo_id` so a UI listening to one channel can tell whose download it is.
 #[tauri::command]
@@ -560,7 +560,7 @@ pub(crate) async fn download_tts_voice(
         tokio::spawn(async move {
             while let Some(p) = rx.recv().await {
                 let _ = app.emit(
-                    "feral://tts-download-progress",
+                    "cinderpaw://tts-download-progress",
                     events::DownloadProgressEvent {
                         repo_id: engine.clone(),
                         filename: voice.clone(),
@@ -608,7 +608,7 @@ pub(crate) async fn download_tts_voice(
         match result {
             Ok(path) => {
                 let _ = app.emit(
-                    "feral://tts-download-complete",
+                    "cinderpaw://tts-download-complete",
                     events::DownloadCompleteEvent {
                         repo_id: engine.clone(),
                         filename: voice.clone(),
@@ -618,7 +618,7 @@ pub(crate) async fn download_tts_voice(
             }
             Err(e) => {
                 let _ = app.emit(
-                    "feral://tts-download-error",
+                    "cinderpaw://tts-download-error",
                     events::DownloadErrorEvent {
                         repo_id: engine.clone(),
                         filename: voice.clone(),
@@ -739,7 +739,7 @@ fn speech_stop_key(session_id: &str) -> String {
 
 /// Speak `text`, streaming PCM to the webview as it is synthesised.
 ///
-/// Chunks leave on `feral://tts-chunk` the moment they arrive. That is the whole
+/// Chunks leave on `cinderpaw://tts-chunk` the moment they arrive. That is the whole
 /// feature: measured against the live Fish API, synthesis runs ~3x faster than
 /// playback (61 chunks, 0.91s of wall clock for 2.64s of audio), so a streaming
 /// consumer starts speaking after the first chunk instead of the last. Anything
@@ -768,7 +768,7 @@ pub(crate) async fn speak_text(
         return Err("no voice engine chosen".into());
     };
     // An unknown or unbuilt id is refused rather than swapped — deliberately,
-    // and the reason lives in `feral_core::tts::from_id`.
+    // and the reason lives in `cinderpaw_core::tts::from_id`.
     let engine = engine_for(&state, &provider_id).map_err(|e| {
         tracing::warn!(engine = %provider_id, error = %e, "tts: engine could not be resolved");
         e
@@ -805,7 +805,7 @@ pub(crate) async fn speak_text(
         }
         total += chunk.len();
         let _ = app.emit(
-            "feral://tts-chunk",
+            "cinderpaw://tts-chunk",
             events::TtsChunkEvent {
                 session_id: session_id.clone(),
                 pcm: base64::engine::general_purpose::STANDARD.encode(&chunk),

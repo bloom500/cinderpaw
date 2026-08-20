@@ -4,7 +4,7 @@
 
 Please **do not** open a public GitHub issue for security problems.
 
-- Email: **bloommediacorporation@gmail.com** with subject `[SECURITY] Feral`
+- Email: **bloommediacorporation@gmail.com** with subject `[SECURITY] Cinderpaw`
 - Or use GitHub's private vulnerability reporting on this repository
   (Security → Report a vulnerability).
 
@@ -15,7 +15,7 @@ otherwise.
 
 ## Threat model (what protects what)
 
-Feral is a local-first desktop app: a Tauri (Rust) shell, a bundled llama.cpp
+Cinderpaw is a local-first desktop app: a Tauri (Rust) shell, a bundled llama.cpp
 engine behind a loopback HTTP API, and a Bun/TypeScript agent sidecar.
 
 ### Local inference API (port 11435)
@@ -35,7 +35,7 @@ engine behind a loopback HTTP API, and a Bun/TypeScript agent sidecar.
   **keys never enter the React renderer**. The UI only ever sees a
   display-safe model config view.
 - Requests go directly from your machine to the provider you configured —
-  there is no Feral relay server.
+  there is no Cinderpaw relay server.
 
 ### Agent sidecar sandbox
 

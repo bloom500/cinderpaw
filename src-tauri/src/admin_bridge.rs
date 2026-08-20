@@ -1,9 +1,9 @@
 //! Admin bridge — the commands the agent can run on its own installation.
 //!
-//! Feral's `self_*` tools already cover the READ half of what the CLI shows:
+//! Cinderpaw's `self_*` tools already cover the READ half of what the CLI shows:
 //! status, providers, health, dreams, genome. This is the ACT half — the
 //! things a person would open a terminal for. The goal is that once someone
-//! has set Feral up, they never have to run a command themselves: they say
+//! has set Cinderpaw up, they never have to run a command themselves: they say
 //! "update yourself" or "use the local model for this" and it happens.
 //!
 //! Same trust shape as the capability bridge (`skills::handle_capability_request`):
@@ -36,8 +36,8 @@ pub async fn handle(app: AppHandle, action: &str, params: &Value) -> Result<Valu
         "update_apply" => update_apply(&app).await,
         "model_list" => model_list(&app),
         "model_switch" => model_switch(&app, params).await,
-        "gateway_restart" => gateway_exit(&app, feral_core::runtime::PlannedExit::Restart),
-        "gateway_stop" => gateway_exit(&app, feral_core::runtime::PlannedExit::Shutdown),
+        "gateway_restart" => gateway_exit(&app, cinderpaw_core::runtime::PlannedExit::Restart),
+        "gateway_stop" => gateway_exit(&app, cinderpaw_core::runtime::PlannedExit::Shutdown),
         other => Err(format!("unknown admin action '{other}'")),
     }
 }
@@ -91,7 +91,7 @@ async fn update_apply(app: &AppHandle) -> Result<Value, String> {
 fn model_list(app: &AppHandle) -> Result<Value, String> {
     let state = app.state::<AppState>();
 
-    let local: Vec<Value> = feral_core::models::scan_models_dir()
+    let local: Vec<Value> = cinderpaw_core::models::scan_models_dir()
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|m| json!({ "source": "local", "id": m.id, "name": m.name, "size_bytes": m.size_bytes }))
@@ -100,7 +100,7 @@ fn model_list(app: &AppHandle) -> Result<Value, String> {
     // Only providers with a key are listed. A provider the user has not set up
     // is not a choice the agent can make on their behalf — offering it would
     // produce a switch that 401s.
-    let byok = feral_core::byok::load(&state.settings);
+    let byok = cinderpaw_core::byok::load(&state.settings);
     let cloud: Vec<Value> = byok
         .providers
         .iter()
@@ -166,10 +166,10 @@ const EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 
 fn gateway_exit(
     app: &AppHandle,
-    planned: feral_core::runtime::PlannedExit,
+    planned: cinderpaw_core::runtime::PlannedExit,
 ) -> Result<Value, String> {
     let app = app.clone();
-    let restarting = matches!(planned, feral_core::runtime::PlannedExit::Restart);
+    let restarting = matches!(planned, cinderpaw_core::runtime::PlannedExit::Restart);
 
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(EXIT_GRACE).await;
@@ -178,16 +178,16 @@ fn gateway_exit(
         // it as a crash, which feeds both the quick-failure backoff and the
         // watchdog that auto-reverts an RSI patch — an intentional restart
         // must not look like the code broke.
-        *state.feral_agent_planned_exit.lock() = Some(planned);
+        *state.cinderpaw_agent_planned_exit.lock() = Some(planned);
         {
-            let mut guard = state.feral_agent_process.lock();
+            let mut guard = state.cinderpaw_agent_process.lock();
             if let Some(ref mut child) = *guard {
                 let _ = child.start_kill();
             }
         }
         // Invalidate the stdin channel so an in-flight send fails fast rather
         // than writing into a dead pipe.
-        *state.feral_agent_tx.lock() = None;
+        *state.cinderpaw_agent_tx.lock() = None;
     });
 
     Ok(json!({

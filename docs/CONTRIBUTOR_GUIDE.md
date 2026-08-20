@@ -1,4 +1,4 @@
-# Feral Contributor Guide
+# Cinderpaw Contributor Guide
 
 Welcome! This is the long-form companion to [CONTRIBUTING.md](./CONTRIBUTING.md) —
 read that first for the 60-second version. This guide covers the architecture in
@@ -18,11 +18,11 @@ and how builds and releases work.
 
 ## 1. The three runtimes
 
-Feral is one repo, three runtimes, three languages:
+Cinderpaw is one repo, three runtimes, three languages:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         Feral (Tauri 2.x app)                        │
+│                         Cinderpaw (Tauri 2.x app)                        │
 │                                                                      │
 │  ┌──────────────────────────┐      ┌──────────────────────────────┐  │
 │  │ frontend-react/          │      │ src-tauri/                   │  │
@@ -30,14 +30,14 @@ Feral is one repo, three runtimes, three languages:
 │  │ Tailwind + Zustand       │ IPC  │  lib.rs        commands      │  │
 │  │                          │      │  inference.rs  llama.cpp     │  │
 │  │  invoke() ───────────────┼──────┼─► #[tauri::command]          │  │
-│  │  listen('feral://…') ◄───┼──────┼── app.emit(events)           │  │
+│  │  listen('cinderpaw://…') ◄───┼──────┼── app.emit(events)           │  │
 │  └──────────────────────────┘      │  api.rs   loopback HTTP API  │  │
-│                                    │  feral_agent.rs  supervisor  │  │
+│                                    │  cinderpaw_agent.rs  supervisor  │  │
 │                                    └──────────┬───────────────────┘  │
 │                                               │ stdin/stdout JSON    │
 │                                               ▼                      │
 │                                    ┌──────────────────────────────┐  │
-│                                    │ FeralAgent/ (sidecar)        │  │
+│                                    │ CinderpawAgent/ (sidecar)        │  │
 │                                    │ Bun + TS → single .exe       │  │
 │                                    │  core/     agent loop, soul  │  │
 │                                    │  egress/   inference router, │  │
@@ -60,7 +60,7 @@ Feral is one repo, three runtimes, three languages:
   they survive page/tab switches; components subscribe to slices.
 - **Streaming:** two parallel paths with deliberately identical semantics:
   - `src/lib/chatStream.ts` — local llama.cpp / cloud BYOK chat
-  - `src/lib/feralAgentStream.ts` — Feral Agent sidecar (persistent global
+  - `src/lib/feralAgentStream.ts` — Cinderpaw Agent sidecar (persistent global
     listener; streams survive navigation; `src/lib/feralLiveSession.ts`
     mirrors in-flight state so re-entering a chat rehydrates it)
   - `src/lib/streamControl.ts` — the **only** stop entry point UI code may call.
@@ -80,12 +80,12 @@ Feral is one repo, three runtimes, three languages:
 - **`api.rs`** — loopback OpenAI/Ollama-compatible HTTP API on `:11435`,
   gated by a per-launch bearer token. This is how the sidecar does local
   inference — the sidecar never touches the GGUF directly.
-- **`feral_agent.rs`** — sidecar lifecycle: spawn, supervise (respawn with
-  backoff, `feral://agent-exit` on death), stdio bridge. Outbound messages go
-  through `state.feral_agent_tx`; sidecar stdout lines are re-emitted as
-  `feral://agent-output` events.
+- **`cinderpaw_agent.rs`** — sidecar lifecycle: spawn, supervise (respawn with
+  backoff, `cinderpaw://agent-exit` on death), stdio bridge. Outbound messages go
+  through `state.cinderpaw_agent_tx`; sidecar stdout lines are re-emitted as
+  `cinderpaw://agent-output` events.
 
-### FeralAgent/ — the agent sidecar
+### CinderpawAgent/ — the agent sidecar
 
 - **Stack:** Bun + TypeScript, compiled with `bun build --compile` into a
   single executable shipped in `src-tauri/binaries/`.
@@ -105,7 +105,7 @@ Feral is one repo, three runtimes, three languages:
 - **`src/rsi/`** — self-improvement layers L1–L6.
 
 > ⚠️ **The sidecar gotcha:** `cargo tauri dev` does **not** rebuild the sidecar
-> when you change TS code. After any `FeralAgent/` change run
+> when you change TS code. After any `CinderpawAgent/` change run
 > `node src-tauri/scripts/build-sidecar.mjs` (or
 > `FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev`) so the compiled binary in
 > `src-tauri/binaries/` is fresh. Also: `bun --compile` does not bundle `.md`
@@ -120,21 +120,21 @@ Feral is one repo, three runtimes, three languages:
 
 - **Commands:** `invoke('command_name', { args })` via the typed wrappers in
   `frontend-react/src/lib/tauri/index.ts`.
-- **Events:** `listen('feral://…')`. The important ones:
+- **Events:** `listen('cinderpaw://…')`. The important ones:
 
 | Event | Meaning |
 |---|---|
-| `feral://token`, `feral://stream-done`, `feral://stream-error` | chat-mode streaming |
-| `feral://agent-output` | every sidecar stdout line (JSON envelope) |
-| `feral://agent-ready` / `feral://agent-exit` | sidecar lifecycle |
-| `feral://model-load-progress`, `feral://download-progress` | models UI |
+| `cinderpaw://token`, `cinderpaw://stream-done`, `cinderpaw://stream-error` | chat-mode streaming |
+| `cinderpaw://agent-output` | every sidecar stdout line (JSON envelope) |
+| `cinderpaw://agent-ready` / `cinderpaw://agent-exit` | sidecar lifecycle |
+| `cinderpaw://model-load-progress`, `cinderpaw://download-progress` | models UI |
 
 ### Rust ⇄ Sidecar (stdin/stdout, one JSON object per line)
 
 Inbound (Rust → sidecar): `message`, `stop`, `set_model`, `ask_user_response`,
 `ask_user_cancel`, `cron_add/remove/toggle/list`, `ping`, `shutdown`.
-The validator lives in `FeralAgent/src/transports/tauri.ts` (`isInbound`) and
-the type in `FeralAgent/src/types.ts` (`InboundMessage`) — **adding a message
+The validator lives in `CinderpawAgent/src/transports/tauri.ts` (`isInbound`) and
+the type in `CinderpawAgent/src/types.ts` (`InboundMessage`) — **adding a message
 type means updating both, plus the `onMessage` switch in `index.ts`.**
 
 Outbound (sidecar → Rust → React): `chunk`, `done`, `error`, `tool_start`,
@@ -163,7 +163,7 @@ forwarding to the sidecar.
 ```bash
 git clone <repo> && cd FeralLocalAI
 cd frontend-react && npm install && cd ..
-cd FeralAgent && bun install && cd ..
+cd CinderpawAgent && bun install && cd ..
 
 cargo tauri dev          # builds sidecar on first run, starts Vite + Tauri
 ```
@@ -181,7 +181,7 @@ npx tsc --noEmit          # typecheck
 npx vitest run            # full suite
 
 # Sidecar — bun:test:
-cd FeralAgent
+cd CinderpawAgent
 bunx tsc --noEmit
 bun test
 #   Heads-up: shell-git integration tests can be flaky on Windows
@@ -203,7 +203,7 @@ again. The two paths must behave identically.
 | Suite | Location | Pattern |
 |---|---|---|
 | Frontend | `frontend-react/src/**/__tests__/` | Vitest + Testing Library |
-| Sidecar | `FeralAgent/tests/*.test.ts` | bun:test, one file per subsystem |
+| Sidecar | `CinderpawAgent/tests/*.test.ts` | bun:test, one file per subsystem |
 | Rust | inline `#[cfg(test)]` modules | unit-level |
 
 ---
@@ -251,7 +251,7 @@ CI in `.github/workflows/` builds the installer matrix.
 - **User-facing strings** go through `lib/i18n.ts` (EN + RO).
 - **Sidecar security:** filesystem / network / child-process access goes
   through the sandbox layers; new tools declare manifest permissions.
-- **Non-technical first.** Feral's primary audience includes people who have
+- **Non-technical first.** Cinderpaw's primary audience includes people who have
   never opened a terminal: error messages are human, defaults are safe,
   features work without configuration.
 - **Commits:** Conventional Commits (`feat(agent): …`, `fix(ui): …`).

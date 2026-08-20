@@ -1023,7 +1023,7 @@ func fetchCatalog(baseURL, token, path string, expectedVersion int) (*CatalogRes
 		}, nil
 	}
 	version := 0
-	if v := resp.Header.Get("X-Feral-Catalog-Version"); v != "" {
+	if v := resp.Header.Get("X-Cinderpaw-Catalog-Version"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			version = n
 		}
@@ -1562,7 +1562,7 @@ func feedTag(buf *string, inThink *bool, piece string) string {
 // RuntimeEvent is one event from GET /events. The SSE data is:
 //
 //	event: runtime
-//	data: {"event":"feral://agent-output","data":{"data":"<json>"}}
+//	data: {"event":"cinderpaw://agent-output","data":{"data":"<json>"}}
 //
 // where the inner `<json>` string has a `type` field. We flatten to
 // Kind (the type) and Message (the rendered form) here; the formatter

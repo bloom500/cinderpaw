@@ -1,7 +1,7 @@
 # RSI E2E Manual Verification
 
 **Status:** Faza 1 integration is committed (5 commits on `feat/rsi-fractal-memory`),
-unit-tested (720 FeralAgent + 146 Rust tests pass), and the sidecar builds + runs.
+unit-tested (720 CinderpawAgent + 146 Rust tests pass), and the sidecar builds + runs.
 **End-to-end verification with a live model + the React UI is the operator's
 manual step.** This file is the runbook.
 
@@ -26,12 +26,12 @@ numbers that go into PLAN.md.
 ## Step 1 — build the sidecar
 
 ```bash
-cd FeralAgent
+cd CinderpawAgent
 bun run build
 node ../src-tauri/scripts/build-sidecar.mjs
 ```
 
-The script copies `FeralAgent/dist/feral-agent.exe` →
+The script copies `CinderpawAgent/dist/feral-agent.exe` →
 `src-tauri/binaries/feral-agent-<triple>.exe`. Cargo's
 `beforeDevCommand` does this automatically — only run by hand
 when iterating without `cargo tauri dev`.

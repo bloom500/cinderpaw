@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn } from '@/lib/utils';
 import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
-import { FeralDreamsPanel } from './FeralDreamsPanel';
+import { CinderpawDreamsPanel } from './CinderpawDreamsPanel';
 
 export function AgentSettingsTab() {
   const navigate          = useNavigate();
@@ -54,7 +54,7 @@ export function AgentSettingsTab() {
       <TokenBudgetToggle />
       <RsiBudgetControl />
       <RsiEngineStatusPanel />
-      <FeralDreamsPanel />
+      <CinderpawDreamsPanel />
       <DesktopControlToggle />
 
       <div className="flex items-center gap-2">
@@ -253,7 +253,7 @@ function RsiBudgetControl() {
       <div className="min-w-0">
         <p className="text-sm font-medium text-text-primary">Background self-improvement budget</p>
         <p className="text-xs text-text-muted mt-0.5">
-          Feral quietly improves itself in the background. Local models are free;
+          Cinderpaw quietly improves itself in the background. Local models are free;
           this caps what it may spend on <span className="text-text-secondary">paid cloud models</span>.
           <span className="text-text-secondary"> $0 = never spend cloud money.</span>
         </p>

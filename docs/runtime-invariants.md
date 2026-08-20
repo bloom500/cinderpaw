@@ -1,6 +1,6 @@
 # Runtime Invariants
 
-Regulile de bază ale Feral Runtime. Orice decizie din Faza 4.5+ (Slice 1-6 și
+Regulile de bază ale Cinderpaw Runtime. Orice decizie din Faza 4.5+ (Slice 1-6 și
 după) se validează împotriva lor. Dacă un design le încalcă, designul e greșit.
 
 1. **Runtime owns state.** Nu GUI, nu CLI, nu Discord, nu Slack. Runtime-ul.

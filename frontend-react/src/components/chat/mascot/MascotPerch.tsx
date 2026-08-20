@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FeralMascot } from './FeralMascot';
+import { CinderpawMascot } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
@@ -20,7 +20,7 @@ const GAMING_TRIGGER_CYCLES  = 2;
 const EXPRESSIVE: MascotState[] = ['wave', 'love', 'cool', 'surprised', 'celebrate'];
 const EXPRESSIVE_MS          = 2_200;
 const LEFT_OFFSET            = 20;
-const MASCOT_W               = 48; // keep in sync with DISPLAY in FeralMascot
+const MASCOT_W               = 48; // keep in sync with DISPLAY in CinderpawMascot
 const PUFF_EVERY_MS          = 380;
 const PUFF_FADE_MS           = 600;
 
@@ -214,7 +214,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
           transition: traveling ? `transform ${LEG_MS}ms linear` : 'none',
         }}
       >
-        <FeralMascot state={renderState} flip={flip} />
+        <CinderpawMascot state={renderState} flip={flip} />
         <ToolCallStack
           events={useChat((s) => s.toolCallStream)}
           active={renderState !== 'idle'}

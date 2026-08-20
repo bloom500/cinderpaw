@@ -7,7 +7,7 @@
 
 ## Objective
 
-Let Feral acquire a capability it does not have, on the user's instruction —
+Let Cinderpaw acquire a capability it does not have, on the user's instruction —
 "install the thing that lets you read Excel files" — without ever letting the
 agent decide what a capability is or where it came from.
 
@@ -88,7 +88,7 @@ provenance, and that is a claim only a human can make.
 ### D3 — Trust labels start telling the truth
 
 `github_list` and `community_list` both stamp `TrustLabel::Community` today, so
-the official Feral manifest and the community manifest are indistinguishable by
+the official Cinderpaw manifest and the community manifest are indistinguishable by
 the time they reach the UI (evidence §6). Since Phase 2 makes the trust label
 the thing an install decision is shown against, the official manifest becomes
 `Verified` and the community manifest stays `Community`.
@@ -138,12 +138,12 @@ no decisions.
 |---|---|
 | `src-tauri/src/skills.rs` | `install_capability`; `do_install` private; url/file wrappers; trust labels per manifest |
 | `src-tauri/src/lib.rs` | register the new commands |
-| `src-tauri/src/feral_agent.rs` (or the sidecar dispatcher) | handle `capability_request` |
-| `FeralAgent/src/types.ts` | bridge events + `CapabilityBridge` |
-| `FeralAgent/src/transports/tauri.ts` | wire the bridge |
-| `FeralAgent/src/tools/builtin/capability.ts` | **new** — `inspect_capability`, `install_capability` |
-| `FeralAgent/src/tools/builtin/list-skills.ts` | `source` argument |
-| `FeralAgent/src/tools/builtin/index.ts` | register |
+| `src-tauri/src/cinderpaw_agent.rs` (or the sidecar dispatcher) | handle `capability_request` |
+| `CinderpawAgent/src/types.ts` | bridge events + `CapabilityBridge` |
+| `CinderpawAgent/src/transports/tauri.ts` | wire the bridge |
+| `CinderpawAgent/src/tools/builtin/capability.ts` | **new** — `inspect_capability`, `install_capability` |
+| `CinderpawAgent/src/tools/builtin/list-skills.ts` | `source` argument |
+| `CinderpawAgent/src/tools/builtin/index.ts` | register |
 | `frontend-react/src/components/SkillHubDrawer.tsx` | call the new commands |
 | `frontend-react/src/lib/tauri/index.ts` | new command signatures |
 

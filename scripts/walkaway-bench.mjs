@@ -54,7 +54,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MOCK_ADS = join(dirname(fileURLToPath(import.meta.url)), "bench-mock-ads.mjs");
 const MOCK_ADS_PORT = 18924;
-const SIDECAR_ENTRY = join(ROOT, "FeralAgent", "src", "index.ts");
+const SIDECAR_ENTRY = join(ROOT, "CinderpawAgent", "src", "index.ts");
 
 /**
  * Absolute path to the bun executable.
@@ -95,7 +95,7 @@ const BUN = resolveBun();
 
 /**
  * Base URLs per BYOK provider id. Mirrors `Provider::base_url` in
- * crates/feral-core/src/byok.rs — the sidecar never sees byok.json, so
+ * crates/cinderpaw-core/src/byok.rs — the sidecar never sees byok.json, so
  * whichever process spawns it owns this mapping. Kept short on purpose: add a
  * row when you actually bench against that provider.
  */
@@ -125,7 +125,7 @@ const PROVIDER_BASE_URL = {
  * (egress/inference-providers.ts), while every provider documents its base
  * URL WITH the /v1 — byok.rs returns "https://api.minimax.io/v1". Handing that
  * through unchanged produces /v1/v1/chat/completions and a 404 on every turn.
- * crates/feral-core/src/feral_agent.rs does exactly this trim before spawning
+ * crates/cinderpaw-core/src/cinderpaw_agent.rs does exactly this trim before spawning
  * the sidecar; this script spawns it directly, so it owns the same job.
  *
  * Caught by pointing the bench at a local stub and reading its access log:

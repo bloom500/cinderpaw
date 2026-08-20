@@ -5,7 +5,7 @@
 
 ## Context
 
-Feral is positioned as a self-improving system, but its existing
+Cinderpaw is positioned as a self-improving system, but its existing
 mechanics are bounded: max lines changed, immutable core (scorer +
 Tier 0 specs + SandboxBounds), hash-chained audit log, automatic
 rollback on regression. The term "RSI" (Recursive Self-Improvement)
@@ -19,13 +19,13 @@ is overloaded:
 
 None of those meanings describe what Faza 1-2 actually does. The
 "RSI" label overpromises and underspecifies. Engineers building on
-top of Feral today (config evolution, not code evolution) get
+top of Cinderpaw today (config evolution, not code evolution) get
 sidelong glances from reviewers who expect more.
 
 We need a name that:
-1. Says "self-improving" (the Feral pitch).
+1. Says "self-improving" (the Cinderpaw pitch).
 2. Says "bounded" (what it actually is).
-3. Distinguishes Feral from the safety-doomsday crowd.
+3. Distinguishes Cinderpaw from the safety-doomsday crowd.
 
 ## Decision
 
@@ -59,7 +59,7 @@ must not use "RSI" — only "Evolution" or "Personal Adaptation".
 - Internal docs still say "RSI" in some places; the rename is a
   discipline, not a single edit.
 - Engineers used to "RSI" taxonomies (Anthropic, Sakana) need to
-  reframe Feral's contribution.
+  reframe Cinderpaw's contribution.
 
 **Trade-offs accepted:**
 - "BRSI" sounds like "BRICs" or "BRCA" — unfortunate, but
@@ -68,5 +68,5 @@ must not use "RSI" — only "Evolution" or "Personal Adaptation".
 ## Related
 
 - `docs/brsi-spec.md` §1 (Identity & Positioning)
-- `docs/feral_philosophy.md` (Why BRSI, not RSI?)
+- `docs/cinderpaw_philosophy.md` (Why BRSI, not RSI?)
 - INVARIANTS.md I1, I2 (the ratchet contract — what BRSI enforces)

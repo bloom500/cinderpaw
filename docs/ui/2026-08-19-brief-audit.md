@@ -1,8 +1,8 @@
-# Feral UI/UX Brief — Repository Audit
+# Cinderpaw UI/UX Brief — Repository Audit
 
 **Date:** 2026-08-19 · **Branch:** `ui/cinematic-shell` · **No code written.**
 
-Audit of the current repository against the "Feral UI/UX Redesign Brief"
+Audit of the current repository against the "Cinderpaw UI/UX Redesign Brief"
 (minimalist agent-first surface, no sidebar, agent-driven configuration).
 
 ## Verdict
@@ -17,10 +17,10 @@ provides, so "no sidebar" deletes product unless it is decomposed first.
 
 | Brief section | What already exists |
 |---|---|
-| §3 visual system | Cinematic scene layers + glass material tokens landed this week (`642ef46`, `1b32e1f`) in `globals.css`; theme-correct pre-paint startup in `index.html` + `public/feral-prepaint.js` |
+| §3 visual system | Cinematic scene layers + glass material tokens landed this week (`642ef46`, `1b32e1f`) in `globals.css`; theme-correct pre-paint startup in `index.html` + `public/cinderpaw-prepaint.js` |
 | §8 progressive disclosure | `ToolCallBubble` / `ToolCallStack` already render running/finished steps and expand output on click. "View details" is a re-layout, not new plumbing |
-| §7 agent-driven config | `FeralAgent/src/tools/builtin/connectors-manage.ts` — the agent can `list` and `configure` connectors mid-conversation |
-| §10/§15 automatic model choice | `FeralAgent/src/brain/` is a complete router: `task-classifier.ts`, `capability-registry.ts`, `brain-stack.ts`, modes budget/balanced/quality |
+| §7 agent-driven config | `CinderpawAgent/src/tools/builtin/connectors-manage.ts` — the agent can `list` and `configure` connectors mid-conversation |
+| §10/§15 automatic model choice | `CinderpawAgent/src/brain/` is a complete router: `task-classifier.ts`, `capability-registry.ts`, `brain-stack.ts`, modes budget/balanced/quality |
 | §16 differentiation | 35 builtin tools incl. `deep-research`, `control-app` (OS accessibility tree), `shell-exec`, `delegate-task`, `tool-forge`, `todo-write`, `remember`/`recall` |
 | §5 search | `SearchOverlay` + `useGlobalHotkeys` (⌘K) already wired |
 | §11 voice | Call session, speech player, VAD, orb, transcript — already a first-class surface with its own overlay |
@@ -32,7 +32,7 @@ provides, so "no sidebar" deletes product unless it is decomposed first.
 **1. Automatic model selection is built but off, and nothing can turn it on.**
 `brain-config.ts` enables Brain Stack only when the user hand-writes
 `~/.feral/brain.json`. No UI, no onboarding step, no default file writes it.
-So §10's "remove *No model selected*, Feral picks automatically" is impossible
+So §10's "remove *No model selected*, Cinderpaw picks automatically" is impossible
 today — not for lack of a router, but because the default is off and there is
 no path to on. On a fresh machine this is invisible: the user simply meets
 "No model selected" forever. Highest-priority SPEC B item.
@@ -119,7 +119,7 @@ Each step is independently shippable and independently verifiable.
 
 | Question | Likely answer today | Verdict |
 |---|---|---|
-| What is Feral? | "A chat app with a lot of settings" — 9 nav items, 10 settings tabs | **fail** |
+| What is Cinderpaw? | "A chat app with a lot of settings" — 9 nav items, 10 settings tabs | **fail** |
 | What can it do? | Not discoverable; tools are invisible until they happen to run | **fail** |
 | How would you connect Discord? | Finds the Connectors page, then hits "paste a bot token" | **fail** |
 | How would you use a local model? | Models page is clear and complete | **pass** |

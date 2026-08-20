@@ -42,7 +42,7 @@ pub fn save_to(dir: &Path, project: &ProjectSummary) -> Result<()> {
         Some(existing) => *existing = project.clone(),
         None => list.push(project.clone()),
     }
-    feral_core::atomic_file::write_atomic(
+    cinderpaw_core::atomic_file::write_atomic(
         &projects_path_for(dir),
         &serde_json::to_vec_pretty(&list)?,
     )?;
@@ -54,7 +54,7 @@ pub fn delete_from(dir: &Path, id: &str) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     let mut list = load_all_from(dir)?;
     list.retain(|p| p.id != id);
-    feral_core::atomic_file::write_atomic(
+    cinderpaw_core::atomic_file::write_atomic(
         &projects_path_for(dir),
         &serde_json::to_vec_pretty(&list)?,
     )?;

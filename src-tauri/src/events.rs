@@ -2,7 +2,7 @@
 //!
 //! Replaces ad-hoc `serde_json::json!({...})` payloads with typed structs so
 //! tauri-specta can export TypeScript types for them. The wire format
-//! (camelCase JSON over the existing `feral://...` event names) is preserved
+//! (camelCase JSON over the existing `cinderpaw://...` event names) is preserved
 //! so the legacy Leptos frontend keeps working unchanged.
 
 use serde::{Deserialize, Serialize};
@@ -107,7 +107,7 @@ pub struct StreamUsageEvent {
 /// `sample_rate` travels with every chunk instead of being a constant the
 /// TypeScript re-declares: the frontend has to build an `AudioBuffer` at the
 /// right rate, and a provider that streams something other than
-/// `feral_core::tts::SAMPLE_RATE` must not be able to desync playback silently.
+/// `cinderpaw_core::tts::SAMPLE_RATE` must not be able to desync playback silently.
 ///
 /// Chunks carry no sequence number. Emission is a single sequential loop over
 /// one IPC channel, so order is preserved by the transport; a `seq` field with
@@ -148,13 +148,13 @@ pub struct LiveStatusEvent {
 /// Using a single opaque event keeps the Rust side thin and forward-compatible.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
-pub struct FeralAgentOutputEvent {
+pub struct CinderpawAgentOutputEvent {
     pub data: String,
 }
 
 /// One streamed agent event. `data` is a serialized `AgentEvent`
 /// (token / tool_call / tool_result / final / error). Delivered over the
-/// `feral://` event bus rather than a Tauri `Channel`: channel callback ids
+/// `cinderpaw://` event bus rather than a Tauri `Channel`: channel callback ids
 /// are torn down by Vite HMR mid-run ("Couldn't find callback id"), whereas
 /// named events re-bind cleanly on reload. `session_id` lets multiple agent
 /// run panels share the one event name without crosstalk.
@@ -170,7 +170,7 @@ pub struct AgentStreamEvent {
 /// instead of a static "Thinking…" black box. The watchdog in `chat_stream`
 /// emits this; the sidecar's `stream_progress` OutboundEvent is the
 /// equivalent for the agent path and is forwarded through the existing
-/// `feral://agent-output` channel (not a separate channel — the sidecar
+/// `cinderpaw://agent-output` channel (not a separate channel — the sidecar
 /// emits structured JSON lines and React filters by `type`).
 ///
 /// All timing fields are milliseconds since the inference call's start.

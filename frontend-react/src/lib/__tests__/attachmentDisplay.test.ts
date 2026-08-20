@@ -3,9 +3,9 @@ import { parseUserAttachments } from '../attachmentDisplay';
 
 describe('parseUserAttachments', () => {
   it('extracts a text file chip and leaves only the typed text', () => {
-    const content = `[File: Feral.pdf]\nLorem ipsum\nmany lines\nof content\n[/File: Feral.pdf]\n\nWhat does this say?`;
+    const content = `[File: Cinderpaw.pdf]\nLorem ipsum\nmany lines\nof content\n[/File: Cinderpaw.pdf]\n\nWhat does this say?`;
     const { attachments, text } = parseUserAttachments(content);
-    expect(attachments).toEqual([{ name: 'Feral.pdf', kind: 'text' }]);
+    expect(attachments).toEqual([{ name: 'Cinderpaw.pdf', kind: 'text' }]);
     expect(text).toBe('What does this say?');
   });
 

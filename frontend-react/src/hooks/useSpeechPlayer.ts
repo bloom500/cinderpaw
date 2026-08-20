@@ -4,7 +4,7 @@ import { events } from '../lib/tauri/events';
 import { pcm16ToFloat32 } from '../lib/audio';
 
 /**
- * Plays the PCM stream Rust emits on `feral://tts-chunk`, chunk by chunk.
+ * Plays the PCM stream Rust emits on `cinderpaw://tts-chunk`, chunk by chunk.
  *
  * The whole design constraint is in one word: *schedule*. Synthesis runs ~3x
  * faster than playback, so chunks arrive faster than they are consumed. Each one

@@ -36,9 +36,9 @@ impl Drop for StopSlot {
 /// Shared watchdog state owned by the inference watchdog task in
 /// `chat_stream`. The watchdog writes the typed reason here before
 /// flipping `stop_signal`; the consumer loop reads it after the stream
-/// unwinds to decide whether to emit `feral://stream-done` (user stop /
+/// unwinds to decide whether to emit `cinderpaw://stream-done` (user stop /
 /// clean completion) or skip it (deadline tripped — the watchdog
-/// already emitted `feral://stream-error` with the typed message).
+/// already emitted `cinderpaw://stream-error` with the typed message).
 struct WatchdogState {
     /// Prompt token count as reported by `on_start`. The watchdog
     /// reads this to compute an effective TTFT (4 ms/token on top of
@@ -102,7 +102,7 @@ pub(crate) async fn chat_stream(
         pth_for_on_start
             .prompt_tokens
             .store(prompt_tokens, Ordering::SeqCst);
-        let _ = app_start.emit("feral://stream-start", events::StreamStartEvent {
+        let _ = app_start.emit("cinderpaw://stream-start", events::StreamStartEvent {
             session_id: sid_start.clone(),
             prompt_tokens,
         });
@@ -134,12 +134,12 @@ pub(crate) async fn chat_stream(
         if stop.load(Ordering::SeqCst) {
             // Stop flag tripped — distinguish watchdog (reason != None)
             // from user stop (reason == None). When the watchdog tripped,
-            // it already emitted `feral://stream-error` with the typed
-            // message; we MUST NOT also emit `feral://stream-done`, or the
+            // it already emitted `cinderpaw://stream-error` with the typed
+            // message; we MUST NOT also emit `cinderpaw://stream-done`, or the
             // frontend's chatStream.ts would see two terminal events.
             let reason = *watchdog.reason.lock();
             if reason.is_none() {
-                let _ = app.emit("feral://stream-done", events::StreamDoneEvent {
+                let _ = app.emit("cinderpaw://stream-done", events::StreamDoneEvent {
                     session_id: session_id.clone(),
                 });
             }
@@ -157,7 +157,7 @@ pub(crate) async fn chat_stream(
                     .strip_prefix("[Error: ")
                     .and_then(|s| s.strip_suffix(']'))
                 {
-                    let _ = app.emit("feral://stream-error", events::StreamErrorEvent {
+                    let _ = app.emit("cinderpaw://stream-error", events::StreamErrorEvent {
                         session_id: session_id.clone(),
                         error: msg.to_string(),
                     });
@@ -174,13 +174,13 @@ pub(crate) async fn chat_stream(
                 watchdog
                     .tokens_generated
                     .fetch_add(1, Ordering::SeqCst);
-                let _ = app.emit("feral://token", events::TokenEvent {
+                let _ = app.emit("cinderpaw://token", events::TokenEvent {
                     session_id: session_id.clone(),
                     text: t,
                 });
             }
             Err(e) => {
-                let _ = app.emit("feral://stream-error", events::StreamErrorEvent {
+                let _ = app.emit("cinderpaw://stream-error", events::StreamErrorEvent {
                     session_id: session_id.clone(),
                     error: e.to_string(),
                 });
@@ -193,7 +193,7 @@ pub(crate) async fn chat_stream(
     // the watchdog exits on its next tick — cheaper than `abort()`ing
     // the join handle, and avoids racing on `abort()` mid-emit.
     stop.store(true, Ordering::SeqCst);
-    let _ = app.emit("feral://stream-done", events::StreamDoneEvent {
+    let _ = app.emit("cinderpaw://stream-done", events::StreamDoneEvent {
         session_id: session_id.clone(),
     });
     // Drop the watchdog join handle so the task can complete and free
@@ -206,8 +206,8 @@ pub(crate) async fn chat_stream(
 
 /// Heartbeat + deadline-breach loop for the local inference path.
 ///
-/// Emits `feral://stream-progress` on every tick and, on breach,
-/// `feral://stream-error` with the typed reason + human copy. The
+/// Emits `cinderpaw://stream-progress` on every tick and, on breach,
+/// `cinderpaw://stream-error` with the typed reason + human copy. The
 /// watchdog owns no locks beyond the `WatchdogState` itself — the
 /// generator (inference.rs::generate / run_inference) is unaware this
 /// exists; it just checks the existing `stop` flag on its per-token
@@ -241,7 +241,7 @@ async fn run_inference_watchdog(
         // UI's last frame before the error shows the actual elapsed time.
         let tps = compute_tokens_per_sec(tg, ft_ms, elapsed_ms);
         let _ = app.emit(
-            "feral://stream-progress",
+            "cinderpaw://stream-progress",
             events::StreamProgressEvent {
                 session_id: session_id.clone(),
                 phase: phase.to_string(),
@@ -280,7 +280,7 @@ async fn run_inference_watchdog(
 }
 
 /// Flip the stop flag, record the deadline reason, and emit the typed
-/// `feral://stream-error`. Idempotent on the reason cell — if a
+/// `cinderpaw://stream-error`. Idempotent on the reason cell — if a
 /// previous tick already recorded one, the second trip is a no-op so
 /// the consumer never sees two different reasons.
 fn trip_deadline(
@@ -302,7 +302,7 @@ fn trip_deadline(
     }
     stop.store(true, Ordering::SeqCst);
     let _ = app.emit(
-        "feral://stream-error",
+        "cinderpaw://stream-error",
         events::StreamErrorEvent {
             session_id: session_id.to_string(),
             error: deadline_message(reason, policy),
@@ -544,7 +544,7 @@ pub(crate) async fn chat_cloud_stream(
     macro_rules! emit_err {
         ($msg:expr) => {{
             let s: String = $msg;
-            let _ = app.emit("feral://stream-error", events::StreamErrorEvent {
+            let _ = app.emit("cinderpaw://stream-error", events::StreamErrorEvent {
                 session_id: session_id.clone(),
                 error: s.clone(),
             });
@@ -566,7 +566,7 @@ pub(crate) async fn chat_cloud_stream(
         .user_agent("feral/0.1")
         .timeout(std::time::Duration::from_secs(120))
         .build()
-        .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
+        .map_err(|e| { let _ = app.emit("cinderpaw://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
 
     // Build tool definitions from the enabled tool IDs passed in params.
     // Anthropic's tool shape differs from OpenAI: no `type: "function"`
@@ -637,7 +637,7 @@ pub(crate) async fn chat_cloud_stream(
     // Agentic loop: continue until the model returns a plain content response
     loop {
         if stop.load(Ordering::SeqCst) {
-            let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id });
+            let _ = app.emit("cinderpaw://stream-done", events::StreamDoneEvent { session_id });
             return Ok(());
         }
 
@@ -675,7 +675,7 @@ pub(crate) async fn chat_cloud_stream(
         let resp = req
             .send()
             .await
-            .map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
+            .map_err(|e| { let _ = app.emit("cinderpaw://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
@@ -700,14 +700,14 @@ pub(crate) async fn chat_cloud_stream(
         // Chunk boundaries land mid-character; decoding each chunk on its own
         // turned every emoji and every diacritic unlucky enough to be split
         // into a `�` on screen.
-        let mut decoder = feral_core::utf8_stream::Utf8Stream::new();
+        let mut decoder = cinderpaw_core::utf8_stream::Utf8Stream::new();
 
         'sse: while let Some(chunk) = byte_stream.next().await {
             if stop.load(Ordering::SeqCst) {
-                let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id });
+                let _ = app.emit("cinderpaw://stream-done", events::StreamDoneEvent { session_id });
                 return Ok(());
             }
-            let bytes = chunk.map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
+            let bytes = chunk.map_err(|e| { let _ = app.emit("cinderpaw://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
             let text = decoder.push(&bytes);
 
             for ch in text.chars() {
@@ -767,7 +767,7 @@ pub(crate) async fn chat_cloud_stream(
                                                     if let Some(tok) = delta.get("text").and_then(|v| v.as_str()) {
                                                         if !tok.is_empty() {
                                                             content_acc.push_str(tok);
-                                                            let _ = app.emit("feral://token", events::TokenEvent {
+                                                            let _ = app.emit("cinderpaw://token", events::TokenEvent {
                                                                 session_id: session_id.clone(),
                                                                 text: tok.to_string(),
                                                             });
@@ -822,7 +822,7 @@ pub(crate) async fn chat_cloud_stream(
                                     if let Some(tok) = delta.get("content").and_then(|c| c.as_str()) {
                                         if !tok.is_empty() {
                                             content_acc.push_str(tok);
-                                            let _ = app.emit("feral://token", events::TokenEvent {
+                                            let _ = app.emit("cinderpaw://token", events::TokenEvent {
                                                 session_id: session_id.clone(),
                                                 text: tok.to_string(),
                                             });
@@ -870,7 +870,7 @@ pub(crate) async fn chat_cloud_stream(
         // preserved in the message bubble on the React side.
         if finish_reason == "length" {
             let _ = app.emit(
-                "feral://stream-truncated",
+                "cinderpaw://stream-truncated",
                 events::StreamTruncatedEvent {
                     session_id: session_id.clone(),
                     reason: finish_reason.clone(),
@@ -880,7 +880,7 @@ pub(crate) async fn chat_cloud_stream(
 
         // Emit real token usage if the provider sent it (stream_options.include_usage).
         if usage_prompt_tokens > 0 || usage_completion_tokens > 0 {
-            let _ = app.emit("feral://stream-usage", events::StreamUsageEvent {
+            let _ = app.emit("cinderpaw://stream-usage", events::StreamUsageEvent {
                 session_id: session_id.clone(),
                 prompt_tokens: usage_prompt_tokens,
                 completion_tokens: usage_completion_tokens,
@@ -979,6 +979,6 @@ pub(crate) async fn chat_cloud_stream(
         // Loop continues — model will now generate a response using the tool results
     }
 
-    let _ = app.emit("feral://stream-done", events::StreamDoneEvent { session_id });
+    let _ = app.emit("cinderpaw://stream-done", events::StreamDoneEvent { session_id });
     Ok(())
 }

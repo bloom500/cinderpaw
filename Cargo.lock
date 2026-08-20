@@ -872,6 +872,74 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinderpaw-cli"
+version = "2026.8.11"
+dependencies = [
+ "cinderpaw-core",
+ "clap",
+ "clap_complete",
+ "futures-util",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "cinderpaw-core"
+version = "2026.8.11"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "dirs 5.0.1",
+ "encoding_rs",
+ "espeak-rs",
+ "futures",
+ "getrandom 0.2.17",
+ "git2",
+ "hkdf",
+ "json5",
+ "keyring",
+ "llama-cpp-2",
+ "log",
+ "once_cell",
+ "ort",
+ "parking_lot",
+ "pdf-extract",
+ "piper-rs",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "specta",
+ "specta-typescript",
+ "sysinfo",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-normalization",
+ "urlencoding",
+ "uuid",
+ "whisper-rs",
+ "zip 2.4.2",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1650,9 +1718,9 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "cinderpaw-core",
  "dirs 5.0.1",
  "encoding_rs",
- "feral-core",
  "futures",
  "getrandom 0.2.17",
  "git2",
@@ -1686,74 +1754,6 @@ dependencies = [
  "urlencoding",
  "uuid",
  "windows 0.58.0",
- "zip 2.4.2",
-]
-
-[[package]]
-name = "feral-cli"
-version = "2026.8.11"
-dependencies = [
- "clap",
- "clap_complete",
- "feral-core",
- "futures-util",
- "reqwest 0.12.28",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "feral-core"
-version = "2026.8.11"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "async-stream",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "dirs 5.0.1",
- "encoding_rs",
- "espeak-rs",
- "futures",
- "getrandom 0.2.17",
- "git2",
- "hkdf",
- "json5",
- "keyring",
- "llama-cpp-2",
- "log",
- "once_cell",
- "ort",
- "parking_lot",
- "pdf-extract",
- "piper-rs",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "specta",
- "specta-typescript",
- "sysinfo",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "unicode-normalization",
- "urlencoding",
- "uuid",
- "whisper-rs",
  "zip 2.4.2",
 ]
 

@@ -10,8 +10,8 @@ run() {
   "$@"
 }
 
-run "FeralAgent tests" bash -c "cd \"$ROOT/FeralAgent\" && bun test --timeout 20000"
-run "FeralAgent typecheck" bash -c "cd \"$ROOT/FeralAgent\" && bunx tsc --noEmit"
+run "CinderpawAgent tests" bash -c "cd \"$ROOT/CinderpawAgent\" && bun test --timeout 20000"
+run "CinderpawAgent typecheck" bash -c "cd \"$ROOT/CinderpawAgent\" && bunx tsc --noEmit"
 run "React tests" bash -c "cd \"$ROOT/frontend-react\" && bunx vitest run --pool=threads --maxWorkers=1"
 run "React typecheck" bash -c "cd \"$ROOT/frontend-react\" && bunx tsc --noEmit"
 run "Rust check" bash -c "cd \"$ROOT\" && cargo check"

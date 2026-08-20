@@ -5,7 +5,7 @@
 
 ## Context
 
-Feral has three near-overlapping observability surfaces today:
+Cinderpaw has three near-overlapping observability surfaces today:
 
 - `~/.feral/rsi/dream.jsonl` — per-episode telemetry, 10 flat fields,
   written by `dream-telemetry.ts`.

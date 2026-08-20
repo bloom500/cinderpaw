@@ -23,7 +23,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
 
     async function run() {
       setProbe({ phase: 'running' });
-      // Cheap reachability probe: returns true when the Feral Agent sidecar
+      // Cheap reachability probe: returns true when the Cinderpaw Agent sidecar
       // is alive and responded to a health check. We don't run a full
       // inference round-trip here — that happens on the first user message.
       const up = await tauri.feralAgent.status().catch(() => false);
@@ -39,7 +39,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
       return (
         <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
           <Loader2 size={12} className="animate-spin" />
-          Checking Feral Agent…
+          Checking Cinderpaw Agent…
         </div>
       );
     }
@@ -47,13 +47,13 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
       return (
         <div className="flex items-center justify-center gap-1.5 text-xs text-green-400">
           <CheckCircle size={12} />
-          Feral Agent ready
+          Cinderpaw Agent ready
         </div>
       );
     }
     return (
       <div className="text-xs text-text-muted text-center">
-        Feral Agent sidecar is not running. Open a chat to start it.
+        Cinderpaw Agent sidecar is not running. Open a chat to start it.
       </div>
     );
   })();

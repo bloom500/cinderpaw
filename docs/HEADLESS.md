@@ -1,6 +1,6 @@
-# Feral Headless — the gateway
+# Cinderpaw Headless — the gateway
 
-Run Feral as a background service with **no window**: same brain (memory, LoRA,
+Run Cinderpaw as a background service with **no window**: same brain (memory, LoRA,
 Dream Cycle, RSI, tools) as the desktop app, reachable over a small local HTTP
 API and from the terminal. This is the "One Brain, Many Faces" runtime — the
 desktop app, the connectors (Discord/Slack/…), and the CLI are all just faces on
@@ -96,7 +96,7 @@ So Discord (and the rest) answer after a reboot with nothing open.
 **Windows** — a logon Task Scheduler task (native, no extra tooling):
 
 ```powershell
-schtasks /create /tn "Feral Gateway" /sc onlogon /rl highest ^
+schtasks /create /tn "Cinderpaw Gateway" /sc onlogon /rl highest ^
   /tr "\"%LOCALAPPDATA%\Programs\feral\feral.exe\" gateway"
 ```
 
@@ -104,7 +104,7 @@ schtasks /create /tn "Feral Gateway" /sc onlogon /rl highest ^
 
 ```ini
 [Unit]
-Description=Feral Gateway
+Description=Cinderpaw Gateway
 After=network-online.target
 
 [Service]

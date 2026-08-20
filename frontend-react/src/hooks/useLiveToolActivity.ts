@@ -3,13 +3,13 @@ import { events } from '@/lib/tauri/events';
 import { recordArtifact } from '@/lib/callArtifacts';
 
 /**
- * What Feral is doing right now, as the call hears about it.
+ * What Cinderpaw is doing right now, as the call hears about it.
  *
  * A speech-to-speech call answers tool calls in Rust and never tells the
  * webview, which is correct for latency and leaves the user watching a still
  * screen for up to a hundred seconds. This reads the work off the one channel it
  * already travels on: every raw line the sidecar prints reaches the webview on
- * `feral://agent-output`, tool events included, so nothing new has to be sent.
+ * `cinderpaw://agent-output`, tool events included, so nothing new has to be sent.
  *
  * Deliberately its own listener rather than the chat store's tool strip. That
  * strip is built inside the send flow, and a Live call never calls send — the

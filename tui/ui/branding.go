@@ -69,7 +69,7 @@ var Taglines = []string{
 	"Run AI on your machine. Keep your keys.",
 	"Private by default. Powerful on demand.",
 	"Your models. Your data. Your rules.",
-	"Bears don't leak. Neither does Feral.",
+	"Bears don't leak. Neither does Cinderpaw.",
 }
 
 // taglineMu guards the random source. math/rand's global is fine for

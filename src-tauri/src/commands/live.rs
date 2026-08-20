@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use base64::Engine as _;
-use feral_core::live::{self, bridge, LiveCommand, LiveEvent as CoreEvent};
+use cinderpaw_core::live::{self, bridge, LiveCommand, LiveEvent as CoreEvent};
 use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
@@ -78,9 +78,20 @@ fn is_stop_command(utterance: &str) -> bool {
         .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
         .collect();
     let words: Vec<&str> = cleaned.split_whitespace().collect();
-    // Address prefixes, so "feral, stop" and "ok stop" still count.
+    // Address prefixes, so "cinderpaw, stop" and "ok stop" still count.
+    //
+    // Both names are here on purpose. Someone who has been talking to this thing
+    // for months will keep saying the old one for a while, and a stop command
+    // that is not recognised is the worst one to lose: the person is asking it
+    // to stop BECAUSE something is going wrong, and being ignored at that moment
+    // is what makes them reach for the power button. Costs one word to accept.
     let body = match words.as_slice() {
-        [first, rest @ ..] if !rest.is_empty() && matches!(*first, "feral" | "hey" | "ok" | "okay") => rest,
+        [first, rest @ ..]
+            if !rest.is_empty()
+                && matches!(*first, "cinderpaw" | "feral" | "hey" | "ok" | "okay") =>
+        {
+            rest
+        }
         all => all,
     };
     matches!(
@@ -169,7 +180,7 @@ pub(crate) async fn start_live_call(
     workspace: Option<String>,
     context: Option<String>,
 ) -> Result<(), String> {
-    let Some(api_key) = feral_core::byok::byok_get(KEY_PROVIDER) else {
+    let Some(api_key) = cinderpaw_core::byok::byok_get(KEY_PROVIDER) else {
         return Err("live-no-key".into());
     };
 
@@ -398,7 +409,7 @@ async fn pump(
                 // rate that travels with it — so the existing player needs to
                 // know nothing about this one.
                 let _ = app.emit(
-                    "feral://tts-chunk",
+                    "cinderpaw://tts-chunk",
                     events::TtsChunkEvent {
                         session_id: session_id.clone(),
                         pcm: base64::engine::general_purpose::STANDARD.encode(&pcm),
@@ -432,7 +443,7 @@ async fn pump(
                         // with no feedback: the widgets only ever saw the
                         // sidecar's own tools.
                         let _ = app.emit(
-                            "feral://live-status",
+                            "cinderpaw://live-status",
                             events::LiveStatusEvent {
                                 session_id: session_id.clone(),
                                 kind: "toolCall".to_string(),
@@ -613,7 +624,7 @@ async fn pump(
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
                         let _ = app.emit(
-                            "feral://live-status",
+                            "cinderpaw://live-status",
                             events::LiveStatusEvent {
                                 session_id: session_id.clone(),
                                 kind: "toolResult".to_string(),
@@ -753,12 +764,12 @@ async fn pump(
 /// write must never be able to interrupt a call in progress. A failure here
 /// costs the record of one turn; blocking the pump on it would cost the audio.
 fn record_turn(
-    runtime: &std::sync::Arc<feral_core::runtime::RuntimeState>,
+    runtime: &std::sync::Arc<cinderpaw_core::runtime::RuntimeState>,
     session_id: &str,
     user: &str,
     assistant: &str,
 ) {
-    let Some(tx) = runtime.feral_agent_tx.lock().as_ref().cloned() else { return };
+    let Some(tx) = runtime.cinderpaw_agent_tx.lock().as_ref().cloned() else { return };
     let line = serde_json::json!({
         "type": "record_turn",
         "sessionId": session_id,
@@ -800,7 +811,7 @@ fn emit_status(app: &AppHandle, session_id: &str, event: CoreEvent) {
         CoreEvent::Audio(_) | CoreEvent::ToolCall(_) | CoreEvent::ToolCallCancelled(_) => return,
     };
     let _ = app.emit(
-        "feral://live-status",
+        "cinderpaw://live-status",
         events::LiveStatusEvent {
             session_id: session_id.to_string(),
             kind: kind.to_string(),
@@ -963,7 +974,7 @@ mod stop_command_tests {
     #[test]
     fn an_address_prefix_still_counts() {
         // "feral, stop" and "ok stop" are how people actually say it out loud.
-        for said in ["feral stop", "Feral, stop it", "ok stop", "hey stop"] {
+        for said in ["feral stop", "Cinderpaw, stop it", "ok stop", "hey stop"] {
             assert!(is_stop_command(said), "{said:?} should stop the work");
         }
     }

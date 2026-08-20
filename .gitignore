@@ -7,7 +7,7 @@ target-check/
 dev-gpu.bat
 
 # Local one-off diagnostic scripts (machine-specific absolute paths).
-FeralAgent/tools/
+CinderpawAgent/tools/
 
 # Tauri
 src-tauri/target/
@@ -19,9 +19,9 @@ frontend-react/target/
 node_modules/
 
 # Feral agent sidecar build output (only .gitkeep is tracked)
-FeralAgent/dist/
+CinderpawAgent/dist/
 src-tauri/binaries/*.exe
-src-tauri/binaries/feral-agent
+src-tauri/binaries/cinderpaw-agent
 
 # Compiled Bun scripts under scripts/ — sources (.ts/.mjs/.ps1) are
 # tracked, the .exe is a build artifact (e.g. scripts/fake-lora-trainer.exe

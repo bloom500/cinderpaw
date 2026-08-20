@@ -1,15 +1,50 @@
 # Changelog
 
-> From this release on, Feral uses **calendar versioning**: a release is named by
+> From this release on, Cinderpaw uses **calendar versioning**: a release is named by
 > its date, e.g. `2026.06.17`. (Internally the build uses the equivalent semver
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
+
+## 2026.08.21
+
+### Changed
+
+- **The app is now called Cinderpaw.** Same little pixel companion, new name —
+  "cinder" for the warm ember it is coloured after, "paw" for the creature it
+  actually is. The old name described a mood; this one describes what you see on
+  screen. Everything you have keeps working: your conversations, agents,
+  settings, connectors and models are untouched, and you do not have to do
+  anything.
+
+  What has NOT moved in this release, deliberately: the config folder is still
+  `~/.feral/`, the command is still `feral`, and the app still identifies itself
+  to your operating system as before. Those carry your data, so they move
+  together, in one step, with a migrator that copies rather than replaces — not
+  as a side effect of a name change. See RENAME-PLAN.md.
+
+### Fixed
+
+- **Ten rounds of audit findings.** A long pass over the whole tree, applying
+  the ones that were real. The theme running through them: guards that read
+  correctly and did not hold. The improvement ratchet took the candidate's word
+  for its own score; the sanity checks that are meant to be ungameable matched
+  answers by substring, so "there are 18 planets" passed for "8"; the notebook
+  sandbox handed back objects that could reach the host from one property
+  deeper; a candidate patch ran its tests with every secret in the environment
+  visible to it.
+
+  And the quiet ones, which cost more people more often: a freshly created
+  scheduled task never ran at all, because nothing ever worked out when its
+  first run should be. A fact remembered across twenty conversations had its
+  count reset on every cleanup pass, so the cleanup then decided it was cold and
+  deleted it. Recording a voice message and having it fail left the microphone
+  live. The progress bar for the embedding download was invisible.
 
 ## 2026.08.15
 
 ### Added
 
-- **You can call Feral and talk to it.** Press the phone button and it answers
+- **You can call Cinderpaw and talk to it.** Press the phone button and it answers
   out loud, in your language, interrupting and being interrupted, the way a
   call works. While it talks it can still use everything it has: your files,
   your memory of past conversations, the web. There is one door between the
@@ -34,7 +69,7 @@
 
 ### Fixed
 
-- **Feral improves itself again, for the first time since 10 July.** The
+- **Cinderpaw improves itself again, for the first time since 10 July.** The
   self-improvement loop had been running nightly and promoting nothing, on
   every install, and the reason was three graders, not the models. Tier 0 is the
   frozen sanity floor and one failure blocks all promotion: asked for the
@@ -46,7 +81,7 @@
   does: that is the machine, not a regression. Measured after the fix on a
   cloud route: champion score 24.2 → 41.0, and `main` moved for the first time
   in five weeks.
-- **Feral tells you when it is not dreaming.** Self-improvement is off by
+- **Cinderpaw tells you when it is not dreaming.** Self-improvement is off by
   default when your model runs in the cloud, because dreaming costs money and it
   will not spend yours while you are away. That was the right default and an
   invisible one: the reason went to a log file, and everyone without a local
@@ -181,7 +216,7 @@
   command did not merely fail, it pointed the wrong way: `update` lives in the
   npm launcher, so a server that built from source either had no such subcommand
   or was told to `npm install -g feral-agent@latest` — which installs a second,
-  unrelated `feral` earlier on PATH and leaves the real one behind. Feral now
+  unrelated `feral` earlier on PATH and leaves the real one behind. Cinderpaw now
   detects how it was installed and runs that install's actual update: a git pull
   and rebuild from source, npm where npm applies, the installer elsewhere. The
   gateway restart still only fires if a gateway was already running, so the
@@ -205,7 +240,7 @@ prove the behaviour instead of code that looks correct.
 
 ### Added
 
-- **Feral stops when it is provably stuck.** If a tool returns byte-identical
+- **Cinderpaw stops when it is provably stuck.** If a tool returns byte-identical
   output for the same arguments twenty times over, repeating it cannot make
   progress, so the turn ends and says which tool got stuck — instead of quietly
   burning up to 500 iterations or your whole time budget on the same call. A
@@ -233,7 +268,7 @@ prove the behaviour instead of code that looks correct.
   The pacing is the fix, not a precaution: DuckDuckGo throttles by rate, so a
   burst of 14 searches got 7 answered and then a ten-minute block, while the
   same 14 paced through the new limiter returned 14 for 14. If the limit is
-  tripped anyway, Feral backs off and says so instead of reporting an empty web.
+  tripped anyway, Cinderpaw backs off and says so instead of reporting an empty web.
   A self-hosted SearXNG is still worth it — several engines, no rate limit, no
   pacing delay — and if it goes down, searches fall back to DuckDuckGo and say
   which backend answered.
@@ -261,7 +296,7 @@ prove the behaviour instead of code that looks correct.
   names overwrote each other and arguments concatenated into garbage. Three lead
   imports became one; a "check the CRM, then write" dropped the check and
   duplicated a person already on file.
-- **Tool calls in the format the model actually speaks.** Feral now reads the
+- **Tool calls in the format the model actually speaks.** Cinderpaw now reads the
   shapes models fall back to when they abandon the format they were asked for —
   `<function=…>`, `[tool:name]`, Harmony channels — instead of showing them to
   you as prose. Unrecognised tool names are rejected, never invented.
@@ -275,7 +310,7 @@ prove the behaviour instead of code that looks correct.
 - **A tool call cut off mid-argument is retried instead of run blind.** When a
   reply hit its token limit while the model was still writing a tool call's
   arguments, the truncated JSON was silently treated as *no arguments at all* —
-  so `write_file` ran with no path and no content, and nothing flagged it. Feral
+  so `write_file` ran with no path and no content, and nothing flagged it. Cinderpaw
   now recognises the truncation and asks the model to re-send the call.
 - **Compressing a long conversation no longer throws away the recent half.**
   The summary that replaces older turns was built from only the first few
@@ -293,15 +328,15 @@ prove the behaviour instead of code that looks correct.
   run longer.
 - **Discord DMs reach the agent.** They never had. The connector asked Discord
   for direct-message events but not for the one extra flag that lets an
-  uncached DM channel through, so every DM was dropped before any Feral code
+  uncached DM channel through, so every DM was dropped before any Cinderpaw code
   ran — while the connector's own documentation said it always answers DMs.
   Confirmed against a live bot: two DMs arrived at a client carrying the flag
-  and neither arrived at Feral's.
+  and neither arrived at Cinderpaw's.
 - **A bare @mention gets an answer instead of silence.** Mentioning the bot with
   no other text stripped down to an empty message, which was discarded without
   a reply, a reaction, or a log line — indistinguishable from a dead bot. It now
   acknowledges and asks what you need.
-- **In a server, Feral answers you without an @mention by default.** Naming
+- **In a server, Cinderpaw answers you without an @mention by default.** Naming
   channels (`feral connectors set discord --channel …`) still narrows it to
   exactly those. The allowlist is unchanged and remains the real gate: only
   people you list are ever answered, so this means "answers you anywhere it can
@@ -314,7 +349,7 @@ prove the behaviour instead of code that looks correct.
   "cannot tell" and the caller printed that as "dead". Liveness now comes from
   the gateway itself, which is the only thing that knows.
 - **The endpoint allowlist stays an allowlist after you switch models.** If you
-  pin the servers Feral is permitted to send your conversation to
+  pin the servers Cinderpaw is permitted to send your conversation to
   (`FERAL_TRUSTED_BASE_URLS`), that list used to be quietly thrown away and
   replaced the first time the model was changed — and the check that was
   supposed to enforce it then validated the new address against itself, so it
@@ -324,7 +359,7 @@ prove the behaviour instead of code that looks correct.
 
 ## 2026.07.19
 
-A big one. Feral can now split work across sub-agents, ask you a question
+A big one. Cinderpaw can now split work across sub-agents, ask you a question
 mid-task from any channel, and train a personal LoRA on your own machine. It
 also installs in a single command on every platform, and a batch of local/cloud
 model-selection bugs are gone.
@@ -339,7 +374,7 @@ model-selection bugs are gone.
   real fork in the road it stops and asks instead of guessing. This now works
   over the connectors (Discord/Slack/WhatsApp — the question comes back in the
   same channel) and in the `feral chat` TUI, not just the desktop app.
-- **On-device LoRA trainer, bundled.** Feral can now fine-tune a personal
+- **On-device LoRA trainer, bundled.** Cinderpaw can now fine-tune a personal
   adapter on your own hardware (Unsloth when available, with a graceful
   fallback), gated behind an A/B eval so a worse adapter never gets promoted.
   Requires an NVIDIA GPU to train.
@@ -347,7 +382,7 @@ model-selection bugs are gone.
   everything up — Windows, macOS, and Linux. Per-platform quick-install lines
   are now at the top of the README.
 - **Per-connector persona.** Each connector can run with its own persona
-  (`--persona`), so the same Feral can be a support bot in one channel and your
+  (`--persona`), so the same Cinderpaw can be a support bot in one channel and your
   personal agent in another.
 - **The agent can see its own subsystems.** Every RSI layer now reports into
   self-health, so the agent can actually reason about the parts of itself that
@@ -403,12 +438,12 @@ Hotfix. **Everyone on 2026.07.13 should take this update.**
   keep touching a file, no matter who inherits its number. The case where the OS
   hands the *new* sidecar the dead one's id is closed too.
 
-  If you are stuck on 2026.07.13 and cannot get past "Feral Agent went offline",
+  If you are stuck on 2026.07.13 and cannot get past "Cinderpaw Agent went offline",
   delete `~/.feral/agent/.writer.lock` and restart — then update.
 
 ## 2026.07.13
 
-First public release. Feral is source-available under the Business Source
+First public release. Cinderpaw is source-available under the Business Source
 License 1.1 (free for individuals and for organizations under $2M revenue;
 each version converts to Apache 2.0 after four years). Windows and macOS
 builds are **unsigned** — see the README for the SmartScreen and first-launch
@@ -420,7 +455,7 @@ the CPU engine, which is what it would have fallen back to anyway). An opt-in
 NVIDIA CUDA build is published as a separate download for Windows and Linux;
 it is deliberately excluded from the auto-updater, so it does not update itself.
 
-### Feral in the terminal
+### Cinderpaw in the terminal
 
 - **A real terminal client.** `feral chat` opens a full TUI: streaming answers
   rendered at 30fps, tool calls as inline pills, a thinking panel you can fold
@@ -439,7 +474,7 @@ it is deliberately excluded from the auto-updater, so it does not update itself.
 - **A setup wizard and a `--plain` mode** for scripting and for terminals where
   the full UI is not wanted.
 
-### Feral without the desktop app
+### Cinderpaw without the desktop app
 
 - **The runtime is no longer trapped inside the desktop app.** It has been
   extracted into a `feral-core` crate that both the desktop app and a headless
@@ -466,7 +501,7 @@ it is deliberately excluded from the auto-updater, so it does not update itself.
 
 ### Onboarding
 
-- **Guided first run.** Feral now looks at your machine before asking you
+- **Guided first run.** Cinderpaw now looks at your machine before asking you
   anything: an existing config, GGUF files already on disk, a hardware-tier
   model download, provider keys in the environment, a running Ollama, or an
   OpenClaw config to import. Each candidate is **verified with a real
@@ -481,9 +516,9 @@ it is deliberately excluded from the auto-updater, so it does not update itself.
 ### Local models and GPU
 
 - **Partial GPU offload.** Offload used to be all-or-nothing: if the model did
-  not fit entirely in VRAM — including the KV cache — Feral dropped to *full
+  not fit entirely in VRAM — including the KV cache — Cinderpaw dropped to *full
   CPU*. A card that missed by a few hundred MB ran the whole model on the CPU.
-  Feral now fits as many layers as VRAM allows and leaves the rest on the CPU,
+  Cinderpaw now fits as many layers as VRAM allows and leaves the rest on the CPU,
   sizing the budget from the model's real geometry rather than an estimate.
 - **A GPU build no longer breaks the CPU fallback.** On some cards (verified on
   an RX 580) llama.cpp routed buffers through the Vulkan device even at zero
@@ -494,7 +529,7 @@ it is deliberately excluded from the auto-updater, so it does not update itself.
 - **You can see where the model is running.** A badge next to the model name
   and in Settings → Hardware shows the real outcome after the load
   (`GPU (vulkan, 24/32 layers)`, or CPU). If a GPU-capable build lands on the
-  CPU anyway, Feral raises one notification explaining why and what to try.
+  CPU anyway, Cinderpaw raises one notification explaining why and what to try.
 - **NVIDIA CUDA build** as a separate, opt-in download. Vulkan stays the
   default for everyone (it runs on NVIDIA too). The CUDA assets are
   deliberately excluded from `latest.json` and do not auto-update.
@@ -525,14 +560,14 @@ it is deliberately excluded from the auto-updater, so it does not update itself.
   providers is raised to 200k, and the agent is nudged to reach for `web_search`
   first rather than guessing from memory.
 
-### Feral improves itself — and shows its work
+### Cinderpaw improves itself — and shows its work
 
-This is the part of Feral that is not like other assistants: it evolves its own
+This is the part of Cinderpaw that is not like other assistants: it evolves its own
 configuration and, now, its own code. Every step of that is gated, journalled
 and reversible, because an agent that can rewrite itself and cannot be audited
 is not a feature.
 
-- **Dream Cycle.** When you are idle, Feral runs a seven-stage cycle over what
+- **Dream Cycle.** When you are idle, Cinderpaw runs a seven-stage cycle over what
   it learned, proposes changes to itself, and evaluates them. You can trigger it
   yourself ("Dream now") and watch which stage it is in.
 - **Nothing is promoted on a hunch.** A statistical confidence gate decides
@@ -544,7 +579,7 @@ is not a feature.
   honest budget accounting and per-candidate fitness, surfaced in the Dreams
   panel. Champions are archived per niche (a "tree of champions") rather than a
   single global winner.
-- **Code-level self-improvement, behind a wall.** Feral can now propose patches
+- **Code-level self-improvement, behind a wall.** Cinderpaw can now propose patches
   to its own source. They are parsed, checked against a patch policy wall on
   both sides of the boundary, and evaluated in a *disposable git worktree* — the
   candidate never runs in your working tree. A patch that passes still waits for
@@ -554,7 +589,7 @@ is not a feature.
 
 ### Governance
 
-- **A policy layer over what Feral is allowed to do to itself**, with a
+- **A policy layer over what Cinderpaw is allowed to do to itself**, with a
   fail-closed loader: if the policy is missing, unparseable, or violates the
   ground rules, every governed action is refused rather than allowed.
 - **The audit trail is hash-chained.** The evolution journal and the policy
@@ -566,9 +601,9 @@ is not a feature.
 
 ### Modules
 
-- **Feral's internals are becoming swappable at named seams.** A module is a
+- **Cinderpaw's internals are becoming swappable at named seams.** A module is a
   Bun subprocess with a manifest, run behind resource walls with a seeded RNG,
-  speaking JSON-lines — so a replacement for a piece of Feral can be evaluated
+  speaking JSON-lines — so a replacement for a piece of Cinderpaw can be evaluated
   without being trusted.
 - **Promotion is earned by a paired shadow evaluation** against the builtin,
   with floors it has to clear. A promoted module that misbehaves is
@@ -577,7 +612,7 @@ is not a feature.
 
 ### Personal adaptation (LoRA)
 
-- **Feral can fine-tune itself to you, on your machine.** A dataset is built
+- **Cinderpaw can fine-tune itself to you, on your machine.** A dataset is built
   from your own interactions, a LoRA adapter is trained locally, and it is
   promoted only if it beats the base model on an eval gate — with provenance
   recorded and one-click rollback. Adapters, their measured resource cost, and
@@ -592,7 +627,7 @@ is not a feature.
   default to the launch directory plus your home, with a hard deny wall on
   `~/.feral` (except scratch), `~/.ssh` and anything in `FERAL_FS_DENY`.
 - **New `connectors_manage` and `product_info` tools**, so the agent can
-  configure its own connectors and answer questions about Feral itself.
+  configure its own connectors and answer questions about Cinderpaw itself.
 
 ### Security
 
@@ -626,7 +661,7 @@ is not a feature.
 
 ### Rate limits
 
-- **Feral now stays under a provider's requests-per-minute cap instead of
+- **Cinderpaw now stays under a provider's requests-per-minute cap instead of
   discovering it the expensive way.** NVIDIA NIM's free tier allows 40 requests
   a minute. Nothing counted requests, and an agent turn spends one request per
   tool round-trip — so the first genuinely multi-step task tripped the cap and
@@ -641,14 +676,14 @@ is not a feature.
   throttled.
 
   A 429 that slips through anyway (the count is local, so a key also used
-  outside Feral is invisible to it) is retried, honouring `Retry-After`, up to
+  outside Cinderpaw is invisible to it) is retried, honouring `Retry-After`, up to
   three times. A provider asking us to come back in ten minutes surfaces as an
   error rather than freezing the agent for ten minutes.
 
   Waits are announced as a `rate_limited` event, so a multi-second pause reads
   as a pause and not as a hang, and a stop cancels the wait instead of making
   the user sit through it. Override the cap with `FERAL_RATE_LIMIT_RPM` if you
-  are on a paid tier or share one key with something outside Feral.
+  are on a paid tier or share one key with something outside Cinderpaw.
 
 ### Privacy
 
@@ -657,7 +692,7 @@ is not a feature.
 
 ### Internals
 
-Nothing here changes what Feral does, but it changes how fast it can be changed
+Nothing here changes what Cinderpaw does, but it changes how fast it can be changed
 safely.
 
 - **The sidecar protocol is versioned and schema-checked**, and a test fails the
@@ -686,7 +721,7 @@ safely.
 
 ### Safety smoke e2e tests (B5)
 
-- **Four new `FERAL_E2E`-gated e2e files** in `FeralAgent/tests/`,
+- **Four new `FERAL_E2E`-gated e2e files** in `CinderpawAgent/tests/`,
   one per safety path the marketing copy promises:
   - `l0-journal-tamper.e2e.test.ts` — flip one byte in a chained
     journal file, assert `verifyJournal` flags the row AND
@@ -709,7 +744,7 @@ safely.
     per spec; the pure decision + persistence contracts are pinned.
   Default `bun test` skips all four (skip pattern mirrors
   `fractal-scale.test.ts`); run explicitly with
-  `FERAL_E2E=1 bun test FeralAgent/tests/*.e2e.test.ts`.
+  `FERAL_E2E=1 bun test CinderpawAgent/tests/*.e2e.test.ts`.
   Granular tests already exist in `rsi-seam-adapter.test.ts`,
   `rsi-governance.test.ts`, `rsi-governance-integration.test.ts`,
   `rsi-journal-chain.test.ts`, and
@@ -718,7 +753,7 @@ safely.
 
 ### HTTP API stability contract (B1, unstable pre-2.0)
 
-- **Per-response `X-Feral-Api-Stability: stable|unstable` header.**
+- **Per-response `X-Cinderpaw-Api-Stability: stable|unstable` header.**
   A single middleware in `crates/feral-core/src/api.rs`
   (`api_stability_header`) inspects the request path and tags every
   response. Stable prefixes are exclusively the third-party protocol
@@ -737,7 +772,7 @@ safely.
   `.route("/path", verb(...))` line, diffs against a fenced
   `feral-api-routes` block in `docs/API.md`, fails if any are
   missing. Wired into `bun test` via
-  `FeralAgent/tests/api-docs.test.ts`.
+  `CinderpawAgent/tests/api-docs.test.ts`.
 
 ### Architecture overview
 
@@ -747,7 +782,7 @@ safely.
   - The four runtimes (Desktop UI, Rust host, sidecar, TUI) and the
     three protocols (Tauri IPC, stdin JSON-lines, loopback HTTP).
   - L0–L6 layer model with file locations on both sides
-    (`FeralAgent/src/rsi/`, `crates/feral-core/src/rsi/`,
+    (`CinderpawAgent/src/rsi/`, `crates/feral-core/src/rsi/`,
     `src-tauri/src/rsi/`).
   - Faza ↔ L-layer ↔ spec doc ↔ code-path translation table,
     verified against `git log --grep="Faza"` on this branch.
@@ -776,7 +811,7 @@ safely.
   path) trap is called out in its own section.
 - **`scripts/check-env-docs.mjs`** greps source for `FERAL_*` and
   diffs against a fenced `feral-env-vars` block in the doc. Wired
-  into the bun suite via `FeralAgent/tests/env-docs.test.ts` — any
+  into the bun suite via `CinderpawAgent/tests/env-docs.test.ts` — any
   new env var that isn't added to the doc fails CI.
 
 ### Repository hygiene
@@ -803,7 +838,7 @@ safely.
     startup, PDF ingestion and longer messages had less RAM/VRAM
     headroom and hit OOM or Vulkan driver crashes.
   - **Panic + close** UX — users did not know why the app was frozen,
-    so they killed it and reported Feral as unusable.
+    so they killed it and reported Cinderpaw as unusable.
 
   Now: **the user picks a model explicitly from the Local Models tab
   (or the Onboarding wizard on first run).** No background load at
@@ -839,16 +874,16 @@ need to update — only macOS Intel users are affected.
 **Power-user preview — Windows, macOS (Apple Silicon + Intel), Linux.**
 
 > **Looking for testers and contributors.** This is the first public preview
-> of Feral's self-improvement engine (RSI) and the redesigned Memory view.
+> of Cinderpaw's self-improvement engine (RSI) and the redesigned Memory view.
 > Both are early-stage — see "Known issues" below for what to expect.
 
 ### Highlights
 
-- **Memory Layers** — a clean, non-technical view of everything Feral
+- **Memory Layers** — a clean, non-technical view of everything Cinderpaw
   remembers about you, grouped by recency (Today / This Week / This Month /
   Older). Live dream-cycle history and a status pill for the self-improvement
   engine live on the same page.
-- **RSI — Recursive Self-Improvement (Faza 1).** Feral tunes its own
+- **RSI — Recursive Self-Improvement (Faza 1).** Cinderpaw tunes its own
   parameters (temperature, system prompt, tool preferences, context budget)
   while you're away. An evolutionary algorithm evaluates candidate
   configurations against a frozen test suite and ratchets improvements to a
@@ -871,7 +906,7 @@ need to update — only macOS Intel users are affected.
 ### Added
 
 - **Memory Layers page** (`/memory-layers`) with recency grouping, a stats
-  hero, an RSI status pill, and a "Feral's Dreams" panel showing recent
+  hero, an RSI status pill, and a "Cinderpaw's Dreams" panel showing recent
   self-improvement episodes with token counts and ratchet progress.
 - **RSI engine (Faza 1)** — event bus, population manager, eval worker,
   ratchet handler, mutation grammar, selection handler, recalcitrance
@@ -918,7 +953,7 @@ need to update — only macOS Intel users are affected.
 - **Memory Layers visualization simplified.** Three iterations of a
   painterly tree didn't match the hand-painted references, so we replaced
   the whole renderer with a clean tiered list view that surfaces what users
-  actually care about: what Feral remembers, when, and how much it's
+  actually care about: what Cinderpaw remembers, when, and how much it's
   improving. **Net −1,184 lines.**
 
 ### Known issues
@@ -932,7 +967,7 @@ need to update — only macOS Intel users are affected.
   basic (fact lookups, simple math, JSON format checks) — it will be
   expanded in a future release.
 - **macOS is not Apple-notarized yet.** First launch on macOS requires
-  `xattr -cr /Applications/Feral.app` from Terminal to clear the
+  `xattr -cr /Applications/Cinderpaw.app` from Terminal to clear the
   quarantine flag. We'll fix this once we have a Developer ID.
 - **Windows ships `.exe` (NSIS) only** in this release. The `.msi` target
   is paused because WiX 3 rejects any product version whose major component
@@ -985,18 +1020,18 @@ For contributors and reviewers:
 
 ### Added
 
-- **GPU acceleration.** Feral now ships a GPU backend on every platform —
+- **GPU acceleration.** Cinderpaw now ships a GPU backend on every platform —
   Vulkan on Windows and Linux, Metal on macOS — and offloads the whole model
   to the GPU by default. Local models that previously ran CPU-only (slow,
   sometimes "not responding" for minutes) now use the graphics card. If the GPU
   can't be used — missing or old driver, no Vulkan runtime, or not enough VRAM
-  for the model's context — Feral automatically falls back to CPU so the model
+  for the model's context — Cinderpaw automatically falls back to CPU so the model
   still loads instead of failing.
 - **Desktop control (opt-in).** The agent can now drive native applications
   through the OS accessibility tree — list windows, read controls, type, click,
   and send real keystrokes. Off by default; enable it under Settings → Agent,
   with a Safe mode (confirm every action) and a YOLO mode (no prompts). A hard
-  denylist (password managers, system security dialogs, Feral itself) can never
+  denylist (password managers, system security dialogs, Cinderpaw itself) can never
   be controlled.
 - **Configurable token budget.** The agent's conversation budget is now
   unlimited by default — no more hitting "budget exhausted" mid-task. Optional
@@ -1089,7 +1124,7 @@ For contributors and reviewers:
   (Ctrl+V) and uploaded image files now reach the model as real pixel data
   (base64 data URLs), not just a `[Image attached: …]` filename note. Works on
   both inference paths: direct chat (BYOK cloud via OpenAI `image_url` content
-  parts) and the Feral Agent sidecar (OpenAI-compatible, Ollama `images`, and
+  parts) and the Cinderpaw Agent sidecar (OpenAI-compatible, Ollama `images`, and
   Anthropic base64 blocks). Local llama.cpp GGUF models remain text-only and
   keep the filename note.
 - **Memory that actually carries over.** New conversations no longer start
@@ -1106,7 +1141,7 @@ For contributors and reviewers:
   neon nodes on a near-black canvas, degree-scaled node sizes, a filter rail
   with per-type counts, relation chips, free-text node search, a labels
   toggle, and a click-to-inspect detail card showing a node's connections.
-- **MCP Extensions (native connector).** Feral now consumes Model Context
+- **MCP Extensions (native connector).** Cinderpaw now consumes Model Context
   Protocol servers through the official `rmcp` Rust SDK, managed entirely in
   the Tauri host. New "Extensions" entry in the sidebar (under Skills) with an
   app-store style UI: curated catalog (File Access, Long-term Memory, GitHub,
@@ -1127,7 +1162,7 @@ For contributors and reviewers:
   installers for Windows (.msi/.exe), macOS Apple Silicon + Intel (.dmg),
   and Linux (.deb/.rpm) from a single tag, updater manifest included.
   The agent sidecar resolves its per-platform binary on all five targets.
-- **Mascot redesign — the real Feral monster.** The pixel companion is now
+- **Mascot redesign — the real Cinderpaw monster.** The pixel companion is now
   the brand mascot itself: charcoal-black fluffy monster with orange horns,
   an orange face plate with big black eyes, tiny white fangs, and a round
   orange belly. 55 animated variants across all 22 states, composed from a
@@ -1176,7 +1211,7 @@ For contributors and reviewers:
 - **Unified stream stop (A2).** One stop entry point (`lib/streamControl.ts`)
   routes Stop to whichever path (chat backend / agent sidecar) actually owns
   the in-flight generation. Previously the Stop button in Agent mode told the
-  idle chat backend to stop while the sidecar kept generating. Feral streams
+  idle chat backend to stop while the sidecar kept generating. Cinderpaw streams
   are stoppable per-session, and a new send interrupts the previous in-flight
   stream on both paths.
 - **Sidecar supervision (#11).** The Tauri shell now watches the agent sidecar
@@ -1258,10 +1293,10 @@ For contributors and reviewers:
 
 ### Agent
 
-- **SOUL.md identity document.** Feral Agent now ships with a bundled `SOUL.md` that defines its identity, tone, communication style, epistemic standards, and ethical boundaries. The document is the source of truth for how the agent thinks, speaks, and acts — it is injected verbatim as the **first block** of the system prompt (highest priority, overrides vague or contradictory instructions elsewhere in the prompt chain). Concretely:
-  - `FeralAgent/src/SOUL.md` — bundled default, version-controlled with the codebase, ships inside the sidecar binary.
+- **SOUL.md identity document.** Cinderpaw Agent now ships with a bundled `SOUL.md` that defines its identity, tone, communication style, epistemic standards, and ethical boundaries. The document is the source of truth for how the agent thinks, speaks, and acts — it is injected verbatim as the **first block** of the system prompt (highest priority, overrides vague or contradictory instructions elsewhere in the prompt chain). Concretely:
+  - `CinderpawAgent/src/SOUL.md` — bundled default, version-controlled with the codebase, ships inside the sidecar binary.
   - `~/.feral/SOUL.md` — user override. Create this file to customize the agent's identity without recompiling; the loader prefers the user file when present.
-  - `FeralAgent/src/core/soul-loader.ts` — `loadSoul()` (single read, returns `{ content, source, version, loadedAt, approxTokens }`), `watchSoul()` (debounced `fs.watch` on the user override, hot-reloads without restarting the agent), and `resolveSoulPaths()` for "edit your soul here" diagnostics.
+  - `CinderpawAgent/src/core/soul-loader.ts` — `loadSoul()` (single read, returns `{ content, source, version, loadedAt, approxTokens }`), `watchSoul()` (debounced `fs.watch` on the user override, hot-reloads without restarting the agent), and `resolveSoulPaths()` for "edit your soul here" diagnostics.
   - `AgentLoop.buildSystemPrompt(registry, soul)` — the soul content is the first system-prompt block, separated from the mechanics (tool list, call format) by a `---` divider. Legacy opener is used as a backwards-compatible fallback when no soul is provided.
   - Hot-reload scope: only **new** sessions pick up SOUL changes mid-run. Active sessions keep their original system prompt so the conversation stays coherent.
   - Size guard: soft warning at >4K tokens, hard warning at >10K tokens. Catches accidentally-large edits that would inflate every LLM call.
@@ -1284,10 +1319,10 @@ F0 hardening pass. Every tool that calls out to the host shell now has explicit 
 
 ### Skills
 
-Feral's skill system was redesigned around the same "menu + on-demand body" pattern that powers Claude Code's tool guidance. The previous design dumped every installed skill's full `SKILL.md` into the agent's system prompt on the first turn of a session. That worked for 2–3 skills but degraded quickly — every additional skill added hundreds of tokens to the system prompt whether or not the user actually needed that skill's guidance for the current message.
+Cinderpaw's skill system was redesigned around the same "menu + on-demand body" pattern that powers Claude Code's tool guidance. The previous design dumped every installed skill's full `SKILL.md` into the agent's system prompt on the first turn of a session. That worked for 2–3 skills but degraded quickly — every additional skill added hundreds of tokens to the system prompt whether or not the user actually needed that skill's guidance for the current message.
 
 - **Skill menu in the system prompt.** Rust now ships a `Vec<SkillMeta>` roster with every locally-installed skill (id, name, description, version, tags) on each `message` envelope. The agent renders the roster as a short "Available skills" system message in `WorkingMemory`, with one line per skill. The LLM reads the menu and decides which skill (if any) is relevant before doing any work.
-- **`read_skill` tool loads skill bodies on demand.** New tool in `FeralAgent/src/tools/builtin/read-skill.ts`. The LLM calls it with a skill id; the tool reads `~/.feral/skills/<id>/SKILL.md` (validated id charset + path-traversal guard) and returns the raw markdown. Bodies are capped at 64 KB. After loading, the LLM follows the skill's instructions exactly.
+- **`read_skill` tool loads skill bodies on demand.** New tool in `CinderpawAgent/src/tools/builtin/read-skill.ts`. The LLM calls it with a skill id; the tool reads `~/.feral/skills/<id>/SKILL.md` (validated id charset + path-traversal guard) and returns the raw markdown. Bodies are capped at 64 KB. After loading, the LLM follows the skill's instructions exactly.
 - **Per-turn roster refresh.** Because Rust rebuilds the roster on every `feral_send_message`, installing a new skill from the Skills tab is reflected in the agent's available-menu on the very next message — no need to start a new chat, no need to reset the session.
 - **Skills menu replaces first-session injection.** The previous "bake the skills into the system prompt on first session" hack in `AgentLoop.#memoryFor()` was removed. Skill install/remove mid-conversation now takes effect immediately.
 
@@ -1311,7 +1346,7 @@ Two real bugs that affected the local-model experience were fixed.
 
 ### Agent
 - **Token cap removed.** No more daily or per-conversation token budget. Feral Agent runs on BYOK (user pays own provider), so capping was pointless and caused agent sessions to silently stall. Budget can be re-enabled via `FERAL_BUDGET_DAY` / `FERAL_BUDGET_CONVERSATION` env vars if needed.
-- **CI sidecar fix.** Release builds now compile the Feral Agent sidecar from the vendored `FeralAgent/` directory in the monorepo instead of cloning an outdated external repository. Eliminates a class of "agent not responding in production release" bugs.
+- **CI sidecar fix.** Release builds now compile the Feral Agent sidecar from the vendored `CinderpawAgent/` directory in the monorepo instead of cloning an outdated external repository. Eliminates a class of "agent not responding in production release" bugs.
 
 ### UI fixes
 - **Real app version in sidebar.** The version badge now reads from the Tauri API instead of the previously hardcoded `v0.1.3` string.
@@ -1320,7 +1355,7 @@ Two real bugs that affected the local-model experience were fixed.
 ## v0.1.4
 
 ### Agent mode
-- **Native Feral Agent runtime.** Agents now run on a built-in Feral Agent sidecar (Bun/TS) wired directly into the chat stream — no external gateway process. A Chat/Agent toggle in the composer switches modes and auto-loads the selected local model into the agent engine.
+- **Native Cinderpaw Agent runtime.** Agents now run on a built-in Cinderpaw Agent sidecar (Bun/TS) wired directly into the chat stream — no external gateway process. A Chat/Agent toggle in the composer switches modes and auto-loads the selected local model into the agent engine.
 - **DeepResearch & adaptive reasoning.** Dynamic max-iteration budgets for deep-research and complex tasks, model-fitness scoring, error-correcting control loop, and persistent agent memory.
 - **Sturdier tool calls.** Parser now handles Gemma-style `<tool_call>`, bracket and bare-JSON formats, and the `arguments` key; adds silent tool calls and an empty-response fallback; raises token budgets for thinking models.
 

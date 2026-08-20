@@ -3,7 +3,7 @@
  * check-api-docs.mjs — B1 spec gate.
  *
  * The HTTP API reference (`docs/API.md`) MUST list every route
- * registered in `crates/feral-core/src/api.rs::router()`. Drift between
+ * registered in `crates/cinderpaw-core/src/api.rs::router()`. Drift between
  * the source (which is the source of truth) and the doc surfaces as
  * missing or extra routes — both are bugs.
  *
@@ -24,7 +24,7 @@
  *   node scripts/check-api-docs.mjs            # exit 0 if clean
  *   node scripts/check-api-docs.mjs --strict   # exit 1 on MISSING
  *
- * Wired into the bun suite via FeralAgent/tests/api-docs.test.ts.
+ * Wired into the bun suite via CinderpawAgent/tests/api-docs.test.ts.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
-const API_RS = join(ROOT, "crates", "feral-core", "src", "api.rs");
+const API_RS = join(ROOT, "crates", "cinderpaw-core", "src", "api.rs");
 const DOC = join(ROOT, "docs", "API.md");
 
 function harvestRoutes() {

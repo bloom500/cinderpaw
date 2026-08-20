@@ -96,7 +96,7 @@ export function ProjectsPage() {
               {projects.length === 0 ? (
                 <p className="text-sm text-text-muted">
                   No projects yet. A project keeps related chats and files together — and
-                  Feral is perfectly usable without ever making one.
+                  Cinderpaw is perfectly usable without ever making one.
                 </p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">

@@ -12,7 +12,7 @@ function activity(over: Partial<ToolActivity> = {}): ToolActivity {
     id: Math.random().toString(36),
     tool: 'web_search',
     kind: 'browser',
-    subject: 'ce este Feral',
+    subject: 'ce este Cinderpaw',
     status: 'done',
     startedAt: 1,
     endedAt: 2,
@@ -65,11 +65,11 @@ describe('callArtifacts', () => {
     // A desktop app is closed by killing its window, and `beforeunload` is the
     // handler that does not run when it matters.
     recordArtifact(activity({ subject: 'persisted' }));
-    const raw = localStorage.getItem('feral-call-artifacts');
+    const raw = localStorage.getItem('cinderpaw-call-artifacts');
     expect(raw).toBeTruthy();
     expect(JSON.parse(raw!)[0].subject).toBe('persisted');
     clearArtifacts();
-    expect(JSON.parse(localStorage.getItem('feral-call-artifacts')!)).toEqual([]);
+    expect(JSON.parse(localStorage.getItem('cinderpaw-call-artifacts')!)).toEqual([]);
   });
 
   it('notifies subscribers on write and on clear', () => {

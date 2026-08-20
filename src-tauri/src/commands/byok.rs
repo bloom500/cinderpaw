@@ -65,10 +65,10 @@ pub(crate) fn remove_byok_provider(provider_id: String) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn test_byok_provider(provider_id: String, api_key: String, base_url: Option<String>) -> Result<byok::TestProviderResponse, String> {
-    // Sprint 2 / audit C-2 — delegate to feral-core so the headless gateway
+    // Sprint 2 / audit C-2 — delegate to cinderpaw-core so the headless gateway
     // route `/providers/test` can serve the same probe. The previous local
     // implementation is gone; behavior is identical (OpenAI-compatible
     // providers get a GET /v1/models probe, Anthropic skips straight to a
-    // chat-completion probe). See `crates/feral-core/src/byok.rs`.
+    // chat-completion probe). See `crates/cinderpaw-core/src/byok.rs`.
     Ok(byok::test_provider(&provider_id, &api_key, base_url.as_deref()).await)
 }

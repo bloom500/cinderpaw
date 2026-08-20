@@ -1,4 +1,4 @@
-# INVARIANTS.md — Feral BRSI Safety Contracts
+# INVARIANTS.md — Cinderpaw BRSI Safety Contracts
 
 > Runtime contracts the engine MUST NOT violate. Each invariant has
 > four pillars (Documentation, Test, Runtime Assert, Audit) and a
@@ -30,7 +30,7 @@ Every invariant, regardless of class, must have all four:
 | Pillar | What it is | Where it lives |
 | ------ | ---------- | -------------- |
 | **Documentation** | The Statement field below — precise, testable, complete | This file |
-| **Test** | A unit / property test that fails when the invariant breaks | `FeralAgent/tests/` or `src-tauri/src/**/tests.rs` |
+| **Test** | A unit / property test that fails when the invariant breaks | `CinderpawAgent/tests/` or `src-tauri/src/**/tests.rs` |
 | **Runtime Assert** | A check inside the engine that fails fast (throws / panics / returns error) | The module that "owns" the invariant |
 | **Audit** | A row in `~/.feral/rsi/sandbox_bounds.audit.log` when the invariant is checked OR breached | `audit.rs` |
 
@@ -74,14 +74,14 @@ four are present.
 "main advances only on improvement".
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/ratchet-handler.ts:77`
+- TypeScript: `CinderpawAgent/src/rsi/ratchet-handler.ts:77`
 - Rust: `src-tauri/src/rsi/repo.rs::ratchet_attempt` (line 344)
 
 **Verified By:**
 - Documentation: this entry
 - Test: `src-tauri/src/rsi/repo.rs::tests` (ratchet_attempt fixture tests)
 - Runtime Assert: Rust-side invariant; TS-side Confidence gate pre-check
-  (`FeralAgent/src/rsi/confidence.ts`) before any `rsi_commit_genome`
+  (`CinderpawAgent/src/rsi/confidence.ts`) before any `rsi_commit_genome`
 - Audit: every `RatchetAdvanced` event logged
 
 **Failure Mode:** HALT — a non-ratchet code path attempting to advance
@@ -102,7 +102,7 @@ intervention.
 permitted to advance main, regardless of score.
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/ratchet-handler.ts`
+- TypeScript: `CinderpawAgent/src/rsi/ratchet-handler.ts`
 - Rust: `src-tauri/src/rsi/repo.rs::ratchet_attempt`
 
 **Verified By:**
@@ -131,7 +131,7 @@ ambiguous.
 **Statement:** Journal entries are immutable once written. No API
 allows modifying, deleting, or reordering existing entries.
 
-**Owner:** `FeralAgent/src/rsi/journal.ts::appendJournal`,
+**Owner:** `CinderpawAgent/src/rsi/journal.ts::appendJournal`,
 `readJournal`
 
 **Verified By:**
@@ -162,7 +162,7 @@ the row in place + restart, (b) accept data loss + restart (audited).
 on read, never silently dropped or skipped. This is the operator's
 signal that the audit trail needs inspection.
 
-**Owner:** `FeralAgent/src/rsi/journal.ts::readJournal`
+**Owner:** `CinderpawAgent/src/rsi/journal.ts::readJournal`
 
 **Verified By:**
 - Documentation: this entry
@@ -189,7 +189,7 @@ stage MUST halt the cycle, not skip the phase. The fail-open path
 applies ONLY when `estimate === null` (no estimator available).
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/budget.ts::assertCanSpend`
+- TypeScript: `CinderpawAgent/src/rsi/budget.ts::assertCanSpend`
 - Contract FSM consumer (Opus territory — Steps 9-10 of BRSI refactor)
 
 **Verified By:**
@@ -223,7 +223,7 @@ exhausted budget.
 sample size → direction → significance → magnitude → confidence.
 Each check rejects with a specific reason; no check may be skipped.
 
-**Owner:** `FeralAgent/src/rsi/confidence.ts::evaluateGate`
+**Owner:** `CinderpawAgent/src/rsi/confidence.ts::evaluateGate`
 
 **Verified By:**
 - Documentation: this entry
@@ -331,7 +331,7 @@ a contract violation.
 **Statement:** `computePersonalFitness` returns values in `[0, 1]`,
 never outside. NaN inputs are normalised to 0.
 
-**Owner:** `FeralAgent/src/rsi/personal-fitness.ts::computePersonalFitness`
+**Owner:** `CinderpawAgent/src/rsi/personal-fitness.ts::computePersonalFitness`
 
 **Verified By:**
 - Documentation: this entry
@@ -356,7 +356,7 @@ slightly biased — observable in regression tests.
 **Statement:** `fitnessVectorAggregate(v)` returns values in `[0, 1]`,
 even for pathological inputs.
 
-**Owner:** `FeralAgent/src/rsi/fitness.ts::fitnessVectorAggregate`
+**Owner:** `CinderpawAgent/src/rsi/fitness.ts::fitnessVectorAggregate`
 
 **Verified By:**
 - Documentation: this entry
@@ -383,7 +383,7 @@ graph is built by walking forward).
 
 **Owner:**
 - Rust: `src-tauri/src/rsi/repo.rs` (git substrate)
-- TypeScript: `FeralAgent/src/rsi/provenance.ts::walkDescendants`
+- TypeScript: `CinderpawAgent/src/rsi/provenance.ts::walkDescendants`
 
 **Verified By:**
 - Documentation: this entry
@@ -469,7 +469,7 @@ why a candidate was rejected before evaluation. Silent rejections
 are exactly the failure mode BRSI is designed to prevent.
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/event-bus.ts` (the union type with
+- TypeScript: `CinderpawAgent/src/rsi/event-bus.ts` (the union type with
   `reason: string` non-optional); the Contract FSM (Opus territory)
   is the primary emitter.
 - Wire-level: `RsiEvent` discriminated union extension per
@@ -530,7 +530,7 @@ the Journal stream.
 **Statement:** The population manager should maintain at least 3
 niches (NEAT-speciation threshold at 0.85 cosine similarity).
 
-**Owner:** `FeralAgent/src/rsi/extinction-handler.ts`
+**Owner:** `CinderpawAgent/src/rsi/extinction-handler.ts`
 
 **Verification:** Metric on `population.nicheCount`.
 

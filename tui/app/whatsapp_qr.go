@@ -13,7 +13,7 @@ import (
 
 // WhatsApp QR pairing surface. The sidecar mirrors each fresh Baileys pairing
 // QR to ~/.feral/whatsapp-qr.json ({ts, qr, ascii}, rewritten on every ~20s
-// rotation, deleted once linked) — see FeralAgent/src/transports/connectors.ts.
+// rotation, deleted once linked) — see CinderpawAgent/src/transports/connectors.ts.
 // The TUI reads that file directly (same machine, loopback-only gateway) so a
 // terminal user can pair without hunting for the gateway's stderr.
 

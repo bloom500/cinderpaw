@@ -208,7 +208,7 @@ func (a *App) handleGuidedMsg(msg tea.Msg) (bool, tea.Cmd) {
 			// OpenClaw invariant: never silently replace a configured model
 			// that fails the probe — stop the ladder, let the user decide.
 			g.TestLog = append(g.TestLog,
-				"Your already-configured model failed the test. Feral will not replace it automatically.")
+				"Your already-configured model failed the test. Cinderpaw will not replace it automatically.")
 			g.Step = GuidedManual
 			g.MenuIdx = 0
 			return true, nil
@@ -422,7 +422,7 @@ func (a *App) renderGuided() string {
 	case GuidedDetect:
 		line(ui.MetaStyle.Render("Looking for AI you can already use…"))
 	case GuidedSecurity:
-		line(ui.MetaStyle.Render("Feral is personal-by-default: it runs with your permissions, and a bad"))
+		line(ui.MetaStyle.Render("Cinderpaw is personal-by-default: it runs with your permissions, and a bad"))
 		line(ui.MetaStyle.Render("prompt can trick it into doing unsafe things. Shared or multi-user setups"))
 		line(ui.MetaStyle.Render("need locking down (allowlists, sandboxing, least-privilege)."))
 		line("")
@@ -481,7 +481,7 @@ func (a *App) renderGuided() string {
 			line("")
 			line(ui.AccentStyle.Render("Next steps"))
 			line(ui.MetaStyle.Render("Add a connector:  /connectors add   (or `feral connectors set discord`)"))
-			line(ui.MetaStyle.Render("Desktop app:      launch Feral from the Start Menu"))
+			line(ui.MetaStyle.Render("Desktop app:      launch Cinderpaw from the Start Menu"))
 			line(ui.MetaStyle.Render("Health check:     /doctor"))
 		}
 	case GuidedKeyProvider:

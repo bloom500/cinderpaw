@@ -2,7 +2,7 @@
  * Where the local model is actually running.
  *
  * The runtime already knew this and only whispered it into a log line, so a user
- * whose GPU silently fell back to CPU just experienced "Feral is slow" and had
+ * whose GPU silently fell back to CPU just experienced "Cinderpaw is slow" and had
  * no way to connect that to their card. This badge says it out loud, and — when
  * the news is bad — says WHY and what to do about it.
  *

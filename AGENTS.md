@@ -1,6 +1,6 @@
-# Feral — Agent Working Notes
+# Cinderpaw — Agent Working Notes
 
-> This file is the project-memory index for AI agents working on the Feral
+> This file is the project-memory index for AI agents working on the Cinderpaw
 > repo. Topic files live in `docs/agents-memory/` and are referenced from
 > here. Per the project-memory protocol: drift in these files is a real
 > bug (the next agent will believe the wrong thing), so update them when
@@ -14,17 +14,17 @@
   redesign adjacent systems, or expand scope when a local change and focused test suffice.
 - Do NOT modify unless the task names them explicitly:
   `useCallSession.ts`, `vad.ts`, the Rust audio pipeline, `mcp.json`.
-- Before declaring done, run `./scripts/verify.sh` — FeralAgent tests/typecheck,
+- Before declaring done, run `./scripts/verify.sh` — CinderpawAgent tests/typecheck,
   React tests/typecheck, Rust workspace check/Tauri tests, and TUI tests/build
   must all be green.
 - Keep diffs small. If a task needs more than 3 files, stop and ask.
 - Do not invent library APIs. If unsure, stop and report instead of guessing.
 - Conventional commits. One logical change per commit.
 
-## How Feral works at a glance
+## How Cinderpaw works at a glance
 
-Feral = Tauri (Rust) host + Leptos/React frontend + a Bun/TypeScript
-sidecar (`FeralAgent/`) that the host spawns and talks to over
+Cinderpaw = Tauri (Rust) host + Leptos/React frontend + a Bun/TypeScript
+sidecar (`CinderpawAgent/`) that the host spawns and talks to over
 newline-delimited JSON on stdin/stdout. RSI (Faza 1) and Fractal Memory
 Search (Faza 5) are the two big engine pieces. Both are correct and
 unit-tested; what blocks live numbers in this dev env is documented
@@ -35,15 +35,15 @@ below.
 `cargo tauri dev` does **NOT** auto-rebuild the sidecar binary. The
 build IS wired through `src-tauri/scripts/build-sidecar.mjs` (see
 `tauri.conf.json` → `beforeDevCommand` / `beforeBuildCommand`), but only
-when the script is actually executed. If you change TS in `FeralAgent/`
+when the script is actually executed. If you change TS in `CinderpawAgent/`
 and just restart the app, you're running the old binary.
 
 Quick rebuild, in the worktree root:
 
 ```bash
-cd FeralAgent && bun run build
+cd CinderpawAgent && bun run build
 # then copy (or let the script do it):
-cp dist/feral-agent.exe ../src-tauri/binaries/feral-agent-x86_64-pc-windows-msvc.exe
+cp dist/cinderpaw-agent.exe ../src-tauri/binaries/cinderpaw-agent-x86_64-pc-windows-msvc.exe
 ```
 
 Verify the fix landed: scan the binary for the new string.
@@ -72,17 +72,17 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   decisions (D1-D10), audit summary of the existing engine, refactor
   sequence (10 steps), landmines for any contract / dream-cycle work,
   and the opencode-vs-Opus division of labor. **Read before touching
-  any file in `FeralAgent/src/rsi/` or `src-tauri/src/rsi/`.**
+  any file in `CinderpawAgent/src/rsi/` or `src-tauri/src/rsi/`.**
 - **`project_brain_stack.md`** — Brain Stack (Faza 4.6) engine that picks
   the right model per task. Slice 1 done (CapabilityRegistry +
   `isConfigured`); Slice 2 plan (task classifier) + the four-
   responsibility split (Registry=Data / Router=Policy / Health=Observation
   / Cost=Optimisation). **Read before touching any file in
-  `FeralAgent/src/brain/`.**
+  `CinderpawAgent/src/brain/`.**
 - **`project_memory_roadmap.md`** — rebalanced post-audit roadmap
   (Memory Foundation before Onboarding). Three sharpenings to the
   audit's implementation order + the writer contract design. Read
-  before touching `FeralAgent/src/memory/`, `FeralAgent/src/db.ts`,
+  before touching `CinderpawAgent/src/memory/`, `CinderpawAgent/src/db.ts`,
   `src-tauri/src/memory_*.rs`, or any `workspace_id` migration.
   **Sprint 1 (Memory Foundation + Memory Resume) + Sprint 2 (Terminal +
   Desktop Onboarding) shipped 2026-07-06** — see the Status table at
@@ -92,7 +92,7 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   (`tui/`, launched by `crates/feral-cli/src/chat.rs`). Also flags the
   open follow-up: local-Ollama reasoning for models like MiniMax-M3
   arrives inline in `content` (no `think` tags), so the TUI cannot
-  split it — needs a sidecar fix (`FeralAgent/src/sandbox/inference-providers.ts`
+  split it — needs a sidecar fix (`CinderpawAgent/src/sandbox/inference-providers.ts`
   local path) or a host-side `delta.reasoning_content` forward. **Read
   before touching chat reasoning rendering or the local Ollama path.**
 - **`project_voice_mode_followups.md`** — open voice-mode regressions queued for
@@ -122,7 +122,7 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   search, finish screen with bear compact + connection benchmark timing
   metrics. Implemented 2026-07-06.
 - **`project_substrate_introspection.md`** — `self.*` runtime
-  introspection surface (`FeralAgent/src/tools/builtin/self.ts`) +
+  introspection surface (`CinderpawAgent/src/tools/builtin/self.ts`) +
   the `feral-self` and `feral-connectors` skills. This is the
   agent's mental model of its own substrate (BRSI / FMS / LoRA /
   Dreaming / Genomes / Connectors / Brain Stack / Memory). Use the
@@ -133,12 +133,12 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
 
 ## Things that are pinned at the type level (don't break these)
 
-- `FeralAgent/src/transports/tauri.ts` — `INBOUND_TYPES` is pinned to
+- `CinderpawAgent/src/transports/tauri.ts` — `INBOUND_TYPES` is pinned to
   `InboundMessage["type"]` at the type level. Adding a new inbound
   message type to the union without updating the allow-list is a `tsc`
   error, not a silent drop. **Test:**
   `tests/tauri-transport-isinbound.test.ts`.
-- `FeralAgent/src/types.ts` `OutboundEvent` union — every event the
+- `CinderpawAgent/src/types.ts` `OutboundEvent` union — every event the
   sidecar emits must be a member. Add new event types there too; the
   sidecar handler in `index.ts` no longer needs the
   `as unknown as OutboundEvent` cast when the type is in the union.
@@ -147,12 +147,12 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
 
 ```bash
 # Tests + typecheck (the gate)
-cd FeralAgent && bun test            # 954/954
-cd FeralAgent && bunx tsc --noEmit   # clean
+cd CinderpawAgent && bun test            # 954/954
+cd CinderpawAgent && bunx tsc --noEmit   # clean
 cd frontend-react && bunx tsc --noEmit  # clean
 
 # Rebuild the sidecar
-cd FeralAgent && bun run build
+cd CinderpawAgent && bun run build
 # + copy to src-tauri/binaries/
 
 # TUI (Go/Bubble Tea)

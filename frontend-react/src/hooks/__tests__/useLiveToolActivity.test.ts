@@ -36,9 +36,9 @@ describe('filesOf', () => {
 
 describe('factsOf', () => {
   it('reads memory facts whether they are strings or objects', () => {
-    expect(factsOf({ data: { facts: ['speaks Romanian', { text: 'builds Feral' }] } })).toEqual([
+    expect(factsOf({ data: { facts: ['speaks Romanian', { text: 'builds Cinderpaw' }] } })).toEqual([
       'speaks Romanian',
-      'builds Feral',
+      'builds Cinderpaw',
     ]);
   });
 
@@ -58,7 +58,7 @@ describe('factsOf', () => {
  */
 describe('subjectOf', () => {
   it('prefers the query, because that is what proves the search is real', () => {
-    expect(subjectOf({ path: '/tmp/x', query: 'ce este Feral' })).toBe('ce este Feral');
+    expect(subjectOf({ path: '/tmp/x', query: 'ce este Cinderpaw' })).toBe('ce este Cinderpaw');
   });
 
   it('falls back through the other argument names', () => {
@@ -77,11 +77,11 @@ describe('hitsOf', () => {
   it('reads the DuckDuckGo shape, splitting the title off the snippet', () => {
     const hits = hitsOf({
       ok: true,
-      data: [{ text: 'Feral AI — a local agent runtime', url: 'https://www.example.com/docs/feral' }],
+      data: [{ text: 'Cinderpaw AI — a local agent runtime', url: 'https://www.example.com/docs/feral' }],
     });
     expect(hits).toEqual([
       {
-        title: 'Feral AI',
+        title: 'Cinderpaw AI',
         url: 'https://www.example.com/docs/feral',
         host: 'example.com',
         snippet: 'a local agent runtime',

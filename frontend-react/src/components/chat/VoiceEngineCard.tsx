@@ -34,7 +34,7 @@ const LOCAL_VOICES: Record<string, Record<LangPref, VoiceOffer>> = {
   piper: {
     // The shortlist follows the INTERFACE language, and that is the whole point
     // of it existing. It used to be four Romanian voices for everybody, with a
-    // Romanian one shipped as the default — so a stranger installing Feral
+    // Romanian one shipped as the default — so a stranger installing Cinderpaw
     // anywhere in the world downloaded 60 MB to be answered in a language they
     // may not speak, and nothing on the screen explained why. Piper has 35+
     // languages; the ones nobody's UI is set to are still reachable by typing

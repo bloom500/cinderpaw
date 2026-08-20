@@ -49,8 +49,8 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
   }, []);
 
   // Subscribe to progress heartbeats from both paths:
-  // - streamProgressEvent: Rust local inference (chat tab, feral://stream-progress)
-  // - onStreamProgress: sidecar agent inference (agent tab, filtered feral://agent-output)
+  // - streamProgressEvent: Rust local inference (chat tab, cinderpaw://stream-progress)
+  // - onStreamProgress: sidecar agent inference (agent tab, filtered cinderpaw://agent-output)
   useEffect(() => {
     // See App.tsx: a listener whose `listen()` resolves after unmount must be
     // released on arrival, or it stays attached to a dead component forever.

@@ -20,7 +20,7 @@ func TestRenderWizardFrame_carriesHeaderAndFooter(t *testing.T) {
 		Title:     "Security",
 		StepIdx:   2,
 		StepTotal: 16,
-		Body:      "Feral may execute actions using the connectors you enable.",
+		Body:      "Cinderpaw may execute actions using the connectors you enable.",
 	})
 
 	// Header strip — left side carries the product mark + label.
@@ -41,7 +41,7 @@ func TestRenderWizardFrame_carriesHeaderAndFooter(t *testing.T) {
 
 	// Body is preserved verbatim — the frame never edits the per-step
 	// renderer's copy.
-	if !strings.Contains(out, "Feral may execute actions") {
+	if !strings.Contains(out, "Cinderpaw may execute actions") {
 		t.Errorf("body lost; got:\n%s", out)
 	}
 

@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory contains the ADRs that shape Feral's design. Each ADR
+This directory contains the ADRs that shape Cinderpaw's design. Each ADR
 captures one decision: **context**, **decision**, **consequences**.
 Together, they form the project's design history.
 

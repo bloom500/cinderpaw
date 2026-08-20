@@ -1,5 +1,5 @@
 /**
- * PerfPolicy — frontend mirror of `FeralAgent/src/sandbox/perf-policy.ts`
+ * PerfPolicy — frontend mirror of `CinderpawAgent/src/sandbox/perf-policy.ts`
  * and `src-tauri/src/inference.rs::perf_policy`. All three layers agree on
  * the same shape so the watchdog, deadline controller, and UI never
  * disagree on what "TTFT" or "total" mean.

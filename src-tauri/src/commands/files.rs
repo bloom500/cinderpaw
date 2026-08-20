@@ -1,5 +1,5 @@
 //! Webview-facing file readers (text/data-url/extracted-text), guarded
-//! against reaching into the Feral private dir.
+//! against reaching into the Cinderpaw private dir.
 
 use crate::*;
 
@@ -19,7 +19,7 @@ pub(crate) fn deny_feral_private(canonical: &std::path::Path) -> Result<(), Stri
     let feral = paths::feral_dir();
     let feral = feral.canonicalize().unwrap_or(feral);
     if canonical.starts_with(&feral) {
-        return Err("Access denied: path is inside the Feral private directory".into());
+        return Err("Access denied: path is inside the Cinderpaw private directory".into());
     }
     deny_sensitive_home_paths(canonical)
 }

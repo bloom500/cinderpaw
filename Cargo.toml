@@ -3,12 +3,12 @@
 # frontend is `frontend-react/`, which is built by Tauri (tauri.conf.json
 # beforeDevCommand / beforeBuildCommand) and never enters the Rust
 # workspace.
-# Faza 4.5 Slice 2: `crates/feral-cli` joins the workspace as the headless
-# gateway binary (Slice 2/Task 4). The dev binary is `feral-cli` because the
+# Faza 4.5 Slice 2: `crates/cinderpaw-cli` joins the workspace as the headless
+# gateway binary (Slice 2/Task 4). The dev binary is `cinderpaw-cli` because the
 # desktop dev binary already claims `target/debug/feral.exe` (src-tauri
 # package name `feral`). The user-facing name `feral` is applied at
 # packaging time (installer alias/rename) per spec D6a.
-members = ["src-tauri", "crates/feral-core", "crates/feral-cli"]
+members = ["src-tauri", "crates/cinderpaw-core", "crates/cinderpaw-cli"]
 resolver = "2"
 
 [workspace.package]

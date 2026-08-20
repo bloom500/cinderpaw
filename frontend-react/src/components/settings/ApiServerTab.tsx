@@ -103,7 +103,7 @@ export function ApiServerTab() {
         <p className="text-sm font-medium text-text-primary">Access token</p>
         <p className="text-xs text-text-muted">
           Every request must include <span className="font-mono">Authorization: Bearer &lt;token&gt;</span>.
-          The token rotates each time Feral restarts.
+          The token rotates each time Cinderpaw restarts.
         </p>
         <div className="flex gap-2">
           <input

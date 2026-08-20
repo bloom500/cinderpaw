@@ -14,10 +14,10 @@
          to stderr and exits 2 — the host treats exit 2 as
          "rebuild unavailable" (e.g. a user machine without the Bun
          toolchain installed), not as a fatal error.
-      3. Runs `bun run build` in <RepoRoot>\FeralAgent. Any non-zero
+      3. Runs `bun run build` in <RepoRoot>\CinderpawAgent. Any non-zero
          exit propagates as exit 1.
       4. Copies the freshly built binary
-         (<RepoRoot>\FeralAgent\dist\feral-agent.exe) over the
+         (<RepoRoot>\CinderpawAgent\dist\feral-agent.exe) over the
          Tauri externalBin target
          (<RepoRoot>\src-tauri\binaries\feral-agent-<target-triple>).
          On Windows the triple is `x86_64-pc-windows-msvc.exe`.
@@ -51,7 +51,7 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 }
 
-$feralAgentDir = Join-Path $RepoRoot 'FeralAgent'
+$feralAgentDir = Join-Path $RepoRoot 'CinderpawAgent'
 $distExe       = Join-Path $feralAgentDir 'dist/feral-agent.exe'
 $binariesDir   = Join-Path $RepoRoot 'src-tauri/binaries'
 $targetExe     = Join-Path $binariesDir 'feral-agent-x86_64-pc-windows-msvc.exe'
@@ -69,15 +69,15 @@ if (-not $bun) {
 }
 
 # 2. Sanity-check the repo layout. We deliberately fail loud here —
-# a missing FeralAgent/ is a build-script bug, not a toolchain gap.
+# a missing CinderpawAgent/ is a build-script bug, not a toolchain gap.
 if (-not (Test-Path -LiteralPath $feralAgentDir)) {
-    Write-Status "FATAL: FeralAgent/ not found at $feralAgentDir. Repo root looks wrong."
+    Write-Status "FATAL: CinderpawAgent/ not found at $feralAgentDir. Repo root looks wrong."
     exit 1
 }
 
 # 3. Run the build. Any non-zero exit is fatal.
 # `bun run build` reads package.json from the current directory, so we
-# must change into FeralAgent/ before invoking it. We save and restore
+# must change into CinderpawAgent/ before invoking it. We save and restore
 # the caller's location so a host that imports this script (rather
 # than spawning a fresh pwsh) doesn't get its cwd stomped.
 $originalCwd = (Get-Location).ProviderPath

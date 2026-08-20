@@ -293,7 +293,7 @@ pub async fn github_list() -> Result<Vec<SkillMeta>> {
             skill.install_status = InstallStatus::NotInstalled;
         }
         skill.source_provider = SourceProvider::GitHub;
-        // The official Feral manifest. This used to be stamped `Community`
+        // The official Cinderpaw manifest. This used to be stamped `Community`
         // like the community list, which erased the whole distinction the two
         // separate URLs exist to make — and left the trust label unable to
         // inform the install confirmation the agent now has to show.

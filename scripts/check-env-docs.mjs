@@ -8,7 +8,7 @@
  * when someone adds a new env var.
  *
  * Strategy (unchanged from B2):
- *   1. Grep FeralAgent/src, src-tauri/src, crates/ for `FERAL_[A-Z_]+`
+ *   1. Grep CinderpawAgent/src, src-tauri/src, crates/ for `FERAL_[A-Z_]+`
  *      (rg --no-filename; fall back to a node walker if rg is missing).
  *   2. Parse `docs/CONFIGURATION.md` and extract the canonical list
  *      from a fenced ```feral-env-vars ... ``` block near the top of the
@@ -21,7 +21,7 @@
  *      hard-coded excludes; add to this list only with consensus.
  *
  * R3 additions — the TS side now has a single source of truth,
- * `FeralAgent/src/config.ts`'s `CONFIG_SCHEMA`. Two new checks:
+ * `CinderpawAgent/src/config.ts`'s `CONFIG_SCHEMA`. Two new checks:
  *   4. Every `CONFIG_SCHEMA` entry name must appear in the doc's
  *      `feral-env-vars` fence (schema-missing — always fails).
  *   5. The doc's generated `<!-- TS-SCHEMA-TABLE -->` section must equal
@@ -36,7 +36,7 @@
  *   node scripts/check-env-docs.mjs            # exit 0 if clean
  *   node scripts/check-env-docs.mjs --strict   # exit 1 on MISSING
  *
- * Wired into the bun suite via FeralAgent/tests/env-docs.test.ts.
+ * Wired into the bun suite via CinderpawAgent/tests/env-docs.test.ts.
  */
 
 import { execFileSync } from "node:child_process";
@@ -48,10 +48,10 @@ import { parseConfigSchema, renderTable } from "./gen-config-docs.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const DOC = join(ROOT, "docs", "CONFIGURATION.md");
-const CONFIG_TS = join(ROOT, "FeralAgent", "src", "config.ts");
+const CONFIG_TS = join(ROOT, "CinderpawAgent", "src", "config.ts");
 
 const SOURCE_ROOTS = [
-  join("FeralAgent", "src"),
+  join("CinderpawAgent", "src"),
   join("src-tauri", "src"),
   "crates",
 ];
@@ -92,7 +92,7 @@ function harvestVars() {
         "-t",
         "rs",
         "FERAL_[A-Z][A-Z0-9_]+",
-        "FeralAgent/src",
+        "CinderpawAgent/src",
         "src-tauri/src",
         "crates",
       ],
@@ -179,7 +179,7 @@ function checkGeneratedTableFresh(configSrc) {
   if (committed !== fresh) {
     return {
       stale: true,
-      reason: "docs/CONFIGURATION.md's TS-SCHEMA-TABLE is stale vs FeralAgent/src/config.ts. Run `node scripts/gen-config-docs.mjs` and commit the result.",
+      reason: "docs/CONFIGURATION.md's TS-SCHEMA-TABLE is stale vs CinderpawAgent/src/config.ts. Run `node scripts/gen-config-docs.mjs` and commit the result.",
     };
   }
   return { stale: false };

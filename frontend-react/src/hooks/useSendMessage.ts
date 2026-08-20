@@ -90,7 +90,7 @@ const VOICE_WITHOUT_TOOLS = [
 /**
  * What a good answer is when it will be spoken out loud.
  *
- * Mirrors the sidecar's brief in `FeralAgent/src/dispatch.ts` — the agent path
+ * Mirrors the sidecar's brief in `CinderpawAgent/src/dispatch.ts` — the agent path
  * receives it as a surface drawer, the plain chat path as a system-prompt suffix.
  * Kept as two copies rather than one shared file because the two live on
  * opposite sides of a process boundary; if they drift, the symptom is a spoken
@@ -130,7 +130,7 @@ export function buildUserContent(text: string, files: AttachedFile[]): string {
   if (textFiles.length === 0 && imageFiles.length === 0 && binaryFiles.length === 0) return text;
   const blocks = [
     // Closing marker lets the chat bubble reliably strip the inlined content
-    // back out for display (showing a "Feral.pdf" chip instead of the whole
+    // back out for display (showing a "Cinderpaw.pdf" chip instead of the whole
     // file) — see parseUserAttachments(). It also gives the model a clear file
     // boundary. Keep the marker format in sync with that parser.
     ...textFiles.map((f) => {
@@ -323,7 +323,7 @@ export function useSendMessage() {
           content: m.id === asstId ? answer : m.content,
           thinking: m.thinking || undefined,
           voice: voiceToPersisted(m.voice),
-          // This is the plain-chat path (no Feral agent, so nothing writes to
+          // This is the plain-chat path (no Cinderpaw agent, so nothing writes to
           // the scratchpad here) — but it re-saves the WHOLE conversation, so
           // omitting the field would wipe the stats off every earlier agent turn.
           scratch: m.scratch,
@@ -391,7 +391,7 @@ export function useSendMessage() {
           cancelFlush();
           if (isActive()) useChat.getState().setStreamStatus('error', err);
           useConversations.getState().unmarkStreaming(sessionId);
-          // Save what did arrive. `onStopped` persists and `useFeral`'s error
+          // Save what did arrive. `onStopped` persists and `useCinderpaw`'s error
           // path persists; this one did not, so a turn that failed halfway —
           // a dropped connection, a 500 from the provider — lost every token
           // it had already produced the moment the conversation was reloaded.
@@ -467,7 +467,7 @@ export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promis
   if (sttProvider === 'groq') {
     // No language is ever sent. Whisper's `language` is an ORDER, not a hint:
     // an English UI once forced `language=en` on Romanian speech and turned
-    // "Salut, Feral" into "Pozdvormiu Română!", and a stored preference is the
+    // "Salut, Cinderpaw" into "Pozdvormiu Română!", and a stored preference is the
     // same mistake with the user's name on it. Detection runs per request, so a
     // wrong guess costs one turn instead of every turn after it.
     const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq', undefined);

@@ -67,7 +67,7 @@ export function AppShell() {
   // Opt-out via Settings → General (privacy: the check contacts GitHub Releases).
   const checkForUpdate = useUpdater((s) => s.check);
   useEffect(() => {
-    if (localStorage.getItem('feral.autoUpdateCheck') !== 'off') void checkForUpdate();
+    if (localStorage.getItem('cinderpaw.autoUpdateCheck') !== 'off') void checkForUpdate();
   }, [checkForUpdate]);
 
   return (

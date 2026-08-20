@@ -45,7 +45,7 @@ export interface ChatMessage {
    */
   scratch?: { edits: number; added: number; removed: number };
   /**
-   * Ask-user prompt attached to this message. Set when the Feral Agent
+   * Ask-user prompt attached to this message. Set when the Cinderpaw Agent
    * called the `ask_user` tool on this turn. `answers` is undefined while
    * the user is choosing and populated once they submit (or on cancel).
    */
@@ -68,7 +68,7 @@ export interface ChatMessage {
    * Actions offered under a reply the PRODUCT wrote, not the model.
    *
    * There is one situation the model can never answer: when there is no
-   * model. Feral used to handle that by replacing the composer with a
+   * model. Cinderpaw used to handle that by replacing the composer with a
    * "No model selected" screen, so the first thing a new user typed was
    * refused by a disabled text box. Now the message is accepted and this
    * reply answers it, carrying the two ways out.

@@ -1,6 +1,6 @@
-# Releasing Feral
+# Releasing Cinderpaw
 
-Feral uses **calendar versioning (CalVer)**: a release is named by its date,
+Cinderpaw uses **calendar versioning (CalVer)**: a release is named by its date,
 `YYYY.MM.DD` (e.g. `2026.06.17`).
 
 ## The padded vs. unpadded rule
@@ -59,7 +59,7 @@ pulls only the one matching the user's machine; `bin/feral.js` resolves it.
 Cutting an npm release:
 
 ```sh
-node scripts/set-release-version.mjs 2026.06.17   # bumps FeralAgent/package.json too
+node scripts/set-release-version.mjs 2026.06.17   # bumps CinderpawAgent/package.json too
 git tag feral-agent-v2026.6.17                     # UNPADDED semver, matches package.json
 git push origin feral-agent-v2026.6.17
 ```

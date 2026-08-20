@@ -2,7 +2,7 @@
  * Maps a tool name to a single emoji used in the bubble's left edge.
  *
  * The map is exhaustive over the tools currently registered in
- * `FeralAgent/src/index.ts`. Keep in sync with `extractMainArg.ts`.
+ * `CinderpawAgent/src/index.ts`. Keep in sync with `extractMainArg.ts`.
  */
 
 const EMOJI: Record<string, string> = {

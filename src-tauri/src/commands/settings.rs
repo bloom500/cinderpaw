@@ -1,5 +1,5 @@
 //! App settings + desktop-control/token-budget/RSI-budget toggles that
-//! restart the Feral Agent sidecar so it re-reads its env.
+//! restart the Cinderpaw Agent sidecar so it re-reads its env.
 
 use crate::*;
 
@@ -45,7 +45,7 @@ pub(crate) fn set_desktop_control_enabled(
     Ok(())
 }
 
-/// Set the per-conversation token budget for the Feral Agent sidecar.
+/// Set the per-conversation token budget for the Cinderpaw Agent sidecar.
 ///
 /// `budget = None` → unlimited (exports `FERAL_BUDGET_CONVERSATION=Infinity`).
 /// `budget = Some(n)` → caps at n tokens (exports the number as a string).
@@ -141,7 +141,7 @@ pub(crate) fn set_desktop_control_yolo(
     Ok(())
 }
 
-/// Restart the Feral Agent sidecar so it re-reads the desktop-control env vars.
+/// Restart the Cinderpaw Agent sidecar so it re-reads the desktop-control env vars.
 ///
 /// Kills the current child; the `#11` supervisor detects the exit and respawns
 /// it with the updated environment. The slot is kept populated (the supervisor
@@ -151,12 +151,12 @@ fn restart_sidecar(state: &AppState) {
     // Mark the exit as planned so the supervisor skips crash accounting
     // AND the Faza 3 watchdog counter (an env-toggle restart during a
     // patch's observation window must not push it toward auto-revert).
-    *state.feral_agent_planned_exit.lock() = Some(feral_core::runtime::PlannedExit::Restart);
+    *state.cinderpaw_agent_planned_exit.lock() = Some(cinderpaw_core::runtime::PlannedExit::Restart);
     {
-        let mut guard = state.feral_agent_process.lock();
+        let mut guard = state.cinderpaw_agent_process.lock();
         if let Some(ref mut child) = *guard {
             let _ = child.start_kill();
         }
     }
-    *state.feral_agent_tx.lock() = None;
+    *state.cinderpaw_agent_tx.lock() = None;
 }

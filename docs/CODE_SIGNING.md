@@ -2,7 +2,7 @@
 
 > Status: **pipeline wired but BLOCKED by license choice (2026-07-12).**
 > SignPath Foundation's free OSS program requires an OSI-approved license;
-> Feral moved to BSL 1.1, which is source-available, not OSI open source —
+> Cinderpaw moved to BSL 1.1, which is source-available, not OSI open source —
 > so the free program no longer applies. The signing steps in the release
 > workflow stay gated on `SIGNPATH_API_TOKEN` and releases ship **unsigned**.
 > Cheapest paid path when budget exists: Azure Trusted Signing ($9.99/mo).
@@ -15,7 +15,7 @@
 ## Why
 
 Unsigned Windows installers trigger SmartScreen's "Unknown publisher" warning,
-which scares off a large share of non-technical users (Feral's primary
+which scares off a large share of non-technical users (Cinderpaw's primary
 audience). An Authenticode signature removes that warning and proves the
 installer came from Bloom Media and wasn't tampered with in transit. It does
 **not** change how the app runs — only the trust/installation experience.
@@ -25,14 +25,14 @@ installer came from Bloom Media and wasn't tampered with in transit. It does
 Since June 2023, every publicly-trusted code-signing certificate must live on a
 hardware token or cloud HSM — you can't get a cheap `.pfx` for CI anymore, and
 certs cost €200–400/yr. **SignPath Foundation signs open-source projects for
-free.** Feral is open-source, so it qualifies. No certificate to buy, no
+free.** Cinderpaw is open-source, so it qualifies. No certificate to buy, no
 hardware token.
 
 ## One-time setup (you)
 
 1. Apply at **https://signpath.org/apply** (the *Foundation* / free OSS program —
    not the paid signpath.io). Provide the public repo `github.com/bloom500/feral`,
-   project name "Feral", and the license.
+   project name "Cinderpaw", and the license.
 2. They review that it's a genuine OSS project (a few days).
 3. After approval, the SignPath dashboard gives you:
    - **Organization ID**

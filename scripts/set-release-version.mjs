@@ -56,12 +56,12 @@ function patch(relPath, regex, label) {
 
 patch('src-tauri/tauri.conf.json', /"version":\s*"([^"]+)"/, 'tauri.conf.json');
 patch('src-tauri/Cargo.toml', /^version = "([^"]+)"/m, 'src-tauri/Cargo.toml');
-// [workspace.package] version, inherited by crates/feral-cli and crates/feral-core
+// [workspace.package] version, inherited by crates/cinderpaw-cli and crates/cinderpaw-core
 // via `version.workspace = true`. Left out until 2026.07.26, so every npm CLI
 // ever published answered `feral --version` with the workspace default (0.2.0)
 // while its package said something else entirely.
 patch('Cargo.toml', /^version = "([^"]+)"/m, 'Cargo.toml [workspace.package]');
-patch('FeralAgent/package.json', /"version":\s*"([^"]+)"/, 'FeralAgent/package.json');
+patch('CinderpawAgent/package.json', /"version":\s*"([^"]+)"/, 'CinderpawAgent/package.json');
 patch('frontend-react/package.json', /"version":\s*"([^"]+)"/, 'frontend-react/package.json');
 
 console.log('');

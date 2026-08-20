@@ -1,4 +1,4 @@
-# Feral Cinematic Shell Design
+# Cinderpaw Cinematic Shell Design
 
 **Date:** 2026-08-16
 
@@ -6,16 +6,16 @@
 
 ## Objective
 
-Give every non-call Feral page a consistent cinematic environment while
+Give every non-call Cinderpaw page a consistent cinematic environment while
 preserving the product's existing graphite-and-amber identity, functional
 clarity, and dual light/dark themes. Replace the white startup frame with a
-theme-correct Feral loading experience that appears before React mounts.
+theme-correct Cinderpaw loading experience that appears before React mounts.
 
 This is the first subproject in the broader UI modernization. Its implementation
 is deliberately limited to three files:
 
 - `frontend-react/index.html`
-- `frontend-react/public/feral-prepaint.js`
+- `frontend-react/public/cinderpaw-prepaint.js`
 - `frontend-react/src/styles/globals.css`
 
 Sidebar composition, individual page layouts, cards, model selection, Skills,
@@ -33,7 +33,7 @@ Settings, and Memory controls are separate follow-up subprojects.
 
 ## Visual Direction
 
-Feral should feel like one continuous cinematic space rather than a collection
+Cinderpaw should feel like one continuous cinematic space rather than a collection
 of flat pages. The environment uses a graphite base, amber as its only active
 accent, and a restrained blue-violet counterlight for depth. Glass is a
 material hierarchy, not a decorative effect applied to every element.
@@ -77,7 +77,7 @@ The current white frame occurs before the React module applies persisted theme
 state. `index.html` and a small same-origin pre-paint script will provide the
 first paint directly:
 
-- `feral-prepaint.js` loads from the application's own origin, satisfying the
+- `cinderpaw-prepaint.js` loads from the application's own origin, satisfying the
   existing `script-src 'self'` CSP without an unsafe inline script. It reads the
   existing `feral-ui` persisted theme preference, resolves `system`, and applies
   `data-theme` before the React module is requested.

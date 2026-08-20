@@ -46,7 +46,7 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
 
 export default function App() {
   // Cold-start guard for the Fractal Memory Search embedding model. The hook
-  // listens to feral://embedding-download-* channels and surfaces one of four
+  // listens to cinderpaw://embedding-download-* channels and surfaces one of four
   // clear states (idle/present/downloading/failed) instead of the old
   // fire-and-forget that left the user staring at a "recall doesn't work"
   // surface with no explanation.

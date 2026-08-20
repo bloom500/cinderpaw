@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
 import { useUI } from '@/stores/ui';
 
-const BYOK_DISCLAIMER_KEY = 'feral.agentByokDismissed';
+const BYOK_DISCLAIMER_KEY = 'cinderpaw.agentByokDismissed';
 
 /** One-time note recommending BYOK for agent mode on low-compute machines. */
 function AgentByokNote() {

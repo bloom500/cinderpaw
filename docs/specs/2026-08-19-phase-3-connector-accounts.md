@@ -21,7 +21,7 @@ the whole job.
 Three separate bottlenecks, all load-bearing:
 
 **1. Three named drawers.** `ConnectorManager`
-(`FeralAgent/src/transports/connectors.ts`) holds `#discord`, `#slack`,
+(`CinderpawAgent/src/transports/connectors.ts`) holds `#discord`, `#slack`,
 `#whatsapp` as private fields, each with its own key field, start branch, stop
 branch, reload diff and health entry. A fifth connector edits that class in
 about six places. That is the bottleneck, and it grows.
@@ -211,7 +211,7 @@ export interface LiveConnector {
 ```
 
 `send` is not a new invention. `ChannelSender` in
-`FeralAgent/src/core/ask-user-channel.ts:28` is already
+`CinderpawAgent/src/core/ask-user-channel.ts:28` is already
 `(sessionId: string, text: string) => Promise<void>`, session ids are already
 prefixed with the connector id, and `ChannelAskRouter` already routes by that
 prefix. `LiveConnector.send` adopts that signature so the registry and the ask
@@ -294,7 +294,7 @@ the connector is merged.
 
 ## Non-goals
 
-- A hosted relay, a Feral domain, or any server-side component. Decided against:
+- A hosted relay, a Cinderpaw domain, or any server-side component. Decided against:
   it costs monthly infrastructure and puts tokens and messages through our
   machine, which contradicts the product.
 - Webhook-based surfaces — Teams, Messenger, WhatsApp Cloud — which need a public
@@ -380,7 +380,7 @@ that `/sync` is held open; not every server honours it, and the difference
 between "polling" and "pinning a core" is a 250 ms floor.
 
 **Twitch's IRC refuses a NICK that does not match the token.** Rather than ask
-someone to retype a username Feral already knows, `pair_poll` asks Helix once
+someone to retype a username Cinderpaw already knows, `pair_poll` asks Helix once
 at grant time and stores it — which also gives the card "as <name>" for anyone
 with two accounts.
 

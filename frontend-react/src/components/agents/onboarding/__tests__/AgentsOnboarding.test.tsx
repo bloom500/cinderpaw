@@ -77,7 +77,7 @@ describe('AgentsOnboarding', () => {
     });
 
     // The agent must not carry a runtime-selector field — there's only
-    // one runtime in Feral (the Feral Agent sidecar), so persisting
+    // one runtime in Cinderpaw (the Cinderpaw Agent sidecar), so persisting
     // any other flag is a regression to flag.
     const saved = useAgent.getState().current as unknown as Record<string, unknown>;
     expect(Object.keys(saved)).not.toContain('preferred_runtime');

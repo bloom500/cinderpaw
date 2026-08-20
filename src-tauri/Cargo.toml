@@ -46,7 +46,7 @@ reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls
 
 # Feral Runtime (host-agnostic): inference, models, API, RSI substrate,
 # settings, paths, tools, byok, perf, gpu, transcription.
-feral-core = { path = "../crates/feral-core", default-features = false }
+cinderpaw-core = { path = "../crates/cinderpaw-core", default-features = false }
 
 # Utilities
 anyhow = "1"
@@ -93,7 +93,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # and the picker reports Piper as unavailable instead of offering a mute engine.
 default = ["inference", "piper", "kokoro"]
 # CPU-only baseline (works everywhere; slow for larger models).
-inference = ["feral-core/inference"]
+inference = ["cinderpaw-core/inference"]
 # GPU backends — additive on top of `inference`. Pick at most ONE per build
 # (enabling two GPU features simultaneously is untested and likely produces
 # duplicate symbols in llama-cpp-sys-2). CI selects one per platform:
@@ -102,14 +102,14 @@ inference = ["feral-core/inference"]
 #   macOS                → inference-metal    (Metal ships with Xcode; no extra SDK)
 # A GPU build still falls back to CPU at runtime if GPU init fails (see
 # inference.rs::backend::load), so a missing/broken driver degrades gracefully.
-inference-cuda   = ["feral-core/inference-cuda"]
-inference-vulkan = ["feral-core/inference-vulkan"]
-inference-metal  = ["feral-core/inference-metal"]
-whisper          = ["feral-core/whisper"]
+inference-cuda   = ["cinderpaw-core/inference-cuda"]
+inference-vulkan = ["cinderpaw-core/inference-vulkan"]
+inference-metal  = ["cinderpaw-core/inference-metal"]
+whisper          = ["cinderpaw-core/whisper"]
 # On-device text-to-speech. Both engines ride the same two native pieces —
 # ONNX Runtime and espeak-ng — so the second one is a model, not a toolchain.
-piper            = ["feral-core/piper"]
-kokoro           = ["feral-core/kokoro"]
+piper            = ["cinderpaw-core/piper"]
+kokoro           = ["cinderpaw-core/kokoro"]
 
 # Desktop control (OS accessibility tree). Windows-only for now — UIA via the
 # `windows` crate. macOS (AX) and Linux are compiled stubs in desktop_control.

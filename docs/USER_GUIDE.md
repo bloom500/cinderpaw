@@ -1,4 +1,4 @@
-# Feral User Guide
+# Cinderpaw User Guide
 
 A short, practical guide. For installation and hardware requirements see the
 [README](../README.md).

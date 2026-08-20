@@ -420,14 +420,14 @@ Retain existing parser tests. Add callback sets for both event sources and helpe
 ```ts
 function emitLive(kind: string, traceId: string, sessionId = 'voice-session') {
   act(() => liveCallbacks.forEach((callback) => callback({
-    payload: { sessionId, kind, text: 'search Feral', traceId },
+    payload: { sessionId, kind, text: 'search Cinderpaw', traceId },
   })));
 }
 
 function emitTool(type: 'tool_start' | 'tool_done', traceId: string) {
   act(() => agentCallbacks.forEach((callback) => callback({ payload: { data: JSON.stringify({
     type, id: traceId, traceId, tool: 'web_search',
-    args: { query: 'Feral' }, result: { ok: true },
+    args: { query: 'Cinderpaw' }, result: { ok: true },
   }) } })));
 }
 ```

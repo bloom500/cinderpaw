@@ -359,7 +359,7 @@ export function SkillHubDrawer() {
                     {selected.install_status === 'installed' ? (
                       removePending ? (
                         <div className="space-y-2">
-                          <p className="text-xs text-text-muted">Remove this skill from Feral? This cannot be undone in v1.</p>
+                          <p className="text-xs text-text-muted">Remove this skill from Cinderpaw? This cannot be undone in v1.</p>
                           <div className="flex gap-2">
                             <button type="button" onClick={() => void doRemove()}
                               className="px-3 py-1.5 text-xs rounded bg-error text-white hover:bg-error/90">
@@ -457,7 +457,7 @@ export function SkillHubDrawer() {
                 ) : (
                   <>
                     <p className="text-2xs text-text-muted px-1 pb-1">
-                      Community skills are contributed by third-party authors and are not vetted or maintained by Feral.
+                      Community skills are contributed by third-party authors and are not vetted or maintained by Cinderpaw.
                       Preview before installing.
                     </p>
                     {community.map(skill => (

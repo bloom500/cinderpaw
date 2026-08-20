@@ -84,7 +84,7 @@ export function ChatsPage() {
             <RowSkeletons />
           ) : sorted.length === 0 ? (
             <p className="text-sm text-text-muted">
-              No conversations yet. Ask Feral something and it will show up here.
+              No conversations yet. Ask Cinderpaw something and it will show up here.
             </p>
           ) : (
             <div className="space-y-1">

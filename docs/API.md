@@ -1,8 +1,8 @@
 # FERAL HTTP API reference
 
-> **Stability policy:** As of v1.0 the Feral HTTP API is **unstable
+> **Stability policy:** As of v1.0 the Cinderpaw HTTP API is **unstable
 > pre-2.0**. Every response carries
-> `X-Feral-Api-Stability: stable|unstable`. The **only** stable
+> `X-Cinderpaw-Api-Stability: stable|unstable`. The **only** stable
 > surfaces are the third-party protocol compat:
 >   * `/api/*` — Ollama-compatible.
 >   * `/v1/*` — OpenAI-compatible.
@@ -18,7 +18,7 @@ The list below mirrors `crates/feral-core/src/api.rs::router()`.
 That file is the source of truth — `scripts/check-api-docs.mjs`
 parses its `.route(` lines and fails if any drift from the fenced
 `feral-api-routes` block at the bottom of this file. Wired into
-`bun test` via `FeralAgent/tests/api-docs.test.ts`.
+`bun test` via `CinderpawAgent/tests/api-docs.test.ts`.
 
 Operation class tags (`read`, `evolve`, `govern`) come straight from
 the comment tags next to each `.route(` line.
@@ -74,7 +74,7 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/setup/detect` | unstable | read | Guided-setup detection ladder (existing config → local GGUFs → hardware download → env keys → Ollama → OpenClaw import) + hardware summary + security-ack state. |
 | POST | `/runtime/setup/verify` | unstable | govern | Real-completion test of a detected candidate ("Reply with the single word OK…", 32 tok, 90s); `persist:true` writes the route only on success. |
 | POST | `/runtime/setup/ack` | unstable | govern | Persist the one-time security-acknowledgement timestamp in settings.json. |
-| GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Feral-Catalog-Version`. |
+| GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Cinderpaw-Catalog-Version`. |
 | GET  | `/runtime/connectors/catalog` | unstable | read | Connector catalog; same versioning header. |
 
 ### Meta (`/meta/*` — L6, sidecar roundtrip)

@@ -1,6 +1,6 @@
 # Public Journal — publishing Cubby's telemetry
 
-How a Feral instance publishes a sanitized slice of its Evolution Journal to a
+How a Cinderpaw instance publishes a sanitized slice of its Evolution Journal to a
 public page, and why it is built the way it is.
 
 ---
@@ -8,7 +8,7 @@ public page, and why it is built the way it is.
 ## 1. The shape of it
 
 ```
-Feral instance (private)
+Cinderpaw instance (private)
   ~/.feral/rsi/journal/journal-YYYY-MM-DD.jsonl     hash-chained, complete, local
         │
         │  read-only, one direction
@@ -26,7 +26,7 @@ Feral instance (private)
 ```
 
 The important property is the direction. The landing page never connects to a
-Feral instance: it has no address for one, no credential to one, and no code
+Cinderpaw instance: it has no address for one, no credential to one, and no code
 path that calls one. If the machine is off, the page simply stops hearing from
 it — which is exactly the signal it needs to say Cubby is asleep.
 
@@ -36,11 +36,11 @@ They share a name and nothing else.
 
 | | What it is | Who can reach it |
 | --- | --- | --- |
-| **Private Cubby** | The actual Feral instance: real memory, real BRSI state, real filesystem. | Only its operator. |
+| **Private Cubby** | The actual Cinderpaw instance: real memory, real BRSI state, real filesystem. | Only its operator. |
 | **Public Cubby Journal** | Sanitized, read-only telemetry on the landing page. | Everyone. Read-only. |
 | **Community Cubby / Paw** | Sandboxed Discord interaction, rate limited, separate model budget. | The Discord community. |
 
-Public users cannot execute Feral tools, read private memory, touch the
+Public users cannot execute Cinderpaw tools, read private memory, touch the
 filesystem, see private evolution state, or spend the private instance's model
 budget. None of those are reachable from the public page or from Discord,
 because none of those systems are connected to each other — only the one-way
@@ -136,12 +136,12 @@ is the payload, exactly.
 ```ini
 # /etc/systemd/system/feral-public-journal.service
 [Unit]
-Description=Feral public journal exporter
+Description=Cinderpaw public journal exporter
 After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/root/.feral/self-src/FeralAgent
+WorkingDirectory=/root/.feral/self-src/CinderpawAgent
 Environment=FERAL_PUBLIC_JOURNAL_URL=https://your-site/api/public-journal/ingest
 EnvironmentFile=/root/.feral/public-journal.env
 ExecStart=/root/.bun/bin/bun scripts/publish-public-journal.ts --watch
@@ -163,6 +163,6 @@ If you want to republish history, delete it.
 
 ## 6. Testing
 
-`bun test tests/public-journal.test.ts` in `FeralAgent/`. The suite is mostly
+`bun test tests/public-journal.test.ts` in `CinderpawAgent/`. The suite is mostly
 adversarial — it feeds the serializer journal rows carrying paths, prompt text,
 keys and emails, and asserts none of it appears in the output.

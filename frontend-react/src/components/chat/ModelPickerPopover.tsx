@@ -10,13 +10,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useModel } from '@/stores/model';
 import { useUI } from '@/stores/ui';
-import { useFeralStore } from '@/stores/feral';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { BackendBadge } from '@/components/BackendBadge';
 
-// Feral's own model engine exposes an OpenAI-compatible API here. In agent mode
+// Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
 // the model loaded in the Models tab.
 const FERAL_API_BASE = 'http://localhost:11435';
@@ -36,14 +36,14 @@ export function ModelPickerPopover() {
   const cloudModel    = useModel((s) => s.cloudModel);
   const setCloudModel = useModel((s) => s.setCloudModel);
 
-  // Agent mode targets the Feral sidecar (its own model config), not the
+  // Agent mode targets the Cinderpaw sidecar (its own model config), not the
   // in-process chat model. The pill stays visually identical; only the
   // selection action + label source change.
   const isAgentMode   = useUI((s) => s.inputMode) === 'agent';
-  const feralConfig   = useFeralStore((s) => s.modelConfig);
-  const feralSwitching = useFeralStore((s) => s.switching);
-  const feralSetModel = useFeralStore((s) => s.setModel);
-  const feralSetError = useFeralStore((s) => s.setModelError);
+  const feralConfig   = useCinderpawStore((s) => s.modelConfig);
+  const feralSwitching = useCinderpawStore((s) => s.switching);
+  const feralSetModel = useCinderpawStore((s) => s.setModel);
+  const feralSetError = useCinderpawStore((s) => s.setModelError);
 
   const [localModels, setLocalModels]     = useState<ModelInfo[]>([]);
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
@@ -93,7 +93,7 @@ export function ModelPickerPopover() {
     setOpen(false);
   };
 
-  // In agent mode, selecting a local model must LOAD it into Feral's engine
+  // In agent mode, selecting a local model must LOAD it into Cinderpaw's engine
   // (so /v1/chat/completions has it resident) then point the sidecar at it.
   // Goes through the model store's load() so isLoading/loadProgress are
   // populated — the ModelPill renders a progress bar off those.

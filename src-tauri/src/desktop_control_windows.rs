@@ -670,7 +670,7 @@ const MAX_KEYS_LEN: usize = 2000;
 /// foreground-lock — the focused window does not change the instant the call
 /// returns. `SendInput` always delivers to whatever window currently holds the
 /// foreground, so firing it immediately after `SetFocus` raced: keystrokes
-/// landed in the *previous* foreground window (often Feral itself), and the
+/// landed in the *previous* foreground window (often Cinderpaw itself), and the
 /// tool still reported success. That is the "focus lost / wrong window" class
 /// of failures. We now retry SetFocus with a short settle, then verify via the
 /// system-wide `GetFocusedElement` that the focused element belongs to the

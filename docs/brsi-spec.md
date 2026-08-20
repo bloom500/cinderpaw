@@ -1,9 +1,9 @@
-# BRSI Spec — Bounded Recursive Self-Improvement for Feral
+# BRSI Spec — Bounded Recursive Self-Improvement for Cinderpaw
 
 > **Status:** Conceptual umbrella spec — drafted for Opus when quota returns.
 > **Author:** bloom500 + opencode
 > **Date:** 2026-06-30
-> **Role:** Top-level "what is Feral trying to *be*" document. **Reads first.**
+> **Role:** Top-level "what is Cinderpaw trying to *be*" document. **Reads first.**
 > **Implementation companions (do not fork):**
 > - `docs/rsi-evolution-spec.md` — Faza 1-5 engine internals (config / code / meta / arch / model).
 > - `docs/continual-personal-adaptation-plan.md` — 6-layer roadmap + three missing axes (UIA demo pipeline, Personal LoRA, per-instance divergence).
@@ -36,7 +36,7 @@ What the existing spec does not do is **claim** the bound as its identity.
 
 BRSI is the claim:
 
-> Feral is not designed to improve without limits. It is designed to
+> Cinderpaw is not designed to improve without limits. It is designed to
 > improve **safely, measurably, and reversibly**, within explicit
 > user-defined boundaries.
 
@@ -57,7 +57,7 @@ must not use "RSI" — only "Evolution" or "Personal Adaptation".
 
 ### 1.2 The framing: Evolutionary Operating System for AI Agents
 
-Feral is not "a self-improving agent". It is the **layer between** any
+Cinderpaw is not "a self-improving agent". It is the **layer between** any
 foundation model and the user's personal AI:
 
 ```
@@ -65,7 +65,7 @@ foundation model and the user's personal AI:
    │              Personal AI (per user)              │
    ├─────────────────────────────────────────────────┤
    │                                                 │
-   │            Feral Evolution Engine                │
+   │            Cinderpaw Evolution Engine                │
    │       (BRSI core — this document)                │
    │                                                 │
    ├──────────────┬──────────────┬───────────────────┤
@@ -76,16 +76,16 @@ foundation model and the user's personal AI:
 
 Three consequences follow from the OS framing:
 
-1. **Foundation model is a dependency, not a feature.** Feral does not
+1. **Foundation model is a dependency, not a feature.** Cinderpaw does not
    pick the model; it evolves **on top of** whichever model the user has.
-2. **Personal AI is the product.** The user does not buy "Feral the
+2. **Personal AI is the product.** The user does not buy "Cinderpaw the
    agent". They get "their" agent that improves for them.
 3. **The Evolution Engine has an API.** Other researchers can target it.
    This is what makes a "paper" possible, not a "demo".
 
 ### 1.3 How this differs from existing RSI work
 
-| Dimension              | Open-ended RSI (DGM, Anthropic)         | Feral BRSI                       |
+| Dimension              | Open-ended RSI (DGM, Anthropic)         | Cinderpaw BRSI                       |
 | ---------------------- | --------------------------------------- | -------------------------------- |
 | Improvement target     | Global capability on benchmark suites   | Personal usefulness for *this* user |
 | Fitness signal         | Public benchmarks (SWE-bench, MMLU)     | Personal eval suite + acceptance signals |
@@ -263,7 +263,7 @@ UI per cycle.
 
 ### 2.6 Knowledge Provenance (Git for intelligence)
 
-Every artifact Feral produces has a parent:
+Every artifact Cinderpaw produces has a parent:
 
 ```
 LoRA v8
@@ -433,7 +433,7 @@ Sakana at home.
 
 ### 3.1 What we adopt
 
-| Sakana idea                                | How Feral adopts it                              |
+| Sakana idea                                | How Cinderpaw adopts it                              |
 | ------------------------------------------ | ------------------------------------------------ |
 | Evolution > manual design                  | Mutation / selection / crossover is the default mode |
 | Population, not singleton                  | Tree of species + niches, not one champion       |
@@ -443,7 +443,7 @@ Sakana at home.
 
 ### 3.2 What we adapt (do not copy blindly)
 
-Sakana optimizes **global capability**. Feral optimizes **personal
+Sakana optimizes **global capability**. Cinderpaw optimizes **personal
 usefulness**. The difference is not cosmetic — it changes the fitness
 function, the eval suite composition, and the success metric. We
 adopt the *mechanism* (evolutionary search) but reject the *objective*
@@ -452,7 +452,7 @@ adopt the *mechanism* (evolutionary search) but reject the *objective*
 ### 3.3 What we explicitly refuse
 
 - **Open-ended evolution from day one.** Sakana can afford the compute
-  burn; Feral cannot. We promote layer-by-layer (Layer 0 first,
+  burn; Cinderpaw cannot. We promote layer-by-layer (Layer 0 first,
   Layer 5 last) with hard gates between. The user sees what the agent
   is allowed to touch.
 - **Modification of the immutable core.** Scorer, Tier 0 specs,
@@ -474,7 +474,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.1 Evolution Contract → state machine in `dream-cycle.ts`
 
-- New file: `FeralAgent/src/rsi/contract.ts` — the 8-stage state machine.
+- New file: `CinderpawAgent/src/rsi/contract.ts` — the 8-stage state machine.
 - Each stage is a function `(state) → Result<state, StageError>`.
 - A failed stage writes a `JournalEntry` with `outcome: "halted"` and
   the reason; the cycle ends.
@@ -483,7 +483,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.2 Fitness Vector → extend the scorer
 
-- New file: `FeralAgent/src/rsi/fitness.ts` — the 6-component vector,
+- New file: `CinderpawAgent/src/rsi/fitness.ts` — the 6-component vector,
   default weights, and aggregation.
 - Rust-side scorer (`scorer.rs`) returns a `FitnessVector` struct, not
   a scalar. Scalar aggregation is opt-in (compute on demand).
@@ -492,7 +492,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.3 Tree Evolution → lineage data structure
 
-- New file: `FeralAgent/src/rsi/lineage.ts` — `LineageNode`,
+- New file: `CinderpawAgent/src/rsi/lineage.ts` — `LineageNode`,
   `LineageTree`, operations: `add_child`, `merge`, `extinguish`.
 - Champion selection is now `select_champion(species, query_context)`,
   not "the best score overall".
@@ -501,14 +501,14 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.4 Species → first-class registry
 
-- New file: `FeralAgent/src/rsi/species.ts` — `Species` type,
+- New file: `CinderpawAgent/src/rsi/species.ts` — `Species` type,
   `SpeciesRegistry`, per-species `EvalSuite`, `MutationPolicy`.
 - Initial species seeded from `defaults/species.toml`.
 - New species are themselves a meta-evolution operation (Layer 5).
 
 ### 4.5 Evolution Budget → controller
 
-- New file: `FeralAgent/src/rsi/budget.ts` — `Budget` type,
+- New file: `CinderpawAgent/src/rsi/budget.ts` — `Budget` type,
   `BudgetController`, `assert_can_spend(phase, estimate)`.
 - Surfaced in UI as a per-cycle burn-down indicator.
 - Hard-coded defaults in §2.5 are the **v1 defaults**; user overrides
@@ -517,7 +517,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.6 Knowledge Provenance → queryable graph
 
-- New file: `FeralAgent/src/rsi/provenance.ts` — `ProvenanceGraph`,
+- New file: `CinderpawAgent/src/rsi/provenance.ts` — `ProvenanceGraph`,
   `show(artifact_id)`, `descendants(artifact_id)`.
 - Built on top of git history for code/config; typed envelopes for
   LoRA / demo / eval-task / dream-cycle artifacts.
@@ -525,7 +525,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.7 Confidence → statistical gate
 
-- New file: `FeralAgent/src/rsi/confidence.ts` — paired bootstrap,
+- New file: `CinderpawAgent/src/rsi/confidence.ts` — paired bootstrap,
   Cohen's d, gate evaluator.
 - Threshold defaults (gate: p < 0.05, effect > 0.1) are part of
   `SandboxBounds` and immutable from the agent's side.
@@ -542,7 +542,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.9 Evolution Journal → structured log
 
-- New file: `FeralAgent/src/rsi/journal.ts` — append-only JSONL writer,
+- New file: `CinderpawAgent/src/rsi/journal.ts` — append-only JSONL writer,
   per-day file rotation, integrity check.
 - Path: `~/.feral/instances/<tenant>/journal/<yyyy-mm-dd>.jsonl`.
 - UI: journal viewer with filters (cycle / species / rejected-only).
@@ -550,7 +550,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 ### 4.10 Personal Fitness → signal collector
 
-- New file: `FeralAgent/src/rsi/personal-fitness.ts` — rolling-window
+- New file: `CinderpawAgent/src/rsi/personal-fitness.ts` — rolling-window
   aggregator over acceptance / completion / reuse signals.
 - Reads from `episodic.ts`, tool audit log, UIA demo replay success.
 - User can pin weights via settings UI (turns aggregation static).
@@ -586,7 +586,7 @@ Confidence, journaled, and budgeted.
 | L0    | Memory Adaptation                 | No weights touched. Only memory topology. Lowest-risk layer.                         | Yes                 |
 | L1    | Configuration Evolution           | Genome config (7 fields). Bounded by schema. First layer with eval-gated promotion.  | Yes                 |
 | L2    | Continual Personal Adaptation     | LoRA on user signal. Base model immutable. Personal Fitness becomes the promotion gate. | Yes, after N demos |
-| L3    | Code Evolution                    | First layer that touches FeralAgent source. First-10 human gate.                     | First 10 require approval |
+| L3    | Code Evolution                    | First layer that touches CinderpawAgent source. First-10 human gate.                     | First 10 require approval |
 | L4    | Architecture Evolution            | Subsystem hot-plug in Worker sandbox. Resource caps hard. Always human gate.          | No                  |
 | L5    | **Governance Evolution** (NEW)    | Tunes confidence thresholds, fitness weights, mutation rates, budget caps within SandboxBounds. Reversible by restoring previous bounds. | Yes, within bounds |
 | L6    | **Meta Evolution** (renamed)      | Optimises the algorithm that produces those parameters. **Always human gate.**        | No                  |
@@ -710,7 +710,7 @@ These are inherited from `rsi-evolution-spec.md` §4 and tightened:
   lineage, continuously. Violation = publishable incident.
 - **Rollback time** < 5 s for any change at any layer.
 - **User-trust survey** (qualitative, periodic): does the user feel
-  they understand what Feral changed and why?
+  they understand what Cinderpaw changed and why?
 
 ---
 
@@ -896,7 +896,7 @@ The DAG makes refactor scope explicit. Layers do not.
   in a semi-autonomous R&D loop. Architecture reference for Layers 3-5.
 - **Anthropic — Constitutional AI.** Immutable principles that
   constrain self-modification. Reference for the immutable core.
-- **Yudkowsky / Bostrom — Seed AI.** The theoretical target Feral is
+- **Yudkowsky / Bostrom — Seed AI.** The theoretical target Cinderpaw is
   deliberately **not** aiming at; the bound is the contribution.
 
 ---

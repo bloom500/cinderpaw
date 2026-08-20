@@ -111,7 +111,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
     }
     const images = message.images ?? [];
     // Pull the inlined attachment blocks back out so we show compact chips
-    // ("Feral.pdf") instead of dumping the whole extracted file content into
+    // ("Cinderpaw.pdf") instead of dumping the whole extracted file content into
     // the bubble. The model still received the full text — this is display
     // only, and works off persisted content so it survives a reload.
     const { attachments, text: visibleText } = parseUserAttachments(message.content);

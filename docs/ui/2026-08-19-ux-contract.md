@@ -1,4 +1,4 @@
-# Feral UX Contract — Phase 0
+# Cinderpaw UX Contract — Phase 0
 
 **Date:** 2026-08-19 · **Status:** draft for review · **No implementation.**
 
@@ -8,7 +8,7 @@ Layout details, tokens, and component APIs belong to Phase 5+, not here.
 
 ## The one sentence
 
-> You tell Feral what you want. Feral works out how.
+> You tell Cinderpaw what you want. Cinderpaw works out how.
 
 Every screen below exists to make that sentence true. If a screen makes the user
 work out *how*, it violates the contract.
@@ -21,7 +21,7 @@ no models, no history, no connectors, and no network. A screen that only reads
 correctly once something already exists is not finished.
 
 **Rule 2 — The interface may never be more capable than the runtime.**
-If the UI says "Ask Feral anything" and the runtime cannot pick a model, we are
+If the UI says "Ask Cinderpaw anything" and the runtime cannot pick a model, we are
 lying to the user. Phases 1–3 exist to make the promise true *before* Phase 5
 makes it visible.
 
@@ -34,9 +34,9 @@ progressive disclosure, in Settings → Advanced, and in logs.
 `BRSI` · `FMS` · `RSI` · `genome` · `ratchet` · `tier` · `sidecar` ·
 `agent mode` · `runtime` · `routing` · `inference`
 
-Replacement vocabulary in primary UI: **capability** (what Feral can do),
-**account** (a thing Feral is connected to), **model** (kept — it is a real
-consumer word, and Models stays a first-class area), **memory** (what Feral
+Replacement vocabulary in primary UI: **capability** (what Cinderpaw can do),
+**account** (a thing Cinderpaw is connected to), **model** (kept — it is a real
+consumer word, and Models stays a first-class area), **memory** (what Cinderpaw
 remembers about you).
 
 ## Persistent chrome
@@ -48,7 +48,7 @@ FERAL      + New      Models      Search                            ⚙
 Floating, translucent, visually subordinate to the page. Four items and a
 settings affordance. Nothing else earns permanent residence.
 
-- **+ New** — new chat, new project. Later, Feral may decide which one a request
+- **+ New** — new chat, new project. Later, Cinderpaw may decide which one a request
   should become; the contract does not require that.
 - **Models** — first-class, never a Settings subsection. It is the one advanced
   area we deliberately expose, because downloading a local model is a real
@@ -69,7 +69,7 @@ list.
                        What can I help you with?
 
               ┌──────────────────────────────────────┐
-              │  Ask Feral anything…                 │
+              │  Ask Cinderpaw anything…                 │
               │  📎   ✨   🎙                    ☎  ↑ │
               └──────────────────────────────────────┘
 
@@ -85,7 +85,7 @@ product's first frame is one question and one field.
 ## Composer
 
 The most important element on the screen. Its job is to say *this is where you
-tell Feral what you want*.
+tell Cinderpaw what you want*.
 
 Controls: attach · capabilities · microphone · voice call · send. Nothing else.
 
@@ -94,22 +94,22 @@ reasoning-mode toggles, an unlabeled chat/agent switch. The user never selects a
 model in order to send a message.
 
 **Zero-model state — the contract's hardest case.** The composer stays enabled.
-The first message is accepted, and Feral itself answers it:
+The first message is accepted, and Cinderpaw itself answers it:
 
 > I need a brain before I can do that. I can download a small local model
 > (2.4 GB, works offline) or use an API key if you have one. Which?
 
-Setup happens *inside the conversation*, driven by Feral. It never becomes a
+Setup happens *inside the conversation*, driven by Cinderpaw. It never becomes a
 blocked screen pointing at Settings.
 
 ## Agent activity
 
-While Feral works, the default view is what it is doing — not what it is saying.
+While Cinderpaw works, the default view is what it is doing — not what it is saying.
 
 ```
                        Auditing bloommedia.ro
 
-                        ◉ Feral is working
+                        ◉ Cinderpaw is working
 
                      ✓ Reading the site
                      ✓ Checking 18 pages
@@ -156,7 +156,7 @@ dig down to the real machinery. A normal user should never meet it.
 ## The other four surfaces
 
 **Projects** — a human container for related work: conversations, files,
-context. The user names it; Feral maintains the relationships. The user never
+context. The user names it; Cinderpaw maintains the relationships. The user never
 wires a conversation to a project by hand unless they want to.
 *Fresh install:* no projects, and the product is fully usable without ever
 making one.
@@ -169,11 +169,11 @@ than the rest of the product.
 **Search** — one field, four kinds of result, keyboard-first.
 *Fresh install:* one honest line, not an empty box.
 
-**Voice** — a conversation with Feral, not a dictation feature. Four states:
-idle (`☎ Call Feral`), listening, speaking, working. The same Feral identity
+**Voice** — a conversation with Cinderpaw, not a dictation feature. Four states:
+idle (`☎ Call Cinderpaw`), listening, speaking, working. The same Cinderpaw identity
 carries through all four; working is not a separate screen.
 *Fresh install:* the call button is visible, and when pressed with nothing
-configured, Feral says what it needs — the same pattern as the zero-model
+configured, Cinderpaw says what it needs — the same pattern as the zero-model
 composer.
 
 ## Release gate
@@ -183,9 +183,9 @@ The redesign is not done when it looks right. It is done when a stranger, given
 
 | # | Question | Passing answer |
 |---|---|---|
-| 1 | What is Feral? | "An assistant that can actually do things for me." |
+| 1 | What is Cinderpaw? | "An assistant that can actually do things for me." |
 | 2 | What can it do? | "I give it a task and it uses whatever it needs." |
-| 3 | How would you connect Discord? | "I'd tell Feral to connect it." |
+| 3 | How would you connect Discord? | "I'd tell Cinderpaw to connect it." |
 | 4 | How would you give it a complex task? | "I'd just describe what I want." |
 | 5 | How would you use a local model? | "Open Models and download one." |
 

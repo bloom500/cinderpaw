@@ -184,14 +184,14 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # Feral Agent is vendored in this monorepo at FeralAgent/ — the single
+      # Feral Agent is vendored in this monorepo at CinderpawAgent/ — the single
       # source of truth. The actual compile + copy into src-tauri/binaries/
       # happens in tauri.conf.json's beforeBuildCommand
       # (scripts/build-sidecar.mjs), which derives the correct
-      # feral-agent-<target-triple> name for the host platform. We only need
+      # cinderpaw-agent-<target-triple> name for the host platform. We only need
       # the dependencies installed first.
       - name: Install Feral Agent sidecar dependencies
-        working-directory: FeralAgent
+        working-directory: CinderpawAgent
         run: bun install
 
       - name: Extract release notes from CHANGELOG
@@ -468,7 +468,7 @@ jobs:
           key: cuda
 
       - name: Install Feral Agent sidecar dependencies
-        working-directory: FeralAgent
+        working-directory: CinderpawAgent
         run: bun install
 
       # No tagName/releaseId ⇒ tauri-action BUILDS but does not upload, so it

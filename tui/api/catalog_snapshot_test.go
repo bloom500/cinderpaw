@@ -99,7 +99,7 @@ func TestProviderCatalogGoldenSnapshot(t *testing.T) {
 	golden := readGolden(t, "provider_catalog.golden.json")
 
 	// Version pin: covered by `TestCatalogVersionExpectedPin` and by
-	// the Rust endpoint test (X-Feral-Catalog-Version header check).
+	// the Rust endpoint test (X-Cinderpaw-Catalog-Version header check).
 
 	// Typed decode + roundtrip must preserve every field.
 	var entries []ProviderCatalogEntry

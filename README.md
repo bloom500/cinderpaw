@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="frontend-react/public/README%20banner.jpeg" alt="Feral — your local-first AI workspace" width="100%" />
+  <img src="frontend-react/public/README%20banner.jpeg" alt="Cinderpaw — your local-first AI workspace" width="100%" />
 </p>
 
-# Feral
+# Cinderpaw
 
 **Your local-first AI workspace. No subscription. No telemetry. No middleman.**
 
@@ -23,7 +23,7 @@
 
 ---
 
-Feral is a desktop app that runs AI on your machine. With local GGUF models, everything happens offline — no API bills, no data leaving your computer, and absolutely zero VC-funded "alignment" teams reading your conversations at 3am. Prefer frontier models? Plug in your own API keys (BYOK) and talk to OpenAI, Anthropic, Gemini and friends directly — your key, your bill, no proxy in between. Either way: chat, deploy a full agentic runtime with memory and tool-use, and run deep multi-step web research. It's your computer. Do whatever you want.
+Cinderpaw is a desktop app that runs AI on your machine. With local GGUF models, everything happens offline — no API bills, no data leaving your computer, and absolutely zero VC-funded "alignment" teams reading your conversations at 3am. Prefer frontier models? Plug in your own API keys (BYOK) and talk to OpenAI, Anthropic, Gemini and friends directly — your key, your bill, no proxy in between. Either way: chat, deploy a full agentic runtime with memory and tool-use, and run deep multi-step web research. It's your computer. Do whatever you want.
 
 ![Chat](frontend-react/public/READMEdemo1.png)
 
@@ -71,7 +71,7 @@ UI, `feral gateway start` to run it as a service.
 
 `feral update` pulls the latest release and restarts the gateway, so a running
 connector (Discord, Slack, …) picks up the new build instead of staying on the
-old one until you notice. It knows how Feral got onto the machine — npm here,
+old one until you notice. It knows how Cinderpaw got onto the machine — npm here,
 a `git pull` + rebuild on a from-source server — and does the right one.
 
 `feral uninstall` removes the binaries. **Your `~/.feral` stays**: settings,
@@ -81,7 +81,7 @@ starting over. `feral uninstall --purge` deletes that too (permanently).
 > **Note:** the npm build is a **cloud/gateway CLI — it does not bundle the local
 > llama.cpp inference engine.** Point it at a cloud provider (BYOK via
 > `FERAL_BASE_URL` / `FERAL_API_KEY` / `FERAL_MODEL`) or at a running desktop
-> Feral. For **local GGUF models on your own machine, install the desktop app**
+> Cinderpaw. For **local GGUF models on your own machine, install the desktop app**
 > above — that's the build with the inference engine.
 
 <details>
@@ -95,7 +95,7 @@ Requires [Rust](https://rustup.rs) + [Bun](https://bun.sh).
 sudo apt install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake git curl
 
 git clone --depth 1 https://github.com/bloom500/feral && cd feral
-( cd FeralAgent && bun install --frozen-lockfile && bun run build )
+( cd CinderpawAgent && bun install --frozen-lockfile && bun run build )
 # --no-default-features skips the local llama.cpp engine (the CLI's default
 # `inference` feature) — on a server you point the gateway at a cloud
 # provider via FERAL_BASE_URL/FERAL_API_KEY/FERAL_MODEL instead:
@@ -103,7 +103,7 @@ cargo build --release -p feral-cli --no-default-features
 # The sidecar binary must sit NEXT TO the CLI:
 mkdir -p ~/.local/bin
 install target/release/feral-cli    ~/.local/bin/feral
-install FeralAgent/dist/feral-agent ~/.local/bin/feral-agent
+install CinderpawAgent/dist/feral-agent ~/.local/bin/feral-agent
 feral doctor && feral gateway start
 ```
 
@@ -118,7 +118,7 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 *Power-user preview. We're looking for testers and contributors.
 [Start here](docs/CONTRIBUTING.md) if you want to help.*
 
-- 📞 **Call Feral and talk to it.** Press the phone button and it answers out
+- 📞 **Call Cinderpaw and talk to it.** Press the phone button and it answers out
   loud, in your language, interrupting and being interrupted the way a call
   works. It keeps every tool it has while it talks: your files, your memory of
   past conversations, the web. And it shows you the work as it happens: a browser,
@@ -128,7 +128,7 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
   wrong (`H₂O` against `h2o`, JSON inside a code fence, and speed limits that
   measure the network rather than the candidate). Fixed and measured: champion
   score 24.2 → 41.0 on the first run. And when self-improvement is off because
-  your model is a paid cloud one, Feral now says so on screen instead of in a
+  your model is a paid cloud one, Cinderpaw now says so on screen instead of in a
   log, with the switch and your spend cap next to it.
 - 🔁 **A second cloud provider to fall over to** before dropping to the local
   engine, so one provider's bad ten minutes no longer ends the work.
@@ -148,12 +148,12 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
   backed by code review alone.
 
 - 🧬 **Sub-agents.** The agent can hand a slice of work to a fresh sub-agent (`delegate_task`), run several in parallel, and stream their progress back live. A depth guard keeps it from recursively spawning itself.
-- 🙋 **It asks before it guesses.** Hit a real fork in the road and Feral stops to ask you (`ask_user`) instead of guessing, and the question reaches you wherever you are: the desktop app, the `feral chat` TUI, or right in your Discord/Slack/WhatsApp channel.
+- 🙋 **It asks before it guesses.** Hit a real fork in the road and Cinderpaw stops to ask you (`ask_user`) instead of guessing, and the question reaches you wherever you are: the desktop app, the `feral chat` TUI, or right in your Discord/Slack/WhatsApp channel.
 - 🎓 **On-device LoRA training.** Fine-tune a personal adapter on your own hardware (Unsloth, with a graceful fallback), gated behind an A/B eval so a worse adapter never ships. Needs an NVIDIA GPU to train.
 - 📦 **One-command install.** A single command detects your OS and sets everything up on Windows, macOS, and Linux (see [Quick install](#quick-install) above).
-- 💬 **Connectors, with personas.** Talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**; each connector can run its own persona (`--persona`), so the same Feral is a support bot in one channel and your personal agent in another.
+- 💬 **Connectors, with personas.** Talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**; each connector can run its own persona (`--persona`), so the same Cinderpaw is a support bot in one channel and your personal agent in another.
 - 🤖 **Agent unleashed.** The sandbox is allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.feral`, `~/.ssh`, and anything you list in `FERAL_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
-- 🧠 **Memory Layers + RSI.** See everything Feral remembers, grouped by recency; Feral tunes its own parameters while you're away and keeps only what measurably works.
+- 🧠 **Memory Layers + RSI.** See everything Cinderpaw remembers, grouped by recency; Cinderpaw tunes its own parameters while you're away and keeps only what measurably works.
 - 🔑 **BYOK (Bring Your Own Key).** OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
 
 Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
@@ -170,19 +170,19 @@ Grab the latest installer from [Releases](https://github.com/bloom500/feral/rele
 | **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/feral/issues). |
 | **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/feral/issues). |
 
-> **Windows first launch:** the installer isn't code-signed yet (certificates cost real money and Feral is free), so SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The installer is built by public GitHub Actions CI from this repository — you can audit exactly what went into it.
+> **Windows first launch:** the installer isn't code-signed yet (certificates cost real money and Cinderpaw is free), so SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The installer is built by public GitHub Actions CI from this repository — you can audit exactly what went into it.
 
-> **macOS first launch:** Feral isn't notarized by Apple (yet), so macOS will warn you on first open. If you see *"Feral.app is damaged"* or *"can't be opened"*, run this once in Terminal and you're set:
+> **macOS first launch:** Cinderpaw isn't notarized by Apple (yet), so macOS will warn you on first open. If you see *"Cinderpaw.app is damaged"* or *"can't be opened"*, run this once in Terminal and you're set:
 > ```bash
-> xattr -cr /Applications/Feral.app
+> xattr -cr /Applications/Cinderpaw.app
 > ```
-> Then open Feral normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
+> Then open Cinderpaw normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
 
 > **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.feral.byok`. That's your saved API keys in the macOS Keychain — enter your Mac login password and click **Always Allow** (or just re-enter the key in Settings → Cloud Keys). This happens because Feral isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Feral ships with an Apple Developer certificate.
 
 ### Hardware requirements
 
-Feral itself is lightweight — the models are what need muscle. You can skip local models entirely and run on cloud keys (BYOK) on any machine.
+Cinderpaw itself is lightweight — the models are what need muscle. You can skip local models entirely and run on cloud keys (BYOK) on any machine.
 
 | | Minimum | Recommended |
 |---|---|---|
@@ -190,13 +190,13 @@ Feral itself is lightweight — the models are what need muscle. You can skip lo
 | **GPU** | None — CPU inference works | Any Vulkan-capable GPU; 6 GB+ VRAM keeps 7–8B models fully on-GPU |
 | **Disk** | ~500 MB app + 2–5 GB per model | SSD, 20 GB+ free if you like collecting models |
 
-Every model card shows a **0–100 fitness score** for *your* hardware before you download — Feral tells you up front if a model will make your machine cry.
+Every model card shows a **0–100 fitness score** for *your* hardware before you download — Cinderpaw tells you up front if a model will make your machine cry.
 
 ## Quick start
 
-1. **Install and open Feral.** A short welcome wizard introduces the app — pick a name for yourself and your agent.
+1. **Install and open Cinderpaw.** A short welcome wizard introduces the app — pick a name for yourself and your agent.
 2. **Get a model** (either path works):
-   - **Local:** open **Models → Browse**, pick a model, and click download — Feral pre-selects the quantization that best fits your hardware. Already have GGUF files? Drop them in via **Models → Local**.
+   - **Local:** open **Models → Browse**, pick a model, and click download — Cinderpaw pre-selects the quantization that best fits your hardware. Already have GGUF files? Drop them in via **Models → Local**.
    - **Cloud (BYOK):** open **Settings → Cloud Keys** and paste an API key — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom OpenAI-compatible endpoint. Keys are stored locally and never proxied through anyone's server.
 3. **Chat.** Or flip the composer toggle to **Agent mode** to unleash the sidecar: tool-use, persistent memory, file access, and web research.
 
@@ -217,9 +217,9 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 ## Privacy, honestly
 
 - **Local models:** inference, conversations, and memory never leave your machine. No background network requests, no telemetry, no analytics — by design.
-- **Cloud models (BYOK):** your messages go to the provider you configured (OpenAI, Anthropic, …) when — and only when — you hit send. Feral talks to their API directly with your key; nothing is routed through our servers, because we don't have any. Their privacy policy applies to what you send them.
+- **Cloud models (BYOK):** your messages go to the provider you configured (OpenAI, Anthropic, …) when — and only when — you hit send. Cinderpaw talks to their API directly with your key; nothing is routed through our servers, because we don't have any. Their privacy policy applies to what you send them.
 - **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo or your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
-- **Update check:** once per launch, Feral asks GitHub Releases whether a newer version exists. Only the version request is sent — no usage data, no identifiers beyond a normal HTTP request. Turn it off in **Settings → General** for a fully offline app.
+- **Update check:** once per launch, Cinderpaw asks GitHub Releases whether a newer version exists. Only the version request is sent — no usage data, no identifiers beyond a normal HTTP request. Turn it off in **Settings → General** for a fully offline app.
 
 | | |
 |---|---|
@@ -233,8 +233,8 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 |---|---|
 | **Chat** | Persistent conversations with any local or cloud model. Projects keep related chats grouped and sane. |
 | **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, and an agentic loop. It thinks. Sometimes too much. |
-| **Memory Layers** | See everything Feral remembers about you — grouped by recency (Today / This Week / This Month / Older). Live RSI status and dream cycle history. |
-| **RSI (Self-Improvement)** | Feral tunes its own parameters while you're away. Evolutionary algorithm tests configs, keeps what works. Early-stage, functional. |
+| **Memory Layers** | See everything Cinderpaw remembers about you — grouped by recency (Today / This Week / This Month / Older). Live RSI status and dream cycle history. |
+| **RSI (Self-Improvement)** | Cinderpaw tunes its own parameters while you're away. Evolutionary algorithm tests configs, keeps what works. Early-stage, functional. |
 | **Connectors** | Talk to your agent from WhatsApp (QR pairing), Discord, or Slack. Same brain, same memory — running on your machine, not a cloud. |
 | **Deep Research** | Multi-step autonomous web research: searches, reads pages, extracts findings, synthesizes a cited Markdown report. Like having a very caffeinated research assistant who never sleeps. |
 | **Local Models** | Load GGUF models from disk. One-click load/unload with live Active status and hardware fitness scoring. |
@@ -252,7 +252,7 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 
 ## Architecture
 
-Feral has two runtime layers that talk to each other:
+Cinderpaw has two runtime layers that talk to each other:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -272,14 +272,14 @@ Feral has two runtime layers that talk to each other:
 └─────────────────────────────────────────────────────────┘
          ↕ stdin/stdout JSON (newline-delimited)
 ┌─────────────────────────────────────────────────────────┐
-│  Feral Agent (Bun / TypeScript sidecar)                 │
+│  Cinderpaw Agent (Bun / TypeScript sidecar)                 │
 │  └── see below                                          │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Feral Agent — the agentic runtime
+## Cinderpaw Agent — the agentic runtime
 
 When you flip the toggle to **Agent mode**, your messages go to a Bun/TypeScript sidecar process instead of the Rust backend directly. This sidecar is where all the interesting stuff happens.
 
@@ -304,7 +304,7 @@ Up to 10 iterations per message (50 for complex multi-step tasks like deep resea
 
 ### Memory layers
 
-Feral Agent has 4 memory layers that persist across sessions:
+Cinderpaw Agent has 4 memory layers that persist across sessions:
 
 | Layer | Storage | What it stores |
 |---|---|---|
@@ -477,7 +477,7 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 
 ## Security
 
-Feral takes the "your machine, your data" promise seriously:
+Cinderpaw takes the "your machine, your data" promise seriously:
 
 - Tool calls run through a **sandbox**: permission manifests, an egress proxy with SSRF protection and domain allowlists, path containment, and a full audit log
 - A **workspace scanner** catches hardcoded secrets and code anti-patterns before they bite you
@@ -494,24 +494,24 @@ Contributions are welcome — code, docs, bug reports, model recommendations, or
 You don't need the desktop app, a GPU, or a model to work on the agent:
 
 ```bash
-cd FeralAgent && bun install && bun test    # 2400+ tests, ~60s
+cd CinderpawAgent && bun install && bun test    # 2400+ tests, ~60s
 ```
 
-That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Feral's release maturity.
+That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Cinderpaw's release maturity.
 
 - Deep dive: [Contributor guide](docs/CONTRIBUTOR_GUIDE.md) (IPC protocols, test matrix, build & release flow)
 - Open a [Discussion](https://github.com/bloom500/feral/discussions) for ideas and questions
 - Check [open issues](https://github.com/bloom500/feral/issues) for something to pick up
 
-Note that Feral is **source-available under BSL 1.1, not OSI open source** — free for individuals and small orgs, converting to Apache 2.0 four years after each release. Details in [Licence](#license) below; we'd rather you know upfront.
+Note that Cinderpaw is **source-available under BSL 1.1, not OSI open source** — free for individuals and small orgs, converting to Apache 2.0 four years after each release. Details in [Licence](#license) below; we'd rather you know upfront.
 
 ## License
 
-Feral is source-available under the [Business Source License 1.1](LICENSE) (BSL).
+Cinderpaw is source-available under the [Business Source License 1.1](LICENSE) (BSL).
 
 **What that means in practice:**
 - ✅ **Free forever for you** — personal use, small businesses (under $2M annual revenue), education, research, self-hosting, modifying, redistributing.
-- 🚫 **Not free for big enterprise** — organizations above the revenue threshold, or anyone offering Feral as a hosted/managed service, need a [commercial license](mailto:bloommediacorporation@gmail.com).
+- 🚫 **Not free for big enterprise** — organizations above the revenue threshold, or anyone offering Cinderpaw as a hosted/managed service, need a [commercial license](mailto:bloommediacorporation@gmail.com).
 - 🕓 **Becomes fully open source automatically** — each version converts to Apache 2.0 four years after its release.
 
 This protects a small independent project from being repackaged by large companies while keeping it free for the people it's built for.
@@ -519,11 +519,11 @@ This protects a small independent project from being repackaged by large compani
 ---
 
 <p align="center">
-  <img src="frontend-react/public/LOGO%20NO%20BG.png" alt="Feral mascot" width="64" />
+  <img src="frontend-react/public/LOGO%20NO%20BG.png" alt="Cinderpaw mascot" width="64" />
 </p>
 
 <p align="center">
   <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
 </p>
 
-*Feral does not phone home, does not collect telemetry, and has never once asked you to "sign up to unlock the full experience." That would be very un-feral of it.*
+*Cinderpaw does not phone home, does not collect telemetry, and has never once asked you to "sign up to unlock the full experience." That would be very un-feral of it.*

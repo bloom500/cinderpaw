@@ -27,7 +27,7 @@ export async function decodeToPcm16k(blob: Blob): Promise<Float32Array> {
 const NO_CARRY = new Uint8Array(0);
 
 /**
- * Decode one base64 PCM chunk from `feral://tts-chunk` into Float32 samples.
+ * Decode one base64 PCM chunk from `cinderpaw://tts-chunk` into Float32 samples.
  *
  * Signed 16-bit little-endian in, -1..1 out, which is what an `AudioBuffer`
  * wants. No `decodeAudioData` involved: the bytes are already raw PCM, so there

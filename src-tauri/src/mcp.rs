@@ -2,7 +2,7 @@
 //! sidecar proxy.
 //!
 //! R5 (docs/2026-07-09-v1-architecture-hardening-spec.md): live MCP
-//! connections are owned by the Bun sidecar (`FeralAgent/src/sandbox/
+//! connections are owned by the Bun sidecar (`CinderpawAgent/src/sandbox/
 //! mcp-manager.ts`) so the AGENT can call MCP tools and no server is ever
 //! double-spawned by two clients. This module keeps what is genuinely the
 //! desktop host's job:
@@ -57,7 +57,7 @@ fn config_path() -> PathBuf {
 
 fn load_config() -> McpConfigFile {
     let path = config_path();
-    feral_core::atomic_file::read_json_or_report(&path, "your installed extensions")
+    cinderpaw_core::atomic_file::read_json_or_report(&path, "your installed extensions")
 }
 
 fn save_config(cfg: &McpConfigFile) -> Result<(), String> {
@@ -66,7 +66,7 @@ fn save_config(cfg: &McpConfigFile) -> Result<(), String> {
     // Secret: an MCP server's config carries the API keys it was installed
     // with. Atomic so a crash cannot leave an unparseable file that takes every
     // installed extension down with it on the next boot.
-    feral_core::atomic_file::write_secret_atomic(&path, raw.as_bytes())
+    cinderpaw_core::atomic_file::write_secret_atomic(&path, raw.as_bytes())
         .map_err(|e| format!("Couldn't save extension settings: {e}"))
 }
 
@@ -101,7 +101,7 @@ pub struct McpCatalogEntry {
     /// True when connecting opens a browser for the user to sign in.
     ///
     /// These extensions have no API key to paste: the publisher hosts the
-    /// service and authorises Feral through the browser instead. The UI has to
+    /// service and authorises Cinderpaw through the browser instead. The UI has to
     /// say so BEFORE the install starts — an unexplained browser window
     /// appearing is indistinguishable from something going wrong, and the user
     /// has to know to go and finish the login or the install just times out.
@@ -162,7 +162,7 @@ fn catalog() -> Vec<CatalogDef> {
     // stdio transport the sidecar speaks, and runs the browser sign-in.
     //
     // Vercel is deliberately absent despite hosting one: their MCP only
-    // accepts AI clients Vercel has reviewed and approved, and Feral is not
+    // accepts AI clients Vercel has reviewed and approved, and Cinderpaw is not
     // on that list, so the card would fail for every user at the consent
     // screen. The rest use open Dynamic Client Registration.
     //
@@ -634,7 +634,7 @@ fn catalog() -> Vec<CatalogDef> {
         //     an OAuth client-credentials JSON, i.e. a Google Cloud project.
         //     There is no key to paste, so there is no honest card to show.
         //   - Vercel: hosted MCP, but restricted to AI clients Vercel has
-        //     approved. Feral is not one, so it would fail at the consent screen.
+        //     approved. Cinderpaw is not one, so it would fail at the consent screen.
         //   - AWS, Docker, ElevenLabs, Google Analytics: no maintained Node
         //     server exists. The official ones are Python (uvx) or a desktop
         //     plugin, neither of which this install flow can offer.
@@ -689,7 +689,7 @@ pub struct McpToolView {
 ///
 /// Enforced on every platform at install time (configs travel with user
 /// profiles), and enforced AGAIN at spawn time in the sidecar
-/// (`FeralAgent/src/sandbox/mcp-manager.ts` `hasWindowsMetachars`) —
+/// (`CinderpawAgent/src/sandbox/mcp-manager.ts` `hasWindowsMetachars`) —
 /// defense-in-depth; neither layer may be relaxed without a security review.
 fn validate_config_tokens(command: &str, args: &[String]) -> Result<(), String> {
     let bad = |s: &str| {
@@ -708,8 +708,8 @@ fn validate_config_tokens(command: &str, args: &[String]) -> Result<(), String> 
 
 /// Send one MCP op to the sidecar and wait for its id-correlated
 /// `mcp_result` line. Same discipline as `governance_roundtrip` in
-/// `feral-core/src/api.rs`: subscribe the runtime event bus FIRST, then
-/// send, then filter `feral://agent-output` lines for our reply. The
+/// `cinderpaw-core/src/api.rs`: subscribe the runtime event bus FIRST, then
+/// send, then filter `cinderpaw://agent-output` lines for our reply. The
 /// desktop bus is fed by `TauriEvents` (lib.rs), which fans every host
 /// event onto `runtime.events_tx`.
 async fn sidecar_roundtrip(
@@ -718,17 +718,17 @@ async fn sidecar_roundtrip(
     timeout: std::time::Duration,
 ) -> Result<serde_json::Value, String> {
     let tx = {
-        let guard = state.feral_agent_tx.lock();
+        let guard = state.cinderpaw_agent_tx.lock();
         guard.as_ref().cloned()
     }
-    .ok_or_else(|| "Feral is still starting up — try again in a moment.".to_string())?;
+    .ok_or_else(|| "Cinderpaw is still starting up — try again in a moment.".to_string())?;
 
     let msg_id = uuid::Uuid::new_v4().to_string();
     payload["id"] = serde_json::Value::String(msg_id.clone());
     let mut rx = state.runtime.events_tx.subscribe();
     tx.send(payload.to_string())
         .await
-        .map_err(|_| "Feral is still starting up — try again in a moment.".to_string())?;
+        .map_err(|_| "Cinderpaw is still starting up — try again in a moment.".to_string())?;
 
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
@@ -738,7 +738,7 @@ async fn sidecar_roundtrip(
         }
         match tokio::time::timeout(remaining, rx.recv()).await {
             Ok(Ok(ev)) => {
-                if ev.event != "feral://agent-output" {
+                if ev.event != "cinderpaw://agent-output" {
                     continue;
                 }
                 let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
@@ -1155,7 +1155,7 @@ pub async fn mcp_call_tool(
 // The denylist is the defense-in-depth layer on top of the Rust 1.77.2+ std
 // BatBadBut arg-quoting fix (CVE-2024-24576). Spawn moved to the sidecar
 // (R5), which enforces the SAME set at spawn time
-// (FeralAgent/src/sandbox/mcp-manager.ts, hasWindowsMetachars + its tests);
+// (CinderpawAgent/src/sandbox/mcp-manager.ts, hasWindowsMetachars + its tests);
 // this layer rejects bad tokens before they are ever persisted. Any
 // character that survives this assertion would be a chain-into-arbitrary-
 // command hole on Windows — these tests must NEVER be relaxed without a

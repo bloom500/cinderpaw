@@ -16,7 +16,7 @@ import { useUI } from '@/stores/ui';
 const en = {
   // Chat input
   'chat.placeholder': 'Ask anything…',
-  'chat.placeholder.agent': 'Ask Feral…',
+  'chat.placeholder.agent': 'Ask Cinderpaw…',
   'chat.placeholder.noModel': 'Load a model or add a cloud key to start chatting',
   'chat.noModelHint': 'No model loaded. Open Models to download one, or add a cloud key in Settings.',
   // Spoken by the product, not the model — there is no model to speak. See
@@ -142,7 +142,7 @@ const en = {
   'call.liveNoKey': 'No Google API key stored. The same AI Studio key the chat side uses. Paste it below.',
   'call.liveClosed': 'Disconnected. Press call to reconnect.',
   'call.liveConnecting': 'Connecting…',
-  // The work panel — what Feral is doing while the call waits.
+  // The work panel — what Cinderpaw is doing while the call waits.
   'call.toolSearching': 'searching…',
   'call.toolDone': 'done',
   'call.toolFailed': 'failed',
@@ -174,7 +174,7 @@ type Strings = Record<keyof typeof en, string>;
 
 const ro: Strings = {
   'chat.placeholder': 'Întreabă orice…',
-  'chat.placeholder.agent': 'Întreabă Feral…',
+  'chat.placeholder.agent': 'Întreabă Cinderpaw…',
   'chat.placeholder.noModel': 'Încarcă un model sau adaugă o cheie cloud ca să începi',
   'chat.noModelHint': 'Niciun model încărcat. Deschide Models ca să descarci unul, sau adaugă o cheie cloud în Settings.',
   'chat.noModel.reply':

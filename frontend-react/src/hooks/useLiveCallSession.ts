@@ -59,7 +59,7 @@ const BRIEF_CHARS = 400;
 /**
  * What the model is told before it says a word.
  *
- * This was the whole of "it doesn't know it's in Feral and has no memory": the
+ * This was the whole of "it doesn't know it's in Cinderpaw and has no memory": the
  * call opened with nothing but the speech rules, because nobody filled these in.
  * The fields have existed since the engine was written and the one caller passed
  * none of them.

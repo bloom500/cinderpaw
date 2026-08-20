@@ -1,5 +1,5 @@
 //! Model lifecycle (scan/load/unload/download), HuggingFace + Ollama
-//! discovery, and the Feral Agent sidecar's active-model config.
+//! discovery, and the Cinderpaw Agent sidecar's active-model config.
 
 use crate::*;
 use std::path::PathBuf;
@@ -20,11 +20,11 @@ use tokio::sync::mpsc;
 /// Deterministic order, so a turn that fails over twice lands on the same
 /// endpoint both times and a bug report is reproducible.
 fn second_provider(primary: &str) -> Option<serde_json::Value> {
-    let settings = feral_core::settings::load();
-    let byok = feral_core::byok::load(&settings);
-    let catalog = feral_core::byok::provider_catalog();
+    let settings = cinderpaw_core::settings::load();
+    let byok = cinderpaw_core::byok::load(&settings);
+    let catalog = cinderpaw_core::byok::provider_catalog();
     pick_second_provider(primary, &byok.providers, &catalog, &|id| {
-        feral_core::byok::byok_get(id)
+        cinderpaw_core::byok::byok_get(id)
     })
 }
 
@@ -45,8 +45,8 @@ fn second_provider(primary: &str) -> Option<serde_json::Value> {
 ///     the failure this function was added to prevent.
 fn pick_second_provider(
     primary: &str,
-    providers: &std::collections::HashMap<String, feral_core::byok::ProviderConfig>,
-    catalog: &[feral_core::byok::ProviderCatalogEntry],
+    providers: &std::collections::HashMap<String, cinderpaw_core::byok::ProviderConfig>,
+    catalog: &[cinderpaw_core::byok::ProviderCatalogEntry],
     key_of: &dyn Fn(&str) -> Option<String>,
 ) -> Option<serde_json::Value> {
     let mut candidates: Vec<_> = providers
@@ -106,8 +106,8 @@ pub(crate) fn get_loaded_model(state: State<AppState>) -> Option<inference::Load
 }
 
 /// Starts a download in a detached Tokio task and returns its ID immediately.
-/// Progress streams over `feral://download-progress`.
-/// Completion: `feral://download-complete`. Failure: `feral://download-error`.
+/// Progress streams over `cinderpaw://download-progress`.
+/// Completion: `cinderpaw://download-complete`. Failure: `cinderpaw://download-error`.
 /// Use `cancel_download(model_id)` to abort an in-flight download.
 #[tauri::command]
 #[specta::specta]
@@ -141,7 +141,7 @@ pub(crate) async fn download_model(
         tokio::spawn(async move {
             while let Some(p) = rx.recv().await {
                 let _ = app.emit(
-                    "feral://download-progress",
+                    "cinderpaw://download-progress",
                     events::DownloadProgressEvent {
                         repo_id: repo.clone(),
                         filename: file.clone(),
@@ -186,7 +186,7 @@ pub(crate) async fn download_model(
         match result {
             Ok(path) => {
                 let _ = app_for_task.emit(
-                    "feral://download-complete",
+                    "cinderpaw://download-complete",
                     events::DownloadCompleteEvent {
                         repo_id: repo_for_task.clone(),
                         filename: file_for_task.clone(),
@@ -199,7 +199,7 @@ pub(crate) async fn download_model(
                 let kind = if cancelled { "cancelled" } else { "error" };
                 tracing::warn!(repo=%repo_for_task, file=%file_for_task, kind, error=%e, "download ended");
                 let _ = app_for_task.emit(
-                    "feral://download-error",
+                    "cinderpaw://download-error",
                     events::DownloadErrorEvent {
                         repo_id: repo_for_task.clone(),
                         filename: file_for_task.clone(),
@@ -216,7 +216,7 @@ pub(crate) async fn download_model(
 
 /// Aborts an in-flight download by ID (`repo_id::filename`).
 /// The download task observes the flag on its next chunk boundary,
-/// deletes the partial `.part` file, and emits `feral://download-error`
+/// deletes the partial `.part` file, and emits `cinderpaw://download-error`
 /// with `cancelled: true`.
 #[tauri::command]
 #[specta::specta]
@@ -493,7 +493,7 @@ pub(crate) async fn get_hf_model_size(repo_id: String) -> Result<String, String>
     Ok(format!("{:.2} GB", gb))
 }
 
-/// True when `url` addresses the local Feral API (loopback host on the
+/// True when `url` addresses the local Cinderpaw API (loopback host on the
 /// configured api port). Used to decide whether to inject the bearer token as
 /// the sidecar's api key. Conservative: any parse failure returns false, so a
 /// non-loopback target never gets the token.
@@ -512,7 +512,7 @@ fn is_local_api_url(url: &str, api_port: u16) -> bool {
     host_is_loopback && port == api_port
 }
 
-/// Hot-swap the Feral Agent's LLM backend without restarting the sidecar.
+/// Hot-swap the Cinderpaw Agent's LLM backend without restarting the sidecar.
 ///
 /// React passes `source` + optional fields — Rust injects the API key from
 /// byok.json before forwarding. The key never appears in frontend state.
@@ -630,7 +630,7 @@ pub(crate) async fn feral_set_model(
     .to_string();
 
     let tx = {
-        let guard = state.feral_agent_tx.lock();
+        let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
             .ok_or_else(|| "feral-agent is not running".to_string())?
@@ -665,7 +665,7 @@ pub(crate) async fn feral_set_model(
     Ok(())
 }
 
-/// Returns the display-safe model config currently active in the Feral Agent sidecar.
+/// Returns the display-safe model config currently active in the Cinderpaw Agent sidecar.
 /// Returns None until the first feral_set_model call this session.
 #[tauri::command]
 #[specta::specta]
@@ -674,7 +674,7 @@ pub(crate) fn feral_get_model_config(state: State<'_, AppState>) -> Option<Feral
 }
 
 /// Fetch the list of models available from a local Ollama instance.
-/// Used by the Feral model selector to populate the Ollama model submenu.
+/// Used by the Cinderpaw model selector to populate the Ollama model submenu.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn list_ollama_models(base_url: String) -> Result<Vec<String>, String> {
@@ -925,8 +925,8 @@ pub(crate) async fn get_hf_model_detail(repo_id: String) -> Result<HfModelDetail
 /// the LLM auto-load listener never tries to load it as a chat model, a no-op
 /// when already present, and cancellable. Idempotent — the frontend can fire
 /// this at startup and it returns immediately if the model is on disk.
-/// Progress: `feral://embedding-download-progress`. Completion/failure:
-/// `feral://embedding-download-complete` / `-error`.
+/// Progress: `cinderpaw://embedding-download-progress`. Completion/failure:
+/// `cinderpaw://embedding-download-complete` / `-error`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn download_embedding_model(
@@ -960,7 +960,7 @@ pub(crate) async fn download_embedding_model(
         tokio::spawn(async move {
             while let Some(p) = rx.recv().await {
                 let _ = app.emit(
-                    "feral://embedding-download-progress",
+                    "cinderpaw://embedding-download-progress",
                     events::DownloadProgressEvent {
                         repo_id: "embedding".into(),
                         filename: file.clone(),
@@ -1001,7 +1001,7 @@ pub(crate) async fn download_embedding_model(
         match result {
             Ok(path) => {
                 let _ = app_for_task.emit(
-                    "feral://embedding-download-complete",
+                    "cinderpaw://embedding-download-complete",
                     events::DownloadCompleteEvent {
                         repo_id: "embedding".into(),
                         filename: file_for_task.clone(),
@@ -1012,7 +1012,7 @@ pub(crate) async fn download_embedding_model(
             Err(e) => {
                 let cancelled = cancel_for_task.load(Ordering::Relaxed);
                 let _ = app_for_task.emit(
-                    "feral://embedding-download-error",
+                    "cinderpaw://embedding-download-error",
                     events::DownloadErrorEvent {
                         repo_id: "embedding".into(),
                         filename: file_for_task.clone(),
@@ -1065,7 +1065,7 @@ mod deser_default_tests {
 #[cfg(test)]
 mod second_provider_tests {
     use super::pick_second_provider;
-    use feral_core::byok::{provider_catalog, ProviderConfig};
+    use cinderpaw_core::byok::{provider_catalog, ProviderConfig};
     use std::collections::HashMap;
 
     fn cfg(enabled: bool, base_url: Option<&str>, model: Option<&str>) -> ProviderConfig {

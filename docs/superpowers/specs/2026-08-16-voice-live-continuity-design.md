@@ -49,7 +49,7 @@ wrapper carries no session identifier.
 The path is:
 
 `Gemini Live → crates/feral-core live session → src-tauri live pump →`
-`feral://live-status → useLiveCallSession → CallOverlay`
+`cinderpaw://live-status → useLiveCallSession → CallOverlay`
 
 Rust already logs each input transcript piece and a per-turn cadence summary.
 `useLiveCallSession` already accumulates pieces in `heardRef`, renders `heard`, and
@@ -62,7 +62,7 @@ alone.
 Gemini calls the Rust-visible `ask_feral` function. Rust forwards the request to
 the sidecar with a generated message id. Sidecar `tool_start`, `tool_progress`, and
 `tool_done` events contain the message id or its `traceId`, but
-`feral://agent-output` is a global bus whose Tauri wrapper contains only opaque
+`cinderpaw://agent-output` is a global bus whose Tauri wrapper contains only opaque
 JSON. `useLiveToolActivity` currently accepts every tool event observed while a
 call overlay is open. A cron or connector tool run can therefore be rendered as
 if the call started it. This is the cross-surface correlation defect addressed by

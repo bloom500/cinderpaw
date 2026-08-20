@@ -1,21 +1,21 @@
 /**
  * #11: "agent offline" banner. Shown in Agent mode after the sidecar exits
- * (`feral://agent-exit`). While the Rust supervisor is auto-restarting it
+ * (`cinderpaw://agent-exit`). While the Rust supervisor is auto-restarting it
  * shows a spinner; if the supervisor gave up, it tells the user to restart
- * the app. Cleared automatically when `feral://agent-ready` fires again.
+ * the app. Cleared automatically when `cinderpaw://agent-ready` fires again.
  */
 
 import { ShimmeringText } from '@/components/ui/shimmering-text';
 import { Loader2, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useFeralStore } from '@/stores/feral';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 
 const STARTUP_WARNING_DELAY_MS = 15_000;
 
 export function AgentOfflineBanner() {
-  const offline = useFeralStore((s) => s.offline);
-  const restarting = useFeralStore((s) => s.restarting);
-  const isReady = useFeralStore((s) => s.isReady);
+  const offline = useCinderpawStore((s) => s.offline);
+  const restarting = useCinderpawStore((s) => s.restarting);
+  const isReady = useCinderpawStore((s) => s.isReady);
   const [startupSlow, setStartupSlow] = useState(false);
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export function AgentOfflineBanner() {
             is harder to read, and only the first half needs to say "still
             working on it" at a glance. */}
         <span>
-          <ShimmeringText text="Feral is starting" />
+          <ShimmeringText text="Cinderpaw is starting" />
           {' — it loads its memory first, which takes a moment on a large '}
           {'workspace. Messages sent now will fail until it is up.'}
         </span>
@@ -71,7 +71,7 @@ export function AgentOfflineBanner() {
         <>
           <Loader2 size={13} className="animate-spin shrink-0" />
           <span>
-            Feral Agent went offline and is restarting automatically. Messages sent now
+            Cinderpaw Agent went offline and is restarting automatically. Messages sent now
             will fail until it&apos;s back.
           </span>
         </>
@@ -79,7 +79,7 @@ export function AgentOfflineBanner() {
         <>
           <WifiOff size={13} className="shrink-0" />
           <span>
-            Feral Agent is offline and automatic restarts were suspended after
+            Cinderpaw Agent is offline and automatic restarts were suspended after
             repeated crashes. Restart the app to bring Agent mode back.
           </span>
         </>

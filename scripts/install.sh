@@ -168,13 +168,13 @@ Run this once as root, then re-run the installer as this user:
   fi
 
   say "building the sidecar (feral-agent)…"
-  ( cd "$src/FeralAgent" && bun install --frozen-lockfile && bun run build )
+  ( cd "$src/CinderpawAgent" && bun install --frozen-lockfile && bun run build )
 
   # --no-default-features: the CLI's default `inference` feature pulls in
   # llama.cpp (heavy build, needs clang). Headless gateways use a cloud
   # provider via FERAL_BASE_URL/FERAL_API_KEY/FERAL_MODEL instead.
   say "building the CLI (feral) — no local inference engine…"
-  ( cd "$src" && cargo build --release -p feral-cli --no-default-features )
+  ( cd "$src" && cargo build --release -p cinderpaw-cli --no-default-features )
 
   # The terminal chat/setup UI. `feral chat` and `feral setup --classic` look
   # for `feral-tui` next to the CLI binary; without it those commands error out.
@@ -183,20 +183,20 @@ Run this once as root, then re-run the installer as this user:
 
   # The sidecar + TUI binaries MUST live next to the CLI (find_binary contract).
   mkdir -p "$HOME/.local/bin"
-  install -m 0755 "$src/target/release/feral-cli"    "$HOME/.local/bin/feral"
-  install -m 0755 "$src/FeralAgent/dist/feral-agent" "$HOME/.local/bin/feral-agent"
+  install -m 0755 "$src/target/release/cinderpaw-cli"    "$HOME/.local/bin/feral"
+  install -m 0755 "$src/CinderpawAgent/dist/feral-agent" "$HOME/.local/bin/feral-agent"
   install -m 0755 "$src/tui/feral-tui"               "$HOME/.local/bin/feral-tui"
 
   # Self-source bundle (code-RSI): the supervisor probes <exe>/../share/feral
-  # for FeralAgent/package.json and provisions ~/.feral/self-src from it —
+  # for CinderpawAgent/package.json and provisions ~/.feral/self-src from it —
   # same flow as the desktop app's Tauri resources. `git archive` gives a
   # clean tracked-files-only tree (no node_modules/target). This also ships
   # scripts/ (rebuild + LoRA trainer setup) to headless users.
   say "bundling self-sources (code-RSI)…"
   local share="$HOME/.local/share/feral"
-  rm -rf "$share/FeralAgent" "$share/scripts"
+  rm -rf "$share/CinderpawAgent" "$share/scripts"
   mkdir -p "$share"
-  git -C "$src" archive HEAD FeralAgent scripts | tar -x -C "$share"
+  git -C "$src" archive HEAD CinderpawAgent scripts | tar -x -C "$share"
 
   say "installed: $HOME/.local/bin/feral (+ feral-agent, feral-tui, self-src bundle)"
   # Persist ~/.local/bin on PATH for future logins (idempotent — a fresh SSH

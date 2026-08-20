@@ -114,7 +114,7 @@ fn write_index(dir: &Path, summaries: &[ConversationSummary]) -> Result<()> {
     // Atomic: a truncate-in-place that dies halfway leaves an index.json no
     // parser accepts, and the whole conversation list reads as empty — every
     // chat still on disk, none of them visible.
-    feral_core::atomic_file::write_atomic(&index_path(dir), &serde_json::to_vec(&index)?)?;
+    cinderpaw_core::atomic_file::write_atomic(&index_path(dir), &serde_json::to_vec(&index)?)?;
     Ok(())
 }
 
@@ -159,7 +159,7 @@ pub fn save_to_dir(
         agent_id: agent_id.clone(),
     };
 
-    feral_core::atomic_file::write_atomic(&conv_path, &serde_json::to_vec(&conv)?)?;
+    cinderpaw_core::atomic_file::write_atomic(&conv_path, &serde_json::to_vec(&conv)?)?;
 
     let mut summaries = read_index(dir)?;
     let summary = ConversationSummary {
@@ -205,7 +205,7 @@ pub fn delete_from_dir(dir: &Path, id: &str) -> Result<()> {
         for m in &conv.messages {
             if let Some(v) = &m.voice {
                 let audio = Path::new(&v.audio_path);
-                match feral_core::rsi::paths::is_under(&voice_dir, audio) {
+                match cinderpaw_core::rsi::paths::is_under(&voice_dir, audio) {
                     Ok(true) => {
                         let _ = std::fs::remove_file(audio);
                     }

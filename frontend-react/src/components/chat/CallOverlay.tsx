@@ -172,7 +172,7 @@ export function CallOverlay({
   // whatever the user is doing in the chat behind the overlay.
   const toolActivity = useLiveToolActivity(phase !== 'idle' && phase !== 'ready');
   /** A tool is running right now. Its own signal rather than a sixth phase,
-   *  because it is orthogonal: Feral can be answering out loud WHILE a search
+   *  because it is orthogonal: Cinderpaw can be answering out loud WHILE a search
    *  is still running, and the sphere should be able to say both at once. */
   const workingNow = toolActivity.some((a) => a.status === 'running');
   /** Which Gemini voice is answering — the sphere is tinted to match, so the
@@ -583,7 +583,7 @@ export function CallOverlay({
           )}
         </div>
 
-        {/* What Feral is doing, while it does it. The one thing that separates a
+        {/* What Cinderpaw is doing, while it does it. The one thing that separates a
             call that is working from one that has hung — and, on a call that
             runs tools, the only visible evidence the agent is real. */}
         <CallToolScreen activity={toolActivity} />
@@ -835,7 +835,7 @@ function Orb({
    * Spinning the whole ball faster is what it already does while thinking, so
    * reusing that would say the same thing twice and mean neither. Only the
    * colour INSIDE takes it, while the breathing and the glint keep the phase's
-   * tempo — so it composes: Feral can be speaking and searching at once, and
+   * tempo — so it composes: Cinderpaw can be speaking and searching at once, and
    * the sphere shows both.
    */
   const churn = (d: string) => (working ? `${(parseFloat(d) / 2.6).toFixed(1)}s` : d);

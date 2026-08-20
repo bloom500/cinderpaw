@@ -43,7 +43,7 @@ let progressUnlisten: UnlistenFn | null = null;
  * Tell the user once, at load time, when their GPU was available but ended up
  * unused — the model fell back to CPU (VRAM too small, or the driver refused
  * the allocation). Until now this only existed as a line in a log file, so the
- * symptom the user actually got was "Feral is slow" with no cause attached.
+ * symptom the user actually got was "Cinderpaw is slow" with no cause attached.
  *
  * Only the bad case is announced. A successful GPU load is visible in the
  * badge and does not deserve an interruption.
@@ -118,7 +118,7 @@ export const useModel = create<ModelStore>()(persist((set) => ({
     await useModel.getState().load(path);
   },
 }), {
-  name: 'feral-model',
+  name: 'cinderpaw-model',
   partialize: (s) => ({ cloudModel: s.cloudModel, inferParams: s.inferParams, contextByModel: s.contextByModel }),
 }));
 

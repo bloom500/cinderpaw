@@ -9,7 +9,7 @@
 
 ## 1. Why one schema
 
-Today, Feral has three near-overlapping observability surfaces:
+Today, Cinderpaw has three near-overlapping observability surfaces:
 
 - `~/.feral/rsi/dream.jsonl` (per-episode telemetry, `dream-telemetry.ts`)
 - `~/.feral/rsi/sandbox_bounds.audit.log` (SandboxBounds mutations)

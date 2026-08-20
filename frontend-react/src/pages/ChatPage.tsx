@@ -17,9 +17,9 @@ import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
-import { FeralGlobalMount } from '@/components/chat/FeralGlobalMount';
-import { useFeralSendMessage } from '@/hooks/useFeral';
-import { useFeralStore } from '@/stores/feral';
+import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
+import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -30,10 +30,10 @@ export function ChatPage() {
   const inputMode    = useUI((s) => s.inputMode);
   const setInputMode = useUI((s) => s.setInputMode);
   const sessionId    = useChat((s) => s.sessionId);
-  const feralSend    = useFeralSendMessage(sessionId);
+  const feralSend    = useCinderpawSendMessage(sessionId);
   const isAgentMode  = inputMode === 'agent';
 
-  // The composer is always live. Feral used to gate the whole screen on
+  // The composer is always live. Cinderpaw used to gate the whole screen on
   // `hasModel`, which meant a fresh install — the one machine that has no
   // model by definition — met a dead end instead of a product. When there
   // is no model, ChatInput answers the first message itself and offers the
@@ -81,7 +81,7 @@ export function ChatPage() {
   }, []);
 
   // Open conversation when route changes; auto-switch to agent mode
-  // if the conversation was created under a Feral Agent.
+  // if the conversation was created under a Cinderpaw Agent.
   useEffect(() => {
     if (!id) return;
     const targetId = id;
@@ -119,10 +119,10 @@ export function ChatPage() {
 
   // When the user switches to agent mode:
   // 1. Ensure an agent is selected so feralSend can tag conversations.
-  // 2. Hot-swap the Feral sidecar to the currently loaded local model.
+  // 2. Hot-swap the Cinderpaw sidecar to the currently loaded local model.
   //    The sidecar persists its own model config and may be pointing at
   //    an Ollama model name that doesn't match what's loaded in the
-  //    Feral inference backend (port 11435). Without this sync, all
+  //    Cinderpaw inference backend (port 11435). Without this sync, all
   //    sidecar requests fail silently.
   useEffect(() => {
     if (inputMode !== 'agent') return;
@@ -143,12 +143,12 @@ export function ChatPage() {
     // explicit cloud/BYOK choice. A BYOK selection sets modelConfig.provider to
     // the provider id (e.g. "openai"); local uses "openai_compatible" and
     // external Ollama uses "ollama". If the user already picked a cloud model
-    // via FeralModelSelector, leave it; only auto-sync when on a local target.
+    // via CinderpawModelSelector, leave it; only auto-sync when on a local target.
     if (loaded) {
-      const cfg = useFeralStore.getState().modelConfig;
+      const cfg = useCinderpawStore.getState().modelConfig;
       const onCloud = !!cfg && cfg.provider !== 'openai_compatible' && cfg.provider !== 'ollama';
       if (!onCloud) {
-        void useFeralStore.getState().setModel({
+        void useCinderpawStore.getState().setModel({
           source: 'openai_compatible',
           model: loaded.name,
           baseUrl: 'http://localhost:11435',
@@ -179,7 +179,7 @@ export function ChatPage() {
       )}
       {!showAgentOnboarding && <ChatHeader />}
 
-      {isAgentMode && <FeralGlobalMount />}
+      {isAgentMode && <CinderpawGlobalMount />}
       {isAgentMode && <AgentOfflineBanner />}
 
       {/* Positioning context for absolute children */}

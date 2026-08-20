@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { StreamStatus, AgentPhase } from '@/stores/chat';
 import { useAskUser } from '@/stores/askUser';
-import { useFeralStore } from '@/stores/feral';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import type { MascotState } from './frames';
 
 export const DONE_HOLD_MS = 1200;
@@ -34,7 +34,7 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
   // "I asked YOU a question" (ask_user pending → curious, looking at the
   // user) and "my agent process is down" (sidecar offline → asleep).
   const askPending = useAskUser((s) => s.pending !== null);
-  const agentOffline = useFeralStore((s) => s.offline);
+  const agentOffline = useCinderpawStore((s) => s.offline);
 
   const isExcitedTransition = streamStatus === 'streaming' && prevStatus.current !== 'streaming' && idleTier.current > 0;
 

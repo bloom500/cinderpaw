@@ -148,7 +148,7 @@ export const useUI = create<UIStore>()(
         set((s) => ({ ttsVoice: { ...s.ttsVoice, [engineId]: voiceId } })),
     }),
     {
-      name: 'feral-ui',
+      name: 'cinderpaw-ui',
       partialize: (s) => ({
         navCollapsed: s.navCollapsed,
         theme: s.theme,

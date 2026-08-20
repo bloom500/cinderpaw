@@ -1,7 +1,7 @@
 /**
  * useAskUser — Zustand store for Claude.ai-style interactive questions.
  *
- * When the Feral Agent sidecar emits an `ask_user` event, the React side
+ * When the Cinderpaw Agent sidecar emits an `ask_user` event, the React side
  * routes it here. The store presents ONE question at a time (`pending`, the
  * head), but any further requests that arrive before the user answers are
  * QUEUED in `waiting` rather than overwriting the head. This is essential for
@@ -68,7 +68,7 @@ interface AskUserStore {
   history: AskUserHistoryEntry[];
 
   /**
-   * Called by useFeralStream when an `ask_user` event arrives from the
+   * Called by useCinderpawStream when an `ask_user` event arrives from the
    * sidecar. Returns a Promise that resolves when the user picks options
    * (or rejects on cancel / timeout). The consumer is expected to call
    * `feralAskUserResponse(requestId, answers)` when the Promise resolves.

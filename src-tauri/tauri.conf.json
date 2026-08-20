@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Feral",
+  "productName": "Cinderpaw",
   "version": "2026.8.11",
-  "identifier": "ai.feral.app",
+  "identifier": "ai.cinderpaw.app",
   "build": {
     "frontendDist": "../frontend-react/dist",
     "devUrl": "http://127.0.0.1:5173",
@@ -49,14 +49,14 @@
       "rpm": { "depends": ["git"] }
     },
     "externalBin": [
-      "binaries/feral-agent"
+      "binaries/cinderpaw-agent"
     ],
     "resources": [
-      "../FeralAgent/src/**/*",
-      "../FeralAgent/tests/**/*",
-      "../FeralAgent/package.json",
-      "../FeralAgent/tsconfig.json",
-      "../FeralAgent/bun.lock",
+      "../CinderpawAgent/src/**/*",
+      "../CinderpawAgent/tests/**/*",
+      "../CinderpawAgent/package.json",
+      "../CinderpawAgent/tsconfig.json",
+      "../CinderpawAgent/bun.lock",
       "../scripts/rsi-rebuild-sidecar.ps1",
       "../scripts/rsi-rebuild-sidecar.sh",
       "../scripts/setup-lora-trainer.ps1",

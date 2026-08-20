@@ -1,5 +1,5 @@
 /**
- * Regression cover for `public/feral-prepaint.js`.
+ * Regression cover for `public/cinderpaw-prepaint.js`.
  *
  * The bug this exists for: the script is a BLOCKING script in <head>, so it
  * runs before <body> is parsed. It used to look up `#feral-startup` and
@@ -18,7 +18,7 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 // Vite's ?raw loads the shipped file itself, so the test can never drift
 // onto a copy of the script.
-import SCRIPT from '../../public/feral-prepaint.js?raw';
+import SCRIPT from '../../public/cinderpaw-prepaint.js?raw';
 
 /** Run the prepaint script in the current jsdom document. */
 function runPrepaint(): void {
@@ -52,13 +52,13 @@ describe('feral-prepaint', () => {
 
   test('stamps the theme before the DOM exists', () => {
     // The whole reason the script is blocking and in <head>.
-    localStorage.setItem('feral-ui', JSON.stringify({ state: { theme: 'light' } }));
+    localStorage.setItem('cinderpaw-ui', JSON.stringify({ state: { theme: 'light' } }));
     runPrepaint();
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
   test('falls back to dark when the persisted theme is corrupt', () => {
-    localStorage.setItem('feral-ui', '{not json');
+    localStorage.setItem('cinderpaw-ui', '{not json');
     runPrepaint();
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
@@ -106,7 +106,7 @@ describe('feral-prepaint', () => {
   });
 
   test('keeps the surface up when React never mounts', async () => {
-    // Deliberate: a boot failure must show the Feral surface, not a blank
+    // Deliberate: a boot failure must show the Cinderpaw surface, not a blank
     // window. The safety-net poll checks the same condition as the observer,
     // so it must not dismiss on a timer alone.
     runPrepaint();

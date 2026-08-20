@@ -35,7 +35,7 @@ import { join, relative, sep } from "node:path";
 
 const ROOT = process.cwd();
 const INVARIANTS_MD = "docs/invariants.md";
-const SRC_DIRS = ["FeralAgent/src", "FeralAgent/tests", "src-tauri/src"];
+const SRC_DIRS = ["CinderpawAgent/src", "CinderpawAgent/tests", "src-tauri/src"];
 const TEST_PATTERN = /\.test\.ts$/;
 const SOURCE_PATTERN = /\.(ts|rs)$/;
 

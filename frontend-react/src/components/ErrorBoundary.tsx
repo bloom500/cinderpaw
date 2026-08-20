@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <div className="text-5xl" aria-hidden>😿</div>
         <h1 className="text-xl font-semibold">Something went wrong</h1>
         <p className="text-sm text-text-muted max-w-md text-center leading-relaxed">
-          Feral hit an unexpected error while rendering. Your conversations are
+          Cinderpaw hit an unexpected error while rendering. Your conversations are
           saved on disk and will be there after a reload.
         </p>
         <pre className="max-w-xl max-h-40 overflow-auto text-xs text-text-muted bg-bg-surface border border-border-default rounded-lg px-4 py-3 whitespace-pre-wrap">

@@ -21,7 +21,7 @@ func TestFetchProviderCatalog_200(t *testing.T) {
 		if r.URL.Path != "/runtime/providers/catalog" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		w.Header().Set("X-Feral-Catalog-Version", "1")
+		w.Header().Set("X-Cinderpaw-Catalog-Version", "1")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, payload)
 	}))
@@ -56,7 +56,7 @@ func TestFetchProviderCatalog_200(t *testing.T) {
 func TestFetchProviderCatalog_VersionMismatch(t *testing.T) {
 	payload := `[{"id":"openai","name":"OpenAI","provider":"openai","default_base_url":"","default_model":"gpt-4o","supports_custom_base_url":false,"auth_style":"bearer"}]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Feral-Catalog-Version", "999")
+		w.Header().Set("X-Cinderpaw-Catalog-Version", "999")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, payload)
 	}))
@@ -112,7 +112,7 @@ func TestFetchConnectorCatalog_200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Header version must match ConnectorCatalogVersionExpected (today: 3)
 		// — the same constant the wizard bundle-side path asserts.
-		w.Header().Set("X-Feral-Catalog-Version", "3")
+		w.Header().Set("X-Cinderpaw-Catalog-Version", "3")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, payload)
 	}))

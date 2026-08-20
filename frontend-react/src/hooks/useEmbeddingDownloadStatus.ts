@@ -4,9 +4,9 @@
  * The `tauri.raw.downloadEmbeddingModel()` command is idempotent — it
  * returns immediately when the file already exists on disk, downloads in
  * the background otherwise, and emits three channels:
- *   - `feral://embedding-download-progress` (0..1 fraction)
- *   - `feral://embedding-download-complete` (final on-disk path)
- *   - `feral://embedding-download-error`    (failure reason)
+ *   - `cinderpaw://embedding-download-progress` (0..1 fraction)
+ *   - `cinderpaw://embedding-download-complete` (final on-disk path)
+ *   - `cinderpaw://embedding-download-error`    (failure reason)
  *
  * This hook folds those three into a single `EmbeddingDownloadState` so the
  * UI can render one of four clear shapes instead of:

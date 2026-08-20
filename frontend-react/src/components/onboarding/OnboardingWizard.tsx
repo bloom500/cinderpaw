@@ -34,7 +34,7 @@ import { useSettings } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
-import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
+import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
 import { cn } from '@/lib/utils';
 
 const stepVariants = {
@@ -176,10 +176,10 @@ function WelcomeStep() {
         className="flex justify-center [&_canvas]:w-24 [&_canvas]:h-24 [&_canvas]:[image-rendering:pixelated]"
         aria-hidden
       >
-        <FeralMascot state="wave" />
+        <CinderpawMascot state="wave" />
       </motion.div>
       <h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
-        Welcome to Feral
+        Welcome to Cinderpaw
       </h1>
       <p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
         A local AI agent that helps you with your files, projects, and tasks,
@@ -227,13 +227,13 @@ function PersonalizeStep() {
 
         <Field
           label="What should you call me?"
-          hint={'You can leave "Feral" or pick something else.'}
+          hint={'You can leave "Cinderpaw" or pick something else.'}
         >
           <input
             type="text"
             value={agentName}
             onChange={(e) => setAgentName(e.target.value)}
-            placeholder="Feral"
+            placeholder="Cinderpaw"
             maxLength={40}
             className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
             aria-label="Agent name"
@@ -266,7 +266,7 @@ function Field({
 
 function Preview({ userName, agentName }: { userName: string; agentName: string }) {
   const safeName = userName.trim() || 'you';
-  const safeAgent = agentName.trim() || 'Feral';
+  const safeAgent = agentName.trim() || 'Cinderpaw';
   return (
     <div className="rounded-lg bg-bg-primary/50 border border-border-subtle p-4 text-sm space-y-2">
       <p className="text-text-muted text-xs uppercase tracking-wider font-medium">
@@ -818,7 +818,7 @@ function DoneStep() {
   const userName = useOnboarding((s) => s.userName);
   const agentName = useOnboarding((s) => s.agentName);
   const safeName = userName.trim() || 'you';
-  const safeAgent = agentName.trim() || 'Feral';
+  const safeAgent = agentName.trim() || 'Cinderpaw';
 
   return (
     <div className="text-center space-y-6">
@@ -849,7 +849,7 @@ function DoneStep() {
 }
 
 /**
- * At-rest data protection notice (H-1). Feral keeps everything local, so the
+ * At-rest data protection notice (H-1). Cinderpaw keeps everything local, so the
  * confidentiality of conversations and memory on disk depends on the OS's
  * full-disk encryption. We surface the host's status here — reassurance when
  * it's on, a clear nudge when it isn't. Silent on any error (e.g. running

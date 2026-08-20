@@ -1,5 +1,5 @@
 /**
- * ConnectorsPage — "Connector Surface". Where you connect the Feral agent to
+ * ConnectorsPage — "Connector Surface". Where you connect the Cinderpaw agent to
  * the places you already chat (Discord today; Telegram/WhatsApp/Slack soon) so
  * you can talk to your LOCAL assistant from there. Sits right under Extensions.
  *

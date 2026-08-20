@@ -7,7 +7,7 @@
 
 ## Objective
 
-On a fresh Feral installation, Brain Stack is active by default and selects an
+On a fresh Cinderpaw installation, Brain Stack is active by default and selects an
 appropriate available model for every turn, without the user writing
 `~/.feral/brain.json` and without the user picking a model to send a message.
 
@@ -66,8 +66,8 @@ Rules the table must obey:
 
 - **Unknown models score mid on everything except `tool_use`-adjacent
   behaviour, where they score low.** An unproven model is not handed the work
-  most likely to fail silently. Failing toward "Feral used the cloud model" is
-  correct; failing toward "Feral promised and could not deliver" is not.
+  most likely to fail silently. Failing toward "Cinderpaw used the cloud model" is
+  correct; failing toward "Cinderpaw promised and could not deliver" is not.
 - `local` is derived from the base URL using the router's existing
   `#isLocalHost` logic, not guessed from the model name.
 - `cost` stays the existing `1 | 2 | 3` ordinal. Real per-token pricing is out
@@ -169,11 +169,11 @@ vocabulary rules and progressive-disclosure rule.
 
 | File | Change |
 |---|---|
-| `FeralAgent/src/brain/model-profiles.ts` | **new** — family table + `profileFor()` |
-| `FeralAgent/src/brain/brain-config.ts` | add `deriveDefaultConfig()`; file still wins |
-| `FeralAgent/src/boot.ts` | build Brain from derived config when no file |
-| `FeralAgent/src/core/agent-loop.ts` | emit `model_routed` on both paths |
-| `FeralAgent/src/types.ts` | the `model_routed` variant |
+| `CinderpawAgent/src/brain/model-profiles.ts` | **new** — family table + `profileFor()` |
+| `CinderpawAgent/src/brain/brain-config.ts` | add `deriveDefaultConfig()`; file still wins |
+| `CinderpawAgent/src/boot.ts` | build Brain from derived config when no file |
+| `CinderpawAgent/src/core/agent-loop.ts` | emit `model_routed` on both paths |
+| `CinderpawAgent/src/types.ts` | the `model_routed` variant |
 | `frontend-react/src/components/chat/EmptyStates.tsx` | remove the blocking dead-end |
 | `frontend-react/src/components/chat/ChatInput.tsx` | drop `noModel` placeholder block |
 | `frontend-react/src/lib/i18n.ts` | new EN + RO copy for D4 and B4 |

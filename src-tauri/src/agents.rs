@@ -49,7 +49,7 @@ pub fn save(cfg: &AgentConfig) -> Result<()> {
     // An agent config carries its system prompt and provider selection, and is
     // written from the UI on every edit — atomic, so an interrupted save cannot
     // leave a half-agent that fails to load.
-    feral_core::atomic_file::write_secret_atomic(&path, &serde_json::to_vec_pretty(cfg)?)?;
+    cinderpaw_core::atomic_file::write_secret_atomic(&path, &serde_json::to_vec_pretty(cfg)?)?;
     Ok(())
 }
 

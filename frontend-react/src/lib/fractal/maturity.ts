@@ -4,7 +4,7 @@
  * memory is pruned. Stored per-install in localStorage; degrades to 0 (no
  * persistence) if storage is unavailable, without throwing.
  */
-const KEY = 'feral.fractal.maturityFloor';
+const KEY = 'cinderpaw.fractal.maturityFloor';
 
 export const maturity = {
   current(): number {

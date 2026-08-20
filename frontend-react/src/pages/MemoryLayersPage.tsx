@@ -5,23 +5,23 @@ import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
- * Memory Layers — the user-friendly surface of Feral's FMS + RSI systems.
+ * Memory Layers — the user-friendly surface of Cinderpaw's FMS + RSI systems.
  *
  * We deliberately NO LONGER draw a stylized tree: matching a hand-painted
  * reference procedurally takes more artistic range than a runtime renderer
  * can give, and the result was distracting instead of helpful. Non-technical
  * users care about three things, all surfaced here:
  *
- *   1. What does Feral remember about me?   → tiered memory list
+ *   1. What does Cinderpaw remember about me?   → tiered memory list
  *      (Today / This week / This month / Older).
- *   2. Is Feral self-improving right now?   → live RSI pill (idle / dreaming /
+ *   2. Is Cinderpaw self-improving right now?   → live RSI pill (idle / dreaming /
  *      ratcheted / error) tied to actual engine events.
- *   3. Has Feral been dreaming?            → recent dream episodes with score
+ *   3. Has Cinderpaw been dreaming?            → recent dream episodes with score
  *      progression so the user sees something actually changing.
  *
  * Visual: tier border saturation grows for more recent tiers so the visual
  * hierarchy matches the data hierarchy. New memories fade in at the top of
- * "Today". A live dream pulses the "Feral's Dreams" panel; a ratchet flashes
+ * "Today". A live dream pulses the "Cinderpaw's Dreams" panel; a ratchet flashes
  * the best score line. Colours come from the project theme tokens so this
  * page adapts automatically to light / dark mode.
  */
@@ -114,7 +114,7 @@ function TierPanel({
       {nodes.length === 0 ? (
         <p className="text-xs text-text-muted">
           {tier === 'today'
-            ? 'Nothing yet today. Chat with Feral to fill this tier.'
+            ? 'Nothing yet today. Chat with Cinderpaw to fill this tier.'
             : `No memories in this tier yet.`}
         </p>
       ) : (
@@ -174,7 +174,7 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
   );
 }
 
-/** Live RSI pill — same data as before, now lives above the Feral's Dreams
+/** Live RSI pill — same data as before, now lives above the Cinderpaw's Dreams
  *  panel so the connection is obvious. */
 function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
   const phase = snapshot.phase;
@@ -194,7 +194,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
     : phase === 'error'    ? 'error'
                             : 'idle';
   const detail =
-    phase === 'dreaming' ? 'Feral is exploring new params'
+    phase === 'dreaming' ? 'Cinderpaw is exploring new params'
     : phase === 'ratcheted' ? snapshot.lastRatchetScore != null
         ? `champion score ${snapshot.lastRatchetScore.toFixed(1)}`
         : 'new champion applied'
@@ -292,15 +292,15 @@ export default function MemoryLayersPage() {
         <header className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-brand">
             <Layers size={14} />
-            <span>Feral · Memory Layers</span>
+            <span>Cinderpaw · Memory Layers</span>
           </div>
           <h1 className="text-2xl font-semibold leading-tight text-text-primary">
-            Everything Feral remembers.
+            Everything Cinderpaw remembers.
           </h1>
           <p className="max-w-2xl text-sm text-text-secondary">
-            Facts Feral learned from your conversations, grouped by how long ago. New
+            Facts Cinderpaw learned from your conversations, grouped by how long ago. New
             memories land in <span className="text-brand">Today</span>; older ones
-            stay searchable so Feral can recall them when context demands.
+            stay searchable so Cinderpaw can recall them when context demands.
           </p>
           <div className="mt-2 flex items-center gap-3">
             <RsiHud snapshot={rsiSnapRef.current} />
@@ -320,7 +320,7 @@ export default function MemoryLayersPage() {
         {stats.total === 0 ? (
           <section className="rounded-lg border border-brand/40 bg-bg-surface px-5 py-6 text-center">
             <h2 className="text-base font-semibold text-brand">
-              Feral hasn't remembered anything yet.
+              Cinderpaw hasn't remembered anything yet.
             </h2>
             <p className="mt-1 text-xs text-text-secondary">
               As you chat, facts you mention begin to fill the layers below.
@@ -358,7 +358,7 @@ export default function MemoryLayersPage() {
           <header className="mb-3 flex items-center gap-2">
             <Sparkles size={14} className="text-brand" />
             <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
-              Feral's Dreams
+              Cinderpaw's Dreams
             </h2>
             <span className="text-xs text-text-muted">
               {dreamLast.length} {dreamLast.length === 1 ? 'cycle' : 'cycles'}
@@ -366,7 +366,7 @@ export default function MemoryLayersPage() {
           </header>
           {dreamLast.length === 0 ? (
             <p className="text-xs text-text-muted">
-              No dream cycles yet. Feral tunes its own parameters while you're away.
+              No dream cycles yet. Cinderpaw tunes its own parameters while you're away.
               leave the app for ~5 minutes and the first dream will land here.
             </p>
           ) : (

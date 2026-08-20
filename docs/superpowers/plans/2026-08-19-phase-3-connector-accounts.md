@@ -6,7 +6,7 @@
 
 **Architecture:** `feral-core` owns a single connector catalog (descriptors) and a single account model whose `status` is the truth about a connection; secrets move out of `connectors.json` into the storage BYOK already uses; the sidecar's `ConnectorManager` loses its three named connector fields in favour of a registry of `LiveConnector` implementations. OAuth arrives as one pairing method — the device authorization grant — modelled as a state machine the UI can read.
 
-**Tech Stack:** Rust (`feral-core`, `src-tauri`, `keyring`, `serde`, `tokio`), TypeScript/Bun (`FeralAgent` sidecar), React + Zustand (`frontend-react`).
+**Tech Stack:** Rust (`feral-core`, `src-tauri`, `keyring`, `serde`, `tokio`), TypeScript/Bun (`CinderpawAgent` sidecar), React + Zustand (`frontend-react`).
 
 **Spec:** `docs/specs/2026-08-19-phase-3-connector-accounts.md` — read it before Task 1.
 
@@ -36,11 +36,11 @@
 | `crates/feral-core/src/connector_accounts.rs` | **New.** `ConnectorAccount`, `AccountStatus`, `AuthState`, persistence in `~/.feral/connector-accounts.json`. |
 | `crates/feral-core/src/oauth_device.rs` | **New.** Device authorization grant: request, poll, refresh — as pure state transitions over an injected clock and HTTP client. |
 | `src-tauri/src/connectors.rs` | **Modified.** Catalog list deleted; view types built from `feral-core` descriptors. Commands for the device flow. |
-| `FeralAgent/src/transports/registry.ts` | **New.** `LiveConnector`, `ConnectorContext`, the factory registry. |
-| `FeralAgent/src/transports/connectors.ts` | **Modified.** `ConnectorManager` holds `Map<id, LiveConnector>`; the three existing classes gain the interface. |
-| `FeralAgent/src/transports/matrix.ts` | **New.** Matrix transport. |
-| `FeralAgent/src/transports/mattermost.ts` | **New.** Mattermost transport. |
-| `FeralAgent/src/transports/twitch.ts` | **New.** Twitch transport. |
+| `CinderpawAgent/src/transports/registry.ts` | **New.** `LiveConnector`, `ConnectorContext`, the factory registry. |
+| `CinderpawAgent/src/transports/connectors.ts` | **Modified.** `ConnectorManager` holds `Map<id, LiveConnector>`; the three existing classes gain the interface. |
+| `CinderpawAgent/src/transports/matrix.ts` | **New.** Matrix transport. |
+| `CinderpawAgent/src/transports/mattermost.ts` | **New.** Mattermost transport. |
+| `CinderpawAgent/src/transports/twitch.ts` | **New.** Twitch transport. |
 | `frontend-react/src/components/connectors/AccountCard.tsx` | **New.** Renders status and the device-code instruction. |
 
 ---
@@ -805,8 +805,8 @@ git commit -m "feat(core): status is a value, not 'enabled in a file'"
 ### Task 7: `LiveConnector` and the registry
 
 **Files:**
-- Create: `FeralAgent/src/transports/registry.ts`
-- Test: `FeralAgent/tests/connector-registry.test.ts`
+- Create: `CinderpawAgent/src/transports/registry.ts`
+- Test: `CinderpawAgent/tests/connector-registry.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -835,7 +835,7 @@ export function transportFor(id: string): ConnectorFactory | undefined;
 export function registeredTransports(): string[];
 ```
 
-`send` deliberately matches `ChannelSender` in `FeralAgent/src/core/ask-user-channel.ts:28` — `(sessionId, text) => Promise<void>` — because session ids are already connector-prefixed and `ChannelAskRouter` already routes on that prefix. No message envelope is invented here.
+`send` deliberately matches `ChannelSender` in `CinderpawAgent/src/core/ask-user-channel.ts:28` — `(sessionId, text) => Promise<void>` — because session ids are already connector-prefixed and `ChannelAskRouter` already routes on that prefix. No message envelope is invented here.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -869,20 +869,20 @@ describe("transport registry", () => {
 
 - [ ] **Step 2: Run and watch it fail**
 
-Run: `cd FeralAgent && bun test tests/connector-registry.test.ts`
+Run: `cd CinderpawAgent && bun test tests/connector-registry.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement the registry** (a `Map`, three functions, no cleverness)
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd FeralAgent && bun test tests/connector-registry.test.ts`
+Run: `cd CinderpawAgent && bun test tests/connector-registry.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add FeralAgent/src/transports/registry.ts FeralAgent/tests/connector-registry.test.ts
+git add CinderpawAgent/src/transports/registry.ts CinderpawAgent/tests/connector-registry.test.ts
 git commit -m "feat(sidecar): a registry for connector transports"
 ```
 
@@ -891,9 +891,9 @@ git commit -m "feat(sidecar): a registry for connector transports"
 ### Task 8: `ConnectorManager` loses its named fields
 
 **Files:**
-- Modify: `FeralAgent/src/transports/connectors.ts:1450-1723` (the manager)
-- Modify: `FeralAgent/src/transports/connectors.ts` (Discord/Slack/WhatsApp classes gain `implements LiveConnector`)
-- Test: `FeralAgent/tests/connector-manager-registry.test.ts`
+- Modify: `CinderpawAgent/src/transports/connectors.ts:1450-1723` (the manager)
+- Modify: `CinderpawAgent/src/transports/connectors.ts` (Discord/Slack/WhatsApp classes gain `implements LiveConnector`)
+- Test: `CinderpawAgent/tests/connector-manager-registry.test.ts`
 
 **Interfaces:**
 - Consumes: Task 7's registry
@@ -943,7 +943,7 @@ describe("adding a connector without touching the manager", () => {
 
 - [ ] **Step 2: Run and watch it fail**
 
-Run: `cd FeralAgent && bun test tests/connector-manager-registry.test.ts`
+Run: `cd CinderpawAgent && bun test tests/connector-manager-registry.test.ts`
 Expected: FAIL — the manager knows only three ids.
 
 - [ ] **Step 3: Replace the named fields**
@@ -962,13 +962,13 @@ The reload path becomes one loop over rows: compute the row's signature with the
 
 - [ ] **Step 5: Run the whole sidecar suite**
 
-Run: `cd FeralAgent && bun test`
+Run: `cd CinderpawAgent && bun test`
 Expected: PASS — including every existing connector test, unedited.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add FeralAgent/src/transports/connectors.ts FeralAgent/tests/connector-manager-registry.test.ts
+git add CinderpawAgent/src/transports/connectors.ts CinderpawAgent/tests/connector-manager-registry.test.ts
 git commit -m "refactor(sidecar): connectors live in a map, not in named fields"
 ```
 
@@ -1113,25 +1113,25 @@ git commit -m "feat(ui): show the pairing code, not the protocol"
 ### Task 11: Matrix transport
 
 **Files:**
-- Create: `FeralAgent/src/transports/matrix.ts`
-- Test: `FeralAgent/tests/matrix-transport.test.ts`
+- Create: `CinderpawAgent/src/transports/matrix.ts`
+- Test: `CinderpawAgent/tests/matrix-transport.test.ts`
 
 Proves: **configuration that is required but not secret.** The homeserver URL comes from `ctx.row`, the access token from `ctx.secrets`.
 
 - [ ] **Step 1: Write the failing test** — a fake homeserver: `/_matrix/client/v3/sync` returns one room event, `/rooms/{id}/send` records what was sent. Assert the transport reports `live: true`, routes an inbound message to the agent with session id `matrix:<room>:<user>`, and that `send()` posts to the right room.
-- [ ] **Step 2: Run and watch it fail** — `cd FeralAgent && bun test tests/matrix-transport.test.ts`
+- [ ] **Step 2: Run and watch it fail** — `cd CinderpawAgent && bun test tests/matrix-transport.test.ts`
 - [ ] **Step 3: Implement** — long-poll `/sync` with `since`, `Authorization: Bearer <token>`, reconnect with backoff, `registerTransport("matrix", …)`.
 - [ ] **Step 4: Run tests** — same command, expect PASS.
 - [ ] **Step 5: Flip `coming_soon: false`** for matrix in `crates/feral-core/src/connectors.rs`.
-- [ ] **Step 6: Commit** — `feat(connectors): talk to Feral from any Matrix homeserver`
+- [ ] **Step 6: Commit** — `feat(connectors): talk to Cinderpaw from any Matrix homeserver`
 
 ---
 
 ### Task 12: Mattermost transport
 
 **Files:**
-- Create: `FeralAgent/src/transports/mattermost.ts`
-- Test: `FeralAgent/tests/mattermost-transport.test.ts`
+- Create: `CinderpawAgent/src/transports/mattermost.ts`
+- Test: `CinderpawAgent/tests/mattermost-transport.test.ts`
 
 Proves: **the same pairing over a different wire protocol.** Personal access tokens do not expire and the WebSocket authenticates with an `Authorization` header ([Mattermost docs](https://developers.mattermost.com/integrate/reference/personal-access-token/)).
 
@@ -1147,8 +1147,8 @@ Proves: **the same pairing over a different wire protocol.** Personal access tok
 ### Task 13: Twitch transport
 
 **Files:**
-- Create: `FeralAgent/src/transports/twitch.ts`
-- Test: `FeralAgent/tests/twitch-transport.test.ts`
+- Create: `CinderpawAgent/src/transports/twitch.ts`
+- Test: `CinderpawAgent/tests/twitch-transport.test.ts`
 
 Proves: **a credential with a life of its own.**
 

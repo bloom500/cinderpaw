@@ -156,7 +156,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
         </div>
       ) : chats.length === 0 ? (
         <span className="block px-3 py-1 text-xs text-text-disabled">
-          Nothing yet. Ask Feral something.
+          Nothing yet. Ask Cinderpaw something.
         </span>
       ) : (
         <div className="space-y-0.5">

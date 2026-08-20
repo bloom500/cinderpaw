@@ -15,12 +15,12 @@ mod skills;
 
 use commands::*;
 
-pub use feral_core::{
-    api, byok, db_key, feral_agent, gpu_detect, inference, models, paths,
+pub use cinderpaw_core::{
+    api, byok, db_key, cinderpaw_agent, gpu_detect, inference, models, paths,
     perf_policy, settings, sysinfo_mod, tools, tts,
 };
 #[cfg(feature = "whisper")]
-pub use feral_core::transcription;
+pub use cinderpaw_core::transcription;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -37,15 +37,15 @@ use tauri::{Emitter, Manager};
 /// `BusEvents` sink — without it, the desktop's embedded HTTP API (`/events`
 /// SSE, the id-correlated roundtrips in `api.rs`, and the MCP roundtrips in
 /// `mcp.rs`) would never observe sidecar output. The headless gateway uses
-/// `feral_core::host::LogEvents`/`BusEvents` instead — see `crates/feral-cli`.
+/// `cinderpaw_core::host::LogEvents`/`BusEvents` instead — see `crates/cinderpaw-cli`.
 struct TauriEvents(
     tauri::AppHandle,
-    tokio::sync::broadcast::Sender<feral_core::host::HostEvent>,
+    tokio::sync::broadcast::Sender<cinderpaw_core::host::HostEvent>,
 );
-impl feral_core::host::HostEvents for TauriEvents {
+impl cinderpaw_core::host::HostEvents for TauriEvents {
     fn emit(&self, event: &str, payload: serde_json::Value) {
         let _ = self.0.emit(event, payload.clone());
-        let _ = self.1.send(feral_core::host::HostEvent {
+        let _ = self.1.send(cinderpaw_core::host::HostEvent {
             event: event.to_string(),
             payload,
         });
@@ -63,7 +63,7 @@ use crate::sysinfo_mod::SystemInfo;
 /// into the AppState map so `cancel_download` can flip it from another command.
 type CancelFlag = Arc<AtomicBool>;
 
-/// Display-safe snapshot of the Feral Agent's active LLM backend.
+/// Display-safe snapshot of the Cinderpaw Agent's active LLM backend.
 /// API keys are never included — Rust injects them before forwarding to the sidecar.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct FeralModelConfigView {
@@ -76,10 +76,10 @@ pub struct FeralModelConfigView {
 pub struct AppState {
     /// Host-agnostic runtime shared with any future non-Tauri host (Faza 4.5
     /// Slice 2). Holds the model manager, settings, local API token, the
-    /// Feral Agent sidecar handles, and the RSI substrate/engine state.
+    /// Cinderpaw Agent sidecar handles, and the RSI substrate/engine state.
     /// `AppState` derefs to this so every existing `state.manager` /
     /// `state.rsi_state` / etc. call site across this file keeps compiling.
-    pub runtime: std::sync::Arc<feral_core::runtime::RuntimeState>,
+    pub runtime: std::sync::Arc<cinderpaw_core::runtime::RuntimeState>,
     pub downloads: Arc<Mutex<HashMap<String, CancelFlag>>>,
     pub stop_signals: Arc<StopRegistry>,
     /// System info pre-computed in a background thread at startup so the
@@ -190,7 +190,7 @@ mod stop_registry_tests {
 }
 
 impl std::ops::Deref for AppState {
-    type Target = feral_core::runtime::RuntimeState;
+    type Target = cinderpaw_core::runtime::RuntimeState;
     fn deref(&self) -> &Self::Target {
         &self.runtime
     }
@@ -225,7 +225,7 @@ pub struct DownloadProgress {
 // ---------- Agents ----------
 
 
-// ---------- Feral Agent ----------
+// ---------- Cinderpaw Agent ----------
 
 
 
@@ -261,10 +261,10 @@ pub fn run() {
         .init();
 
     // Faza 4.5 Slice 2: the runtime (token + settings + ModelManager) is
-    // built by the host-agnostic `feral_core::boot::build_runtime`. The
-    // headless `feral-cli` gateway calls the same function — see
-    // `crates/feral-cli/src/main.rs`.
-    let runtime = feral_core::boot::build_runtime();
+    // built by the host-agnostic `cinderpaw_core::boot::build_runtime`. The
+    // headless `cinderpaw-cli` gateway calls the same function — see
+    // `crates/cinderpaw-cli/src/main.rs`.
+    let runtime = cinderpaw_core::boot::build_runtime();
 
     // Pre-compute system info in a background thread so the first IPC call
     // returns instantly instead of waiting 2-3 s for PowerShell + sysinfo.
@@ -372,7 +372,7 @@ pub fn run() {
             skills::install_skill_from_file,
             skills::remove_skill,
             feral_send_message,
-            feral_agent_status,
+            cinderpaw_agent_status,
             feral_stop_generation,
             feral_submit_feedback,
             feral_run_fractal_benchmark,
@@ -455,7 +455,7 @@ pub fn run() {
             crate::events::DownloadErrorEvent,
             crate::events::ModelLoadProgressEvent,
             crate::events::AgentStreamEvent,
-            crate::events::FeralAgentOutputEvent,
+            crate::events::CinderpawAgentOutputEvent,
             crate::events::TtsChunkEvent,
             crate::events::LiveStatusEvent,
         ]);
@@ -484,10 +484,10 @@ pub fn run() {
 
             // Faza 4.5 Slice 2: every runtime service (AMD-guard, RSI
             // bootstrap, env exports, API server, supervised sidecar)
-            // delegates to the host-agnostic `feral_core::boot::start`.
-            // The headless `feral-cli` gateway calls the same function with
+            // delegates to the host-agnostic `cinderpaw_core::boot::start`.
+            // The headless `cinderpaw-cli` gateway calls the same function with
             // a different `events` and `desktop_control = None` — see
-            // `crates/feral-cli/src/main.rs`.
+            // `crates/cinderpaw-cli/src/main.rs`.
             //
             // `boot::start` is `async` (Task 4 smoke fix: a sync version
             // panicked with "no reactor running" when Tauri 2's sync setup
@@ -496,10 +496,10 @@ pub fn run() {
             // so the setup closure stays sync and the boot runs in the
             // background — same pattern the MCP reconnect below uses.
             let runtime = app.handle().state::<AppState>().runtime.clone();
-            let events: Arc<dyn feral_core::host::HostEvents> =
+            let events: Arc<dyn cinderpaw_core::host::HostEvents> =
                 Arc::new(TauriEvents(app.handle().clone(), runtime.events_tx.clone()));
-            let desktop_control: Option<feral_core::host::DesktopControlHandler> = {
-                let dc: feral_core::host::DesktopControlHandler =
+            let desktop_control: Option<cinderpaw_core::host::DesktopControlHandler> = {
+                let dc: cinderpaw_core::host::DesktopControlHandler =
                     Arc::new(|action, params| {
                         Box::pin(async move {
                             crate::desktop_control::handle_request(&action, &params).await
@@ -512,8 +512,8 @@ pub fn run() {
             // trusted, what bytes land on disk — is decided here, on the host
             // side of the boundary. The agent can ask for a capability; it
             // cannot vouch for one, and it cannot hand us content to write.
-            let capabilities: Option<feral_core::host::CapabilityHandler> = {
-                let cap: feral_core::host::CapabilityHandler =
+            let capabilities: Option<cinderpaw_core::host::CapabilityHandler> = {
+                let cap: cinderpaw_core::host::CapabilityHandler =
                     Arc::new(|action, params| {
                         Box::pin(async move {
                             crate::skills::handle_capability_request(&action, &params).await
@@ -522,14 +522,14 @@ pub fn run() {
                 Some(cap)
             };
             // Admin bridge — update and model switching, so the person does
-            // not have to open a terminal for the things they set Feral up to
+            // not have to open a terminal for the things they set Cinderpaw up to
             // handle. Captures the AppHandle because both need it: the updater
             // plugin lives on it, and model switching goes through the same
             // command the UI uses so the two never disagree about what is
             // loaded.
-            let admin: Option<feral_core::host::AdminHandler> = {
+            let admin: Option<cinderpaw_core::host::AdminHandler> = {
                 let handle = app.handle().clone();
-                let adm: feral_core::host::AdminHandler = Arc::new(move |action, params| {
+                let adm: cinderpaw_core::host::AdminHandler = Arc::new(move |action, params| {
                     let handle = handle.clone();
                     Box::pin(async move {
                         crate::admin_bridge::handle(handle, &action, &params).await
@@ -542,7 +542,7 @@ pub fn run() {
                 .flatten()
                 .collect();
             tauri::async_runtime::spawn(async move {
-                feral_core::boot::start(
+                cinderpaw_core::boot::start(
                     runtime,
                     events,
                     desktop_control,
@@ -575,13 +575,13 @@ pub fn run() {
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
-                    let mut fa_guard = state.feral_agent_process.lock();
+                    let mut fa_guard = state.cinderpaw_agent_process.lock();
                     if let Some(ref mut child) = *fa_guard {
                         let _ = child.start_kill();
-                        tracing::info!("Feral Agent sidecar stopped");
+                        tracing::info!("Cinderpaw Agent sidecar stopped");
                     }
                     // Drop the tx so the stdin writer task exits cleanly.
-                    *state.feral_agent_tx.lock() = None;
+                    *state.cinderpaw_agent_tx.lock() = None;
                 }
             }
         });

@@ -8,14 +8,14 @@ export function PrivacyTab() {
         <div>
           <p className="text-sm font-medium text-text-primary">Your data never leaves this machine</p>
           <p className="text-xs text-text-muted mt-1">
-            Feral runs entirely on your hardware. No telemetry, no analytics, no cloud sync, by design.
+            Cinderpaw runs entirely on your hardware. No telemetry, no analytics, no cloud sync, by design.
           </p>
         </div>
       </div>
 
       <div>
         <p className="text-sm font-medium text-text-primary">Data collection</p>
-        <p className="text-xs text-text-muted mt-0.5">Disabled. Feral never collects or transmits your data</p>
+        <p className="text-xs text-text-muted mt-0.5">Disabled. Cinderpaw never collects or transmits your data</p>
       </div>
 
       <ul className="space-y-1.5 text-sm text-text-secondary">

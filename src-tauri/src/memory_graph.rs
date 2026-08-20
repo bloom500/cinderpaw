@@ -196,7 +196,7 @@ pub fn get_memory_graph() -> MemoryGraphSnapshot {
 }
 
 // ponytail: hand-rolled advisory file lock; cross-process via O_EXCL lockfile.
-// Mirrors FeralAgent/src/memory/graph.ts withFileLock contract — both sides share the same
+// Mirrors CinderpawAgent/src/memory/graph.ts withFileLock contract — both sides share the same
 // `.lock` file so TS and Rust never write the memory graph concurrently.
 // 30s stale-lock ceiling assumes no legitimate write holds longer than that.
 fn lock_path(path: &std::path::Path) -> std::path::PathBuf {

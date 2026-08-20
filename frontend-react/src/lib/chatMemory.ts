@@ -1,7 +1,7 @@
 /**
  * Chat-tab memory — recall + learning for the direct inference path.
  *
- * The Feral Agent sidecar has its own memory stack (episodic/semantic/graph).
+ * The Cinderpaw Agent sidecar has its own memory stack (episodic/semantic/graph).
  * The Chat tab talks to the model directly (local llama.cpp or BYOK cloud)
  * and used to have NO memory at all: every conversation started cold and
  * nothing was ever learned. This module closes both gaps using the SAME
@@ -93,7 +93,7 @@ const EXTRACTION_SYSTEM_PROMPT = [
   'subject | predicate | object',
   'Examples:',
   'user | name is | Darius',
-  'user | works on | Feral desktop app',
+  'user | works on | Cinderpaw desktop app',
   'user | prefers | concise answers',
   'Only include facts worth remembering across conversations (identity, role,',
   'preferences, ongoing projects, goals). No transient chit-chat.',

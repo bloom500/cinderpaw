@@ -28,7 +28,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { PersistedOnboarding } from '@/stores/onboarding';
 
-const STORAGE_KEY = 'feral.onboarding';
+const STORAGE_KEY = 'cinderpaw.onboarding';
 
 // Detect Tauri at runtime. In pure browser dev (Vite without Tauri shell)
 // the __TAURI_INTERNALS__ object is absent — we skip the command calls
