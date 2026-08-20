@@ -95,6 +95,13 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   split it — needs a sidecar fix (`FeralAgent/src/sandbox/inference-providers.ts`
   local path) or a host-side `delta.reasoning_content` forward. **Read
   before touching chat reasoning rendering or the local Ollama path.**
+- **`project_voice_mode_followups.md`** — open voice-mode regressions queued for
+  2026-08-17: the user's new turn can take 15–30 seconds to appear after the
+  agent finishes speaking, long prompts overwhelm the transcript beneath the
+  sphere, and claimed search/task activity has no visible tool widget or other
+  execution evidence. Includes a 2–3 hour continuous-conversation reliability
+  requirement. **Read before investigating voice transcript latency, transcript
+  presentation, or voice-mode tool activity rendering.**
 - **`project_tui_onboarding_sprint3.md`** — Sprint 3 onboarding in the
   TUI (`tui/`): `WizTestIt` step (real "Hello." round-trip before chat
   opens), "What's next" suggestions after wizard, recovery auto-retry on
