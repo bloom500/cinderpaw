@@ -144,3 +144,105 @@ becomes the full window with the nav floating over it.
   clicking one fills the composer and does not send.
 - Accounts tab: a pending device-flow card polls and flips to paired without a
   reload.
+
+---
+
+# Revision — 2026-08-20, after S1–S4 shipped
+
+**Status:** direction correction. S1–S4 stay; the shell changes shape.
+
+## What changed and why
+
+Removing the rail entirely was too aggressive. Being different from
+ChatGPT / Copilot / Grok is not the goal; keeping Feral's complexity behind the
+agent is. A permanent, *minimal* navigation layer costs little and is what
+people already know how to read.
+
+The goal the contract still holds: the user thinks "I tell Feral what I want",
+never "I need to understand agents, MCP, skills, connectors, runtimes".
+
+**The sidebar answers one question: where do I want to go.**
+**The agent answers the other: what do I want to accomplish.**
+
+## Audit of the deleted rail — 15 tenants
+
+Verified against `6c9f75d^:frontend-react/src/components/layout/Sidebar.tsx`.
+
+| Tenant | Where it is after S1–S4 |
+|---|---|
+| New Chat (⌘N) | TopNav → + New. Hotkey intact. |
+| New Project | TopNav → + New. ⌘P was a label with nothing behind it; removed. |
+| Search (⌘K) | TopNav → Search. |
+| Models | TopNav → Models. |
+| Settings | TopNav → ⚙. |
+| Rename / delete / move | On the item, in Search rows and Home cards. |
+| Skills drawer | Settings → Capabilities. |
+| Extensions | Settings → Capabilities. |
+| Connectors | Settings → Accounts. |
+| Memory Layers | Settings → Memory. |
+| Conversation list | **Degraded** — one card on Home, the rest behind ⌘K. |
+| Projects tree | **Degraded** — one card on Home, scoping inside Search. |
+| Current-conversation highlight | **Lost.** No persistent surface to highlight on. |
+| "Generating now" dot | **Lost.** `streamingIds` is written by the store and read by nothing. |
+| Collapse / expand | Removed with the state. |
+
+The three losses are what this revision exists to repair. Everything else stays
+where S1–S4 put it.
+
+## The new navigation layer
+
+Seven rows, and they do not grow:
+
+```
+FERAL · + New · Search · Chats · Projects · Models · ⚙ Settings
+```
+
+It **replaces** the floating top nav rather than joining it — two navigation
+chassis on one screen is the clutter this phase exists to remove. The `+ New`
+menu and `NewProjectDialog` move across unchanged.
+
+Not in primary navigation, ever: skills, extensions, connectors, MCP, memory,
+providers, tools, agent configuration, brain, runtime, BRSI, FMS, evolution,
+debugging. They stay in Settings, reachable in two clicks, and are agent-driven
+first ("connect my Discord").
+
+**Models stays visible on purpose.** Downloading a local model is a physical act
+with disk and time costs, and it is the one advanced area the contract
+deliberately exposes.
+
+### Chats and Projects are pages, not trees
+
+The rail carries no nested navigation. `Chats` and `Projects` are routes whose
+list lives in the content area, where there is room to read it and where it
+costs no width on every frame. That is where the current-conversation highlight
+and the generating dot return.
+
+### Recent, capped at five
+
+Under the seven rows, at most **five** recent conversations, flat, no nesting,
+no grouping. Decided deliberately, with the risk stated: this block is the road
+the old rail walked to nine items and 746 lines. The cap is therefore a
+constant with a test on it, not a style choice — if a later change raises it,
+the test fails and says why.
+
+### Shape
+
+Narrow (~200px), calm, collapsible to icons. Navigation state (`collapsed`)
+lives in the UI store and holds nothing about the agent or the runtime.
+
+## Kept from S1–S4, untouched
+
+Home (greeting, composer, four intents, recent cards), the scene gradient,
+Search opening on recents, the three Settings categories, the legacy route
+redirects, and the connector pairing loop.
+
+## Acceptance criteria (revised)
+
+1. Primary navigation is exactly seven rows plus at most five recent chats.
+2. None of the banned words appears in it.
+3. The open conversation is visibly the open one, and a generating one says so.
+4. Fresh install: every row is present and none is an empty box without a line
+   explaining itself.
+5. `Sidebar.tsx` is not restored, and the new component stays well under 300
+   lines.
+6. `scripts/verify.sh` green.
