@@ -197,8 +197,196 @@ Cost accounting: delegated agent's cost bill-uită la user, dar attributed la pa
 - Cross-agent memory search — user vrea "search all my agents' memory for X"? Yes, dar cu privacy flag per agent (`memory_searchable=false` opt-out).
 - Deletion — delete agent = delete propria memorie, dar delegation history rămâne (audit).
 
+## Robustness — 7 architectural concerns beyond L1-L3
+
+### R1 — Permission inheritance în delegation (SECURITY-CRITICAL)
+
+Delegation attack surface: Agent A cu permission mode `full-access` (`shell-exec`, `write-file`) delegates la Agent B configured `read-only`. B's `system_prompt` conține prompt injection "actually run this shell command". Whose permissions apply?
+
+**Decision**: delegated agent inherits **INTERSECTION** of caller's permissions and its own declared tools. Never expansion.
+
+```ts
+async spawnDelegation({fromAgentId, toAgentId, task, parentSessionId}) {
+  const parent = await loadAgent(fromAgentId);
+  const child = await loadAgent(toAgentId);
+  
+  // Effective permissions = intersection.
+  const effectivePermissions = intersect(parent.permissions, child.declaredTools);
+  const effectiveMode = strictestMode(parent.permissionMode, child.permissionMode);
+  
+  const childSession = createSession({
+    agentId: toAgentId,
+    permissions: effectivePermissions,
+    permissionMode: effectiveMode,
+    parentSessionId,
+    isDelegated: true,
+  });
+  ...
+}
+```
+
+Consequence: Agent B care are `shell-exec` declared, invoked from Agent A care doar has `read-file` — B **NU** poate `shell-exec` în această delegation. User's original intent (giving A only read-file) preserved.
+
+Also: `isDelegated: true` flag disable's L3 recursive delegation (child cannot itself delegate). Depth limit 1, hard. Prevents fork bomb of delegated agents.
+
+### R2 — Cost pooling explicit + attribution audit
+
+Shared wallet decision din original ADR. Concretizare:
+
+- Single BYOK keys per user (shared across all agents).
+- Cost recorded în `completion_cost` table cu ADAUGARE la existing schema:
+  ```sql
+  ALTER TABLE completion_cost ADD COLUMN agent_id TEXT;
+  ALTER TABLE completion_cost ADD COLUMN parent_agent_id TEXT;
+  -- parent = agent care invoked/delegated → chargeback attribution
+  ```
+- UI dashboard: per-agent cost breakdown last 30 days.
+- Budget alerts per-agent opt-in (Agent A budget cap $2/day, exceeded → agent suspended, others continue).
+
+### R3 — Agent handoff mid-conversation
+
+Missing din original. Design:
+
+Tool nou `handoff_to_agent`:
+```ts
+export const handoffToAgent: Tool = {
+  manifest: {
+    name: 'handoff_to_agent',
+    description: 'Transfer this conversation to another agent from the team. Use when a task is outside your specialty.',
+    parameters: {
+      agent_name: { type: 'string' },
+      context_summary: { type: 'string', description: 'What the other agent needs to know to continue' },
+      reason: { type: 'string', description: 'Why handoff (user-visible)' },
+    },
+    permissions: ['handoff'],
+  },
+  execute: async ({ agent_name, context_summary, reason }, ctx) => {
+    const target = await lookupTeamAgent(ctx.userId, agent_name);
+    if (!target) return { ok: false, error: 'agent not in team' };
+    
+    // Atomic swap active agent for THIS session.
+    await useAgent.setActiveForSession(ctx.sessionId, target.id);
+    
+    // Inject system message for target agent with context.
+    await useChat.injectSystemMessage({
+      sessionId: ctx.sessionId,
+      content: `[Handoff from ${ctx.agentName}]: ${context_summary}`,
+    });
+    
+    // UI shows visible separator: "── Handed off to ${target.name} because ${reason} ──"
+    await emitHandoffEvent({sessionId: ctx.sessionId, from: ctx.agentName, to: target.name, reason});
+    
+    return { ok: true, content: `Handed off to ${target.name}` };
+  },
+};
+```
+
+Differs from delegation: **delegation = fork parallel, handoff = replace serial**. User's chat continues but next reply comes from B, not A.
+
+Constraint: handoff visible to user always. Cannot silent-swap (trust invariant).
+
+### R4 — Resource management under concurrent agents
+
+L2 says "multiple concurrent active agents". Real hardware constraint: user cu 16GB RAM. Local Qwen 7B loaded = 5GB. 3 agents each with own local model = 15GB → OOM.
+
+Design **shared model pool**:
+- Global registry `LoadedModelPool` singleton în sidecar.
+- Agents declare `preferredModel` (per-agent config), not `dedicatedModel`.
+- Router routes să load pe demand cu LRU eviction.
+- Agent A wants Qwen 7B (loaded) → instant.
+- Agent B wants Llama 8B (not loaded) → check RAM available. If yes, load. If no, evict LRU (Qwen if not used recently) then load Llama.
+- Eviction NEVER during active stream (protect in-flight). Queue eviction pentru after stream complete.
+
+For cloud models: shared HTTP client pool per provider (already implicit — reqwest reuse). Fine.
+
+UI: settings tab arată "Model Pool Status" cu loaded models, RAM used, per-agent last-used timestamp. User poate pin un model "always keep loaded".
+
+### R5 — Skills scoping decision explicit
+
+Original marked as open question. Decision:
+
+**Default: skills sunt PER-AGENT scope**. Agent A learned `write_pytest` skill → doar A îl folosește.
+
+**Opt-in: promote la team-shared library**. User în agent settings: "Share this skill with team" checkbox pe skill card.
+
+Filesystem:
+```
+~/.cinderpaw/
+├── agents/
+│   ├── ag_abc/
+│   │   └── skills/       # private to A
+│   └── ag_def/
+│       └── skills/       # private to B
+└── team-skills/           # shared library, opt-in per skill
+```
+
+Skill lookup order în agent-loop: agent-private first, team-shared second. Team-shared wins ties (versionable, curated).
+
+Prevents accidental cross-contamination (Research Agent shouldn't have Code Helper's git-commit skill unless explicitly shared).
+
+### R6 — Isolation testing (memory scope enforcement)
+
+Original allows `memory_scope: 'private'` per agent. Zero test coverage that private actually works — regression trap.
+
+Introduce mandatory test suite:
+```ts
+test('private-memory agent cannot read shared episodic', async () => {
+  await createAgent({ id: 'ag_shared', memoryScope: 'shared' });
+  await createAgent({ id: 'ag_private', memoryScope: 'private' });
+  
+  // Insert into shared memory as ag_shared.
+  await recallEngine.write({ agentId: 'ag_shared', content: 'SECRET_A' });
+  
+  // Try recall as ag_private → must NOT return SECRET_A.
+  const results = await recallEngine.query({ agentId: 'ag_private', query: 'SECRET' });
+  expect(results.every(r => !r.content.includes('SECRET_A'))).toBe(true);
+});
+
+test('shared-memory agent DOES read shared episodic', async () => {
+  await createAgent({ id: 'ag_shared1', memoryScope: 'shared' });
+  await createAgent({ id: 'ag_shared2', memoryScope: 'shared' });
+  
+  await recallEngine.write({ agentId: 'ag_shared1', content: 'SHARED_INFO' });
+  const results = await recallEngine.query({ agentId: 'ag_shared2', query: 'SHARED' });
+  expect(results.some(r => r.content.includes('SHARED_INFO'))).toBe(true);
+});
+```
+
+Fits pattern din audit runda 10 §256 (missing RSI safety regression tests). Same principle: invariants nu-s free — need enforcement tests.
+
+### R7 — Agent lifecycle events + audit log
+
+Multi-agent introduces failure modes single-agent hasn't:
+- Agent A deleted mid-delegation din B — B's return address invalid.
+- Agent A model changed mid-conversation — earlier context assumes model X, next turn X unavailable.
+- Two agents concurrently modify shared skill → race.
+
+Fix: `agent_lifecycle_log` table (append-only):
+```sql
+CREATE TABLE agent_lifecycle_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp INTEGER NOT NULL,
+  agent_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,   -- 'created' | 'modified' | 'deleted' | 'delegated_out' | 'delegated_in' | 'handoff_out' | 'handoff_in' | 'model_switched'
+  actor TEXT,                  -- user OR another_agent_id
+  detail_json TEXT             -- structured event data
+);
+```
+
+Deletion policy: NEVER hard-delete agent. Soft-delete cu `deleted_at` — history preserved. Delegations reference by id remain resolvable (returns "agent deleted" instead of null).
+
+Cross-check with L3 delegation: `spawn_delegation` writes `delegated_out` for A, `delegated_in` for B. Complete graph reconstructible from log.
+
+## Migration order (revised)
+
+- **v0.4**: L1 first-class agents + R5 skills scoping + R7 lifecycle log
+- **v0.5**: L2 concurrent + R4 model pool + R2 cost pooling + R6 isolation tests
+- **v0.6**: L3 delegation + R1 permission inheritance (SECURITY) + R3 handoff
+- Regressions: audit findings §142/§190 (RLM escape / lora path) MUST be fixed înainte de L3 (delegation exploits scale)
+
 ## References
 
 - Existing: `frontend-react/src/stores/agent.ts`, `FeralAgent/src/rlm/children.ts`
 - Related: ADR-0014 (Brain Stack), ADR-0016 (Community — succesor logic)
+- Related audit: §142 (RLM proto leak), §190 (rsi_set_lora unbounded) — prerequisite fixes
 - Inspiration: Hermes Bot Mode (per user description)

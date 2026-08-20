@@ -221,8 +221,224 @@ Value: peste 100 A/B pairs se acumulează golden dataset pentru user preference 
 - §158 (silent config errors) — U4 UI arată brain config issues explicit.
 - §159 (override unavailable silent) — U4 UI badge când fallback fires.
 
+## Robustness — 8 architectural concerns beyond U1-U5
+
+Post first-write review. Nu ship fără să adresezi acestea, altfel Brain Stack e bling fără fundație.
+
+### R1 — Circuit breaker integration explicit (not implicit)
+
+Există deja `CircuitBreaker` în `FeralAgent/src/egress/circuit-breaker.ts` folosit de `ToolRegistry` (audit runda 8 §198). Brain Stack acum îl consumă indirect via `isHealthy(id)` callback (`brain-stack.ts:129`), dar nu-i wire dedicated per-provider.
+
+Fix: introduce `ProviderBreaker` cu semantics separate de tool breaker:
+- Threshold per provider: 5 consecutive 5xx sau 3 consecutive timeouts >30s.
+- HALF_OPEN probe = single-shot minimal completion ("say hi") pentru verify recovery, NU un real user turn.
+- User vede în UI status per provider: green/yellow (half-open probing)/red (open).
+
+Interaction cu score:
+```ts
+scoreModelV2(model, requirement, mode, runtime, confidence) {
+  if (breaker.stateOf(model.providerId) === 'open') return -Infinity;
+  // ... rest of scoring
+}
+```
+
+Modele cu breaker open sunt excluded din pool înainte de scoring, nu penalize după.
+
+### R2 — Cold start bootstrap (opt-in telemetry global)
+
+Un user nou n-are `runtime_stats` — U2 scoring returnează valori neutrale, RUX bad pentru primele 50 turns.
+
+Soluție: **anonymized global stats** — opt-in la boot ("Help improve Cinderpaw's routing by sharing anonymous latency/error stats for models you use"). Aggregate global fed într-un manifest hosted la `cinderpaw.ai/api/model-baseline.json`:
+
+```json
+{
+  "generated_at": "2027-XX-XX",
+  "models": {
+    "gpt-4o": {
+      "medianLatencyMs": 850,
+      "p95LatencyMs": 2400,
+      "errorRatePct": 0.3,
+      "sampleCount": 45000,
+      "categoryFitness": {
+        "coding": 0.87,
+        "creative": 0.72,
+        ...
+      }
+    },
+    ...
+  }
+}
+```
+
+New user boot fetch-uiește manifest, folosește-l ca prior până build own runtime_stats. După ~100 turns per model, own stats override baseline.
+
+Privacy: **doar aggregated metrics anonime**, zero prompt content, zero user identifiers. `opt-in default OFF` (privacy-first stance consistent cu app).
+
+### R3 — Model deprecation + version pinning
+
+`gpt-4o` s-a schimbat model behavior între release-uri (`gpt-4o-2024-05-13` vs `gpt-4o-2024-08-06`). User's `brain.json` cu `"model": "gpt-4o"` = moving target — subtile behavior shifts breaks user's expectations.
+
+Fix: **auto-pin la boot**, cu explicit versioned identifiers stored în runtime state:
+```json
+{
+  "id": "openai-gpt4o",
+  "target": {
+    "model": "gpt-4o",              // user-facing alias
+    "modelPinned": "gpt-4o-2024-08-06",  // auto-pinned first use
+    "pinnedAt": "2027-01-15T10:00:00Z"
+  }
+}
+```
+
+Când OpenAI publish `gpt-4o-2024-11-01`, notifier:
+- Detect nou version via HEAD request la `api.openai.com/v1/models`.
+- Emit `feral://brain-model-drift` event.
+- UI arată banner: "gpt-4o has a newer version available. Test upgrade?"
+- User confirms → automated eval on Tier-0 prompt suite → dacă pass, update `modelPinned`.
+
+Pin durabil = reproducible routing decisions. Zero silent behavioral drift.
+
+### R4 — Session stickiness for prompt caching
+
+Anthropic + OpenAI oferă prompt caching — trimite același prompt prefix de 2 ori → al 2-lea request e 90% mai cheap și 3× faster.
+
+Brain Stack decisions per-turn ignore this. Dacă turn 1 → gpt-4o, turn 2 → claude-3.5 (score marginal higher), turn 3 → gpt-4o din nou. Cache-uri niciodată nu se warm-up.
+
+Fix: **session stickiness policy**:
+```ts
+route(input, sessionContext) {
+  const previousModelId = sessionContext.lastModelId;
+  const scored = scoreAll(candidates, requirement, mode, runtime);
+  const top = scored[0];
+  
+  if (previousModelId && previousModelId !== top.id) {
+    const previous = scored.find(s => s.id === previousModelId);
+    const stickinessBonus = 0.15;   // 15% bonus for keeping same session model
+    if (previous && previous.score + stickinessBonus >= top.score) {
+      return previous;   // stick with previous unless clearly worse
+    }
+  }
+  return top;
+}
+```
+
+Break stickiness explicit când:
+- User classification schimbă radical (coding session → vision session).
+- Previous model returns error.
+- User explicit switch model via `FeralModelSelector`.
+
+Impact real: user avantaje $$$ automat, fără să conștientizeze cache logic.
+
+### R5 — Observability / explainability trace
+
+User întreabă "de ce a răspuns Claude, credeam că am setat gpt-4o?" — currently zero visibility.
+
+Fix: emit trace pentru fiecare routing decision:
+```ts
+export interface RoutingTrace {
+  turnId: string;
+  timestamp: number;
+  classification: { category, confidence, method: 'heuristic' | 'semantic' };
+  candidates: Array<{
+    id: string;
+    score: number;
+    breakdown: { capability, cost, latency, errorRate, thumbUp, stickiness };
+    excluded?: 'breaker_open' | 'unconfigured' | 'unavailable_override';
+  }>;
+  primaryChosen: string;
+  fallbackChain: string[];
+  reason: string;   // human-readable "chose Claude 3.5 because: highest coding score + stickiness"
+}
+```
+
+Store în SQLite `brain_traces` (ring buffer last 500 turns). UI: settings tab "Routing traces" arată timeline cu why-decisions.
+
+Debugging blocker fix — support user reports "routing e ciudat" cu trace attached.
+
+### R6 — Budget circuit breaker (proactive downgrade)
+
+Currently `max_total_cost_usd` în SandboxBounds e reactive — throws când exceeded. Better: **proactive downgrade**.
+
+Config:
+```json
+{
+  "budget": {
+    "sessionMaxUsd": 1.00,
+    "downgradeAt": 0.80,
+    "downgradeTarget": "cheap-alternative-tier"
+  }
+}
+```
+
+La 80% budget, Brain Stack shifts mode automatic `balanced` → `budget`, force `LOCAL_BONUS` boost, warns user în UI. La 100% hard stop cu explicit user override needed.
+
+Aliniat cu existing SandboxBounds enforcement (rusty half of trust boundary, ADR-0007).
+
+### R7 — Canary rollout pattern pentru providers noi
+
+User adaugă new BYOK provider (say Cohere). Currently: full routing eligible immediate. Dacă Cohere are 20% error rate, user pierde 20% turns.
+
+Fix: **canary period**:
+- New providers get `canary_percent = 5` din turns per category.
+- After 100 turns, calibrate error rate + user thumb-up.
+- Auto-graduate la full eligibility dacă metrics comparable cu incumbents.
+- Auto-quarantine dacă error rate > 10% or thumb-down > 30%.
+
+UI shows canary badge on provider: "in trial — routing 5% traffic here for calibration".
+
+Trust builder — user vede că system prudent cu tools noi.
+
+### R8 — Prompt-caching-aware fallback (interaction cu R4)
+
+R4 introduces stickiness. R3 U3 introduces mid-stream fallback. Interaction: dacă turn 5 sticky la Claude, mid-stream Claude errors, fallback la gpt-4o — **prompt cache pierdut**, next turn user pays full price.
+
+Fix: fallback **prefer aceeași family** dacă available. Claude 3.5 → Claude 3 haiku (same provider, cache-poate-fi-hit-partially) înainte de → gpt-4o (new provider, cold cache).
+
+Fallback chain construction:
+```ts
+buildFallbackChain(primary: BrainModel, candidates): BrainModel[] {
+  const sameProvider = candidates.filter(c => c.providerId === primary.providerId && c.id !== primary.id);
+  const differentProvider = candidates.filter(c => c.providerId !== primary.providerId);
+  // Same-provider first (cache preservation), then cross-provider (real fallback)
+  return [...sameProvider.slice(0, 1), ...differentProvider.slice(0, 2)];
+}
+```
+
+### R9 — Interaction cu Bounded RSI
+
+Brain Stack decisions produce metrics (latency, thumb rates, cost) care sunt EXACT genul de signals pe care Bounded RSI îl folosește pentru evolution. Currently disconnected.
+
+Fix: emit `BrainStackDecision` events pe existing EventBus:
+```ts
+bus.emit({
+  type: 'BrainStackDecision',
+  turnId,
+  chosenModel: primary.id,
+  scoreBreakdown: trace.candidates[0].breakdown,
+  eventualOutcome: {
+    thumbUp: userFeedback,
+    tokensGenerated, latencyMs, cost,
+  },
+});
+```
+
+RSI's `personal-fitness.ts` consumă acest event, updates fitness gradient. Ratchet advance = **routing weights themselves become part of evolved genome**.
+
+Concret: routing weight-uri (capability multipliers) inițial hardcoded devin **evolved parameters** peste sessions. User's Cinderpaw over 3 luni învață că pentru coding tasks HIS style, Claude beats GPT în 62% of cases → weight-uri shift silent.
+
+Aceasta e integrarea MOAT — Brain Stack devine parte din RSI substrate, nu doar consumer de config file.
+
+## Migration order (revised)
+
+- **v0.3**: U1 semantic classifier + R1 breaker integration + R5 observability trace
+- **v0.4**: U2 runtime stats + R2 cold start manifest + R6 budget circuit breaker  
+- **v0.5**: U3 mid-stream fallback + R8 cache-aware chain + R4 stickiness
+- **v0.6**: U4 cost UI + R3 model pinning + R7 canary rollout
+- **v0.7+**: U5 A/B racing (opt-in) + R9 RSI integration (major)
+
 ## References
 
-- Existing: `FeralAgent/src/brain/*.ts`
+- Existing: `FeralAgent/src/brain/*.ts`, `FeralAgent/src/egress/circuit-breaker.ts`
 - Related PRs: n/a yet
+- Related ADRs: ADR-0007 (trust boundary), ADR-0010 (microkernel)
 - External: Arena.ai Brain Stack (proprietary, not published)
