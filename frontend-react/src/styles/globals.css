@@ -329,10 +329,13 @@
   --scene-base:          var(--bg-primary);
   /* The app's page surface: mostly the theme base, letting the lights and
      grain show through. Pane, not film — text stays readable. */
-  --scene-surface:       rgba(16, 14, 9, 0.88);
+  /* 0.88 opaque was the same as no scene at all: the lights below it arrived
+     at roughly 2% and the app read as flat black. The pane is thinner now and
+     the lights are stronger, which is the whole point of having them. */
+  --scene-surface:       rgba(16, 14, 9, 0.46);
   /* Diffuse amber key light and restrained blue-violet counterlight. */
-  --scene-key-light:     rgba(196, 132, 58, 0.20);
-  --scene-counter-light: rgba(91, 97, 182, 0.14);
+  --scene-key-light:     rgba(196, 132, 58, 0.50);
+  --scene-counter-light: rgba(91, 97, 182, 0.38);
   /* Grain and vignette strength, tuned per theme. */
   --scene-grain-opacity: 0.05;
   --scene-vignette:      rgba(8, 6, 4, var(--scene-vignette-strength));
@@ -351,10 +354,10 @@
 :root[data-theme="light"] {
   /* Warm ivory ground, never pure white. */
   --scene-base:          var(--bg-primary);
-  --scene-surface:       rgba(255, 245, 238, 0.88);
+  --scene-surface:       rgba(255, 245, 238, 0.70);
   /* Amber sunlight and a cool blue-grey shadow light. */
-  --scene-key-light:     rgba(160, 104, 40, 0.14);
-  --scene-counter-light: rgba(96, 104, 180, 0.11);
+  --scene-key-light:     rgba(160, 104, 40, 0.30);
+  --scene-counter-light: rgba(96, 104, 180, 0.24);
   --scene-grain-opacity: 0.04;
   --scene-vignette:      rgba(92, 64, 36, var(--scene-vignette-strength));
   --scene-vignette-strength: 0.3;

@@ -1,5 +1,4 @@
 import { useConversations } from '@/stores/conversations';
-import { ModelPill } from './ModelPill';
 
 export function ChatHeader() {
   const currentId = useConversations((s) => s.currentId);
@@ -7,9 +6,9 @@ export function ChatHeader() {
   const current   = list?.find((c) => c.id === currentId);
 
   return (
-    // h-12 matches the sidebar's logo row so the pill + title align with it.
+    // The model pill used to sit here, in the corner, as the first thing on
+    // the screen. It is in the composer now, where the choice is relevant.
     <div className="h-12 px-3 flex items-center gap-3 shrink-0 select-none">
-      <ModelPill />
       <span
         data-tauri-drag-region
         className="text-sm text-text-muted/50 truncate flex-1 min-w-0 cursor-move"

@@ -7,6 +7,7 @@ import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
 import { ChatHeader } from '@/components/chat/ChatHeader';
+import { HomeGreeting } from '@/components/shell/HomeGreeting';
 import { HomeIntents } from '@/components/shell/HomeIntents';
 import { RecentWork } from '@/components/shell/RecentWork';
 import { MessageList } from '@/components/chat/MessageList';
@@ -208,6 +209,7 @@ export function ChatPage() {
           }}
           className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
         >
+          {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
           <ChatInput

@@ -5,6 +5,7 @@
  * the app. Cleared automatically when `feral://agent-ready` fires again.
  */
 
+import { ShimmeringText } from '@/components/ui/shimmering-text';
 import { Loader2, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useFeralStore } from '@/stores/feral';
@@ -44,13 +45,16 @@ export function AgentOfflineBanner() {
     return (
       <div
         role="status"
-        className="flex items-center gap-2 border-b border-border-subtle bg-bg-elevated px-4 py-2 text-xs text-text-secondary"
+        className="mx-4 mt-1 flex items-center gap-2 rounded-xl border border-border-subtle bg-bg-elevated px-4 py-2 text-xs text-text-secondary"
       >
         <Loader2 size={13} className="shrink-0 animate-spin text-brand" />
+        {/* The headline shimmers, the explanation does not: a moving sentence
+            is harder to read, and only the first half needs to say "still
+            working on it" at a glance. */}
         <span>
-          Feral Agent is starting. It loads its memory first, which takes a
-          moment on a large workspace. Messages sent now will fail until it
-          is up.
+          <ShimmeringText text="Feral is starting" />
+          {' — it loads its memory first, which takes a moment on a large '}
+          {'workspace. Messages sent now will fail until it is up.'}
         </span>
       </div>
     );
@@ -61,7 +65,7 @@ export function AgentOfflineBanner() {
   return (
     <div
       role="alert"
-      className="flex items-center gap-2 px-4 py-2 border-b border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs"
+      className="mx-4 mt-1 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-amber-300 text-xs"
     >
       {restarting ? (
         <>

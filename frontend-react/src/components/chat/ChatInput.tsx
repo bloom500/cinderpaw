@@ -19,6 +19,7 @@ import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
 import { VoiceEngineCard } from './VoiceEngineCard';
 import { CallOverlay } from './CallOverlay';
+import { ModelPill } from './ModelPill';
 import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
@@ -419,7 +420,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       )}>
         <div
           className={cn(
-            'relative rounded-3xl border bg-bg-surface focus-within:border-brand transition-colors',
+            'relative rounded-[24px] border bg-bg-surface focus-within:border-brand transition-colors',
             dragOver ? 'border-brand border-dashed bg-bg-hover' : 'border-border-default',
           )}
         >
@@ -458,13 +459,16 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             // Roomier on Home, where the field IS the screen and the reference
             // it is measured against gives the question air. In a running
             // conversation the transcript is the subject, so it stays compact.
+            // Measured against assistant-ui rather than guessed: a comfortable
+            // single row (min-h-11) that grows, not a tall empty box with the
+            // placeholder stranded at the top of it.
             className={cn(
-              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 scrollbar-hide',
-              isEmpty ? 'pt-5 min-h-[76px]' : 'pt-4',
+              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-[15px] min-h-11 scrollbar-hide',
             )}
           />
-          <div className={cn('flex items-center justify-between px-4', isEmpty ? 'pb-4' : 'pb-3')}>
-            <div className="flex gap-1">
+          <div className="flex items-center justify-between px-2.5 pb-2.5 pt-1">
+            <div className="flex items-center gap-1">
+              <ModelPill />
               <FileAttachButton onFilesSelected={addFiles} />
               {!isStreaming && (
                 <button

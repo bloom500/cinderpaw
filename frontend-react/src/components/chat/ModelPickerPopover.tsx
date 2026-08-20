@@ -161,15 +161,17 @@ export function ModelPickerPopover() {
   return (
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 h-full px-4 text-sm font-medium text-text-primary hover:text-text-primary/70 transition-colors outline-none">
-          <span className="truncate max-w-[200px]">{label}</span>
+        <button className="flex items-center gap-1.5 h-full pl-2.5 pr-2 text-[12.5px] text-text-muted hover:text-text-secondary transition-colors outline-none">
+          <span className="truncate max-w-[150px]">{label}</span>
           {/* Only meaningful for a local model — BackendBadge renders nothing
               when none is loaded, so a cloud route stays clean. */}
           {!cloudModel && !isLoading && <BackendBadge />}
           <ChevronDown size={12} className="shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      {/* Upward: the composer sits at the bottom of the screen, and a menu
+          that opens downward from it opens off-screen. */}
+      <DropdownMenuContent side="top" align="start" className="w-72">
         {hasLocal && (
           <>
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">

@@ -25,12 +25,38 @@ function relative(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/**
+ * The strip a row occupies before its data arrives.
+ *
+ * Not decoration: this page reads from the store on mount, and until the read
+ * lands it rendered "no conversations yet" — a fresh-install sentence shown to
+ * someone who has hundreds. A skeleton says "loading", an empty-state sentence
+ * says "empty", and telling a person the wrong one of those is worse than
+ * telling them nothing.
+ */
+function RowSkeletons({ count = 5 }: { count?: number }) {
+  return (
+    <div className="space-y-1" aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="flex flex-col gap-2 px-4 py-3">
+          <div
+            className="h-3.5 rounded bg-bg-hover animate-pulse"
+            style={{ width: `${58 + ((i * 37) % 32)}%` }}
+          />
+          <div className="h-2.5 w-16 rounded bg-bg-hover/70 animate-pulse" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ChatsPage() {
   const navigate = useNavigate();
   const list = useConversations((s) => s.list);
   const currentId = useConversations((s) => s.currentId);
   const streamingIds = useConversations((s) => s.streamingIds);
   const openSearch = useUI((s) => s.openSearch);
+  const loading = !useConversations((s) => s.loaded);
 
   const sorted = (list ?? [])
     .slice()
@@ -54,7 +80,9 @@ export function ChatsPage() {
             )}
           </div>
 
-          {sorted.length === 0 ? (
+          {loading ? (
+            <RowSkeletons />
+          ) : sorted.length === 0 ? (
             <p className="text-sm text-text-muted">
               No conversations yet. Ask Feral something and it will show up here.
             </p>

@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
-import { useT } from '@/lib/i18n';
 import { useUI } from '@/stores/ui';
-import { cn } from '@/lib/utils';
 
 const BYOK_DISCLAIMER_KEY = 'feral.agentByokDismissed';
 
@@ -47,47 +45,20 @@ function AgentByokNote() {
   );
 }
 
-/** Local wall-clock hour, so the greeting matches the room the user is in. */
-function greetingKey(hour = new Date().getHours()) {
-  if (hour < 12) return 'home.morning';
-  if (hour < 18) return 'home.afternoon';
-  return 'home.evening';
-}
-
 interface NewChatEmptyStateProps {
   isEmpty: boolean;
 }
 
 export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
-  const t = useT();
+  if (!isEmpty || !isAgentMode) return null;
 
+  // The greeting moved into the composer's wrapper, where the centring already
+  // knows how tall everything is. What is left here is the one note that has
+  // to sit clear of the field.
   return (
-    <div
-      className={cn(
-        'absolute inset-0 pointer-events-none transition-opacity duration-200',
-        isEmpty ? 'opacity-100' : 'opacity-0',
-      )}
-    >
-      {/* The greeting sits above the centred composer. The intents used to be
-          here too; they are under the composer now, where you read them after
-          the field rather than instead of it. */}
-      {/* The greeting, and only the greeting. The resume line used to take this
-          slot whenever there was something to continue — which is always, after
-          the first day — so the product's first frame was the title of an old
-          conversation, and the sentence written for it was never seen. That
-          continuation is already on screen: it is the CONTINUE card at the
-          bottom. One thing, one place. */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pb-64">
-        <h1 className="text-[40px] leading-[1.15] font-semibold text-text-primary select-none">
-          {t(greetingKey())}
-        </h1>
-        <p className="mt-1 text-[40px] leading-[1.15] font-semibold text-text-muted select-none">
-          {t('home.ask')}
-        </p>
-
-        {isAgentMode && <AgentByokNote />}
-      </div>
+    <div className="absolute inset-x-0 bottom-4 flex justify-center pointer-events-none">
+      <AgentByokNote />
     </div>
   );
 }

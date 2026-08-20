@@ -8,6 +8,16 @@ export type { ConversationSummary };
 
 interface ConversationsStore {
   list: ConversationSummary[];
+  /**
+   * False until the first read of the list has come back, whatever it said.
+   *
+   * `list` starts as `[]`, so "empty" and "not read yet" are the same value —
+   * which means a screen that trusts it shows a fresh-install sentence to
+   * someone who has hundreds of conversations, for as long as the disk takes.
+   * Saying "you have nothing" when the truth is "I have not looked yet" is
+   * worse than saying nothing at all.
+   */
+  loaded: boolean;
   currentId: string | null;
   loadingConversation: boolean;
   /**
@@ -62,6 +72,7 @@ function toPersisted(m: ChatMessage): PersistedMessage {
 
 export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
+  loaded: false,
   currentId: null,
   loadingConversation: false,
   streamingIds: {},
@@ -70,9 +81,12 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     try {
       const list = await tauri.conversations.list();
       list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-      set({ list });
+      set({ list, loaded: true });
     } catch (err) {
       // Don't let a failed list read leave the UI in an inconsistent state.
+      // `loaded` still flips: the read is over, and a screen that waits
+      // forever on a failure is a screen that never says anything.
+      set({ loaded: true });
       console.error('[conversations] refresh failed:', err);
     }
   },

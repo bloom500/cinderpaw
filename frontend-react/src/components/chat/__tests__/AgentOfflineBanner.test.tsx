@@ -18,7 +18,9 @@ describe('AgentOfflineBanner startup grace', () => {
     act(() => vi.advanceTimersByTime(14_999));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1));
-    expect(screen.getByRole('status')).toHaveTextContent('Feral Agent is starting');
+    // "Feral is starting", not "Feral Agent": the UX contract bans `agent` from
+    // the primary interface, and the person waiting does not have two things.
+    expect(screen.getByRole('status')).toHaveTextContent('Feral is starting');
   });
 
   it('never flashes the startup warning when ready arrives inside the grace period', () => {
