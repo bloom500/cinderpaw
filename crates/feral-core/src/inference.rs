@@ -1308,10 +1308,19 @@ mod backend {
             );
         }
 
-        // A GGUF whose header is fine but which llama.cpp refuses is, in practice,
-        // an architecture this build predates. Say that, and say what to do.
+        // Beyond this point the file is a well-formed GGUF that the engine
+        // still refused, and guessing which of the remaining reasons applies
+        // would be exactly that — a guess. The first draft of this message
+        // asserted "the architecture is newer than this build"; measurement
+        // then disproved it. The file that prompted it declares `qwen35`, and
+        // both the old engine and the new one register that architecture, and
+        // the file is complete to the byte its own header asks for.
+        //
+        // So it names the real candidates and points at the log, which now
+        // carries llama.cpp's own account of what went wrong.
         format!(
-            "{name} is a valid GGUF file that this build of Feral cannot open. Its architecture is          most likely newer than the inference engine shipped here — update Feral, or pick a          model with an architecture this version knows. (engine said: {raw})"
+            "{name} is a complete GGUF file that the inference engine refused to open.              The usual causes are not enough free memory for a {gb:.1} GB model, or a              quantisation this build does not support. The engine's own reason is in the              application log (Settings → General → Open logs). (engine said: {raw})",
+            gb = size as f64 / 1_073_741_824.0,
         )
     }
 
@@ -1979,8 +1988,14 @@ mod load_failure_tests {
         let good = dir.join("newarch.gguf");
         std::fs::File::create(&good).unwrap().write_all(b"GGUF   ").unwrap();
         let msg = explain_load_failure(&good, "null result from llama cpp");
-        assert!(msg.contains("newer than the inference engine"), "{msg}");
-        assert!(msg.contains("update Feral"), "{msg}");
+        // Deliberately NOT asserting a cause. The first version of this
+        // message blamed the architecture; the file that prompted it declares
+        // `qwen35`, which both the old and the new engine support, and it is
+        // complete to the byte. What the message must do is stop guessing and
+        // point at the log that now carries llama.cpp's own reason.
+        assert!(msg.contains("refused to open"), "{msg}");
+        assert!(msg.contains("Open logs"), "{msg}");
+        assert!(!msg.contains("newer than"), "the message must not invent a cause: {msg}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -40,7 +40,11 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
 
 # Inference — llama.cpp bindings (CPU by default; add feature "inference-vulkan" for GPU)
-llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
+# `common` is not optional for us: 0.1.154 moved `LlamaSampler::grammar_lazy`
+# behind it, and lazy grammar is how tool-call output is constrained without
+# forcing every token through the grammar. It rides in the crate's `default`
+# set, which we do not take — so it has to be named.
+llama-cpp-2 = { version = "0.1", default-features = false, features = ["common"], optional = true }
 
 # Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
 whisper-rs = { version = "0.16", default-features = false, optional = true }
