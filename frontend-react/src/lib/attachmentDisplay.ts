@@ -5,7 +5,7 @@
  *
  * Marker formats produced by buildUserContent (keep in sync):
  *   - text file:   [File: NAME]\n<content>\n[/File: NAME]
- *   - binary file: [File attached: NAME — <note>]
+ *   - binary file: [File attached: NAME (<note>)]
  *   - image:       [Image attached: NAME]
  *
  * Works on persisted content alone (no extra metadata needed), so chips
@@ -41,7 +41,11 @@ export function parseUserAttachments(content: string): ParsedUserContent {
 
   // Binary file notes (single line).
   text = text.replace(
-    /\[File attached: ([^\]\n]+?) — [^\]\n]*\]/g,
+    // Up to the closing bracket, not to the closing paren: one of the two
+    // notes carries a sentence AFTER its parenthesis ("(binary file at path:
+    // …). If you have file tools…"), and anchoring on `)]` silently stopped
+    // matching it, which turns a file chip back into a wall of raw marker text.
+    /\[File attached: ([^\]\n]+?) \([^\]\n]*\]/g,
     (_m, name: string) => {
       attachments.push({ name, kind: 'binary' });
       return '';

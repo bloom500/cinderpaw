@@ -93,6 +93,28 @@ pub(crate) fn set_rsi_budget(
     Ok(())
 }
 
+/// Let the background self-improvement loop run on a CLOUD model.
+///
+/// Off by default, and that default was silently the whole feature's off
+/// switch: without a local model the sidecar refused to arm the dream
+/// scheduler and said so only in a log line. The Dreams panel now shows the
+/// state and this is the switch behind it. Spend stays bounded by
+/// `rsi_max_cost_usd`; the sidecar restarts so it re-reads the gate.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_rsi_allow_cloud_dreams(
+    enabled: bool,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let mut s = settings::load();
+    s.rsi_allow_cloud_dreams = enabled;
+    settings::save(&s).map_err(|e| e.to_string())?;
+
+    std::env::set_var("FERAL_RSI_ALLOW_CLOUD", if enabled { "true" } else { "false" });
+    restart_sidecar(&state);
+    Ok(())
+}
+
 /// Toggle desktop-control "YOLO mode" (no per-action confirmation) at runtime.
 ///
 /// The confirmation gate lives in the SIDECAR (it reads

@@ -72,8 +72,29 @@ const SPOKEN_RULES: &[&str] = &[
     // answered from memory and searched nothing. Measured 2026-08-15 — "search
     // the web for ways to promote Feral" produced an answer and no tool call,
     // and ask_feral was reached only when the user named it out loud.
-    "When the user asks you to search, look something up, check, find out or read anything, that is an INSTRUCTION TO CALL ask_feral — not a topic to discuss. Do not answer it from what you already know: you cannot see the internet, and what you remember about it may be years out of date. Make the call first, then answer from what comes back.",
-    "Saying you are looking something up and calling ask_feral are ONE action, never two: say the sentence only as you make the call, in the same breath. If you are genuinely answering from your own knowledge, say that instead — never describe searching, checking, looking up or 'letting me find out' unless the call is going out with it, because the user is watching a panel that shows what actually ran and an empty panel next to those words is a lie they can see.",
+    // The verb list was the hole. This rule named searching, looking up,
+    // checking, finding out and reading — every one of them a way of GETTING
+    // something — and a caller who asks for something to be DONE walked
+    // straight past it. Measured 2026-08-15, verbatim: asked to set up HubSpot
+    // access, the model said "I've taken the code, now I'm establishing the
+    // connection with HubSpot using OAuth, it will take a moment", then, when
+    // challenged, "yes, I'll call Feral for the configuration, I was just
+    // preparing the request, I'm sending it now" — and never sent anything. Two
+    // rounds of narrating work, no tool call in either.
+    //
+    // So the trigger is no longer a list of verbs to match. It is every request
+    // of any kind, which is also simply true: this model has no hands, no
+    // files, no network and no memory of its own. Anything the user wants
+    // DONE or FOUND happens on the other side of that one door or it does not
+    // happen at all.
+    "Everything the user asks you to do or find out is an INSTRUCTION TO CALL ask_feral, not a topic to discuss. Searching, reading, checking, remembering, writing, configuring, connecting, sending — all of it. You have no hands, no files, no network and no memory of your own: nothing you say makes anything happen, and only that call does. Do not answer from what you already know, because what you remember may be years out of date and cannot see this machine. Make the call, then answer from what comes back.",
+    "Saying you are doing something and calling ask_feral are ONE action, never two: say the sentence only as you make the call, in the same breath. If you are genuinely answering from your own knowledge, say that instead — never describe searching, checking, looking up, setting up, connecting or 'letting me find out' unless the call is going out with it, because the user is watching a panel that shows what actually ran and an empty panel next to those words is a lie they can see.",
+    // The future tense is the loophole the sentence above leaves open, and it
+    // was used on the same call: "I was just preparing the request", "I am
+    // sending it now", "it will take a moment". None of those describes work in
+    // progress, so none of them is caught by the rule above, and all three cost
+    // nothing to say. A promise is not an action.
+    "Never announce a call you have not made. No 'I am about to', no 'I am preparing the request', no 'give me a moment while I set it up' — those are promises, and a promise is not an action. Either the call is going out as you speak, or you say plainly that you have not done it yet.",
     "While you wait for ask_feral, keep the line warm: say something every ten or fifteen seconds, and answer anything the user says in the meantime. Never let the call go quiet for more than about fifteen seconds.",
 ];
 
@@ -216,8 +237,32 @@ mod tests {
             "nothing turns 'search this' into a tool call",
         );
         assert!(
-            text.contains("Make the call first"),
+            text.contains("Make the call"),
             "the model is no longer told to look before it answers",
+        );
+    }
+
+    /// Asked to SET SOMETHING UP rather than to look something up, the model
+    /// walked straight past a rule that listed only retrieval verbs. Measured
+    /// 2026-08-15 on a live call: "I've taken the code, now I'm establishing the
+    /// connection with HubSpot using OAuth" and, challenged, "I'm sending the
+    /// request now" — two rounds of narration, zero tool calls.
+    #[test]
+    fn a_request_to_DO_something_is_a_tool_call_too_and_a_promise_is_not_one() {
+        let text = system_instruction(&Briefing::default());
+        // Not a list of verbs to match against. Everything.
+        assert!(
+            text.contains("Everything the user asks you to do or find out"),
+            "the trigger is back to naming particular verbs, and the next verb will slip past it",
+        );
+        for word in ["configuring", "connecting", "sending"] {
+            assert!(text.contains(word), "an action verb the caller will use is unnamed: {word}");
+        }
+        // The loophole the binding rule leaves open: a call in the future tense
+        // costs nothing to announce and never arrives.
+        assert!(
+            text.contains("a promise is not an action"),
+            "nothing forbids announcing a call that has not been made",
         );
     }
 

@@ -38,6 +38,19 @@ pub struct Settings {
     /// positive value allows bounded cloud spend. `None` = no cap (advanced).
     #[serde(default = "default_rsi_budget")]
     pub rsi_max_cost_usd: Option<f64>,
+    /// Let the background self-improvement loop run when the model is a CLOUD
+    /// model, exported as `FERAL_RSI_ALLOW_CLOUD`. False by default: dreaming
+    /// on a paid route spends the user's money while they are away, and nobody
+    /// should discover that on an invoice.
+    ///
+    /// It has a settings field at all because the default was the whole
+    /// feature's off switch and nothing said so. A machine with no local model
+    /// — which is most machines, and every machine without a GPU — never ran a
+    /// single episode, and the reason went to a log line the user never opens.
+    /// The Dreams panel now reads this field, says why it is asleep, and offers
+    /// the switch; the spend stays bounded by `rsi_max_cost_usd`.
+    #[serde(default)]
+    pub rsi_allow_cloud_dreams: bool,
     /// One-time security acknowledgement (guided setup, OpenClaw parity):
     /// ISO timestamp of when the user confirmed the personal-by-default
     /// disclaimer. `Some(_)` = never re-prompt. Set via
@@ -69,6 +82,7 @@ impl Default for Settings {
             desktop_control_yolo: false,
             token_budget_conversation: None,
             rsi_max_cost_usd: Some(0.0),
+            rsi_allow_cloud_dreams: false,
             security_acknowledged_at: None,
             active_route: None,
         }

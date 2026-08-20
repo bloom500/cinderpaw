@@ -10,7 +10,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from './ExternalLink';
-import { useUI } from '@/stores/ui';
+import { useUI, type LangPref } from '@/stores/ui';
 import { useNotifications } from '@/stores/notifications';
 import { tauri, type TtsProviderInfo } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
@@ -28,41 +28,65 @@ import { cn } from '@/lib/utils';
  * The defaults mirror Rust (`tts::piper::DEFAULT_VOICE`, `tts::kokoro::
  * DEFAULT_VOICE`); nothing else here is duplicated from it.
  */
-const LOCAL_VOICES: Record<
-  string,
-  { fallback: string; offer: Array<{ id: string; label: string }>; credit?: string }
-> = {
+type VoiceOffer = { fallback: string; offer: Array<{ id: string; label: string }>; credit?: string };
+
+const LOCAL_VOICES: Record<string, Record<LangPref, VoiceOffer>> = {
   piper: {
-    // Romanian, because the person this was built for speaks it and Piper is
-    // the only free engine that has it at all.
-    fallback: 'ro_RO-mihai-medium',
-    // The `-medium` variants of lili and sanda exist upstream and are left out:
-    // `-high` exists for both, so listing both doubles the row and asks a
-    // question the user has no way to answer.
-    offer: [
-      { id: 'ro_RO-mihai-medium', label: 'mihai · medium' },
-      { id: 'ro_RO-raluca-high', label: 'raluca · high' },
-      { id: 'ro_RO-lili-high', label: 'lili · high' },
-      { id: 'ro_RO-sanda-high', label: 'sanda · high' },
-    ],
-    credit: 'raluca / lili / sanda — eduardem, CC BY-NC 4.0',
+    // The shortlist follows the INTERFACE language, and that is the whole point
+    // of it existing. It used to be four Romanian voices for everybody, with a
+    // Romanian one shipped as the default — so a stranger installing Feral
+    // anywhere in the world downloaded 60 MB to be answered in a language they
+    // may not speak, and nothing on the screen explained why. Piper has 35+
+    // languages; the ones nobody's UI is set to are still reachable by typing
+    // the id, which is how the other 31 have always worked.
+    en: {
+      fallback: 'en_US-amy-medium',
+      offer: [
+        { id: 'en_US-amy-medium', label: 'amy · US' },
+        { id: 'en_US-ryan-high', label: 'ryan · US' },
+        { id: 'en_GB-alba-medium', label: 'alba · UK' },
+        { id: 'en_GB-northern_english_male-medium', label: 'northern · UK' },
+      ],
+    },
+    ro: {
+      // One voice, the good one. Four of them was a row of near-identical
+      // choices with no way for the user to tell them apart before
+      // downloading 60 MB each; mihai, lili and sanda are all still reachable
+      // by typing the id.
+      fallback: 'ro_RO-raluca-high',
+      offer: [{ id: 'ro_RO-raluca-high', label: 'raluca · high' }],
+      credit: 'raluca: eduardem, CC BY-NC 4.0',
+    },
   },
   kokoro: {
-    fallback: 'af_heart',
-    // English only, and that is the whole trade against Piper: a better voice
-    // in a language the user may not want to be answered in.
-    offer: [
-      { id: 'af_heart', label: 'heart · US' },
-      { id: 'af_bella', label: 'bella · US' },
-      { id: 'am_michael', label: 'michael · US' },
-      { id: 'bf_emma', label: 'emma · UK' },
-    ],
+    // One list: this engine only has these voices, whatever the UI language is.
+    en: {
+      fallback: 'af_heart',
+      offer: [
+        { id: 'af_heart', label: 'heart · US' },
+        { id: 'af_bella', label: 'bella · US' },
+        { id: 'am_michael', label: 'michael · US' },
+        { id: 'bf_emma', label: 'emma · UK' },
+      ],
+    },
+    ro: {
+      fallback: 'af_heart',
+      offer: [
+        { id: 'af_heart', label: 'heart · US' },
+        { id: 'af_bella', label: 'bella · US' },
+        { id: 'am_michael', label: 'michael · US' },
+        { id: 'bf_emma', label: 'emma · UK' },
+      ],
+    },
   },
 };
 
+const voicesFor = (engineId: string | undefined, lang: LangPref): VoiceOffer | undefined =>
+  engineId ? LOCAL_VOICES[engineId]?.[lang] : undefined;
+
 /** The voice used when the field is left empty, for whichever engine is selected. */
-const defaultVoiceFor = (engineId?: string) =>
-  (engineId ? LOCAL_VOICES[engineId]?.fallback : undefined) ?? '';
+const defaultVoiceFor = (engineId: string | undefined, lang: LangPref) =>
+  voicesFor(engineId, lang)?.fallback ?? '';
 
 /**
  * First-call chooser for the voice that answers you.
@@ -100,6 +124,16 @@ export function VoiceEngineCard({
   const t = useT();
   const ttsProvider = useUI((s) => s.ttsProvider);
   const setTtsProvider = useUI((s) => s.setTtsProvider);
+  const lang = useUI((s) => s.language);
+  // The voice the CALL will actually use. Two stores held this one fact — this
+  // card wrote the BYOK record, the in-call picker wrote `ttsVoice`, and the
+  // call passes `ttsVoice` explicitly, which wins inside the engine. So you
+  // could pick Raluca here, press Save, watch it persist, and still be answered
+  // by Mihai: the in-call picker had pinned a voice of its own on first open
+  // and nothing ever reconciled the two. This card now reads and writes the
+  // same key the call reads.
+  const pinnedVoice = useUI((s) => s.ttsVoice);
+  const setTtsVoice = useUI((s) => s.setTtsVoice);
 
   const [engines, setEngines] = useState<TtsProviderInfo[]>([]);
   const [choice, setChoice] = useState<string | null>(ttsProvider);
@@ -135,6 +169,16 @@ export function VoiceEngineCard({
 
   const selected = engines.find((e) => e.id === choice) ?? null;
 
+  // Show what is actually pinned, not the fallback. An empty field made the
+  // chips highlight the engine's default whatever the user had chosen, so the
+  // card reported the wrong voice every time it opened.
+  useEffect(() => {
+    if (!open || !selected) return;
+    setModel(pinnedVoice[selected.id] ?? '');
+    // Only when the selection changes — retyping the field must not be undone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selected?.id]);
+
   // Whether the selected engine already has a key. Re-checked per selection: "key
   // saved" is per provider, and showing it for the wrong one would send someone
   // into a call that cannot speak.
@@ -161,7 +205,7 @@ export function VoiceEngineCard({
       return;
     }
     let current = true;
-    const voice = model.trim() || defaultVoiceFor(selected?.id);
+    const voice = model.trim() || defaultVoiceFor(selected?.id, lang);
     tauri.voice
       .voicePresent(selected?.id ?? '', voice)
       .then((present) => { if (current) setVoiceReady(present); })
@@ -208,7 +252,7 @@ export function VoiceEngineCard({
     if (!selected) return;
     setDownloading(0);
     try {
-      await tauri.voice.voiceDownload(selected.id, model.trim() || defaultVoiceFor(selected.id));
+      await tauri.voice.voiceDownload(selected.id, model.trim() || defaultVoiceFor(selected.id, lang));
     } catch (err) {
       setDownloading(null);
       useNotifications.getState().push('error', err instanceof Error ? err.message : String(err));
@@ -252,6 +296,11 @@ export function VoiceEngineCard({
         );
       }
       setTtsProvider(selected.id);
+      // The half that was missing. Without it the call keeps speaking through
+      // whatever the in-call picker pinned first, and Save looks like it did
+      // nothing — see the note where `pinnedVoice` is read.
+      const picked = model.trim() || defaultVoiceFor(selected.id, lang);
+      if (picked) setTtsVoice(selected.id, picked);
       onOpenChange(false);
       onChosen?.();
     } catch {
@@ -377,7 +426,7 @@ export function VoiceEngineCard({
                         onChange={(ev) => setModel(ev.target.value)}
                         placeholder={
                           e.needsDownload
-                            ? `${t('engine.voicePlaceholder')} (${defaultVoiceFor(e.id)})`
+                            ? `${t('engine.voicePlaceholder')} (${defaultVoiceFor(e.id, lang)})`
                             : t('engine.modelPlaceholder')
                         }
                       />
@@ -386,8 +435,8 @@ export function VoiceEngineCard({
                     {e.needsDownload && (
                       <div className="flex flex-col gap-1.5">
                         <div className="flex flex-wrap gap-1.5">
-                          {(LOCAL_VOICES[e.id]?.offer ?? []).map((v) => {
-                            const active = (model.trim() || defaultVoiceFor(e.id)) === v.id;
+                          {(voicesFor(e.id, lang)?.offer ?? []).map((v) => {
+                            const active = (model.trim() || defaultVoiceFor(e.id, lang)) === v.id;
                             return (
                               <button
                                 key={v.id}
@@ -397,7 +446,7 @@ export function VoiceEngineCard({
                                   'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
                                   active
                                     ? 'border-brand bg-brand/10 text-brand'
-                                    : 'border-border-default text-text-muted hover:text-text-secondary',
+                                    : 'border-border-default text-text-secondary hover:text-text-primary',
                                 )}
                               >
                                 {v.label}
@@ -407,8 +456,8 @@ export function VoiceEngineCard({
                         </div>
                         {/* A licence that requires credit gets it here, beside
                             the voices it covers. */}
-                        {LOCAL_VOICES[e.id]?.credit && (
-                          <p className="text-[10px] text-text-disabled">{LOCAL_VOICES[e.id]!.credit}</p>
+                        {voicesFor(e.id, lang)?.credit && (
+                          <p className="text-[10px] text-text-muted">{voicesFor(e.id, lang)!.credit}</p>
                         )}
                       </div>
                     )}

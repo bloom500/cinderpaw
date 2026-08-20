@@ -319,6 +319,11 @@
  * shadcn `--accent` contract above are untouched.
  * ═══════════════════════════════════════════════════════════════════════════
  */
+/* Loading hero: wordmark size for the pre-paint startup surface (slice 0).
+   index.html's inline startup <style> mirrors this value — it must be correct
+   before this stylesheet exists, so keep the two in sync. */
+:root { --watermark: clamp(120px, 22vw, 300px); }
+
 :root[data-theme="dark"] {
   /* Opaque ground, always — nothing translucent may sit on the desktop. */
   --scene-base:          var(--bg-primary);

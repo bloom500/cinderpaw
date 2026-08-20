@@ -28,12 +28,12 @@ describe('parseUserAttachments', () => {
   });
 
   it('extracts binary file notes', () => {
-    const clip = `[File attached: data.bin — binary, no extractable text]\n\nlook at this`;
+    const clip = `[File attached: data.bin (binary, no extractable text)]\n\nlook at this`;
     expect(parseUserAttachments(clip)).toEqual({
       attachments: [{ name: 'data.bin', kind: 'binary' }],
       text: 'look at this',
     });
-    const path = `[File attached: thing.zip — binary file at path: C:\\x\\thing.zip. If you have file tools, you can read it from that path.]\n\nunzip`;
+    const path = `[File attached: thing.zip (binary file at path: C:\\x\\thing.zip). If you have file tools, you can read it from that path.]\n\nunzip`;
     expect(parseUserAttachments(path)).toEqual({
       attachments: [{ name: 'thing.zip', kind: 'binary' }],
       text: 'unzip',

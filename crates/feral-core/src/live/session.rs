@@ -446,6 +446,22 @@ async fn emit(tx: &mpsc::Sender<LiveEvent>, msg: ServerMessage) -> bool {
             return false;
         }
         if let Some(t) = &content.input_transcription {
+            // One channel carries both the audio and the words, and audio is
+            // thousands of times the bulk. If the consumer falls behind, the
+            // queue fills with sound and a four-character transcript waits its
+            // turn behind seconds of it — which on screen is the user's own
+            // sentence appearing long after they said it.
+            //
+            // Only reported when it is actually happening, so a quiet log means
+            // the delay is not here and the server is the one holding the words.
+            // Those two need opposite fixes, and nothing else tells them apart.
+            let free = tx.capacity();
+            if free < 8 {
+                tracing::warn!(
+                    free_slots = free,
+                    "live: the event queue is nearly full when a transcript arrives, so audio is delaying it",
+                );
+            }
             if !t.text.is_empty() && tx.send(LiveEvent::InputTranscript(t.text.clone())).await.is_err() {
                 return false;
             }

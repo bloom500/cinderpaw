@@ -3,6 +3,7 @@ import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Und
 import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload } from '@/lib/tauri';
 import { events, type LoraReviewsLine, type MetaResultLine, type GovernanceResultLine, type ModulesResultLine } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
+import { useSettings } from '@/stores/settings';
 
 /** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
  *  opaque engine episode in Faza 1). The live indicator walks these in order. */
@@ -86,6 +87,19 @@ export function FeralDreamsPanel() {
   const [modulesNote, setModulesNote] = useState<string | null>(null);
   const dreaming = useDream((s) => s.dreaming);
   const stage = useDream((s) => s.stage);
+  const settings = useSettings((s) => s.settings);
+  const setAllowCloudDreams = useSettings((s) => s.setRsiAllowCloudDreams);
+  const [allowBusy, setAllowBusy] = useState(false);
+
+  // Why the panel can be empty forever. Dreaming on a cloud model spends real
+  // money in the background, so it is off unless the user says yes — and on a
+  // machine with no local model that is EVERY dream, which made "no dreams
+  // yet" a permanent state with its reason buried in a log file. A route of
+  // `local:…` (or none at all, the bundled default) is free and always dreams.
+  const route = settings?.active_route ?? null;
+  const onCloudModel = route !== null && !route.startsWith('local:');
+  const dreamsAsleep = onCloudModel && settings?.rsi_allow_cloud_dreams !== true;
+  const budget = settings?.rsi_max_cost_usd ?? 0;
 
   // BRSI §2.8 `user` Wake trigger: ask the Dream Cycle to run one episode now
   // instead of waiting for the idle gate. Best-effort — a failure (sidecar not
@@ -405,13 +419,46 @@ export function FeralDreamsPanel() {
         <button
           type="button"
           onClick={dreamNow}
-          disabled={requested || dreaming}
-          title="Run one dream episode now (bypasses the idle wait)"
+          disabled={requested || dreaming || dreamsAsleep}
+          title={
+            dreamsAsleep
+              ? 'Asleep. Turn on dreaming for cloud models first'
+              : 'Run one dream episode now (bypasses the idle wait)'
+          }
           className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
         >
-          {dreaming ? 'Dreaming…' : requested ? 'Queued — starts after current cycle' : 'Dream now'}
+          {dreaming ? 'Dreaming…' : requested ? 'Queued, starts after the current cycle' : 'Dream now'}
         </button>
       </header>
+
+      {dreamsAsleep && (
+        <div className="space-y-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
+            <p className="text-[11px] text-text-secondary">
+              <span className="font-medium text-text-primary">Feral isn&apos;t dreaming.</span>{' '}
+              Your model runs in the cloud, so every dream costs money. Feral won&apos;t
+              spend it behind your back. Turn this on and it improves itself while
+              you&apos;re away, stopping at{' '}
+              {budget > 0 ? `$${budget} of spend` : 'the spend cap in Agent settings'}.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={allowBusy}
+            onClick={async () => {
+              setAllowBusy(true);
+              try {
+                await setAllowCloudDreams(true);
+              } catch { /* the store already rolled the toggle back */ }
+              setAllowBusy(false);
+            }}
+            className="ml-5 rounded border border-amber-500/40 px-2 py-0.5 text-[11px] text-text-primary hover:border-amber-500 disabled:opacity-60"
+          >
+            {allowBusy ? 'Waking Feral…' : 'Let Feral dream on this model'}
+          </button>
+        </div>
+      )}
 
       {dreaming && (
         <div className="flex items-center gap-2 rounded border border-brand/30 bg-brand/5 px-2.5 py-1.5">
@@ -426,7 +473,9 @@ export function FeralDreamsPanel() {
         <p className="text-[11px] text-text-muted">Loading…</p>
       ) : summary.episodes === 0 ? (
         <p className="text-[11px] text-text-muted">
-          No dreams yet — Feral dreams when you step away for a while.
+          {dreamsAsleep
+            ? 'No dreams yet. Dreaming is off for cloud models, see above.'
+            : 'No dreams yet. Feral dreams when you step away for a while.'}
         </p>
       ) : (
         <>
@@ -546,7 +595,7 @@ function GovernanceCard({
             title={
               verify.ok
                 ? 'Every change to the rules is on record, and nothing has been altered.'
-                : 'The record of rule changes looks damaged or altered — Feral pauses self-improvement until this is resolved.'
+                : 'The record of rule changes looks damaged or altered. Feral pauses self-improvement until this is resolved.'
             }
           >
             <span
@@ -587,8 +636,8 @@ function GovernanceCard({
                   )}
                   <span className="text-text-secondary">
                     {needsOk
-                      ? 'Feral asks to loosen its rules — nothing changes without your OK.'
-                      : 'Feral is making its own rules stricter — this applies on its own.'}
+                      ? 'Feral asks to loosen its rules. Nothing changes without your OK.'
+                      : 'Feral is making its own rules stricter, and this applies on its own.'}
                   </span>
                   <span className="ml-auto font-mono text-[10px] text-text-muted">{p.policyId}</span>
                 </div>
@@ -676,7 +725,7 @@ function ArchitectureCard({
 
       {allBuiltin ? (
         <p className="text-[10px] text-text-muted">
-          Every part runs the original — no replacements active or waiting.
+          Every part runs the original. No replacements active or waiting.
         </p>
       ) : (
         <>
@@ -709,7 +758,7 @@ function ArchitectureCard({
                   <AlertTriangle size={10} className="shrink-0 text-amber-500" />
                   <span className="text-text-secondary">
                     Feral built a new {chip} part ({m.displayName}) and it passed its exam
-                    {m.eval?.reason ? '' : ''} — nothing changes without your OK.
+                    {m.eval?.reason ? '' : ''} Nothing changes without your OK.
                   </span>
                 </div>
                 {m.eval && (
@@ -881,7 +930,7 @@ function LoraReviews({
             label="Accepted"
             value={
               payload.stats.acceptanceRate === null
-                ? '—'
+                ? '-'
                 : `${Math.round(payload.stats.acceptanceRate * 100)}%`
             }
             accent={(payload.stats.acceptanceRate ?? 0) > 0}
@@ -890,7 +939,7 @@ function LoraReviews({
             label="Avg gain"
             value={
               payload.stats.averageGain === null
-                ? '—'
+                ? '-'
                 : `${payload.stats.averageGain >= 0 ? '+' : ''}${(payload.stats.averageGain * 100).toFixed(0)}%`
             }
             accent={(payload.stats.averageGain ?? 0) > 0}
@@ -900,7 +949,7 @@ function LoraReviews({
             value={
               payload.stats.trainingMsTotal > 0
                 ? `${(payload.stats.trainingMsTotal / 60_000).toFixed(1)}m`
-                : '—'
+                : '-'
             }
           />
         </div>
@@ -918,7 +967,7 @@ function LoraReviews({
       )}
       {reviews.length === 0 ? (
         <p className="text-[11px] text-text-muted">
-          No adapters under review. Train one and Feral starts adapting to you — every
+          No adapters under review. Train one and Feral starts adapting to you. Every
           promotion needs your explicit approval.
         </p>
       ) : (

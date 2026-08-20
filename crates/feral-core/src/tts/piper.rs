@@ -1,8 +1,7 @@
 //! On-device text-to-speech with Piper voices.
 //!
-//! The engine this product should default to: MIT voices, 35+ languages
-//! including Romanian, ~60 MB on disk, and nothing spoken ever leaves the
-//! machine. `is_local()` returns true here and that is the whole point — every
+//! The engine this product should default to: MIT voices, 35+ languages,
+//! ~60 MB on disk, and nothing spoken ever leaves the machine. `is_local()` returns true here and that is the whole point — every
 //! hosted engine in this module is a compromise measured against this one.
 //!
 //! Three things about Piper shape this file:
@@ -37,9 +36,15 @@ use crate::paths;
 /// Stable id for settings and `from_id`.
 pub const ID: &str = "piper";
 
-/// Shipped-by-default voice. Romanian, because the person this was built for
-/// speaks it and no free engine other than Piper offers it at all.
-pub const DEFAULT_VOICE: &str = "ro_RO-mihai-medium";
+/// The voice a machine with no choice stored downloads and speaks with.
+///
+/// English, because this is the answer for someone who has not chosen — and
+/// until now that answer was Romanian, picked because the person this was built
+/// for speaks it. Every install anywhere in the world fetched 60 MB to be
+/// answered in a language it had no reason to think the user spoke, and nothing
+/// on screen said why. The 35+ other languages are all one voice id away, and
+/// the picker offers a shortlist for the interface language.
+pub const DEFAULT_VOICE: &str = "en_US-amy-medium";
 
 /// How many slices one second of audio is handed over in — so a quarter second
 /// each. Small enough that a barge-in stops promptly, large enough that a long
@@ -282,6 +287,19 @@ mod tests {
         assert_eq!(read(2), -i16::MAX);
         assert_eq!(read(3), i16::MAX, "an overshoot must clamp, not wrap");
         assert_eq!(read(4), -i16::MAX, "an undershoot must clamp, not wrap");
+    }
+
+    /// The default is a download URL, not a label: a typo in it is a 404 on a
+    /// fresh install and nothing else in the build would catch it.
+    #[test]
+    fn the_default_voice_can_be_placed_in_the_repo_layout() {
+        let rel = crate::paths::piper_repo_path(DEFAULT_VOICE, "")
+            .expect("DEFAULT_VOICE must parse as <locale>-<name>-<quality>");
+        assert_eq!(rel, "en/en_US/amy/medium/en_US-amy-medium.onnx");
+        // Not a language chosen for one user. The shortlist in the picker
+        // follows the interface language; this is the answer for someone who
+        // has not chosen at all.
+        assert!(DEFAULT_VOICE.starts_with("en_"), "the no-choice default must be English");
     }
 
     #[test]

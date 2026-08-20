@@ -45,7 +45,7 @@ export function finalTokenStats(
 const VOICE_SHAPE = [
   '- Two or three sentences. If the full answer is longer, say the short version and offer the rest.',
   '- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.',
-  '- No preamble and no summary of what you are about to say — just say it.',
+  '- No preamble and no summary of what you are about to say. Just say it.',
   '- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.',
 ].join('\n');
 
@@ -59,7 +59,7 @@ const VOICE_WITH_TOOLS = [
   'This turn is a VOICE CALL: your answer will be read out loud by a speech engine,',
   'and the person is listening, not reading.',
   '',
-  'This changes how you SPEAK, not what you DO. Search, read files, run commands — use',
+  'This changes how you SPEAK, not what you DO. Search, read files, run commands, use',
   'every tool exactly as you would in a typed conversation, and do the work before',
   'answering. Being brief is about the words, never about doing less.',
   '',
@@ -81,7 +81,7 @@ const VOICE_WITHOUT_TOOLS = [
   '',
   'You have NO tools this turn: you cannot search the web, read files or run',
   'anything. Answer from what you already know. If the answer needs a lookup you',
-  'cannot do, say so plainly in one sentence — never describe searching, checking',
+  'cannot do, say so plainly in one sentence. Never describe searching, checking',
   'or looking something up, because none of that is happening.',
   '',
   VOICE_SHAPE,
@@ -119,8 +119,8 @@ export function buildUserContent(text: string, files: AttachedFile[]): string {
     ...imageFiles.map((f) => `[Image attached: ${f.name}]`),
     ...binaryFiles.map((f) =>
       f.path.startsWith('clipboard://')
-        ? `[File attached: ${f.name} — binary, no extractable text]`
-        : `[File attached: ${f.name} — binary file at path: ${f.path}. If you have file tools, you can read it from that path.]`,
+        ? `[File attached: ${f.name} (binary, no extractable text)]`
+        : `[File attached: ${f.name} (binary file at path: ${f.path}). If you have file tools, you can read it from that path.]`,
     ),
   ];
   return `${blocks.join('\n\n')}\n\n${text}`;
